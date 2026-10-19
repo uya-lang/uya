@@ -438,6 +438,9 @@ struct C99CodeGenerator {
     // 计算镜像相对路径时的最长公共目录前缀长度（与 prepare 中一致）
     split_mirror_lcp: i32,
     split_mirror_handles: &(&void),
+    // 各镜像 TU 的磁盘绝对/相对路径（与 split_mirror_handles 同序），
+    // 供「函数体阶段并行」时按 TU 打开临时文件与回填。
+    split_mirror_paths: &(&byte),
     split_common_out: &void,
     // 镜像模式：第七步函数原型写入 uya_split_protos.h（含 #include uya_part1_types.h），各 .c 首行 #include 该头
     split_protos_out: &void,
@@ -446,7 +449,29 @@ struct C99CodeGenerator {
 
     // async inline temp vars: caller-owned stack inline for var f = foo(); @await f;
     async_inline_temp_var_names: [&byte: 32],
-    async_inline_temp_var_count: i32
+    async_inline_temp_var_count: i32,
+
+    // ===== 并行 codegen（fork 后按镜像 TU 分派）=====
+    // parallel_workers <= 1 表示串行（行为与引入并行前完全一致）。
+    // parallel_worker 是当前进程负责的 worker 下标；-1 表示「本进程负责全部 TU」。
+    // 只有「序言（第一~八步）」之后的函数体阶段才允许并行：那一阶段共享注册表
+    // （字符串池 / embed 表 / 单态化实例）必须已经闭合，详见 c99_parallel_owns_node 的注释。
+    parallel_workers: i32,
+    parallel_worker: i32,
+    // 负责 uya_common.c（不属于任何镜像 TU 的声明）的 worker 下标
+    parallel_common_worker: i32,
+    // 函数体阶段临时分片：orig 是真句柄，temps 是 `<tu>.uyabody`；
+    // 下标 0..split_mirror_count-1 对应镜像 TU，下标 split_mirror_count 对应 common。
+    parallel_body_orig: &(&void),
+    parallel_body_temps: &(&void),
+    // 一旦有发射被路由到「不属于本 worker」的分片就置 1，worker 必须放弃并行。
+    parallel_violation: i32,
+    // 顶层声明 → 镜像 TU 下标（-1 = common）的预计算表。
+    // 并行时三个发射循环都会逐声明判定归属，若每次都做路径归一化 + 线性查表，
+    // 开销会随「声明数 × TU 数 × worker 数」放大，实测能吃掉并行的全部收益，
+    // 因此在 fork 前算一次，之后只做数组下标。
+    parallel_decl_tu: &i32,
+    parallel_decl_count: i32
 }
 
 // ===== 函数声明 =====

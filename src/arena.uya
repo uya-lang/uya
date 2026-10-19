@@ -74,9 +74,19 @@ fn compiler_arena_clear_failure_context() void {
     g_compiler_arena_failure_request_bytes = 0;
 }
 
+// 是否命中「注入分配失败」的测试开关。
+//
+// 这个函数在**每一次** arena 分配时都会被调用。原先它无条件 `getenv`，而 getenv 会
+// 线性扫全部环境变量并逐字符比较 —— perf 显示 `getenv` + `env_lookup_value` 合计占
+// 自举编译前端约 22% 的 CPU。这里先判本进程从未设置过失败上下文
+// （`g_compiler_arena_failure_key` 只在测试注入路径才被赋值）直接返回，
+// 正常编译完全不碰环境变量；只有真正启用了注入时才去查 env。
 fn compiler_arena_should_inject_failure() i32 {
+    if g_compiler_arena_failure_key == null {
+        return 0;
+    }
     const env_key: *byte = getenv("UYA_TEST_ARENA_FAIL_CONTEXT" as *byte);
-    if env_key == null || g_compiler_arena_failure_key == null {
+    if env_key == null {
         return 0;
     }
     if strcmp(env_key, g_compiler_arena_failure_key as *byte) == 0 {

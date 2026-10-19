@@ -2024,6 +2024,13 @@ fn gen_test_function(codegen: &C99CodeGenerator, test_stmt: &ASTNode) void {
     codegen.current_function_decl = test_stmt;
     codegen.local_variable_count = 0;
     codegen.current_depth = 0;
+    // 临时变量编号（__uya_ifexpr_N / __uya_interp_N 等）按函数复位：
+    // 名字只需在单个语句表达式内唯一，按函数从 0 起编号可保证同一份源码在不同
+    // 发射顺序（串行 / 并行 codegen 的不同 TU 归属）下产生完全相同的 C 文本。
+    // 临时变量编号（__uya_ifexpr_N / __uya_interp_N 等）按函数复位：
+    // 名字只需在单个语句表达式内唯一，按函数从 0 起编号可保证同一份源码在不同
+    // 发射顺序（串行 / 并行 codegen 的不同 TU 归属）下产生完全相同的 C 文本。
+    codegen.interp_temp_counter = 0;
     if codegen.checker != null {
         saved_checker_return_type = copy_type(&codegen.checker.current_return_type);
         saved_checker_in_function = codegen.checker.in_function;
@@ -5902,6 +5909,19 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("extern struct FILE _stdin, _stdout, _stderr;\n" as *byte, codegen.emit_stream as *void);
     }
     
+    // 注册表闭合探测（UYA_PROFILE_REGISTRY）：比较「序言结束」与「函数体结束」时的
+    // 字符串/embed/单态化实例数量。若两侧相等，说明函数体阶段不再新增共享注册项，
+    // 这正是并行 codegen（fork 后各 worker 独占一个 TU）能安全进行的前提。
+    const reg_env: *byte = getenv("UYA_PROFILE_REGISTRY" as *byte);
+    var reg_probe: i32 = 0;
+    if reg_env != null && reg_env[0] != 0 as byte {
+        reg_probe = 1;
+    }
+    // 无条件快照：函数体阶段并行时，worker 收尾要用它复核「共享注册表没有漂移」。
+    const reg_str_before: i32 = codegen.string_constant_count;
+    const reg_embed_before: i32 = codegen.embedded_constant_count;
+    const reg_mono_before: i32 = codegen.mono_instance_count;
+
     // 第九步 a：先生成所有常量（确保在函数之前定义）
     i = 0;
     while i < decl_count {
@@ -5934,7 +5954,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         }
         i = i + 1;
     }
-    
+
     // 第九步 b0：先生成非常量、非 export 的全局变量（保证被 export 变量初始器引用的符号先定义）
     i = 0;
     while i < decl_count {
@@ -5946,12 +5966,119 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         }
         i = i + 1;
     }
-    
+
+    // 第九步 b1：export 非常量全局变量
+    //
+    // 只有在「镜像分 TU + 并行 codegen」时，才把它们从第九步 b 里提前到这里、由父进程
+    // 串行发射 —— 这样全部全局变量都会在 fork 之前登记进 `codegen.global_variables[]`
+    // （理由见下面的 fork 注释）。其余情况保持历史顺序（export 全局变量与函数定义按
+    // 声明序交错），避免无谓地改变既有产物。
+    const cg_need_serial_globals: i32 = c99_parallel_needs_serial_globals(codegen);
+    if cg_need_serial_globals != 0 {
+        i = 0;
+        while i < decl_count {
+            const decl: &ASTNode = ast.program_decls[i];
+            if decl != null && decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_is_const == 0 && decl.var_decl_is_export != 0 {
+                c99_mirror_emit_for_node(codegen, decl);
+                gen_global_var(codegen, decl);
+                c99_emit_newline(codegen);
+            }
+            i = i + 1;
+        }
+    }
+
+    // ===== 函数体阶段并行（fork 后按镜像 TU 分派）=====
+    // 注意位置：这一段**必须**排在第九步 a / b0 与「export 全局变量」之后。
+    // 那几步一边发射一边把全局变量登记进 `codegen.global_variables[]`（按名解析类型
+    // 的缓存，见 gen_global_var 的注释）；identifier 类型查找只扫这张表、不回退
+    // program_decls 线性扫描，所以如果各 worker 只登记自己那几个 TU 的全局变量，
+    // 跨 TU 引用会解析成不同的 C 名（实测出现过 PATH_MAX 退化成 libc_PATH_MAX）。
+    // 因此在 fork 之前先把全部全局变量串行发射完，让所有 worker 看到同一张表。
+    // cg_body_mode：0=串行（本进程负责全部 TU）1=子进程（只负责自己的 TU）2=父进程（子进程已收工）
+    // cg_emit_now：本进程是否还要执行发射循环（并行成功的父进程为 0）
+    var cg_body_mode: i32 = 0;
+    var cg_emit_now: i32 = 1;
+    var cg_body_pids: &i32 = null;
+    var cg_body_worker_count: i32 = 1;
+    if codegen.split_mirror != 0 && codegen.split_mirror_count > 1 {
+        const want_workers: i32 = parallel_jobs_for(codegen.split_mirror_count);
+        if want_workers > 1 {
+            // 序言必须全部落盘：worker 只往各自的临时分片追加，真 TU 文件由父进程回填。
+            _ = fflush(codegen.output as *void);
+            var fwi: i32 = 0;
+            while fwi < codegen.split_mirror_count {
+                if codegen.split_mirror_handles[fwi] != null {
+                    _ = fflush(codegen.split_mirror_handles[fwi] as *void);
+                }
+                fwi = fwi + 1;
+            }
+            if codegen.split_common_out != null {
+                _ = fflush(codegen.split_common_out as *void);
+            }
+            // 归属表必须在 fork 前算好：子进程只读它，避免每个 worker 各自重算 O(声明数×TU 数)。
+            const decl_tu_ok: i32 = c99_parallel_prepare_decl_tu(codegen, ast);
+            if decl_tu_ok == 0 && c99_parallel_body_begin(codegen, want_workers) == 0 {
+                const workers_u: usize = want_workers as usize;
+                cg_body_pids = malloc(workers_u * @size_of(i32)) as &i32;
+                if cg_body_pids != null {
+                    var pz: i32 = 0;
+                    while pz < want_workers {
+                        cg_body_pids[pz] = 0;
+                        pz = pz + 1;
+                    }
+                    codegen.parallel_workers = want_workers;
+                    codegen.parallel_worker = 0 - 1;
+                    // common 归 0 号 worker：它的 TU 文件名排序靠前，顺带承担测试/main 桥接。
+                    codegen.parallel_common_worker = 0;
+                    parallel_flush_all();
+                    var fw: i32 = 0;
+                    var fork_failed: i32 = 0;
+                    while fw < want_workers {
+                        const cg_pid: i32 = parallel_fork();
+                        if cg_pid < 0 {
+                            fork_failed = 1;
+                            fw = want_workers;
+                        } else if cg_pid == 0 {
+                            codegen.parallel_worker = fw;
+                            cg_body_mode = 1;
+                            fw = want_workers;
+                        } else {
+                            cg_body_pids[fw] = cg_pid;
+                            fw = fw + 1;
+                        }
+                    }
+                    if cg_body_mode == 0 {
+                        // 父进程：等全部 worker 收工；任何非 0 退出都回退串行。
+                        var cg_wait: i32 = parallel_wait_all(cg_body_pids, want_workers);
+                        if fork_failed != 0 && cg_wait == 0 {
+                            cg_wait = 1;
+                        }
+                        if cg_wait == 0 {
+                            cg_body_mode = 2;
+                            cg_emit_now = 0;
+                        } else {
+                            // 有 worker 失败（含「注册表漂移 / 跨 TU 写入」）：丢弃全部分片，
+                            // 恢复串行参数，接下来的发射循环按纯串行路径重做一遍。
+                            c99_parallel_body_discard(codegen);
+                            codegen.parallel_workers = 1;
+                            codegen.parallel_worker = 0 - 1;
+                            cg_emit_now = 1;
+                        }
+                    } else {
+                        cg_body_worker_count = want_workers;
+                    }
+                } else {
+                    c99_parallel_body_discard(codegen);
+                }
+            }
+        }
+    }
+
     // 第九步 b：生成所有声明（export 非常量全局变量、函数定义）
     i = 0;
-    while i < decl_count {
+    while cg_emit_now != 0 && i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
-        if decl != null {
+        if decl != null && c99_parallel_owns_decl(codegen, i) != 0 {
             c99_mirror_emit_for_node(codegen, decl);
             // 跳过 use 语句（模块导入，不需要生成代码）
             if decl.type == ASTNodeType.AST_USE_STMT {
@@ -5994,7 +6121,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                                 codegen.struct_type_param_count = decl.struct_decl_type_param_count;
                                 codegen.struct_type_args = mono_inst_k2.type_args;
                                 codegen.struct_type_arg_count = mono_inst_k2.type_arg_count;
-                                
+
                                 var j: i32 = 0;
                                 while j < decl.struct_decl_method_count {
                                     const m: &ASTNode = decl.struct_decl_methods[j];
@@ -6031,7 +6158,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                                     }
                                     j = j + 1;
                                 }
-                                
+
                                 // 恢复结构体类型参数上下文
                                 codegen.struct_type_params = saved_stp;
                                 codegen.struct_type_param_count = saved_stpc;
@@ -6096,8 +6223,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
             } else if decl.type == ASTNodeType.AST_ENUM_DECL {
                 // 已在前面生成
             } else if decl.type == ASTNodeType.AST_VAR_DECL {
-                // 常量已在第九步 a 生成；非常量非 export 已在第九步 b0 生成，这里只生成 export 非常量变量
-                if decl.var_decl_is_const == 0 && decl.var_decl_is_export != 0 {
+                // 常量已在第九步 a 生成；非 export、非常量的已在第九步 b0 生成。
+                // 并行 codegen 时 export 非常量已在 b1 由父进程发射；串行时仍在这里生成。
+                if cg_need_serial_globals == 0 && decl.var_decl_is_const == 0 && decl.var_decl_is_export != 0 {
                     gen_global_var(codegen, decl);
                     c99_emit_newline(codegen);
                 }
@@ -6159,7 +6287,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                                         // 检查单态化实例名称是否匹配 "TypeName_method_name" 格式
                                         var expected_prefix: [byte: NAME_BUF_SIZE] = [];
                                         var prefix_len: i32 = snprintf(&expected_prefix[0] as *byte, NAME_BUF_SIZE, "%s_%s_" as *byte, type_name as *byte, m.fn_decl_name as *byte);
-                                        
+
                                         // 检查 generic_name 是否以 expected_prefix 开头
                                         const gn: &byte = mono_inst_k4.generic_name;
                                         if gn != null && strncmp(gn as *byte, &expected_prefix[0] as *byte, prefix_len) == 0 {
@@ -6187,9 +6315,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         }
         i = i + 1;
     }
-    
+
     // 第十步：生成测试函数和运行器（镜像模式下全部在 uya_common.c，以便 static 测试函数与运行器同 TU）
-    if test_count > 0 {
+    if cg_emit_now != 0 && test_count > 0 && c99_parallel_is_common_owner(codegen) != 0 {
         c99_mirror_emit_common(codegen);
         if codegen.split_mirror != 0 && saved_has_std_testing != 0 {
             fputs("extern int32_t _test_passed;\n" as *byte, codegen.emit_stream as *void);
@@ -6206,19 +6334,19 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         gen_test_runner(codegen, tests_array, test_count);
         c99_emit_newline(codegen);
     }
-    
+
     // 第十一步：生成 main 函数（uya_main）
     // 如果没有用户 main 函数但有 test 语句，生成 main_main 调用测试运行器
     // 注意：has_main 只计算用户提供的 main（非 export extern），不包括 std.runtime.entry 的 C main
     var has_user_main: i32 = 0;  // 跟踪是否找到用户 main 函数
     var has_plain_user_main: i32 = 0;  // 普通 fn main()，需要生成 main_main -> uya_main 桥接
     i = 0;
-    while i < decl_count {
+    while cg_emit_now != 0 && i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
             const is_c_main: i32 = c99_fn_decl_is_c_main(decl);
             const is_entry_main: i32 = c99_fn_decl_is_user_entry_main(codegen, decl);
-            if (is_c_main != 0 || is_entry_main != 0) && decl.fn_decl_body != null {
+            if (is_c_main != 0 || is_entry_main != 0) && decl.fn_decl_body != null && c99_parallel_owns_decl(codegen, i) != 0 {
                 const is_export: i32 = decl.fn_decl_is_export;
                 var is_app_main: i32 = 0;
                 if is_entry_main != 0 && is_export != 0 {
@@ -6283,10 +6411,10 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                     gen_stmt(codegen, body);
                     codegen.indent_level = codegen.indent_level - 1;
                 }
-                
+
                 // 恢复之前的返回类型
                 codegen.current_function_return_type = saved_return_type;
-                
+
                 c99_emit_close_brace_newline(codegen);
             }
         }
@@ -6296,7 +6424,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     // std.runtime.entry 始终通过 main_main() 进入用户程序。
     // 对普通 fn main()，代码生成仍保留 uya_main() 作为真实实现，这里补一个稳定桥接，
     // 这样多文件/单文件模式都不再依赖测试脚本额外注入 bridge.c。
-    if has_plain_user_main != 0 {
+    if cg_emit_now != 0 && has_plain_user_main != 0 && c99_parallel_is_common_owner(codegen) != 0 {
         c99_mirror_emit_common(codegen);
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
         fputs("    return uya_main();\n" as *byte, codegen.emit_stream as *void);
@@ -6305,7 +6433,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
 
     // 如果没有用户 main 函数但有 test 语句，生成 main_main 调用测试运行器
     // std.runtime.entry 的 main 会调用 main_main()
-    if has_user_main == 0 && test_count > 0 {
+    if cg_emit_now != 0 && has_user_main == 0 && test_count > 0 && c99_parallel_is_common_owner(codegen) != 0 {
         c99_mirror_emit_common(codegen);
         // 测试计数变量已在第八步 c 中定义
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
@@ -6333,11 +6461,38 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         c99_emit_close_brace_newline(codegen);
     }
 
+    // ===== 函数体阶段并行收尾 =====
+    if cg_body_mode == 1 {
+        // 子进程：注册表漂移或出现跨 TU 写入就放弃并行（父进程会串行重做）。
+        if c99_parallel_registry_closed(codegen, reg_str_before, reg_embed_before, reg_mono_before) == 0 {
+            _exit(C99_PARALLEL_EXIT_FALLBACK);
+        }
+        // 必须先 fflush+fclose 临时分片：`_exit()` 不会 flush stdio，
+        // 否则每个分片尾部不足一个缓冲的内容会整段丢失。
+        c99_parallel_body_worker_finish(codegen);
+        _exit(0);
+    }
+    if cg_body_mode == 2 {
+        // 父进程：子进程全部成功，把临时分片回填进真正的 TU 文件。
+        // 回填走父进程自己的原句柄，因此各 TU 的写位置会推进到追加之后。
+        if c99_parallel_body_commit(codegen) != 0 {
+            fprintf(libc.stderr, "错误: 并行 codegen 回填临时分片失败（split 目录不可写？）\n" as *byte);
+            return 0 - 1;
+        }
+    }
+
     // 输出宏展开等阶段才加入的字符串常量（如 encode_to_to_json 中的 "id"/"name"）
     emit_pending_string_constants(codegen);
 
     // 生成 async frame descriptor 静态表（供统一 AsyncFramePool 运行时查表）
     emit_async_frame_descriptors(codegen);
+
+    if reg_probe != 0 {
+        fprintf(libc.stderr, "[UYA_PROFILE_REGISTRY] strings=%d->%d embed=%d->%d mono=%d->%d\n" as *byte,
+            reg_str_before, codegen.string_constant_count,
+            reg_embed_before, codegen.embedded_constant_count,
+            reg_mono_before, codegen.mono_instance_count);
+    }
     
     if prof_codegen != 0 {
         const t1: clock_t = clock();

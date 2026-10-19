@@ -1,0 +1,407 @@
+// codegen/c99/parallel.uya - C99 后端「函数体阶段并行」（fork 后按镜像 TU 分派）
+//
+// ---- 并行边界 ----
+// codegen 可以切成两段：
+//   1. **序言**（第一~八步）：字符串池、类型/枚举/结构体/err_union、前向声明、vtable、
+//      syscall 助手、测试声明。这一段的输出落到**所有** TU（uya_part1_types.h、
+//      uya_part1.c、uya_split_protos.h、uya_common.c）以及每个镜像 .c 的头部，
+//      依赖大量「先收集再发射」的全局注册，**必须串行**。
+//   2. **函数体**（第九~十一步）：常量、全局变量、函数/方法定义、测试函数、用户 main。
+//      这一阶段每个声明只影响它自己所属的那一个镜像 .c，天然可按 TU 切开。
+//
+// 因此并行点就在「第八步 c 结束、第九步 a 开始」之间：先 fork 出 N 个 worker，
+// 各自只发射 `tu % workers == my_index` 的声明。
+//
+// ---- 为什么不会破坏输出 ----
+// 1. **共享注册表必须已闭合**：函数体阶段若新增字符串常量 / embed 常量 / 单态化实例，
+//    不同 worker 会给同一个字符串分配不同的 `strN` 下标，产物必然错。因此 `begin` 时
+//    记录三个计数，worker 结束前用 `check_closed` 复核；一旦变化就整体放弃并行。
+// 2. **跨 TU 写入即违规**：极少数路径（如 async inline 子函数预定义）会按子声明自己的
+//    源文件路由到另一个 TU。这类写入会让两个进程同时写同一个文件，`emit_for_node`
+//    会置 `parallel_violation`，worker 直接放弃。
+// 3. **先写临时文件，成功才回填**：worker 的输出写到 `<tu>.uyabody`，全部 worker 都
+//    成功且无违规/无注册表漂移时，父进程才把临时文件追加进真正的 TU 文件。任何失败
+//    都只是删掉临时文件然后串行重做一遍，**永远不会留下半个 TU**。
+// 4. 串行回退走的是同一段发射代码，只是 `parallel_workers = 1`、不做过滤，因此回退
+//    产出的字节与「从未开启并行」完全一致。
+
+use libc;
+use libc.stdio;
+use libc.stderr;
+use libc.fprintf;
+use std.io.fopen;
+use std.io.fclose;
+use std.io.fflush;
+use std.io.fread;
+use std.io.fwrite;
+use std.io.fputc;
+use std.io.fputs;
+use std.string.strcpy;
+use libc.unlink;
+use libc.snprintf;
+
+// 临时分片文件的后缀：函数体阶段每个镜像 TU（以及 uya_common.c）一个。
+const C99_PARALLEL_BODY_SUFFIX: &const byte = ".uyabody" as *const byte;
+
+// worker 放弃并行时的退出码：父进程看到非 0 就会丢掉全部分片、按串行重做。
+const C99_PARALLEL_EXIT_FALLBACK: i32 = 3;
+
+/// 是否需要「先串行发射全部全局变量，再 fork 做函数体」。
+///
+/// 成立条件：镜像分 TU + 并行度大于 1。此时全局变量的登记必须先于 fork 完成，
+/// 否则各 worker 只登记自己那几个 TU 的全局变量，跨 TU 的按名解析会给出不同的 C 名
+/// （实测出现过 `PATH_MAX` 退化成 `libc_PATH_MAX`）。
+/// 串行或单文件模式返回 0，保持历史的发射顺序不变。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// 返回值说明：1 表示需要在 fork 前串行发射全局变量，0 表示不需要。
+export fn c99_parallel_needs_serial_globals(codegen: &C99CodeGenerator) i32 {
+    if codegen == null || codegen.split_mirror == 0 {
+        return 0;
+    }
+    if parallel_jobs_for(codegen.split_mirror_count) > 1 {
+        return 1;
+    }
+    return 0;
+}
+
+/// 是否由本进程负责 uya_common.c（不属于任何镜像 TU 的声明）。
+///
+/// 串行时恒为真；并行时只有 `parallel_common_worker` 为真。测试函数、`main_main`
+/// 桥接等「必定落在 common」的发射都必须先过这个判定，否则多个 worker 会同时写
+/// uya_common.c。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// 返回值说明：1 表示本进程负责 common，0 表示不负责。
+export fn c99_parallel_is_common_owner(codegen: &C99CodeGenerator) i32 {
+    if codegen == null {
+        return 0;
+    }
+    if codegen.parallel_workers <= 1 || codegen.parallel_worker < 0 {
+        return 1;
+    }
+    if codegen.parallel_worker == codegen.parallel_common_worker {
+        return 1;
+    }
+    return 0;
+}
+
+// 取第 slot 个分片的磁盘路径；slot == split_mirror_count 时为 uya_common.c。
+//
+// 参数说明：
+// - codegen：代码生成器。
+// - slot：分片下标。
+// - out：输出缓冲。
+// - cap：缓冲大小。
+// 返回值说明：0 表示成功，-1 表示路径不可得或过长。
+fn c99_parallel_body_slot_path(codegen: &C99CodeGenerator, slot: i32, out: &byte, cap: i32) i32 {
+    if codegen == null || out == null || cap <= 0 {
+        return 0 - 1;
+    }
+    if slot >= 0 && slot < codegen.split_mirror_count {
+        const p: &byte = codegen.split_mirror_paths[slot];
+        if p == null {
+            return 0 - 1;
+        }
+        const n: i32 = snprintf(out, cap as usize, "%s" as *byte, p as *byte);
+        if n <= 0 || n >= cap {
+            return 0 - 1;
+        }
+        return 0;
+    }
+    if slot == codegen.split_mirror_count {
+        if codegen.split_dir == null {
+            return 0 - 1;
+        }
+        const n: i32 = snprintf(out, cap as usize, "%s/uya_common.c" as *byte, codegen.split_dir as *byte);
+        if n <= 0 || n >= cap {
+            return 0 - 1;
+        }
+        return 0;
+    }
+    return 0 - 1;
+}
+
+// 把 `<path><suffix>` 写进 out。
+//
+// 参数说明：
+// - path：基础路径。
+// - out：输出缓冲。
+// - cap：缓冲大小。
+// 返回值说明：0 表示成功，-1 表示过长。
+fn c99_parallel_body_tmp_name(path: &byte, out: &byte, cap: i32) i32 {
+    const n: i32 = snprintf(out, cap as usize, "%s%s" as *byte, path as *byte, C99_PARALLEL_BODY_SUFFIX as *byte);
+    if n <= 0 || n >= cap {
+        return 0 - 1;
+    }
+    return 0;
+}
+
+/// 进入「函数体阶段并行」：保存现有分片句柄，改指向 `<tu>.uyabody` 临时文件。
+///
+/// 调用前提：序言已全部写完并且已 `fflush`（父进程持有各 TU 句柄于序言末尾）。
+/// 必须在 fork **之前**调用。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// - workers：worker 个数（>= 2）。
+/// 返回值说明：0 表示成功；-1 表示无法建立临时分片（调用方应保持串行）。
+export fn c99_parallel_body_begin(codegen: &C99CodeGenerator, workers: i32) i32 {
+    if codegen == null || codegen.split_mirror == 0 || codegen.split_mirror_count <= 0 {
+        return 0 - 1;
+    }
+    if workers < 2 {
+        return 0 - 1;
+    }
+    const slot_count: i32 = codegen.split_mirror_count + 1;
+    const slots_n: usize = (slot_count as! usize) catch { return 0 - 1; };
+    const orig: &(&void) = compiler_arena_alloc(codegen.arena, slots_n * @size_of(&void)) as &(&void);
+    const temps: &(&void) = compiler_arena_alloc(codegen.arena, slots_n * @size_of(&void)) as &(&void);
+    if orig == null || temps == null {
+        return 0 - 1;
+    }
+    codegen.parallel_body_orig = orig;
+    codegen.parallel_body_temps = temps;
+    var si: i32 = 0;
+    while si < slot_count {
+        orig[si] = null;
+        temps[si] = null;
+        si = si + 1;
+    }
+    // 逐个 TU 开临时文件；任何一步失败都回滚。
+    si = 0;
+    while si < slot_count {
+        var base: [byte: 1024] = [];
+        if c99_parallel_body_slot_path(codegen, si, &base[0] as &byte, 1024) != 0 {
+            c99_parallel_body_discard(codegen);
+            return 0 - 1;
+        }
+        var tmp: [byte: 1100] = [];
+        if c99_parallel_body_tmp_name(&base[0] as &byte, &tmp[0] as &byte, 1100) != 0 {
+            c99_parallel_body_discard(codegen);
+            return 0 - 1;
+        }
+        const fh: &void = fopen(&tmp[0] as &byte, "w" as &const byte) as &void;
+        if fh == null {
+            c99_parallel_body_discard(codegen);
+            return 0 - 1;
+        }
+        temps[si] = fh;
+        if si < codegen.split_mirror_count {
+            orig[si] = codegen.split_mirror_handles[si];
+        } else {
+            orig[si] = codegen.split_common_out;
+        }
+        si = si + 1;
+    }
+    // 切换路由：emit_for_node / emit_common 之后都写到临时分片。
+    si = 0;
+    while si < codegen.split_mirror_count {
+        codegen.split_mirror_handles[si] = temps[si];
+        si = si + 1;
+    }
+    codegen.split_common_out = temps[codegen.split_mirror_count];
+    codegen.emit_stream = codegen.split_common_out;
+    codegen.parallel_violation = 0;
+    return 0;
+}
+
+/// 放弃并行函数体阶段：关闭并删除全部临时分片，句柄指回真正的 TU 文件。
+///
+/// 这时真正的 TU 文件仍停在序言末尾，可直接用于串行重做。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// 返回值说明：无。
+export fn c99_parallel_body_discard(codegen: &C99CodeGenerator) void {
+    if codegen == null {
+        return;
+    }
+    const orig: &(&void) = codegen.parallel_body_orig;
+    const temps: &(&void) = codegen.parallel_body_temps;
+    if temps == null || orig == null {
+        return;
+    }
+    const slot_count: i32 = codegen.split_mirror_count + 1;
+    var si: i32 = 0;
+    while si < slot_count {
+        if temps[si] != null {
+            _ = fclose(temps[si] as *void);
+            temps[si] = null;
+        }
+        var base: [byte: 1024] = [];
+        if c99_parallel_body_slot_path(codegen, si, &base[0] as &byte, 1024) == 0 {
+            var tmp: [byte: 1100] = [];
+            if c99_parallel_body_tmp_name(&base[0] as &byte, &tmp[0] as &byte, 1100) == 0 {
+                _ = unlink(&tmp[0] as *byte);
+            }
+        }
+        si = si + 1;
+    }
+    si = 0;
+    while si < codegen.split_mirror_count {
+        codegen.split_mirror_handles[si] = orig[si];
+        si = si + 1;
+    }
+    codegen.split_common_out = orig[codegen.split_mirror_count];
+    codegen.emit_stream = codegen.split_common_out;
+    codegen.parallel_body_orig = null;
+    codegen.parallel_body_temps = null;
+}
+
+/// 提交并行函数体阶段：把每个临时分片追加到对应的 TU 文件，然后删除临时文件。
+///
+/// 追加是**通过父进程自己持有的原句柄**完成的，因此各句柄的写位置会自然推进到
+/// 追加之后，后续 `emit_pending_string_constants` / `emit_async_frame_descriptors`
+/// 继续写入时不会覆盖已回填的内容。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// 返回值说明：0 表示成功；-1 表示某个分片追加失败（调用方应当作编译错误处理）。
+export fn c99_parallel_body_commit(codegen: &C99CodeGenerator) i32 {
+    if codegen == null {
+        return 0 - 1;
+    }
+    const orig: &(&void) = codegen.parallel_body_orig;
+    const temps: &(&void) = codegen.parallel_body_temps;
+    if temps == null || orig == null {
+        return 0 - 1;
+    }
+    const slot_count: i32 = codegen.split_mirror_count + 1;
+    var si: i32 = 0;
+    // 先把临时分片关掉（保证内容落盘），再把句柄指回真正的 TU 文件。
+    while si < slot_count {
+        if temps[si] != null {
+            _ = fclose(temps[si] as *void);
+            temps[si] = null;
+        }
+        si = si + 1;
+    }
+    si = 0;
+    while si < codegen.split_mirror_count {
+        codegen.split_mirror_handles[si] = orig[si];
+        si = si + 1;
+    }
+    codegen.split_common_out = orig[codegen.split_mirror_count];
+    codegen.emit_stream = codegen.split_common_out;
+
+    var result: i32 = 0;
+    si = 0;
+    while si < slot_count {
+        var base: [byte: 1024] = [];
+        var tmp: [byte: 1100] = [];
+        if c99_parallel_body_slot_path(codegen, si, &base[0] as &byte, 1024) != 0 {
+            result = 0 - 1;
+        } else if c99_parallel_body_tmp_name(&base[0] as &byte, &tmp[0] as &byte, 1100) != 0 {
+            result = 0 - 1;
+        } else if orig[si] != null {
+            if c99_parallel_body_append(orig[si], &tmp[0] as &byte) != 0 {
+                result = 0 - 1;
+            }
+        }
+        si = si + 1;
+    }
+    // 无论成败都清掉临时文件与临时表，避免污染 split 目录与后续 Makefile 生成。
+    c99_parallel_body_discard(codegen);
+    if result != 0 {
+        return 0 - 1;
+    }
+    return 0;
+}
+
+// 把文件 tmp 的全部内容追加到已打开的 FILE* dst 之后。
+//
+// 参数说明：
+// - dst：目标句柄（父进程持有的 TU 文件句柄）。
+// - tmp：源临时文件路径。
+// 返回值说明：0 表示成功；-1 表示打开/读写出错。
+fn c99_parallel_body_append(dst: &void, tmp: &byte) i32 {
+    if dst == null || tmp == null {
+        return 0 - 1;
+    }
+    const in_rd: &void = fopen(tmp, "rb" as &const byte) as &void;
+    if in_rd == null {
+        return 0 - 1;
+    }
+    _ = fflush(dst as *void);
+    var copied: i32 = 0;
+    var buf: [byte: 16384] = [];
+    var done: i32 = 0;
+    while done == 0 {
+        const nread: usize = fread(buf as *void, 1 as usize, 16384 as usize, in_rd as *void);
+        if nread == 0 as usize {
+            done = 1;
+        } else {
+            if fwrite(buf as *void, 1 as usize, nread, dst as *void) != nread {
+                copied = 0 - 1;
+                done = 1;
+            }
+        }
+    }
+    _ = fclose(in_rd as *void);
+    _ = fflush(dst as *void);
+    if copied != 0 {
+        return 0 - 1;
+    }
+    return 0;
+}
+
+/// worker 正常结束前的收尾：把临时分片全部 fflush + fclose。
+///
+/// 必须调用：fork 出来的子进程用 `_exit()` 退出（不跑 atexit/stdio 清理），
+/// 若这里不显式关文件，每个分片最后不到一个 stdio 缓冲的内容会**整段丢失**，
+/// 产物会出现「文件被截断在半句话」「尾部声明消失」这类现象。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// 返回值说明：无。
+export fn c99_parallel_body_worker_finish(codegen: &C99CodeGenerator) void {
+    if codegen == null {
+        return;
+    }
+    const temps: &(&void) = codegen.parallel_body_temps;
+    if temps == null {
+        return;
+    }
+    const slot_count: i32 = codegen.split_mirror_count + 1;
+    var si: i32 = 0;
+    while si < slot_count {
+        if temps[si] != null {
+            _ = fclose(temps[si] as *void);
+            temps[si] = null;
+        }
+        si = si + 1;
+    }
+}
+
+/// 复核「共享注册表在函数体阶段没有变化」。
+///
+/// worker 结束前必须调用：三个计数任何一个变了，就说明本 worker 的产物与其他 worker
+/// 不再自洽（同一个字符串会拿到不同 `strN`），必须整体放弃并行。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// - strings_before：fork 前的 `string_constant_count`。
+/// - embed_before：fork 前的 `embedded_constant_count`。
+/// - mono_before：fork 前的 `mono_instance_count`。
+/// 返回值说明：1 表示注册表已闭合（可以提交），0 表示发生漂移（必须回退串行）。
+export fn c99_parallel_registry_closed(codegen: &C99CodeGenerator, strings_before: i32, embed_before: i32, mono_before: i32) i32 {
+    if codegen == null {
+        return 0;
+    }
+    if codegen.parallel_violation != 0 {
+        return 0;
+    }
+    if codegen.string_constant_count != strings_before {
+        return 0;
+    }
+    if codegen.embedded_constant_count != embed_before {
+        return 0;
+    }
+    if codegen.mono_instance_count != mono_before {
+        return 0;
+    }
+    return 1;
+}

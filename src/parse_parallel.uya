@@ -1,0 +1,374 @@
+// parse_parallel.uya - 并行 parse（按输入文件 fork 到多个子进程）
+//
+// ---- 设计 ----
+// parse 阶段是「每个文件独立」的：lexer + parser 只依赖该文件的内容和一个 arena，
+// 没有跨文件的符号表或全局状态（`src/parser/*.uya`、`src/lexer.uya`、`src/ast.uya`
+// 都没有模块级可变全局）。所以可以把输入文件分给 N 个 fork 出来的子进程并行解析。
+//
+// 与父进程通信的唯一通道是 **共享匿名映射**（`parallel_shared_alloc`，即
+// `mmap(MAP_SHARED|MAP_ANONYMOUS)`）：
+//   * 每个文件一个 `ParseSlot`（AST 根指针 + 状态码）；
+//   * 每个 worker 一段独占的 arena 切片，AST 节点就落在切片里 —— 父进程能直接读，
+//     因此**不需要任何 AST 序列化/反序列化**。
+//
+// 为什么不共享 `CompilerArena` 结构体本身：`compiler_arena_alloc` 在静态缓冲用尽后
+// 会 `malloc` 私有 chunk 并改写 `current_chunk`。如果 arena 结构体放共享内存里，某个
+// worker 溢出就会把「私有地址」写进共享结构，父进程读到的是别的地址空间里的指针。
+// 因此每个 worker 用的是**自己栈上的** arena 结构体，父进程只收集槽位；子进程结束前
+// 检查 `current_chunk == null` 来判定切片是否够用。
+//
+// ---- 失败与回退 ----
+// 任何不满足前提的情况（切片不足、读文件失败、词法/语法错误、fork 失败）都会让本次
+// 并行 parse 整体放弃：父进程按原来的串行循环重做一遍。因此并行路径**只可能更慢，
+// 不可能更错** —— 报错文本、报错顺序都由串行路径的产生方式保证一致。
+
+use libc;
+use libc.unistd;   // _exit
+use libc.stdlib;   // malloc, free, getenv
+use libc.stderr;
+use libc.fprintf;
+use libc.Stat;
+use libc.stat;
+
+// 单个文件的并行解析槽位（放在共享内存里，子进程写、父进程读）。
+struct ParseSlot {
+    ast: &ASTNode,   // 解析出的 AST 根（AST_PROGRAM）；失败时为 null
+    status: i32,     // 0=未处理 1=成功 2=读文件失败 3=lexer 初始化失败 4=语法失败 5=arena 切片不足
+}
+
+// 状态码常量（与 ParseSlot.status 对应）。
+const PARSE_SLOT_PENDING: i32 = 0;
+const PARSE_SLOT_OK: i32 = 1;
+const PARSE_SLOT_READ_FAILED: i32 = 2;
+const PARSE_SLOT_LEX_FAILED: i32 = 3;
+const PARSE_SLOT_PARSE_FAILED: i32 = 4;
+const PARSE_SLOT_ARENA_EXHAUSTED: i32 = 5;
+
+// 每个 worker 的 arena 切片下限（太小会让小工程频繁回退串行）。
+const PARALLEL_PARSE_SLICE_MIN_BYTES: usize = 32 as usize * 1024 as usize * 1024 as usize;
+
+// 源码字节 → arena 字节的经验放大系数。
+// 实测本仓库自举（8.7 MB 源码）parse 期 arena 约 1.4 GB，即 ~165 字节/字节源码；
+// 取 320 留约 2 倍余量。这个系数只影响「会不会回退串行」，不影响正确性。
+const PARALLEL_PARSE_ARENA_PER_SOURCE_BYTE: usize = 320 as usize;
+
+// 用 stat 取文件字节数；失败返回 0。
+//
+// 参数说明：
+// - path：文件路径。
+// 返回值说明：文件字节数；无法 stat 时返回 0。
+fn parse_parallel_file_size(path: &byte) usize {
+    if path == null {
+        return 0 as usize;
+    }
+    var st: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    if stat(path as *byte, &st) != 0 {
+        return 0 as usize;
+    }
+    if st.st_size <= 0 {
+        return 0 as usize;
+    }
+    return st.st_size as usize;
+}
+
+// 把 [begin, end) 区间的文件分给一个 worker 时的源码字节总量。
+//
+// 分配策略是**轮转**（file i 归 worker i % workers），所以这里按同样的规则累加。
+//
+// 参数说明：
+// - files：输入文件路径表。
+// - count：文件数。
+// - worker_index：worker 下标。
+// - worker_count：worker 总数。
+// 返回值说明：该 worker 负责文件的源码字节总量。
+fn parse_parallel_worker_source_bytes(files: &(&byte), count: i32, worker_index: i32, worker_count: i32) usize {
+    var total: usize = 0 as usize;
+    var i: i32 = worker_index;
+    while i < count {
+        total = total + parse_parallel_file_size(files[i]);
+        i = i + worker_count;
+    }
+    return total;
+}
+
+// 解析单个文件到 worker 共享竞技场，并把结果写进共享槽位。
+//
+// 这个函数在**子进程**里执行：只写自己的共享槽位和自己的共享切片，不碰 stderr 之外的
+// 共享状态（实际上连 stderr 也不写 —— 错误文本统一由父进程按文件顺序输出）。
+//
+// `arena` 必须是**该 worker 全程复用**的同一个竞技场（由调用方在 worker 循环外建立）。
+// 这是硬性前提：`compiler_arena_alloc` 依赖 `arena.offset` 单调递增，若每个文件都新建
+// 一个 offset=0 的 arena，所有文件的 AST 会重叠落在切片同一处、互相覆盖。
+//
+// 参数说明：
+// - arena：本 worker 独占的竞技场（buffer 指向共享切片）。
+// - slot：本文件的共享槽位。
+// - path：文件路径。
+// - file_buf：本 worker 的读文件缓冲区（子进程私有，COW 分配）。
+// - file_buf_bytes：缓冲区长度。
+// 返回值说明：无（结果写进 slot->status / slot->ast）。
+fn parse_parallel_parse_one(arena: &CompilerArena, slot: &ParseSlot, path: &byte, file_buf: &byte, file_buf_bytes: usize) void {
+    if arena == null || slot == null || path == null || file_buf == null {
+        return;
+    }
+    const file_size: i32 = read_file_content(path, file_buf, file_buf_bytes);
+    if file_size < 0 {
+        slot.status = PARSE_SLOT_READ_FAILED;
+        return;
+    }
+    const lexer: &Lexer = compiler_arena_alloc(arena, HOST_SIZE_LEXER_BYTES) as &Lexer;
+    if lexer == null {
+        slot.status = PARSE_SLOT_ARENA_EXHAUSTED;
+        return;
+    }
+    if lexer_init(lexer, file_buf, file_size as usize, path, arena) != 0 {
+        slot.status = PARSE_SLOT_LEX_FAILED;
+        return;
+    }
+    var parser: Parser = Parser {
+        lexer: null,
+        current_token: null,
+        arena: null,
+        context: ParserContext.PARSER_CONTEXT_NORMAL,
+        pending_greater_token: null,
+        saw_use_std: 0,
+        has_error: 0,
+    };
+    if parser_init(&parser, lexer, arena) != 0 {
+        slot.status = PARSE_SLOT_LEX_FAILED;
+        return;
+    }
+    const ast: &ASTNode = parser_parse(&parser);
+    if ast == null {
+        slot.status = PARSE_SLOT_PARSE_FAILED;
+        return;
+    }
+    if ast.type != ASTNodeType.AST_PROGRAM {
+        slot.status = PARSE_SLOT_PARSE_FAILED;
+        return;
+    }
+    if lexer.has_error != 0 || parser.has_error != 0 {
+        slot.status = PARSE_SLOT_PARSE_FAILED;
+        return;
+    }
+    // 切片不够时 compiler_arena_alloc 会退到私有 malloc chunk；一旦出现，本 worker 的
+    // AST 里就有父进程看不到的指针，必须整体放弃并行。同时把物理溢出也挡掉。
+    if arena.current_chunk != null || arena.offset > arena.size {
+        slot.status = PARSE_SLOT_ARENA_EXHAUSTED;
+        return;
+    }
+    slot.ast = ast;
+    slot.status = PARSE_SLOT_OK;
+}
+
+/// 用 fork 出来的多个子进程并行解析全部输入文件，结果写进 programs[]。
+///
+/// 成功返回 0；任何前提不满足返回 -1（调用方应回退串行循环）。失败时不会留下半个
+/// programs[]：只有全部槽位都成功才会写 programs[]。
+///
+/// 参数说明：
+/// - programs：输出数组（长度为 file_count），由本函数在完全成功时填写。
+/// - files：输入文件路径表。
+/// - file_count：输入文件数。
+/// - file_buf_bytes：每个 worker 的读文件缓冲区大小。
+/// 返回值说明：0 表示并行 parse 成功，-1 表示应回退串行。
+export fn parse_parallel_run(programs: &(&ASTNode), files: &(&byte), file_count: i32, file_buf_bytes: usize) i32 {
+    if programs == null || files == null || file_count <= 0 {
+        return 0 - 1;
+    }
+    if parallel_available() == 0 {
+        return 0 - 1;
+    }
+    const worker_count: i32 = parallel_jobs_for(file_count);
+    if worker_count <= 1 {
+        return 0 - 1;
+    }
+
+    const fc: usize = (file_count as! usize) catch { return 0 - 1; };
+    const wc: usize = (worker_count as! usize) catch { return 0 - 1; };
+
+    // 共享控制块：file_count 个槽位。
+    const ctl_bytes: usize = fc * @size_of(ParseSlot);
+    const ctl: &byte = parallel_shared_alloc(ctl_bytes);
+    if ctl == null {
+        return 0 - 1;
+    }
+    // 控制块很小，必须显式清零：status 初值 0（PENDING）是「所有槽位都写过」的判据。
+    parallel_memset0(ctl, ctl_bytes);
+    const slots: &ParseSlot = ctl as &ParseSlot;
+
+    // worker 表（pid + 独占 arena 切片）。
+    const pids_raw: &byte = malloc(wc * @size_of(i32));
+    if pids_raw == null {
+        return 0 - 1;
+    }
+    const pids: &i32 = pids_raw as &i32;
+    const slices_raw: &byte = malloc(wc * @size_of(&byte));
+    if slices_raw == null {
+        free(pids_raw as &void);
+        return 0 - 1;
+    }
+    const slices: &(&byte) = slices_raw as &(&byte);
+    const slice_bytes_arr_raw: &byte = malloc(wc * @size_of(usize));
+    if slice_bytes_arr_raw == null {
+        free(pids_raw as &void);
+        free(slices_raw as &void);
+        return 0 - 1;
+    }
+    const slice_bytes_arr: &usize = slice_bytes_arr_raw as &usize;
+
+    var wi: i32 = 0;
+    while wi < worker_count {
+        pids[wi] = 0;
+        slices[wi] = null;
+        const src_bytes: usize = parse_parallel_worker_source_bytes(files, file_count, wi, worker_count);
+        var need: usize = src_bytes * PARALLEL_PARSE_ARENA_PER_SOURCE_BYTE;
+        if need < PARALLEL_PARSE_SLICE_MIN_BYTES {
+            need = PARALLEL_PARSE_SLICE_MIN_BYTES;
+        }
+        const mem: &byte = parallel_shared_alloc(need);
+        if mem == null {
+            // 已经映射的切片保持有效（下面照常回收子进程），这里只放弃本次并行。
+            wi = worker_count;
+        } else {
+            slices[wi] = mem;
+            slice_bytes_arr[wi] = need;
+            wi = wi + 1;
+        }
+    }
+    var setup_ok: i32 = 1;
+    wi = 0;
+    while wi < worker_count {
+        if slices[wi] == null {
+            setup_ok = 0;
+        }
+        wi = wi + 1;
+    }
+    if setup_ok == 0 {
+        free(pids_raw as &void);
+        free(slices_raw as &void);
+        free(slice_bytes_arr_raw as &void);
+        return 0 - 1;
+    }
+
+    {
+        const dbg0: *byte = getenv("UYA_DEBUG_PARALLEL" as *byte);
+        if dbg0 != null && dbg0[0] != 0 as byte {
+            var dw: i32 = 0;
+            while dw < worker_count {
+                fprintf(libc.stderr, "[DBGSLICE] worker=%d slice=%lu bytes=%lu\n" as *byte,
+                    dw, slices[dw] as usize, slice_bytes_arr[dw]);
+                dw = dw + 1;
+            }
+        }
+    }
+    // fork 前必须清空 stdio 缓冲：父子各有一份缓冲，否则同一段输出会被写两次。
+    parallel_flush_all();
+
+    wi = 0;
+    var fork_failed: i32 = 0;
+    while wi < worker_count {
+        const pid: i32 = parallel_fork();
+        if pid < 0 {
+            fork_failed = 1;
+            wi = worker_count;
+        } else if pid == 0 {
+            // ================= 子进程 =================
+            // 只用私有缓冲读文件；只写自己那份共享槽位与共享切片。
+            const my_buf: &byte = malloc(file_buf_bytes);
+            if my_buf == null {
+                _exit(PARSE_SLOT_ARENA_EXHAUSTED);
+            }
+            // 一个 worker 一个竞技场，跨该 worker 的所有文件复用（offset 单调递增）。
+            var worker_arena: CompilerArena = CompilerArena {
+                buffer: slices[wi],
+                size: slice_bytes_arr[wi],
+                offset: 0 as usize,
+                first_chunk: null,
+                current_chunk: null,
+                total_allocated: 0 as usize,
+            };
+            var fi: i32 = wi;
+            while fi < file_count {
+                parse_parallel_parse_one(&worker_arena, &slots[fi], files[fi], my_buf, file_buf_bytes);
+                if slots[fi].status != PARSE_SLOT_OK {
+                    // 任一文件失败就整块放弃：错误文本由父进程的串行重做负责输出，
+                    // 这样报错顺序/文案与串行完全一致。
+                    _exit(1);
+                }
+                fi = fi + worker_count;
+            }
+            // 成功路径：不 flush（自己没有任何 stdio 输出），直接 _exit 避免跑父进程的清理路径。
+            _exit(0);
+            // =============== 子进程结束 ===============
+        } else {
+            pids[wi] = pid;
+            wi = wi + 1;
+        }
+    }
+
+    var wait_result: i32 = 0;
+    if fork_failed == 0 {
+        wait_result = parallel_wait_all(pids, worker_count);
+    } else {
+        // 有 fork 失败：先收干净已启动的子进程，再放弃。
+        wait_result = parallel_wait_all(pids, worker_count);
+        if wait_result == 0 {
+            wait_result = 1;
+        }
+    }
+
+    var ok: i32 = 1;
+    if wait_result != 0 {
+        ok = 0;
+    }
+    // UYA_DEBUG_PARALLEL：并行 parse 失败时打印每个文件的状态，便于定位回退原因。
+    const debug_env: *byte = getenv("UYA_DEBUG_PARALLEL" as *byte);
+    var debug_on: i32 = 0;
+    if debug_env != null && debug_env[0] != 0 as byte {
+        debug_on = 1;
+    }
+    if debug_on != 0 && wait_result != 0 {
+        fprintf(libc.stderr, "[UYA_DEBUG_PARALLEL] 并行 parse 子进程失败: wait_result=%d workers=%d\n" as *byte,
+            wait_result, worker_count);
+    }
+    var ci: i32 = 0;
+    while ci < file_count {
+        if slots[ci].status != PARSE_SLOT_OK || slots[ci].ast == null {
+            ok = 0;
+        }
+        if debug_on != 0 && slots[ci].ast != null {
+            const past: usize = slots[ci].ast as usize;
+            fprintf(libc.stderr, "[DBGPARENT] slot[%d] status=%d ast_addr=%lu type=%d decls=%d\n" as *byte,
+                ci, slots[ci].status, past, slots[ci].ast.type as i32, slots[ci].ast.program_decl_count);
+        }
+        ci = ci + 1;
+    }
+
+    if ok != 0 {
+        ci = 0;
+        while ci < file_count {
+            programs[ci] = slots[ci].ast;
+            ci = ci + 1;
+        }
+    }
+
+    free(pids_raw as &void);
+    free(slices_raw as &void);
+    free(slice_bytes_arr_raw as &void);
+
+    if ok != 0 {
+        return 0;
+    }
+    if debug_on != 0 {
+        var di: i32 = 0;
+        while di < file_count {
+            if slots[di].status != PARSE_SLOT_OK {
+                fprintf(libc.stderr, "[UYA_DEBUG_PARALLEL] slot[%d] status=%d path=%s\n" as *byte,
+                    di, slots[di].status, files[di] as *byte);
+            }
+            di = di + 1;
+        }
+    }
+    return 0 - 1;
+}

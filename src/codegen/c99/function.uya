@@ -2018,6 +2018,13 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     // 参数和局部变量都从索引 0 开始添加
     codegen.local_variable_count = 0;
     codegen.current_depth = 0;
+    // 临时变量编号（__uya_ifexpr_N / __uya_interp_N 等）按函数复位：
+    // 名字只需在单个语句表达式内唯一，按函数从 0 起编号可保证同一份源码在不同
+    // 发射顺序（串行 / 并行 codegen 的不同 TU 归属）下产生完全相同的 C 文本。
+    // 临时变量编号（__uya_ifexpr_N / __uya_interp_N 等）按函数复位：
+    // 名字只需在单个语句表达式内唯一，按函数从 0 起编号可保证同一份源码在不同
+    // 发射顺序（串行 / 并行 codegen 的不同 TU 归属）下产生完全相同的 C 文本。
+    codegen.interp_temp_counter = 0;
     
     // 处理数组参数：为数组参数创建局部副本（实现按值传递）
     i = 0;
@@ -8028,6 +8035,13 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
     const saved_depth: i32 = codegen.current_depth;
     codegen.local_variable_count = 0;
     codegen.current_depth = 0;
+    // 临时变量编号（__uya_ifexpr_N / __uya_interp_N 等）按函数复位：
+    // 名字只需在单个语句表达式内唯一，按函数从 0 起编号可保证同一份源码在不同
+    // 发射顺序（串行 / 并行 codegen 的不同 TU 归属）下产生完全相同的 C 文本。
+    // 临时变量编号（__uya_ifexpr_N / __uya_interp_N 等）按函数复位：
+    // 名字只需在单个语句表达式内唯一，按函数从 0 起编号可保证同一份源码在不同
+    // 发射顺序（串行 / 并行 codegen 的不同 TU 归属）下产生完全相同的 C 文本。
+    codegen.interp_temp_counter = 0;
     i = 0;
     while i < param_count {
         const param: &ASTNode = params[i];

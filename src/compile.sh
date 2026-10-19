@@ -174,9 +174,6 @@ run_uya_split_make_link() {
         if ! [[ "$jobs" =~ ^[0-9]+$ ]] || [ "$jobs" -lt 1 ]; then
             jobs="4"
         fi
-        if [ "$jobs" -gt 16 ]; then
-            jobs="16"
-        fi
     fi
     if [ "$VERBOSE" = true ]; then
         echo "多文件 C 链接: env -u MAKEFLAGS … make -C \"$split_dir\" -j$jobs UYA_OUT=\"$out_exe\" …"
@@ -227,6 +224,179 @@ cleanup_uya_split_cache_dir() {
     rm -f "${split_dir}/uya" "${split_dir}/uya.build" "${split_dir}/a.out"
     find "$split_dir" -type f -name '*.o' -delete || true
     find "$split_dir" -depth -type d -empty ! -path "$split_dir" -delete || true
+}
+
+# ===== 增量编译支持 =====
+#
+# 多文件 C 目录（默认 src/.uyacache）原先每次编译都被整目录清掉，于是 make 必然重编
+# 全部 TU，任何一次 `make uya` 都是全量。这里改成：
+#   1. 把「工具链 / CFLAGS / LDFLAGS / 目标平台 / 镜像开关」写进 `.uya-build-sig`；
+#      只有签名变化（或显式 UYA_SPLIT_C_CLEAN=1）才走旧的整目录清理。
+#   2. uya 生成 .c/.h 时是无条件覆盖写，mtime 必然变新，make 仍会重编所有 TU。
+#      因此在生成前后比一次**内容哈希**：内容没变的文件把 mtime 还原回旧值，
+#      make 就只重编真正改动过的 TU。
+
+uya_split_cache_sig_text() {
+    printf '%s|%s|%s|%s|%s|%s|%s|%s' \
+        "${TOOLCHAIN:-}" "${CC_DRIVER:-}" "${CC_TARGET_FLAGS:-}" \
+        "${CFLAGS:-}" "${LDFLAGS:-}" "${TARGET_OS:-}" "${TARGET_ARCH:-}" \
+        "${UYA_SPLIT_C_MIRROR:-1}"
+}
+
+uya_split_cache_signature_prepare() {
+    local split_dir="$1"
+    if [ -z "$split_dir" ] || [ ! -d "$split_dir" ]; then
+        mkdir -p "$split_dir" 2>/dev/null || true
+        return 0
+    fi
+    local sig_file="$split_dir/.uya-build-sig"
+    local want
+    want="$(uya_split_cache_sig_text)"
+    local have=""
+    if [ -f "$sig_file" ]; then
+        have="$(cat "$sig_file" 2>/dev/null || true)"
+    fi
+    case "${UYA_SPLIT_C_CLEAN:-}" in
+        1|true|yes|YES) have="" ;;
+    esac
+    if [ "$have" = "$want" ]; then
+        if [ "$VERBOSE" = true ]; then
+            echo "增量：构建签名未变，保留 $split_dir 中既有 .c/.o"
+        fi
+        return 0
+    fi
+    cleanup_uya_split_cache_dir "$split_dir"
+    printf '%s\n' "$want" > "$sig_file" 2>/dev/null || true
+}
+
+# 生成物 → 「哈希|mtime」快照文件路径；用于内容未变时还原 mtime。
+uya_split_mtime_snapshot_path() {
+    printf '%s/.uya-mtime-sig' "$1"
+}
+
+uya_split_snapshot_mtimes() {
+    local split_dir="$1"
+    local snap
+    snap="$(uya_split_mtime_snapshot_path "$split_dir")"
+    : >"$snap" 2>/dev/null || return 0
+    if ! command -v sha256sum >/dev/null 2>&1; then
+        return 0
+    fi
+    while IFS= read -r f; do
+        local h m
+        h="$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)"
+        m="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
+        printf '%s|%s|%s\n' "$h" "$m" "$f" >>"$snap"
+    done < <(find "$split_dir" -name '*.c' -o -name '*.h' 2>/dev/null)
+}
+
+uya_split_restore_mtimes() {
+    local split_dir="$1"
+    local snap
+    snap="$(uya_split_mtime_snapshot_path "$split_dir")"
+    [ -f "$snap" ] || return 0
+    if ! command -v sha256sum >/dev/null 2>&1; then
+        return 0
+    fi
+    local restored=0
+    while IFS='|' read -r old_hash old_mtime path; do
+        [ -n "$path" ] || continue
+        [ -f "$path" ] || continue
+        local new_hash
+        new_hash="$(sha256sum "$path" 2>/dev/null | cut -d' ' -f1)"
+        if [ "$old_hash" = "$new_hash" ]; then
+            # 内容一致：把 mtime 还原，make 就不会重编对应 TU。
+            touch -d "@$old_mtime" "$path" 2>/dev/null && restored=$((restored + 1))
+        fi
+    done <"$snap"
+    rm -f "$snap"
+    if [ "$VERBOSE" = true ] && [ "$restored" -gt 0 ]; then
+        echo "增量：$restored 个生成文件内容未变，已还原 mtime（对应 .o 不会重编）"
+    fi
+}
+
+# 输入指纹短路：源码、编译器二进制、命令行与关键环境变量都没变时，直接跳过整轮编译。
+#
+# 没有这一层时，任何一次 `make uya` 仍要跑完前端（parse/check/codegen 约 10s+），
+# 因为 uya 无进程内缓存。指纹覆盖：
+#   * 正在使用的编译器二进制本身（内容哈希）
+#   * 编译器命令行（输出名、优化级别、safety-proof 等）
+#   * 影响产物的环境变量（同 .uya-build-sig）
+#   * 合并 AST 的全部输入源文件内容（mirror_manifest.txt 里列的就是上一轮的输入集合）
+# 命中才跳过；CI 下默认不跳过，便于每次都能真正验证。UYA_FORCE_BUILD=1 强制重建。
+
+uya_build_stamp_fingerprint() {
+    local split_dir="$1"
+    local manifest="$split_dir/mirror_manifest.txt"
+    {
+        uya_split_cache_sig_text
+        printf '\nargv:'
+        printf ' %s' "$@"
+        printf '\nbinary:'
+        if [ -f "$COMPILER" ] && command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$COMPILER" 2>/dev/null | cut -d' ' -f1
+        else
+            printf 'nohash'
+        fi
+        printf '\nsources:\n'
+        if [ -f "$manifest" ] && command -v sha256sum >/dev/null 2>&1; then
+            # manifest 首行是注释；其余是上一轮参与编译的源文件绝对路径。
+            tail -n +2 "$manifest" | while IFS= read -r f; do
+                [ -f "$f" ] && sha256sum "$f" 2>/dev/null
+            done
+        else
+            printf 'nomanifest'
+        fi
+    } | sha256sum 2>/dev/null | cut -d' ' -f1
+}
+
+uya_build_stamp_try_skip() {
+    local split_dir="$1"
+    local stamp="$split_dir/.uya-build-stamp"
+    shift
+    if [ "${UYA_FORCE_BUILD:-0}" = "1" ]; then
+        return 1
+    fi
+    if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+        return 1
+    fi
+    if [ ! -f "$stamp" ] || [ ! -f "$split_dir/Makefile" ] || [ ! -f "$split_dir/mirror_manifest.txt" ]; then
+        return 1
+    fi
+    local want
+    want="$(uya_build_stamp_fingerprint "$split_dir" "$@")"
+    if [ -z "$want" ]; then
+        return 1
+    fi
+    local stored
+    stored="$(cat "$stamp" 2>/dev/null || true)"
+    if [ "${UYA_DEBUG_STAMP:-0}" = "1" ]; then
+        echo "DEBUG_STAMP want=$want stored=$stored exe=$UYA_FINAL_EXE split=$split_dir"
+    fi
+    if [ "$stored" != "$want" ]; then
+        return 1
+    fi
+    # 可执行文件必须存在（指纹里已含编译器/源码/选项，配合下面的 make -q 足以判定
+    # 「上一轮就是这份指纹产出的产物」；注意不能用 `-ot stamp` 比较 —— 指纹是在产物
+    # 生成之后才写的，那样会永远判为过期）。
+    if [ ! -f "$UYA_FINAL_EXE" ]; then
+        return 1
+    fi
+    if ! env -u MAKEFLAGS -u MFLAGS -u GNUMAKEFLAGS make -q -C "$split_dir" UYA_OUT="$UYA_FINAL_EXE" >/dev/null 2>&1; then
+        return 1
+    fi
+    return 0
+}
+
+uya_build_stamp_write() {
+    local split_dir="$1"
+    local stamp="$split_dir/.uya-build-stamp"
+    shift
+    local fp
+    fp="$(uya_build_stamp_fingerprint "$split_dir" "$@")"
+    if [ -n "$fp" ]; then
+        printf '%s\n' "$fp" > "$stamp" 2>/dev/null || true
+    fi
 }
 
 # 多文件自举对比：主编译产物在 src/.uyacache/…，自举产物在 src/build/bootstrap_split_c/…。
@@ -315,7 +485,7 @@ usage() {
   UYA_SPLIT_C_DIR    若设置：C99 多文件输出目录 + Makefile，链接走 make -j（默认镜像多 .c；UYA_SPLIT_C_MIRROR=0 为 part1+part2）
   UYA_MULTI_FILE_C   C99 且 -e 时：设为 1/true 则 -o 指向可执行文件，默认多文件 .uyacache（make uya）
   UYA_SINGLE_FILE_C  设为 1/true 则强制单文件 build/<name>.c（make backup 种子；与编译器 --no-split-c 同类效果）
-  UYA_GCC_JOBS       上述 make 的并行度（默认自动探测 CPU，封顶 16）
+  UYA_GCC_JOBS       上述 make 的并行度（默认自动探测 CPU 核数）
   UYA_BOOTSTRAP_COMPARE_BIN  设为 1/true 时，-b 用 cmp 比较两次可执行文件而非 diff C
 
 示例:
@@ -577,6 +747,9 @@ fi
 
 mkdir -p "$BIN_DIR"
 EXECUTABLE_FILE="$BIN_DIR/$OUTPUT_NAME$TARGET_EXE_SUFFIX"
+# 最终可执行文件路径：多文件自举时 EXECUTABLE_FILE 会被改成暂存名 `xxx.build`，
+# 增量判定要看真正落地的那一个。
+UYA_FINAL_EXE="$BIN_DIR/$OUTPUT_NAME$TARGET_EXE_SUFFIX"
 COMPILER_OUTPUT_FOR_UYA="$OUTPUT_FILE"
 # 多文件自举：-o 与正在运行的 bin/uya 同一路径时，打开写会截断/覆盖可执行文件，导致编译失败。改用临时名再 mv。
 MULTI_FILE_OUT_STAGING=""
@@ -596,7 +769,9 @@ if [ "$MULTI_FILE_C" = "1" ]; then
         fi
     fi
     SPLIT_CACHE_DIR="${UYA_SPLIT_C_DIR:-.uyacache}"
-    cleanup_uya_split_cache_dir "$SPLIT_CACHE_DIR"
+    # 增量编译：只有「工具链/编译选项/目标平台」变了才清空旧的 .c/.o 缓存。
+    # 否则保留上一轮生成物与目标文件，让 make 只重编真正变化的 TU。
+    uya_split_cache_signature_prepare "$SPLIT_CACHE_DIR"
 fi
 
 # 检查是否使用自动依赖收集模式
@@ -799,6 +974,28 @@ TEMP_OUTPUT=$(mktemp)
 TEMP_ERRORS=$(mktemp)
 trap "rm -f '$TEMP_OUTPUT' '$TEMP_ERRORS'" EXIT
 
+SPLIT_LINK_DIR=""
+if [ -n "${UYA_SPLIT_C_DIR:-}" ]; then
+    SPLIT_LINK_DIR="$UYA_SPLIT_C_DIR"
+elif [ "$MULTI_FILE_C" = "1" ]; then
+    SPLIT_LINK_DIR=".uyacache"
+fi
+
+# 增量命中：输入指纹、C 目标与最终可执行文件都没变时，整轮编译直接跳过。
+# `make b` 的自举对比必须每轮真跑（比对本身就是验证），因此禁止指纹短路。
+if [ -n "$SPLIT_LINK_DIR" ] && [ "$GENERATE_EXEC" = true ] && [ "$BOOTSTRAP_COMPARE" != true ]; then
+    if uya_build_stamp_try_skip "$SPLIT_LINK_DIR" "$COMPILER_OUTPUT_FOR_UYA" "${COMPILER_CMD[@]}"; then
+        echo "✓ 增量命中：源码与编译选项均未变化，跳过编译（UYA_FORCE_BUILD=1 可强制重建）"
+        exit 0
+    fi
+fi
+
+# 增量：生成前快照 .c/.h 的哈希与 mtime，生成后把「内容未变」的 mtime 还原，
+# 这样 make 只会重编真正改动过的翻译单元。
+if [ -n "$SPLIT_LINK_DIR" ] && [ -d "$SPLIT_LINK_DIR" ]; then
+    uya_split_snapshot_mtimes "$SPLIT_LINK_DIR"
+fi
+
 # 执行编译，捕获所有输出
 # 注意：确保 UYA_ROOT 环境变量被传递给编译器
 # 堆栈大小由 Uya 编译器在启动时使用 setrlimit 设置
@@ -829,15 +1026,13 @@ else
     fi
 fi
 
+if [ "$COMPILER_EXIT" -eq 0 ] && [ -n "$SPLIT_LINK_DIR" ] && [ -d "$SPLIT_LINK_DIR" ]; then
+    uya_split_restore_mtimes "$SPLIT_LINK_DIR"
+fi
+
 # 提取所有错误信息到单独文件
 grep -E "错误:" "$TEMP_OUTPUT" > "$TEMP_ERRORS" || true
 
-SPLIT_LINK_DIR=""
-if [ -n "${UYA_SPLIT_C_DIR:-}" ]; then
-    SPLIT_LINK_DIR="$UYA_SPLIT_C_DIR"
-elif [ "$MULTI_FILE_C" = "1" ]; then
-    SPLIT_LINK_DIR=".uyacache"
-fi
 
 # 兼容旧编译器的内部多文件链接缺陷：
 # 若 C 代码与 split Makefile 已成功生成，但编译器在最后一步调用其内部 make 链接失败，
@@ -1209,6 +1404,10 @@ if [ $COMPILER_EXIT -eq 0 ]; then
         exit 1
     fi
     
+    if [ -n "$SPLIT_LINK_DIR" ] && [ "$GENERATE_EXEC" = true ] && [ "$BOOTSTRAP_COMPARE" != true ]; then
+        uya_build_stamp_write "$SPLIT_LINK_DIR" "$COMPILER_OUTPUT_FOR_UYA" "${COMPILER_CMD[@]}"
+    fi
+
     # 如果是调试模式，显示详细信息
     if [ "$DEBUG" = true ]; then
         echo ""

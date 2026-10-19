@@ -1,0 +1,402 @@
+// parallel.uya - 编译器前端「进程级并行」基础设施
+//
+// ---- 为什么是多进程而不是多线程 ----
+// 编译器是单进程、零 GC 的实现，模块级可变全局有数百个（checker 单独就上百个），
+// codegen 还依赖大量文件级静态缓存（`g_c99_identifier_type_*`、`g_c99_string_const_*` 等）。
+// 要在这些状态上做多线程，等于重写整个 codegen 的并发模型；而 fork 出来的子进程
+// 对父进程的只读堆是 COW 共享的，前端各阶段之间天然就是「父进程准备 + 子进程只读消费」，
+// 用 fork 拿到的并行度与线程相同，却不引入任何新竞态。
+//
+// 本文件只提供**原语**：CPU 数探测、fork 能力判定、并行度、共享匿名映射、fork/waitpid 封装。
+// 具体的 worker 循环写在使用点（`src/main.uya` 的并行 parse、`codegen/c99` 的并行 codegen），
+// 因为它们需要的共享控制块结构各不相同。
+//
+// ---- 生命周期约束（使用 fork 时必须遵守）----
+// 1. fork **之前** 必须 `parallel_flush_all()`，否则父进程 stdio 缓冲在父子各有一份，
+//    两边都会把同一段内容写一遍。
+// 2. 子进程只允许写「自己独占的产物」（自己的输出文件 / 自己的共享内存片段），
+//    结束后必须调 `_exit()`；不要用 `exit()`，避免跑父进程的 atexit/清理路径。
+// 3. 子进程不要碰父进程的职责（split 目录锁、Makefile、manifest、stderr 汇总），
+//    错误信息写回共享控制块，由父进程统一输出，保证报错顺序与串行一致。
+// 4. 子进程若发现「共享竞技场不够用」等不可恢复前提被打破，应返回约定的失败状态，
+//    由父进程回退串行重做，而不是产出半成品。
+
+use libc;
+use libc.unistd;   // fork, _exit
+use libc.syscall;  // sys_mmap, sched_getaffinity
+use libc.stdout;
+use libc.stderr;
+use libc.fprintf;
+use std.io.fflush;
+use std.string.strcmp;
+use std.string.strncmp;
+
+// 并行度上限：超过这个值收益已经饱和（前端阶段数有限），继续 fork 只是在浪费进程槽。
+const PARALLEL_MAX_JOBS: i32 = 32;
+
+// 全 1 的 usize，用于识别 mmap 的 MAP_FAILED((void *)-1)。
+const MAX_USIZE: usize = 0 - 1 as usize;
+
+// 并行度覆盖（-1 = 自动；由 `--jobs` / `UYA_JOBS` 写入）。
+var g_parallel_jobs: i32 = 0 - 1;
+
+// fork 能力探测结果缓存（-1 = 未探测）。
+var g_parallel_available_cache: i32 = 0 - 1;
+
+// 解析不带符号的十进制整数；非法或过大返回 -1。
+//
+// 参数说明：
+// - text：要解析的 C 字符串。
+// 返回值说明：成功返回解析值（1..PARALLEL_MAX_JOBS），失败返回 -1。
+fn parallel_parse_positive_int(text: &const byte) i32 {
+    if text == null {
+        return 0 - 1;
+    }
+    if text[0] == 0 as byte {
+        return 0 - 1;
+    }
+    var value: i32 = 0;
+    var i: i32 = 0;
+    while text[i] != 0 as byte {
+        if i > 6 {
+            return 0 - 1;
+        }
+        const c: i32 = text[i] as i32;
+        if c < 48 || c > 57 {
+            return 0 - 1;
+        }
+        value = value * 10 + (c - 48);
+        if value > PARALLEL_MAX_JOBS {
+            return 0 - 1;
+        }
+        i = i + 1;
+    }
+    if value < 1 {
+        return 0 - 1;
+    }
+    return value;
+}
+
+// 通过 sched_getaffinity 统计可用 CPU 数（与 nproc 语义一致：受 cgroup/affinity 限制）。
+//
+// 只有 Linux 提供该调用；其它目标（macOS 等）会走到 syscall 层的桩函数并返回非 0，
+// 此时返回 0，由 parallel_cpu_count 走默认值。
+// 参数说明：无。
+// 返回值说明：CPU 数（>= 1）；探测失败返回 0。
+fn parallel_cpu_count_from_affinity() i32 {
+    var mask: [u64: 16] = [0 as u64: 16];  // 最多 1024 个 CPU，覆盖常见机器
+    const size: usize = 16 as usize * @size_of(u64);
+    const rc: i32 = sched_getaffinity(0, size, &mask[0] as &void);
+    if rc != 0 {
+        return 0;
+    }
+    var count: i32 = 0;
+    var wi: i32 = 0;
+    while wi < 16 {
+        var bits: u64 = mask[wi];
+        while bits != 0 as u64 {
+            if (bits & 1 as u64) != 0 as u64 {
+                count = count + 1;
+            }
+            bits = bits >> 1;
+        }
+        wi = wi + 1;
+    }
+    return count;
+}
+
+/// 探测本机可用 CPU 数，作为并行度默认值。
+///
+/// 参数说明：无。
+/// 返回值说明：CPU 数，至少为 1；探测不到时返回 8（实测在本仓库规模下已接近饱和收益）。
+export fn parallel_cpu_count() i32 {
+    var n: i32 = parallel_cpu_count_from_affinity();
+    if n <= 0 {
+        n = 8;
+    }
+    return n;
+}
+
+/// 判断当前目标平台是否支持 fork 式进程并行。
+///
+/// Windows 目标没有 fork/waitpid，走全串行路径（C 阶段仍由 `make -j` 并行）。
+/// 参数说明：无。
+/// 返回值说明：1 表示支持并行，0 表示只能串行。
+export fn parallel_available() i32 {
+    if g_parallel_available_cache >= 0 {
+        return g_parallel_available_cache;
+    }
+    var supported: i32 = 1;
+    const target_os: &byte = getenv("TARGET_OS" as *byte) as &byte;
+    if target_os != null {
+        if strcmp(target_os, "windows" as *byte) == 0 {
+            supported = 0;
+        }
+    }
+    g_parallel_available_cache = supported;
+    return supported;
+}
+
+/// 设置并行度覆盖值（来自 `--jobs` / `-j`）。传 0 或负数表示恢复自动探测。
+///
+/// 参数说明：
+/// - jobs：并行度；<= 0 表示恢复自动。
+/// 返回值说明：无。
+export fn parallel_set_jobs(jobs: i32) void {
+    if jobs <= 0 {
+        g_parallel_jobs = 0 - 1;
+        return;
+    }
+    var clamped: i32 = jobs;
+    if clamped > PARALLEL_MAX_JOBS {
+        clamped = PARALLEL_MAX_JOBS;
+    }
+    g_parallel_jobs = clamped;
+}
+
+/// 解析并登记一段并行度文本（用于 `--jobs 8` 的分离写法）。
+///
+/// 参数说明：
+/// - text：纯十进制并行度文本（例如 `"8"`）。
+/// 返回值说明：成功返回登记的并行度（>= 1）；失败打印错误并返回 -1。
+export fn parallel_parse_jobs_text(text: &const byte) i32 {
+    const value: i32 = parallel_parse_positive_int(text);
+    if value < 0 {
+        fprintf(stderr as *void, "错误: 无效的并行度: %s（需要 1..%d 的整数）\n" as *byte, text, PARALLEL_MAX_JOBS);
+        return 0 - 1;
+    }
+    parallel_set_jobs(value);
+    return value;
+}
+
+/// 解析 `--jobs=N` / `-jN` 形式的合并写法并登记并行度。
+///
+/// 参数说明：
+/// - arg：形如 `--jobs=8` 或 `-j8` 的参数。
+/// 返回值说明：1 表示已识别并登记；0 表示不是本模块的参数；-1 表示识别到但取值非法。
+export fn parallel_try_parse_jobs_flag(arg: &const byte) i32 {
+    if arg == null {
+        return 0;
+    }
+    const long_prefix: &const byte = "--jobs=" as *const byte;
+    const short_prefix: &const byte = "-j" as *const byte;
+    var prefix_len: i32 = 0;
+    var matched: i32 = 0;
+    if strncmp(arg, long_prefix, 7) == 0 {
+        prefix_len = 7;
+        matched = 1;
+    } else if strncmp(arg, short_prefix, 2) == 0 && arg[2] != 0 as byte {
+        prefix_len = 2;
+        matched = 1;
+    }
+    if matched == 0 {
+        return 0;
+    }
+    if parallel_parse_jobs_text(&arg[prefix_len] as *byte) < 0 {
+        return 0 - 1;
+    }
+    return 1;
+}
+
+/// 当前生效的并行度。
+///
+/// 优先级：`--jobs` / `-j` 命令行 > `UYA_JOBS` 环境变量 > CPU 数自动探测。
+/// 平台不支持 fork 时恒为 1。
+/// 参数说明：无。
+/// 返回值说明：>= 1 的并行度。
+export fn parallel_jobs() i32 {
+    if parallel_available() == 0 {
+        return 1;
+    }
+    if g_parallel_jobs > 0 {
+        return g_parallel_jobs;
+    }
+    if g_parallel_jobs == 0 - 1 {
+        // 命令行未给，再看环境变量；解析成功后固化为 g_parallel_jobs。
+        const env_jobs: &byte = getenv("UYA_JOBS" as *byte) as &byte;
+        const parsed: i32 = parallel_parse_positive_int(env_jobs);
+        if parsed > 0 {
+            g_parallel_jobs = parsed;
+            return g_parallel_jobs;
+        }
+        g_parallel_jobs = 0;  // 标记「已尝试过环境变量」，后续只做 CPU 探测
+    }
+    var n: i32 = parallel_cpu_count();
+    if n > PARALLEL_MAX_JOBS {
+        n = PARALLEL_MAX_JOBS;
+    }
+    if n < 1 {
+        n = 1;
+    }
+    return n;
+}
+
+/// 按任务数收敛并行度：并行度不会超过任务数，且至少为 1。
+///
+/// 参数说明：
+/// - task_count：待处理任务数。
+/// 返回值说明：实际应使用的 worker 数（>= 1）。
+export fn parallel_jobs_for(task_count: i32) i32 {
+    if task_count <= 1 {
+        return 1;
+    }
+    var n: i32 = parallel_jobs();
+    if n > task_count {
+        n = task_count;
+    }
+    if n < 1 {
+        n = 1;
+    }
+    return n;
+}
+
+/// 申请一段父子进程都可见、可写的匿名共享内存（**内容不保证为 0**）。
+///
+/// 用于 fork 前的控制块（以及并行 parse 的共享竞技场）：子进程的写入必须让父进程看到，
+/// 而普通 `malloc`/栈在 fork 后是 COW 私有的。
+///
+/// 有意**不做**清零：并行 parse 一次要映射数百 MB 甚至 GB 级竞技场，逐字节清零会把
+/// 页全触碰一遍，实测吃掉的正是并行省下来的时间。需要初值为 0 的小块（控制块）请
+/// 自己用 `parallel_memset0` 清零；大块竞技场由 `arena.offset` 单调推进覆盖，无需清零。
+/// 同时 `mmap` 本身是惰性的，未触碰的页不占物理内存。
+///
+/// 参数说明：
+/// - bytes：申请字节数（> 0）。
+/// 返回值说明：成功返回映射首地址；失败返回 null（调用方应回退串行）。
+export fn parallel_shared_alloc(bytes: usize) &byte {
+    if bytes == 0 as usize {
+        return null;
+    }
+    const prot: i32 = PROT_READ | PROT_WRITE;
+    const flags: i32 = MAP_SHARED | MAP_ANONYMOUS;
+    const raw: !*void = sys_mmap(null, bytes, prot, flags, 0 - 1, 0 as i64);
+    const mem: *void = raw catch {
+        return null;
+    };
+    if mem == null {
+        return null;
+    }
+    const p: &byte = mem as &byte;
+    // mmap 失败时内核返回 MAP_FAILED(-1)，而 sys_mmap 声明为 !*void 且实现直接
+    // `as! *void` 透传，不会自动转成错误值 —— 这里必须自己挡掉，否则会写坏地址 0。
+    if (p as usize) == MAX_USIZE {
+        return null;
+    }
+    return p;
+}
+
+/// 把共享内存前 bytes 字节清零。
+///
+/// 参数说明：
+/// - p：目标地址（通常来自 `parallel_shared_alloc`）。
+/// - bytes：要清零的字节数。
+/// 返回值说明：无。
+export fn parallel_memset0(p: &byte, bytes: usize) void {
+    if p == null {
+        return;
+    }
+    var i: usize = 0 as usize;
+    while i < bytes {
+        p[i] = 0 as byte;
+        i = i + 1 as usize;
+    }
+}
+
+/// 在 fork 之前清空全部 stdio 缓冲，避免父子各写一遍同一段输出。
+///
+/// 参数说明：无。
+/// 返回值说明：无。
+export fn parallel_flush_all() void {
+    _ = fflush(stdout);
+    _ = fflush(stderr);
+}
+
+/// 包装 fork()，把负数（失败）与 0（子进程）原样返回给调用方。
+///
+/// 参数说明：无。
+/// 返回值说明：> 0 为子进程 pid（父进程视角）；0 为子进程自身；< 0 失败。
+export fn parallel_fork() i32 {
+    if parallel_available() == 0 {
+        return 0 - 1;
+    }
+    return fork();
+}
+
+/// 等待指定子进程退出，把原始 wait 状态字写入 status。
+///
+/// 参数说明：
+/// - pid：子进程 pid。
+/// - status：接收 wait 状态字的指针。
+/// 返回值说明：0 表示成功等到（无论子进程是否成功退出），-1 表示等待失败。
+export fn parallel_wait_pid(pid: i32, status: &i32) i32 {
+    if pid <= 0 || status == null {
+        return 0 - 1;
+    }
+    const r: !i32 = sys_waitpid(pid, status, 0);
+    const waited: i32 = r catch {
+        return 0 - 1;
+    };
+    if waited < 0 {
+        return 0 - 1;
+    }
+    return 0;
+}
+
+/// 把 wait 状态字翻译成「子进程是否以 0 退出」。
+///
+/// 参数说明：
+/// - status：wait 状态字。
+/// 返回值说明：1 表示正常退出且退出码为 0，0 表示失败（非 0 退出或被信号终止）。
+export fn parallel_status_is_ok(status: i32) i32 {
+    if (status & 0x7f) != 0 {
+        return 0;  // 被信号终止
+    }
+    if ((status >> 8) & 0xff) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+/// 取 wait 状态字里的退出码（信号终止时返回 128+信号，便于日志区分）。
+///
+/// 参数说明：
+/// - status：wait 状态字。
+/// 返回值说明：退出码或 128+信号号。
+export fn parallel_status_exit_code(status: i32) i32 {
+    const low: i32 = status & 0x7f;
+    if low != 0 {
+        return 128 + low;
+    }
+    return (status >> 8) & 0xff;
+}
+
+/// 等待 pid 表里的全部子进程；任一失败即返回其退出码（仍会收干净所有子进程，避免僵尸）。
+///
+/// 参数说明：
+/// - pids：子进程 pid 数组（<= 0 的条目表示未启动，跳过）。
+/// - count：数组长度。
+/// 返回值说明：全部子进程以 0 退出返回 0；否则返回第一个失败子进程的退出码（>= 1）。
+export fn parallel_wait_all(pids: &i32, count: i32) i32 {
+    if pids == null || count <= 0 {
+        return 0;
+    }
+    var first_failure: i32 = 0;
+    var i: i32 = 0;
+    while i < count {
+        const pid: i32 = pids[i];
+        if pid > 0 {
+            var status: i32 = 0;
+            if parallel_wait_pid(pid, &status) != 0 {
+                if first_failure == 0 {
+                    first_failure = 1;
+                }
+            } else if parallel_status_is_ok(status) == 0 {
+                if first_failure == 0 {
+                    first_failure = parallel_status_exit_code(status);
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return first_failure;
+}

@@ -1,6 +1,28 @@
-# 能否把 `uya.c` 拆开让 gcc 并行编译？
+# 编译并行化：现状结论（2026-10 更新）
 
-## 结论（当前自举产物）
+## 现行方案总览
+
+想「让编译变快」有三条互不冲突的路，本仓库现在**三条都在用**：
+
+| 层面 | 手段 | 入口 |
+|---|---|---|
+| 前端（parse / codegen） | **fork 出来的多进程**，按文件 / 按镜像 TU 分派；共享 `mmap(MAP_SHARED)` 传 AST，不需要序列化 | `--jobs N` / `-jN` / `UYA_JOBS` |
+| C 阶段 | C99 后端默认输出多文件（`.uyacache`），由 `make -jN` 并行 `cc -c` | `UYA_GCC_JOBS`（默认 CPU 核数） |
+| 增量 | 输入指纹短路 + 生成物 mtime 保持 + 签名式缓存清理 | `UYA_FORCE_BUILD` / `UYA_SPLIT_C_CLEAN` |
+
+实测：`make uya` 22.0 s → 14.0 s（无改动 0.4 s），`make b` 43.1 s → 26.6 s。
+细节、开关与复现命令见 [`build_speed.md`](build_speed.md)。
+
+## 为什么前端用多进程而不是多线程
+
+编译器是单进程、零 GC 的实现，模块级可变全局有数百个，codegen 还依赖大量文件级静态缓存。
+在这些状态上做多线程等于重写整个 codegen 的并发模型；fork 出来的子进程对父进程的只读堆是
+COW 共享的，而前端各阶段天然是「父进程准备 + 子进程只读消费」，并行度相同但零新竞态。
+
+具体切分点与三条硬约束（共享注册表闭合、禁止跨 TU 写入、全局变量必须在 fork 前登记完）
+见 [`build_speed.md`](build_speed.md) 第三节。
+
+## 仍不建议的做法（历史结论，仍然有效）
 
 **不建议**用脚本对 `bin/uya.c` / `backup/uya.c` 做「按行」或「大致均分」拆分后多路 `gcc -c` 再链接。
 
@@ -61,4 +83,4 @@ make from-c CFLAGS='-std=c99 -O2 -g -fno-builtin -Werror -flto=auto -fuse-linker
 
 ---
 
-**更新日期**：2026-03-23
+**更新日期**：2026-10-19

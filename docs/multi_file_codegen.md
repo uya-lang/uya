@@ -58,6 +58,18 @@
 
 自举 **`make check`** 在 **`make uya`（多文件）** 之后跑测试；日常 **`uya build -o app --c99`** 默认可并行多文件编译。
 
+## 增量编译与前端并行（2026-10 新增）
+
+- **增量**：`src/compile.sh` 用 `<split-dir>/.uya-build-sig` 判断是否需要清理缓存
+  （工具链 / CFLAGS / LDFLAGS / 目标平台 / 镜像开关变化才清，`UYA_SPLIT_C_CLEAN=1` 强制清），
+  用 `<split-dir>/.uya-build-stamp` 做输入指纹短路（无改动时整轮编译直接跳过，`UYA_FORCE_BUILD=1` 强制重建），
+  并在生成前后比对内容哈希、把**内容未变**的 `.c/.h` mtime 还原，使 `make` 只重编真正变化的 TU。
+- **前端并行**：`uya build` 支持 `--jobs N` / `-jN` / `UYA_JOBS=N`（默认 CPU 核数，上限 32，1 = 全串行）。
+  并行 parse 按输入文件 fork；并行 codegen 在「序言写完、函数体开始」处 fork，按镜像 TU 分派，
+  产物与 `--jobs 1` **逐字节相同**（临时分片 `*.uyabody` 成功后才回填，失败自动回退串行）。
+  详见 [`build_speed.md`](build_speed.md)。
+- **C 阶段并行度**：`UYA_GCC_JOBS` 默认 CPU 核数，不再封顶 16。
+
 ## 用法
 
 ```bash
@@ -111,7 +123,7 @@ export UYA_SPLIT_C_MIRROR=0
 - **并发共享 split 目录**：当前策略是 **fail-fast**，不是多进程共享写入。若两个 `uya` 进程指向同一 `--split-c-dir` / 默认 `.uyacache`，其中一个会明确报 busy；如需并发编译，请给每个任务分配独立 `--split-c-dir`、独立 worktree，或串行化调用。
 - **stale lock 回收边界**：当前会自动回收两类常见残留：`owner.pid` 指向已退出进程的锁目录，以及旧版实现留下的空 **`.uya-lock`** 目录。若锁目录内存在其它异常内容或权限异常，仍可能需要人工处理。
 - **`zig cc` cache 目录**：若 split 链接阶段使用 **`zig cc`** 且未显式设置 **`ZIG_LOCAL_CACHE_DIR`** / **`ZIG_GLOBAL_CACHE_DIR`**，实现会默认将它们落在 **`<split-dir>/.zig-cache-local`** 与 **`<split-dir>/.zig-cache-global`**，避免把 Zig cache 散落到工作目录或全局位置；需要自定义时仍可直接覆写这两个环境变量。
-- **自举编译不要依赖全局 split**：`make uya` / `make b` / `uya-hosted` 等调用 `compile.sh` 的目标会在子进程中设置 **`UYA_SPLIT_C=0`** 并**清空** `UYA_SPLIT_C_DIR` 与 `UYA_SPLIT_C_MIRROR`，始终生成单文件 `src/build/uya.c` 并更新 `bin/uya.c`。若文档旧版写「会继承」，以 Makefile 为准。
+- **自举编译现在默认走多文件**：`make uya` / `make b` 设置 **`UYA_MULTI_FILE_C=1`** 并清空 `UYA_SPLIT_C_DIR` / `UYA_SPLIT_C_MIRROR`，即在 **`src/.uyacache`** 生成多文件 C 并由 **`make -C .uyacache -j$UYA_GCC_JOBS`** 链接（`UYA_GCC_JOBS` 默认 CPU 核数）。只有 **`make backup-seed`** / `backup-hosted-seed*` 才用 **`UYA_SINGLE_FILE_C=1`** 生成单文件 `src/build/uya.c`。旧的「始终生成单文件」说法已过期。
 - **外层 `make -j` 与嵌套 `make`**：此前在 GNU make 开启 jobserver 时，子进程中的 `make -C <split>` 若继承 `MAKEFLAGS` 可能**死锁（表现为卡死）**。实现上在嵌套 `make` 前清除 `MAKEFLAGS` / `MFLAGS` / `GNUMAKEFLAGS`（见 `link_split_with_make` 与 `compile.sh` 的 `env -u …`）。
 - **路径**：请使用**绝对路径**或确认**当前工作目录**；相对路径 `.uyacache` 会随 `cwd` 指到不同目录。拼写错误（如 `.uyacach`）会生成到意料外的目录。
 
@@ -123,4 +135,4 @@ export UYA_SPLIT_C_MIRROR=0
 bash tests/split_c_smoke.sh
 ```
 
-**更新日期**：2026-03-24
+**更新日期**：2026-10-19

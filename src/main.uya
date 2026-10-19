@@ -7,6 +7,7 @@
 // use main：收集主文件所在目录下所有 .uya（arena, extern_decls, ast, lexer, parser, checker, str_utils）
 // 否则单文件依赖收集不会自动包含同目录文件，生成的 C 会缺少 ASTNode/CompilerArena 等类型定义导致链接失败。
 use main;
+use parallel;  // 前端进程级并行原语（fork/waitpid/共享 mmap/并行度）
 use parser;
 use checker;  // 包含 checker 目录下所有文件（包括 optimizer.uya）
 use driver;
@@ -1108,6 +1109,8 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "  MICROAPP_TARGET_CFLAGS  microapp 目标 gcc 编译旗标；call_gate profile 默认 -std=c99 -Os -fomit-frame-pointer -fno-builtin -fno-stack-protector -fpie -ffunction-sections -fdata-sections -flto=auto，trap profile 默认改为 -fno-pie（均不含 -g）\n" as *byte);
     fprintf(libc.stderr, "  MICROAPP_TARGET_LDFLAGS microapp 目标 gcc 链接旗标；call_gate profile 默认 -pie -Wl,--gc-sections -flto=auto，trap profile 默认改为 -no-pie\n" as *byte);
     fprintf(libc.stderr, "  -o <文件>            指定输出文件名\n" as *byte);
+    fprintf(libc.stderr, "  --jobs <N>, -j<N>    前端进程级并行度（默认 CPU 数，上限 32；1=全串行）\n" as *byte);
+    fprintf(libc.stderr, "  UYA_JOBS=<N>         环境变量形式的并行度（--jobs/-j 优先）\n" as *byte);
     fprintf(libc.stderr, "  --stack-size <KB>    设置堆栈大小（KB），默认 65536 (64MB)\n" as *byte);
     fprintf(libc.stderr, "  --split-c-dir [<dir>]  多文件 C 输出；省略或 --split-c-dir= 时目录默认为 .uyacache\n" as *byte);
     fprintf(libc.stderr, "  --split-c-dir=<dir>  同上（合并写法；空路径等价于默认 .uyacache）\n" as *byte);
@@ -1833,6 +1836,22 @@ fn parse_args(
             enable_safety_proof[0] = 1;
         } else if strcmp(arg, "--no-safety-proof" as *byte) == 0 {
             enable_safety_proof[0] = 0;
+        } else if strcmp(arg, "--jobs" as *byte) == 0 || strcmp(arg, "-j" as *byte) == 0 {
+            // 分离写法：--jobs 8 / -j 8
+            if i + 1 >= argc {
+                fprintf(libc.stderr, "错误: %s 需要指定并行度\n" as *byte, arg);
+                return -1;
+            }
+            i = i + 1;
+            if parallel_parse_jobs_text(get_argv(i)) < 0 {
+                return -1;
+            }
+        } else if strncmp(arg as &const byte, "--jobs=" as &const byte, 7) == 0 ||
+                  (strncmp(arg as &const byte, "-j" as &const byte, 2) == 0 && arg[2] != 0 as byte) {
+            // 合并写法：--jobs=8 / -j8
+            if parallel_try_parse_jobs_flag(arg) < 0 {
+                return -1;
+            }
         } else if strcmp(arg, "--opt=0" as *byte) == 0 {
             opt_level[0] = 0;
         } else if strcmp(arg, "--opt=1" as *byte) == 0 {
@@ -2498,6 +2517,11 @@ fn compile_files(
     var merge_end_time: i64 = 0;
     var check_end_time: i64 = 0;
     var codegen_end_time: i64 = 0;
+    // 阶段末 arena 用量采样（百分点），由 UYA_PROFILE_ARENA 输出，用于给并行 parse 的
+    // 共享竞技场切片定容；同时也便于判断 AST/检查期内存增长是否异常。
+    var arena_bytes_after_parse: usize = 0 as usize;
+    var arena_bytes_after_merge: usize = 0 as usize;
+    var arena_bytes_after_check: usize = 0 as usize;
 
     var arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize };
     compiler_arena_init(&arena, &arena_buffer[0], ARENA_BUFFER_SIZE as usize);
@@ -2512,8 +2536,19 @@ fn compile_files(
     defer { free(programs_raw as &void); }
     const programs: &(&ASTNode) = programs_raw as &(&ASTNode);
 
+    // 并行 parse：把输入文件按轮转分给 N 个 fork 出来的子进程，AST 节点落在共享匿名映射里，
+    // 父进程直接读（不需要序列化）。任何前提不满足（arena 切片不足 / 读文件失败 /
+    // 词法或语法错误 / fork 失败）都会返回 -1，于是走下面的串行循环重做，
+    // 报错文本与顺序因此与纯串行路径完全一致。
+    var parsed_in_parallel: i32 = 0;
+    if all_file_count > 1 {
+        if parse_parallel_run(programs, all_files.items, all_file_count, FILE_BUFFER_SIZE as usize) == 0 {
+            parsed_in_parallel = 1;
+        }
+    }
+
     i = 0;
-    while i < all_file_count {
+    while parsed_in_parallel == 0 && i < all_file_count {
         const input_path: *byte = all_files.items[i] as *byte;
         const file_size: i32 = read_file_content(input_path as &byte, &file_buffer[0], FILE_BUFFER_SIZE as usize);
         if file_size < 0 {
@@ -2565,10 +2600,25 @@ fn compile_files(
         i = i + 1;
     }
     parse_end_time = clock();
+    arena_bytes_after_parse = arena.total_allocated;
 
     var merged_ast: &ASTNode = ast_merge_programs(programs, all_file_count, &arena);
     if merged_ast == null {
         fprintf(libc.stderr, "错误: AST 合并失败\n" as *byte);
+        {
+            var dbgm: i32 = 0;
+            while dbgm < all_file_count {
+                const dbgp: &ASTNode = programs[dbgm];
+                if (dbgp == null) || (dbgp.type != ASTNodeType.AST_PROGRAM) {
+                    var dbgtype: i32 = 0 - 1;
+                    if dbgp != null {
+                        dbgtype = dbgp.type as i32;
+                    }
+                    fprintf(libc.stderr, "[DBG] programs[%d] type=%d path=%s\n" as *byte, dbgm, dbgtype, all_files.items[dbgm] as *byte);
+                }
+                dbgm = dbgm + 1;
+            }
+        }
         return 1;
     }
     merged_ast = ast_flatten_nested_program_decls(merged_ast, &arena);
@@ -2577,6 +2627,7 @@ fn compile_files(
         return 1;
     }
     merge_end_time = clock();
+    arena_bytes_after_merge = arena.total_allocated;
 
     const void_type: Type = Type {
         kind: TypeKind.TYPE_VOID,
@@ -2665,6 +2716,7 @@ fn compile_files(
         return 1;
     }
     check_end_time = clock();
+    arena_bytes_after_check = arena.total_allocated;
     if checker.program_node != null && checker.program_node.type == ASTNodeType.AST_PROGRAM {
         merged_ast = checker.program_node;
     }
@@ -2880,6 +2932,13 @@ fn compile_files(
         fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
 
         fprintf(libc.stderr, "\n代码生成完成: %s\n" as *byte, actual_output);
+    }
+    // UYA_PROFILE_ARENA：输出各阶段末的 arena 累计分配量，用于给并行 parse 的共享切片定容。
+    const arena_profile_env: *byte = getenv("UYA_PROFILE_ARENA" as *byte);
+    if arena_profile_env != null && arena_profile_env[0] != 0 as byte {
+        fprintf(libc.stderr,
+            "[UYA_PROFILE_ARENA] after_parse=%lu after_merge=%lu after_check=%lu chunks_total=%lu\n" as *byte,
+            arena_bytes_after_parse, arena_bytes_after_merge, arena_bytes_after_check, arena.total_allocated);
     }
 
     return 0;

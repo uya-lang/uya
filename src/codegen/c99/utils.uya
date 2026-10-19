@@ -372,16 +372,27 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
     // 合并 AST 的声明数扩到够用）。用 arena 分配 —— 见 internal.uya 的字段注释。
     codegen.split_mirror_keys = compiler_arena_alloc(arena, C99_MIRROR_INIT_SLOTS as usize * @size_of(&byte)) as &(&byte);
     codegen.split_mirror_handles = compiler_arena_alloc(arena, C99_MIRROR_INIT_SLOTS as usize * @size_of(&void)) as &(&void);
-    if codegen.split_mirror_keys == null || codegen.split_mirror_handles == null {
+    codegen.split_mirror_paths = compiler_arena_alloc(arena, C99_MIRROR_INIT_SLOTS as usize * @size_of(&byte)) as &(&byte);
+    if codegen.split_mirror_keys == null || codegen.split_mirror_handles == null || codegen.split_mirror_paths == null {
         return -1;
     }
     var sm_init: i32 = 0;
     while sm_init < C99_MIRROR_INIT_SLOTS {
         codegen.split_mirror_keys[sm_init] = null;
         codegen.split_mirror_handles[sm_init] = null;
+        codegen.split_mirror_paths[sm_init] = null;
         sm_init = sm_init + 1;
     }
     codegen.split_mirror_count = 0;
+    // 并行 codegen 默认关闭：只有 main.uya 在函数体阶段显式设置后才生效。
+    codegen.parallel_workers = 1;
+    codegen.parallel_worker = 0 - 1;
+    codegen.parallel_common_worker = 0;
+    codegen.parallel_body_orig = null;
+    codegen.parallel_body_temps = null;
+    codegen.parallel_violation = 0;
+    codegen.parallel_decl_tu = null;
+    codegen.parallel_decl_count = 0;
     codegen.split_mirror_lcp = 0;
     codegen.split_common_out = null;
     codegen.split_protos_out = null;
@@ -426,11 +437,9 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
     codegen.current_drop_scope = -1;
     codegen.slice_struct_count = 0;
     codegen.err_union_struct_count = 0;
-    var eu_z: i32 = 0;
-    while eu_z < C99_MAX_ERR_UNION_STRUCTS {
-        codegen.err_union_body_emitted[eu_z] = 0;
-        eu_z = eu_z + 1;
-    }
+    // 用 memset 一次性清零：逐元素下标写在当前 prover 版本下会报「数组索引安全证明失败」
+    // （循环变量上界依赖常量 C99_MAX_ERR_UNION_STRUCTS 的传播，见 proof.uya 的区间分析）。
+    _ = memset(&codegen.err_union_body_emitted[0] as *byte, 0, C99_MAX_ERR_UNION_STRUCTS as usize * @size_of(i32));
     codegen.simd_struct_count = 0;
     codegen.simd_vector_struct_reg_count = 0;
     codegen.simd_max_lanes_i8 = 0;
@@ -1087,7 +1096,8 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
     const mirror_nu: usize = (mirror_cap as! usize) catch { return -1; };
     const mkeys: &(&byte) = compiler_arena_alloc(codegen.arena, mirror_nu * @size_of(&byte)) as &(&byte);
     const mhandles: &(&void) = compiler_arena_alloc(codegen.arena, mirror_nu * @size_of(&void)) as &(&void);
-    if mkeys == null || mhandles == null {
+    const mpaths: &(&byte) = compiler_arena_alloc(codegen.arena, mirror_nu * @size_of(&byte)) as &(&byte);
+    if mkeys == null || mhandles == null || mpaths == null {
         fprintf(libc.stderr, "错误: split-C mirror 表分配失败\n" as *byte);
         return -1;
     }
@@ -1095,10 +1105,12 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
     while mk < mirror_cap {
         mkeys[mk] = null;
         mhandles[mk] = null;
+        mpaths[mk] = null;
         mk = mk + 1;
     }
     codegen.split_mirror_keys = mkeys;
     codegen.split_mirror_handles = mhandles;
+    codegen.split_mirror_paths = mpaths;
     var ci: i32 = 0;
     while ci < uniq_count {
         if ci >= 0 {
@@ -1172,6 +1184,7 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
             }
             fputs("\n" as *byte, fh as *void);
             codegen.split_mirror_handles[ci] = fh as &void;
+            codegen.split_mirror_paths[ci] = c99_arena_strdup(codegen.arena, &fullp[0] as &byte);
         }
         ci = ci + 1;
     }
@@ -1234,6 +1247,39 @@ export fn c99_mirror_emit_common(codegen: &C99CodeGenerator) void {
     }
 }
 
+/// 取声明所属的镜像 TU 下标；-1 表示「不属于任何镜像 TU」（写 uya_common.c）。
+///
+/// 入口条件：`codegen.split_mirror != 0`。与本文件 `c99_mirror_emit_for_node` 的路由
+/// 规则完全一致 —— 两者必须保持同步，否则并行 codegen 会把声明写进错误的分片。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// - node：要判定的 AST 节点（用它的 `filename` 定位源文件）。
+/// 返回值说明：镜像 TU 下标（0..split_mirror_count-1），或 -1 表示 common。
+export fn c99_mirror_tu_index_for_node(codegen: &C99CodeGenerator, node: &ASTNode) i32 {
+    if codegen == null || codegen.split_mirror == 0 {
+        return 0 - 1;
+    }
+    if node == null || node.filename == null {
+        return 0 - 1;
+    }
+    const fnm: &byte = node.filename;
+    var norm_fnm: [byte: 512] = [];
+    if c99_mirror_normalize_one_path(fnm, &norm_fnm[0] as &byte, 512) != 0 {
+        return 0 - 1;
+    }
+    var ix: i32 = 0;
+    while ix < codegen.split_mirror_count {
+        if ix >= 0 {
+            if codegen.split_mirror_keys[ix] != null && strcmp(codegen.split_mirror_keys[ix] as *byte, &norm_fnm[0] as *byte) == 0 {
+                return ix;
+            }
+        }
+        ix = ix + 1;
+    }
+    return 0 - 1;
+}
+
 export fn c99_mirror_emit_for_node(codegen: &C99CodeGenerator, node: &ASTNode) void {
     if codegen == null || codegen.split_mirror == 0 {
         return;
@@ -1241,31 +1287,94 @@ export fn c99_mirror_emit_for_node(codegen: &C99CodeGenerator, node: &ASTNode) v
     if codegen.split_common_out == null {
         return;
     }
-    if node == null || node.filename == null {
-        codegen.emit_stream = codegen.split_common_out;
-        return;
-    }
-    const fnm: &byte = node.filename;
-    var norm_fnm: [byte: 512] = [];
-    if c99_mirror_normalize_one_path(fnm, &norm_fnm[0] as &byte, 512) != 0 {
-        codegen.emit_stream = codegen.split_common_out;
-        return;
-    }
-    var ix: i32 = 0;
-    while ix < codegen.split_mirror_count {
-        if ix >= 0 {
-            if codegen.split_mirror_keys[ix] != null && strcmp(codegen.split_mirror_keys[ix] as *byte, &norm_fnm[0] as *byte) == 0 {
-                if codegen.split_mirror_handles[ix] != null {
-                    codegen.emit_stream = codegen.split_mirror_handles[ix];
-                } else {
-                    codegen.emit_stream = codegen.split_common_out;
-                }
-                return;
-            }
+    const ix: i32 = c99_mirror_tu_index_for_node(codegen, node);
+    // 并行函数体阶段：任何「路由到非本 worker 分片」的发射都是违规 —— 那会让两个进程
+    // 同时写同一个文件。记下标记，worker 收尾时据此放弃并行、由父进程串行重做。
+    if codegen.parallel_workers > 1 && codegen.parallel_worker >= 0 {
+        var target_owner: i32 = codegen.parallel_common_worker;
+        if ix >= 0 && ix < codegen.split_mirror_count {
+            target_owner = ix % codegen.parallel_workers;
         }
-        ix = ix + 1;
+        if target_owner != codegen.parallel_worker {
+            codegen.parallel_violation = 1;
+        }
+    }
+    if ix >= 0 && ix < codegen.split_mirror_count && codegen.split_mirror_handles[ix] != null {
+        codegen.emit_stream = codegen.split_mirror_handles[ix];
+        return;
     }
     codegen.emit_stream = codegen.split_common_out;
+}
+
+/// 预计算「顶层声明 → 镜像 TU 下标」表，供并行 codegen 的归属判定 O(1) 取用。
+///
+/// 必须在 fork **之前**调用一次：子进程只读该表（COW 共享），不必重复做路径归一化。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// - ast：合并后的程序节点。
+/// 返回值说明：0 表示成功；-1 表示分配失败（调用方应放弃并行）。
+export fn c99_parallel_prepare_decl_tu(codegen: &C99CodeGenerator, ast: &ASTNode) i32 {
+    if codegen == null || ast == null {
+        return 0 - 1;
+    }
+    const n: i32 = ast.program_decl_count;
+    if n <= 0 {
+        return 0;
+    }
+    const nu: usize = n as usize;
+    const table: &i32 = compiler_arena_alloc(codegen.arena, nu * @size_of(i32)) as &i32;
+    if table == null {
+        return 0 - 1;
+    }
+    var i: i32 = 0;
+    while i < n {
+        table[i] = c99_mirror_tu_index_for_node(codegen, ast.program_decls[i]);
+        i = i + 1;
+    }
+    codegen.parallel_decl_tu = table;
+    codegen.parallel_decl_count = n;
+    return 0;
+}
+
+/// 判定当前进程是否负责发射下标为 decl_index 的顶层声明。
+///
+/// 串行时恒为 1。并行时：`tu % workers == parallel_worker` 的声明归本进程；
+/// 不属于任何镜像 TU 的声明（common）统一归 `parallel_common_worker`。
+///
+/// 为什么只在这一层做过滤就够了：函数体内的嵌套声明（结构体方法、嵌套函数）其
+/// `filename` 与所属顶层声明一致，镜像路由本来就把它们送往同一个分片；因此按顶层
+/// 声明分派后，各 worker 写出的分片内容与串行路径逐字节相同。万一仍有跨 TU 的嵌套
+/// 发射，`c99_mirror_emit_for_node` 会置 `parallel_violation`，整轮并行随即被放弃。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// - decl_index：顶层声明下标。
+/// 返回值说明：1 表示本进程应发射，0 表示应跳过。
+export fn c99_parallel_owns_decl(codegen: &C99CodeGenerator, decl_index: i32) i32 {
+    if codegen == null {
+        return 0;
+    }
+    if codegen.parallel_workers <= 1 || codegen.parallel_worker < 0 {
+        return 1;
+    }
+    const table: &i32 = codegen.parallel_decl_tu;
+    if table == null || decl_index < 0 || decl_index >= codegen.parallel_decl_count {
+        // 没有预计算表时保守串行，绝不漏发射。
+        return 1;
+    }
+    const tu: i32 = table[decl_index];
+    var owner: i32 = codegen.parallel_common_worker;
+    if tu >= 0 {
+        owner = tu % codegen.parallel_workers;
+    }
+    if owner < 0 {
+        owner = 0;
+    }
+    if owner != codegen.parallel_worker {
+        return 0;
+    }
+    return 1;
 }
 
 // split 模式下在 part1 写完字符串常量后切换到 part2（或 uya_common.c），并写入跨 TU 可见的字符串 extern

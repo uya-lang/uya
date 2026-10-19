@@ -54,6 +54,10 @@ Uya 是一个自举系统编程语言和编译器项目，目标是零 GC、编�
 
 提交前验证规则：
 
+- 编译加速相关开关见 `docs/build_speed.md`：`--jobs/-j`（前端并行，默认 CPU 核数）、
+  `UYA_GCC_JOBS`（C 阶段 `make -j` 并行度）、`UYA_FORCE_BUILD=1`（跳过增量指纹短路，强制重建）、
+  `UYA_SPLIT_C_CLEAN=1`（强制清空 split-C 缓存）。无改动时 `make uya` 会命中增量指纹并直接返回，
+  想看完整重建请显式加 `UYA_FORCE_BUILD=1`。
 - 准备提交时按顺序运行 `make clean`，然后运行 `make backup-all`。
 - `make backup-all` 会执行完整验证并更新多文件/单文件种子备份；失败时不要提交。
 - 如果 `make backup-seed` 更新了自举种子，同一提交中应包含仓库跟踪的 `backup/uya.c` 及必要备份文件。
