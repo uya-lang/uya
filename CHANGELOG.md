@@ -217,6 +217,14 @@
 - 我们的解码器与 `djpeg -nosmooth` 在 4:4:4 / 4:2:2 / 4:2:0 / 4:2:0+重启 四种
   256×256 图上逐样本比对：**最大误差 4/255**（196608 个样本，0 个超过 4）。
 
+### 验证
+
+`make release` 全程通过：clean 重编 + `make b` 自举对比**字节一致**（cmp）+ `make check`
+**1153/1153** 单文件测试 + 各闸门（证明优化 / 顶层函数发射 / SIMD / `@syscall` 交叉 /
+std.path 三平台含 Windows zig cc + wine 实跑 / UPM 套件 / exec vm / microapp 聚合）
++ backup-all-seed 刷新种子。发布产物 `bin/uya` 为 `-O3 -fno-builtin -DNDEBUG` 静态链接
+并 strip，`bin/uya --version` 与 `bin/cmd/upm --version` 均报 v0.10.4。
+
 ### 仍在账上（本版未修）
 
 - `buglist.md` 里的「取值路径非线性下标不检查」与「除法正确性证明」仍未做：

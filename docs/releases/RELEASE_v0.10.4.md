@@ -189,12 +189,12 @@ make clean && make release
 
 | 项目 | 说明 |
 |------|------|
-| 相对 `v0.10.3` | 33 个提交（2026-10-05 → 2026-10-19，不含发布收口提交），`src/` 26 文件 +4637/-706、`lib/` 21 文件 +6103/-135、`tests/` 61 文件 +4594/-12、`benchmarks/` 5 文件 +375/-1、`docs/` 8 文件 +620/-5 |
+| 相对 `v0.10.3` | 36 个提交（2026-10-05 → 2026-10-19），`src/` 29 文件 +4659/-710、`lib/` 21 文件 +6103/-135、`tests/` 62 文件 +4708/-12、`benchmarks/` 5 文件 +375/-1、`docs/` 10 文件 +851/-7 |
 | 新增模块 | `lib/std/crypto/`（sha512 / bigint / curve25519 / ed25519）、`lib/std/image/`（7 文件）、`src/driver/path_list.uya`、`src/version.uya` |
 | 新增回归 | 26 个负例 `tests/error_*.uya`、8 个 `tests/repros/*.uya`、`test_ub_safety_guards`（22 用例）、`test_bounds_*` 系列、`test_nested_field_move`、`test_slice_range_bounds`、`test_crypto_*`（6 个）、`test_std_jpeg_decode/encode`、`test_async_catch_reraise`、`test_interface_value_assign`、`verify_input_file_count.sh`、`verify_parallel_frontend.sh`、`verify_compile_incremental.sh`、`verify_version_sources.sh` |
 | 自举一致性 | `make b` 自举对比通过（主编译器与自举编译器产物 `cmp` 字节一致） |
 | 大工程验证 | `uya-agent`（104 文件、约 780 个顶层全局、4400+ 可达函数、16500+ call edge）从「12 条容量错误编不过」恢复为干净重编通过；显式输入文件实测 100 / 400 / 1200 个 |
-| 验证闸门 | `make check` 全绿；`tests/verify_std_path_platform_targets.sh`（含 Windows zig cc + wine 实跑）、UPM 套件、exec vm 专项、microapp 聚合套件全部通过 |
+| 验证闸门 | `make check` **1153/1153** 单文件测试通过；`tests/verify_std_path_platform_targets.sh`（含 Windows zig cc + wine 实跑）、UPM 套件、exec vm 专项、microapp 聚合套件全部通过 |
 | 发布产物 | `bin/uya` 使用 `-O3 -fno-builtin -DNDEBUG` 构建并 strip；`bin/uya --version` 输出 `v0.10.4` |
 | 上一标签 | `v0.10.3` |
 
