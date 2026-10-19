@@ -668,10 +668,25 @@ fn constraint_extract_from_binary(checker: &TypeChecker, expr: &ASTNode, is_posi
         }
     }
 
-    // 右操作数可以是常量，也可以是具有有限区间的表达式
-    const right_interval: Interval = eval_expr_interval(checker, right);
+    // 右操作数可以是常量，也可以是具有有限区间的表达式。
+    // 若区间未知（成员访问、函数调用等），退回**右操作数类型的完整值域**：
+    // `i < x`（x 为 i32）蕴含 `i < INT32_MAX`，这是条件的可靠推论，
+    // 也是循环计数器 `i = i + 1` 能被证明的关键（循环上界常常是 obj.count 这类成员访问）。
+    var right_interval: Interval = eval_expr_interval(checker, right);
     if right_interval.is_valid == 0 {
-        return;
+        if right == null {
+            return;
+        }
+        const right_type: Type = checker_infer_type(checker, right);
+        if is_integer_type(right_type.kind) == 0 {
+            return;
+        }
+        const ty_bounds: WideInterval = wide_of_type_kind(right_type.kind as i32);
+        if ty_bounds.lo_known == 0 || ty_bounds.hi_known == 0 {
+            // u64/usize 上界超出 i32 区间表示，无法用常数约束表达，放弃
+            return;
+        }
+        right_interval = interval_range(interval_saturate_i32(ty_bounds.lo), interval_saturate_i32(ty_bounds.hi));
     }
 
     // 映射操作符
