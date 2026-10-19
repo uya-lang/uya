@@ -45,6 +45,38 @@ fn x86_trampoline_target_returns_seven() i32 {
 
 const x86_trampoline_target_keep: &void = &x86_trampoline_target_returns_seven as &void;
 
+// 裸函数探针：返回**入口时**的 rsp % 16。
+//
+// 用于验证 call gate trampoline 是尾跳（jmp）而不是 call/ret —— 后者会多压一层返回
+// 地址，让被调函数入口的 rsp % 16 从 8 变成 0，违反 SysV ABI，下游一用 16 字节对齐的
+// SSE 访存（movaps）就 SIGSEGV（实测 microapp time 用例即如此）。
+// 三分支写法与 lib/libc/setjmp.uya 一致，保证多目标架构都能编译。
+@naked_fn fn x86_stack_align_probe() i32 {
+    std.cfg(std.target_arch == .ta_x86_64, {
+        @asm {
+            "movq %%rsp, %%rax" ();
+            "andl $15, %%eax" ();
+            "ret" ();
+        } clobbers = ["memory", "rax"];
+    }, {
+        std.cfg(std.target_arch == .ta_arm64, {
+            @asm {
+                "mov x0, sp" ();
+                "and x0, x0, #15" ();
+                "ret" ();
+            } clobbers = ["memory"];
+        }, {
+            @asm {
+                "mov r0, sp" ();
+                "and r0, r0, #15" ();
+                "bx lr" ();
+            } clobbers = ["memory"];
+        })
+    })
+}
+
+const x86_stack_align_probe_keep: &void = &x86_stack_align_probe as &void;
+
 fn w32(buf: &[byte], off: usize, val: u32) void {
     buf.ptr[off] = (val & 255u32) as byte;
     buf.ptr[off + 1] = ((val >> 8) & 255u32) as byte;
@@ -1214,6 +1246,36 @@ test "x86_call_gate_trampoline_invokes_target" {
     const ret: i32 = uya_call0_i32(trampoline_ptr as &void);
     try assert_eq_i32(ret, 7);
     try sim_free_x86_64_call_gate_trampoline(trampoline_ptr);
+}
+
+test "x86_call_gate_trampoline_keeps_stack_alignment" {
+    // trampoline 必须是尾跳：payload 入口的 rsp % 16 应为 8（call 已压入返回地址）。
+    // 写成 call rax; ret 时这里会是 0，进而让下游的 movaps 崩溃。
+    const trampoline_ptr: &byte = try sim_make_x86_64_call_gate_trampoline(x86_stack_align_probe_keep);
+    const probe_ret: i32 = uya_call0_i32(trampoline_ptr as &void);
+    try assert_eq_i32(probe_ret, 8);
+    try sim_free_x86_64_call_gate_trampoline(trampoline_ptr);
+}
+
+test "x86_call_gate_trampoline_stack_helper_keeps_stack_alignment" {
+    // microapp loader 实际走的是 uya_call0_i32_stack（切到容器私有栈）这条路径，
+    // 栈顶被对齐到 16 字节后 call 压栈，payload 入口同样是 rsp % 16 == 8。
+    const stack_size: usize = 65536;
+    const raw_stack: &void = try sys_mmap(
+        null as &void,
+        stack_size,
+        PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS,
+        -1,
+        0
+    );
+    const stack_base: usize = @usize_from_ptr(raw_stack);
+    const stack_top_ptr: &byte = @ptr_from_usize(stack_base + stack_size) as &byte;
+    const trampoline_ptr: &byte = try sim_make_x86_64_call_gate_trampoline(x86_stack_align_probe_keep);
+    const probe_ret: i32 = uya_call0_i32_stack(trampoline_ptr as &void, stack_top_ptr as &void);
+    try assert_eq_i32(probe_ret, 8);
+    try sim_free_x86_64_call_gate_trampoline(trampoline_ptr);
+    _ = sys_munmap(raw_stack as *void, stack_size) catch {};
 }
 }, {})
 

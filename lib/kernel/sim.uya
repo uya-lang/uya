@@ -769,9 +769,16 @@ export fn sim_make_x86_64_call_gate_trampoline(entry_ptr: &const void) !&byte {
         const entry_addr: usize = @usize_from_ptr(entry_ptr);
         const entry_u64_tmp: !u64 = entry_addr as! u64;
         sim_write_u64_le_at(page, 2usize, entry_u64_tmp.value);
-        page[10] = 255 as byte; // call rax
-        page[11] = 208 as byte;
-        page[12] = 195 as byte; // ret
+        // jmp rax（FF E0）：**尾跳**，不压返回地址、不动 rsp。
+        //
+        // 这里不能写 `call rax; ret`（FF D0 C3）：stub 自身是被 `uya_call0_i32` /
+        // `uya_call0_i32_stack` 用 `call` 进来的（入口 rsp % 16 == 8），再多压一层返回
+        // 地址会让 payload 入口变成 rsp % 16 == 0，整条调用链相对 SysV ABI 偏移 8 字节；
+        // 下游一旦用到 16 字节对齐的 SSE 访存（movaps）就 SIGSEGV。实测症状即
+        // microapp time 用例崩在 `syscall_handle_time` 的 `movaps %xmm0,(%rsp)`。
+        // 尾跳后 payload 的 `ret` 直接回到调用方，语义与原来的 call/ret 一致。
+        page[10] = 255 as byte; // jmp rax
+        page[11] = 224 as byte;
         _ = try sys_mprotect(page as *void, SIM_CALL_GATE_TRAMPOLINE_SIZE, PROT_READ | PROT_EXEC);
         return page;
     }, {
