@@ -2016,7 +2016,23 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         }
         return make_void_type();
     } else if expr.type == ASTNodeType.AST_UNARY_EXPR {
-        return infer_unary_expr(checker, expr);
+        const unary_inferred: Type = infer_unary_expr(checker, expr);
+        // --strict-overflow 闸门：一元负对 `MIN` 取负会溢出，与 + - * 同样要求证明。
+        // 只覆盖有符号整数（无符号取负不产生溢出语义问题）。
+        if checker.strict_overflow != 0 && checker.suppress_overflow_gate == 0 &&
+            checker_node_in_checked_arith(checker, expr) == 0 {
+            const raw_uop: i32 = expr.unary_expr_op;
+            const uop: TokenType = checker_token_or_plus_extra(raw_uop);
+            if uop == TokenType.TOKEN_MINUS && expr.unary_expr_operand != null {
+                const gate_kind: i32 = unary_inferred.kind as i32;
+                if proof_type_kind_is_integer(gate_kind) != 0 {
+                    if checker_prove_no_overflow(checker, expr, gate_kind) == 0 {
+                        checker_report_overflow_unproven(checker, expr, "一元负 " as &byte, gate_kind);
+                    }
+                }
+            }
+        }
+        return unary_inferred;
     } else if expr.type == ASTNodeType.AST_PIPELINE_EXPR {
         return checker_check_pipeline_expr(checker, expr);
     } else if expr.type == ASTNodeType.AST_BINARY_EXPR {

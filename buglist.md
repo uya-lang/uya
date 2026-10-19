@@ -90,10 +90,19 @@
     诊断给出 checked / 守卫 / 饱和包装三条修法。回归：`tests/verify_strict_overflow.sh`
     （已并入 `make check`）。
   - **翻转默认的实测成本**：`./bin/uya check --strict-overflow <src 全部文件>` 报
-    **1347 处**（仅计有符号；闸门已按「无符号模运算是良定义语义」豁免 `u8/u16/u32/u64/usize/byte`）——
+    **1235 处**（仅计有符号；闸门已按「无符号模运算是良定义语义」豁免 `u8/u16/u32/u64/usize/byte`；
+    去重后 731 个唯一行。**i8/i16 为 0 处**——窄类型算术在仓库里已全部可证明，
+    失败全部集中在 `i32`（1136）与 `i64`（91））——
     `src/checker/macro_expand.uya` 645、`lib/libc/stdio.uya` 259、`lib/libc/stdlib.uya` 161、
     `lib/libc/time.uya` 120、`src/checker/modules.uya` 86 …
-  - **迁移为何不能批量做**：形状抽样显示绝对主力是两类**本质不可证明**的算术——
+  - **已做的证明器增强（本轮）**：
+    1. `constraint_update_for_increment` 由 u32 回绕改为**饱和**：`i < MAX` 加 1 之后
+       回绕成 `i <= MIN` 会把循环计数器彻底卡死；饱和只放宽上界，对越界证明也安全。1345 → 1227。
+    2. 成员访问 / 转换表达式复用 `constraint_expr_name` 的路径名查约束。
+    3. 条件右操作数区间未知时退回**其类型的完整值域**（`i < x` 蕴含 `i < INT32_MAX`）。
+    4. 一元负纳入闸门（与 `+ - *` 一致）。
+    累计 2052 → 1235。
+  - **迁移为何不能批量做**：形状抽样显示绝对主力是三类**本质不可证明**的算术——
     ① 参数位置算术（`line + line_off`、`column + col_off`，参数取整个 i32 域）；
     ② 函数调用结果参与算术（`f(x) - 3`，调用无区间信息）；
     ③ 全局/字段计数器（`macro_hygiene_expansion_counter + 1`，无上界）。

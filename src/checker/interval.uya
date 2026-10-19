@@ -316,14 +316,11 @@ fn constraint_update_for_increment(checker: &TypeChecker, var_name: &byte, incre
                 // 以 u32 回绕消除有符号溢出 UB；位模式与原语义一致。
                 // 注意：回绕后的上界可能比真实值域更紧（unsound）——现有越界证明
                 // 依赖这套位模式，故保持原样；溢出证明只采纳 constraint_sound 的约束。
-                const val_wrapped: i32 = ((val as u32) + (increment as u32)) as i32;
-                const val_exact: i32 = interval_saturate_i32((val as i64) + (increment as i64));
-                // 回绕时上界会比真实值域更紧（unsound），只在这种情况下降级；
-                // 没回绕就保留原可信度，让 i = i + 1 这类循环计数器仍可用于溢出证明。
-                if val_wrapped != val_exact {
-                    wide_mark_constraint_unsound_at(i);
-                }
-                const val_inc: i32 = val_wrapped;
+                // 用饱和而不是回绕：回绕会让上界变成一个更小（甚至负）的值，
+                // 把约束收得比真实值域更紧 —— 既 unsound（会把真实溢出判成安全），
+                // 又会把「循环计数器 +1」证明卡死（`i < MAX` 回绕后变成 `i <= MIN`）。
+                // 饱和只会把界放宽（`i <= MAX` 仍成立），对越界证明也是安全的走向。
+                const val_inc: i32 = interval_saturate_i32((val as i64) + (increment as i64));
                 if op == CONSTRAINT_EQ {
                     checker.constraint_values[i] = val_inc;
                 } else if op == CONSTRAINT_GE {
