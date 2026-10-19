@@ -56,6 +56,7 @@ compile_and_run_target() {
     # 这里按目标选择编译器：windows+非 windows 宿主 -> zig；其它沿用 CC_BIN。
     local target_cc=("$CC_BIN")
     local target_cc_flags=()
+    local target_link_libs=()
     if [ "$target_os" = "windows" ] && [ "$HOST_OS_NAME" != "windows" ]; then
         if [ ! -x "$ZIG_BIN" ]; then
             echo "✗ 需要 zig 交叉编译 windows 目标，但未找到可执行 zig: $ZIG_BIN"
@@ -65,6 +66,10 @@ compile_and_run_target() {
         target_cc=("$ZIG_BIN" cc)
         target_cc_flags=(-target "$target_triple"
             -Wno-pointer-sign -Wno-parentheses-equality -Wno-ignored-optimization-argument)
+        # Windows 目标的 C 里有 Winsock 桥（send/recv/closesocket/WSAStartup，
+        # 见 codegen 的 UYA_TARGET_WINDOWS 段），MinGW 下这些符号在 ws2_32 里；
+        # 不显式链接会报一批 `undefined symbol: __declspec(dllimport) send`。
+        target_link_libs=(-lws2_32)
     fi
 
     echo "验证 std.path 平台条件：$label"
@@ -76,13 +81,13 @@ compile_and_run_target() {
     fi
 
     if [ -n "$extra_source" ]; then
-        if ! "${target_cc[@]}" "${target_cc_flags[@]}" -std=c99 -O0 -fno-builtin "$out_c" "$extra_source" -o "$out_bin" >"$link_log" 2>&1; then
+        if ! "${target_cc[@]}" "${target_cc_flags[@]}" -std=c99 -O0 -fno-builtin "$out_c" "$extra_source" -o "$out_bin" "${target_link_libs[@]}" >"$link_log" 2>&1; then
             cat "$link_log"
             echo "✗ $label 目标宿主链接失败"
             exit 1
         fi
     else
-        if ! "${target_cc[@]}" "${target_cc_flags[@]}" -std=c99 -O0 -fno-builtin "$out_c" -o "$out_bin" >"$link_log" 2>&1; then
+        if ! "${target_cc[@]}" "${target_cc_flags[@]}" -std=c99 -O0 -fno-builtin "$out_c" -o "$out_bin" "${target_link_libs[@]}" >"$link_log" 2>&1; then
             cat "$link_log"
             echo "✗ $label 目标宿主链接失败"
             exit 1
