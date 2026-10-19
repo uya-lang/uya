@@ -49,6 +49,25 @@
 
 ## 编译器限制 / 待办（overflow 与 try 相关）
 
+- [x] **已修：Uya 自带 `%d` 格式化 INT32_MIN 输出错误（只输出负号）**
+  - `lib/libc/stdio.uya` 的 `_fmt_i32_to_buf_full` 用 `num = 0 - num` 取幅值，
+    INT32_MIN 的相反数在 i32 里不可表示：C 里是 UB，加 `-fwrapv` 后回绕仍是负数，
+    `while temp > 0` 一次都不进，最终只打印 `-`。
+  - 触发条件：nostdlib 构建的编译器自身用 `fprintf("%d", INT32_MIN)` 输出常量
+    （例如折叠 `@min`），生成 C 变成 `/* optimized */ -` → C 编译失败。
+  - 修法：幅值改用 u32 二补数取负（无符号取负良定义，等价于 |value|）。
+  - 这就是「-fwrapv 让隐藏 UB 现形」的实例：此前靠 UB 侥幸得到正确输出。
+
+- [x] **已修：普通上下文的有符号溢出发射成 C UB**
+  - `Makefile` / `src/compile.sh` / 驱动默认 `CFLAGS` / 生成的 split-C Makefile
+    全部加上 `-fwrapv -fno-strict-overflow`：有符号溢出由「未定义行为」降为
+    **定义良好的回绕**，杜绝 `-O2` 下的任意误编译。
+  - 实测：`2147483647 + 1` 在 `-fsanitize=undefined` 下此前报
+    `signed integer overflow: 2147483647 + 1 cannot be represented`，加 `-fwrapv` 后干净通过。
+  - 注意：这只消除 UB，不提供检查；要检查仍用 `try`/`catch` 或 `--strict-overflow`。
+
+
+
 - [ ] **P2 / 高：普通上下文的整数算术溢出不做任何检查，且发射成 C 有符号溢出 UB**
   - 现象：`var a: i32 = 2147483647; var c: i32 = a + 1;` 编译通过，运行时得到 `-2147483648`；
     `fn add(a: i32, b: i32) i32 { return a + b; }` 零守卫、零证明即可编译。

@@ -26,7 +26,10 @@ CC_TARGET_FLAGS ?=
 
 # 编译选项（可通过环境变量覆盖）
 # 默认 -O2：加快自举编译器与 codegen 性能；调试可用 CFLAGS='-std=c99 -O0 -g ...' 覆盖
-CFLAGS ?= -std=c99 -O2 -fno-builtin -Werror
+# -fwrapv：编译器源码里仍有大量未证明的参数/计数算术；有符号溢出在 C 里是
+# 未定义行为，加这个开关让其退化为定义良好的回绕，避免 -O2 下被任意误编译。
+# （--strict-overflow 是静态闸门，默认关；try/catch 提供运行时 checked 算术。）
+CFLAGS ?= -std=c99 -O2 -fno-builtin -fwrapv -fno-strict-overflow -Werror
 LDFLAGS ?=
 
 # 并行程序测试 worker 数（默认 CPU 核数；可覆盖：make tests UYA_TEST_JOBS=4）

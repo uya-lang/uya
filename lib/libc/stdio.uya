@@ -1109,24 +1109,32 @@ fn _fmt_i32_to_buf(ctx: &_FmtContext, value: i32) void {
 // flags: _FMT_PLUS, _FMT_SPACE; precision: 最少位数（-1 表示不限制）
 // 输出顺序：符号、零填充、数字
 fn _fmt_i32_to_buf_full(ctx: &_FmtContext, value: i32, flags: i32, precision: i32) void {
-    var num: i32 = value;
+    // 幅值用 u32 计算：INT32_MIN 的相反数在 i32 里不可表示，
+    // 写成 `num = 0 - num` 会溢出（C 里是 UB；加 -fwrapv 后回绕仍为负数，
+    // 于是 `while temp > 0` 一次都不进，最终只输出一个负号）。
+    // 二补数取负在无符号里是良定义的，等价于 |value|。
     var is_neg: i32 = 0;
-    if num < 0 {
+    var magnitude: u32 = 0;
+    if value < 0 {
         is_neg = 1;
-        num = 0 - num;
+        magnitude = (0 as u32) - (value as u32);
+    } else {
+        magnitude = value as u32;
     }
     var digits: [byte: 16] = [];
     var digit_idx: usize = 0;
-    if num == 0 {
+    if magnitude == 0 {
         digits[0] = 48;
         digit_idx = 1;
     } else {
-        var temp: i32 = num;
-        while temp > 0 {
-            const digit: i32 = temp % 10;
-            digits[digit_idx] = (48 + digit) as byte;
+        var temp: u32 = magnitude;
+        while temp > 0 && digit_idx < 16 {
+            const ten: u32 = 10 as u32;
+            const digit: u32 = temp % ten;
+            const zero: u32 = 48 as u32;
+            digits[digit_idx] = (zero + digit) as byte;
             digit_idx = digit_idx + 1;
-            temp = temp / 10;
+            temp = temp / ten;
         }
     }
     // 1. 符号

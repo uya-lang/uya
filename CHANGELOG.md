@@ -6,7 +6,7 @@
 - **`--strict-overflow` 静态溢出闸门（可选，默认关）**：开启后整数 `+` `-` `*` 必须能证明不溢出，
   否则编译错误，诊断给出 checked / 区间守卫 / 饱和包装三条修法。证明器基于 i64 宽化区间，
   只采纳可信约束（用户守卫、无回绕增量、常量初始化）。只覆盖有符号整数（无符号是良定义模运算，
-  不是 UB）。仓库自身开启后约 1355 处待迁移，
+  不是 UB）。仓库自身开启后约 1347 处待迁移，
   故默认关闭。回归 `tests/verify_strict_overflow.sh`。
 - **`try`/`catch` 整数溢出检查（规范 0.49.55）**：`try expr` 的 `expr` 现在可以是一个**整数算术表达式**
   （根为 `+` `-` `*` `/` `%` 或一元 `-`），按 checked 求值并产出 `!T`：越界 → `error.Overflow`，
@@ -17,6 +17,13 @@
 - **入口 `main` 可返回错误联合**：`export fn main() !T` / `fn main() !T` 现在能正常链接运行。
 
 ### Fixed
+- **未证明的有符号溢出不再落入 C UB**：构建（`Makefile` / `src/compile.sh`）、驱动默认 `CFLAGS`
+  与生成的 split-C Makefile 统一加 `-fwrapv -fno-strict-overflow`，溢出退化为定义良好的回绕。
+  实测 `2147483647 + 1` 由 `-fsanitize=undefined` 报
+  `signed integer overflow ... cannot be represented` 转为干净通过。
+- **`lib/libc/stdio.uya` 的 `%d` 无法格式化 INT32_MIN**（只输出一个负号）：幅值此前用
+  `num = 0 - num` 取反，INT32_MIN 相反数不可表示，回绕后仍为负数导致数字循环一次不进。
+  改用 u32 二补数取负。该 bug 被 `-fwrapv` 现形——此前靠 UB 侥幸输出正确。
 - `gen_return_error_union` 的「标识符名含 result 即视为错误联合」启发式会误判
   `return result;`（`result: i32`，函数返回 `!i32`）并生成非法 C；改为类型判定优先于名字猜测。
 
