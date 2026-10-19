@@ -2,6 +2,11 @@
 
 UyaGin 是 `std.http.uyagin` 中的 Gin 风格 HTTP 框架核心，目标是在 Uya 的纯 `@async_fn` 异步模型上提供可读、可维护、低分配、低延迟的 Web 服务层。它不是简单复刻 Go Gin，而是利用 Uya 的零 GC、显式错误、RAII、编译期泛型和可注入 allocator，把请求生命周期拆成可预测的状态机与零拷贝视图。
 
+> **核对头（2026-10-19）**："当前已实现"清单已逐个回到 `lib/std/http/uyagin*.uya` 核对，**全部存在**，补三点必要澄清：
+> - 导出规模：`lib/std/http/uyagin.uya` 有 59 个 `export` 条目（其中 38 个 `export fn`，其余为 struct/enum/const），`uyagin_router.uya` 11 个 `export fn`，`uyagin_websocket.uya` 1 个。清单条目对应位置：`uyagin_new`（`uyagin.uya`）、`uyagin_accept_async`、`uyagin_serve_conn`、`uyagin_conn_read_parse_async`、`uyagin_send_response_async`、`uyagin_write_context_response_async`、`uyagin_send_file_body_async`、`uyagin_run_chain_recover`、`uyagin_error_response`、`uyagin_emit_access_log`、`EngineRunOptions`、`GinListener` 均在 `uyagin.uya`；radix 路由匹配在 `uyagin_router.uya`（`uyagin_router_new`、`uyagin_router_add`、`uyagin_router_match_method_request`、`uyagin_route_meta_bind_params_request` 等）。
+> - **`UyaginObserveFuture` 不是手写 struct**：它是 `@async_fn fn uyagin_observe_request_future(engine, ctx, inner)`（`uyagin.uya:506`）被 codegen 生成的状态机类型名，回归 `tests/test_http_uyagin_recover_observe.uya:164` 直接断言生成的 C 源含 `struct UyaginObserveFuture : Future<!i32>`。设计文档按"对外可见类型"写它，读代码时不要去找 `export struct`。
+> - `Engine.run_shards()`（多 reactor shard）在 `uyagin.uya` 中是调用点而非导出 API；历史 benchmark 报告的 `server_threads` 全为 1，**multi-shard 路径尚无正式性能产物**，见 [uyagin_todo.md](uyagin_todo.md) 的 P7 核对头。
+
 ## 目标
 
 - **纯异步**：所有网络读写入口以 `Future<!T>` 和 `@async_fn` 表达，调度交给 `std.async` / `std.async_scheduler` / `std.async_event`。

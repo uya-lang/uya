@@ -13,6 +13,12 @@
 > 2. 当首参为实例 receiver 时，额外允许 `obj.method(...)` 语法糖；
 > 3. 方法调用结果可继续参与任意深度的后缀链，包括 `obj.method<T>().next()`。
 
+> **实现状态核对（2026-10-19，编译器 v0.10.4）**：已用 `bin/uya` 实测：
+> - 无 receiver 的"静态"方法可用：`Counter.create(7)` ✅
+> - 实例语法糖可用：`c.get()` ✅
+> - 显式命名空间传值 receiver 可用：`Counter.getval(c)` ✅
+> - **已知缺陷**：显式命名空间传**引用** receiver（`fn get(self: &Self)` + `Counter.get(&c)`）会生成坏 C（`({ void __uya_recv_0 = (&c); &__uya_recv_0; })`，宿主工具链报 `variable or field '__uya_recv_0' declared void`）。在此之前请用 `c.get()` 或按值 receiver 调用。
+
 ## 1. 背景
 
 Uya 当前已经支持：

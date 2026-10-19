@@ -1,8 +1,8 @@
 # Uya 宏卫生化详细设计文档
 
-**版本**：v0.1  
-**状态**：设计完成，待实现（见 [todo_macro_hygiene.md](todo_macro_hygiene.md)）  
-**参考**：[uya.md](uya.md) §25 宏系统、[grammar_formal.md](grammar_formal.md)、[src/checker/macro_expand.uya](../src/checker/macro_expand.uya)
+**版本**：v0.1 ｜ **状态**：**已实现**（2026-10-19 核对，编译器 v0.10.4；原文为"设计完成，待实现"）｜ **参考**：[uya.md](uya.md) §25 宏系统、[grammar_formal.md](grammar_formal.md)、[src/checker/macro_expand.uya](../src/checker/macro_expand.uya)
+
+> **实现状态**：`MacroExpandContext.hygiene_enabled` 在宏展开入口置 1（`src/checker/macro_expand.uya:3939`、`4072`），重命名按 `<原名>__hyg_<expansion_id>_<local_id>` 生成（`src/checker/macro_expand.uya:1116` 的 `snprintf`；编号来自 `next_macro_hygiene_expansion_id` / `hygiene_next_local_id`，见 `964-1025`）。验收测试 `tests/test_macro_hygiene.uya` 已存在并通过（`./bin/uya test tests/test_macro_hygiene.uya`，12 条断言全过）。下方 §1-§9 保留原设计文本。
 
 ---
 

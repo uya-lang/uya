@@ -1,5 +1,11 @@
 # @embed / @embed_dir 实施 TODO
 
+> **核对头（2026-10-19，v0.10.4）**：全部 133 条已勾选并已落地，无未完成项。
+> 落点：`src/lexer.uya`（白名单）、`src/parser/primary.uya`（恰好一个字符串字面量）、
+> `src/checker/check_expr.uya`（路径解析 / 二进制读取 / 目录递归 / `EmbedDirEntry` 注入）、
+> `src/codegen/c99/`（延迟补发射与 split-C 兼容）、`src/fmt.uya`（`AST_EMBED` / `AST_EMBED_DIR` 往返）。
+> 回归：`tests/test_embed_builtin.uya`、`tests/verify_embed_*.sh` 与 `tests/error_embed_*.uya`。
+
 **参考**：[embed_design.md](embed_design.md)  
 **目标功能**：
 

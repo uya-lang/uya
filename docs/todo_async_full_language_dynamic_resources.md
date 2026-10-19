@@ -1,8 +1,17 @@
 # Uya 异步生产化 TODO（完整语法 + 动态资源）
 
-**最后更新**：2026-06-22（正文）；2026-09-27 加了归档/核对头（见下）
+**最后更新**：2026-06-22（正文）；2026-09-27 / 2026-10-04 加了归档/核对头；2026-10-19 复核正文残留的过期行
 **当前定位**：本文件是当前"让异步编程生产级可用"目标的权威 TODO。
 **口径说明**：在本文件完成前，`docs/async_production_todo.md`、`docs/async_status_matrix.md`、`docs/std_async_design.md` 中"量产已完成"或"主链路已收口"的表述都只能视为历史阶段结论，不能直接当作本目标的完成依据。
+
+> ## 2026-10-19 复核（在下面 2026-10-04 核对头之上再确认一遍）
+>
+> 本轮把正文里两处与 2026-10-04 结论自相矛盾的行改正，并按源码复核了剩余缺口：
+>
+> - **§1 表中"请求头 scratch 固定 `4096` 仍成立 → 尚未收口"**（原第 65 行）已作废：请求头是「按 `http1_async_request_header_required_capacity()` 动态 `malloc`，`HTTP1_ASYNC_REQUEST_HEADER_INLINE_CAP = 4096` 只是起步容量」（`lib/std/http/http1_async.uya:36`、构建函数 `:852-866`）。
+> - **响应头上限**：`HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP = 65536` 是默认值，`http1_async_response_header_max_cap()`（`:56`）读 `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 覆盖。
+> - **仍未完成（源码级确认）**：Windows `IOCP` 后端（`grep "IOCP\|CreateIoCompletionPort\|WSAEventSelect\|tos_windows" lib/std/async*.uya` 无命中）、TLS session ticket（RFC 5077）、`ThreadPool` 真动态扩缩容、async benchmark baseline。
+> - **已确认落地的同批能力**（便于后续不再重复登记）：macOS kqueue（`lib/std/async_event.uya:24-181` + `register()` 的 `std.cfg` 分支 `:617-623`，回归 `tests/test_async_event_kqueue_transition.uya`）、多 interest `Waker`（`WAKER_IO_SLOT_MAX = 4`，`lib/std/async.uya:198`）、HTTP 连接池（`lib/std/http/http1_async.uya:226-261`）、TLS 会话复用（`lib/tls/ssl/handshake.uya:174/221/360/377`）。
 
 > ## 归档与核对头（2026-09-27）
 >
@@ -14,7 +23,7 @@
 > | §1 epoll slot/event 固定 `1024` | `lib/std/async_event.uya` | 仍是**默认容量** `LINUX_EPOLL_DEFAULT_CAPACITY = 1024`，但已实现 `grow_slots()` 满载自动扩容，并可由构造参数配置 |
 > | §1 `ThreadPool` 容量固定 32/32/16 | `lib/std/thread.uya` | 兼容常量保留，但容量已可配置到 `THREAD_POOL_MAX_CONFIG_CAPACITY = 4096`，默认策略显式固定为 queue-or-error |
 > | §1 `ASYNC_FRAME_POOL_MAX_BUCKETS=128` / `MAX_PER_BUCKET=4096` | `lib/std/async_frame.uya` | 仍是**默认值**，已支持 `ASYNC_FRAME_POOL_MAX_BUCKETS` / `ASYNC_FRAME_POOL_MAX_PER_BUCKET` 环境变量与实例配置 |
-> | §1 请求头 scratch 固定 `4096` | `lib/std/http/http1_async.uya:35` | **仍成立**（`HTTP1_ASYNC_REQUEST_HEADER_INLINE_CAP`）——大 header 走扩容路径，属尚未收口的容量项 |
+> | §1 请求头 scratch 固定 `4096` | `lib/std/http/http1_async.uya:35` | ~~仍成立~~ → **2026-10-04 已收口**（按实际需求 `malloc`，4096 只是起步容量；见下方第 5 项） |
 > | §3 泛型方法与 `@async_fn` 组合"不能标为已验证覆盖" | `tests/test_generic_async_method_codegen.uya` | **已推翻**：该回归已入库并通过（`./bin/uya test --c99 tests/test_generic_async_method_codegen.uya` → 2/2），归档文件亦已记录 |
 > | §1.1 "缺失覆盖：暂无；后续继续审计" | — | 完整语法矩阵已由 `tests/verify_async_full_language_matrix.sh` + `tests/verify_async_production_smoke.sh` 固化，二者 2026-09-27 实测通过 |
 > | "共享 runtime 矩阵仍需补齐"（本文与 `async_status_matrix.md`） | `tests/verify_async_shared_runtime_matrix.sh` | **已补齐并通过**（HTTP/DNS/TLS/`async_compute`/`Scheduler` 同 `EventLoop`/`Waker` 语义 smoke） |
@@ -62,7 +71,7 @@
 | `lib/std/async_scheduler.uya` | `TaskQueue<T>` 默认队列已自动增长；scheduler frame pool backing buffer 与 inline repoll 默认策略均支持实例级配置与 `UYA_SCHEDULER_FRAME_BUFFER_BYTES` / `UYA_SCHEDULER_INLINE_REPOLL_LIMIT` | 默认路径不再写死 `1024`；剩余风险转为跨 HTTP/DNS/TLS/`async_compute` 共享调度 smoke 不足 |
 | `lib/std/thread.uya` | 仍保留 `THREAD_POOL_MAX_WORKERS=32`、`THREAD_POOL_MAX_PENDING=32`、`THREAD_POOL_MAX_TASK_SLOTS=16` 兼容常量；`ThreadPoolConfig.submit_strategy` 已显式固定默认策略为 queue-or-error（共享 FIFO，容量不足返回 `error.TaskQueueFull`），不再依赖 `fork` fallback；**2026-09-27 核对：容量可配置到 `THREAD_POOL_MAX_CONFIG_CAPACITY = 4096`** | 容量与饱和策略虽然已显式化，但仍缺更丰富的生产级策略与动态扩缩容 |
 | `lib/std/async_frame.uya` | `ASYNC_FRAME_POOL_MAX_BUCKETS=128`、`ASYNC_FRAME_POOL_MAX_PER_BUCKET=4096`、descriptor 表固定 `512`；**2026-09-27 核对：bucket 上限已是可配置默认值（`ASYNC_FRAME_POOL_MAX_BUCKETS` / `..._PER_BUCKET` 环境变量与实例配置），descriptor 表已按真实数量发射** | frame 池容量仍是默认上限，但可配置 |
-| `lib/std/http/http1_async.uya` | 多处请求头 scratch buffer 固定 `4096`（**2026-09-27 核对：仍成立**，`HTTP1_ASYNC_REQUEST_HEADER_INLINE_CAP`） | 大 header / 扩展请求场景不是真动态 |
+| `lib/std/http/http1_async.uya` | 请求头 `HTTP1_ASYNC_REQUEST_HEADER_INLINE_CAP = 4096` 只是**起步容量**，`http1_async_request_header_build()` 按实际需求 `malloc`（**2026-10-19 核对：已收口**）；响应头 `HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP = 65536` 为默认值 + `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 可覆盖 | 无固定硬边界；剩余项只是超大 header 的压测覆盖 |
 
 ### 2. 编译器 async 容量路径现状
 
@@ -91,11 +100,11 @@
 | 语法/语义已收口 | 无 await 的 `!Future<Future<T>>` + 同步 `try` 返回（C99 发射与 host C 编译已由专项脚本验证） | `tests/test_async_nested_future_poll.uya`、`tests/verify_async_nested_future_boundary.sh` |
 | 编译器容量路径已动态化 | async frame meta 表按需扩容 | `src/checker/async_frame_meta.uya` |
 | 编译器容量路径已动态化 | frame descriptor 按真实数量发射，不再固定 `512` | `src/codegen/c99/main.uya` |
-| **运行时/协议层固定容量** | epoll slot/event `1024`、`find_slot()` 线性扫 | `lib/std/async_event.uya` |
+| **运行时/协议层固定容量**（2026-10-19 复核：`1024` 已是可扩容默认值，非硬上限） | epoll slot/event `1024`、`find_slot()` 线性扫 | `lib/std/async_event.uya` |
 | 运行时/协议层固定容量 | `TaskQueue<T>` 默认队列已自动增长，显式容量队列仍保留调用方配置上限 | `lib/std/async_scheduler.uya` |
 | 运行时/协议层固定容量 | `ASYNC_FRAME_POOL_MAX_BUCKETS=128`、`MAX_PER_BUCKET=4096`、descriptor 表 `512` | `lib/std/async_frame.uya` |
 | 运行时/协议层固定容量 | `THREAD_POOL_MAX_WORKERS=32`、`MAX_PENDING=32`、`MAX_TASK_SLOTS=16` 兼容常量仍在；饱和策略已固定为 queue-or-error | `lib/std/thread.uya` |
-| 运行时/协议层固定容量 | 请求头 scratch buffer 固定 `4096` | `lib/std/http/http1_async.uya` |
+| 运行时/协议层固定容量 | ~~请求头 scratch buffer 固定 `4096`~~ → **2026-10-19 已收口**：4096 只是起步容量，按实际需求 `malloc`；响应头默认上限可被 `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 覆盖 | `lib/std/http/http1_async.uya` |
 
 ## 完成定义
 

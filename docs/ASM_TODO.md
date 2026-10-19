@@ -4,6 +4,15 @@
 > 证据：parser/checker/codegen 全链路支持（`src/parser/primary.uya`、`src/checker/check_expr.uya`、`src/codegen/c99/*`），20+ 个 `tests/error_asm_*.uya` 负例、`tests/bench_asm_*.uya` 与 `tests/run_asm_tests.sh`，规范见 `docs/uya.md` §`@asm`。
 > 下方未勾选条目属历史书写形式；`asm_*` 系列其它文档（设计/进度/阶段报告）同为历史记录。
 
+> **实现口径核对（2026-10-19，编译器 v0.10.4）** —— 本文件状态以这一节为准：
+> - **代码位置**：没有 `src/codegen/c99/asm*.uya` 这类文件。`@asm` 的 codegen 全在 `src/codegen/c99/expr.uya`：分派 `1073-1078`，`gen_asm_block` `10549-10657`。checker 在 `src/checker/check_expr.uya`：`1797-1811`（分派）、`3897-4032`（`infer_asm_block`）、原子/屏障判定 `src/checker/type_utils.uya:1768-1825`。
+> - **测试清单（实点）**：`tests/test_asm_*.uya` 17 个正例、`tests/error_asm_*.uya` 19 个负例、`tests/bench_asm_*.uya` 3 个基准、`tests/error_microapp_mode_asm.uya` 1 个容器态负例，驱动脚本 `tests/run_asm_tests.sh`。
+> - **语法（与设计稿的差异）**：指令字符串**原样发射**到 C 的 `__asm__ volatile`，编译器不做占位符替换。因此设计稿里的 `{name}` 占位符**没有实现**；实际用 GCC 位置编号 `%0`/`%1`（输出在前、输入在后）与 `%%reg`（寄存器字面量）。例：`"movl %1, %0" (a, -> out)`。
+> - **类型名**：`@asm_reg`、`@asm_reg_x64`、`@asm_reg_x86`、`@asm_reg_arm64`、`@asm_reg_riscv`、`@asm_reg_x64_xmm/ymm/zmm`、`@asm_reg_arm64_v`、`@asm_mem` 只出现在 checker 的识别表（`src/checker/type_from_ast.uya:615-633`、`src/checker/types.uya:78-92`），**不在** `src/lexer.uya:1315-1374` 的 `@` 白名单里，所以源码中写不出来（lexer 直接报"未知内置"）。实际用法是把值放进 `(` `)` 的操作数位置。
+> - **clobbers**：`} clobbers = ["rcx", "r11", "memory"];`，字符串列表，`"memory"` 单独解析进 `asm_clobbers_memory`。**已知缺陷**：checker 的屏障检查只扫 `asm_clobbers[]`（`src/checker/check_expr.uya:4007-4024`），不读 `asm_clobbers_memory`（parser 写入点 `src/parser/primary.uya:1331-1332`），所以含 `lfence`/`mfence`/`sfence`/`lock ` 前缀的指令**总是**报"内存屏障指令需要声明 clobbers = [\"memory\"]"，写了也报。
+> - **target**：`@asm_target()` 编译期发射为平台号 `0..6`（0 x86_64_linux / 1 x86_64_macos / 2 x86_64_windows / 3 arm64_linux / 4 arm64_macos / 5 arm64_windows / 6 riscv64_linux；`src/codegen/c99/main.uya:2311-2338`），但 checker 给它的类型是枚举名 `@asm_target`（`src/checker/check_expr.uya:1812-1817`）。因此 `== .x86_64_linux` **语法报错**、`== 0` **类型不匹配**；可行写法是 `@asm_target() as i32 == 0` 或 `const t: i32 = @asm_target();` 再比较。
+> - **"核心目标"里未落地的项**：`越界访问检测`、`P2 指令融合优化`、`P2 冗余指令消除` 在 `src/` 中**没有**对应实现，也没有测试；`P2 RISC-V 平台扩展支持` 仅有 `@asm_target()` 的平台号 6，没有 RISC-V 专用寄存器/原子封装。这些 ✅ 属历史书写。
+
 **创建日期**: 2026-02-22
 **预计完成**: 2026-03-15 (3周)
 **优先级**: P0 (核心功能)
@@ -52,7 +61,7 @@
 | 总结文档 | ✅ 已完成 | v1.0.1 | `docs/asm_summary.md` |
 | 演示代码 | ✅ 已完成 | v1.0.0 | `examples/demo_asm.uya` |
 | 修复报告 | ✅ 已完成 | v1.0.1 | `docs/ASM_FIXES_REPORT.md` |
-|| 测试用例 | ✅ 已完成 | v1.0.0 | `tests/test_asm_*.uya`, `tests/error_asm_*.uya` |
+| 测试用例 | ✅ 已完成 | v1.0.0 | `tests/test_asm_*.uya`, `tests/error_asm_*.uya` |
 
 ---
 

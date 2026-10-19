@@ -1,5 +1,14 @@
 # 穿戴设备能力包 Manifest 设计（MVP）
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：本设计与 `lib/std/runtime/capability/manifest.uya` 的
+> `CapabilityManifest` 已对齐（字段：`id` / `name` / `version` / `publisher` / `entry` /
+> `abi_version` / `backend_kind` / `limits` / `permissions` / `triggers` / `signature_alg` /
+> `key_id` / `signature`；`CAPABILITY_ABI_V1 = 1`）。
+> 校验入口：`capability_manifest_init()` / `capability_manifest_validate()`；错误为
+> `ManifestInvalid` / `ManifestUnsupportedAbi` / `ManifestMissingEntry` /
+> `ManifestTooManyPermissions` / `ManifestTooManyTriggers`。
+> 下文保留设计期原文；字段语义以 `manifest.uya` 为准。
+
 **版本**：v0.1  
 **日期**：2026-04-05
 

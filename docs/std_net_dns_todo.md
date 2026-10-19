@@ -1,7 +1,12 @@
 # `std.net.dns` 标准 DNS 客户端 TODO
 
-> **核对头（2026-09-27）**：其中"DNS `A/AAAA` 异步聚合"一项**已完成**（`dns_client_query_all_any_async` 先建两个 future 再 `async_join2_usize_results`，提交 `61469fe3`）；
-> 其余未勾选条目本轮未逐条核对。总体口径见 `docs/todo_status_index.md`。
+> **核对头（2026-10-19）**：整份复选框已逐条回到源码与测试核对（上一版核对头只确认了 A/AAAA 并发聚合一项）。本轮结论：
+> - **从 `[ ]` 补正为 `[x]` 的项**：Linux UDP + 超时、TCP/53 fallback、`/etc/resolv.conf`、`DnsNoNameserver`、`DnsClient` 注入 resolver、`DnsPlatformUnsupported`、同步/异步同一套错误语义、async future 可被 `block_on_with_event_loop` 驱动、压缩指针 / A / AAAA / UDP / TCP 长度前缀 / 非法域名 / 截断 / 循环压缩指针 8 项单测、async transport 超时与取消与 `TC=1` fallback——均给出 `lib/std/net/dns.uya` 行号或 `tests/test_std_dns*.uya` 用例名。
+> - **补正为 `[~]`（实现有、测试/对齐不足）**：域名编解码独立 roundtrip（`dns_encode_name` `:451` 为内部函数）、CNAME 链解析（实现有 `:1396`/`:1443`，无专项测试）、结果顺序与系统解析器对齐（只按 `prefer_family` 分段）。
+> - **仍为 `[ ]` 的真缺口**：Darwin / Windows 对应实现（`grep "tos_darwin\|tos_macos\|tos_windows" lib/std/net/dns.uya` 无命中，实现直接调 Linux syscall）；"未来 async HTTPS client 复用 async DNS transport" 与"异步 HTTPS 沿用 nonblocking TCP DNS 路径"（当前没有 async HTTPS client，`lib/tls/https.uya:694` 仍是同步 `dns_client_resolve_host`）；"支持按优先级返回多个地址的更完整排序策略"与"保留可诊断信息便于上层打印"（后者目前只靠错误码区分，未提供可打印的诊断字段）。
+> - 当前测试规模：`tests/test_std_dns.uya` 有 34 个 `test` 用例；另有 `test_std_dns_async_transport.uya`（11 例）、`test_std_dns_async_query_aggregate.uya`（3 例）、`test_std_dns_async_composition_shape.uya`（1 例）、`test_async_runtime_shared_dns.uya`。
+>
+> 总体口径见 `docs/todo_status_index.md`。
 
 本文档用于规划一个最小但可复用的 **标准 DNS 客户端**，目标是把“解析主机名”从各个业务模块里剥离出来，统一收敛到 `std.net.dns`。
 
@@ -254,7 +259,7 @@ use std.net.dns;
 - [x] 对 `CNAME` 结果做最小展开后再找地址记录：
   - [x] 添加 `dns_find_cname_target_address()` 函数，在同一个响应中查找 CNAME 目标对应的地址
   - [x] 修改 `dns_query_follow_cname_with_ttl()`，优先在同一个响应中查找地址，避免额外查询
-- [ ] 保持结果顺序尽量与系统解析器一致。
+- [~] 保持结果顺序尽量与系统解析器一致。（2026-10-19 核对：`dns_client_query_all()` `:1798` 按 `prefer_family` 决定 A/AAAA 段顺序，**未与系统解析器逐例对齐**；回归仅覆盖 `dns_query_all_prefer_ipv4` / `dns_query_all_prefer_ipv6`）
 
 当前实现的优先级是：
 
@@ -270,7 +275,7 @@ use std.net.dns;
 - [x] 区分“查询失败”和“解析失败”。
 - [x] 区分“无记录”和“网络不可达”。
 - [ ] 保留可诊断信息，便于 HTTPS / HTTP 上层打印。
-- [ ] 同步与异步接口返回同一套错误语义；异步接口额外允许 `WouldBlock` / `Pending` 路径。
+- [x] 同步与异步接口返回同一套错误语义；异步接口额外允许 `WouldBlock` / `Pending` 路径。（2026-10-19 核对：async 变体 `dns_client_query_a_async()` `:2040`、`dns_client_query_aaaa_async()` `:2044`、`dns_client_query_all_async()` `:1826` 均为薄包装，错误集与同步路径同源；would-block 收敛为 `Poll.Pending` 由 `dns_client_query_a_udp_future()` `:1848` / `dns_client_query_a_tcp_future()` `:2020` 承担）
 
 ---
 
@@ -278,16 +283,16 @@ use std.net.dns;
 
 ### Linux
 
-- [ ] 先支持 Linux 上的 UDP socket 与读写超时。
-- [ ] 同时预留 TCP/53 fallback 的 Linux 实现，避免 MVP 只能解析小响应。
-- [ ] nameserver 读取先按 `/etc/resolv.conf`。
-- [ ] 如果 `resolv.conf` 不存在或为空，且调用方未显式配置 resolver，则返回 `NoNameserver`。
-- [ ] 测试环境如需固定 resolver，应通过 `DnsClient` 配置注入，而不是偷偷回退到编译期常量。
+- [x] 先支持 Linux 上的 UDP socket 与读写超时。（2026-10-19 核对：`dns_client_set_timeout_ms()` `lib/std/net/dns.uya:770` / `dns_client_get_timeout_ms()` `:781`；超时行为回归 `tests/test_std_dns.uya` 的 `dns_query_a_udp_future_times_out_with_silent_nameserver`、`dns_query_a_tcp_future_times_out_with_silent_nameserver`）
+- [x] 同时预留 TCP/53 fallback 的 Linux 实现，避免 MVP 只能解析小响应。（2026-10-19 核对：`dns_client_query_a_with_tcp_fallback_packets()` `:1836`、`dns_client_query_tcp_async()` `:2028`；回归 `dns_tcp_fallback_on_truncated_udp`、`dns_query_a_with_ttl_from_tcp_fallback`）
+- [x] nameserver 读取先按 `/etc/resolv.conf`。（2026-10-19 核对：`dns_parse_resolv_conf_first_nameserver()` `:586`，`sys_open("/etc/resolv.conf", ...)` `:587`；回归 `dns_init_parses_nameserver_port`）
+- [x] 如果 `resolv.conf` 不存在或为空，且调用方未显式配置 resolver，则返回 `NoNameserver`。（2026-10-19 核对：实际错误名为 `export error DnsNoNameserver` `:21`，`dns_parse_resolv_conf_first_nameserver()` 在 `open`/读失败/空内容三条路径均返回它，`:587/:593/:597`）
+- [x] 测试环境如需固定 resolver，应通过 `DnsClient` 配置注入，而不是偷偷回退到编译期常量。（2026-10-19 核对：`dns_client_init(ctx, resolver)` `:727` 是唯一 resolver 入口，无编译期常量回退）
 
 ### 其他平台
 
-- [ ] 平台不可用时返回 `error.PlatformUnsupported` 或 `error.DnsPlatformUnsupported` 这一类 `std.net` 错误。
-- [ ] 后续再补 Darwin / Windows 对应实现。
+- [x] 平台不可用时返回 `error.PlatformUnsupported` 或 `error.DnsPlatformUnsupported` 这一类 `std.net` 错误。（2026-10-19 核对：`export error DnsPlatformUnsupported` `:24`，在 `:222/:238/:305/:839/:859` 等处返回）
+- [ ] 后续再补 Darwin / Windows 对应实现。（2026-10-19 复核：仍未做——`lib/std/net/dns.uya` 中 `grep "tos_darwin\|tos_macos\|tos_windows"` 无命中，实现直接走 Linux syscall 封装）
 
 ---
 
@@ -305,7 +310,7 @@ DNS 客户端完成后，HTTPS 侧应做这些改造：
 
 - [x] `std.http.http1_async` 的 connect 路径改为先走 `std.net.dns`，同时保留 `localhost` / 字面量 IPv4 快路径。
 - [ ] 未来的 async HTTPS client 复用同一套 async DNS transport，避免在事件循环里阻塞等待解析。
-- [ ] async DNS 的 future 在 `epoll` 事件循环里可被 `block_on_with_event_loop` 驱动。
+- [x] async DNS 的 future 在 `epoll` 事件循环里可被 `block_on_with_event_loop` 驱动。（2026-10-19 核对：回归 `tests/test_std_dns.uya` 的 `dns_query_all_async_with_event_loop_localhost`（`:260`）、`test_std_dns_async_transport.uya` 的 `dns_query_a_udp_future_loopback_success` / `dns_query_a_tcp_future_loopback_success`）
 - [ ] 若 DNS 需要 TCP fallback，异步 HTTPS 也必须沿用 nonblocking TCP DNS 路径，而不是退回同步阻塞实现。
 
 ---
@@ -320,16 +325,16 @@ DNS 客户端完成后，HTTPS 侧应做这些改造：
 
 覆盖点：
 
-- [ ] 域名编码 / 解码 roundtrip。
-- [ ] 压缩指针解析。
-- [ ] A 记录解析。
-- [ ] AAAA 记录解析。
-- [ ] CNAME 链解析。
-- [ ] UDP 响应解析。
-- [ ] TCP 长度前缀收发与解析。
-- [ ] 非法域名拒绝。
-- [ ] 截断包拒绝。
-- [ ] 循环压缩指针拒绝。
+- [~] 域名编码 / 解码 roundtrip。（2026-10-19 核对：`dns_encode_name()` `:451` / `dns_name_valid()` `:424` 为内部函数，**无独立 roundtrip 单测**；端到端由 `dns_query_a_async_localhost` 等覆盖）
+- [x] 压缩指针解析。（2026-10-19 核对：`dns` 名称解析在 `:526` 处理 `0xC0` 前缀压缩指针；回归 `dns_query_a_with_tcp_fallback_packets_rejects_compression_loop`）
+- [x] A 记录解析。（回归 `dns_resolve_ipv4_literal`、`dns_query_a_async_localhost`）
+- [x] AAAA 记录解析。（回归 `dns_resolve_localhost_ipv6_literal`、`dns_query_aaaa_async_localhost`）
+- [~] CNAME 链解析。（2026-10-19 核对：`dns_extract_cname()` `:1396` / `dns_find_cname_target_address()` `:1443` 已实现，但 **`tests/` 中无 CNAME 专项用例**）
+- [x] UDP 响应解析。（回归 `dns_query_all_localhost`、`dns_udp_future_localhost`、`dns_query_a_udp_future_loopback_success`）
+- [x] TCP 长度前缀收发与解析。（回归 `dns_query_a_with_ttl_from_tcp_fallback`、`dns_query_a_tcp_future_loopback_success`、`dns_query_all_async_prefer_ipv4_tcp_fallback_accepts_tcp_body_larger_than_udp_limit`）
+- [x] 非法域名拒绝。（回归 `dns_query_a_rejects_empty_name`、`dns_query_a_async_rejects_empty_name`）
+- [x] 截断包拒绝。（回归 `dns_query_a_with_tcp_fallback_packets_rejects_truncated_udp`）
+- [x] 循环压缩指针拒绝。（回归 `dns_query_a_with_tcp_fallback_packets_rejects_compression_loop`）
 
 ### 2. 集成测试
 
@@ -344,7 +349,7 @@ DNS 客户端完成后，HTTPS 侧应做这些改造：
 
 - [x] 已有 `tests/test_std_dns.uya` 包含 async 测试用例，验证 async UDP/TCP 查询能在事件循环中完成。
 - [x] 覆盖 nonblocking socket 下的 `EAGAIN -> Pending -> Ready` 路径（UDP 和 TCP）。
-- [ ] 覆盖 async transport 的超时、取消前 close、以及 `TC=1` 后 TCP fallback。
+- [x] 覆盖 async transport 的超时、取消前 close、以及 `TC=1` 后 TCP fallback。（2026-10-19 核对：`tests/test_std_dns_async_transport.uya` 的 `dns_transport_direct_futures_time_out_on_silent_loopback_nameservers`、`dns_transport_direct_futures_cancel_cleanly_in_shared_queue`、`dns_query_all_async_any_tcp_fallback_and_aaaa`）
 
 ### 3. HTTPS 联动测试
 

@@ -1,7 +1,11 @@
 # Uya fmt Phase 3 TodoList
 
-> **核对头（2026-09-27）**：本 phase 文档的 "Not started" 勾选状态已过时——对应能力已在 `src/fmt.uya` + `tests/test_fmt_*.uya` 落地（`uya fmt` 命令见 `src/main.uya` 的 `COMMAND_FMT`）。
-> 保留本文件作为任务分解记录；唯一仍明确未支持的是 `fmt_phase4_cli_tasks.md` 里的"stdin 与 `-s/-r` 组合"。
+> **核对头（2026-10-19，v0.10.4）**：本 phase 文档的 "Not started" 勾选状态已过时——变换层已落地在
+> `lib/std/fmt/import_sort.uya`、`lib/std/fmt/rewrite.uya`、`lib/std/fmt/simplify.uya`，
+> 通过 `format_with_options` 暴露；CLI 侧的 `-s` / `-r <rule>` 由 `tools/fmt.uya` 提供。
+> 回归：`tests/test_fmt_import_sort.uya`、`test_fmt_rewrite.uya`、`test_fmt_simplify.uya`、
+> `test_fmt_api_rewrite.uya`、`test_fmt_api_simplify.uya`、`test_fmt_api_phase3.uya`。
+> ⚠️ 进程内的 `uya fmt`（`src/fmt.uya`）**不提供**这些变换，只有 `bin/uyafmt -s` / `-r` 才有。
 
 > 基于 `docs/fmt_development_plan.md` 的方案 B，Phase 3 聚焦 import_sort / simplify / rewrite 的结构化变换能力。
 

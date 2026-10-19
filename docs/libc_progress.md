@@ -1,9 +1,10 @@
 # libc 开发进度与改进计划 v0.9.2
 
-> **核对头（2026-09-27）**：本进度文档为 2026-03 快照，其中"待办"多项**已落地**：
-> `Option<T>`（`lib/std/core/option.uya`）、`Writer`/`Reader`（`lib/std/io/writer.uya`、`reader.uya`、`stream.uya`）、`Vec<T>`/`StringBuf`（`lib/std/collections/vec.uya`、`string_buf.uya`）、`HeapAllocator`（`lib/std/mem/heap.uya`、`allocator.uya`）；
-> pthread 侧 `CLONE_THREAD`（`lib/libc/pthread.uya` 的 `CLONE_FLAGS`）与 `set_tid_address`（同文件 join 退出握手）也已落地。
-> 仍有效的剩余项：TSD destructor、多轮 cancel 语义细化、与系统 libc 的性能对比基准。
+> **核对头（2026-10-19）**：本进度文档主体是 2026-03 快照，其中"待办"多项**已落地**：
+> `Option<T>`（`lib/std/core/option.uya`）、`Writer`/`Reader`（`lib/std/io/writer.uya`、`reader.uya`、`stream.uya`）、`Vec<T>`/`StringBuf`（`lib/std/collections/vec.uya`、`string_buf.uya`，另有 `hashmap`/`ring_queue`/`vec_helper`）、`HeapAllocator`（`lib/std/mem/heap.uya`，底层 `libc.sys_mmap`）、`MallocAllocator` + `Arena`（`allocator.uya`、`arena.uya`）；
+> pthread 侧 `CLONE_THREAD`（`lib/libc/pthread.uya:92` 的 `CLONE_FLAGS = 0x00150F00`）与 `set_tid_address`（`:739` 注册、`:1024`/`:1036` 清理）也已落地；`fseek` / `ftell` 同样已实现（`lib/libc/stdio.uya:1972`/`:1983`），§2.1 表格里对应的两行已过时。
+> `lib/syscall/`、`lib/mem/`、`lib/osal/` **都已创建**，§2.2–§2.4 的"待创建"已按现状标注。
+> 仍有效的剩余项：多轮 cancel 语义细化、`CLONE_SETTLS` / 真 TCB（thread-local 存储）方案、rwlock 的 futex 慢路径、`stpcpy`/`stpncpy`/`memmem`/`memrchr`/`mempcpy`、`asprintf`/`vdprintf`、与系统 libc 的性能对比基准。（TSD destructor 已落地，见下。）
 
 **整合版本**：基于 std_refactor_design.md v0.7.1 架构  
 **日期**：2026-03-12（stdio _vfprintf_impl C99 兼容）  
@@ -59,7 +60,8 @@
 | string | `lib/libc/string.uya` | strlen, strcmp, strcpy, strdup... |
 | mem | `lib/libc/mem.uya` | memcpy, memset, memmove, memcmp... |
 | stdio | `lib/libc/stdio.uya` | printf, fprintf, fopen, fread, fwrite... |
-| stdlib | `lib/libc/stdlib.uya` | malloc, free, exit, atoi, qsort... |
+| stdlib | `lib/libc/stdlib.uya` | calloc, exit, atoi, strtol/strtoll, qsort, bsearch, rand...（`malloc`/`free`/`realloc` 已拆到 heap） |
+| heap | `lib/libc/heap.uya` | malloc / free / realloc（空闲链表 + 块合并） |
 | syscall | `lib/libc/syscall.uya` | sys_read, sys_write, sys_open... |
 | unistd | `lib/libc/unistd.uya` | read, write, close, fork, exec... |
 | ctype | `lib/libc/ctype.uya` | isalpha, isdigit, toupper... |
@@ -169,7 +171,7 @@
 ```
 
 - [x] `pthread_create` - 创建线程（descriptor registry；child 入口直接调用 start routine 并退出）
-- [x] `pthread_join` - 等待线程结束（当前仍通过 `waitpid`）
+- [x] `pthread_join` - 等待线程结束（**已改 futex + joinstate**：`PTHREAD_JOINSTATE_EXITED`/`DETACHED`/`JOINED` + `sys_futex(FUTEX_WAIT)`，不再是 `waitpid`；见 `lib/libc/pthread.uya` 的 `pthread_join`）
 - [x] `pthread_exit` - 退出当前线程（保存 retval 到 descriptor）
 - [x] `pthread_self` / `pthread_equal` / `pthread_detach`
 - [x] `pthread_mutex_init` / `pthread_mutex_destroy`
@@ -178,8 +180,10 @@
 - [x] `pthread_once`
 - [x] `pthread_key_create` / `pthread_key_delete` / `pthread_getspecific` / `pthread_setspecific`
 - [x] `pthread_cancel` / `pthread_testcancel` / `pthread_setcancelstate` / `pthread_setcanceltype`
-- [ ] `CLONE_THREAD` / TLS / TCB / futex joinstate 迁移
-- [ ] TSD destructor、多轮 cancel 语义、condattr / clock 语义
+- [x] `CLONE_THREAD` / futex joinstate 迁移（2026-10-19 核对：`pthread.uya:92` `CLONE_FLAGS = 0x00150F00` 含 `CLONE_THREAD`；`pthread_join` 用 `PTHREAD_JOINSTATE_*` + `sys_futex(FUTEX_WAIT)`，已无 `waitpid`）
+- [x] TSD destructor（`_pthread_run_tsd_destructors`，`pthread.uya:672`，`:705` 在退出路径调用，支持多轮）
+- [ ] TLS / 真 TCB（`CLONE_SETTLS` 仍未启用，见 `pthread_nptl_todo.md` §7 与风险清单）
+- [ ] 多轮 cancel 语义、condattr / clock 语义细化
 
 ---
 
@@ -187,13 +191,14 @@
 
 ### 2.1 libc 层待完善
 
-| 模块 | 函数 | 优先级 |
-|------|------|--------|
-| string | `stpcpy`, `stpncpy`, `memmem`, `memrchr`, `mempcpy` | 低 |
-| stdio | `vdprintf`, `asprintf`, `fseek`, `ftell` | 低 |
-| pthread | `joinstate`、TLS/TCB、TSD destructor、cancel state/type | 中 |
+| 模块 | 函数 | 优先级 | 2026-10-19 核对 |
+|------|------|--------|-----------------|
+| string | `stpcpy`, `stpncpy`, `memmem`, `memrchr`, `mempcpy` | 低 | 仍未实现（`grep -n "fn stpcpy\|fn memmem" lib/libc/string.uya lib/libc/mem.uya` 无命中） |
+| stdio | `vdprintf`, `asprintf` | 低 | 仍未实现 |
+| stdio | `fseek`, `ftell` | 低 | ✅ **已实现**（`lib/libc/stdio.uya:1972`/`:1983`），本行已不是待办 |
+| pthread | `joinstate`、TLS/TCB、TSD destructor、cancel state/type | 中 | `joinstate` 与 `TSD destructor` 已落地；TLS/`CLONE_SETTLS` 与多轮 cancel 语义仍待补 |
 
-### 2.2 新架构：syscall 层（待创建）
+### 2.2 新架构：syscall 层（**已创建**，2026-10-19 核对）
 
 **职责**：直接封装 Linux 系统调用，无依赖
 
@@ -212,7 +217,7 @@ lib/syscall/linux.uya
 | `sys_stat` / `sys_lstat` / `sys_fstat` | 文件状态 |
 | 其他... | |
 
-### 2.3 新架构：mem 层（待创建）
+### 2.3 新架构：mem 层（**已创建**：`lib/mem/mem.uya` + `lib/mem/string.uya`）
 
 **职责**：纯内存操作，无系统调用依赖
 
@@ -222,7 +227,7 @@ lib/mem/
 └── string.uya  # strlen, strcmp, strcpy...
 ```
 
-### 2.4 新架构：osal 层（待创建）
+### 2.4 新架构：osal 层（**已创建**，但只有单文件 `lib/osal/osal.uya`；下面的 file/process/time/error 拆分未做）
 
 **职责**：操作系统抽象层，统一接口
 
@@ -252,11 +257,11 @@ lib/osal/
 
 **待实现**：
 
-- [ ] `Option<T>` 类型
-- [ ] `interface Writer` / `Reader`
-- [ ] `Vec<T>` / `StringBuf` 容器
+- [x] `Option<T>` 类型（`lib/std/core/option.uya`）
+- [x] `interface Writer` / `Reader`（`lib/std/io/writer.uya`、`reader.uya`）
+- [x] `Vec<T>` / `StringBuf` 容器（`lib/std/collections/vec.uya`、`string_buf.uya`）
 - [x] `IAllocator` 接口（**`lib/std/mem/allocator.uya`**，`MallocAllocator` 实现）
-- [ ] `HeapAllocator`（mmap，设计见 `std_refactor_design.md`）
+- [x] `HeapAllocator`（`lib/std/mem/heap.uya`，mmap 经 `libc.sys_mmap`）
 - [x] **`Arena` + `IAllocator`**（**`lib/std/mem/arena.uya`**）
 - [ ] **`FixedBufferAllocator`**（与 **`Arena`** 命名/能力进一步对齐待办）
 

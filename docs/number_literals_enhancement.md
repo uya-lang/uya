@@ -1,5 +1,7 @@
 # 数字字面量增强 - v0.2.31+
 
+> **核对头（2026-10-19，编译器 v0.10.4）**：本文是 v0.2.31 时代的改造记录，功能现状以 `src/lexer.uya:449-591`（`read_number`）、`src/parser/types.uya:817-1026`（`parse_literal_suffix` / `parse_integer_literal_with_suffix` / `parse_float_literal_with_suffix`）为准。多进制、下划线、`i8..i64`/`u8..u64`/`usize`/`f32`/`f64` 后缀全部可用（已用 `bin/uya` 实测）。文中提到的 `compiler-mini/`、`compiler-c/`、`uya-src/` 目录**均已退役/不存于当前仓库**，实现只在自举编译器 `src/` 中维护。
+
 ## 功能概述
 
 为 Uya 编译器添加了数字字面量的多进制支持、下划线分隔符和**类型后缀**，提高代码可读性和类型表达能力。
@@ -28,7 +30,7 @@
   - 可以出现在任意两个数字之间
   - 不能出现在开头或结尾
   - 不能连续出现
-  - 不能紧跟在进制前缀之后（如 `0x_FF` 非法，`0xFF_00` 合法）
+  - 紧跟在进制前缀之后**实际被接受**：lexer 只校验下划线后面紧跟的是该进制的合法数字（`src/lexer.uya:487-492`），所以 `0x_FF`、`0b_1010` 都能编译（已用 `bin/uya` 实测）。本文早先写成“非法”，与实现不符
   
 - **适用范围**：
   - 整数字面量：`1_000_000`
@@ -85,7 +87,9 @@ const g: f64 = 3.14f64;
 
 ## 实现范围
 
-### C 编译器 (`compiler-mini/src/`)
+> **现状（v0.10.4）**：下面两节是历史记录。`compiler-mini/`、`compiler-c/` 在当前仓库中已不存在，Uya 编译器只以 `src/` 的自举实现为维护源（见 `AGENTS.md`）。
+
+### C 编译器 (`compiler-mini/src/`)　〔历史，目录已退役〕
 
 - ✅ **Lexer** (`src/lexer.c`)
   - 识别 `0x`/`0X`（十六进制）前缀
@@ -112,24 +116,28 @@ const g: f64 = 3.14f64;
 - ✅ **Parser** (`src/parser/types.uya`, `src/parser/primary.uya`)
   - 使用 `parse_integer_literal_with_suffix` / `parse_float_literal_with_suffix`
   - 将解析出的后缀写入 AST 节点的 `literal_suffix` / `float_literal_suffix`
+  - 后缀识别表见 `src/parser/types.uya:817-905`：`i8`/`i16`/`i32`/`i64`/`u8`/`u16`/`u32`/`u64`/`usize`/`f32`/`f64`（枚举 1..11，0 表示无后缀）
+  - 进制与后缀的切分是先按进制扫数字、再取尾部字母数字当后缀（`src/parser/types.uya:920-945`），因此 `0xFFu8`、`0b1010u16` 可用
 
 
 ## 测试
 
 ### 测试文件
 
-- `tests/programs/test_number_literals.uya`
+- `tests/test_number_literals.uya`
   - 测试所有进制的整数字面量
   - 测试下划线分隔符
   - 测试浮点字面量（带下划线）
   - 验证运行时值的正确性
+- `tests/test_literal_suffix.uya`
+  - 覆盖整型与浮点型的各种后缀组合（十进制与十六进制）
 
 ### 测试结果
 
 ```bash
-cd compiler-mini
-./tests/run_programs.sh --c99 test_number_literals.uya
-# ✓ 测试通过
+./bin/uya test tests/test_number_literals.uya
+./bin/uya test tests/test_literal_suffix.uya
+# 均通过
 ```
 
 ## 使用示例
@@ -153,10 +161,11 @@ fn main() i32 {
 
 ## 规范文档
 
-- `compiler-mini/spec/UYA_MINI_SPEC.md` § 3.2 数字字面量
+- `docs/uya.md`（数字字面量一节）与 `docs/grammar_formal.md`
   - 完整 BNF 语法
   - 下划线规则说明
   - 错误处理规则
+- `compiler-mini/spec/UYA_MINI_SPEC.md` 为历史路径，`compiler-mini/` 目录已退役
 
 ## 兼容性
 
@@ -166,12 +175,12 @@ fn main() i32 {
 
 ## 限制
 
-1. 浮点字面量仅支持十进制（不支持 `0x1.0p10` 等十六进制浮点）
-2. 自举编译器尚未同步更新（需手动更新 `uya-src/`）
-3. 整数在解析阶段统一转为 `i32`，不保留原始进制信息
+1. 浮点字面量仅支持十进制（不支持 `0x1.0p10` 等十六进制浮点；`src/lexer.uya:501-554` 只在 `base == 10` 时识别小数与指数）
+2. ~~自举编译器尚未同步更新~~（已过时）：自举编译器 `src/` 就是唯一维护源，词法、进制与后缀解析都已在其中实现
+3. 无后缀的整数字面量默认 `i32`；带后缀时由后缀决定类型（`1u8` 就是 `u8`）。数值本身在 parser 里转成统一的 `i64`，不再保留原始进制
 
 ## 后续工作
 
-- [ ] 进一步扩展 C 版编译器和自举版的十六进制浮点字面量（`0x1.0p10` 等）
+- [ ] 进一步扩展自举编译器的十六进制浮点字面量（`0x1.0p10` 等）
 - [ ] 在更多高级示例和教程中使用类型后缀（性能敏感、FFI 场景）
 

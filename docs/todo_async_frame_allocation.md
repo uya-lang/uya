@@ -2,9 +2,22 @@
 
 **设计文档**：[async_frame_allocation_design.md](async_frame_allocation_design.md)、[async_frame_lifecycle_naming_design.md](async_frame_lifecycle_naming_design.md)  
 **相关问题**：[buglist.md](../buglist.md) 中“真 `@async_fn/@await` lowering 仍对 async frame 做堆分配”  
-**最后更新**：2026-04-16
+**最后更新**：2026-04-16（正文）；2026-10-19 加核对头
 
 > **状态总览**：Phase A/B/C 已完成，函数内保守逃逸分析（Phase 4.1）已完成。当前实现包含：统一 `AsyncFramePool`（Phase A）、caller-owned stack inlining（Phase B）、`@frame(foo)` 类型构造器与 pinned 语义检查（Phase C）、codegen 保守逃逸分析（Phase 4.1）。`make check` 796/796 通过，`make b` bootstrap 通过。
+
+> **核对头（2026-10-19）**：本文所有条目均为 `[x]`（`grep -n "^\- \[ \]" docs/todo_async_frame_allocation.md` 无命中），"已知限制"7 条全部标注为已修复；本轮逐条回到源码确认：
+>
+> | 声明 | 2026-10-19 证据 |
+> |---|---|
+> | 统一 `AsyncFramePool` + size class 分桶 | `lib/std/async_frame.uya:65` `export struct AsyncFramePool : IAllocator`；`async_frame_pool_init_with_config()`（`:426`）、`async_frame_pool_alloc_aligned()`（`:753`）、`async_frame_pool_free_aligned()`（`:819`）、`async_frame_pool_stats()`（`:934`） |
+> | `ASYNC_FRAME_STACK_LIMIT` | `async_frame_runtime_default_stack_limit()`（`:205`）+ `getenv("ASYNC_FRAME_STACK_LIMIT")`（`:207`）；回归 `tests/test_async_frame_stack_limit_env.uya` |
+> | `--async-frame-heap=on` / `ASYNC_FRAME_DEBUG_HEAP=1` | `src/main.uya:132/1109/1999`；`lib/std/async_frame.uya:156/195` |
+> | pool 满背压 `error AsyncFramePoolFull` | `src/codegen/c99/function.uya:7817` |
+> | pool 桶上限可配置 | `ASYNC_FRAME_POOL_MAX_BUCKETS` / `ASYNC_FRAME_POOL_MAX_PER_BUCKET`（`lib/std/async_frame.uya:172/182`） |
+> | `@frame(foo)` + pinned + 生命周期 | `src/parser/types.uya:397`；`src/codegen/c99/function.uya:7566`（`frame_start`）/`:7570`（`frame_stop`）/`:7581`/`:7610`；回归 `tests/test_async_frame_methods.uya`、`test_async_frame_stack_ok.uya`、`test_async_frame_align_pool.uya`、`test_async_frame_pool_stats.uya`、`test_async_frame_pool_dynamic_growth.uya`、`test_async_frame_inline_temp.uya`/`temp2`，负向 `tests/error_async_frame_pinned_*.uya`（7 个） |
+>
+> 需打折的只有"`make check` 796/796 通过"这一 2026-04 计数快照——用例总数此后已变化，该数字不代表当前规模。
 
 ---
 

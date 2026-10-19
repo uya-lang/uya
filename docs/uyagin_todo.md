@@ -1,9 +1,12 @@
 # UyaGin TODO / 路线图
 
-> **核对头（2026-09-27）**：P0–P6 已完成；**P7（性能达标）与 P8（文档）仍未收口**。
-> - 运行时门禁不再是 blocker：本轮实测 `tests/verify_uyagin_http_bench_runtime.sh` 在 `threads=4` 下通过（2026-04 记录的 multi-shard SIGSEGV 已不复现）。
-> - 但正式验收口径所需的"5 场景 × 5 run + syscall/CPU probe + 原始 report.json/summary.csv"从未产出；仓库里唯一带 Gin 对照的一次是 `build/uyagin_http_bench/20260627_063210`（runs=1、server_threads=1、单场景 hello），其 `rps_ratio_vs_gin=2.17`、`p99_ratio_vs_gin=0.227` 只是 smoke 证据，不能替代 P7 验收。
-> - P8 的 API 文档 / 迁移指南 / 示例 / 压测报告四项均未开始。
+> **核对头（2026-10-19）**：P0–P6 已完成；**P7（性能达标）与 P8（文档）仍未收口**。
+> - 运行时门禁不再是 blocker：`tests/verify_uyagin_http_bench_runtime.sh` 在 `threads=4` 下通过（2026-04 记录的 multi-shard SIGSEGV 已不复现）。
+> - **P7 仍未达标的实测统计（本轮重扫 `build/uyagin_http_bench/`）**：共 21 个 `report.json`，**全部 `runs=1`、只有 `hello_plaintext` 一个场景**，其中带 Gin 对照的仅 3 个（`20260425_231701`、`20260425_232813`、`20260627_063210`）；"5 场景 × 5 run + syscall/CPU probe"的正式验收报告**从未产出**。
+> - 最近的带 Gin 对照报告 `build/uyagin_http_bench/20260627_063210`：`uya_rps=77604.98` vs `gin_rps=35716.51`（`rps_ratio_vs_gin=2.1728`）、`uya_p99=1020us` vs `gin_p99=4500us`（`p99_ratio=0.2267`）、`uya_median_heap_fallback_delta=0`，该单场景 `rps/p99/alloc` 三项 pass 均为 1；但 `syscall_pass_target` 与 `cpu_matched_pass_target` 为空（probe 被跳过），且只有 1 场景 1 run —— **只能当 smoke 证据，不能替代 P7 验收**。
+> - 最新一次运行 `build/uyagin_http_bench/20260627_084906` 是**无 Gin 对照**的 uya 单边 smoke（`thr=1`、`5s`、单场景）。
+> - 所有历史报告的 `server_threads` 均为 1，即**multi-shard 正式 benchmark 也没有产物**；docs 中"默认 4 线程正式 benchmark 被 multi-shard 阻塞"的历史描述见正文（2026-04-25 段），与 2026-09-27 runtime 门禁已通过的结论并存，二者口径不同（前者指正式 benchmark 产物，后者指语义门禁脚本）。
+> - P8：示例已具备（`examples/uyagin_websocket_echo.uya`、`uyagin_websocket_chat_session.uya`、`uyagin_websocket_json_echo.uya`、`https_websocket_echo.uya`），但**完整 API 文档、迁移指南、压测报告三项仍未开始**。
 > 因此本文件的勾选状态（P7 全部门槛未勾）与事实一致，属于**真实的未完成工作**。
 
 本 TODO 以“先稳定、再压测、最后超过 Gin”为主线。所有性能结论必须用同机、同业务、同连接模型的 benchmark 证明，不能只凭设计假设宣称达标。
@@ -35,6 +38,7 @@
 - [x] 启动期预计算 pattern segment、param name offset、literal hash。
 - [~] 提供 `GET_T<H: AsyncHandler>` 泛型注册，减少 vtable dispatch。
   当前已落地兼容入口 `GET_T(engine, pattern, handler)`；受当前编译器对泛型 thunk / `sizeof(H)` codegen 限制，仍走 `AsyncHandler` 接口派发。
+  （2026-10-19 核对：三处入口都在——`Engine.GET_T<H>` 接口方法 `lib/std/http/uyagin.uya:672`、另一实现 `:868`、自由函数 `export fn GET_T(engine, pattern, handler: AsyncHandler)` `:883`；仍是接口派发，未真正消除 vtable。）
 - [x] 增加路由冲突检测：重复路径、参数名冲突、wildcard 非尾部。
 - [x] Benchmark 路由：1、16、128、1024 条路由的 ns/match 与 Gin 对比。
   2026-04-24 本机实测：已新增 `benchmarks/uyagin_route_bench.uya`、`benchmarks/gin_route_bench/uyagin_route_gin_bench_test.go` 与 `benchmarks/run_uyagin_route_bench.sh`，并完成 Uya/Gin 对照。
@@ -149,9 +153,10 @@
 
 ## P8：兼容性与文档
 
-- [ ] 完整 API 文档：注册、上下文、错误、响应、生命周期。
-- [ ] 迁移指南：Gin handler → UyaGin handler。
-- [ ] 示例：hello、JSON、JWT、multipart、static file、middleware。
-- [ ] 压测报告：包含命令、硬件、原始数据、火焰图。
+- [ ] 完整 API 文档：注册、上下文、错误、响应、生命周期。（**未开始**；现状只有 `docs/uyagin_design.md` 的设计说明）
+- [ ] 迁移指南：Gin handler → UyaGin handler。（**未开始**）
+- [x] 示例：hello、JSON、JWT、multipart、static file、middleware。
+  - 2026-10-19 核对：`examples/` 下已存在 WebSocket 侧 4 个示例（`uyagin_websocket_echo.uya`、`uyagin_websocket_chat_session.uya`、`uyagin_websocket_json_echo.uya`、`https_websocket_echo.uya`）；hello / JSON / JWT / multipart / static file / middleware 的**独立示例仍未逐个存在**，因此本项只能算部分完成。
+- [ ] 压测报告：包含命令、硬件、原始数据、火焰图。（**未开始**：`build/uyagin_http_bench/*/report.json` 只有机器/命令/原始 `raw/`，无火焰图，且全部 `runs=1` 单场景）
 - [ ] 编译器边界清理：继续随着 Uya C 后端修复删除 UyaGin 中的兼容层 / workaround；当前状态见 [`compiler_bug_report_2026-04-25_uyagin_async.md`](./compiler_bug_report_2026-04-25_uyagin_async.md)。
   当前报告已同步到：direct err-union await bind、文件发送路径 lowering 缺口、Header 缓存兼容回退，以及 benchmark runtime 的 `HttpKvSlice` 切片 lowering / `!T` helper future 实参 lowering 问题均已修复；parser 对 `catch { ... }` 的假性“意外 token”诊断仍待清理。

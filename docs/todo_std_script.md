@@ -1,11 +1,22 @@
 # 标准脚本运行时 TODO
 
-> **核对头（2026-09-27）**：本 TODO 的"用 Uya 脚本替换仓库 shell"目标**尚未开始迁移**：
-> `docs/std_script_shell_inventory.md`（2026-06-29）盘点出 183 个 `.sh`、其中 132 个 B 类候选；本轮核对仓库中 `.ush` 文件数为 **0**，`lib/std/script/` 已存在但尚未接管任何验证脚本。
+> **核对头（2026-10-19）**：本 TODO 的"用 Uya 脚本替换仓库 shell"目标**尚未开始迁移**（`.ush` 文件数仍为 **0**），但**标准库侧 Phase 2/3/4.1 的实际实现已远超本文档的勾选状态**——上一轮只核对了 `.sh`/`.ush` 计数，没有回填已完成条目。本轮逐条按代码补正：
+>
+> | 原文标注 | 2026-10-19 实际状态 | 证据 |
+> |---|---|---|
+> | Phase 2.2 `std.env` 全部未勾 | **已完成** | `lib/std/env.uya`：`get`（`:112`）、`has`（`:135`）、`env_key_valid`（`:22`）；`EnvBlockBuilder`（`:154`）含 `inherit_current`（`:166`）、`inherit_from`（`:180`）、`with`（`:194`）、`without`（`:217`）、`build`（`:466`）、`envp`（`:497`）、`len`（`:506`）、`drop`（`:515`） |
+> | Phase 2.1 `std.path` | **已完成** | `lib/std/path.uya`：`is_abs`（`:259`）、`normalize`（`:267`）、`basename`（`:391`）、`stem`（`:418`）、`extension`（`:446`）、`dirname`（`:474`）、`join`（`:516`）、`find_executable`（`:588`）、`path_list_separator`（`:242`）、`executable_suffix`（`:251`）；回归 `tests/test_std_path_module.uya` |
+> | Phase 2.3 `std.fs` 全部未勾 | **仍未做** | 仓库**没有** `lib/std/fs.uya`；`grep` 无 `fs_exists`/`fs_mkdir_all`/`fs_read_text` 等高层 API。只有底层原语：`lib/std/io/file.uya`（`file_open` `:115` 等）与 `lib/libc/syscall.uya`（`sys_mkdir` `:983`、`sys_rmdir` `:987`、`sys_unlink` `:978`、`sys_rename` `:1115`、`sys_stat` `:1015`、`sys_getdents64` `:1081`） |
+> | Phase 3 `std.process` 全部未勾 | **已用另一种模型完成**（**不是** `Command/Child/ExitStatus/Output`） | `lib/std/process.uya` 的 `export opaque struct Pipeline`（`:2609`）+ `PipelineStageStatus`（`:125`）+ `PipelineResult`（`:136`）+ `PipelineCaptureResult`（`:148`）；能力对应：argv 构造 `cmd_argv`（`:3053`）/ `cmd_path_argv`（`:3065`）、cwd `cwd`（`:3102`）、env overlay `env`（`:3113`）/ `unset_env`（`:3121`）、stdin/stdout/stderr 重定向 `stdin_file`（`:3152`）/`stdout_file`（`:3160`）/`stderr_file`（`:3168`）、捕获 `stdout_capture`（`:3176`）/`stderr_capture`（`:3184`）/`stderr_to_stdout`（`:3192`）、检查 `check` / `check_into` / `status_into` / `capture_into` / `capture_limit_into`（`lib/std/script/file.uya` 导出 20 个 facade 入口）。退出码语义由 `PipelineStageStatusKind`（`:101`：`exited` / `signaled` / `spawn_failed` / `cancelled` / `stage_failed`…）+ `PipelineSpawnFailureKind`（`:112`）+ `platform_code` 表达 |
+> | Phase 4.1 `std.script` facade | **部分完成** | 模块是 `lib/std/script/file.uya`（不是 `lib/std/script.uya`），**只重导出 process-only typed pipeline API**；4.1 里列的 `run_checked` / `capture_text` / `assert_exit_code` / `require_tool` / `project_root` / `workspace_temp_dir` / `fail` / `log_info` / `log_warn` **一个都没有** |
+> | Phase 4.2 / 4.3 / 5 / 6 / 7 全部未勾 | **仍未做** | `.ush` 实测 **0** 个；`src/main.uya` 无 `COMMAND_SCRIPT`（`uya script` 子命令不存在）；`lib/std/process.uya` 的 `tos_windows` 只用于路径校验（`:858`/`:879`），`grep -rln "CreateProcessW\|CreateJobObject"` 无命中 |
+>
+> 仓库脚本规模（2026-10-19 实测）：`find . -name '*.sh' -not -path './.git/*' | wc -l` → **198**；`find tests -maxdepth 1 -name '*.sh'` → **184**；`find . -name '*.ush'` → **0**（上一版 inventory 记的是 183，期间新增 15 个 `.sh`）。
+>
 > 已归档的部分见 `todo_std_script_completed.md`；下方未勾选条目即为真实剩余工作。
 
 **状态**：executable TODO, planning
-**更新日期**：2026-06-29
+**更新日期**：2026-06-29（正文）；2026-10-19 回填已完成项
 **配套设计**：[`std_script_design.md`](std_script_design.md)
 
 ---
@@ -63,17 +74,21 @@
 
 ### 2.1 `std.path`
 
+- [x] 新建 `lib/std/path.uya` 或等价模块。（2026-10-19：`lib/std/path.uya` 已存在，回归 `tests/test_std_path_module.uya`）
+- [x] `is_abs`（`:259`）、`normalize`（`:267`）、`basename`（`:391`）、`stem`（`:418`）、`extension`（`:446`）、`dirname`（`:474`）、`join`（`:516`）、`find_executable`（`:588`）
+- [x] 平台相关：`path_list_separator`（`:242`）、`executable_suffix`（`:251`）
+
 ### 2.2 `std.env`
 
-- [ ] 新建 `lib/std/env.uya` 或等价模块。
-- [ ] 提供：
-  - [ ] `get`
-  - [ ] `has`
-  - [ ] `inherit_current`
-  - [ ] env overlay builder
-  - [ ] child-only `with/remove`
-- [ ] 明确哪些 API 是“读当前环境”，哪些 API 是“构造子进程环境”。
-- [ ] 为空值、缺失值、重复键、覆盖顺序补测试。
+- [x] 新建 `lib/std/env.uya` 或等价模块。（2026-10-19：`lib/std/env.uya` 已存在）
+- [x] 提供：
+  - [x] `get`（`lib/std/env.uya:112`）
+  - [x] `has`（`:135`）
+  - [x] `inherit_current`（`EnvBlockBuilder.inherit_current`，`:166`；另有 `inherit_from` `:180`）
+  - [x] env overlay builder（`export struct EnvBlockBuilder`，`:154`）
+  - [x] child-only `with/remove`（`with` `:194`、`without` `:217`；`build()` `:466` 产出 null 结尾 envp、`envp()` `:497` 取用）
+- [x] 明确哪些 API 是“读当前环境”，哪些 API 是“构造子进程环境”。（读：`get`/`has`；构造子进程：`EnvBlockBuilder.*` + `build`/`envp`）
+- [~] 为空值、缺失值、重复键、覆盖顺序补测试。（2026-10-19：`EnvBlockBuilder` 内含 `last_op_index_for_key` `:229`、`key_seen_in_ops_before` `:258`、`final_set_op_for_key` `:272`、`visible_entry_count` `:295` 等去重/覆盖逻辑，但**未找到 env 专项测试文件**）
 
 ### 2.3 `std.fs`
 
@@ -101,29 +116,31 @@
 
 ## Phase 3：`std.process` MVP
 
-- [ ] 新建 `lib/std/process.uya` 或等价模块。
-- [ ] 设计 `Command` / `Child` / `ExitStatus` / `Output` 数据模型。
-- [ ] 实现主路径：
-  - [ ] `spawn`
-  - [ ] `status`
-  - [ ] `output`
-  - [ ] `check`
-- [ ] `Command` 支持：
-  - [ ] argv 构造
-  - [ ] cwd override
-  - [ ] env overlay
-  - [ ] stdin 重定向
-  - [ ] stdout 重定向
-  - [ ] stderr 重定向
-- [ ] 默认不经过 shell。
-- [ ] 若保留 shell fallback：
-  - [ ] 明确区分 POSIX shell 与 Windows shell
-  - [ ] 不允许单一 `system_string(...)` API 模糊两者差异
-- [ ] 统一退出码语义：
-  - [ ] 正常退出
-  - [ ] 被信号终止
-  - [ ] platform-specific terminate reason
-- [ ] 为 PATH 搜索、缺失命令、非 0 退出、stdout/stderr 捕获补测试。
+> 2026-10-19 核对：Phase 3 的**目标能力**已实现，但**数据模型与本文设想不同**——落地的是 process-only typed pipeline（`Pipeline` capability + executor），不是 `Command/Child/ExitStatus/Output`。下列条目按"能力是否具备"勾选，模型名不一致处已注明。
+
+- [x] 新建 `lib/std/process.uya` 或等价模块。（`export opaque struct Pipeline` `:2609`）
+- [~] 设计 `Command` / `Child` / `ExitStatus` / `Output` 数据模型。（**改为** `Pipeline`（`:2609`）+ `PipelineStageStatus`（`:125`）+ `PipelineResult`（`:136`）+ `PipelineCaptureResult`（`:148`）+ `CaptureStreamResult`（`:141`）；`Pipeline` 是 move-only 不透明 capability，`drop` 见 `:2613`）
+- [x] 实现主路径：
+  - [x] `spawn`（pipeline executor 内的 fork/exec 阶段；`PipelineStageStatusKind.spawn_failed` 与 `PipelineSpawnFailureKind` 覆盖失败分类，`:101`/`:112`）
+  - [x] `status`（`status_into`，`lib/std/script/file.uya:147` 转发到 `std.process`）
+  - [x] `output`（`stdout_capture` `:3176` / `stderr_capture` `:3184` + `capture_into` / `capture_limit_into`）
+  - [x] `check`（`check` / `check_into`，`lib/std/script/file.uya:133/140`）
+- [x] `Command` 支持（对应 `Pipeline` 构造器）：
+  - [x] argv 构造（`cmd_argv` `:3053`、`cmd_path_argv` `:3065`）
+  - [x] cwd override（`cwd` `:3102`）
+  - [x] env overlay（`env` `:3113`、`unset_env` `:3121`）
+  - [x] stdin 重定向（`stdin_file` `:3152`）
+  - [x] stdout 重定向（`stdout_file` `:3160`）
+  - [x] stderr 重定向（`stderr_file` `:3168`、`stderr_to_stdout` `:3192`）
+- [x] 默认不经过 shell。（`Pipeline` 只有 argv 形式入口；无 `system_string` 类 API）
+- [x] 若保留 shell fallback：（未保留 shell fallback，本条自动满足）
+  - [x] 明确区分 POSIX shell 与 Windows shell
+  - [x] 不允许单一 `system_string(...)` API 模糊两者差异
+- [x] 统一退出码语义：
+  - [x] 正常退出（`PipelineStageStatusKind.exited` + `exit_code`）
+  - [x] 被信号终止（`PipelineStageStatusKind.signaled` + `signal`）
+  - [x] platform-specific terminate reason（`platform_code` + `PipelineSpawnFailureKind.platform_error`）
+- [x] 为 PATH 搜索、缺失命令、非 0 退出、stdout/stderr 捕获补测试。（回归：`tests/test_typed_pipeline_cmd_argv.uya`、`test_typed_pipeline_executor_single.uya`、`test_typed_pipeline_capability.uya`、`test_std_script_pipeline_facade.uya`、`test_std_path_module.uya`；负向 `tests/error_typed_pipeline_*.uya` 共 10 个）
 
 ---
 
@@ -131,9 +148,9 @@
 
 ### 4.1 `std.script` facade
 
-- [ ] 新建 `lib/std/script.uya` 或等价模块。
-- [ ] 只放脚本高频帮助函数，不复制底层所有 API。
-- [ ] MVP 提供：
+- [x] 新建 `lib/std/script.uya` 或等价模块。（2026-10-19：实际路径是 `lib/std/script/file.uya`，20 个 `export fn`，全部转发到 `std.process`）
+- [~] 只放脚本高频帮助函数，不复制底层所有 API。（**当前是反过来的**：`file.uya` 是 1:1 转发 process-only typed pipeline API 的薄层，`pipeline` / `clone` / `cmd_argv` / `cmd_path_argv` / `cwd` / `env` / `unset_env` / `stdin_file` / `stdout_file` / `stderr_file` / `stdout_capture` / `stderr_capture` / `stderr_to_stdout` / `inherit_stdio` / `check` / `check_into` / `status_into` / `capture_into` / `capture_limit_into` / `stage_count`）
+- [ ] MVP 提供：（2026-10-19 复核：下列 9 个高频帮助函数**一个都还没有**，`grep -rn "run_checked\|capture_text\|assert_exit_code\|require_tool\|project_root\|workspace_temp_dir\|log_info\|log_warn" lib/std/script/` 无命中）
   - [ ] `run_checked`
   - [ ] `capture_text`
   - [ ] `assert_exit_code`

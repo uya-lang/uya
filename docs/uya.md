@@ -1,4 +1,4 @@
-# Uya 语言规范 0.49.53（完整版 · 2026-07-11）
+# Uya 语言规范 0.49.54（完整版 · 2026-10-19）
 
 > 零GC · 默认高级安全 · 单页纸可读完  
 > 无lifetime符号 · 无隐式控制 · 编译期证明（本函数内）
@@ -33,6 +33,7 @@
 - [8. 控制流](#8-控制流)
 - [9. defer 和 errdefer](#9-defer-和-errdefer)
 - [10. 运算符与优先级](#10-运算符与优先级)
+  - [10.1. 类型化管道（`|>`）](#101-类型化管道)
 - [11. 类型转换](#11-类型转换)
 - [12. 内存模型 & RAII](#12-内存模型--raii)
   - [12.5. 移动语义](#125-移动语义)
@@ -53,6 +54,19 @@
 ---
 
 ## 规范变更
+
+### 0.49.54（2026-10-19）
+
+- **类型化管道 `|>`**：新增 [10.1 类型化管道](#101-类型化管道)，收录 `pipeline_expr = or_expr { '|>' postfix_expr }`（左结合，优先级介于 `||` 与 `=` 之间）及其类型规则：左侧必须是 `Pipeline` 或 `!Pipeline`；右侧最外层必须是调用表达式；被调用函数首个参数必须是 `Pipeline`；`!Pipeline` 左侧走 try-forward（整体类型为 `!R`，且只在返回错误联合类型的函数内合法）；同一条链只做一次消费/移动标记。明确 `Pipeline` 是 `std.process` 提供的不透明、move-only、延迟执行的执行计划，`|>` 不是通用数据管道操作符。
+- **`@align(N)` 函数声明属性**：收录写在 `fn` 声明前的 `@align(N)`（`N` 为整数字面量常量），用于设置 `@async_fn` 状态机帧的对齐；它属于**声明属性**而不是 `@` 内置函数调用，需写在 `@async_fn` 之前，可与 `@async_fn` 组合（见 [18.3.1](#1831-async_fn-函数属性) 与 [16 章内置函数表](#16-标准库)）。
+- **§16 标准库清单与 `lib/std/` 对齐**：补入 `std.process` / `std.script` / `std.env` / `std.path` / `std.platform` / `std.time` / `std.thread` / `std.testing` / `std.core.*` / `std.collections.*` / `std.mem.*` / `std.io.*` / `std.json` / `std.yaml` / `std.protobuf` / `std.sql` / `std.mqtt.async` / `std.net.*` / `std.async*` / `std.fmt` / `std.macro_typeinfo` / `std.runtime` / `std.microapp` / `std.crypto.*` / `std.http.*` / `std.image.*` 与 `libc.*` / `syscall.*` / `osal.*` / `mem.*` / `kernel.*` / `tls.*` / `tflm.*`；修正 `std.mem` 条目为实际入口 `mem_copy` / `mem_set` / `mem_move` / `mem_cmp` / `mem_chr`。
+- **其余事实修正**：§1 关键字表补齐 `src/lexer.uya` 实际保留字（`enum` / `interface` / `else` / `for` / `as` / `match` / `test` / `mc` / `type` / `opaque` 等）并注明 `as!` 为独立单 token；§2 类型表补 `isize`（当前映射为 `i64`）；§16 内置函数表补齐 `@params`、`@src_name`、`@src_path`、`@src_line`、`@src_col`、`@func_name`、`@print`、`@println`、`@syscall`、`@asm_target`、`@ptr_from_usize`、`@usize_from_ptr` 与 `@align(N)` 声明属性。
+- **语义口径纠正（按当前实现）**：
+  - `try` **只做 `!T` 错误传播**，不做算术溢出检查；`try a + b` 报「try 的操作数必须是错误联合类型」，溢出改用区间证明或 `+|`/`+%` 系列（§8、§10、§14）。
+  - `for` 的受体是**定长数组 / 迭代器接口 / 整数范围**；**切片不能直接 for 迭代**；没有索引迭代形式，`for obj |i|` 只是值绑定；数组也不支持省略绑定的 `for obj {}`（§8）。
+  - **没有负数索引**：`&arr[-3:3]` 不做 `len + start` 换算，会切出越界内容（§1.4；缺口登记在 `buglist.md`）。
+  - **没有 `extern struct` 声明语法**：`extern` 只支持 `extern fn` / `extern union` / `extern const|var`；Uya `struct` 统一 C 布局（§5.2、§5.3）。
+  - `+=` `-=` `*=` `/=` `%=` 是支持的复合赋值；只有 `&= ` `|=` `^=` `<<=` `>>=` 与 `++`/`--` 不支持（§10）。
 
 ### 0.49.53（2026-07-11）
 
@@ -608,7 +622,7 @@
 - **异步编程**（第 18 章）：`@async_fn`/`@await` + `union Poll<T>` + `interface Future<T>`，状态机零分配，挂起显式，并发安全编译期证明
 - **模块系统**（第 1.5 章）：目录级模块、显式导出、路径导入，编译期解析
 - **简化 for 循环语法**（第 8 章）：支持 `for obj |v| {}`、`for 0..10 |v| {}`、`for obj |&v| {}` 等简化语法
-- **运算符简化**（第 10 章）：`try` 关键字用于溢出检查，`+|`/`-|`/`*|` 用于饱和运算，`+%`/`-%`/`*%` 用于包装运算
+- **运算符简化**（第 10 章）：`try` 只做 `!T` 错误传播（不做算术溢出检查），溢出由区间证明或 `+|`/`-|`/`*|`（饱和）与 `+%`/`-%`/`*%`（包装）处理
 
 ---
 
@@ -689,13 +703,15 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
   - `module root = source root`
   - 子目录路径映射到模块路径（如 `std/io/` → `std.io`）
   - 目录下的所有 `.uya` 文件都属于同一个模块
-- 关键字保留：
+- 关键字保留（与 `src/lexer.uya` 的 `is_keyword` 一致）：
   ```
-  struct   const var fn return extern true false if while break continue
-  defer errdefer try catch error null interface atomic union
-  export use
+  enum interface struct union atomic const var fn extern return
+  if else while for break continue true false null
+  try catch error defer errdefer use export
+  as match test mc type opaque
   ```
-- **内置函数**：所有内置函数均以 `@` 开头，无需导入。包括：`@size_of(T)`、`@align_of(T)`、`@len(a)`（数组长度）、`@max`、`@min`（整数类型极值，类型由上下文推断）、`@error_id(err)`（提取错误值的数值 ID）、`@error_name(err)`（提取语言级错误名字符串）、`@embed("file")`（编译期嵌入单文件）、`@embed_dir("dir")`（编译期嵌入目录）。另外，`@c_import("path", cflags?, ldflags?);` 是顶层构建指令，用于把外部 C 源纳入当前构建图。
+  - `as!`（强转）是**独立单 token**，不是 `as` 与 `!` 两个 token 的组合（见 [11.3 强转](#113-强转as)）。
+- **内置函数**：所有内置函数均以 `@` 开头，无需导入。包括：`@size_of(T)`、`@align_of(T)`、`@len(a)`（数组长度）、`@max`、`@min`（整数类型极值，类型由上下文推断）、`@error_id(err)`（提取错误值的数值 ID）、`@error_name(err)`（提取语言级错误名字符串）、`@embed("file")`（编译期嵌入单文件）、`@embed_dir("dir")`（编译期嵌入目录）。另外，`@c_import("path", cflags?, ldflags?);` 是顶层构建指令，用于把外部 C 源纳入当前构建图；`@async_fn`、`@naked_fn`、`@align(N)` 是**声明属性**。完整清单见 [第 16 章](#16-标准库)。
 - 标识符 `[A-Za-z_][A-Za-z0-9_]*`，区分大小写。
 - 数值字面量：
   - 整数字面量：
@@ -971,6 +987,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
 | `i8` `i16` `i32` `i64` | 1 2 4 8 B | 对齐 = 类型大小；支持 `@max`/`@min` 内置函数访问极值 |
 | `u8` `u16` `u32` `u64` | 1 2 4 8 B | 对齐 = 类型大小；无符号整数类型，用于与 C 互操作和格式化 |
 | `usize`         | 4/8 B（平台相关） | 无符号大小类型，用于内存地址和大小；32位平台=4B，64位平台=8B |
+| `isize`         | 8 B | 有符号大小类型；**当前实现**直接把它映射为 `i64`（与平台字长无关），用于与 C 的 `ssize_t` 对应 |
 | `f32` `f64`     | 4/8 B     | 对齐 = 类型大小          |
 | `bool`          | 1 B       | 0/1，对齐 1 B            |
 | `byte`          | 1 B       | 对应 C 的 char，用于字节数组和 C 字符串兼容 |
@@ -1033,7 +1050,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
   - 特殊类型：`*bool`, `*byte`（C 字符串），`*void`（通用指针）
   - C 结构体：`*CStruct`（指向外部 C 结构体的指针）
   - **使用规则**：
-    - ✅ 仅用于 FFI 函数声明/调用和 extern struct 字段
+    - ✅ 仅用于 FFI 函数声明/调用和 C 兼容 struct 的字段（Uya struct 统一 C 布局，没有 `extern struct` 声明语法）
     - ✅ 可用字符串字面量初始化：`const s: *byte = "hello";`（见 §1.4 字符串字面量）
     - ✅ 支持下标访问 `ptr[i]`（展开为 `*(ptr + i)`），但必须提供长度约束证明
     - ❌ 其他情形不能用于普通变量声明（编译错误）
@@ -1308,12 +1325,8 @@ match result {
 - **切片语法**：支持切片语法 `&arr[start:len]`
   - **字符串字面量**（**0.49.41**）：**`"text"[start:len]`** 合法，语义等价于对「长度为 **可见字符数+1**（含 **`\\0`**）的只读字节序列」切片；**`&"text"[start:len]`** 与对同长度 **`[byte:N]`** 缓冲区的 **`&buf[start:len]`** 一致，得到 **`&[byte]`**。
   - **操作符语法**：`&arr[start:len]` 返回从索引 `start` 开始，长度为 `len` 的切片视图（引用）
-  - **负数索引**：支持负数索引，`-1` 表示最后一个元素，`-n` 表示倒数第 n 个元素
-    - 例如：`&arr[-3:3]` 表示从倒数第3个元素开始，长度为3的切片
-    - 例如：`&arr[-5:2]` 表示从倒数第5个元素开始，长度为2的切片
-  - **切片边界检查**：编译期或运行时证明 `start >= -len(arr) && start < len(arr) && len >= 0 && start + len <= len(arr)`
-    - 如果使用负数索引，编译器会自动转换为正数索引：`-n` 转换为 `len(arr) - n`
-    - 例如：`&arr[-3:3]` 对于长度为10的数组，-3转换为7，验证 `7 >= 0 && 7 < 10 && 3 >= 0 && 7 + 3 <= 10`
+  - **没有负数索引**：`&arr[-3:3]` **不会**从末尾倒数，编译器不做 `len + start` 换算；负 `start` 会切出越界内容（实测 `&arr[-3:3]` 对 10 元素数组返回的第一个元素不是 `arr[7]`）。要从末尾取切片，请自行算出非负下标
+  - **切片边界检查**：对「底层是数组/字符串字面量且 start/len 都是常量」的保守子集，编译器校验 `start >= 0 && start < len(arr) && len >= 0 && start + len <= len(arr)`（负 `start` 仍属未收口缺口，见 `buglist.md`）
   - **切片结果类型**：
     - 动态长度切片：`&arr[start:len]` 返回 `&[T]`（切片引用，动态长度）
     - 已知长度切片：如果 `len` 是编译期常量，可以显式指定为 `&[T: N]`（已知长度切片引用）
@@ -2477,6 +2490,7 @@ Uya 联合体设计完全符合「坚如磐石」哲学：
   - `export fn name(...) type { ... }`：导出函数，生成的 C 代码不添加 `static`
   - `extern fn name(...) type;`：外部 C 函数声明（无函数体）
   - `export extern fn name(...) type { ... }` 或 `extern export fn name(...) type { ... }`：导出外部 C 函数（FFI），两种顺序等价
+  - **声明属性**（可选，写在 `fn` 之前，可叠加）：`@async_fn`（异步函数，见 [18.3.1](#1831-async_fn-函数属性)）、`@naked_fn`（裸函数）、`@align(N)`（异步帧对齐，见 [18.3.1](#1831-async_fn-函数属性)）。顺序示例：`export @align(64) @async_fn fn f() Future<!i32> { ... }`；`@align(N)` 必须写在 `@async_fn` 之前。
 - **函数可见性规则**（0.42 新增）：
   - **`fn`**：内部函数，生成的 C 代码为 `static void foo(void) { ... }`
     - 仅在当前编译单元可见，不导出到全局符号表
@@ -2869,25 +2883,13 @@ bin/uya --c99 app.uya …   # 推荐：由驱动自动加入 entry.uya
 [examples/process.uya](./examples/process.uya)
 
 - **`try` 关键字**：
-  - `try expr` 用于传播错误和溢出检查
-  - **错误传播**：如果 `expr` 返回错误，当前函数立即返回该错误
-  - **溢出检查**：如果 `expr` 是算术运算（`+`, `-`, `*`, `/`），自动检查溢出，溢出时返回 `error.Overflow`
-  - 如果 `expr` 返回值，继续执行
-  - **只能在返回错误联合类型的函数中使用**，且 `expr` 必须是返回错误联合类型的表达式或算术运算
-  - **可能抛出的错误类型**：
-    - **错误传播模式**：`try expr` 可能抛出 `expr` 返回的所有错误类型
-      - 例如：`try divide(10, 2)` 可能抛出 `divide` 函数返回的所有错误（如 `error.DivisionByZero`）
-    - **溢出检查模式**：`try a + b`、`try a - b`、`try a * b`、`try a / b` 可能抛出 `error.Overflow`
-      - 加法溢出：`try a + b` 在 `a + b` 超出类型范围时返回 `error.Overflow`
-      - 减法溢出：`try a - b` 在 `a - b` 超出类型范围时返回 `error.Overflow`
-      - 乘法溢出：`try a * b` 在 `a * b` 超出类型范围时返回 `error.Overflow`
-      - 除法溢出：`try a / b` 在 `a / b` 超出类型范围时返回 `error.Overflow`（如 `@min / -1`）
+  - `try expr` 用于**传播错误联合类型 `!T` 的错误**；`expr` 必须是错误联合类型
+  - **错误传播**：如果 `expr` 返回错误，当前函数立即返回该错误；否则取成功载荷继续执行
+  - **不做算术溢出检查**：`try a + b` 会被解析为 `try (a + b)`，而 `a + b` 不是错误联合类型，
+    checker 报「try 的操作数必须是错误联合类型 !T」。需要同时传播错误并做算术时写 `(try a) + b`
+  - 溢出由编译期区间证明或饱和 `+|` `-|` `*|` / 包装 `+%` `-%` `*%` 运算符处理
+  - **只能在返回错误联合类型的函数中使用**
   - **错误传播示例**：`const result: i32 = try divide(10, 2);`（`divide` 必须返回 `!i32`，可能抛出 `error.DivisionByZero` 等）
-  - **溢出检查示例**：
-    - `const result: i32 = try a + b;`（自动检查 `a + b` 是否溢出，可能抛出 `error.Overflow`）
-    - `const result: i32 = try a - b;`（自动检查 `a - b` 是否溢出，可能抛出 `error.Overflow`）
-    - `const result: i32 = try a * b;`（自动检查 `a * b` 是否溢出，可能抛出 `error.Overflow`）
-    - `const result: i32 = try a / b;`（自动检查 `a / b` 是否溢出，可能抛出 `error.Overflow`）
 
 - **`catch` 语法**：
   - `expr catch |err| { statements }` 用于捕获并处理错误
@@ -2901,8 +2903,9 @@ bin/uya --c99 app.uya …   # 推荐：由驱动自动加入 entry.uya
   - **catch 块的返回方式**（两种方式，语义不同）：
     
     **方式 1：表达式返回值**（catch 块返回一个值给 catch 表达式）
-    - catch 块的最后一条表达式作为返回值（不需要 `return` 关键字）
+    - catch 块的**最后一条表达式语句**（必须以 `;` 结尾）的值作为返回值；不需要 `return` 关键字
     - 这个值会成为整个 `catch` 表达式的值
+    - 例：`const p: &byte = pb catch { null as &byte; };`（真实用法见 `lib/std/async_channel.uya`）
     - 示例：
 [examples/example_018.uya](./examples/example_018.uya)
     
@@ -3061,7 +3064,7 @@ fn dispatch(h: Handler, ctx: &Ctx, ev: &Event) void {
 
 **`|...|` 的保留语义**：竖线绑定语法在 1.0 中**仅**用于以下三处，不被赋予闭包含义：
 
-- `for` 迭代捕获：`for slice |value|` / `for slice |&ptr|` / `for slice |i|`
+- `for` 迭代捕获：`for arr |value|` / `for arr |&ptr|` / `for 0..n |i|`（受体是定长数组、迭代器接口或整数范围；切片不能直接 for 迭代）
 - `catch` 错误绑定：`expr catch |err| { ... }`
 - `match` 变体绑定：`match v { .Variant(x) => ... }`（绑定模式）
 
@@ -3130,7 +3133,7 @@ export extern const ENOENT: i32;        // 不生成定义，链接到 C 库
 - 必须使用 C 兼容类型：
   - 基本类型：`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `byte`
   - 指针类型：`*T`, `*const T`, `&T`, `&const T`
-  - C 结构体：extern struct 类型
+  - C 结构体：C 内存布局的 `struct` 类型（Uya struct 天然 C 布局，无需 `extern`）
 - 不支持 Uya 特有类型（如切片、错误联合等）
 
 **设计目的**：
@@ -3145,7 +3148,7 @@ export extern const ENOENT: i32;        // 不生成定义，链接到 C 库
 [examples/safe_access_1.uya](./examples/safe_access_1.uya)
 
 **FFI 指针使用规则**：
-- ✅ 仅用于 FFI 函数声明/调用和 extern struct 字段
+- ✅ 仅用于 FFI 函数声明/调用和 C 兼容 struct 的字段
 - ✅ 可用字符串字面量初始化 `*byte`：`const s: *byte = "hello";`（见 §1.4）
 - ✅ 支持下标访问 `ptr[i]`（展开为 `*(ptr + i)`），但必须提供长度约束证明
 - ❌ 其他情形不能用于普通变量声明（编译错误）
@@ -3765,27 +3768,26 @@ fn log_printf(fmt: *byte, ...) i32 {
       - `start..end`：从 `start` 到 `end-1` 的范围（左闭右开区间 `[start, end)`）
       - `start..`：从 `start` 开始的无限范围，由迭代器结束条件终止
   - **基本形式（有元素变量，只读）**：`for obj |v| { statements }`
-    - `obj` 必须是实现了迭代器接口的类型（如数组、切片、迭代器）
-    - `v` 是循环变量，类型由迭代器的 `value()` 方法返回类型决定
+    - `obj` 必须是**定长数组** `[T: N]`、**实现了迭代器接口的结构体**，或整数范围表达式
+    - **切片 `&[T]` 不能直接作为 for 的受体**（checker 报「for 循环需要数组类型或实现了迭代器接口的结构体」）；需要遍历切片时用 `for 0..@len(slice) |i| { slice[i] }`
+    - `v` 是循环变量，类型由数组元素类型或迭代器的 `value()` 方法返回类型决定
     - `v` 是只读的，不能修改
     - 自动调用迭代器的 `next()` 方法，返回 `error.IterEnd` 时循环结束
   - **基本形式（有元素变量，可修改）**：`for obj |&v| { statements }`
-    - `obj` 必须是实现了迭代器接口的类型（如数组、切片、迭代器）
+    - `obj` 必须是**可变定长数组**（`var arr`）或实现了迭代器接口的结构体；切片同样不能直接迭代
     - `&v` 是循环变量，类型是指向元素的指针（`&T`），可以修改元素
     - 在循环体中可以通过 `*v` 访问元素值，通过 `*v = value` 修改元素
     - 自动调用迭代器的 `next()` 方法，返回 `error.IterEnd` 时循环结束
-    - 注意：只有可变数组（`var arr`）或可变切片才能使用此形式
-  - **索引迭代形式**：`for obj |i| { statements }`
-    - `obj` 可以是数组或切片
-    - `i` 是当前元素的索引，类型为 `usize`
-    - 适用于只需要索引，不需要元素值的场景
+    - 注意：只有可变数组（`var arr`）才能使用此形式，常量数组会编译错误
+  - **没有专门的索引迭代形式**：`for obj |i|` 只是把**元素值**绑定到名为 `i` 的变量，不是索引。
+    需要索引时写 `for 0..@len(obj) |i| { ... }`（整数范围形式）。
   - **整数范围形式（有元素变量）**：`for start..end |v| { statements }` 或 `for start.. |v| { statements }`
     - `start..end`：迭代从 `start` 到 `end-1` 的整数（`[start, end)`）
     - `start..`：从 `start` 开始的无限范围，由迭代器结束条件终止
     - `v` 是当前迭代的整数值
-  - **丢弃元素形式**：`for obj { statements }` 或 `for start..end { statements }`
+  - **丢弃元素形式**：仅整数范围支持省略绑定，即 `for start..end { statements }`
     - 不绑定元素变量，只执行循环体指定次数
-    - 适用于只需要循环次数，不需要元素值的场景
+    - **数组 / 迭代器不支持省略绑定**：`for obj { ... }` 是语法错误（必须写 `for obj |v|` 或 `for obj |&v|`）
   - **语义**：
     - for循环是语法糖，编译期展开为while循环（见展开规则）
     - 可迭代对象自动装箱为接口类型，使用动态派发
@@ -3966,7 +3968,8 @@ fn log_printf(fmt: *byte, ...) i32 {
 | 10 | `\|` | 左 | 按位或 |
 | 11 | `&&` | 左 | 逻辑与 |
 | 12 | `\|\|` | 左 | 逻辑或 |
-| 13 | `=` | 右 | 赋值（最低优先级）|
+| 13 | `\|>` | 左 | 类型化管道（仅用于 `Pipeline` / `!Pipeline`，见 [10.1](#101-类型化管道)） |
+| 14 | `=` | 右 | 赋值（最低优先级）|
 
 - 无隐式转换；两边类型必须完全一致。
 - 赋值运算符 `=` 仅用于 `var` 变量。
@@ -3998,7 +4001,7 @@ fn log_printf(fmt: *byte, ...) i32 {
 [examples/example_066.uya](./examples/example_066.uya)
 - **不支持的运算符**：
   - 自增/自减：`++`, `--`（必须使用 `i = i + 1;` 形式）
-  - 复合赋值：`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`（必须使用完整形式）
+  - 位运算 / 移位的复合赋值：`&=`, `|=`, `^=`, `<<=`, `>>=`（`+=`, `-=`, `*=`, `/=`, `%=` 是支持的，见 §10 优先级表）
   - 三元运算符：`?:`（必须使用 `if-else` 语句）
 - **类型比较规则**：
   - 基础类型（整数、浮点、布尔）支持 `==` 和 `!=` 比较
@@ -4062,6 +4065,81 @@ fn log_printf(fmt: *byte, ...) i32 {
 - **常量错误**：编译期常量错误仍然直接报错（如常量溢出、常量除零）
 - **优先级示例**：
 [examples/example_068.uya](./examples/example_068.uya)
+
+### 10.1 类型化管道（`|>`）
+
+> **BNF**：`pipeline_expr = or_expr { '|>' postfix_expr }`（详见 [grammar_formal.md](./grammar_formal.md)）；设计背景与进程管道的 MVP 范围见 [typed_pipeline_design.md](./typed_pipeline_design.md)。
+
+`|>` 是**仅服务于类型化进程管道**的前向操作符：它把一个 `Pipeline` 执行计划交给下一个 stage，**不是**适用于任意值的通用数据管道操作符。
+
+**语法与结合性**：
+
+- 左结合：`a |> f() |> g()` 等价于 `(a |> f()) |> g()`，逐级向前传递。
+- 优先级介于 `||`（第 12 级）与 `=`（第 14 级）之间，即第 13 级（见上表）。
+- 右侧按 **postfix expression** 解析（普通调用、模块限定调用、泛型实例化调用、带括号表达式等），但语义上要求其**最外层是调用表达式**；`pipeline() |> y`（`y` 不是调用）与 `pipeline() |> ;`（右侧缺失）都会被拒绝。
+- 赋值语句先解析完整的 `pipeline_expr` 再解析 `=`，因此 `|>` 不能出现在赋值左侧。
+
+**类型规则**（`src/checker/check_expr_extra.uya` 的 `checker_check_pipeline_expr`）：
+
+1. **左侧类型**必须是 `Pipeline`（`std.process` 导出的 opaque struct）或 `!Pipeline`（载荷为 `Pipeline` 的错误联合）；其他类型（`i32`、`&byte`、sink 之后的 `!T` 等）报「管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型」。`Pipeline` 按**声明身份**（`std.process` 的 canonical 声明）识别，不按未限定名字字符串匹配。
+2. **右侧**必须是最外层调用表达式，否则报「管道运算符 '|>' 右侧必须是调用表达式」。
+3. 右侧不能是**带隐式 self receiver 的实例方法调用**（如 `value.method(...)`），因为插入的左值会与 `self` 冲突。
+4. **被调用函数首个参数**必须是 `Pipeline`，否则报「管道运算符 '|>' 右侧 callee 的首个参数必须是 Pipeline 类型」。
+5. **结果类型**：`lhs: Pipeline` 时整体等价于 `f(lhs, args...)`，类型即 `f` 的返回类型 `R`；`lhs: !Pipeline` 时等价于 `f(try lhs, args...)`，`f` 返回普通类型 `R` 时整体为 `!R`，`f` 已返回 `!R` 时保持 `!R`。
+6. **try-forward 只在错误联合上下文中可用**：`!Pipeline` 左侧要求当前函数返回错误联合类型（`@async_fn` 返回 `Future<!T>` / `!Future<T>` 亦允许），否则报「try-forward 管道 '|>' 只能在返回错误联合类型的函数中使用」。
+7. **消费与移动只标记一次**：一条 `|>` 链只把最左侧的 `Pipeline` 变量标记为「已移动」一次，因此 `p |> f() |> g()` 可正常通过；同一变量出现在**另一条**链里则报「变量 'p' 已被移动，不能再次使用」。
+
+**`Pipeline` 语义**：
+
+- `Pipeline` 由 `std.process` 声明为 `export opaque struct`（见 [0.49.53](#规范变更)），是**不透明、move-only、延迟执行**的执行计划：`pipeline()` 返回尚未执行的空计划；transformer（`cmd_argv`、`stdout_file`、`stderr_file` 等）只修改计划、不启动进程；sink（`check()`、`status_into(...)`、`capture_into(...)`）才真正执行并返回非 `Pipeline` 结果。
+- 未进入 sink 就离开作用域的 `Pipeline` 由 `drop` 自动释放；`clone` 是唯一的显式复制入口。
+- 因此 `|>` 只接受首参为 `Pipeline` 的调用，任何「把普通值喂给函数」的写法（`123 |> f()`、`"abc" |> trim()`）都不合法。
+- 脚本侧可用 `std.script` 作为 `std.process` 常用 pipeline API 的 facade。
+
+**正例**（`tests/test_typed_pipeline_parser_positive.uya`、`tests/test_typed_pipeline_checker_positive.uya`）：
+
+```uya
+use std.process;
+
+fn stage(p: Pipeline, a: &const byte) Pipeline { return p; }
+fn sink(p: Pipeline) i32 { return 0; }
+fn opener() !Pipeline { return pipeline(); }
+
+fn ok() !void {
+    // Pipeline 左侧：等价于 f(lhs, args...)
+    const code: i32 = pipeline() |> stage("a") |> sink();
+
+    // !Pipeline 左侧：等价于 f(try lhs, args...)，整体类型为 !i32
+    const maybe: !i32 = opener() |> sink();
+}
+```
+
+**反例**（`tests/error_typed_pipeline_*.uya`）：
+
+```uya
+// sink / opener 见上节正例
+fn bad_transformer(a: i32) Pipeline { return pipeline(); }  // 首个参数不是 Pipeline
+fn my_sink(p: Pipeline) i32 { return 0; }
+fn my_transformer(p: Pipeline) Pipeline { return p; }
+
+fn neg_shape() i32 {
+    _ = 123 |> sink();                              // 错误：左侧必须是 Pipeline 或 !Pipeline
+    _ = pipeline() |> bad_transformer(1);           // 错误：callee 首个参数必须是 Pipeline
+    const y: i32 = 0;
+    _ = pipeline() |> y;                            // 错误：右侧必须是调用表达式
+    _ = pipeline() |> my_sink() |> my_transformer();  // 错误：sink 之后左侧已不是 Pipeline
+    return 0;
+}
+
+fn neg_try_forward() !void {
+    const x: i32 = opener() |> sink();              // 错误：try-forward 结果为 !i32
+    _ = x;
+}
+```
+
+此外 `_ = pipeline() |> ;` 会让 parser 直接失败（「管道右侧不完整或不是有效的 postfix 表达式」）。
+
+> 回归测试：`tests/test_typed_pipeline_*.uya`、`tests/error_typed_pipeline_*.uya`；降级验证脚本 `tests/verify_typed_pipeline_lowering_dump.sh`。
 
 ---
 
@@ -4524,16 +4602,14 @@ Uya 语言的编译期证明机制采用**分层验证策略**，**证明范围�
      - `const x: i32 = 2147483647 + 1;` → 编译错误（i32 溢出）
      - `const y: i64 = 9223372036854775807 + 1;` → 编译错误（i64 溢出）
 
-2. **`try` 关键字和饱和运算符（最推荐）**：
-   - 使用 `try` 关键字进行溢出检查，或使用饱和运算符 `+|`, `-|`, `*|` 进行溢出处理
+2. **饱和运算符（最推荐）**：
+   - 使用饱和运算符 `+|`, `-|`, `*|` 进行溢出处理（钳到类型极值），或用包装运算符 `+%`, `-%`, `*%`
    - 一行代码替代多行溢出检查，代码简洁
    - 编译期展开，与手写代码性能相同
    - 示例：
 [examples/add_safe_2.uya](./examples/add_safe_2.uya)
-   - **`try` 关键字支持的操作**：
-     - `try a + b`（加法溢出检查）
-     - `try a - b`（减法溢出检查）
-     - `try a * b`（乘法溢出检查）
+   - **注意**：`try` 关键字**只做错误传播**，不做算术溢出检查；`try a + b` 会报
+     「try 的操作数必须是错误联合类型 !T」（详见 §8 的 `try` 说明）
    - **饱和运算符**：
      - `a +| b`（饱和加法）
      - `a -| b`（饱和减法）
@@ -4543,7 +4619,7 @@ Uya 语言的编译期证明机制采用**分层验证策略**，**证明范围�
      - `a -% b`（包装减法）
      - `a *% b`（包装乘法）
    - **支持的类型**：`i8`, `i16`, `i32`, `i64`
-   - **编译期展开**：`try` 关键字和饱和运算符在编译期展开为相应的溢出检查代码
+   - **编译期展开**：饱和/包装运算符在编译期展开为相应的运算代码
 
 3. **@max/@min 内置函数（备选方式）**：
    - 使用 `@max` 和 `@min` 内置函数访问类型的极值常量
@@ -4706,7 +4782,7 @@ fn caller() void {
 
 ## 16 标准库
 
-所有内置函数均以 `@` 开头，由编译器识别，无需导入或声明；其中部分为编译期展开，部分为零成本运行时访问或运行时 helper。
+所有内置函数均以 `@` 开头，由编译器识别，无需导入或声明；其中部分为编译期展开，部分为零成本运行时访问或运行时 helper。`@async_fn`、`@naked_fn`、`@align(N)` 属于**函数声明属性**（写在 `fn` 声明之前），不是可调用的内置函数表达式。
 
 | 内置函数 | 签名 | 说明 |
 |----------|------|------|
@@ -4721,8 +4797,10 @@ fn caller() void {
 | `@va_end` | `@va_end(&ap)` | 结束 va_list 访问（编译时展开为 C 宏） |
 | `@va_arg` | `@va_arg(ap, Type)` | 从 va_list 获取下一个参数，类型由 Type 指定 |
 | `@va_copy` | `@va_copy(&dest, src)` | 复制 va_list（编译时展开为 C 宏） |
+| `@params` | `@params` / `@params.N` | 当前函数**全部形参**组成的元组值，类型为 `(T0, T1, ...)`；`@params.N` 按索引取第 N 个形参（不是 `va_list`，也不代表 `...` 的可变部分，详见 §5.4） |
 | `@async_fn` | 函数属性 | 标记异步函数，触发 CPS 变换 |
 | `@naked_fn` | 函数属性 | 标记裸函数（无 prologue/epilogue），用于底层系统代码 |
+| `@align(N)` | 函数属性（`N` 为整数字面量常量） | 设置 `@async_fn` 状态机帧的对齐（C99 后端生成 `__attribute__((aligned(N)))`，`@align_of(@frame(f))` 返回 `N`）；须写在 `@async_fn` 之前，见 [18.3.1](#1831-async_fn-函数属性) |
 | `@await` | 表达式 | 等待异步操作完成（仅 `@async_fn` 内） |
 | `@frame` | `@frame(fn_name)` / `@frame(fn_name<T>)` | 异步帧类型构造器（v0.9.3）；暴露 `@async_fn` 的状态机帧类型；高层方法 `start/poll/stop`；pinned 语义（禁止按值移动/赋值/传参/返回） |
 | `@embed` | `fn @embed("path") &[const byte]` | 编译期嵌入单个普通文件，返回只读字节切片 |
@@ -4731,6 +4809,17 @@ fn caller() void {
 | `@asm` | `@asm { ... }` | 内联汇编块 |
 | `@vector` | `@vector(T, N)` / `@vector.splat(x)` / `@vector.load(ptr)` / `@vector.store(ptr,v)` / `@vector.select(m,a,b)` / `@vector.any(m)` / `@vector.all(m)` | SIMD 向量类型构造器与阶段 4 辅助内建 |
 | `@mask` | `@mask(N)` | SIMD 掩码类型构造器 |
+| `@src_name` | `@src_name` | 编译期展开为当前源文件名；checker 推断为 `&[i8]`，但 C99 实际发射 C 字符串字面量，按 `*byte` 接收 |
+| `@src_path` | `@src_path` | 编译期展开为当前源文件路径（类型口径同 `@src_name`） |
+| `@src_line` | `@src_line` | 编译期展开为当前行号（`i32`） |
+| `@src_col` | `@src_col` | 编译期展开为当前列号（`i32`） |
+| `@func_name` | `@func_name` | 编译期展开为当前（未限定）函数名（类型口径同 `@src_name`） |
+| `@print` | `fn @print(expr) i32` | 打印表达式到 stdout（不换行），编译期展开为 `printf` 并返回其返回值 |
+| `@println` | `fn @println(expr) i32` | 打印表达式到 stdout 并换行 |
+| `@syscall` | `@syscall(nr, arg1, ..., argN)` | 直接系统调用：`nr` 与各参数须为整数或指针类型；普通源文件最多 6 个参数（microapp 用户源最多 2 个），返回 `!i64`（失败为 errno 载荷） |
+| `@ptr_from_usize` | `fn @ptr_from_usize(v: usize) &void` | 把 `usize` 地址值重新解释为 `&void`（参数必须是 `usize`） |
+| `@usize_from_ptr` | `fn @usize_from_ptr(p) usize` | 取指针的地址值（参数必须是指针类型） |
+| `@asm_target` | `fn @asm_target() @asm_target` | 返回当前目标平台枚举值，用于平台裁枝（见 [19.6](#196-平台支持)） |
 
 **`@c_import` 说明**：
 - 只能在顶层使用
@@ -4744,10 +4833,13 @@ fn caller() void {
 
 | 模块 | 入口 / 接口 | 说明 |
 |------|-------------|------|
-| `std.string` | `strlen` / `strcmp` / `strstr` 等 | 纯 Uya 字符串与字节串工具 |
-| `std.mem` | `memcpy` / `memset` / `memmove` / `memcmp` 等 | 纯 Uya 内存操作 |
-| `std.encoding.base64` | Base64 / Base64URL 编解码 | 文本协议、JWT 等场景 |
-| `std.http` | `types` / `parse` / `router` / `server` / `jwt` | 阻塞式 HTTP 与 JWT 辅助 |
+| `std.string` | `strlen` / `strcmp` / `strncmp` / `strcpy` / `strcat` / `strchr` / `strrchr` / `strstr` | 纯 Uya 字符串与字节串工具 |
+| `std.mem.mem` | `mem_copy` / `mem_set` / `mem_move` / `mem_cmp` / `mem_chr` | 纯 Uya 内存操作 |
+| `std.mem.allocator` | `IAllocator` / `get_allocator` | 通用内存分配器接口 |
+| `std.mem.arena` | `arena_init` / `arena_alloc` / `arena_reset` | 调用方缓冲区上的 bump 分配器（实现 `IAllocator`） |
+| `std.mem.heap` | `get_heap_allocator` | 基于 osal mmap/munmap 的堆分配器（不依赖 malloc） |
+| `std.encoding.base64` | `encode_base64` / `decode_base64` / `encode_base64url` / `decode_base64url` / `decode_base64_mime` | Base64 / Base64URL 编解码，文本协议、JWT 等场景 |
+| `std.http` | `std.http.types` / `parse` / `router` / `server` / `epoll_server` / `jwt` / `hpack` / `http1_async` / `http2_frame` / `http2_stream` / `uyagin` / `websocket_*` | 阻塞式与异步 HTTP（HTTP/1.1、HTTP/2 帧与流、HPACK）、UyaGin 风格框架、JWT 与 WebSocket |
 | `std.sql` | `types` / `driver` / `db` | 数据库通用抽象；面向 SQLite / MySQL 等驱动适配 |
 | `std.crypto.blake2b` | `blake2b_digest(data, digest_out)` | BLAKE2b 一次性摘要，输出 64 字节 |
 | `std.crypto.blake2s` | `blake2s_digest(data, digest_out)` | BLAKE2s 一次性摘要，输出 32 字节 |
@@ -4759,6 +4851,42 @@ fn caller() void {
 | `std.image` | `Image` / `image_new` / `image_get` / `image_set` | 内存位图（灰度 / RGB，行优先） |
 | `std.image.jpeg_decode` | `jpeg_decode(data, n, alloc, img)` / `jpeg_decode_info(data, n, info)` | 基线 JPEG 解码（4:4:4 / 4:2:2 / 4:2:0 + 重启间隔；渐进式等明确拒绝） |
 | `std.image.jpeg_encode` | `jpeg_encode(img, opts, out, cap, alloc, len)` / `jpeg_encode_q(img, quality, ...)` | 基线 JPEG 编码（JFIF + Annex K 表；质量 1..100） |
+| `std.crypto.sha1` | `sha1_digest(data, digest)` | SHA-1 一次性摘要（FIPS 180-4），输出 20 字节 |
+| `std.crypto.sha512` | `sha512_digest(data, digest)` / `hmac_sha512(key, msg, mac_out)` | SHA-512 摘要（输出 64 字节）与 HMAC-SHA512 |
+| `std.crypto.bigint` | `bigint_add` / `bigint_sub` / `bigint_cmp` / `bigint_from_be` / `bigint_to_be` / `bigint_modexp_be` | 定长大数与 Montgomery 模幂 |
+| `std.crypto.curve25519` | `x25519_scalarmult(out, scalar, point)` / `x25519_base` / `gf_*` 域运算 | X25519 标量乘（RFC 7748）与 Ed25519 共用域运算 |
+| `std.crypto.ed25519` | `ed25519_public_key` / `ed25519_sign` / `ed25519_verify` | Ed25519 签名与验签（RFC 8032） |
+| `std.env` | `get` / `has` / `env_block_builder_new` | 读取当前环境变量、构造 child-only env block |
+| `std.path` | `is_abs` / `normalize` / `join` / `dirname` / `basename` / `stem` / `extension` / `find_executable` | 可移植路径工具 |
+| `std.platform` | `HostOS` / `HostArch` / `TargetOS` / `TargetArch` 枚举 | 平台枚举，配合 `std.cfg(...)` 做平台裁枝 |
+| `std.time` | `now_ms` / `deadline_after_ms` / `deadline_expired` / `deadline_remaining_ms` | 毫秒级时间与 deadline 工具 |
+| `std.thread` | `ThreadPool` / `thread_pool_new` / `thread_pool_shutdown` / `async_compute<T>` | 线程池与基于线程的长时异步计算 |
+| `std.testing` | `run_test` / `expect` / `assert_eq_i32` 等 | `uya test` 使用的测试框架 |
+| `std.error` | 通用错误标签 `IOError` / `PermissionDenied` / `NotFound` / `InvalidArgument` / `UnexpectedEof` | 标准库通用错误定义 |
+| `std.core.option` / `std.core.error` / `std.core.traits` | `Option<T>` 及其判定/取值辅助、错误标签包装、traits 占位 | 核心类型与接口占位，供后续泛型能力使用 |
+| `std.collections.vec` | `Vec<T>` / `vec_new` | 动态数组（创建时传入 `IAllocator`，`drop` 释放缓冲区） |
+| `std.collections.hashmap` | `HashMap` / `hashmap_new` | 字符串键哈希表（`IAllocator`，按负载因子倍增） |
+| `std.collections.ring_queue` | `RingQueue` / `ring_queue_new` | 环形队列（`IAllocator`） |
+| `std.collections.string_buf` | `StringBuf` / `string_buf_new` | 可增长字节缓冲（`Vec<byte>` 封装） |
+| `std.process` | `Pipeline` / `pipeline()` / `clone` / `cmd_argv` / `cmd_path_argv` / `cwd` / `env` / `stdin_file` / `stdout_file` / `stderr_file` / `check` / `status_into` / `capture_into` | 进程与类型化管道（见 [10.1](#101-类型化管道)） |
+| `std.script` | 重导出 `pipeline` / `cmd_argv` / `check` / `capture_into` 等常用 pipeline API | 脚本（`.ush`）作者使用的高层 facade |
+| `std.io.file` / `std.io.stream`（同属 `std.io` 模块） | `file_open` / `file_read` / `file_write` / `file_close`；`fopen` / `fputs` / `fprintf` / `fflush` | 同步文件与流 I/O |
+| `std.io.reader` / `std.io.writer` | `IReader` / `IWriter` 接口约定 | I/O 接口占位，供库演进 |
+| `std.json` | `std.json.value` / `parser` / `encoder` / `macros` | JSON 编解码 |
+| `std.yaml` | `std.yaml.value` / `parser` / `encoder` / `convert` | YAML 编解码 |
+| `std.protobuf` | wire / 类型化 demo / `dynamic` | Protocol Buffers 二进制编解码 |
+| `std.mqtt.async` | `mqtt_connect_options_build_packet` / `mqtt_publish_request_build_packet` / `mqtt_packet_parse_connack` 等 | 纯 Uya MQTT 异步协议层 |
+| `std.net.addr` / `std.net.socket` | `ip_addr_parse_ipv4` / `ip_addr_*`；`net_socket_set_nonblocking` / `net_socket_close` | IP 地址类型与 socket fd 基础操作 |
+| `std.net.dns` | `dns_client_init` / `dns_client_query_a` / `dns_client_set_timeout_ms` | 最小 DNS 客户端 |
+| `std.fmt` | `format` / `format_result` / `format_with_options`，内部由 `std.fmt.tokenizer` / `parser` / `printer` / `comments` 组成 | `uya fmt` 使用的 Uya 源码格式化器 |
+| `std.macro_typeinfo` | `TypeInfo` / `FieldInfo` | `@mc_type` 与宏编译期 `info.fields` 使用的类型定义 |
+| `std.async` | `Waker` / `Future<T>` / `Poll<T>` / `Task<T>` | 异步运行时核心类型与接口 |
+| `std.async_frame` | `AsyncFramePool` / `async_frame_pool_alloc_aligned` / `async_frame_pool_init_with_config` | 异步帧池运行时支持 |
+| `std.async_scheduler` / `std.async_channel` / `std.async_event` | 任务队列 / 单槽与 MPSC 通道 / Linux epoll 事件循环 | 异步调度与 I/O 事件抽象 |
+| `std.runtime` | `std.runtime.entry` / `std.runtime.capability` | 运行时入口与 capability 抽象 |
+| `std.microapp` | `std.microapp.abi` / `io` / `mem` / `task` / `time` | microapp 运行时接口 |
+
+> **`lib/` 顶层模块**：除 `lib/std/` 之外，`use` 还可导入 `libc.*`（C 库绑定，如 `libc.stdio` / `libc.syscall` / `libc.unistd`）、`syscall.*`（仅依赖 `@syscall` 的裸系统调用层）、`osal.*`（操作系统抽象层）、`mem.*`（底层内存与字符串操作）、`kernel.*`（微容器 capability 与分页）、`tls.*`（纯 Uya TLS）与 `tflm.*`（TFLite Micro 后端）。
 
 > **`std.sql` 详细说明**：见 [std_sql.md](./std_sql.md)
 
@@ -4780,27 +4908,13 @@ fn caller() void {
    - 示例：
 [examples/example_100.uya](./examples/example_100.uya)
 
-2. **`try` 关键字、饱和运算符**（`+|`, `-|`, `*|`）**和包装运算符**（`+%`, `-%`, `*%`）
-   - 功能：提供简洁的溢出检查和处理方式，避免重复编写溢出检查代码
+2. **饱和运算符**（`+|`, `-|`, `*|`）**和包装运算符**（`+%`, `-%`, `*%`）
+   - 功能：提供简洁的溢出处理方式，避免重复编写溢出检查代码
    - 支持的类型：`i8`, `i16`, `i32`, `i64`
-   - 编译期展开：`try` 关键字和饱和运算符在编译期展开为相应的溢出检查代码
-   - **`try` 关键字用于溢出检查**：
-     - **功能**：对算术运算（`+`, `-`, `*`）进行溢出检查，溢出时返回 `error.Overflow`
-     - **语法**：`try expr`，其中 `expr` 是算术运算表达式
-     - **返回类型**：`!T`（错误联合类型），需要 `catch` 处理错误
-     - **可能抛出的错误**：
-       - `error.Overflow`：当算术运算结果超出类型范围时抛出
-       - 加法溢出：`try a + b` 在 `a + b` 超出类型范围时返回 `error.Overflow`
-       - 减法溢出：`try a - b` 在 `a - b` 超出类型范围时返回 `error.Overflow`
-       - 乘法溢出：`try a * b` 在 `a * b` 超出类型范围时返回 `error.Overflow`
-     - **使用场景**：需要明确处理溢出错误的情况（如输入验证、关键计算）
-     - **示例**：
-[examples/add_safe_3.uya](./examples/add_safe_3.uya)
-     - **行为说明**：
-       - 如果运算结果在类型范围内，返回计算结果
-       - 如果运算结果溢出，返回 `error.Overflow`
-       - 必须使用 `catch` 或 `try` 处理可能的错误
-       - 支持的操作：`+`（加法）、`-`（减法）、`*`（乘法）
+   - 编译期展开：饱和/包装运算符在编译期展开为相应的运算代码
+   - **注意**：`try` 关键字**只做 `!T` 错误传播**，不做算术溢出检查；
+     `try a + b` 会报「try 的操作数必须是错误联合类型 !T」。手动溢出检查用
+     `if a > @max - b { return error.Overflow; }` 一类写法。
    - **饱和运算符**（`+|`, `-|`, `*|`）：返回饱和值，溢出时返回类型的最大值或最小值
      - **功能**：执行饱和算术，溢出时返回类型的极值（最大值或最小值），而不是错误
      - **返回类型**：`T`（普通类型），不会返回错误，总是返回有效数值
@@ -5207,6 +5321,29 @@ for hello |byte| {
 - **必须**返回 `Future<!T>` 或 `!Future<T>`（显式异步，无隐式包装）；两种形式均支持，`!Future<T>` 为兼容写法
 - 状态机大小编译期确定，递归调用编译错误
 - 接口方法签名上的 `@async_fn` 用于声明异步契约；真正生成状态机的是对应的结构体/联合体方法实现
+
+**帧对齐属性 `@align(N)`**：
+
+- 语法：`@align(N)` 写在 `fn` 声明前、`@async_fn` **之前**；`N` 必须是整数字面量（其它形式报「@align(N) 需要整数常量参数」），只有 `N > 0` 才生效。
+- 语义：设置该 `@async_fn` 状态机帧的对齐；帧类型对齐可用 `@align_of(@frame(f))` 查询（未指定时按默认对齐 8）。C99 后端把帧结构体发射为 `struct { ... } __attribute__((aligned(N)))`。
+- 它属于**函数声明属性**，不是可调用的 `@` 内置函数；`@align_of(T)` 仍是编译期查询类型对齐的内置函数，两者不要混淆。
+- 与 `@async_fn` 可组合：`@align(64)` + `@async_fn` 的帧在 `AsyncFramePool` 中分配后按 64 字节对齐（见 `tests/test_async_frame_align_pool.uya`、`lib/std/http/uyagin.uya`）。
+- 顺序敏感：`@async_fn` 后必须紧跟 `fn`，因此 `@align(N)` 写在 `@async_fn` 之后会报「@async_fn 后必须跟着 fn 关键字」。
+
+```uya
+@align(64)
+@async_fn
+fn aligned_async() Future<!i32> {
+    return 42;
+}
+
+fn frame_align_is_64() i32 {
+    // @align_of(@frame(aligned_async)) == 64
+    const a: i32 = @align_of(@frame(aligned_async));
+    if a == 64 { return 1; }
+    return 0;
+}
+```
 
 **示例**：
 ```uya

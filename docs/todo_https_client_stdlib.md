@@ -1,7 +1,10 @@
 # Uya HTTPS Client 标准库函数级 TDD TODO
 
-> **核对头（2026-09-27）**：本文件的已完成部分已迁入 `todo_https_client_stdlib_completed.md`；
-> 原文剩余 204 个未勾选条目**本轮未逐条回代码核对**，引用前请自行核对（不要直接当作待办清单）。总体口径见 `docs/todo_status_index.md`。
+> **核对头（2026-10-19）**：本文件已完成部分已迁入 `todo_https_client_stdlib_completed.md`。本次按 `lib/tls/`、`lib/std/net/`、`lib/std/http/` 的实际代码复核，结论如下。
+> **结论一：本文规划的文件路径大部分没有按设计落地。** `ls` 实测——`lib/std/net/` 只有 `addr.uya`(245 行)、`socket.uya`(36 行)、`dns.uya`(2050 行)，**没有** `poll.uya` / `tcp.uya` / `resolver.uya`；`lib/std/http/client/` **目录不存在**；`lib/tls/client.uya`、`lib/tls/x509/hostname.uya`、`lib/std/http/sse.uya` **均不存在**。HTTPS client 的能力实际落在 `lib/tls/https.uya`（`https_get` / `https_get_insecure` / `https_get_with_config` / `https_server_*`）与 `lib/tls/ssl/{context,handshake,handshake13}.uya`；DNS 在 `lib/std/net/dns.uya`（`dns_client_query_a` / `dns_client_query_aaaa` / `dns_client_resolve_host` 等）。
+> **结论二：下列 204 个未勾选条目中的测试名，全部不是现存的测试函数名。** 抽查 `test_dns_encode_query_example_com_a`、`test_dns_decode_a_answer_fixture`、`test_dns_rejects_compression_loop`、`test_dns_hosts_parses_comments_and_aliases`、`test_socket_errno_maps_would_block`、`test_poll_timeout_returns_timeout`、`test_tcp_connect_loopback`、`test_tcp_connect_refused`，在 `tests/*.uya` 中**均为 0 命中**——它们是计划中的用例名，而非已存在的测试。真实覆盖在 `tests/test_std_dns.uya`、`test_std_dns_async_transport.uya`、`test_std_net_addr.uya`、`test_std_net_socket.uya`、`test_tcp_basic.uya`、`tests/test_https_*.uya`。
+> **结论三：** TLS 侧 2026-04 → 2026-10 的增量是 **TLS 1.2 会话复用**（`9bb39dee`：`lib/tls/ssl/handshake.uya` 会话 ID 缓存 + ClientHello 携带 + 服务端白名单认同，`lib/tls/https.uya` +37 行，测试 `tests/test_tls_session_resumption.uya` 437 行），它不在本文任何条目里，另见 `docs/tls_todo.md` §4.6。
+> **因此：本文的 204 个未勾选项不能直接当作待办清单。** 要推进 HTTPS client 的下一步，建议以 `lib/tls/https.uya` + `lib/std/net/dns.uya` 的现状为起点重新写一份清单，而不是逐条打钩本文的旧条目。总体口径见 `docs/todo_status_index.md`。
 
 > 目标：实现可复用的 Uya 标准库或基础库能力；本文不包含任何具体产品、应用项目或业务 adapter 的接入任务。
 >
@@ -18,34 +21,30 @@
 ### 0.1 必须落在 Uya 仓库
 
 ```text
-lib/std/net/
-  addr.uya
-  socket.uya
-  poll.uya
-  tcp.uya
-  dns.uya
-  resolver.uya
+lib/std/net/            # 规划 6 个文件，现有 3 个
+  addr.uya              # ✅ 存在（IpFamily / IpAddr / SocketAddr / ip_addr_* / socket_addr_new）
+  socket.uya            # ✅ 存在，但只有 net_socket_set_nonblocking / _set_cloexec / _close（36 行）
+  poll.uya              # ❌ 不存在
+  tcp.uya               # ❌ 不存在（TCP 相关在 libc.sys_* / lib/tls/https.uya 里直接用 fd）
+  dns.uya               # ✅ 存在（2050 行；dns_client_query_a / _aaaa / _resolve_host / _with_ttl 等）
+  resolver.uya          # ❌ 不存在
 
 lib/tls/
-  client.uya
-  x509/verify.uya
-  x509/trust_store.uya
-  x509/hostname.uya
+  client.uya            # ❌ 不存在（客户端能力在 https.uya + ssl/context.uya）
+  x509/verify.uya       # ✅ 存在
+  x509/trust_store.uya  # ✅ 存在
+  x509/hostname.uya     # ❌ 不存在（主机名匹配在 x509/verify.uya 内）
+  https.uya             # ✅ 存在（规划外，实际承载 https_get / https_server_*）
 
-lib/std/http/client/
-  url.uya
-  header.uya
-  request.uya
-  response.uya
-  chunked.uya
-  cancel.uya
-  pool.uya
-  metrics.uya
-  client.uya
+lib/std/http/client/    # ❌ 整个目录不存在
+  url.uya / header.uya / request.uya / response.uya
+  chunked.uya / cancel.uya / pool.uya / metrics.uya / client.uya
 
 lib/std/http/
-  sse.uya
+  sse.uya               # ❌ 不存在
 ```
+
+现存的相关实现（替代落点）：`lib/std/http/types.uya`（Method / Status / Header / Request / Response / ParseResult）、`lib/std/http/parse.uya`（`http_parse_request`、`http_decode_chunked_body_inplace`、multipart）、`lib/std/http/server.uya`、`lib/std/http/http1_async.uya`、`lib/tls/https.uya`。
 
 ### 0.2 非目标边界
 

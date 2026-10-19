@@ -1,7 +1,15 @@
 # 栈优先的异步状态机帧分配设计
 
 **状态**：设计草案 → `@frame(foo)` 类型构造器、pinned 语义与 `start/poll/stop` 生命周期方法已实现
-**最后更新**：2026-04-16  
+**最后更新**：2026-04-16（正文）；2026-10-19 加核对头
+
+> **核对头（2026-10-19）**：设计结论与当前源码一致，实现位置如下，可据此复核：
+> - `AsyncFramePool` 结构体与配置：`lib/std/async_frame.uya:65`（`export struct AsyncFramePool : IAllocator`）、`:28`（`AsyncFramePoolConfig`）、`:13`（`AsyncFrameDescriptor`）。
+> - 默认实例与阈值：`async_frame_pool_default()`（`:217`）、`async_frame_runtime_default_stack_limit()`（`:205`，读 `ASYNC_FRAME_STACK_LIMIT`）。
+> - 分配/释放/统计：`async_frame_pool_alloc()`（`:681`）、`async_frame_pool_alloc_aligned()`（`:753`）、`async_frame_pool_free_aligned()`（`:819`）、`async_frame_pool_free()`（`:873`）、`async_frame_pool_stats()`（`:934`）。
+> - 调用方缓冲判定：`async_frame_pool_ptr_is_direct_caller_buffer()`（`:573`）、`async_frame_pool_ptr_is_debug_heap_fallback()`（`:581`）。
+> - `@frame(foo)` 语法：`src/parser/types.uya:397`；生命周期函数生成：`src/codegen/c99/function.uya:7566`（`*_frame_start`）、`:7570`/`:7581`（`*_frame_stop`）、`:7610`。
+> - 回归：`tests/test_async_frame_methods.uya`、`test_async_frame_stack_ok.uya`、`test_async_frame_pool_stats.uya`、`test_async_frame_pool_dynamic_growth.uya`、`test_async_frame_align_pool.uya`、`test_async_frame_stack_limit_env.uya`、`test_async_frame_inline_temp.uya`、`test_c99_async_frame_descriptors.uya`；负向 `tests/error_async_frame_pinned_*.uya`、`error_async_frame_pool_*.uya`。
 **相关文档**：
 - [async_frame_lifecycle_naming_design.md](async_frame_lifecycle_naming_design.md) - `frame_start/frame_stop` 与 `@frame.start/poll/stop` 生命周期命名
 - [std_async_design.md](std_async_design.md) - `Future<T>` / `Poll<T>` / `Waker` / `Scheduler` 现状

@@ -1,10 +1,23 @@
 # Uya 1.0 语法锁定目标清单（goal_v1_lockdown）
 
-> **核对头（2026-09-27）**：本文件自述"进行中"，核对后仍成立，但**T3 已有实质进展**：
-> - T3（卫生宏）：**代码已完成**（`src/checker/macro_expand.uya`、`tests/test_macro_hygiene.uya` 6/6），`docs/uya.md` §25.2.2 已写卫生宏章节；仍缺 `docs/grammar_formal.md` 的引用与 `macro_hygiene_design.md`/`todo_macro_hygiene.md` 的状态回填。
-> - T2/T5：`tests/error_try_catch_combined.uya`、`tests/test_catch_multistmt_block.uya`、`tests/test_async_await_catch_multistmt.uya` 三个本文件要求的用例**均不存在**，说明对应语义收敛尚未落地。
-> - T4/T6：闭包契约文档与 stdlib 手写状态机收编未完成（`lib/std/async.uya` 的 `AsyncWaitFdFuture`、`lib/std/thread.uya` 的 worker 桥接仍为手写 `poll()`，属既定 substrate 例外）。
-> 结论：本文件是**真实的未完成清单**，可作为 1.0 收口闸门；各项进展请按上面证据更新，而不是按复选框数量推断。
+> **核对头（2026-10-19，v0.10.4）**：T1/T3/T4 已达标的项目见下；T2/T5 的**语义**已按实现收敛，
+> 但本文件要求的三个专用回归用例仍然缺失（缺口在「钉死行为的测试」，不在「实现」）：
+>
+> | 工作项 | 实现状态 | 证据 | 仍缺 |
+> |---|---|---|---|
+> | **T1** 独立 goal 文档 | ✅ 已完成 | 本文件 | — |
+> | **T2** `try` 双重语义拆分 | ✅ 已完成 | 实测 `try a + b` 报「try 的操作数必须是错误联合类型 !T」；checker 只处理 `!T`（`src/checker/check_expr.uya`）；`docs/uya.md` §8/§10/§14 已改为「只做错误传播」 | — |
+> | **T2** 禁止 `try X catch` 叠用 | 🔶 已拒绝但诊断不精确 | 实测 `try f() catch { ... }` 报「try 的操作数必须是错误联合类型」（因为 `catch` 先挂在 cast_expr 上，`try` 的operand 变成 catch 表达式），不会误接受 | 明确的「`try` 与 `catch` 互斥」诊断文案；`tests/error_try_catch_combined.uya` |
+> | **T2** 多语句 catch block-expr lowering | ✅ 同步路径已实现 | 实测 `f() catch |err| { t = 1; t + 10; }` 与 `f() catch { 4; }` 均返回末句值（末句须以 `;` 结尾）；真实用法见 `lib/std/async_channel.uya:140`、`lib/std/async_event.uya:327` | `tests/test_catch_multistmt_block.uya` |
+> | **T3** 卫生宏 | ✅ 代码 + 文档均完成 | `src/checker/macro_expand.uya`（`hygiene_enabled`、`create_hygiene_name`，生成名 `<原名>__hyg_<exp>_<id>`）；`docs/uya.md` §25.2.2；`grammar_formal.md` / `grammar_quick.md` 已补卫生说明；`macro_hygiene_design.md` / `todo_macro_hygiene.md` 头部已回填；`tests/test_macro_hygiene.uya` 通过 | — |
+> | **T4** 闭包"不做"契约 | ✅ 已完成 | `docs/uya.md` §5.2.3 写明不提供捕获闭包（身份冲突）、函数指针 + 显式 context 逃生口、`|...|` 仅用于 for/catch/match 三处保留语义；`readme.md` 已同步一句话表态 | — |
+> | **T5** canonical Future 形式 | 🔶 双形式仍并存 | `src/checker/check_stmt.uya:638-669` 同时接受 `Future<!T>`（主）与 `!Future<T>`（次），未加弃用警告 | 弃用警告或收窄到单一形式 |
+> | **T5** `@await` + 多语句 catch | ✅ 已实现 | 实测 `(@await fut()) catch { t = t + 1; t + 9; }` 通过 checker；**须用括号**包住 `@await`，否则 `catch` 会绑定成 `@await (fut() catch …)` | `tests/test_async_await_catch_multistmt.uya` |
+> | **T6** stdlib 手写状态机收编 | 🔶 部分 | DNS 组合层已 `@async_fn` 化（`dns_client_query_all_async`）；`AsyncWaitFdFuture`、DNS UDP/TCP transport、ThreadPool worker 桥接仍为手写（既定 substrate 例外） | 剩余手写状态机的登记清单 |
+> | 收口闸门 | ⏳ 未完成 | 上述测试用例缺失；`make check` 最近一次为 1153/1153（v0.10.4） | 补 3 个用例后复跑 |
+>
+> 结论：本文件仍是**真实的未完成清单**，1.0 收口闸门未通过；但剩余工作量已从"实现语义"转为
+> "补回归用例 + 精确诊断 + 单一 Future 形式"，请按上表证据更新，不要按复选框数量推断。
 
 **创建：** 2026-06-06
 **状态：** 进行中

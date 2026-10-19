@@ -3,6 +3,22 @@
 **版本**：v0.1  
 **日期**：2026-04-05
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：本 ABI 已在 `lib/std/runtime/capability/` 落地，
+> 与本文的对应关系：
+>
+> | 本文条目 | 实现落点 |
+> |----------|----------|
+> | §4 固定入口 / 执行上下文 | `abi.uya` 的 `CapabilityExecutionContext`（`instance_id` / `state` / `permissions` / `limits` / `last_status`） |
+> | §6 Host Call 集合 | `abi.uya` 的 `CapabilityHostCallId`：`TimeNow` / `LogWrite` / `Vibrate` / `ScreenDrawText` / `KvGet` / `KvSet` |
+> | §6 权限名 | `types.uya` 的 `CapabilityPermissionId` + `policy.uya` 的 `CapabilityPermissionSet`（声明 / 授予 / `capability_permission_require`） |
+> | §7 错误码 0-7 | `abi.uya` 的 `CapabilityStatusCode`：`Ok` / `Failed` / `PermissionDenied` / `InvalidArgument` / `TimedOut` / `ResourceExceeded` / `HostInternalError` / `Disabled` |
+> | §8 资源限制 | `types.uya` 的 `CapabilityResourceLimits`（`timeout_ms` / `memory_limit_kb` 等） |
+> | §9 生命周期状态 | `types.uya` 的 `CapabilityState`：`Downloaded` / `Verified` / `Installed` / `Active` / `Disabled` / `Failed` |
+> | Host Call 实现 | `hostapi.uya`、`adapter.uya`、`native_backend.uya`、`fake_backend.uya`、`wamr_backend.uya`（`screen_draw_text` 目前只有 `CapabilityHostCallId.ScreenDrawText` 枚举，`hostapi.uya` 尚未提供对应函数） |
+>
+> 编译期侧的边界不在本文范围：`@syscall` 的跨平台汇聚点见
+> [`syscall_design.md`](syscall_design.md)，`hosted` 与 `--nostdlib` 的 ABI 通道差异也在那里。
+
 ---
 
 ## 1. 目标

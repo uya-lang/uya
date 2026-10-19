@@ -1,5 +1,12 @@
 # 穿戴设备能力运行时兼容层设计（WAMR / Native）
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：后端抽象与两套后端均在
+> `lib/std/runtime/capability/` 落地：`backend.uya`（`CapabilityBackendKind`：`Fake` / `Wamr` /
+> `NativeUya`）、`adapter.uya`、`fake_backend.uya`、`wamr_backend.uya`、`native_backend.uya`；
+> 兼容性回归 `tests/test_capability_runtime_compat.uya` + `tests/run_capability_runtime_compat.sh`，
+> 基准 `tests/bench_capability_runtime.uya` + `tests/run_capability_runtime_benchmark.sh`。
+> 下文保留设计期原文。
+
 **版本**：v0.1  
 **日期**：2026-04-05
 

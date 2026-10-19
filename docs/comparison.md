@@ -87,6 +87,7 @@ fn safe_access(arr: [i32: 10], i: i32) !i32 {
 |-----------------|---------------|-----------|--------------------------|
 | `i8` `i16` `i32` `i64` | 同宽 signed | 1 2 4 8 B | 对齐 = 类型大小；支持 `@max`/`@min` 内置函数访问极值 |
 | `u8` `u16` `u32` `u64` | 同宽 unsigned | 1 2 4 8 B | 对齐 = 类型大小；无符号整数类型，用于与 C 互操作和格式化 |
+| `usize` `isize` | `size_t` / `intptr_t` | 4/8 B（`usize`，平台相关）；`isize` 当前归一为 8 B | `usize` 用于地址与大小；`isize` 当前映射为 `i64` |
 | `f32` `f64`     | float/double  | 4/8 B     | 对齐 = 类型大小          |
 | `bool`          | uint8_t       | 1 B       | 0/1，对齐 1 B            |
 | `byte`          | uint8_t       | 1 B       | 无符号字节，对齐 1 B，用于字节数组 |
@@ -150,16 +151,16 @@ Uya 支持类似 Python 的切片语法，但返回切片视图（引用）而�
 var arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 const slice: &[i32] = &arr[2:5];      // 动态长度切片视图
 const exact_slice: &[i32: 3] = &arr[2:3]; // 已知长度切片视图
-const tail: &[i32] = &arr[-3:3];      // 负数索引，等价于 &arr[7:3]
+const tail: &[i32] = &arr[7:3];       // 最后 3 个元素（没有负索引）
 
 // 切片是原数据的视图，修改原数组会影响切片
 arr[3] = 99;
 // slice 现在反映 arr[3] 的变化
 
-// for循环支持切片迭代
-for slice |value| { }        // 值迭代（只读）
-for slice |&ptr| { }         // 引用迭代（可修改）
-for slice |i| { }            // 索引迭代
+// for 循环：受体是定长数组 / 迭代器接口 / 整数范围
+for arr |value| { }               // 值迭代（只读）
+for arr |&ptr| { }                // 引用迭代（可修改，需 var 数组）
+for 0..@len(arr) |i| { }          // 需要索引时用整数范围
 ```
 
 ---
@@ -168,13 +169,18 @@ for slice |i| { }            // 索引迭代
 
 ### 与 Zig 的相似性
 
-Uya 支持 Zig 风格的 for 循环迭代：
+Uya 支持 Zig 风格的 for 循环迭代，但一次只绑定一个循环变量（值或引用），没有 `|item, index|` 双绑定：
 
 ```uya
 // Zig 风格的 for 循环迭代
 const arr: [i32: 5] = [1, 2, 3, 4, 5];
-for arr |item, index| {
-    printf("%d: %d\n", index, item);
+for arr |item| {
+    printf("%d\n", item);
+}
+
+// 需要索引时用整数范围
+for 0..5 |i| {
+    printf("%d: %d\n", i, arr[i]);
 }
 ```
 
@@ -199,7 +205,7 @@ const value = root.helper_func();
 use main.helper_func;
 
 fn example() void {
-    let value: i32 = helper_func();  // 直接使用，无需前缀
+    const value: i32 = helper_func();  // 直接使用，无需前缀
 }
 ```
 
@@ -227,17 +233,17 @@ Vec<T>
 HashMap<K, V>
 ```
 
-**Uya（0.38 版本）**：
+**Uya（当前 v0.10.4）**：
 ```uya
-// Uya：使用括号，更清晰，更一致
-Vec(T)
-HashMap(K, V)
+// Uya：与 C++/Rust 一致的尖括号泛型
+Vec<i32>
+HashMap<String, i32>
 ```
 
 **设计理念**：
-- **零新符号**：括号 `()` 已存在于函数调用/元组，不算新符号
-- **更清晰**：与函数调用语法一致，减少认知负担
-- **更一致**：定义和实例化完全对称：`struct Vec(T)` 和 `Vec(i32)`
+- **约束紧邻参数**：`<T: Ord>`、多约束 `<T: Ord + Clone + Default>`
+- **定义与实例化对称**：`struct Vec<T: Default>` 与 `Vec<i32>`
+- **方法泛型**：`c.as_type<i64>()`
 
 ---
 
@@ -263,35 +269,28 @@ struct timeval {
 }
 ```
 
-**Uya（0.38 版本）**：
+**Uya（当前 v0.10.4）**：
 ```uya
-// Uya：extern struct 完全解放
-extern struct timeval {
-    tv_sec: i64,
-    tv_usec: i64
-    
-    // ✅ 可以有方法
-    fn to_millis(self: &Self) i64 {
-        return self.tv_sec * 1000 + self.tv_usec / 1000;
-    }
-    
-    // ✅ 可以有 drop
-    fn drop(self: &Self) void {
-        // 清理资源
-    }
-}
-
-// ✅ 可以实现接口
+// Uya：所有 struct 统一 C 布局，不需要 extern 关键字
 interface ITime {
     fn to_millis(self: &Self) i64;
 }
 
-timeval : ITime {
+struct timeval : ITime {
+    tv_sec: i64,
+    tv_usec: i64
+}
+
+timeval {
     fn to_millis(self: &Self) i64 {
-        return self.to_millis();
+        return self.tv_sec * 1000 + self.tv_usec / 1000;
     }
 }
 ```
+
+> 注意：Uya 没有 `extern struct` 声明语法；`extern` 只支持 `extern fn`、`extern union`、
+> `extern const/var`（见 `src/parser/declarations.uya` 的 `parser_parse_extern_decl`）。
+> Uya `struct` 本身就是 C 布局，可直接与 C 互操作。
 
 **最酷的部分**：
 - **C 代码看到**：纯数据，标准布局，100% C 兼容
@@ -304,10 +303,11 @@ timeval : ITime {
 
 Uya 从多种语言中汲取灵感，但形成了自己独特的设计哲学：**程序员提供证明，编译器验证证明**。
 
-**核心创新（0.38 版本）**：
-1. **泛型用 `()` 不是 `<>`**：更清晰，更一致，零新符号
-2. **extern struct 完全解放**：C 兼容结构体获得 Uya 超能力，可以有方法、drop、实现接口
-3. **切片类型系统**：`&[T]` 和 `&[T: N]` 切片视图，零分配，生命周期自动绑定
-4. **零新符号**：复用已有语法，不发明新符号
-5. **单页纸可读完**：语法简单到可以记在脑子里，概念最少但能力完整
+**核心特点（当前 v0.10.4）**：
+1. **泛型用尖括号 `<T>`**：约束紧邻参数 `<T: Ord>`，多约束 `<T: Ord + Clone + Default>`
+2. **C 结构体互操作**：所有 `struct` 统一 C 布局，无需 `extern` 关键字；可以有方法、`drop`、实现接口
+3. **切片类型系统**：`&[T]` 和 `&[T: N]` 切片视图，零分配
+4. **错误处理**：显式 `!T` 错误联合 + `try` / `catch` / `defer` / `errdefer`
+5. **编译期证明**：数组边界、空指针、初始化、溢出、移动语义、切片范围在本函数内证明
+6. **单页纸可读完**：语法简单到可以记在脑子里，概念最少但能力完整
 

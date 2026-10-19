@@ -1,5 +1,7 @@
 # TLS 纯 Uya 实现 — 计划索引
 
+> **核对头（2026-10-19）**：`lib/tls/` 实际有 28 个 `.uya` 文件（含设计稿未列的 `https.uya`、`crypto/ec_p256.uya`、`crypto/ec_p384.uya`、`x509/store.uya`、`x509/trust_store.uya`）；下方「与 mbedTLS 的对应关系」已补 `https.uya` 一行。测试侧现有 `tests/test_tls_*.uya` 19 个 + `tests/test_raw_tls.uya` + `tests/test_https_*.uya` 8 个。各阶段实际完成状态以 [tls_todo.md](tls_todo.md) 的复核结果为准。
+
 本页为 mbedTLS 风格 TLS/DTLS 库的**纯 Uya 实现**在 Uya 仓库中的计划与文档入口。
 
 ---
@@ -33,6 +35,7 @@
 | lib/tls/crypto/rsa.uya, ec.uya, x25519.uya | library/rsa.c, ecp.c, 等 |
 | lib/tls/x509/asn1.uya, cert.uya, verify.uya | library/x509.c, x509_crt.c |
 | lib/tls/ssl/record.uya, handshake.uya, context.uya | library/ssl_tls.c, ssl_msg.c, 等 |
+| lib/tls/https.uya（`https_get` / `https_server_*` / 异步入口，原设计稿未列） | 无直接对应（mbedTLS 之上的示例/封装层） |
 
 API 风格可与 mbedTLS 的 `mbedtls_*` 命名大致对应，便于对照规范与测试；详见 [tls_uya_design.md](tls_uya_design.md)。
 

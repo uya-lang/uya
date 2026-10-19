@@ -1,9 +1,11 @@
 # std.async 异步标准库设计文档
 
-> **核对头（2026-09-27）**：设计主体有效；文末 2 项未勾选仍属实——macOS（`std/async/event/macos.uya`）与 Windows（`std/async/event/windows.uya`）EventLoop 后端**未实现**（仓库只有 Linux `LinuxEpoll`）。
-> 其余"待收口"结论请以 `docs/todo_async_full_language_dynamic_resources.md` 的核对头为准。
+> **核对头（2026-10-19）**：设计主体有效；平台后端状态已从「macOS / Windows 都未实现」推进为「**macOS kqueue 已落地，Windows IOCP 仍未实现**」。
+> - macOS：kqueue 后端写在 `lib/std/async_event.uya`（`KQUEUE_EVFILT_READ/WRITE`、`kqueue_submit_transition()`、`register_with_kqueue()`），由 `LinuxEpoll.register()` 内的 `std.cfg(std.target_os == .tos_macos, ...)` 分支选择；kqueue 创建失败（`self.kqfd < 0`）时回退 `register_with_poll()` 的 `poll(2)` 兜底。⚠️ 落地位置是 `async_event.uya` 内部，而非本文目标结构里的 `std/async/event/macos.uya` 独立文件。
+> - Windows：`grep -n "IOCP\|CreateIoCompletionPort\|WSAEventSelect\|tos_windows" lib/std/async*.uya` 无命中，Windows async 运行时仍**整体缺失**。
+> - 其余"待收口"结论请以 `docs/todo_async_full_language_dynamic_resources.md` 的核对头为准。
 
-**最后更新**：2026-06-21
+**最后更新**：2026-10-19
 
 **相关文档**：
 - [std/libc 标准库设计](std_c_design.md) — 同步 I/O（`std.io`）、C 兼容层（`lib/libc`）
@@ -81,28 +83,31 @@ std/async/
 - `Scheduler` 已有单任务、双任务与共享 `EventLoop` 的泛型 `TaskQueue<T>` 入口；默认队列会从 legacy `64` 起步并自动增长，`task_queue_new_with_capacity<T>()` 保留调用方显式上限
 - `Scheduler` 的 frame pool backing buffer 与 inline repoll 策略已支持实例级配置，以及 `UYA_SCHEDULER_FRAME_BUFFER_BYTES` / `UYA_SCHEDULER_INLINE_REPOLL_LIMIT` 环境变量
 - `LinuxEpoll.poll()` 已能在事件命中后唤醒对应 `Waker`
-- HTTP/1.1 async 客户端的请求头 / 响应头 buffer 已改为按需分配或 grow，不再由 `4096` 级别的 scratch 常量直接决定请求是否可发起
-- `Waker` 已支持**多 fd / 多 interest**（有界槽表 `WAKER_IO_SLOT_MAX = 4`，同 fd 的 RD|WR 合并为 READWRITE；见 `buglist.md`「运行时 bug」与 `tests/test_async_waker_multi_interest.uya`）
-- 后续主要剩余更丰富的 async formatting/helper（例如 typed writer / `write_byte` / 更高层格式化输出）、跨平台 `EventLoop` 后端、HTTP 连接池与 keep-alive、TLS 会话复用，以及更严格的唤醒安全性验证
+- HTTP/1.1 async 客户端的请求头 / 响应头 buffer 已改为按需分配或 grow：请求头默认内联容量 `HTTP1_ASYNC_REQUEST_HEADER_INLINE_CAP = 4096`，超过时 `http1_async_request_header_build()` 按 `http1_async_request_header_required_capacity()` 的实际需求 `malloc`；响应头默认上限 `HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP = 65536`，并可用环境变量 `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 覆盖（`http1_async_response_header_max_cap()`，`lib/std/http/http1_async.uya:36/41/56`）
+- `Waker` 已支持**多 fd / 多 interest**（有界槽表 `WAKER_IO_SLOT_MAX = 4`，同 fd 的 RD|WR 合并为 READWRITE；见 `lib/std/async.uya:198/203-211`、`buglist.md`「运行时 bug」与 `tests/test_async_waker_multi_interest.uya`）
+- HTTP/1.1 async 客户端连接池 + keep-alive 已落地（`lib/std/http/http1_async.uya:226-261` 的 `Http1AsyncPool`、`http1_async_pool_stats()`、`http1_async_pool_close_all()`，取/存连接在 `:1199` / `:1413`），可用 `http1_async_pool_stats()` 观测 `idle_count` / `reused_count` / `stored_count`
+- TLS 1.2 会话复用已落地（`lib/tls/ssl/handshake.uya:174` `tls_session_cache_store()`、`:221` `tls_session_cache_lookup()`、`:360` `handshake_set_resume_session_id()`、`:377` `handshake_session_resumed()`）
+- 后续主要剩余更丰富的 async formatting/helper（例如 typed writer / `write_byte` / 更高层格式化输出）、Windows IOCP 后端（macOS kqueue 已落地），以及更严格的唤醒安全性验证
 - 实际代码中的 `AsyncWriter` / `AsyncReader` 已支持 `write_all` / `read_exact`；helper 层也已有 `async_write_bytes` / `async_write_cstr` / `async_print_to` / `async_println_to`。
 
 ### 核心接口
 
-- [~] **AsyncWriter 接口**：统一的异步输出抽象（当前已实现 `write` / `write_all` / `flush`）
+- [x] **AsyncWriter 接口**：统一的异步输出抽象（当前已实现 `write` / `write_all` / `flush`；**无 `write_str`**）
   ```uya
+  // lib/std/async.uya:913
   export interface AsyncWriter {
-      fn write(self: &Self, data: &[u8]) Future<!usize>;
-      fn write_all(self: &Self, data: &[u8]) Future<!usize>;
-      fn write_str(self: &Self, s: &[i8]) Future<!usize>;
+      fn write(self: &Self, data: &const byte, count: usize) Future<!usize>;
+      fn write_all(self: &Self, data: &const byte, count: usize) Future<!usize>;
       fn flush(self: &Self) Future<!usize>;
   }
   ```
 
-- [~] **AsyncReader 接口**：统一的异步输入抽象（当前已实现 `read` / `read_exact`）
+- [x] **AsyncReader 接口**：统一的异步输入抽象（当前已实现 `read` / `read_exact`）
   ```uya
+  // lib/std/async.uya:920
   export interface AsyncReader {
-      fn read(self: &Self, buf: &[u8]) Future<!usize>;
-      fn read_exact(self: &Self, buf: &[u8]) Future<!usize>;
+      fn read(self: &Self, buf: &byte, count: usize) Future<!usize>;
+      fn read_exact(self: &Self, buf: &byte, count: usize) Future<!usize>;
   }
   ```
 
@@ -222,11 +227,16 @@ fn fetch_and_write(reader: &AsyncReader, writer: &AsyncWriter) !Future<void> {
   - **timeout/deadline 支持**：`block_on_with_event_loop_deadline<T>` 可在 EventLoop 层设置总超时；`lib/std/http/http1_async.uya` 与 `lib/tls/https.uya` 在各 I/O 边界（connect、read、write、handshake）采用 deadline-based 超时策略
   - 端到端测试 `test_std_async_event.uya`、`test_epoll_syscall.uya`、`test_std_async_event_fd_reuse.uya` 已通过 `--c99` 与 `--uya --c99`（codegen 已修复）
 
-- [ ] **macOS 实现**（`std/async/event/macos.uya`）：
-  - 基于 `kqueue` / `kevent` 系统调用
+- [x] **macOS 实现**（**已落地，但落在 `lib/std/async_event.uya` 内部，非本文目标结构里的 `std/async/event/macos.uya`**）：
+  - `KQUEUE_EVFILT_READ = -1` / `KQUEUE_EVFILT_WRITE = -2`、`KQUEUE_EV_ADD/DELETE/ENABLE`（`lib/std/async_event.uya:24-28`），`Kevent` 与 kevent 超时结构（`:30-42`）
+  - `kqueue_build_transition()` / `kqueue_submit_transition()` / `kqueue_deactivate()`（`:110` / `:138` / `:151`）把 interest 差异增量提交给内核，采用水平触发（不加 `EV_CLEAR`）
+  - `register()` 按 `std.cfg(std.target_os == .tos_macos, ...)` 选路：`kqfd < 0` 时回退 `register_with_poll()` 的 `poll(2)` 兜底（`:617-623`、`:470`、`:548`）
+  - Linux epoll 路径不受影响（同一 `LinuxEpoll` 结构体复用，`kqfd` 在 Linux 恒为 `-1`）
+  - 回归：`tests/test_async_event_kqueue_transition.uya`（interest 差异 → kevent 变更集合）
 
 - [ ] **Windows 实现**（`std/async/event/windows.uya`）：
   - 基于 IOCP（I/O Completion Ports）
+  - **2026-10-19 核对：仍未实现**。`grep -n "IOCP\|CreateIoCompletionPort\|WSAEventSelect\|tos_windows" lib/std/async.uya lib/std/async_event.uya lib/std/async_scheduler.uya` 无任何命中；Windows 侧既无 IOCP 后端也无 `WSAEventSelect` 兜底
 
 **涉及**：新建 `std/async/event/` 目录
 
@@ -272,6 +282,8 @@ fn fetch_and_write(reader: &AsyncReader, writer: &AsyncWriter) !Future<void> {
 | 6 | **std.async.channel**（`Channel<T>`, `MpscChannel<T>`） | ⭐⭐⭐ | 阶段 2 |
 | 7 | **多平台事件后端**（macOS kqueue, Windows IOCP） | ⭐⭐ | 阶段 3 + `std.cfg` |
 
+> 阶段 7 进度（2026-10-19）：macOS kqueue **已落地**（`lib/std/async_event.uya` 内 `register_with_kqueue()` + `kqueue_submit_transition()`，`poll(2)` 兜底）；Windows IOCP **未落地**。
+
 **第一个里程碑**（目标态：最小可用）：
 完成阶段 1-4，可以在 Linux 上使用异步 I/O。
 
@@ -280,6 +292,7 @@ fn fetch_and_write(reader: &AsyncReader, writer: &AsyncWriter) !Future<void> {
 
 **第三个里程碑**（目标态：跨平台）：
 完成阶段 1-7，支持 Linux / macOS / Windows 异步编程。
+当前 Linux + macOS（kqueue）可用，Windows 仍缺，故本里程碑**未达成**。
 
 ---
 
@@ -289,6 +302,8 @@ fn fetch_and_write(reader: &AsyncReader, writer: &AsyncWriter) !Future<void> {
 - nested future / wrapper 边界：`tests/verify_async_nested_future_boundary.sh`
 - shared runtime 发布闸门入口：`tests/async_shared_runtime_mix.sh`
 - 资源动态化专项：`tests/test_async_task_queue_dynamic_growth.uya`、`tests/test_async_event_dynamic_growth.uya`、`tests/test_async_thread_pool_dynamic_growth.uya`、`tests/test_async_compute_dynamic_resource_pressure.uya`
+- 平台后端 / 复用能力（2026-10-19 新增证据）：`tests/test_async_event_kqueue_transition.uya`（kqueue）、`tests/test_async_waker_multi_interest.uya`（多 interest Waker，`WAKER_IO_SLOT_MAX = 4`）、`tests/test_http1_async_client.uya`（连接池 + keep-alive）、`tests/test_tls_session_resumption.uya`（TLS 1.2 会话复用）
+- `tests/verify_async_*.sh` 当前共 18 个（另有 `tests/stress_async_dynamic_resources.sh`），覆盖 await 容量、取消清理、no-fd-leak、nested-split codegen、resource diagnostics、shared runtime matrix 等专项。
 
 这些入口的作用是把“阶段性能力证明”与“生产完成证明”分开：它们能证明当前设计文档提到的关键链路仍有真实验证，但在共享 runtime 矩阵、剩余固定容量资源和跨平台后端补齐前，仍不能单独升级为“async 生产化已完成”。
 

@@ -1,7 +1,12 @@
 # Uya fmt Phase 2 TodoList
 
-> **核对头（2026-09-27）**：本 phase 文档的 "Not started" 勾选状态已过时——对应能力已在 `src/fmt.uya` + `tests/test_fmt_*.uya` 落地（`uya fmt` 命令见 `src/main.uya` 的 `COMMAND_FMT`）。
-> 保留本文件作为任务分解记录；唯一仍明确未支持的是 `fmt_phase4_cli_tasks.md` 里的"stdin 与 `-s/-r` 组合"。
+> **核对头（2026-10-19，v0.10.4）**：本 phase 文档的 "Not started" 勾选状态已过时——注释链路已落地在
+> `lib/std/fmt/comments.uya`（收集 / 分组 / 附着）与 `lib/std/fmt/printer.uya`（打印），
+> 回归是 `tests/test_fmt_comment_collection.uya`、`test_fmt_comment_grouping.uya`、
+> `test_fmt_comments_phase2.uya`、`test_fmt_doc_comment_attach.uya`、
+> `test_fmt_stmt_comment_attach.uya`、`test_fmt_trailing_comment_attach.uya`。
+> ⚠️ 注意：进程内的 `uya fmt`（`src/fmt.uya`）是纯 AST 打印器，**不做**注释保留；
+> 需要保留注释请用 `bin/uyafmt`（`make check-fmt` 构建）。
 
 > 基于 `docs/fmt_development_plan.md` 的方案 B，Phase 2 聚焦 comments / positions 在格式化链路中的落地。
 

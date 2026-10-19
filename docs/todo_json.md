@@ -2,6 +2,18 @@
 
 **参考**：[json_design.md](json_design.md)（设计与语法对齐 [grammar_formal.md](grammar_formal.md)）
 
+**最后核对**：2026-10-19，按 `lib/std/json/{value,parser,encoder,errors,macros}.uya` 与 `tests/test_json_*.uya`、`tests/bench_json.uya` 逐条回填。
+
+### 总体状态
+
+| Phase | 状态 | 依据 |
+| --- | --- | --- |
+| Phase 1 标量解析器 | 完成 | `parser.uya:367` `parse`、`:371` `parse_lossless_numbers`；`test_json_parse_*.uya` 6 个测试（另有 `test_json_value` / `test_json_roundtrip` 等，`test_json_*.uya` 共 26 个） |
+| Phase 2 编码器 | 完成 | `encoder.uya:243/255/263/269`；`test_json_encode_*.uya` 6 个测试 |
+| Phase 3 结构体序列化/反序列化 | 完成 | `macros.uya` 四个宏 + 编译器 `build_encode_to_to_json_block`；`test_json_struct_*` / `from_json_*` / `to_json_*` 等 |
+| Phase 4 SIMD | **部分回退** | 只有 `encoder.uya:171-196` 仍在用 `@vector`；parser 三个热点已在 `e086e88d` 改回标量 |
+| Phase 5 `@asm` | 未开始 | 仓库内无 `@asm` JSON 热点 |
+
 实现时遵循项目 TDD 流程：先添加测试 → 实现代码 → `make check` 验证。
 
 ---
@@ -17,7 +29,9 @@
 
 - [x] 创建 `lib/std/json/` 目录
 - [x] `errors.uya`：Json 错误（InvalidUtf8、InvalidEscape、InvalidUnicode、UnexpectedToken、UnexpectedEof、NumberOverflow、InvalidNumber、NestingTooDeep）
+  - 现状（2026-10-19 核对，`lib/std/json/errors.uya:4-16`）：共 12 个 `export error`，上述 8 个之外还有 `BufferTooSmall`（编码/arena 不足），以及 Phase 3 为手写 `from_json` 增加的 `NotAnObject`、`MissingField`、`WrongType`
 - [x] `value.uya`：`JsonValue` union、`JsonStrView`、`JsonArray`、`JsonKeyValue`、`JsonObject`
+  - 现状：`JsonValue`（`value.uya:10`）实为 8 个变体，除设计稿列的 7 个外还有 `num_text: JsonStrView`（供 `parse_lossless_numbers` 保留数字原文）
 
 ### 1.3 标量解析器
 
@@ -43,11 +57,11 @@
 
 ### 2.1 JsonWriter
 
-- [x] `encoder.uya`：`JsonWriter` 结构体（buf、cap、used、overflow）
-- [x] 内部 `write_bytes`：单次 `used + len` 容量检查后连续写入（配合 `json_write_str_view` 的 16 字节向量段，避免逐字节 `write_byte`）
-- [x] `json_write_null`、`json_write_bool`、`json_write_i64`、`json_write_f64`
-- [x] `json_write_str_view`（转义 `\"\\\n\r\t`）
-- [x] `json_write_value` 递归写入 JsonValue（含数组、对象）
+- [x] `encoder.uya`：`JsonWriter` 结构体（`encoder.uya:38-43`：buf、cap、used、overflow）
+- [x] 内部连续写入辅助 `json_buf_write_bytes`（`encoder.uya:53`）：单次 `used + len` 容量检查后连续拷贝（不是逐字节 `write_byte`）；配合 `json_write_str_view` 的 16 字节 `@vector` 段使用
+- [x] `json_write_null`、`json_write_bool`、`json_write_i64`、`json_write_f64`（均为 export）
+- [x] `json_write_str_view`（转义 `\"\\\n\r\t`）+ `json_write_key`（键 + 冒号，供反射宏使用）
+- [x] `json_write_value`（`encoder.uya:238`，**私有** `fn`）递归写入 JsonValue（含数组、对象）；对外只暴露 `encode_to` / `encode_into_arena` / `encode`
 
 ### 2.2 基础类型 ToJson
 
@@ -58,7 +72,7 @@
 - [x] `encode_to(v: &JsonValue, buf, cap) !usize`（缓冲区不足返回 error.BufferTooSmall）
 - [x] `encode_into_arena(arena, v) !JsonStrView`（在 arena 中编码并返回 ptr+len 视图，等价语义，避免 `!&[byte]` 的 slice 返回值）
 - [x] `encode(arena, value) !&[byte]`（已实现：依赖 slice 返回值 + 指针作切片 base；见 test_json_encode_slice.uya）
-- [x] `encode_into_arena_for_to_json(arena, value: &ToJson) !JsonStrView`（与 encode_into_arena 对称，结构体序列化进 arena 取视图）
+- ~~`encode_into_arena_for_to_json(arena, value: &ToJson) !JsonStrView`~~ —— **条目作废（2026-10-19 核对）**：该函数**不存在**，`grep -rn encode_into_arena_for_to_json` 全仓库只命中 `lib/std/json/json.uya:14` 的一句过期模块注释。实际实现走泛型 `to_json<T>(arena, obj) !&[byte]`（`encoder.uya:269`），不需要 `ToJson` 接口，因此既不是已完成项也不是待办项。
 
 ### 2.4 测试
 
@@ -100,10 +114,15 @@
 
 Stage 1 结构字符扫描等可向量化环**优先用 `@vector`/`@mask` 实现**，与当前 C99 标量 struct 回退语义一致；**真实 SIMD lowering** 落地后同一路径自动获益。标量路径必须始终保留。
 
-- [x] 在 **`skip_ws`** 中引入 **`@vector(u8,16)`/`@mask(16)`** 块扫描（**0.49.33**，剩余不足 16 字节或块内非全空白时回退标量循环）
-- [x] 其余热点（**`parser.uya`**）：**`parse_string`** / **对象键**扫描在不含 **`"`** / **`\\`** 的连续段上用 **`@vector(u8,16)`** 块推进；**`parse_number`** 在 ASCII 数字连续段上用同宽块推进（不足 16 字节或块内出现非目标字符时标量收尾；语义与原先一致）
-- [x] 编码器 `json_write_str_view`：连续段无 `"` `\` `\n` `\r` `\t` 时用 `@vector(u8,16)` 块 + `write_bytes`（与 parser 对称）；测试 `tests/test_json_encode_long_str.uya`
-- [ ] 运行时 CPU 检测或编译期 `@asm_target()`/`std.cfg` 选路，选择标量或向量路径（**当前**：各热点均为「16 字节 `@vector.all` 成功则前进，否则标量」，无整段重复实现；若某目标上向量 IR 有额外开销再考虑 `std.cfg` 拆路径）
+> **核对结论（2026-10-19）：`@vector` 在解析器里已被回退，只剩编码器在用。**
+> `skip_ws` / `parse_string` / 对象键 / `parse_number` 的 16 字节块扫描曾于 `10bc8b92`（skip_ws，规范 0.49.33）与 `cdb39a07`（parse_string/parse_number/对象键）落地，随后被 `e086e88d` 全部改回标量循环。
+> 现状：`lib/std/json/parser.uya:41`（skip_ws）、`:81`（skip_ascii_digits_vec16）、`:88`（skip_string_unescaped_run_vec16）均为纯标量 `while` 循环（函数名仍带 `_vec16` 后缀但已无向量代码），`parser.uya:17-18` 的 `JsonWsVec16` / `JsonWsMask16` 类型别名成为未使用的残留；`lib/std/json/encoder.uya:176-179` 的 `json_write_str_view` 仍是真正的 `@vector.load` 块扫描。
+> 下面三条因此从 `[x]` 改为 `[ ]`，作为“恢复向量路径”的待办保留。
+
+- [ ] 在 **`skip_ws`** 中恢复 **`@vector(u8,16)`/`@mask(16)`** 块扫描（曾在 **0.49.33**/`10bc8b92` 落地，`e086e88d` 回退为标量；剩余不足 16 字节或块内非全空白时回退标量循环）
+- [ ] 其余热点（**`parser.uya`**）：**`parse_string`** / **对象键**扫描在不含 **`"`** / **`\\`** 的连续段上用 **`@vector(u8,16)`** 块推进；**`parse_number`** 在 ASCII 数字连续段上用同宽块推进（曾在 `cdb39a07` 落地，`e086e88d` 以「debug C 后端下标量扫描开销更低」为由回退）
+- [x] 编码器 `json_write_str_view`：连续段无 `"` `\` `\n` `\r` `\t` 时用 `@vector(u8,16)` 块 + `json_buf_write_bytes`（与 parser 对称）；测试 `tests/test_json_encode_long_str.uya` —— **仍是当前唯一生效的 `@vector` 路径**（`encoder.uya:171-196`）
+- [ ] 运行时 CPU 检测或编译期 `@asm_target()`/`std.cfg` 选路，选择标量或向量路径（**当前**：`grep -rn "asm_target\|std.cfg" lib/std/json` 无命中，解析器已是纯标量，不做选路；若恢复 parser 向量路径再考虑 `std.cfg` 拆分）
 - [x] Benchmark：**`bench_json`** 用 **`@syscall(gettimeofday)`** 墙钟微秒计时的 **MB/s**；含紧凑 JSON、**前导空白**、**长字符串** 三类 parse 负载，便于观察 **`skip_ws`/`parse_string`** 等 `@vector` 路径；与「纯标量解析器」二分对比需单独构建/开关（仍可选）
 
 ### Phase 5（可选）：`@asm` 补充（AVX2/NEON）

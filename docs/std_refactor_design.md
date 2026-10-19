@@ -1,5 +1,7 @@
 # 标准库重构设计文档 v0.7.3
 
+> **最后核对**：2026-10-19。依据：`lib/{syscall,mem,osal,libc,std}/` 实际目录与 `lib/std/*` 的导出；文中代码块是**设计样稿**（不是当前源码），凡与实现不符之处已在相应小节标注。
+
 ## 概述
 
 本设计文档描述 Uya 标准库的重构计划，核心目标是：
@@ -15,17 +17,18 @@
 
 > 详细任务与勾选见 [todo_std_refactor.md](todo_std_refactor.md)。
 
-| 层级 | 设计目标 | 当前实现状态 |
+| 层级 | 设计目标 | 当前实现状态（2026-10-19 核对） |
 |------|----------|--------------|
-| **syscall** | `lib/syscall/linux.uya`，无依赖 | ✅ 已完成：`lib/syscall/linux.uya` 存在，基础 syscall 已实现并测试 |
-| **mem** | `lib/mem/`（mem.uya + string.uya），无依赖 | ✅ 已完成：`lib/mem/mem.uya` 存在，纯内存/字符串操作已实现 |
-| **osal** | `lib/osal/`，仅依赖 syscall | ✅ 已完成（2026-03-05）：`lib/osal/osal.uya`，统一 API + !T |
-| **libc** | `lib/libc/`，依赖 osal + mem，薄封装 C 签名 | ⚠️ **未按设计重构**：当前 libc 仍为**零外部依赖**（直接使用 `@syscall` 等），未 `use osal` / `use mem`；Phase 4 因编译器跨层导入冲突暂时搁置 |
-| **std** | `lib/std/`，依赖 libc（及可选 osal） | 🔲 部分存在：`lib/std/` 下有 runtime、io、mem、string、testing 等；**`lib/std/mem/allocator.uya`** 已提供 **`IAllocator` + `MallocAllocator`（malloc）** 与测试 **`tests/test_mem_allocator.uya`**；尚未对齐设计中的 Option、Writer/Reader、**mmap 版 HeapAllocator**、Vec 等 |
+| **syscall** | `lib/syscall/linux.uya`，无依赖 | ✅ 已完成：`lib/syscall/` 下**只有** `linux.uya`，基础 syscall 已实现并测试 |
+| **mem** | `lib/mem/`（mem.uya + string.uya），无依赖 | ✅ 已完成：`lib/mem/mem.uya`、`lib/mem/string.uya` 都在，纯内存/字符串操作已实现 |
+| **osal** | `lib/osal/`，仅依赖 syscall | ⚠️ 部分完成：只有单文件 `lib/osal/osal.uya`（统一 API + !T）；设计里的 `osal/{file,process,time,dir,error}.uya` 拆分**不存在** |
+| **libc** | `lib/libc/`，依赖 osal + mem，薄封装 C 签名 | ⚠️ **未按设计重构**：`grep -rln "use osal\|use mem\." lib/libc/` 无命中，当前 libc 仍为**零外部依赖**（直接用 `@syscall` / 内置），没有跨层导入；Phase 4 因编译器跨层导入冲突暂时搁置 |
+| **std** | `lib/std/`，依赖 libc（及可选 osal） | ✅ 已大幅落地：`core/{error,option,traits}`、`io/{writer,reader,file,stream}`、`collections/{vec,string_buf,hashmap,ring_queue,vec_helper}`、`mem/{allocator,heap,arena,mem}`、`string`、`fmt`、`runtime`、`testing`、`encoding`、`crypto`、`http`、`json`、`yaml`、`protobuf`、`sql`、`image`、`net`、`mqtt`、`script`、`process`、`microapp`、`thread`、`time`、`path`、`env`、`platform`、`macro_typeinfo`、`async*` 均存在；`IAllocator` + `MallocAllocator`（`lib/std/mem/allocator.uya`）与 **`HeapAllocator`（mmap，`lib/std/mem/heap.uya`）** 都已落地 |
 
 **依赖现状**：  
-- syscall、mem、osal 已按设计独立存在且无循环依赖。  
-- libc 与 std 尚未接入「libc → osal + mem」「std → libc」的依赖链；libc 仍自包含实现，std 可继续在现有基础上扩展。
+- syscall、mem、osal 已按设计独立存在且无循环依赖（osal 仅 `lib/osal/osal.uya` 一个文件）。
+- libc 与 std 尚未接入「libc → osal + mem」的依赖链；libc 仍自包含实现（16 个文件，无 `use osal` / `use mem.`），而 std 侧有 **23 个文件、共 154 条 `use libc.*`**（`grep -rl "use libc\." lib/std/` / `grep -rh "^use libc\." lib/std/ | wc -l`，2026-10-19）。
+- 设计目标是 `std → libc → osal → syscall`；实际是 `std → libc → (内置/syscall)`，`osal` 目前基本只被少数模块按需引用。
 
 ```
                     ┌─────────────────┐
@@ -313,46 +316,53 @@ lib/
 │   └── string.uya              # strlen, strcmp, strcpy...
 │
 ├── osal/                        # 操作系统抽象层（依赖 syscall）
-│   ├── osal.uya                # 核心抽象
-│   ├── file.uya                # 文件抽象
-│   ├── process.uya             # 进程/线程抽象
-│   ├── time.uya                # 时间抽象
-│   ├── dir.uya                 # 目录操作抽象
-│   └── error.uya               # 错误类型
+│   └── osal.uya                # 核心抽象（**只有这一个文件**；设计稿的 file/process/time/dir/error 拆分未做）
 │
-├── libc/                        # C 兼容层（依赖 osal + mem）
+├── libc/                        # C 兼容层（当前自包含，未 use osal/mem）
 │   ├── string.uya              # strlen, strcmp, strcpy...
 │   ├── stdio.uya               # printf, fopen, fclose...
 │   ├── stdlib.uya              # malloc, free, atoi...
 │   ├── unistd.uya              # read, write, close...
 │   ├── mem.uya                # memcpy, memset...
+│   ├── heap.uya                # malloc/free/realloc 堆实现（+ _in_place 相关测试）
 │   ├── pthread.uya             # pthread_* 系列
 │   ├── time.uya                # time, clock...
-│   └── sys.uya                 # sys/* 头文件
+│   ├── signal.uya              # signal()（SIGSEGV 修复见 fad26acd）
+│   ├── setjmp.uya / ctype.uya / errno.uya / math.uya / wchar.uya / stdarg.uya
+│   └── syscall.uya             # sys_* 封装（含 sys_mmap / sys_munmap）
+│
+├── tls/                         # TLS 1.x 实现（见 tls_uya_design.md）
+├── tflm/                        # TensorFlow Lite Micro 移植（见 tflm_uya_design.md）
+├── kernel/                      # 内核侧代码
 │
 └── std/                         # Uya 原生风格层（依赖 libc + osal）
     ├── core/                    # 核心类型
     │   ├── error.uya           # 错误类型
-    │   ├── option.uya          # Option<T>
+    │   ├── option.uya          # Option<T>（+ option_is_some_i32 等 i32 专用辅助）
     │   └── traits.uya          # Clone, Eq, Ord, Hash, Display
     │
     ├── io/                      # I/O 抽象
     │   ├── writer.uya          # interface Writer
     │   ├── reader.uya          # interface Reader
-    │   └── file.uya            # struct File : Writer, Reader
+    │   ├── file.uya            # struct File : Writer, Reader
+    │   └── stream.uya
     │
     ├── string/                  # 字符串操作
     │   └── string.uya          # 安全字符串函数
     │
     ├── mem/                     # 内存操作
     │   ├── allocator.uya       # IAllocator 接口 + MallocAllocator（✅ 已落地，malloc/free/realloc）
-    │   ├── heap.uya            # HeapAllocator（调用 osal.mmap，计划中）
+    │   ├── heap.uya            # HeapAllocator（✅ 已落地：libc.sys_mmap/sys_munmap + size 头，含 realloc 拷移）
     │   ├── arena.uya           # Arena：bump + IAllocator（realloc 仅最后一块原地；dealloc 空操作）
-    │   └── fixed_buf.uya       # FixedBufferAllocator（计划中）
+    │   ├── mem.uya             # mem_copy 等纯操作
+    │   └── （fixed_buf.uya 仍为计划，未创建）
     │
     ├── collections/             # 泛型容器
-    │   ├── vec.uya             # Vec<T>
-    │   └── string_buf.uya      # StringBuf
+    │   ├── vec.uya             # Vec<T>（vec_new<T>(allocator)）
+    │   ├── string_buf.uya      # StringBuf
+    │   ├── hashmap.uya
+    │   ├── ring_queue.uya
+    │   └── vec_helper.uya
     │
     ├── sql/                     # 数据库通用抽象
     │   ├── types.uya           # Value / NamedArg / ColumnInfo
@@ -360,10 +370,15 @@ lib/
     │   └── db.uya              # DB / Row 包装
     │
     ├── fmt/                     # 格式化
-    │   └── fmt.uya             # format<T: Display>
     │
-    └── runtime/                 # 运行时
-        └── runtime.uya          # panic, entry
+    ├── runtime/                 # 运行时
+    │   └── entry / panic 等
+    │
+    ├── testing/  encoding/  crypto/  http/  json/  yaml/  protobuf/
+    ├── image/  net/  mqtt/  script/  microapp/  exec_test/
+    └── 单文件：async.uya  async_channel.uya  async_event.uya  async_frame.uya
+               async_scheduler.uya  thread.uya  time.uya  path.uya  env.uya
+               platform.uya  process.uya  macro_typeinfo.uya  error.uya
 ```
 
 ### std.mem.allocator（已落地）
@@ -375,7 +390,7 @@ lib/
 | **实现** | **`MallocAllocator`**：封装 **`extern fn` `malloc` / `free` / `realloc`**；全局 **`g_allocator`**、**`get_allocator()`** |
 | **错误** | **`error`**：`AllocError`、`AllocOutOfMemory`、`AllocInvalidSize`、`AllocInvalidPointer` |
 | **测试** | **`tests/test_mem_allocator.uya`**（`make tests`） |
-| **后续** | 本节下文 **`HeapAllocator`（mmap）** 仍为计划；与 **`MallocAllocator`** 可并存，按场景选用实现 **`IAllocator`** |
+| **后续** | 本节下文 **`HeapAllocator`（mmap）** 已于 2026-10-19 核实**已落地**（`lib/std/mem/heap.uya`），与 **`MallocAllocator`** 并存，按场景选用实现 **`IAllocator`**；`FixedBufferAllocator`（`fixed_buf.uya`）仍未创建 |
 
 ### std.sql（首版已落地）
 
@@ -410,10 +425,10 @@ export fn os_read(f: &File, buf: &byte, count: usize) !usize {
 
 ### osal → std.mem.HeapAllocator
 
-std 层的 HeapAllocator 调用 osal 的 mmap：
+> **核对（2026-10-19）**：`lib/std/mem/heap.uya` **已落地**，但走的是 `libc.sys_mmap` / `libc.sys_munmap`（`heap.uya:4-9`）而不是设计稿里的 `osal.os_mmap`——这与「libc 尚未接入 osal」的现状一致。实际形状：`export struct HeapAllocator : IAllocator`（`heap.uya:23`），`alloc(size) !&byte`、`dealloc(ptr) void`、`realloc(ptr, new_size) !&byte`；用户指针前有一个 `usize` 头记录 mmap 总长度，`realloc` 在 `new_size <= old_user` 时原地返回，否则新分配 + `mem_copy` + 释放旧块；另有 `export var g_heap_allocator` 与 `get_heap_allocator() &HeapAllocator`（`heap.uya:75-79`）。下面代码块为最初的设计样稿（`!&void`、`error AllocError.OutOfMemory`、`*header` 语法均已与实现不同），仅保留作参考。
 
 ```uya
-// lib/std/mem/heap.uya
+// 设计样稿：lib/std/mem/heap.uya
 use osal;
 
 /// 全局堆分配器 - 基于 mmap/munmap 系统调用
@@ -566,6 +581,8 @@ std → libc → osal → syscall
 
 不重复实现功能，上层调用下层：
 
+> **核对（2026-10-19）**：下面只是**目标形态**。现状是 libc **没有** `use mem;`/`use osal;`（`grep -rln "use osal\|use mem\." lib/libc/` 无命中），字符串/内存函数在 libc 内自包含实现。这条原则尚未落地，属于 Phase 4 的剩余项。
+
 ```uya
 // ❌ 错误：libc 直接实现字符串操作
 fn strlen(s: &const byte) usize {
@@ -610,10 +627,10 @@ mem 层是独立的基础层，任何层都可以使用它：
 3. 添加 time/clock 支持
 
 ### Phase 5: std 层
-1. 实现核心类型（Option, Error）
-2. 实现 I/O 抽象（Writer, Reader）
-3. 实现 HeapAllocator 调用 osal.mmap
-4. 实现泛型容器（Vec, StringBuf）
+1. 实现核心类型（Option, Error）— ✅ `lib/std/core/{option,error,traits}.uya`（测试 `tests/test_option_core.uya`、`tests/test_option_struct.uya`）
+2. 实现 I/O 抽象（Writer, Reader）— ✅ `lib/std/io/{writer,reader,file,stream}.uya`（接口极薄，`writer.uya` 5 行、`reader.uya` 6 行）
+3. 实现 HeapAllocator 调用 osal.mmap — ✅ 已实现，但实际调 `libc.sys_mmap` 而非 `osal.os_mmap`（`lib/std/mem/heap.uya:4-9`）
+4. 实现泛型容器（Vec, StringBuf）— ✅ `lib/std/collections/vec.uya`（`Vec<T>` + `vec_new<T>`）、`string_buf.uya`，另有 `hashmap.uya`、`ring_queue.uya`、`vec_helper.uya`（测试 `tests/test_vec.uya`、`test_string_buf*.uya`、`test_hashmap.uya`、`test_std_ring_queue.uya`、`test_vec_helper.uya`）
 
 ## 验证标准
 

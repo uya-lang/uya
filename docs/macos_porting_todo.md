@@ -1,5 +1,13 @@
 # macOS 平台移植 TODO 清单（按优先级顺序）
 
+> **实现状态（2026-10-19 核对）**：本清单的复选框**未回填**，但下列能力已落地——
+> `make from-c-native` 冷启动、`backup/uya-hosted-macos.c` / `-arm64.c` / `-x86_64.c` 种子家族、
+> `.github/workflows/macos-ci.yml`、C99 `@syscall` 的 Darwin 分支与 libc bridge、
+> `lib/std/async_event.uya` 的 kqueue 后端（失败回退 `poll`）、`make microapp-macos-runtime-check`。
+> 与本清单原设想不同的是：`stat/fstat/lstat` bridge 仍走 `uya_macos_native_stat_call` mirror
+> （`src/codegen/c99/main.uya:2945-3136`），并未改成直接使用系统 `struct stat`。
+> 引用本文件时请以代码与 `docs/todo_status_index.md` 为准，不要按未勾复选框判断进度。
+
 > 本清单严格按当前已确认的实施边界生成。
 > 目标是：
 > - 优先修复 macOS `stat` bridge

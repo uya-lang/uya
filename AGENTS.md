@@ -69,6 +69,8 @@ Uya 是一个自举系统编程语言和编译器项目，目标是零 GC、编�
 - Linux 冷启动可使用 `make from-c`。
 - 构建自举编译器使用 `make uya`；hosted 路线使用 `make uya-hosted`。
 - 自举验证使用 `make b`；hosted 自举验证使用 `make b-hosted`。
+- 交叉目标用环境变量 `TARGET_OS`（linux / macos / windows）与 `TARGET_ARCH`（x86_64 / arm64 / riscv64）；microapp 目标 profile 见 `--microapp-profile` 与 `src/microapp/main.uya`。
+- CLI 选项以 `./bin/uya --help` 为准；构建/测试目标以 `make help` 为准，不要在文档里手写猜测的 flag。
 - 如果编译器因栈空间不足崩溃，可临时增大栈限制；相关脚本通常已经内置栈设置。
 - `make release` 要求干净工作树；仅在发布任务中使用。日常本地调试可参考 `make release-dirty`，但它不能替代最终验证结论。
 

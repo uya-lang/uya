@@ -2,7 +2,23 @@
 
 **版本**：v0.1  
 **日期**：2026-04-21  
-**状态**：设计完成，待实现
+**状态**：已实现（2026-10-19 核对，v0.10.4）
+
+> **实现核对**：
+>
+> - 语法 `@c_import("path", cflags?, ldflags?)`：最多 3 个字符串字面量参数（`src/parser/declarations.uya` 的
+>   `parser_parse_c_import_decl`，顶层入口 `src/parser/main.uya:734`）。
+> - AST 节点 `AST_C_IMPORT_DECL` 与 `c_import_*` 字段：`src/ast.uya`。
+> - Checker：`src/checker/main.uya` / `check_expr.uya` / `macro_expand.uya`；microapp（容器）模式拒绝使用，
+>   报错码为 **`E4005: microapp 模式禁止使用 @c_import`**（不是设计稿里写的 E4003）。
+> - 构建计划 `CImportPlan` / `CImportItem`：`src/main.uya`（结构定义）+ `src/driver/toolchain.uya`
+>   （`collect_c_import_plan`、cflags 冲突诊断、ldflags token 聚合）。
+> - `-o app.c` 输出的 sidecar 名为 `` `<c_path>` + "imports.sh" ``，即 `app.cimports.sh`
+>   （`build_c_import_sidecar_path`，`src/driver/toolchain.uya:311`）。
+> - split-C：`src/codegen/c99/utils.uya` 的 Makefile 生成器会为每个导入项写 `uya_cimport_N.o` 规则。
+> - 回归：`tests/test_c_import_file.uya`、`test_c_import_dir.uya`、`test_c_import_cflags.uya`、
+>   `tests/verify_c_import_split_sidecar.sh`、`verify_c_import_symlink_dedupe.sh`。
+> - 仍未覆盖：`src/compile.sh` 自身不做 `@c_import` 展开（见 §8.8），exec/bytecode 后端也不接入。
 
 ---
 

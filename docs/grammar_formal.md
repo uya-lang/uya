@@ -613,6 +613,12 @@ macro_call     = ID '(' arg_list ')'
 - 参数默认值：宏参数支持默认值（`p: expr = <表达式>`，`src/parser/declarations.uya:1510-1519`）；注意**普通函数参数没有默认值语法**
 - 宏调用语法与普通函数调用完全一致
 - 跨模块宏导入：`use module.macro_name;`
+- **宏是卫生宏（hygienic macro）**：宏体内**引入的**局部绑定（`const`/`var` 局部变量、`for` 循环变量、
+  宏内嵌套 `fn` 的参数、`catch |err|` 的错误变量）在展开时被重命名为唯一名，不会捕获或遮蔽调用处的同名标识符。
+  **宏参数**与 `const x = @mc_eval(...)` / `const x = @mc_type(...)` 的绑定语义不变；`fn_decl_name`
+  首版保持原样不重命名。实现见 `src/checker/macro_expand.uya` 的 `hygiene_enabled` /
+  `create_hygiene_name`，语法（BNF）不变，规则本身见 [uya.md §25.2.2](./uya.md#2522-卫生宏宏卫生化)；
+  回归 `tests/test_macro_hygiene.uya`。
 - 详细说明见 [uya.md](./uya.md#25-宏系统)
 
 **编译时类型反射（@mc_type 与 TypeInfo）**：

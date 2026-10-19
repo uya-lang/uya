@@ -3,6 +3,13 @@
 > **归档/核对头（2026-09-27）**：本 TODO 的功能目标已**全部落地**，清单里的复选框是 2026-04 的书写形式，未逐项回填。
 >
 > - 核对证据：`@c_import` 已进入 lexer 白名单（`src/lexer.uya` 的未知内置错误文案已列出 `@c_import`）、parser（`src/parser/declarations.uya`）、checker（`src/checker/main.uya`、`expr`、`macro_expand`）与构建集成（提交 `fba37b65`）；仓库内有 8 个 `tests/*c_import*` 用例与 `tests/verify_c_import_split_sidecar.sh`、`tests/verify_c_import_symlink_dedupe.sh` 两个验证脚本。
+> - 2026-10-19 复核（v0.10.4）的三处口径修正：
+>   1. microapp 模式拒绝 `@c_import` 的**实际错误码是 `E4005`**
+>      （`src/checker/check_expr.uya:860`），不是本清单 Phase 2.1 里写的 `E4003`；
+>   2. `-o app.c` 的 sidecar 名由「`c_path` + `imports.sh`」拼成（`src/driver/toolchain.uya:311`），
+>      即 `app.cimports.sh`；
+>   3. split-C 的导入 object 名为 `uya_cimport_N.o`（`src/codegen/c99/utils.uya`），
+>      单文件 `.c` 输出才生成 sidecar。
 > - 仍有意义的后续（非本 TODO 项）：`@c_import` 与 exec/bytecode 后端的接入，见 `docs/todo_bytecode_exec.md`。
 > - 本文件保留为历史实施顺序记录；若发现具体条目未落地，请按条目重新开 issue 而不是沿用本清单状态。
 
@@ -66,6 +73,7 @@
 - [ ] 若 `scope_level > 0`，报“`@c_import` 只能在顶层使用”
 - [ ] 为 microapp / container mode 增加拒绝逻辑
 - [ ] 新增错误码文案：`E4003: microapp 模式禁止使用 @c_import`
+  → **实际落地为 `E4005`**（`src/checker/check_expr.uya:860`「E4005: microapp 模式禁止使用 @c_import」）
 
 ### 2.2 路径解析
 

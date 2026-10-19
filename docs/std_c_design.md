@@ -1,5 +1,7 @@
 # std/libc 标准库设计文档
 
+> **最后核对**：2026-10-19。依据：`lib/std/` 实际目录、`lib/libc/`（16 个文件）、`lib/syscall/linux.uya`、`lib/std/platform.uya`、`src/main.uya`（`std.cfg` 与 `--outlibc` 实现）。§架构概览 的目录树、§分层依赖 的方向、各 Sprint 的完成状态已按现状标注；Sprint 代码块本身是**设计样稿**，不是当前源码。
+
 ## 核心目标
 
 1. **编译器完全不依赖外部 C 标准库**
@@ -18,43 +20,65 @@
 
 ```
 lib/
+├── syscall/                      # 实际位置：顶层 lib/syscall/，不在 std 下
+│   └── linux.uya                 # Linux syscall 封装（export fn sys_*）
+│
+├── mem/                          # 顶层纯内存层
+│   ├── mem.uya                   # copy / set / cmp
+│   └── string.uya                # strlen / strcmp / strcpy...
+│
+├── osal/                         # 顶层 OS 抽象层
+│   └── osal.uya
+│
 ├── std/                          # Uya 风格标准库（使用现代特性）
-│   ├── core/                     # 核心类型和 trait（v0.6.0 Sprint 6）
-│   │   ├── error.uya             # 错误类型定义（使用 union）
-│   │   ├── option.uya            # Option<T> = union { Some: T, None }
-│   │   └── traits.uya            # 核心接口（Clone, Eq, Ord, Hash）
-│   ├── io/                       # I/O 抽象（v0.6.0 Sprint 7）
+│   ├── core/                     # 核心类型和 trait
+│   │   ├── error.uya             # 错误类型定义
+│   │   ├── option.uya            # Option<T> = union { Some: T, None } + i32 专用辅助
+│   │   └── traits.uya            # Clone, Eq, Ord, Hash, Display（5 个 interface）
+│   ├── io/                       # I/O 抽象
 │   │   ├── writer.uya            # interface Writer
 │   │   ├── reader.uya            # interface Reader
-│   │   └── file.uya              # struct File : Writer, Reader
-│   ├── string/                   # 字符串操作（v0.6.0 Sprint 8）
-│   │   └── string.uya            # 安全字符串函数
+│   │   ├── file.uya              # File{fd, owns_fd} + file_open/read/write/close + FILE 流
+│   │   └── stream.uya
+│   ├── string/                   # 字符串操作
+│   │   └── string.uya            # strlen/strcmp/strncmp/strcpy/strncpy/strcat/strchr/strrchr/strstr
 │   ├── mem/                      # 内存操作
-│   │   └── mem.uya               # 内存函数
-│   ├── collections/              # 泛型容器（v0.6.0 Sprint 9）
+│   │   ├── mem.uya               # 内存函数
+│   │   ├── allocator.uya         # IAllocator + MallocAllocator
+│   │   ├── heap.uya              # HeapAllocator（libc.sys_mmap）
+│   │   └── arena.uya             # Arena（bump）
+│   ├── collections/              # 泛型容器
 │   │   ├── vec.uya               # struct Vec<T>
-│   │   └── string_buf.uya        # struct StringBuf
-│   ├── syscall/                  # 系统调用封装
-│   │   └── linux.uya             # Linux syscall 封装
+│   │   ├── string_buf.uya        # struct StringBuf
+│   │   ├── hashmap.uya
+│   │   ├── ring_queue.uya
+│   │   └── vec_helper.uya
 │   ├── fmt/                      # 格式化
-│   │   └── fmt.uya               # format<T: Display>
-│   └── runtime/                  # 运行时支持
-│       └── runtime.uya           # 程序入口、panic 处理
+│   ├── runtime/                  # 运行时支持（entry / panic）
+│   ├── testing/                  # 测试框架（test_suite_begin / run_test / assert_eq_*）
+│   └── encoding/ crypto/ http/ json/ yaml/ protobuf/ sql/ image/
+│       net/ mqtt/ script/ microapp/ exec_test/
 │
-└── libc/                         # C 兼容层（薄封装，v0.6.0 Sprint 10）
-    ├── syscall.uya               # syscall 封装（调用 std.syscall）
-    ├── string.uya                # C 签名：strlen, strcmp...（调用 std.string）
-    ├── stdio.uya                 # C 签名：printf, fopen...（调用 std.io）
-    ├── stdlib.uya                # C 签名：malloc, free...（调用 std.mem）
+└── libc/                         # C 兼容层（薄封装）
+    ├── syscall.uya               # sys_* 封装（直接用 @syscall，不 use std）
+    ├── string.uya                # C 签名：strlen, strcmp...
+    ├── stdio.uya                 # C 签名：printf, fopen...
+    ├── stdlib.uya                # C 签名：malloc, free...
     ├── mem.uya                   # C 签名：memcpy, memset...
-    └── unistd.uya                # C 签名：read, write...
+    ├── heap.uya                  # malloc/free/realloc 堆
+    ├── unistd.uya                # C 签名：read, write...
+    ├── pthread.uya / time.uya / signal.uya / setjmp.uya
+    ├── ctype.uya / errno.uya / math.uya / wchar.uya / stdarg.uya
 ```
 
-**分层依赖**：
+**分层依赖（现状，2026-10-19 核对）**：
+
 ```
-libc/  →  std/  →  syscall/
-(C ABI)  (Uya)    (底层)
+std/   →   libc/   →   内置 @syscall / lib/syscall
+(Uya)      (C ABI)     (底层)
 ```
+
+> 与设计稿的差异：设计稿写的是 `libc/ → std/ → syscall/`（libc 调用 std 实现），**实际是反方向**——`lib/std/` 有 23 个文件、共 154 条 `use libc.*`（`grep -rl "use libc\." lib/std/` / `grep -rh "^use libc\." lib/std/ | wc -l`，2026-10-19），而 `lib/libc/` 里**没有** `use std.*`（少数 shim 例外：`use std.runtime` 取 argv/env）。因此 `std` 位于 `libc` 之上，libc 仍是自包含实现，`std/ → libc/ → 内置 @syscall` 是当前真实链路。
 
 ---
 
@@ -143,7 +167,13 @@ libc/  →  std/  →  syscall/
 
 ### Sprint 6: std.core 核心类型
 
-**目标**：实现 Option<T>, Error 等核心类型
+**状态（2026-10-19）：部分完成。**
+
+- `lib/std/core/option.uya`：`export union Option<T>` + `option_is_some_i32` / `option_is_none_i32` / `option_unwrap_or_i32`（目前只有 i32 专用辅助函数），测试 `tests/test_option_core.uya`、`tests/test_option_struct.uya`
+- `lib/std/core/traits.uya`：5 个 `export interface`，但形状与设计稿不同 —— `Ord` 是 `fn lt(self: &Self, other: &Self) bool`（不是 `cmp -> i32`）、`Display` 是 `fn fmt_len(self: &Self) usize`（不是 `fmt(writer) !void`）
+- `lib/std/core/error.uya`：**不是**设计稿的 `union Error`，而是 5 条**未加 `export`** 的 `error` 声明（`IOError`、`PermissionDenied`、`NotFound`、`InvalidArgument`、`UnexpectedEof`），注释说明是 `lib/std/error.uya` 的包装占位
+
+**设计稿**（保留作目标形态）：
 
 ```uya
 // 错误类型定义
@@ -184,7 +214,9 @@ interface Display {
 
 ### Sprint 7: std.io I/O 抽象层
 
-**目标**：使用 interface 定义 I/O 抽象
+**状态（2026-10-19）：部分完成。** `writer.uya`（5 行）、`reader.uya`（6 行）只有接口声明；`file.uya` 提供 `export struct File { fd: i32, owns_fd: bool }` + `file_open` / `file_close` / `file_read` / `file_write`，以及一套同布局的 `FILE` 流缓冲（`fopen`/`fread`/`fwrite`/`fgetc`/`fputc`/`fputs`/`fflush`…）。**`struct File : Writer, Reader` 尚未落地**（`File` 没有声明接口实现），测试见 `tests/test_std_io_file.uya`。
+
+**设计稿**（保留作目标形态）：
 
 ```uya
 interface Writer {
@@ -206,7 +238,9 @@ struct File : Writer, Reader {
 
 ### Sprint 8: std.string 安全字符串操作
 
-**目标**：使用 !T 错误处理重构字符串操作
+**状态（2026-10-19）：** 基本未做。`lib/std/string/string.uya` 只导出 C 风格函数：`strlen`、`strcmp`、`strncmp`、`strcpy`、`strncpy`、`strcat`、`strchr`、`strrchr`、`strstr`；`grep -rn "parse_int\|parse_uint\|parse_float\|copy_safe" lib/std/string/` 无命中——设计稿列出的 `parse_int` / `parse_uint` / `parse_float` / `copy_safe` **都不存在**。
+
+**设计稿**（保留作目标形态）：
 
 ```uya
 // 返回错误版本
@@ -220,7 +254,9 @@ export fn copy_safe(dst: &byte, dst_len: usize, src: &const byte) !void;
 
 ### Sprint 9: std.collections 泛型容器
 
-**目标**：实现泛型容器
+**状态（2026-10-19）：已完成。** `lib/std/collections/vec.uya`（`export struct Vec<T>` + `export fn vec_new<T>(allocator: IAllocator)`）、`string_buf.uya`、`hashmap.uya`、`ring_queue.uya`、`vec_helper.uya` 均已落地；测试 `tests/test_vec.uya`、`test_string_buf.uya`、`test_string_buf_vec_field.uya`、`test_hashmap.uya`、`test_std_ring_queue.uya`、`test_vec_helper.uya`。实际字段/方法与下方设计稿不完全一致，以源码为准。
+
+**设计稿**（保留作目标形态）：
 
 ```uya
 struct Vec<T> {
@@ -248,7 +284,9 @@ struct StringBuf {
 
 ### Sprint 10: libc 薄封装
 
-**目标**：在 std 基础上实现 C 兼容层
+**状态（2026-10-19）：未开始。** `grep -rln "use osal\|use mem\." lib/libc/` 无命中，`lib/libc/string.uya` 等仍是自包含实现（不调用 `std.string` / `std.mem`），因此「libc 调用 std 实现、零重复代码」的目标尚未达成（也见 `std_refactor_design.md` Phase 4 的搁置说明）。
+
+**设计稿**（保留作目标形态）：
 
 ```uya
 // libc.string - 调用 std 实现，保持 C 签名
@@ -266,6 +304,8 @@ export extern fn strcmp(s1: *const byte, s2: *const byte) i32 {
 ## --outlibc 功能
 
 **命令**：`uya --outlibc <目录>`
+
+**实现状态（2026-10-19）**：CLI 侧已接线——`src/main.uya:105` 定义 `COMMAND_OUTLIBC`，usage 文本在 `:1083`，参数解析在 `:1674+`（`outlibc_index`）。生成了什么内容本轮未运行验证，只确认了入口存在。
 
 **生成文件**：
 - `libuya.h` - 头文件（类型定义 + 函数声明）
@@ -293,12 +333,12 @@ gcc -nostdlib -ffreestanding your_program.c libuya.o -o your_program -lgcc
 - ✅ **可替代 musl/glibc**：兼容 C ABI
 - ✅ **零标准库头文件**：生成的代码自己定义所有类型
 
-## v0.6.0 新特性
+## v0.6.0 新特性（2026-10-19 核对状态）
 
-- 🎯 **类型安全**：std 使用 !T, Option<T>
-- 🎯 **接口抽象**：Writer, Reader, Clone, Eq, Ord
-- 🎯 **泛型容器**：Vec<T>, StringBuf
-- 🎯 **libc 薄封装**：调用 std 实现，零重复代码
+- 🎯 **类型安全**：std 使用 !T, Option<T> —— 部分（`Option<T>` 在 `std.core.option`，只有 i32 辅助函数；`!T` 已是全局风格）
+- 🎯 **接口抽象**：Writer, Reader, Clone, Eq, Ord —— 已声明（`std.io` 2 个 + `std.core.traits` 5 个），但几乎没有实现者
+- 🎯 **泛型容器**：Vec<T>, StringBuf —— 已完成（另有 hashmap / ring_queue / vec_helper）
+- 🎯 **libc 薄封装**：调用 std 实现，零重复代码 —— **未开始**（libc 仍自包含）
 
 ---
 

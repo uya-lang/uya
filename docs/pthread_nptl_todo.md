@@ -1,12 +1,14 @@
 # Uya libc pthread NPTL-lite 改造 TODO
 
-> **核对头（2026-09-27）**：本文件 89 个未勾选条目多为 2026-04 的书写形式，实际能力已推进：
-> `CLONE_THREAD`/`CLONE_PARENT_SETTID` 标志位、`set_tid_address` 驱动的 join 退出握手、`pthread_cond` 时钟与 `pthread_mutex_timedlock` 的 `ETIMEDOUT` 返回等均已在 `lib/libc/pthread.uya` 落地，并有 `tests/test_pthread*.uya` 与 `tests/stress_pthread.sh` 覆盖。
-> 本轮（2026-09-27）另修复了 hosted 下 `ETIMEDOUT` 宏名冲突导致 `./bin/uya test tests/test_pthread_cond.uya` 与 `tests/stress_pthread.sh` 必挂的缺陷（见 `buglist.md` 编译器 bug 首条）。
-> 剩余：macOS/Darwin 侧 pthread 与 syscall 层（见 `docs/macos_porting_todo.md`、`tests/run_programs_parallel.sh` 的 `SKIP_DARWIN_DEFAULT` 名单）。
+> **核对头（2026-10-19）**：本文件大量未勾选条目是 2026-04 的书写形式，实际能力已推进，**以代码复核为准**：
+> `CLONE_THREAD`/`CLONE_PARENT_SETTID` 标志位（`lib/libc/pthread.uya:92` `CLONE_FLAGS = 0x00150F00`）、`set_tid_address` 驱动的 join 退出握手（`:739` 注册、`:1024`/`:1036` 清理）、`pthread_join` 的 futex joinstate 等待、TSD destructor 多轮调用（`_pthread_run_tsd_destructors`，`:672` / `:705`）、`pthread_cond` 时钟与 `pthread_mutex_timedlock` 的 `ETIMEDOUT` 返回等均已在 `lib/libc/pthread.uya` 落地，并有 `tests/test_pthread*.uya` 与 `tests/stress_pthread.sh` 覆盖。
+> **注意**：下方「状态摘要（2026-04-12）」里「`pthread_join` 仍通过 `waitpid`」「仍待补齐真正的 `CLONE_THREAD` / joinstate futex 迁移」两句**已被代码推翻**；正确状态以「当前差距清单」为准（该节已全部改为 `[x]`）。
+> 2026-09-27 另修复了 hosted 下 `ETIMEDOUT` 宏名冲突导致 `./bin/uya test tests/test_pthread_cond.uya` 与 `tests/stress_pthread.sh` 必挂的缺陷（见 `buglist.md` 编译器 bug 首条）。
+> 2026-04 → 2026-10 期间另修复 `pthread_join` 早释放线程栈导致的偶发 SIGSEGV（`d8201b4a`，#139，新增 `tests/test_pthread_join_stack_reuse.uya`）。
+> 仍然有效的未完成项：rwlock 的 futex 慢路径（现仍是 `pthread_yield` 忙等，见 `:1840`）、测试与内部结构降耦、`make check` / 自举验证、macOS/Darwin 侧 pthread（见 `docs/macos_porting_todo.md`）。
 
 日期：2026-04-12
-最新更新：2026-04-12（稳定基线恢复，condvar clock 语义已落地）
+最新更新：2026-10-19（按代码复核；2026-04-12「稳定基线恢复，condvar clock 语义已落地」为历史记录）
 
 ## 状态摘要（2026-04-12）
 
@@ -211,7 +213,7 @@ Darwin 路线继续按跨平台迁移文档独立推进，不混入本 Linux NPT
 ### 6. pthread_join / pthread_exit / pthread_detach
 
 - [x] `pthread_exit(retval)` 已保存 `retval` 到 descriptor，并置 `exited`。
-- [ ] 仍缺 TSD destructor。
+- [x] 仍缺 TSD destructor。 → **已实现**：`_pthread_run_tsd_destructors`（`lib/libc/pthread.uya:672`，在 `:705` 的线程退出路径调用；`pthread_key_create` 保存 `destructor` 见 `:50`/`:2145`），支持多轮调用。
 - [x] `pthread_join` 当前通过 `waitpid` 等待线程结束，然后从 descriptor 读取 `retval` 并回收栈/descriptor。
 - [x] `pthread_join` 已完全迁移到纯 futex joinstate，`waitpid` 已移除。
 - [x] `pthread_join` / `pthread_detach` / `pthread_exit` 已引入 `joinstate` 原子状态，具备重复 join / detached / exited 的竞态处理基础。

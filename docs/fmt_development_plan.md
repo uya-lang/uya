@@ -1,8 +1,19 @@
 # Uya fmt 开发计划
 
-> **核对头（2026-09-27）**：`uya fmt` 已落地：`src/main.uya` 有 `COMMAND_FMT`，实现主体在 `src/fmt.uya`（1100+ 行），仓库内还有 `tools/fmt*.uya` 与十余个 `tests/test_fmt_*.uya` 回归。
-> 因此本计划与 `fmt_phase1..4` 任务文档里的 "Not started" 勾选状态**已过时**；其中明确仍未支持的只有 `fmt_phase4_cli_tasks.md` 记录的一项：stdin 与 `-s/-r` 组合。
-> 进度请以测试与 `src/fmt.uya` 现状为准。
+> **核对头（2026-10-19，v0.10.4）**：`uya fmt` 已落地：`src/main.uya` 有 `COMMAND_FMT`，进程内实现是
+> `src/fmt.uya`；完整的 gofmt 式实现与 CLI 在 `tools/fmt.uya` + `lib/std/fmt/`，仓库内有 19 个
+> `tests/test_fmt_*.uya` 回归。因此本计划与 `fmt_phase1..4` 任务文档里的 "Not started" 勾选状态**已过时**。
+>
+> **两套 CLI 的实际边界**（核对 `src/fmt.uya` 与 `tools/fmt.uya`）：
+>
+> | 入口 | 支持 |
+> |------|------|
+> | `uya fmt <file>`（进程内，`src/fmt.uya`） | 只接受**单个文件** + 可选 `-w`；输出到 stdout 或原地写回。**不支持** `-d`/`-l`/`-s`/`-r`、目录递归、stdin（`uya fmt -s x.uya` 会把 `-s` 当文件名并报「无法读取文件」） |
+> | `bin/uyafmt`（`tools/fmt.uya`，`make check-fmt` 构建） | `-w` / `-l` / `-d` / `-s` / `-r <rule>`；多路径、目录递归；无路径时读 stdin |
+>
+> **`bin/uyafmt` 的组合限制**：`-w`+`-l`、`-w`+`-d`、`-l`+`-d` 互斥（`tools/fmt.uya:479/483/487`）；
+> stdin 模式不能再带 `-w`/`-l`/`-d`/`-s`/`-r`（`tools/fmt.uya:493`）。
+> 进度请以测试与代码现状为准。
 
 > 参考 Go `go/format` + `go/printer` + `gofmt` 实现
 

@@ -1,7 +1,10 @@
 # Uya HTTP WebSocket 实现待办
 
-> **核对头（2026-09-27）**：HTTP/2 基础栈已落地（`lib/std/http/http2_types.uya`、`http2_frame.uya`、`http2_stream.uya`、`hpack.uya`、`websocket_http2_h3_route.uya`）；
-> **HTTP/3 / QUIC 未实现**（仓库内无 QUIC/HTTP/3 代码），RFC 8441 extended CONNECT 的 stream adapter 也仍需落地。详见 `docs/std_http_websocket_http2_http3_route.md`。
+> **核对头（2026-10-19）**：Phase 1–12 的 168 个 checkbox **全部为 `[x]`**（`grep -c "\[ \]" docs/todo_http_websocket.md` → 0），逐项复核结论：
+> - **Phase 1–10、12 的交付物确实存在**：`lib/std/http/websocket_types.uya`、`websocket_frame.uya`、`websocket_handshake.uya`、`websocket_async.uya`、`websocket_tls.uya`、`websocket_client.uya`、`websocket_json.uya`、`uyagin_websocket.uya` 共 8 个模块；示例 `examples/uyagin_websocket_echo.uya`、`uyagin_websocket_chat_session.uya`、`https_websocket_echo.uya`、`uyagin_websocket_json_echo.uya` 均在。
+> - **HTTP/2 基础栈已落地**：`http2_types.uya`（37 导出）、`http2_frame.uya`（9 导出）、`http2_stream.uya`（11 导出）、`hpack.uya`（11 导出），回归 `tests/test_http_http2_frame.uya`、`test_http_http2_stream.uya`、`test_http_hpack.uya`。
+> - **Phase 11 的勾选只代表"路线归属 + 占位 + 验证规划"已交付**，不代表协议实现：`lib/std/http/websocket_http2_h3_route.uya` 只有两个配置结构体与两个 default 函数（`WebSocketHttp2RoutePlan` / `WebSocketHttp3RoutePlan`，`validation_scope = "compile_and_interface_smoke"`）。
+> - **仍未实现**：HTTP/2 RFC 8441 extended CONNECT 的 stream transport adapter、HTTP/3 / QUIC 传输（含 QPACK）。`grep -rln "extended_connect\|quic_" lib/std/http/*.uya` 仅命中占位文件。详见 `docs/std_http_websocket_http2_http3_route.md`。
 
 **参考**：[std_http_websocket_design.md](./std_http_websocket_design.md)、[todo_http.md](./todo_http.md)
 

@@ -1,5 +1,10 @@
 # Uya 微容器系统调用 ABI 规范
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：syscall ABI 在 `lib/std/microapp/abi.uya` 与生成 C 的
+> `uya_microapp_bridge_dispatch*` 落地；x86_64 / aarch64 hosted call-gate 已走 bridge slot，
+> `rv32_baremetal_softvm` / `xtensa_baremetal_softvm` 走 trap profile。回归见 `make microapp-check`
+> 与 `tests/run_kernel_payload.sh`。下文是规范原文，字段以 `abi.uya` 为准。
+
 **版本**: v1.3  
 **日期**: 2026-04-02  
 **适用平台**: CH32V003（RV32）/ ESP32（Xtensa）/ RV1106（兼容模式）  

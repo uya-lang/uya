@@ -397,5 +397,11 @@ const n2: usize = try mqtt_connect_options_build_packet(&opts, &tx[0], 256);
 
 ## 参考
 
-- 模块实现：[uya/lib/std/mqtt/async.uya](/media/winger/_dde_home/winger/wingo/work/rk/builder/rv1103b_linux_ipc_sdk/project/app/xyglasses/uya/lib/std/mqtt/async.uya:1)
-- smoke 测试：[uya/tests/test_std_mqtt_async.uya](/media/winger/_dde_home/winger/wingo/work/rk/builder/rv1103b_linux_ipc_sdk/project/app/xyglasses/uya/tests/test_std_mqtt_async.uya:1)
+- 模块实现：[lib/std/mqtt/async.uya](../lib/std/mqtt/async.uya)
+- smoke 测试：[tests/test_std_mqtt_async.uya](../tests/test_std_mqtt_async.uya)
+
+> **核对头（2026-10-19）**：本文 API 清单已逐个回到 `lib/std/mqtt/async.uya` 核对，**全部存在**，无臆造项。补充定位与两点修正：
+> - 泛型 helper 均为 `export @async_fn`：`mqtt_write_all<W: AsyncWriter>`（`:647`）、`mqtt_read_exact<R: AsyncReader>`（`:659`）、`mqtt_read_packet<R: AsyncReader>`（`:671`）。
+> - fd 语义包装：`mqtt_client_connect_fd`（`:775`）、`mqtt_client_subscribe_fd`（`:835`）、`mqtt_client_publish_qos0_fd`（`:898`），`MqttFdClient` 的三个方法直接转发到它们（`:927/932/937`）。
+> - 原「参考」小节的两个链接指向**另一台机器上的绝对路径**（`/media/winger/_dde_home/.../xyglasses/uya/...`），已改为仓库相对路径。
+> - 「当前边界」四条（MVP 3.1/3.1.1、仅 fd transport、仅 CONNECT/SUBSCRIBE/QoS0 PUBLISH、无 DNS/TLS/PING keepalive/QoS1-2/自动重连）经 grep 复核仍成立：`lib/std/mqtt/async.uya` 中无 `PINGREQ`/`QoS1`/`reconnect`/TLS 相关导出。

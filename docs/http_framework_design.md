@@ -6,6 +6,11 @@
 
 > 2026-04-25 注：当前仓库实现已经明显超出本页最初的 blocking-first 设计稿。`std.http.parse/types/server` 已具备 Header 缓存、chunked request 解码与 `writev`/`sendfile` 热路径；更贴近现状的框架层说明请优先参考 [`uyagin_design.md`](./uyagin_design.md) 与 [`uyagin_todo.md`](./uyagin_todo.md)。
 
+> **核对头（2026-10-19）**：本页仍是 v0.1 设计草案，**不要当作实现清单**读。按 `lib/std/http/` 实际文件核对：
+> - 1.3 的目录块里 **`middleware.uya` 并不存在**（`ls lib/std/http/middleware.uya` → No such file）；实际 22 个模块为 `types` / `parse` / `router` / `server` / `epoll_server` / `jwt` / `http1_async` / `http2_types` / `http2_frame` / `http2_stream` / `hpack` / `websocket_types` / `websocket_frame` / `websocket_handshake` / `websocket_async` / `websocket_tls` / `websocket_client` / `websocket_json` / `websocket_http2_h3_route` / `uyagin` / `uyagin_router` / `uyagin_websocket`。
+> - `ServerMode` 枚举已在 `lib/std/http/types.uya:122` 定义（`ServerConfig.mode` 见 `:247`），但"首版仅实现 Blocking"不再是全部：`lib/std/http/epoll_server.uya` 提供 epoll 服务端（`epoll_server_listen` 等 21 个导出），`lib/std/http/http1_async.uya` 提供 nonblocking async 客户端。
+> - 1.2 的"后续：epoll 多路复用、异步 Handler…"已部分落地：epoll 服务端与 async HTTP/1 客户端都在，异步 Handler 由 `lib/std/http/uyagin.uya` 承担；统一 `http.client` 抽象仍未做。
+
 ---
 
 ## 1. 概述
@@ -33,6 +38,7 @@ lib/std/http/
   server.uya     # ServerConfig、Server、listen/accept 循环、Conn 生命周期
   jwt.uya        # Base64URL、JWT 三段解析、verify/decode/sign、HS256
   middleware.uya # Middleware 接口（首版仅类型），后续实现 logging/CORS/jwt_auth
+                 # ⚠️ 2026-10-19 核对：该文件从未创建（仓库无 middleware.uya）；中间件能力目前由 uyagin 的链式 handler 承担
 ```
 
 模块路径：`lib/std/http/` 为单模块 **std.http**，其下所有 .uya 文件同属该模块。

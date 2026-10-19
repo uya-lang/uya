@@ -4,6 +4,17 @@
 **日期**：2026-05-17  
 **状态**：设计完成，第一阶段实现进行中
 
+> **核对头（2026-10-19）**：设计与实现的一致性复核，按第 20 节的 Phase 逐段核对（本文件后续的 2026-05-17 / 2026-05-19"实现状态附记"是历史快照，保留不动）：
+>
+> | Phase | 设计内容 | 2026-10-19 状态 | 证据 |
+> |---|---|---|---|
+> | 1 | checked AST → HIR → bytecode → VM；`uya run --exec` 跑 hosted 基础程序 | **已完成** | `src/exec/lower.uya`（264 KB）、`builder.uya`（146 KB）、`vm.uya`（103 KB）；`src/main.uya:2798` 的 `BACKEND_EXEC` 分支 |
+> | 2 | `!T` / `try` / `catch`；`defer`/`errdefer`；struct/array/slice/union；全局初始化；`uya test --exec` | **已完成** | `tests/test_exec_vm_error_union.uya`、`test_exec_vm_error_builtin.uya`、`test_exec_vm_catch_*.uya`（5 个）、`test_exec_vm_defer.uya`、`test_exec_vm_drop_local.uya`、`test_exec_vm_aggregates.uya`、`test_exec_vm_union_dispatch.uya`、`test_exec_vm_globals.uya` / `test_exec_vm_globals_multi.uya` / `test_exec_vm_global_init_fail.uya`（+`verify_exec_vm_globals.sh`、`tests/exec_vm_global_chain/`） |
+> | 3 | `extern` / `extern "libc"` 通用执行、varargs 长期策略、interface / 间接调用、更完整标准库、fallback 稳定化 | **已完成** | `tests/test_exec_vm_extern_bridge.uya`、`test_exec_vm_extern_impl.uya`、`test_exec_vm_extern_mkdir_bridge.uya`、`test_exec_vm_stdlib_unistd.uya`、`test_exec_vm_libc_module_global.uya`、`test_exec_vm_stdio_varargs.uya`（+`verify_exec_vm_stdio_varargs.sh`）、`test_exec_vm_interface_dispatch.uya`、`test_exec_vm_interface_stateful.uya`；`ExecUnsupportedReason` 枚举 + 回退逻辑在 `src/exec/main.uya:6-19` |
+> | 4 | 性能优化 / 可选 bytecode cache / 热点 profiling / 可选 JIT | **未做** | `grep -rn "bytecode_cache\|cache" src/exec/*.uya` 无命中；无 JIT、无 profiling 钩子 |
+>
+> 另：第 20 节 Phase 2 写的"测试框架接入 `uya test --exec`"已由 `src/main.uya` 的 `--exec`/`--vm` 选项覆盖，不再是待办。
+
 ---
 
 ## 实现状态附记（2026-05-17）

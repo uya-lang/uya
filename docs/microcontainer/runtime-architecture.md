@@ -1,5 +1,12 @@
 # MicroContainer Core 与 Capability Adapter 分层原则
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：MicroContainer Core 的编译器侧与运行库侧已落地——
+> `src/microapp/main.uya`（profile / 镜像发射 / `pack-image` / `inspect-image` / `verify-image`）、
+> `lib/std/microapp/{abi,io,mem,microapp,task,time}.uya`、`lib/std/runtime/microapp/`；
+> Capability Adapter 在 `lib/std/runtime/capability/{adapter,backend,native_backend,wamr_backend,fake_backend}.uya`。
+> 聚合回归 `make microapp-check` / `microapp-hosted-smoke` / `microapp-compat-check` / `microapp-recovery-check`；
+> 可移植 native 剩余项见 `portable_native_todo.md`，共享库未实现见 `shared_library_todo.md`。
+
 ## 1. 目标
 
 MicroContainer 必须被设计为统一运行时核心，而不是设备版和 native 版两套实现。

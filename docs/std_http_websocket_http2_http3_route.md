@@ -1,6 +1,9 @@
 # Uya WebSocket HTTP/2 / HTTP/3 路线占位
 
-> **核对头（2026-09-27）**：路线占位文档，接口边界仍有效。实现现状：HTTP/2 frame / stream / HPACK 栈在仓库中（`lib/std/http/http2_*.uya`、`hpack.uya`）；**QUIC / HTTP/3 与 HTTP/2 WebSocket transport adapter 尚未实现**。
+> **核对头（2026-10-19）**：路线占位文档，接口边界仍有效。实现现状复核：
+> - **HTTP/2 基础栈已落地**：`lib/std/http/http2_types.uya`（`HTTP2_FRAME_HEADER_LEN = 9`、`HTTP2_DEFAULT_MAX_FRAME_SIZE = 16384`、`Http2FrameType` / `Http2StreamState` / `Http2Stream` / `HpackDynamicTable` 等 37 个导出）、`http2_frame.uya`（9 个导出：`http2_encode_frame_header`、`http2_parse_frame_from_buffer`、`http2_encode_data_frame`、`http2_encode_settings_frame`、`http2_parse_settings_frame`、`http2_encode_window_update_frame`、`http2_parse_window_update_frame`、`http2_parse_headers_frame`、`http2_frame_wire_len`）、`http2_stream.uya`（11 个导出：状态机 + 双向窗口记账）、`hpack.uya`（11 个导出：整数/字符串编解码、indexed / literal / dynamic table size update、`hpack_decode_block`）。
+> - **QUIC / HTTP/3、以及 HTTP/2 WebSocket transport adapter 仍未实现**：`grep -rln "extended_connect\|quic_" lib/std/http/*.uya` 只命中 `websocket_http2_h3_route.uya` 这个占位文件（其中 `connect_method` / `connect_protocol` 只是**结构体字段里的字符串常量**，`validation_scope = "compile_and_interface_smoke"`），没有任何 extended CONNECT 帧构造、stream adapter 或 QUIC 传输代码。
+> - 第 4 节四个回归文件均存在：`tests/test_http_http2_frame.uya`、`tests/test_http_http2_stream.uya`、`tests/test_http_hpack.uya`、`tests/test_http_websocket_http2_h3_route.uya`。
 
 本文档对应 `std.http.websocket` 的 Phase 11 路线收敛。当前仓库已经补上 **HTTP/2 frame / stream / HPACK 基础栈**，本页继续负责把**模块归属、接口边界、复用策略和后续 transport 落点**固定下来，避免后续 extended CONNECT / QUIC 实现偏航。
 

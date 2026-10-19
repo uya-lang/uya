@@ -2,6 +2,18 @@
 
 与 [tflm_uya_design.md](tflm_uya_design.md) 配合：设计文档定「做什么、长什么样」，本文档定「按什么顺序做、做到什么算完成」。
 
+> **核对头（2026-10-19）**：已按 `lib/tflm/` 10 个文件逐条复核，阶段 1–2 的勾选与代码一致：
+> - `common/common.uya:4-12` 9 个 `export error`（含 `ResolverFull`）、`export enum BuiltinOperator`（`:14`）
+> - `model/model.uya:6` `TFLM_MODEL_HEADER_SIZE = 12`、`:8` `ModelPlan`、`:29` `load_model_plan`、`:57` `model_plan_opcode_at`
+> - `arena/arena.uya:12/16/31/45` `arena_init` / `align_forward` / `arena_allocate` / `arena_reset`
+> - `tensor/tensor.uya:4` `TFLM_MAX_DIMS = 4`、`:6` `TensorType`、`:12` `TensorView`、`:20` `tensor_elem_byte_size`、`:27` `tensor_elem_count`
+> - `resolver/resolver.uya:7` `TFLM_MAX_RESOLVER_OPS = 32`、`:14` `resolver_init`、`:19` `register_op`、`:35` `resolver_has`
+> - `interpreter/interpreter.uya:34` `interpreter_make`、`:122` `invoke`（match 分发）
+> - `kernels/kernels.uya` 的 `*_prepare` / `*_eval`：`fc`(`:41/45`)、`softmax`(`:80/84`)、`conv2d`(`:128/132`)、`depthwise_conv2d`(`:191/195`)、`relu`(`:256/260`) 等
+> - `quant/quant.uya:4/14` `quant_sat_i32_to_i8` / `quant_mul_i32_shift_sat`；`backend/backend.uya:26` `tflm_arm_conv_hwc_q7_basic`
+> - 测试 5 个：`test_tflm_model`、`test_tflm_arena`、`test_tflm_interpreter`、`test_tflm_phase2`、`test_tflm_cmsis`（配 `tests/tflm_cmsis_host_stub.c`）
+> 未勾选的 3 项（与真 `.tflite` 对比、工具链内存分析、`@offset_of`）经复核**仍未做**，保持不变。
+
 ---
 
 ## 阶段 1：MVP（模型 + 内存 + 解释器 + 基础算子）

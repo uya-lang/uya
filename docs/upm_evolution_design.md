@@ -1,5 +1,11 @@
 # UPM 演进设计文档
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：本文的 MVP 能力已落地于 `src/cmd/upm/`（外置可执行
+> `bin/cmd/upm`，`make cmd-upm` / `make cmds`）。当前 CLI：`init` / `install` / `update` / `add`
+> （`--path`、`--git` + `--branch|--tag|--commit`、`--dev`）/ `remove`（`--dep`、`--dev`）/ `graph` /
+> `why` / `doctor` / `cache dir` / `vendor` / `publish`，`--manifest-path` 可覆盖 manifest 路径。
+> 以 `./bin/cmd/upm --help` 为准；回归 `make upm-check`、`tests/test_cmd_upm_direct.sh`。
+
 ## 1. 背景
 
 当前仓库中的 `upm` 已实现 Uya 包管理 MVP，具备以下能力：

@@ -14,12 +14,20 @@
 > 最小复现：N 个互相串联的私有函数，N=4000 通过、N=4090 起恰好丢最后一个。
 > 现已在 `src/codegen/c99/utils.uya` + `src/codegen/c99/internal.uya` 收口：目标表改成
 > `&(&ASTNode)` 按 checker 的实际条数分配、满时经 `c99_grow_reachable_functions` 2 倍扩容，
-> 常量降级为「初始容量」。回归：`uya-agent`（3600+ 个函数）的构建 + `buglist.md` 里记的
-> 最小复现。
+> 常量降级为「初始容量」。
+>
+> **收口提交（2026-10-19 回填，v0.10.4）**：`1267dbc6`（reachable 表按实际条数分配）、
+> `b7be5679`（call edge 表按需增长）、`7c49de57`（输入文件表去掉 64/128/512 三处固定上限）、
+> `fc577783`（checker 五张定长表换成通用动态哈希表，修「函数表容量不足」）。
+> 回归：`uya-agent`（3600+ 个函数）的构建 + `buglist.md` 里记的最小复现。
 
 **目标**：把“顶层函数是否发射”收敛为分析阶段的一次性结论，恢复 `checker -> reachability -> codegen` 的单向职责链。
 
-**当前状态**：C99 backend 侧仍保留 reachability owner。当前实现位于 `src/codegen/c99/main.uya`，其中 `prepare_codegen_tests_and_emit_flags()` 会在 codegen 阶段全量标记，`should_emit_top_level_function_decl()` 目前等价于“总是发射”。
+**当前状态（2026-10-19 核对）**：已按本待办的目标落地。
+`should_emit_top_level_function_decl()`（`src/codegen/c99/main.uya:1948`）不再等价于「总是发射」，
+其判定顺序是：`export fn` → 发射；无函数体的 extern / 前向声明 → 发射（保 C 原型）；
+其余查 `is_top_level_function_reachable(codegen, fn_decl)`。
+reachable 表按需扩容，超过 4096 个可达函数不再静默丢函数。
 
 **本待办只覆盖最小实现面**：
 

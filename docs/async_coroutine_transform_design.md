@@ -1,5 +1,9 @@
 # @async_fn 通用协程变换设计
 
+> **核对头（2026-10-19）**：这是一份**未被采纳**的备选设计，不是实现现状。本文主张"把状态机生成提升到 AST 变换层"，计划新增 `src/checker/async_transform.uya`；但该文件**不存在**（`ls src/checker/async_transform.uya` → No such file），`src/checker/` 下与 async 相关的只有 `async_frame_meta.uya`。
+> 实际采用并落地的路线是 [plan_async_coroutine_transform.md](plan_async_coroutine_transform.md) 描述的 **C99 codegen 层递归段发射**：`gen_async_function_stage_b()`（`src/codegen/c99/function.uya:1855` 调用）、`emit_async_segment()`（`:5874`）、`emit_async_segment_with_control()`（`:5082`）仍在使用且是唯一路径。
+> 本文的算法描述（分裂点标记 / 变量存活 / 线性化分段 / 状态机 AST）可作为未来重构参考；"实现位置""与现有代码的关系"两节与当前仓库不符。
+
 ## 目标
 
 将 `@async_fn` 的状态机生成从 C99 codegen 层提升到 **AST 变换层**，使得：

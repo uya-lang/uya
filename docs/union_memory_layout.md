@@ -1,6 +1,8 @@
 # Uya 联合体内存布局与 C 互操作指南
 
 > 本文档从编译器代码自动生成，说明带标签类型的联合体如何工作
+>
+> **核对头（2026-10-19，编译器 v0.10.4）**：布局、标签跟踪、`match` 完备性、`&const T` 映射与 union `drop` 的活跃变体清理均已按 `src/` 现状复核；正文中过期的源码行号已就地更正（原文行号是旧版 `src/` 的位置）。
 
 ## 概述
 
@@ -54,7 +56,7 @@ struct uya_tagged_IntOrFloat {
 const v = IntOrFloat.i(42);
 ```
 
-**代码生成**（`src/codegen/c99/expr.uya:1975-1983`）：
+**代码生成**（`src/codegen/c99/expr.uya:3429-3443`；`extern union` 分支与 tagged 分支在同一处）：
 
 ```c
 // 普通 union：生成带标签的结构体
@@ -77,7 +79,7 @@ match v {
 }
 ```
 
-**代码生成**（`src/codegen/c99/stmt.uya:1352-1372`）：
+**代码生成**（`src/codegen/c99/stmt.uya:3609-3633`；`match` 作为表达式时对应 `src/codegen/c99/expr.uya:8902-8916`）：
 
 ```c
 // 运行时检查标签值
@@ -92,7 +94,7 @@ if (_uya_m._tag == 0) {
 
 #### 1.2.3 完备性检查
 
-编译器强制检查 match 必须覆盖所有变体（`src/checker/check_node_extra.uya:91-110`）：
+编译器强制检查 match 必须覆盖所有变体（`src/checker/check_node_extra.uya:101-142`，报错文案为 `match 联合体必须处理所有变体`）：
 
 ```uya
 // 编译错误：match 不完备
@@ -144,7 +146,7 @@ union CData {
 
 ### 2.2 功能限制
 
-根据编译器实现（`src/checker/main.uya:96-99`, `src/checker/check_node_extra.uya:16-18`）：
+根据编译器实现（`src/checker/main.uya:204`「extern union 不能有方法块」、`src/checker/main.uya:353`「extern union 不能包含方法」、`src/checker/check_node_extra.uya:14-19`「extern union 不支持 match」）：
 
 | 功能 | 普通 union | extern union |
 |------|-----------|--------------|
@@ -191,7 +193,7 @@ union AlignDemo {
 // 整体对齐 = max(1, 4, 8) = 8 字节
 ```
 
-**C 代码生成**（`src/codegen/c99/structs.uya:235-252`）：
+**C 代码生成**（`src/codegen/c99/structs.uya:723`、`854`；tagged 包装结构体与之一同发射）：
 
 ```c
 union AlignDemo {
@@ -259,9 +261,62 @@ union IntOrRef {
 struct uya_tagged_IntOrRef { int _tag; union IntOrRef u; };
 ```
 
-**注意**：`&T`（引用）和 `*T`（FFI 指针）的区别：
-- `&T`：映射为 `const T *`（不可变指针）
+**注意**：`&T`（引用）、`&const T`（只读引用）和 `*T`（FFI 指针）在 C 侧的映射（均已用 `bin/uya --c99` 实测）：
+- `&T`：映射为 `T *`
+- `&const T`：映射为 `const T *`
 - `*T`：映射为 `T *`（可变指针）
+
+所以"引用=不可变"的说法不成立；要只读语义必须写 `&const T`（`const %s *` 的发射点见 `src/codegen/c99/types.uya:1150`、`1168`、`1178`）。
+
+### 3.4 析构（drop）与活跃变体清理
+
+Union 一旦声明了 `drop` 方法，编译器会在该方法**函数体最前面**自动插入按 `_tag` 分派的活跃变体清理，然后才执行用户写的 drop 逻辑（`src/codegen/c99/function.uya:8058-8135`）：
+
+```c
+/* 自动插入 */
+switch (_uya_self._tag) {
+case 0:
+    /* drop active union variant */ File_drop(_uya_self.u.file);
+    break;
+default:
+    break;
+}
+/* 之后才是用户 drop 方法体 */
+```
+
+要点：
+- 只有**当前活跃变体**被析构；其它变体（同一块内存里的别名）不会被碰到
+- 该变体类型必须有 `drop`（`c99_named_type_drop_callee` 能找到析构函数）才会生成对应 `case`；没有 `drop` 的变体不生成
+- 变体清理之后，union 自身的 `drop` 方法体照常执行；因此一次作用域退出会看到"内层类型 drop 一次 + union drop 一次"
+- 同一条代码路径也用于结构体：`drop` 方法开头按字段**逆序**自动 drop 各字段（`src/codegen/c99/function.uya:8060-8089`）
+
+对应测试 `tests/test_union_drop_auto_variant.uya`：
+
+```uya
+struct File {
+  id: i32,
+  fn drop(self: File) void { inner_drop_count = inner_drop_count + 1; }
+}
+
+union FileOrInt {
+  file: File,
+  value: i32,
+}
+
+FileOrInt {
+  fn drop(self: FileOrInt) void { outer_drop_count = outer_drop_count + 1; }
+}
+
+fn test_union_drop_auto_variant() !void {
+  {
+    const v: FileOrInt = FileOrInt.file(File{ id: 1 });   // 活跃变体 = file
+  }
+  // inner_drop_count == 1（活跃变体被清理）
+  // outer_drop_count == 1（union 自身 drop）
+}
+```
+
+同一测试里 `test_union_drop_non_drop_variant` 构造 `.value(7)`，此时 `inner_drop_count == 0`、`outer_drop_count == 1`——证明清理只针对活跃变体，且不会误 drop 非活跃变体。
 
 ---
 
@@ -453,16 +508,17 @@ extern fn c_process_union(d: CData) void;
 
 | 文件 | 功能 |
 |------|------|
-| `src/ast.uya:174-181` | AST 节点定义 |
-| `src/codegen/c99/structs.uya:221-258` | 联合体定义生成 |
-| `src/codegen/c99/expr.uya:1963-1988` | 变体构造代码生成 |
-| `src/codegen/c99/stmt.uya:1352-1372` | match 表达式代码生成 |
-| `src/checker/check_node_extra.uya:14-110` | 语义检查规则 |
+| `src/ast.uya:206-216` | union AST 字段（变体、方法、`union_decl_is_extern`、泛型参数等） |
+| `src/codegen/c99/structs.uya:723`、`854` | 联合体定义与 `struct uya_tagged_X { int _tag; union X u; }` 生成 |
+| `src/codegen/c99/expr.uya:3429-3443` | 变体构造代码生成（tagged / extern 两分支） |
+| `src/codegen/c99/stmt.uya:3609-3633` | `match` 语句的 `_tag` 分派代码生成 |
+| `src/codegen/c99/function.uya:8058-8135` | union `drop` 方法开头自动插入活跃变体清理 |
+| `src/checker/check_node_extra.uya:14-142` | `extern union` 禁 `match`、`match` 变体完备性检查 |
 
 ### 6.2 核心数据结构
 
 ```uya
-// AST 节点（src/ast.uya:174-181）
+// AST 节点（src/ast.uya:206-216）
 struct ASTNode {
     // ...
     union_decl_name: &byte,
@@ -472,6 +528,8 @@ struct ASTNode {
     union_decl_method_count: i32,
     union_decl_is_extern: i32,  // 1 = C 兼容，0 = Tagged
     union_decl_is_export: i32,
+    union_decl_type_params: &TypeParam,  // 泛型参数（如 <T>），null 表示非泛型
+    union_decl_type_param_count: i32,
     // ...
 }
 ```

@@ -1,11 +1,13 @@
 # Async Frame 生命周期命名统一设计
 
 **状态**：已实现
-**最后更新**：2026-04-16
+**最后更新**：2026-04-16（正文）；2026-10-19 加核对头
 **相关文档**：
 - [async_frame_allocation_design.md](async_frame_allocation_design.md) - `@frame(foo)`、pinned 语义、caller-owned storage 背景
 - [todo_async_frame_allocation.md](todo_async_frame_allocation.md) - async frame 分配与生命周期 TODO
 - [std_async_design.md](std_async_design.md) - `Future<T>` / `Poll<T>` / `Waker` / `release` 现状
+
+> **核对头（2026-10-19）**：命名方案与源码一致。`*_frame_start` / `*_frame_stop` 由 `src/codegen/c99/function.uya:7566` / `:7570`（并发前向声明 `:6934-6938`）生成，`@frame.start` / `@frame.stop` 的低层调用别名为 `"_frame_start"` / `"_frame_stop"`（`src/codegen/c99/expr.uya:2419/2423`）；高层方法面由回归 `tests/test_async_frame_methods.uya` 固定（`start` / `poll` / `stop` 三方法）。`@frame` 语法解析在 `src/parser/types.uya:397`。
 
 **当前实现备注**：
 - 编译器现已生成 `*_frame_start` / `*_poll` / `*_frame_stop`

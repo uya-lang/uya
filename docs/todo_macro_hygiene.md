@@ -2,6 +2,12 @@
 
 **参考**：[macro_hygiene_design.md](macro_hygiene_design.md)（详细设计）、[uya.md](uya.md) §25 宏系统
 
+> **核对头（2026-10-19，v0.10.4）**：Phase 1–4 **全部完成**。代码侧 `hygiene_enabled` /
+> `create_hygiene_name` 在 `src/checker/macro_expand.uya`，生成名格式
+> `<原名>__hyg_<expansion_id>_<local_id>`（`macro_expand.uya:1116`）；文档侧 `uya.md` §25.2.2
+> 「卫生宏（宏卫生化）」已写入，`grammar_formal.md` 宏章节与 `grammar_quick.md` §十四 已补卫生宏说明；
+> 回归 `tests/test_macro_hygiene.uya`（12 断言）通过。下文复选框保留历史形式。
+
 **当前状态**：Phase 1-3 已完成，Phase 4（文档）部分完成。实现位于 `src/checker/macro_expand.uya`，测试位于 `tests/test_macro_hygiene.uya`（6/6 通过）。
 
 实现时遵循项目 TDD 流程：先添加测试（或先实现再补测）→ 实现代码 → `make check` 验证。

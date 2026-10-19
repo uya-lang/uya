@@ -1,5 +1,7 @@
 # TFLM 纯 Uya 实现 — 计划索引
 
+> **核对头（2026-10-19）**：`lib/tflm/` 实际共 10 个 `.uya`：9 个符合本文约定的 `<模块>/<模块>.uya`（common / model / arena / tensor / resolver / interpreter / kernels / quant / backend），另加设计与本文都提到的 `backend/arm.uya`；模块路径即「`lib/tflm/<名>/<名>.uya` → `use tflm.<名>`」。下面「与 TFLM 的对应关系」表的左列原先写成 `lib/tflm/model.uya`（缺一层目录），已按实际路径修正。
+
 本页为 TensorFlow Lite Micro 风格嵌入式推理引擎的**纯 Uya 实现**在 Uya 仓库中的计划与文档入口。
 
 ---
@@ -23,12 +25,15 @@
 
 | 本库模块           | TFLM 对应                    |
 |--------------------|-----------------------------|
-| lib/tflm/model.uya | 模型加载、FlatBuffer 解析   |
-| lib/tflm/arena.uya| MicroAllocator / 张量 Arena |
-| lib/tflm/tensor.uya| TfLiteTensor 视图           |
-| lib/tflm/resolver.uya | MicroMutableOpResolver   |
-| lib/tflm/interpreter.uya | MicroInterpreter      |
-| lib/tflm/kernels/* | 各类 BuiltinOperator 内核   |
+| `lib/tflm/model/model.uya` | 模型加载、FlatBuffer 解析（**当前为线性 stub `ModelPlan`**） |
+| `lib/tflm/arena/arena.uya` | MicroAllocator / 张量 Arena |
+| `lib/tflm/tensor/tensor.uya` | TfLiteTensor 视图 |
+| `lib/tflm/resolver/resolver.uya` | MicroMutableOpResolver |
+| `lib/tflm/interpreter/interpreter.uya` | MicroInterpreter |
+| `lib/tflm/kernels/kernels.uya` | 各类 BuiltinOperator 内核（fc / softmax / conv2d / depthwise_conv2d / relu / pool / reshape） |
+| `lib/tflm/quant/quant.uya` | 量化辅助（`quant_sat_i32_to_i8`、`quant_mul_i32_shift_sat`） |
+| `lib/tflm/backend/backend.uya`、`backend/arm.uya` | 通用后端 / CMSIS-NN extern 占位 |
+| `lib/tflm/common/common.uya` | 错误码、`BuiltinOperator`、`Context`、`TFLITE_VERSION` |
 
 ---
 

@@ -1,6 +1,8 @@
 # std.sql 模块说明
 
-**更新日期**：2026-04-21
+**更新日期**：2026-10-19
+
+**核对依据**：`lib/std/sql/types.uya`、`lib/std/sql/driver.uya`、`lib/std/sql/db.uya`、`lib/std/sql/sql.uya`（模块入口仅有注释，无导出）与回归测试 `tests/test_std_sql.uya`。
 
 ---
 
@@ -28,35 +30,106 @@ use std.sql.db;
 
 ## 当前能力
 
-首版已落地以下公共抽象：
+首版已落地以下公共抽象（下列签名与现有实现逐条对应）：
 
-- `types.Value`：统一的 SQL 值表示，支持 `Null`、`Bool`、`Int64`、`Float64`、`Bytes`、`String`
-- `types.NamedArg`：位置参数与命名参数统一表示
-- `types.ColumnInfo`：列名、数据库类型、nullable 元信息
-- `driver.Result`：执行结果，包含 `last_insert_id` 与 `rows_affected`
-- `driver.Rows`：行游标接口
-- `driver.Stmt`：预编译语句接口
-- `driver.Tx`：事务接口
-- `driver.Conn`：连接接口
-- `driver.Driver`：驱动入口接口
-- `db.DB` / `db.Row`：面向业务代码的高层包装
+### `std.sql.types`（`lib/std/sql/types.uya`）
 
-相关回归测试：
+- `SqlBytesView`（`types.uya:12`）：`{ ptr: &byte, len: usize }`。零拷贝字节视图，同时用于 SQL 文本、列名、字符串值与原始字节值。
+- `Value`（`types.uya:18`）：**`export union`**，六个变体：
 
-- `tests/test_std_sql.uya`
+  | 变体 | 载荷类型 |
+  | --- | --- |
+  | `Null` | `void` |
+  | `Bool` | `bool` |
+  | `Int64` | `i64` |
+  | `Float64` | `f64` |
+  | `Bytes` | `SqlBytesView` |
+  | `String` | `SqlBytesView` |
 
-当前测试覆盖的主链路包括：
+- `NamedArg`（`types.uya:28`）：`{ ordinal: usize, name: SqlBytesView, value: Value }`。位置参数用 `ordinal`，命名参数用 `name`。
+- `ColumnInfo`（`types.uya:35`）：`{ name: SqlBytesView, database_type: SqlBytesView, nullable: bool, has_nullable: bool }`。`has_nullable` 用来区分“不可空”与“驱动没提供该信息”。
+- 构造/比较辅助：`sql_bytes_view_empty`、`sql_bytes_view_from_ptr`、`sql_bytes_view_from_slice`、`sql_bytes_view_eq`、`sql_value_null`、`sql_value_string`、`sql_value_bytes`、`sql_arg_pos`、`sql_arg_named`。
 
-- `db_open`
-- `ping`
-- `prepare`
-- `exec`
-- `query`
-- `query_row`
-- `begin`
-- `commit`
-- `rollback`
-- `ErrNoRows` / `ErrDBClosed` / `ErrTxDone`
+### `std.sql.driver`（`lib/std/sql/driver.uya`）
+
+- `Result`（`driver.uya:10`）：`{ last_insert_id: i64, rows_affected: i64 }`，是普通结构体，不再套接口。
+- 五个 `export interface`，形状固定为“普通返回值 + `out` 参数”：
+
+  ```uya
+  export interface Rows {
+      fn column_count(self: &Self) usize;
+      fn column_info(self: &Self, index: usize) ColumnInfo;
+      fn next(self: &Self) bool;
+      fn scan(self: &Self, dest: &Value, dest_len: usize) !void;
+      fn close(self: &Self) void;
+  }
+
+  export interface Stmt {
+      fn exec(self: &Self, args: &NamedArg, arg_count: usize) Result;
+      fn query(self: &Self, args: &NamedArg, arg_count: usize, out: &Rows) void;
+      fn close(self: &Self) void;
+  }
+
+  export interface Tx {
+      fn prepare(self: &Self, query: &const byte, query_len: usize, out: &Stmt) void;
+      fn exec(self: &Self, query: &const byte, query_len: usize, args: &NamedArg, arg_count: usize) Result;
+      fn query(self: &Self, query: &const byte, query_len: usize, args: &NamedArg, arg_count: usize, out: &Rows) void;
+      fn commit(self: &Self) !void;
+      fn rollback(self: &Self) !void;
+  }
+
+  export interface Conn {
+      fn prepare(self: &Self, query: &const byte, query_len: usize, out: &Stmt) void;
+      fn exec(self: &Self, query: &const byte, query_len: usize, args: &NamedArg, arg_count: usize) Result;
+      fn query(self: &Self, query: &const byte, query_len: usize, args: &NamedArg, arg_count: usize, out: &Rows) void;
+      fn begin(self: &Self, out: &Tx) void;
+      fn ping(self: &Self) !void;
+      fn close(self: &Self) void;
+  }
+
+  export interface Driver {
+      fn driver_name(self: &Self) SqlBytesView;
+      fn open(self: &Self, dsn: &const byte, dsn_len: usize, out: &Conn) void;
+  }
+  ```
+
+  注意 `Tx` 与 `Conn` 的 `prepare`/`exec`/`query` 用 `(&const byte, len)` 而不是 `&[byte]`：这是驱动侧接口，高层 `DB` 层负责把 slice 拆成指针+长度。
+
+### `std.sql.db`（`lib/std/sql/db.uya`）
+
+- `DB`（`db.uya:210`）：`{ conn: Conn, driver_name_view: SqlBytesView, closed: bool }`，方法 `driver_name`、`ping`、`prepare`、`exec`、`query`、`query_row`、`begin`、`close`。
+- `Row`（`db.uya:33`）：`{ rows: Rows, closed: bool }`，方法 `scan(dest, dest_len) !void`、`close()`。**没有导出的构造函数**，只通过 `DB.query_row` 取得。
+- `db_open`（`db.uya:272`）：
+
+  ```uya
+  export fn db_open(drv: Driver, dsn: &[byte]) DB
+  ```
+
+  返回 `DB` 值本身，**不是** `!DB`，也不返回指针。驱动打开失败在当前签名下只能由后续 `ping()`/调用点暴露。
+
+### 错误集（`lib/std/sql/types.uya:4-9`）
+
+`ErrNoRows`、`ErrDBClosed`、`ErrTxDone`、`ErrColumnOutOfRange`、`ErrScanDestTooSmall`、`ErrScanWithoutRow`。
+
+其中 `ErrColumnOutOfRange`（列下标越界）与 `ErrScanDestTooSmall`（`dest_len` 小于列数）目前只声明、未在本层抛出，约定留给驱动实现使用；`ErrScanWithoutRow` 由 `db.uya` 内置的 `ClosedRows` 兜底返回。
+
+---
+
+## 回归测试覆盖
+
+相关回归测试：`tests/test_std_sql.uya`（459 行，用 `FakeDriver`/`FakeRows`/`FakeStmt`/`FakeTx` 桩驱动跑通全链路）。
+
+当前覆盖（`tests/test_std_sql.uya:451-458`）：
+
+| 用例 | 覆盖内容 |
+| --- | --- |
+| `db open ping close` | `db_open`、`driver_name()`、`ping()`、`close()` 后 `ping` 返回 `ErrDBClosed` |
+| `exec prepare result` | `DB.exec` 返回 `Result`、`DB.prepare` + `Stmt.exec` + `Stmt.close`、命名参数 `sql_arg_named` |
+| `query and query_row` | `Rows.column_count` / `column_info` / `next` / `scan`、`DB.query_row` + `Row.scan` |
+| `query_row no rows` | `Row.scan` 在无行时返回 `ErrNoRows` |
+| `tx commit and done` | `DB.begin`、`Tx.exec`、`Tx.commit`，重复 `rollback` 返回 `ErrTxDone` |
+
+`ErrColumnOutOfRange` / `ErrScanDestTooSmall` 尚无测试（无驱动会抛），`ErrScanWithoutRow` 由 `db.uya:88` 的 `ClosedRows.scan` 兜底。
 
 ---
 
@@ -78,27 +151,48 @@ use std.sql.db;
 业务代码一般不直接依赖数据库厂商 API，而是拿到一个实现了 `driver.Driver` 的驱动，再通过 `db_open` 得到 `DB`：
 
 ```uya
+// 【伪代码】本段只示意调用顺序与类型形状，不是可直接编译的代码：
+// 下方 `<由驱动实现提供>` 标记的位置必须替换为该驱动导出的构造器，
+// `std.sql` 自身不导出 Stmt/Rows 的兜底构造（`db.uya` 里的 ClosedStmt/ClosedRows
+// 是私有 struct，仅供本层内部兜底）。
 use std.sql.types.NamedArg;
+use std.sql.types.Value;
 use std.sql.driver.Driver;
 use std.sql.driver.Stmt;
 use std.sql.driver.Rows;
-use std.sql.driver.Tx;
 use std.sql.db.DB;
 use std.sql.db.db_open;
 
-fn use_db(driver: Driver) !void {
-    const dbi: DB = db_open(driver, &"dsn"[0: 3]);
+fn use_db(drv: Driver) !void {
+    // db_open 直接返回 DB（不是 !DB）
+    const dbi: DB = db_open(drv, &"file:demo.db"[0: 12]);
     try dbi.ping();
 
-    var stmt: Stmt = ...;
+    // <由驱动实现提供>：驱动侧导出的“空 Stmt”构造器，例如 native_stmt_new()
+    var stmt: Stmt = <由驱动实现提供>;
     try dbi.prepare(&"select 1"[0: 8], &stmt);
 
-    var rows: Rows = ...;
+    // <由驱动实现提供>：驱动侧导出的“空 Rows”构造器，例如 native_rows_new()
+    var rows: Rows = <由驱动实现提供>;
     var args_buf: [NamedArg: 1] = [];
     const args: &[NamedArg] = args_buf[0: 0];
     try dbi.query(&"select 1"[0: 8], args, &rows);
+
+    // next() 返回 bool，扫描错误由 scan(...) !void 传播
+    var scanned: [Value: 2] = [];
+    while rows.next() {
+        try rows.scan(&scanned[0], 2);
+    }
+    rows.close();
+
+    // 单行场景用 query_row：无行时 Row.scan 返回 error.ErrNoRows
+    var one: [Value: 2] = [];
+    const row: Row = try dbi.query_row(&"select 1"[0: 8], args);
+    try row.scan(&one[0], 2);
 }
 ```
+
+`Row` 也需一并 `use std.sql.db.Row;`。`DB` 的每个方法在 `closed == true` 后都返回 `error.ErrDBClosed`（`db.uya:219-269`）。
 
 ---
 
@@ -221,7 +315,11 @@ MySQL 如果直接复用结果缓冲，也要谨慎处理 `fetch` 后的数据�
 
 ## 后续规划
 
-`std.sql` 当前处于“核心抽象已落地，真实驱动待补”的阶段。后续推荐顺序：
+`std.sql` 当前处于“核心抽象已落地，真实驱动待补”的阶段。
+
+截至 2026-10-19 核对：`lib/std/sql/` 只有 `types.uya` / `driver.uya` / `db.uya` / `sql.uya` 四个文件，仓库内没有任何真实驱动实现（`grep -rln "std.sql" lib tests examples` 仅命中这四个文件与 `tests/test_std_sql.uya`），因此本文档提到的 SQLite/MySQL/Postgres 驱动均**尚未存在**。
+
+后续推荐顺序：
 
 1. `std.sql.sqlite`
 2. `std.sql.mysql`

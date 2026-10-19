@@ -99,8 +99,14 @@ lhs |> f(args...)
 仅当满足以下条件时合法：
 
 - `lhs` 的类型是 `Pipeline` 或 `!Pipeline`。
-- 右侧是调用表达式。
+- 右侧是调用表达式（按 **postfix expression** 解析，但语义上最外层必须是调用）。
 - 被调用函数的首个参数是 `Pipeline`。
+
+> **2026-10-19 核对补充（实现比本节多两条约束）**：除上面三条，checker 还强制
+> - **右侧不能是带隐式 self receiver 的实例方法调用**（`value.method(...)` 形式），因为插入的左值会与 `self` 冲突；显式 `Type.method(...)` 不受影响。实现见 `src/checker/check_expr_extra.uya:741` `checker_pipeline_callee_is_implicit_self_instance_method_call()`，反向回归 `tests/error_typed_pipeline_instance_method_receiver.uya`。
+> - **try-forward 只在返回错误联合类型的函数里可用**（`!Pipeline` 左侧要求当前函数返回 `!T` / `Future<!T>` / `!Future<T>`），否则报错；回归 `tests/error_typed_pipeline_try_forward_type_mismatch.uya`、`error_typed_pipeline_try_forward_use_after_move.uya`。
+>
+> 另：一条链只把最左侧的 `Pipeline` 变量标记为「已移动」一次（`p |> f() |> g()` 合法），同一变量出现在另一条链则报「变量已被移动」。
 
 如果 `lhs: Pipeline`，表达式等价于：
 
@@ -144,6 +150,8 @@ pipeline() |> cmd_argv("rg", &rg_args[0:1])
 `Pipeline` 是由 `std.process` 拥有的抽象 move-only 执行计划。
 
 > **阶段 0 已锁定**：公开 `Pipeline` 必须依赖真正 opaque / non-copyable 类型能力；普通 `export struct` 或 raw pointer handle 不得作为稳定 API。
+
+> **2026-10-19 核对**：本条已按设计落地——`lib/std/process.uya:2609` 是 `export opaque struct Pipeline { ... }`，`fn drop(self: Pipeline)` 在 `:2613`、`export fn pipeline_drop(input: Pipeline)` 在 `:2635`、`clone`（`:2695`）是唯一显式复制入口；`lib/std/script/` 只是 facade（见下方"std.script"注释），不持有 Pipeline 存储。
 
 Uya 使用以下可工作的 opaque struct 声明形式：
 
@@ -912,3 +920,5 @@ Lowering：
 - Uya stage 的 owned-data 约束应通过接口、编译器能力还是运行时校验表达。
 - `stage` 已锁定为最终名称；`filter` 仅作为文档术语，不暴露为公共别名。
 - 其中多少内容应属于 `std.process`，多少内容应属于 `std.script` facade。
+
+> **2026-10-19 核对**：facade 的实际位置是 **`lib/std/script/file.uya`**（模块路径 `std.script.file`，不是 `std/script.uya`），当前只做 1:1 转发（`pipeline` / `clone` / `cmd_argv` / `cmd_path_argv` / `cwd` / `env` / `unset_env` / `stdin_file` / `stdout_file` / `stderr_file` / `stdout_capture` / `stderr_capture` / `stderr_to_stdout` / `inherit_stdio` / `check` / `check_into` / `status_into` / `capture_into` / `capture_limit_into` / `stage_count`），**尚未**加入 `run_checked` / `capture_text` / `assert_exit_code` 等脚本高频糖。回归 `tests/test_std_script_pipeline_facade.uya`。

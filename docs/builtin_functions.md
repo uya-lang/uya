@@ -13,6 +13,8 @@
   - [@size_of](#size_of)
   - [@align_of](#align_of)
   - [@len](#len)
+  - [@ptr_from_usize](#ptr_from_usize)
+  - [@usize_from_ptr](#usize_from_ptr)
 - [2. 整数极值函数](#2-整数极值函数)
   - [@max](#max)
   - [@min](#min)
@@ -36,11 +38,13 @@
   - [@mc_type](#mc_type)
   - [@mc_ast](#mc_ast)
   - [@mc_code](#mc_code)
+  - [@mc_source](#mc_source)
   - [@mc_error](#mc_error)
   - [@mc_get_env](#mc_get_env)
 - [6. 错误处理函数](#6-错误处理函数)
   - [@error_id](#error_id)
   - [@error_name](#error_name)
+  - [@syscall](#syscall)
 - [7. 调试打印函数](#7-调试打印函数)
   - [@print](#print)
   - [@println](#println)
@@ -50,6 +54,7 @@
   - [@frame](#frame)
 - [9. 裸函数属性](#9-裸函数属性)
   - [@naked_fn](#naked_fn)
+  - [@align(N)](#alignn)
 - [10. 内联汇编函数](#10-内联汇编函数)
   - [@asm](#asm)
 - [11. SIMD 向量内建](#11-simd-向量内建)
@@ -220,6 +225,59 @@ fn process_fixed(data: &[i32: 10]) void {
 
 ---
 
+### @ptr_from_usize
+
+**函数签名**：
+```uya
+fn @ptr_from_usize(value: usize) &void
+```
+
+**功能描述**：
+把整数地址物化为 `&void` 指针（`AST_PTR_FROM_USIZE`，parser `src/parser/primary.uya:1493`，checker `src/checker/check_expr.uya:1642`，codegen `src/codegen/c99/expr.uya:1296`）。用于指针算术、把 `@syscall` 返回的地址转回指针等场景。它与类型反射无关，但同属"编译期最清楚类型"的内建，故列在本节末。
+
+**参数**：
+- `value`：必须是 `usize` 类型；否则报 `@ptr_from_usize 的参数必须是 usize 类型`（`src/checker/main.uya:1069-1079`）
+
+**返回值**：
+- `&void`（`TYPE_POINTER`，`pointer_to == null`，非 FFI 指针）
+
+**使用示例**：
+```uya
+const addr: usize = 0x1000;
+const ptr: &void = @ptr_from_usize(addr);
+```
+
+对应测试：`tests/test_ptr_from_usize.uya:5-17`
+
+---
+
+### @usize_from_ptr
+
+**函数签名**：
+```uya
+fn @usize_from_ptr(ptr: &T) usize
+```
+
+**功能描述**：
+取指针的整数值（`AST_USIZE_FROM_PTR`，parser `src/parser/primary.uya:1525`，checker `src/checker/check_expr.uya:1655`，codegen `src/codegen/c99/expr.uya:1305`）。与 `@ptr_from_usize` 互为逆运算。
+
+**参数**：
+- `ptr`：必须是指针类型；否则报 `@usize_from_ptr 的参数必须是指针类型`（`src/checker/main.uya:1082-1092`）
+
+**返回值**：
+- `usize`
+
+**使用示例**：
+```uya
+const addr: usize = 0x3000;
+const ptr: &void = @ptr_from_usize(addr);
+const back: usize = @usize_from_ptr(ptr);   // back == 0x3000
+```
+
+更常见的写法是把 `&T` 先转成 `&void` 再取整数：`@usize_from_ptr(&alloc as &void)`（`tests/test_async_frame_pool_stats.uya:114`）。
+
+---
+
 ## 2. 整数极值函数
 
 ### @max
@@ -275,8 +333,10 @@ fn safe_add(a: i32, b: i32) !i32 {
 
 **注意事项**：
 - 必须有明确的类型上下文（变量声明、函数参数等）
-- 仅支持整数类型（i8, i16, i32, i64, u8, u16, u32, u64）
+- 支持的整数类型实测：`i16`、`i32`、`i64`、`u8`、`u16`、`u32`、`u64`、`usize`
 - 如果类型无法推断，会产生编译错误
+
+> **实现核对（v0.10.4）**：`i8` 的 `@max`/`@min` 目前**是坏的**——`const a: i8 = @max;` 生成 `const int8_t a = 0;`（应为 127），`const n: i8 = @min;` 同样是 `0`（应为 -128）；其余类型生成的 C 常量正确（`int16_t 32767`、`uint32_t 4294967295U`、`int64_t 9223372036854775807LL`、`size_t ((size_t)-1)` 等，均已用 `bin/uya --c99` 核对）。上面示例里 `max_i8` / `min_i8` 两行以实测为准应为 `0`。
 
 ---
 
@@ -328,6 +388,7 @@ fn abs(value: i32) i32 {
 - 必须有明确的类型上下文
 - 仅支持整数类型
 - 无符号类型的 `@min` 总是 0
+- `i8` 的 `@min` 受上面 `@max` 一节记录的同一缺陷影响（实测生成 `0`，应为 `-128`）
 
 ---
 
@@ -337,7 +398,7 @@ fn abs(value: i32) i32 {
 
 **函数签名**：
 ```uya
-fn @src_name() &[i8]
+fn @src_name() *byte   // 实际可用形态；checker 内部标注为 &[i8]，见下方实现核对
 ```
 
 **功能描述**：
@@ -347,15 +408,17 @@ fn @src_name() &[i8]
 - 无参数
 
 **返回值**：
-- `&[i8]` 类型（字节切片）
+- `*byte`（NUL 结尾的 C 字符串字面量）
 - 编译期字符串常量，零运行时开销
+
+> **实现核对（v0.10.4）**：checker 把 `@src_name` 推断成 `&[i8]`（`src/checker/check_expr.uya:1469`），但 codegen 只发射一个 C 字符串字面量（`src/codegen/c99/expr.uya:877`）。因此**实际可用**的接收类型是 `*byte`；写成 `const s: &[i8] = @src_name;` 会在 C 层生成 `struct uya_slice_int8_t s = str0;` 并报 `invalid initializer`。用法见 `tests/test_async_builtin_body_coverage.uya:37`。
 
 **使用示例**：
 ```uya
 extern printf(fmt: *byte, ...) i32;
 
 fn debug_info() void {
-    const filename: &[i8] = @src_name;
+    const filename: *byte = @src_name;
     printf("File: %s\n" as *byte, filename);
 }
 
@@ -376,7 +439,7 @@ fn main() i32 {
 
 **函数签名**：
 ```uya
-fn @src_path() &[i8]
+fn @src_path() *byte   // 实际可用形态；checker 内部标注为 &[i8]
 ```
 
 **功能描述**：
@@ -386,7 +449,7 @@ fn @src_path() &[i8]
 - 无参数
 
 **返回值**：
-- `&[i8]` 类型（字节切片）
+- `*byte`（NUL 结尾的 C 字符串字面量；类型口径与 `@src_name` 相同，见上方实现核对）
 - 编译期字符串常量，零运行时开销
 
 **使用示例**：
@@ -394,7 +457,7 @@ fn @src_path() &[i8]
 extern printf(fmt: *byte, ...) i32;
 
 fn log_location() void {
-    const path: &[i8] = @src_path;
+    const path: *byte = @src_path;
     const line: i32 = @src_line;
     printf("Location: %s:%d\n" as *byte, path, line);
 }
@@ -499,7 +562,7 @@ fn main() i32 {
 
 **函数签名**：
 ```uya
-fn @func_name() &[i8]
+fn @func_name() *byte   // 实际可用形态；checker 内部标注为 &[i8]
 ```
 
 **功能描述**：
@@ -509,7 +572,7 @@ fn @func_name() &[i8]
 - 无参数
 
 **返回值**：
-- `&[i8]` 类型（字节切片）
+- `*byte`（NUL 结尾的 C 字符串字面量；类型口径与 `@src_name` 相同，见上方实现核对）
 - 编译期字符串常量，零运行时开销
 
 **使用示例**：
@@ -517,19 +580,19 @@ fn @func_name() &[i8]
 extern printf(fmt: *byte, ...) i32;
 
 fn trace_enter() void {
-    const func: &[i8] = @func_name;
+    const func: *byte = @func_name;
     const line: i32 = @src_line;
     printf("Entering %s at line %d\n" as *byte, func, line);
 }
 
 fn process_data(data: &[i32]) void {
-    const func: &[i8] = @func_name;
+    const func: *byte = @func_name;
     printf("Function: %s\n" as *byte, func);  // 输出：Function: process_data
     // ...
 }
 
 fn main() i32 {
-    const func: &[i8] = @func_name;
+    const func: *byte = @func_name;
     printf("Main function: %s\n" as *byte, func);  // 输出：Main function: main
     
     trace_enter();     // 输出：Entering trace_enter at line ...
@@ -546,10 +609,10 @@ fn main() i32 {
 **错误示例**：
 ```uya
 // 编译错误：@func_name 只能在函数体内使用
-const global_func: &[i8] = @func_name;  // ❌ 错误！
+const global_func: *byte = @func_name;  // ❌ 错误！
 
 fn valid_usage() void {
-    const local_func: &[i8] = @func_name;  // ✓ 正确
+    const local_func: *byte = @func_name;  // ✓ 正确
 }
 ```
 
@@ -687,61 +750,43 @@ extern fn add_magic_i32(x: i32) i32;
 
 **函数签名**：
 ```uya
-@params  // 在可变参数函数内部使用
+@params     // 当前函数全部形参组成的元组值，类型为 (T0, T1, ...)
+@params.0   // 也可按索引直接取第 0 个形参
 ```
 
 **功能描述**：
-在可变参数函数内部访问可变参数列表。这是一个特殊的内置标识符，表示 `va_list` 类型的参数。
+在函数体内取到**当前函数全部形参**组成的元组值（`AST_PARAMS`，见 `src/parser/primary.uya:966`、`src/checker/check_expr.uya:1882`）。它**不是** `va_list`，也不代表 `...` 的可变部分：形参写成 `f(a: i32, b: i32, ...)` 时，`@params` 只含两个固定形参 `(i32, i32)`。
 
-**使用场景**：
-- 用于实现类似 `printf` 的可变参数函数
-- 与 FFI 的 `va_start`、`va_arg`、`va_end` 配合使用
+**参数**：
+- 无参数；不带 `.N` 后缀取整个元组，带 `.N` 取第 N 个形参
+
+**返回值**：
+- 元组类型 `(T0, T1, ...)`，元素类型与形参声明一致；没有固定形参时是空元组
+- 零运行时开销（编译期按形参位次展开）
 
 **使用示例**：
 ```uya
-// 外部 C 函数声明
-extern va_start(ap: &void, last_param: &void) void;
-extern va_arg(ap: &void, type_size: i32) i32;
-extern va_end(ap: &void) void;
-extern printf(fmt: *byte, ...) i32;
-
-// Uya 可变参数函数
-fn my_printf(fmt: *byte, ...) void {
-    // @params 代表可变参数列表
-    var ap: &void = @params;
-    
-    // 使用 C 的 va_* 函数处理
-    printf(fmt, ap);
+fn add_two(a: i32, b: i32) i32 {
+    const p: (i32, i32) = @params;
+    return p.0 + p.1;
 }
 
-fn sum_ints(count: i32, ...) i32 {
-    var result: i32 = 0;
-    var ap: &void = @params;
-    
-    var i: i32 = 0;
-    while i < count {
-        const value: i32 = va_arg(ap, @size_of(i32));
-        result = result + value;
-        i = i + 1;
-    }
-    
-    return result;
+fn mul_two(x: i32, y: i32) i32 {
+    return @params.0 * @params.1;
 }
 
-fn main() i32 {
-    my_printf("Hello, %s!\n" as *byte, "World" as *byte);
-    
-    const total: i32 = sum_ints(3, 10, 20, 30);
-    printf("Total: %d\n" as *byte, total);  // 输出：Total: 60
-    
-    return 0;
+fn sum_three(a: i32, b: i32, c: i32) i32 {
+    const t: (i32, i32, i32) = @params;
+    return t.0 + t.1 + t.2;
 }
 ```
 
+对应测试：`tests/test_varargs.uya:7`、`tests/test_varargs_full.uya:7`、`tests/test_async_builtin_body_coverage.uya:32`。
+
 **注意事项**：
-- 仅在声明为 `...` 的可变参数函数内有效
-- 需要配合 `@va_start`、`@va_end` 或 C 的 `va_*` 函数使用
-- 类型安全需要手动保证（与 C 可变参数相同）
+- 只能在函数体内使用；在函数外使用报 `@params 只能在函数体内使用`
+- 取整个元组时需要有明确的元组类型上下文；也可直接用 `@params.N` 取单个形参
+- 需要访问 `...` 的可变部分时用 `@va_start` / `@va_arg` / `@va_end` / `@va_copy`（见下），不要用 `@params`
 
 ---
 
@@ -752,7 +797,9 @@ fn main() i32 {
 | `@va_start` | `@va_start(&ap, last)` | `va_start(ap, last)` | 初始化 va_list，`last` 为最后一个命名参数 |
 | `@va_end` | `@va_end(&ap)` | `va_end(ap)` | 结束 va_list 访问，必须与 `@va_start` 成对 |
 | `@va_arg` | `@va_arg(ap, Type)` | `va_arg(ap, type)` | 按类型获取下一个参数，如 `@va_arg(ap, i32)` |
-| `@va_copy` | `@va_copy(&dest, src)` | `va_copy(dest, src)` | 复制 va_list（新增） |
+| `@va_copy` | `@va_copy(&dest, src)` | `va_copy(dest, src)` | 复制 va_list |
+
+> **实现核对（v0.10.4）**：四个 `@va_*` 均已落地（parser `src/parser/primary.uya:1381-1460`、codegen `src/codegen/c99/expr.uya:1031-1072`），并有用例 `tests/test_va_builtin.uya`、`tests/test_exec_vm_stdio_varargs.uya` 与负例 `tests/error_va_start_non_varargs.uya`。codegen 会把第一个实参上的 `&` 去掉（C 的 `va_start`/`va_end`/`va_copy` 形参本身是 `va_list`），因此 `@va_start(ap, n)` 与 `@va_start(&ap, n)` 生成同一条 C 代码；`ap` 常见写法是 `var ap_buf: [byte: 32] = []; @va_start(&ap_buf[0] as &void, n);`（见 `tests/test_va_builtin.uya:11-15`）。
 
 **完整用法示例**（纯 Uya 实现 vprintf 包装）：
 ```uya
@@ -950,7 +997,7 @@ fn measure_and_print(format: &const byte, ...) i32 {
 
 ## 5. 宏编译时函数
 
-> **状态**：语法解析已实现，CPS 变换和求值引擎待实现  
+> **状态（v0.10.4）**：已实现。语法解析在 `src/parser/primary.uya`（`@mc_code` 1790 / `@mc_ast` 1813 / `@mc_eval` 1856 / `@mc_error` 1878 / `@mc_type` 1900 / `@mc_source` 1923 / `@mc_get_env` 1946），展开与编译期求值在 `src/checker/macro_expand.uya`（`@mc_eval` 1430、`@mc_code` 1440、`@mc_ast` 1449、`@mc_type` 1451、`@mc_source` 1465）；用例见 `tests/test_macro_simple.uya`、`tests/test_macro_mc_get_env.uya`、`tests/test_macro_mc_source.uya`、`tests/test_macro_for_typeinfo_fields.uya`。
 > **参考**：规范 §25 宏系统
 
 ### @mc_eval
@@ -1158,14 +1205,14 @@ fn open_missing_file_errno() !u32 {
     _ = result catch |err| {
         return @error_id(err);
     };
-    return 0;
+    return 0u32;   // 返回类型是 u32，字面量要带 u32 后缀
 }
 
 fn main() i32 {
     const named_id: u32 = @error_id(error.NamedFailure);
     const errno_id: u32 = open_missing_file_errno() catch { return 1; };
 
-    if named_id == 0 || errno_id != ENOENT as u32 {
+    if named_id == 0u32 || errno_id != ENOENT as u32 {
         return 2;
     }
     return 0;
@@ -1199,6 +1246,7 @@ fn @error_name(err: error) *byte
 ```uya
 use libc.ENOENT;
 use libc.strcmp;
+use libc.printf;
 
 error NamedFailure;
 
@@ -1215,7 +1263,7 @@ fn main() i32 {
     }
 
     _ = fail_named() catch |err| {
-        @println(@error_name(err));
+        printf("[%s]\n" as *byte, @error_name(err));   // 输出 [NamedFailure]
         return 0;
     };
 
@@ -1225,7 +1273,7 @@ fn main() i32 {
         if (@error_id(err) as i32) != ENOENT {
             return 2;
         }
-        @println(@error_name(err));  // 输出 UnknownError
+        printf("[%s]\n" as *byte, @error_name(err));   // 输出 [UnknownError]
         return 0;
     };
 
@@ -1238,6 +1286,48 @@ fn main() i32 {
 - 返回值仅保证对语言级命名错误给出稳定名字，且结果**不带** `error.` 前缀
 - 对 `@syscall` 失败路径或其它未知错误值，当前实现统一返回 `"UnknownError"`
 - 若需要系统 errno 的本地化/平台描述，请继续使用 `libc.strerror((@error_id(err) as! i32).value)`
+- 想打印名字请用 `printf("%s", @error_name(err))`：`@error_name` 返回 `*byte`，而 `@println` 对指针实参按 `%lld` 打印**地址数值**（见第 7 节格式规则），不会按字符串输出
+
+---
+
+### @syscall
+
+**函数签名**：
+```uya
+fn @syscall(nr: 整数, arg1, ..., arg6) !i64   // 最多 6 个参数（microapp 用户代码最多 2 个）
+```
+
+**功能描述**：
+直接发出一次系统调用（`AST_SYSCALL`）。参数列在 `src/parser/primary.uya:1102-1157`，语义与返回类型在 `src/checker/check_expr.uya:3821-3893`（`infer_syscall`），C99 发射在 `src/codegen/c99/expr.uya:963`。
+
+**参数**：
+- `nr`：系统调用号，必须是整数类型
+- `arg1..arg6`：每个都必须是整数或指针类型；普通目标最多 6 个，`microapp` 模式下用户源码最多 2 个（`lib/` 内的 stdlib 不受此限）
+
+**返回值**：
+- `!i64` 错误联合：成功时 `.value` 是内核返回值；失败时内核返回 `[-4095, -1]` 区间的负值，被转成 `.error_id = -ret`（errno 数值），可交给 `@error_id` / `@error_name`
+
+**使用示例**：
+```uya
+use libc.ENOENT;
+
+const SYS_open: i64 = 2;
+const O_RDONLY: i64 = 0;
+
+fn open_missing() !u32 {
+    const path: *byte = "/nonexistent";
+    const result: !i64 = @syscall(SYS_open, path as i64, O_RDONLY, 0);
+    _ = result catch |err| {
+        return @error_id(err);   // errno 数值
+    };
+    return 0u32;                 // 注意返回类型是 u32，字面量要带 u32 后缀
+}
+```
+
+**注意事项**：
+- 返回的是 `!i64`，不要当 `i64` 直接用；取值需 `try` / `catch` / `.value`
+- 参数个数上限由 parser 与 checker 双重限制（`@syscall 最多支持 6 个参数`）
+- `microapp` 容器模式下用户代码只能写 `@syscall(number, arg1, arg2)`，超出报错
 
 ---
 
@@ -1254,12 +1344,22 @@ fn @print(expr) i32
 将表达式值打印到标准输出（不换行）。编译时展开为 `printf` 调用，返回 `printf` 的返回值（输出的字符数，负值表示错误）。
 
 **参数**：
-- `expr`：要打印的表达式，支持以下类型：
+- `expr`：要打印的表达式。checker 允许的类型（`src/checker/check_expr.uya:4146-4203`）：
   - 整数类型：`i8`、`i16`、`i32`、`i64`、`u8`、`u16`、`u32`、`u64`、`usize`
   - 浮点类型：`f32`、`f64`
   - 布尔类型：`bool`
-  - **C 风格字节串**（**0.49.41** 与实现对齐）：元素为 **`i8` / `u8` / `byte`** 的 **`&[T]`**、**`[T: N]`**；**`*byte`**（及指向 **`i8`** 的 FFI 指针，与现有规则一致）；字面量 **`"..."`**。其中 **`[byte: N]`**、**`&[byte]`** 变量以 **`%s`** 打印（需以 **`\\0`** 结尾的缓冲区行为与 C 一致）。并且在**字符串插值段** `${...}` 中，**`&const byte`** 与 **`&[const byte]`** 也按 **`%s`** 作为 C 字符串输出（同样要求包含结尾 **`\\0`**）。
-  - 字符串插值：`"text${expr}text"`
+  - 元素为 `i8` / `u8` / `byte` 的 `&[T]`、`[T: N]`
+  - 指向 `i8` / `u8` / `byte` 的指针（含 `*byte`），以及 `&void`
+  - 字面量 `"..."` 与字符串插值 `"text${expr}text"`
+  - 其余类型报 `该类型不支持 @print/@println`
+- **实际格式串的选取按实参的 AST 形态决定**（`src/codegen/c99/expr.uya:9913-9978`），因此"验收类型"和"打印成什么"并不完全一一对应：
+  - 字面量 `"..."` / 字符串插值 → `%s`
+  - 变身为 `int8_t[N]` / `uint8_t[N]` 的**数组变量**（`[i8: N]` / `[u8: N]` / `[byte: N]`）→ `%s`
+  - 整数/浮点/布尔字面量与 `as` 转换 → 分别 `%d` / `%g` / `%d`（`as` 后按目标类型用 `%lld` / `%llu` / `%g`）
+  - **其他标识符（含 `*byte`、`&byte` 等指针）→ `%lld`，即打印指针的数值**，不会按 C 字符串输出
+  - 二元表达式 → `%lld`
+- 若要把一块 `[byte: N]` 缓冲区按字符串打印，直接打印**数组变量本身**（`@println(buf);`）而不是 `&buf[0]`
+- **`i32`（及更窄的有符号整数）的负值会打错**：`%lld` 配的是 C 的 `int` 实参，属未定义行为，实测 `@print(-100)` / `@print(x)`（`x: i32 = -100`）输出 `4294967196`（零扩展），`i64` 正常。**要打印负的 i32，请用字符串插值**：`@println("x = ${x}")` → `x = -100`（插值走独立格式化路径，实测正确）
 
 **返回值**：
 - `i32` 类型，表示 `printf` 返回的字符数
@@ -1270,7 +1370,8 @@ fn @print(expr) i32
 fn main() i32 {
     // 整数
     @print(42);           // 输出: 42
-    @print(-100);         // 输出: -100
+    @print(-100);         // ⚠️ 实测输出 4294967196（i32 负值直打的已知缺陷，见上）
+    @println("负值: ${-100}");  // ✅ 输出: 负值: -100
     
     // 浮点数
     @print(3.14);         // 输出: 3.14
@@ -1325,10 +1426,10 @@ fn main() i32 {
     @println(42 as i64);     // 按 i64 格式打印
     @println(42 as u32);     // 按无符号格式打印
     
-    // 十六进制输出（通过插值格式）
+    // 十六进制输出（通过插值格式；实测带 0x/0X 前缀）
     const hex_val: i32 = 255;
-    @println("hex = ${hex_val:#x}");  // 输出: hex = ff
-    @println("HEX = ${hex_val:#X}");  // 输出: HEX = FF
+    @println("hex = ${hex_val:#x}");  // 输出: hex = 0xff
+    @println("HEX = ${hex_val:#X}");  // 输出: HEX = 0XFF
     
     return 0;
 }
@@ -1392,17 +1493,19 @@ fn main() i32 {
     const f: f64 = 3.14159;
     const flag: bool = true;
     
-    // 整数格式
+    // 整数格式（实测输出含前缀）
     @println("decimal: ${num}");      // 十进制: 255
-    @println("hex: ${num:#x}");       // 十六进制(小写): ff
-    @println("HEX: ${num:#X}");       // 十六进制(大写): FF
-    @println("octal: ${num:#o}");     // 八进制: 377
+    @println("hex: ${num:#x}");       // 十六进制(小写): 0xff
+    @println("HEX: ${num:#X}");       // 十六进制(大写): 0XFF
+    @println("octal: ${num:#o}");     // 八进制: 0377
     
-    // 浮点格式
-    @println("default: ${f}");        // 默认: 3.14159
+    // 浮点格式：必须带格式说明符
+    @println("g: ${f:g}");            // 默认: 3.14159
+    @println("f: ${f:f}");            // 定点: 3.141590
     @println("no decimal: ${f:.0f}"); // 无小数: 3
     @println("2 decimals: ${f:.2f}"); // 2位小数: 3.14
     @println("4 decimals: ${f:.4f}"); // 4位小数: 3.1416
+    // @println("${f}");              // ❌ 不带说明符的浮点插值当前输出错误（实测为整数乱码）
     
     // 布尔值
     @println("flag = ${flag}");       // 输出: flag = 1
@@ -1434,6 +1537,7 @@ fn main() i32 {
 - 与 `@print` 支持相同的类型
 - 自动在末尾添加换行符 `\n`
 - 自定义类型需手动实现打印逻辑
+- 插值格式实测（v0.10.4）：整数 `#x`/`#X`/`#o` 会带上 `0x`/`0X`/`0` 前缀；浮点**必须**给说明符（`:g`、`:f`、`:.2f` 等），裸 `${f}` 会输出错误数值（已用 `bin/uya` 复现）
 
 ---
 
@@ -1671,9 +1775,54 @@ __attribute__((naked)) int32_t setjmp(jmp_buf* env) {
 
 ---
 
+### @align(N)
+
+**属性签名**：
+```uya
+@align(N) fn f(...) ...
+@align(N)
+@async_fn
+fn g(...) ...
+```
+
+**功能描述**：
+**函数声明属性**（不是表达式内建），为函数（当前实现只在 `@async_fn` 上生效）指定状态机帧的对齐字节数。解析在 `src/parser/main.uya:755-773`（`@align` 必须在函数声明最前面，且在 `@async_fn` / `@naked_fn` 之前），结果写入 AST 字段 `fn_decl_align`（`src/ast.uya:233`），只对 `N > 0` 生效（`src/parser/main.uya:840-841`）。
+
+**参数**：
+- `N`：正整数常量；写成非数字字面量会报 `@align(N) 需要整数常量参数`
+
+**返回值**：
+- 无（声明属性）
+
+**代码生成**：
+- 该 async 函数的帧结构体以 `__attribute__((aligned(N)))` 定义（`src/codegen/c99/function.uya:6925-6929`）
+- 帧尺寸/对齐估算以 `N` 覆盖字段对齐（`src/codegen/c99/function.uya:7026-7033`）
+
+**使用示例**：
+```uya
+@align(64)
+@async_fn
+fn aligned_async() Future<!i32> {
+    return 42;
+}
+
+fn check() i32 {
+    // @align_of 能看到 @align(N) 的效果
+    return @align_of(@frame(aligned_async));   // 64
+}
+```
+
+对应测试：`tests/test_async_frame_align_pool.uya:15-24`（既验证 `@align_of(@frame(...)) == 64`，也验证 `AsyncFramePool` 分配出的帧真的按 64 对齐）。
+
+**注意区分**：
+- `@align(N)`：**声明属性**，只出现在函数声明前，无返回值
+- `@align_of(T)` / `@align_of(expr)`：**表达式内建**，返回 `i32` 对齐字节数（见第 1 节）。两者语法形态不同，不要混写
+
+---
+
 ## 10. 内联汇编函数
 
-> **状态**：设计完成，实现中  
+> **状态（v0.10.4）**：已实现。parser `src/parser/primary.uya:1159-1376`（`@asm_target` 1159、`@asm` 1184、`clobbers` 1311）、checker `src/checker/check_expr.uya:1797-1811`（分派）与 `3897-4032`（`infer_asm_block`）、codegen `src/codegen/c99/expr.uya:1073-1078`（分派）与 `10549-10657`（`gen_asm_block`）。测试：`tests/run_asm_tests.sh`、`tests/test_asm_*.uya`（17 个正例）、`tests/error_asm_*.uya`（19 个负例）、`tests/bench_asm_*.uya`（3 个基准）；`docs/ASM_TODO.md` 头部自述已完成。
 > **参考**：规范 §19 内联汇编
 
 ### @asm
@@ -1681,190 +1830,156 @@ __attribute__((naked)) int32_t setjmp(jmp_buf* env) {
 **函数签名**：
 ```uya
 @asm {
-    "instruction template" (input1, input2, ..., -> output1, output2, ...)
-        clobbers = [reg1, reg2, ..., "memory"];
-}
+    "instruction" (input1, input2, ..., -> output1, output2, ...);
+    "instruction2" (...);
+} clobbers = ["rcx", "r11", "memory"];
 ```
 
 **功能描述**：
-编译期内置函数，用于直接编写内联汇编代码。提供类型安全、内存安全的汇编操作，替代 C99 的内联汇编语法。
+编译期内置函数，用于直接编写内联汇编。整个块被合并成**一条** `__asm__ volatile ("...\n\t..." : outputs : inputs : clobbers)` 语句（`src/codegen/c99/expr.uya:10549-10657`）。
 
 **参数**：
-- `instruction template`：汇编指令模板（字符串字面量）
-- `input_exprs`：输入表达式列表
-- `output_exprs`：输出表达式列表（在 `->` 之后）
-- `clobbers`：被修改的寄存器列表（可选）
+- `instruction`：汇编指令字符串字面量。**字符串原样发射到 C 的内联汇编**，编译器不做任何占位符替换；操作数引用使用 GCC 的**位置编号**语法（`%0`、`%1`、`%%rax` 表示寄存器字面量 `%rax`）
+- `input_exprs`：输入表达式列表，位于 `(` 后、`->` 之前，每条指令最多 8 个
+- `output_exprs`：输出表达式列表，位于 `->` 之后，每条指令最多 8 个
+- `clobbers`：可选，写在块尾 `} clobbers = ["rcx", ...];`（字符串列表，`"memory"` 单独识别）；最多 16 个寄存器名
+- 一个块最多 32 条指令；空块报 `@asm 块不能为空`
+
+**操作数编号规则（重要）**：
+- codegen 按 **先输出、后输入** 的顺序收集约束（`gen_asm_block` 的输出段在输入段之前），所以 `%0` 是**第一个输出**，之后依次是各输出、各输入
+- 输出一律用 `"=r"`，输入一律用 `"r"`（没有 `+r`/`=&r`/memory 输入约束）
+- 因此 `@asm { "movl %1, %0" (a, -> out); }` 中 `%0` = `out`、`%1` = `a`
 
 **返回值**：
-- 无返回值（输出通过输出参数返回）
+- 无返回值（`void`），结果通过输出表达式写回（`src/checker/check_expr.uya:4031`）
 
 **使用示例**：
 ```uya
-// 基本算术运算
+// 基本算术（注意 %0 是输出，%1/%2 是输入）
 fn add_with_asm(a: i32, b: i32) i32 {
-    var result: i32;
-    
+    var result: i32 = 0;
+
     @asm {
-        "add {a}, {b}" (a, b, -> result);
+        "movl %1, %0\n\taddl %2, %0" (a, b, -> result);
     }
-    
+
     return result;
 }
 
-// 系统调用
-fn syscall_write(fd: i32, buf: &const byte, count: i32) !i32 {
-    const SYS_write: i64 = 1;
-    var result: i64;  // 显式声明输出变量
-
+// 裸函数里的真实写法：不用操作数，直接写寄存器（%% 是 C 内联汇编的转义）
+// 见 lib/libc/setjmp.uya:26-37
+export @naked_fn fn setjmp_tiny(env: &jmp_buf) i32 {
     @asm {
-        "mov rax, {nr}" (SYS_write, -> rax);
-        "mov rdi, {fd}" (fd, -> rdi);
-        "mov rsi, {buf}" (buf, -> rsi);
-        "mov rdx, {count}" (count, -> rdx);
-        "syscall" (rax, rdi, rsi, rdx, -> result);
-    } clobbers = ["rcx", "r11", "memory"];
-
-    if result < 0 {
-        return error.SyscallFailed;
-    }
-
-    return result as! i32;  // 使用 as! 处理可能溢出的转换
+        "movq %%rbx, 0(%%rdi)";
+        "xorl %%eax, %%eax";
+        "ret";
+    } clobbers = ["memory", "rax"];
 }
 
-// 原子操作
-fn atomic_fetch_add(ptr: &atomic i32, value: i32) i32 {
-    var old: i32;
-    
-    @asm {
-        "lock xadd {ptr}, {value}" (@asm_mem(ptr), value, -> old);
-    }
-    
-    return old;
-}
-
-// 平台条件编译
+// 平台条件编译：@asm_target() 的类型是枚举名 @asm_target，
+// 不能直接和整数字面量比较，要 as i32（或先赋给 i32 变量）
 fn platform_add(a: i32, b: i32) i32 {
-    var result: i32;
-    
-    if @asm_target() == .x86_64_linux {
+    var result: i32 = 0;
+
+    if @asm_target() as i32 == 0 {   // 0 = x86_64_linux
         @asm {
-            "add {a}, {b}" (a, b, -> result);
-        }
-    } else if @asm_target() == .arm64_linux {
-        @asm {
-            "add {a}, {b}, {result}" (a, b, -> result);
+            "movl %1, %0\n\taddl %2, %0" (a, b, -> result);
         }
     } else {
         result = a + b;
     }
-    
+
     return result;
 }
 ```
 
 **寄存器类型**：
+checker 认识这些 `@asm_reg*` 类型名（`src/checker/type_from_ast.uya:615-633`、`src/checker/types.uya:78-92`）：
+
 ```uya
-// 平台无关寄存器（编译器自动分配）
-type @asm_reg = opaque;
-
-// 平台特定寄存器
-type @asm_reg_x64 = opaque;   // x86-64
-type @asm_reg_x86 = opaque;   // x86
-type @asm_reg_arm64 = opaque; // ARM64
-
-// 使用示例
-fn auto_reg(a: i32, b: i32) i32 {
-    var temp: @asm_reg;
-    var result: i32;
-    
-    @asm {
-        "mov {temp}, {a}" (a, -> temp);
-        "add {temp}, {b}" (temp, b, -> result);
-    }
-    
-    return result;
-}
+@asm_reg          // 通用寄存器（编译器分配）
+@asm_reg_x64      // x86-64 通用寄存器
+@asm_reg_x86      // x86 通用寄存器
+@asm_reg_arm64    // ARM64 通用寄存器
+@asm_reg_riscv    // RISC-V 通用寄存器
+@asm_reg_x64_xmm  // x86-64 SSE (128-bit)
+@asm_reg_x64_ymm  // x86-64 AVX/AVX2 (256-bit)
+@asm_reg_x64_zmm  // x86-64 AVX-512 (512-bit)
+@asm_reg_arm64_v  // ARM64 NEON (128-bit)
+@asm_mem          // 内存操作数
 ```
 
-**内存操作类型**：
-```uya
-// 类型安全的内存操作
-type @asm_mem<T> = opaque;
+> **实现核对（v0.10.4）**：这些名字**只是 checker 侧的识别表**，`src/lexer.uya` 的 `@` 前缀白名单（`src/lexer.uya:1315-1374`）里没有它们，因此当前**无法在源码中书写** `var x: @asm_reg_x64 = 0;`——lexer 会直接报 `未知内置 @asm_reg_x64`。同理 `@asm_mem(ptr)` 形式也不可用。实际写法是把值直接传给 `@asm` 的输入/输出位置（见上例）。
 
-// 使用示例
-fn read_u32(ptr: &u32) u32 {
-    var value: u32;
-    
-    @asm {
-        "mov {value}, [{ptr}]" (@asm_mem(ptr), -> value);
-    }
-    
-    return value;
-}
-
-fn write_u32(ptr: &u32, value: u32) void {
-    @asm {
-        "mov [{ptr}], {value}" (value, @asm_mem(ptr), -> _);
-    }
-}
-```
+**内存操作**：
+- 没有独立的 `@asm_mem<T>` 包装；内存访问靠普通指针操作数 + 指令里的 `(%N)` 寻址完成，例如 `"movl (%1), %0" (ptr, -> value)`
+- 输入允许整数或指针（`&T`）；**FFI 指针 `*T` 不能直接进 `@asm`**，会报 `FFI 指针 (*T) 不能直接用于 @asm，请转换为 &T 类型`
+- 输出只允许整数类型；`*T` 也不能作为输出
 
 **平台检测**：
 ```uya
-// 目标平台枚举
-enum @asm_target {
-    x86_64_linux,
-    x86_64_macos,
-    x86_64_windows,
-    arm64_linux,
-    arm64_macos,
-    arm64_windows,
-}
-
-// 获取当前平台
-const target: @asm_target = @asm_target();
+// @asm_target() 返回整数平台号（C 宏 UYA_ASM_TARGET_*，见 src/codegen/c99/main.uya:2311-2338）
+// 0 = x86_64_linux   1 = x86_64_macos   2 = x86_64_windows
+// 3 = arm64_linux    4 = arm64_macos    5 = arm64_windows
+// 6 = riscv64_linux
+const target: i32 = @asm_target();
 ```
 
-**安全约束**：
-1. **类型检查**：输入/输出类型必须匹配
-2. **寄存器验证**：寄存器约束不能与调用约定冲突
-3. **内存安全**：内存操作必须有明确类型
-4. **并发安全**：原子操作必须使用 `atomic T` 类型
-5. **clobber 声明**：必须声明所有被修改的寄存器
+> **实现核对（v0.10.4）**：`@asm_target()` 在 checker 里被标成名为 `@asm_target` 的枚举类型（`src/checker/check_expr.uya:1812-1817`），但**没有对应的枚举声明**，因此：
+> - `if @asm_target() == .x86_64_linux` → 语法错误（意外的 token `.`，见 `tests/test_asm_platform.uya:110` 的注释示例）
+> - `if @asm_target() == 0` → 类型不匹配（`比较运算符的操作数类型必须相同或兼容`）
+> - ✅ 可行：`if @asm_target() as i32 == 0`，或 `const t: i32 = @asm_target(); if t == 0`（均已用 `bin/uya` 实测）
+
+**安全约束（checker 强制执行，`infer_asm_block`）**：
+1. 输入必须是整数或指针类型（`@asm 输入必须是整数或指针类型`），`void`/数组/切片/结构体/f32/f64 都被拒
+2. 输入/输出都不能是 FFI 指针 `*T`
+3. 输出必须是整数类型（`@asm 输出必须是整数类型`）
+4. 内存屏障类指令（`lfence`/`mfence`/`sfence` 以及 `lock ` 前缀的原子指令，判定见 `src/checker/type_utils.uya:1768-1825`）被要求声明 `clobbers = ["memory"]`。**但当前这条检查是坏的**：parser 把 `"memory"` 存进独立标志 `asm_clobbers_memory`（`src/parser/primary.uya:1331-1332`），而 checker 的 `has_memory_clobber` 只扫寄存器数组 `asm_clobbers[]`（`src/checker/check_expr.uya:4007-4024`），因此含上述指令的 `@asm` **无论写不写 `"memory"` 都会报** `内存屏障指令需要声明 clobbers = ["memory"]`（已用 `bin/uya` 复现）。在修复前，`lfence`/`mfence`/`sfence`/`lock ...` 类指令不要放进 `@asm`；用普通同步原语或 `lib/` 里的既有实现
+5. `microapp` 容器模式下用户代码（非 `lib/std`、`lib/libc`）禁止 `@asm`，报 `E4001: microapp 模式禁止使用 @asm`
 
 **错误示例**：
 ```uya
-// ❌ 错误：类型不匹配
+// ❌ 空块
 @asm {
-    "mov {dst}, {src}" (src: f64, -> dst: i32);  // 编译错误
 }
+// 错误: @asm 块不能为空
 
-// ❌ 错误：未声明 clobber
+// ❌ f64 输入
+var d: f64 = 1.5;
 @asm {
-    "mov rax, 1" (-> _);  // 编译错误：未声明 clobber
+    "nop" (d);
 }
+// 错误: @asm 输入必须是整数或指针类型
 
-// ✅ 正确：显式声明 clobber
+// ❌ FFI 指针输入
+var p: *byte = null;
 @asm {
-    "mov rax, 1" (-> _);
-} clobbers = ["rax"];
-
-// ❌ 错误：非原子类型的原子操作
-fn unsafe_fetch_add(ptr: &i32, value: i32) i32 {
-    var old: i32;
-    @asm {
-        "lock xadd {ptr}, {value}" (@asm_mem(ptr), value, -> old);
-        // 编译错误：ptr 不是 atomic 类型
-    }
-    return old;
+    "nop" (p);
 }
+// 错误: FFI 指针 (*T) 不能直接用于 @asm，请转换为 &T 类型
+
+// ❌ 屏障指令：当前实现下必然报错（见上文「安全约束」第 4 条）
+@asm {
+    "lfence" ();
+}
+// 错误: 内存屏障指令需要声明 clobbers = ["memory"]
+//      即使写成 } clobbers = ["memory"]; 也照样报错
+
+// ✅ 正确：普通算术指令 + 显式 clobbers
+var x: i32 = 0;
+@asm {
+    "movl %1, %0" (7, -> x);
+} clobbers = ["cc"];
 ```
+
+对应负例：`tests/error_asm_empty_block.uya`、`tests/error_asm_f64_input.uya`、`tests/error_asm_ffi_pointer.uya`、`tests/error_asm_output_pointer.uya`、`tests/error_asm_too_many_inputs.uya` 等；`microapp` 负例 `tests/error_microapp_mode_asm.uya`。
 
 **注意事项**：
 - 编译期展开，零运行时开销
-- 输出变量必须在 `@asm` 块外显式声明
-- 平台相关代码使用 `@asm_target()` 进行条件编译
-- 详细的 API 参考和最佳实践见 [asm_api_reference.md](asm_api_reference.md)
+- 输出变量必须在 `@asm` 块外声明并初始化后传入（`(-> v)` 里 `v` 是左值）
+- `{name}` 形式的占位符、`@asm_mem(...)`、`@asm_reg_*` 变量目前都**不在实现范围内**，按上面 `%N` + `%%reg` 写法使用
+- 平台相关代码用 `@asm_target()` 的整数值做条件分支
+- 详细的 API 参考和最佳实践见 [asm_api_reference.md](asm_api_reference.md)（该文为历史设计记录，语法细节以本节为准）
 
 ---
 
@@ -1962,53 +2077,62 @@ const both: @mask(4) = lt & eq;
 
 ## 12. 内置函数分类总结
 
+> 状态口径（v0.10.4）：全部条目均已由 `src/lexer.uya:1315-1374` 的 `@` 白名单承认；"✅ 已实现"指 parser + checker + codegen 全链路可用并有测试。
+
 | 分类 | 函数 | 编译期 | 运行时 | 状态 |
 |------|------|--------|--------|------|
 | **类型反射** | `@size_of` | ✓ | - | ✅ 已实现 |
 | | `@align_of` | ✓ | - | ✅ 已实现 |
 | | `@len` (数组) | ✓ | - | ✅ 已实现 |
 | | `@len` (切片) | - | ✓ | ✅ 已实现 |
+| **指针/整数互转** | `@ptr_from_usize` | ✓ | - | ✅ 已实现 |
+| | `@usize_from_ptr` | ✓ | - | ✅ 已实现 |
 | **整数极值** | `@max` | ✓ | - | ✅ 已实现 |
 | | `@min` | ✓ | - | ✅ 已实现 |
-| **源码位置** | `@src_name` | ✓ | - | ✅ 已实现 |
-| | `@src_path` | ✓ | - | ✅ 已实现 |
+| **源码位置** | `@src_name` | ✓ | - | ✅ 已实现（接收类型用 `*byte`） |
+| | `@src_path` | ✓ | - | ✅ 已实现（接收类型用 `*byte`） |
 | | `@src_line` | ✓ | - | ✅ 已实现 |
 | | `@src_col` | ✓ | - | ✅ 已实现 |
-| | `@func_name` | ✓ | - | ✅ 已实现 |
+| | `@func_name` | ✓ | - | ✅ 已实现（接收类型用 `*byte`） |
 | **嵌入资源** | `@embed` | ✓ | - | ✅ 已实现 |
 | | `@embed_dir` | ✓ | - | ✅ 已实现 |
 | **构建导入** | `@c_import` | ✓ | - | ✅ 已实现（顶层构建指令） |
-| **可变参数** | `@params` | - | ✓ | ✅ 已实现 |
-| | `@va_start` | ✓ | - | 📋 规范支持 |
-| | `@va_end` | ✓ | - | 📋 规范支持 |
-| | `@va_arg` | ✓ | - | 📋 规范支持 |
-| | `@va_copy` | ✓ | - | 📋 规范支持 |
-| **宏系统** | `@mc_eval` | ✓ | - | 🚧 语法解析完成 |
-| | `@mc_type` | ✓ | - | 🚧 语法解析完成 |
-| | `@mc_ast` | ✓ | - | 🚧 语法解析完成 |
-| | `@mc_code` | ✓ | - | 🚧 语法解析完成 |
-| | `@mc_error` | ✓ | - | 🚧 语法解析完成 |
-| | `@mc_get_env` | ✓ | - | 🚧 语法解析完成 |
+| **可变参数** | `@params`（形参元组，非 va_list） | ✓ | - | ✅ 已实现 |
+| | `@va_start` | ✓ | - | ✅ 已实现 |
+| | `@va_end` | ✓ | - | ✅ 已实现 |
+| | `@va_arg` | ✓ | - | ✅ 已实现 |
+| | `@va_copy` | ✓ | - | ✅ 已实现 |
+| **宏系统** | `@mc_eval` | ✓ | - | ✅ 已实现 |
+| | `@mc_type` | ✓ | - | ✅ 已实现 |
+| | `@mc_ast` | ✓ | - | ✅ 已实现 |
+| | `@mc_code` | ✓ | - | ✅ 已实现 |
+| | `@mc_source` | ✓ | - | ✅ 已实现 |
+| | `@mc_error` | ✓ | - | ✅ 已实现 |
+| | `@mc_get_env` | ✓ | - | ✅ 已实现 |
 | **错误处理** | `@error_id` | ✓ | ✓ | ✅ 已实现 |
 | | `@error_name` | ✓ | ✓ | ✅ 已实现 |
+| **系统调用** | `@syscall` | ✓ | ✓ | ✅ 已实现（返回 `!i64`） |
 | **调试打印** | `@print` | - | ✓ | ✅ 已实现 |
 | | `@println` | - | ✓ | ✅ 已实现 |
 | **异步编程** | `@async_fn` | ✓ | ✓ | 🚧 最小闭环已实现 |
 | | `@await` | ✓ | ✓ | 🚧 最小闭环已实现 |
+| | `@frame` | ✓ | ✓ | 🚧 最小闭环已实现 |
+| | `@align(N)`（声明属性） | ✓ | - | ✅ 已实现（仅 async 帧） |
 | **裸函数** | `@naked_fn` | ✓ | - | ✅ 已实现 |
-| **内联汇编** | `@asm` | ✓ | - | 📋 规范支持 |
-| **SIMD 向量** | `@vector` | ✓ | - | 📋 规范支持 |
-| | `@mask` | ✓ | - | 📋 规范支持 |
-| | `@vector.splat` | ✓ | ✓ | 📋 规范支持 |
-| | `@vector.load` | ✓ | ✓ | 📋 规范支持（0.49.33） |
-| | `@vector.store` | ✓ | ✓ | 📋 规范支持（0.49.34） |
-| | `@vector.select` | ✓ | ✓ | 📋 规范支持（0.49.35） |
-| | `@vector.reduce_add` | ✓ | ✓ | 📋 规范支持（0.49.36） |
-| | `@vector.reduce_mul` | ✓ | ✓ | 📋 规范支持（0.49.38） |
-| | `@vector.reduce_min` | ✓ | ✓ | 📋 规范支持（0.49.39） |
-| | `@vector.reduce_max` | ✓ | ✓ | 📋 规范支持（0.49.39） |
-| | `@vector.any` | ✓ | ✓ | 📋 规范支持 |
-| | `@vector.all` | ✓ | ✓ | 📋 规范支持 |
+| **内联汇编** | `@asm` | ✓ | - | ✅ 已实现 |
+| | `@asm_target` | ✓ | - | ✅ 已实现（返回平台枚举名，需 `as i32` 后比较） |
+| **SIMD 向量** | `@vector` | ✓ | - | ✅ 已实现（第一阶段） |
+| | `@mask` | ✓ | - | ✅ 已实现（第一阶段） |
+| | `@vector.splat` | ✓ | ✓ | ✅ 已实现 |
+| | `@vector.load` | ✓ | ✓ | ✅ 已实现（0.49.33） |
+| | `@vector.store` | ✓ | ✓ | ✅ 已实现（0.49.34） |
+| | `@vector.select` | ✓ | ✓ | ✅ 已实现（0.49.35） |
+| | `@vector.reduce_add` | ✓ | ✓ | ✅ 已实现（0.49.36） |
+| | `@vector.reduce_mul` | ✓ | ✓ | ✅ 已实现（0.49.38） |
+| | `@vector.reduce_min` | ✓ | ✓ | ✅ 已实现（0.49.39） |
+| | `@vector.reduce_max` | ✓ | ✓ | ✅ 已实现（0.49.39） |
+| | `@vector.any` | ✓ | ✓ | ✅ 已实现 |
+| | `@vector.all` | ✓ | ✓ | ✅ 已实现 |
 
 ---
 
@@ -2023,12 +2147,18 @@ Uya 内置函数遵循以下命名惯例：
    - `@size_of`, `@align_of`, `@error_id`, `@error_name`, `@async_fn`
    - `@va_start`, `@va_end`, `@va_arg`, `@va_copy`（可变参数栈访问）
    - `@src_name`, `@src_path`, `@src_line`, `@src_col`, `@func_name`
-   - `@mc_eval`, `@mc_type`, `@mc_ast`, `@mc_code`, `@mc_error`, `@mc_get_env`
+   - `@mc_eval`, `@mc_type`, `@mc_ast`, `@mc_code`, `@mc_source`, `@mc_error`, `@mc_get_env`
+   - `@ptr_from_usize`, `@usize_from_ptr`（指针与整数互转）
+   - `@embed_dir`（单文件版本为 `@embed`）
+   - `@naked_fn`, `@asm_target`（声明属性/平台查询）
    - `@vector`（类型构造器与最小 SIMD 辅助内建）
 
 3. **前缀约定**：
    - `@mc_*`：宏编译时函数（Macro Compile-time）
    - `@src_*`：源代码位置相关（Source）
+   - `@va_*`：可变参数栈访问（Variable arguments）
+   - `@asm*`：内联汇编与平台检测（`@asm`、`@asm_target`）
+   - `@vector.*`：SIMD 辅助操作（以 `.` 接操作名，不是独立白名单条目）
 
 ---
 
@@ -2041,7 +2171,8 @@ Uya 内置函数遵循以下命名惯例：
 | **编译期展开** | `@size_of`, `@align_of`, `@len(数组)`, `@max`, `@min`, `@src_*`, `@func_name`, `@va_start`, `@va_end`, `@va_arg`, `@va_copy`, `@error_id(error.X)` |
 | **零运行时开销** | 上述函数在编译时完全求值或展开为 C 宏 |
 | **运行时访问** | `@len(切片)` → 访问切片的 `.len` 字段；`@error_id(err)` → 读取错误值的 `.error_id` 字段；`@error_name(err)` → 运行时查表返回名字字符串 |
-| **可变参数** | `@params` → 零抽象开销，直接映射到 C va_list；`@va_start`/`@va_end`/`@va_arg`/`@va_copy` → 展开为 C 宏 |
+| **可变参数** | `@params` → 零抽象开销，按形参位次直接取元组元素（**不映射** `va_list`）；`@va_start`/`@va_end`/`@va_arg`/`@va_copy` → 展开为 C 的 `va_*` 宏 |
+| **汇编/平台** | `@asm` → 展开为一件 `__asm__ volatile` 语句；`@asm_target()` / `@align(N)` → 编译期常量与结构体属性 |
 | **SIMD 向量** | `@vector` / `@mask` 在语义层由编译器识别；第一阶段允许标量回退 lowering，先保证语义正确 |
 
 ---
@@ -2123,6 +2254,7 @@ fn buffer_info<T>() void {
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v0.10.4 | 2026-10-19 | 按 `src/`、`tests/` 逐项核对全量内置：① `@params` 更正为"当前函数形参元组"（此前误写成 va_list）；② `@src_name` / `@src_path` / `@func_name` 的实际接收类型更正为 `*byte`（checker 仍推断 `&[i8]`，按切片初始化会在 C 层报 invalid initializer）；③ 补 `@syscall`、`@ptr_from_usize`、`@usize_from_ptr`、`@asm_target`、`@frame`、`@align(N)` 声明属性；④ 宏系统状态由"语法解析完成"改为已实现；⑤ `@asm` 状态改为已实现，语法按实现改写（指令原样发射、操作数用 `%N`/`%%reg`，`{name}` 占位符与 `@asm_mem(...)`/`@asm_reg_*` 不可用），`@asm_target()` 需 `as i32`（或先赋给 `i32` 变量）后才能比较；⑥ `@print`/`@println` 按"实参 AST 形态决定格式串"重写；⑦ 分类表状态全部收敛为已实现（异步保持最小闭环）；⑧ 记录两处实测缺陷：`i8` 的 `@max`/`@min` 生成 `0`，`@print` 直打 `i32` 负值输出零扩展值（改用字符串插值可绕过）；⑨ `@error_name` 示例改用 `printf` 而非 `@println`（`@println` 对 `*byte` 打印的是地址） |
 | v0.49.52 | 2026-06-29 | 与 **uya.md 0.49.52** 同步：文件开头 shebang 属于词法规则；内置函数条目无增删 |
 | v0.49.51 | 2026-06-21 | 与 **uya.md 0.49.51** 同步：明确 `@await` 不能出现在 `defer` / `errdefer` 清理块中；checker 前置稳定诊断，避免后端崩溃 |
 | v0.49.50 | 2026-05-14 | 新增错误处理内置函数：`@error_name`；对语言级命名错误返回不带 `error.` 前缀的名字；未知或 `@syscall` 错误回退 `UnknownError`；新增 `tests/test_error_name_builtin.uya` |
@@ -2183,7 +2315,7 @@ fn buffer_info<T>() void {
 
 - [Uya 语言规范](uya.md) - 完整语言规范
 - [语法速查](grammar_quick.md) - 语法速查手册
-- [Uya Mini 规范](compiler-c-spec/UYA_MINI_SPEC.md) - 当前实现的子集规范
+- [ASM TODO / 状态索引](ASM_TODO.md) - `@asm` 的实现状态与证据索引（`compiler-c`/`compiler-mini` 路线已退役，实现以 `src/` 为准）
 - [发行说明](releases/RELEASE_v0.1.0.md) - v0.1.0 版本说明
 
 ---

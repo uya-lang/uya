@@ -1,7 +1,11 @@
 # Uya 高性能 JSON 编解码器设计文档
 
-**版本**：v0.1  
-**状态**：设计阶段，部分已实现（见 [todo_json.md](todo_json.md)）  
+**版本**：v0.1
+
+**状态**：设计阶段，部分已实现（见 [todo_json.md](todo_json.md)）
+
+**最后核对**：2026-10-19，按 `lib/std/json/{value,parser,encoder,errors,macros}.uya` 与 `tests/test_json_*.uya` 回填
+
 **参考**：RFC 8259、simdjson、[grammar_formal.md](grammar_formal.md)（语法规范）、[todo_json.md](todo_json.md)（实现待办）
 
 ---
@@ -39,6 +43,7 @@
 - **支持**：`\uXXXX`、`\n\t\r\"\\` 转义
 - **不支持**：注释、尾逗号、单引号
 - **UTF-8**：默认不校验（零拷贝优先）；可选 `parse_strict` 启用 UTF-8 校验
+  - **核对（2026-10-19）**：`parse_strict` **未实现**（`grep -rn parse_strict lib tests` 无命中）。`errors.uya:4` 定义了 `InvalidUtf8`，但目前只有 `errors` 层面上存在，解析器不会主动抛它。
 
 ---
 
@@ -64,7 +69,7 @@ flowchart TB
     end
 ```
 
-ToJson / FromJson 由编译器反射宏 to_json、from_json 或手写实现；有宏则结构体无需手写。
+结构体序列化由编译器反射宏（`encode_to_to_json` / `to_json_reflect()`）在 `to_json<T>` 单态展开时生成，或调用方手写「按字段调用 `json_write_*`」的代码；当前未定义 `ToJson` / `FromJson` 接口（见 §7.1）。
 
 ---
 
@@ -75,12 +80,14 @@ ToJson / FromJson 由编译器反射宏 to_json、from_json 或手写实现；�
 ### 5.1 JsonValue（零拷贝值类型）
 
 ```uya
+// lib/std/json/value.uya:10-19（全部为 export）
 union JsonValue {
-    json_null: void,    // 对应 JSON null；不用 null 避免与关键字冲突
+    json_null: void,        // 对应 JSON null；不用 null 避免与关键字冲突
     bool_val: bool,
     int_val: i64,
     float_val: f64,
-    str: JsonStrView,   // 当前实现用 (ptr, len) 视图，规避 slice codegen；理想为 &[byte]
+    num_text: JsonStrView,  // 保留原始数字文本（parse_lossless_numbers 产生，供 f64 无损还原）
+    str: JsonStrView,       // 当前实现用 (ptr, len) 视图，规避 slice codegen；理想为 &[byte]
     arr: JsonArray,
     obj: JsonObject,
 }
@@ -105,6 +112,8 @@ struct JsonObject {
     len: usize,
 }
 ```
+
+以上 `JsonStrView`(`value.uya:5`)、`JsonArray`(`:21`)、`JsonKeyValue`(`:26`)、`JsonObject`(`:31`) 在实现中均为 `export struct`；`JsonArray.items` / `JsonObject.pairs` 指向 Arena 内的连续数组。
 
 ### 5.2 JsonParser（可选，当前解析器未暴露此结构体）
 
@@ -137,16 +146,22 @@ struct JsonParser {
 ### 6.2 API
 
 ```uya
-// 当前实现：用 (ptr, len) 替代 &[byte] 以规避 slice codegen（见 grammar / 实现）
+// 当前实现（lib/std/json/parser.uya:367、:371）：用 (ptr, len) 替代 &[byte] 以规避 slice codegen
 fn parse(arena: &Arena, ptr: &byte, len: usize) !JsonValue;
+
+// 保留数字原文到 JsonValue.num_text（不做 i64/f64 归一），供需要原样回写的场景；
+// f64 提取时由 json_expect_f64 走 strtod 还原（encoder.uya:337-346）。
+export fn parse_lossless_numbers(arena: &Arena, ptr: &byte, len: usize) !JsonValue;
 
 // 理想 API（待 slice 支持后）
 // fn parse(arena: &Arena, input: &[byte]) !JsonValue;
 
-// 懒解析（可选）
+// 懒解析（可选，未实现）
 // fn parse_lazy(arena: &Arena, input: &[byte]) !JsonDoc;
 // fn json_doc_get(doc: &JsonDoc, path: &const byte) !JsonValue;
 ```
+
+`parse_lossless_numbers` 已落地并有测试覆盖：`tests/test_json_parse_float.uya:71,98`。
 
 ### 6.3 错误类型
 
@@ -178,9 +193,9 @@ export error WrongType;
 
 ## 7. 编码器（Encoder）
 
-### 7.1 ToJson 接口
+### 7.1 ToJson 接口（设计稿；**当前代码中不存在**）
 
-Uya 指针为 `&T` / `&const T`；接口类型直接使用 `ToJson`（无 `impl` 关键字，见 [grammar_formal.md](grammar_formal.md)、changelog）。
+> **核对结论（2026-10-19）**：`grep -rn "interface ToJson" lib/ src/` 无命中，`lib/std/json/` 下也没有 `impl.uya`。现行实现走的是**泛型单态 + 编译期反射宏**，不需要结构体实现接口：`to_json<T>(arena, obj)` 在调用点由 `encode_to_to_json(T, &obj, buf, cap)` 宏（`macros.uya:43`）按类型 `T` 展开编码代码。下方接口只作为备选的未来形态保留。
 
 ```uya
 interface ToJson {
@@ -188,20 +203,31 @@ interface ToJson {
 }
 ```
 
+若将来引入该接口，接口类型直接写成 `ToJson`（Uya 无 `impl` 关键字，见 [grammar_formal.md](grammar_formal.md)）。注意 `lib/std/json/json.uya:14-17` 的模块注释里仍保留 `encode_into_arena_for_to_json` / `ToJson` 的旧描述，属于待清理的过期注释。
+
 ### 7.2 API
 
 ```uya
-fn encode_to(value: &ToJson, buf: &byte, cap: usize) !usize;
-fn encode_into_arena(arena: &Arena, value: &JsonValue) !JsonStrView;
-fn encode(arena: &Arena, value: &JsonValue) !&[byte];
-fn to_json(arena: &Arena, value: &ToJson) !&[byte];   // 结构体→JSON 字节（arena 分配，返回 &[byte]）
-fn parse(arena: &Arena, ptr: &byte, len: usize) !JsonValue;
-// from_json(arena, &[byte]) !T：按类型 T 由调用方实现（先 parse(arena, ptr, len) 再按 T 提取）
+// 均为 export；行号为 2026-10-19 的 lib/std/json/encoder.uya
+fn encode_to(v: &JsonValue, buf: &byte, cap: usize) !usize;              // :243，BufferTooSmall
+fn encode_into_arena(ar: &Arena, v: &JsonValue) !JsonStrView;            // :255
+fn encode(ar: &Arena, v: &JsonValue) !&[byte];                          // :263
+fn to_json<T>(ar: &Arena, obj: T) !&[byte];                             // :269，结构体→JSON 字节（arena 分配）
+fn from_json<T>(ar: &Arena, buffer: &[byte]) !T;                        // :284，先 parse 再按 T 内联解码
+fn parse(arena: &Arena, ptr: &byte, len: usize) !JsonValue;             // parser.uya:367
 ```
+
+要点：
+
+- `to_json` / `from_json` 都是**泛型函数**，实参是 `T`（按值）与 `&[byte]`，不是 `&ToJson`。
+- `encode_to` / `encode_into_arena` / `encode` 只接受 `&JsonValue`，注释里明确写着“供测试与兼容用；结构体请用 to_json”。
+- 编码缓冲区固定为 `ENCODE_ARENA_MAX = 65536`（`encoder.uya:252`），单次编码超过该长度返回 `error.BufferTooSmall`；因此 arena 需要预留足够空间（`tests/test_json_struct_roundtrip.uya:46` 用 256 KiB 跑两次 `to_json` + `parse`）。
 
 ### 7.3 结构体序列化（to_json）
 
-**骨架宏 to_json_skeleton**：`use std.json.macros.to_json_skeleton`，在方法块内 `to_json_skeleton({ ... })` 生成 to_json 方法（仅负责开头/结尾的 `{` `}`，中间由调用方填写）。**反射宏 to_json_reflect**：`use std.json.macros.to_json_reflect`，在方法块内无参调用 `to_json_reflect()`，由编译器按结构体字段自动生成 to_json（支持 i64、i32、f64、bool、JsonStrView）。未用宏时可手写 ToJson（见 `tests/test_json_struct_roundtrip.uya`、`tests/test_json_to_json_reflect.uya`）。
+**骨架宏 to_json_skeleton**：`use std.json.macros.to_json_skeleton`，在方法块内 `to_json_skeleton({ ... })` 生成 to_json 方法（仅负责开头/结尾的 `{` `}`，中间由调用方填写）。**反射宏 to_json_reflect**：`use std.json.macros.to_json_reflect`，在方法块内无参调用 `to_json_reflect()`，由编译器按结构体字段自动生成 to_json（支持 i64、i32、f64、bool、JsonStrView）。未用宏时可手写「按字段写 `json_write_key` / `json_write_*`」的语句。
+
+注意：现行最优路径已不是接口方法，而是 `to_json<T>(arena, obj)` 的**单态展开**——编译器 `build_encode_to_to_json_block` 按类型 `T` 的字段直接生成 `json_write_*` 调用序列（`src/checker/macro_expand.uya` 的 `build_json_write_value_stmt`），因此结构体不必声明任何方法块。测试见 `tests/test_json_to_json_reflect.uya`、`tests/test_json_struct_roundtrip.uya`。
 
 ### 7.4 结构体反序列化（from_json）
 
@@ -209,6 +235,7 @@ fn parse(arena: &Arena, ptr: &byte, len: usize) !JsonValue;
 - **FromJson 形态**：`fn from_json(arena: &Arena, v: &JsonValue) !Self`（从 JsonValue 对象变体按字段名解析并填充结构体，失败返回错误）。
 - **宏 from_json 利用编译器反射实现自动结构体反序列化；有宏之后结构体无需手写**。未提供宏或需细粒度控制时可手写。与 to_json 对称，实现 roundtrip。
 - **手写辅助**：`json_object_find_index(o, key_ptr, key_len) !usize`；`json_expect_i64(v) !i64`、`json_expect_str(v) !JsonStrView`、`json_expect_bool(v) !bool`、`json_expect_f64(v) !f64`（类型不符返回 WrongType；f64 接受 int_val 自动转 float）；`json_str_view_eq`。调用方在同一作用域内用 `o.pairs[idx].value`，不返回/存储 `&JsonValue`（零 UB）。
+- **当前实现细节**：`from_json<T>`（`encoder.uya:284`）先 `parse` 再调用 `fn __decode_json<T>(ar, &JsonValue) !T`（`encoder.uya:277`），该函数体由 codegen 在单态实例处内联替换；`ar` 参数主要为对齐签名，现有解码路径不改写 arena。
 
 ---
 
@@ -216,14 +243,15 @@ fn parse(arena: &Arena, ptr: &byte, len: usize) !JsonValue;
 
 ```
 lib/std/json/
-  json.uya          # 模块入口，重导出
-  value.uya         # JsonValue、JsonStrView、JsonArray、JsonObject、JsonKeyValue
-  errors.uya        # 错误定义（命名 errors 避免与关键字 error 冲突，见 grammar）
-  parser.uya        # parse(arena, ptr, len)、解析逻辑
-  encoder.uya       # JsonWriter、encode_to、encode_into_arena、ToJson、encode_to_to_json、json_expect_*
-  macros.uya        # to_json_skeleton(body) 骨架宏（方法块内生成 to_json）
-  impl.uya          # 可选：基础类型 ToJson 实现
+  json.uya          # 模块入口：仅注释（无 export），注释里的 ToJson 描述已过期
+  value.uya         # JsonValue、JsonStrView、JsonArray、JsonObject、JsonKeyValue（export struct/union）
+  errors.uya        # 12 个 export error（命名 errors 避免与关键字 error 冲突，见 grammar）
+  parser.uya        # parse / parse_lossless_numbers + 解析逻辑（含 skip_ws / 字符串 / 数字的 @vector 块扫描）
+  encoder.uya       # JsonWriter、encode_to、encode_into_arena、encode、to_json<T>、from_json<T>、json_expect_*
+  macros.uya        # to_json_skeleton(body)、to_json_reflect()、from_json_reflect()、encode_to_to_json(T, ...)
 ```
+
+与设计稿的差异：`impl.uya` **不存在**（基础类型的 ToJson 实现改为 `to_json<T>` 单态展开）；`json.uya` 不重导出任何符号，子模块必须逐个 `use std.json.<sub>.<name>`。
 
 ---
 

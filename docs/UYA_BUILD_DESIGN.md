@@ -1,5 +1,12 @@
 # Uya Build 命令设计文档
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：本设计已落地。`./bin/uya build hello.uya` 实测产出
+> `a.out`（C 中间产物落在 `.uyacache`），`-o app` 产出可执行文件，`-o app.c` 只产出 C 源码。
+> 与设计期写法的差异：链接不是编译器内嵌 `system("gcc ...")`，而是由
+> `src/driver/toolchain.uya` 的 `link_with_toolchain()` 驱动宿主工具链（split-C 时走
+> `make -C <split-dir> -j`）；`--nostdlib` 的独立链接路径仅支持 Linux x86_64。
+> 下文保留设计期原文，命令语义以现状为准。
+
 ## 需求概述
 
 `uya build` 命令应直接运行 gcc 编译出二进制文件，行为类似 gcc：
@@ -72,32 +79,40 @@ C 源代码 (.c)
     └─ 其他 → 调用 gcc 链接 → 可执行文件
 ```
 
-### gcc 链接选项
+### 宿主工具链链接
+
+实际调用形态（`src/driver/toolchain.uya`）：
 
 ```bash
-# 普通模式
-gcc -std=c99 -O2 /tmp/uya_xxx.c -o a.out
+# 单文件路径：一条命令编译 + 链接（CFLAGS 默认已含 -O2；含 -O2/-O3/-Os 时自动追加
+# -fno-inline-small-functions，规避宿主 GCC 对部分生成代码的错误小函数内联）
+cc -std=c99 -O2 -fno-builtin -fno-inline-small-functions uya_generated.c -o a.out
 
-# --nostdlib 模式（零依赖）
-gcc -std=c99 -O2 -nostdlib -fno-builtin -static /tmp/uya_xxx.c -o a.out
+# split-C 路径（默认）：Makefile + 并行编译，hosted 模式的最终链接带 -lm
+make -C .uyacache -j$UYA_GCC_JOBS UYA_OUT=a.out
+
+# --nostdlib 模式（仅 Linux x86_64）：生成 C 内含 _start
+cc -std=c99 -O2 -fno-builtin -fno-stack-protector -no-pie -nostdlib -static \
+   "$CRTI" uya.o "$CRTN" -lgcc -o a.out
 ```
+
+含 `@c_import` 时：先编译导入的 C 到 object，再与主 TU 一起链接；`-o app.c` 时额外写出
+`app.cimports.sh` sidecar。
 
 ## 代码修改位置
 
 ### main.uya
 
-1. **parse_args 函数**（约第 1237 行）
-   - 删除 build 命令必须指定 -o 的错误检查
-   - 添加默认输出路径生成逻辑
+1. **`parse_args()`**：不再要求 `build` 必须带 `-o`；无 `-o` 时标记为「自动输出」并把后端切到 C99。
 
-2. **main 函数**（约第 1792 行）
-   - 添加 build 命令无 -o 时的处理逻辑
-   - 添加调用 gcc 链接的功能
+2. **`export fn main()`**：`build` 且输出不是 `.c` 时调用 `link_with_toolchain(...)`；否则停在只生成 C。
 
-### 新增辅助函数
+3. **`is_c_output()`**：按扩展名判定「只生成 C」还是「生成并链接」。
+
+### 相关函数（现状）
 
 ```uya
-// 检测是否为 C 文件输出（以 .c 结尾）
+// 输出类型判定（src/main.uya）
 fn is_c_output(output_path: &byte) i32 {
     if output_path == null { return 0; }
     const len: usize = strlen(output_path as *byte);
@@ -105,12 +120,12 @@ fn is_c_output(output_path: &byte) i32 {
     return output_path[len - 2] == 46 as byte && output_path[len - 1] == 99 as byte;
 }
 
-// 调用 gcc 链接生成可执行文件
-fn link_with_gcc(c_file: &byte, output: &byte, is_nostdlib: i32) i32 {
-    // 构建命令: gcc [选项] c_file -o output
-    // 执行 system() 调用
-}
+// 实际链接入口（src/driver/toolchain.uya:929）
+fn link_with_toolchain(c_file: &byte, output: &byte, is_nostdlib: i32, plan: &CImportPlan) i32
 ```
+
+`link_with_toolchain()` 内部负责：单文件 `cc` 链接、split-C 的 `make -C <dir> -j`、
+`@c_import` object 的编译与顺序、以及 `--nostdlib` 的 CRT 链接。
 
 ## 测试用例
 
@@ -130,20 +145,21 @@ uya build hello.uya -o hello.c
 gcc -std=c99 hello.c -o hello
 ./hello
 
-# 测试 4: --nostdlib 模式
+# 测试 4: --nostdlib 模式（仅 Linux x86_64）
 uya build hello.uya --nostdlib
 ./a.out
 ```
 
 ## 兼容性说明
 
-- 现有 `uya build file.uya -o file.c` 行为不变
-- 新增默认输出 `a.out` 行为
+- `uya build file.uya -o file.c` 行为不变（只生成 C）
+- 无 `-o` 时默认输出 `a.out`，C 中间产物在 `.uyacache`
 - `uya run` 和 `uya test` 命令行为不变
+- `-o *.c` 且程序含 `@c_import` 时，额外写出 `<name>.cimports.sh` sidecar
 
-## 实现优先级
+## 实现优先级（均已落地）
 
-1. 移除 build 命令必须指定 -o 的限制
-2. 实现默认输出 a.out 的逻辑
-3. 实现调用 gcc 链接的功能
-4. 处理 --nostdlib 模式
+1. ~~移除 build 命令必须指定 -o 的限制~~ ✅
+2. ~~实现默认输出 a.out 的逻辑~~ ✅
+3. ~~实现调用宿主工具链链接的功能~~ ✅（`link_with_toolchain`）
+4. ~~处理 --nostdlib 模式~~ ✅（限 Linux x86_64）

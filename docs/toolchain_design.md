@@ -1,5 +1,20 @@
 # Uya 工具链模块化架构设计文档
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：本文是**设计提案**，与仓库现状有明确差距，
+> 阅读时请以本段为准；下文保留设计期原文。
+>
+> - **已落地**：单入口 `bin/uya` + 子命令（`build` / `check` / `run` / `test` / `fmt` / `upm` /
+>   `pack-image` / `inspect-image` / `verify-image`）；外置子命令机制存在，但目前只有 `bin/cmd/upm`
+>   （`make cmds` / `make cmd-upm` 构建，`src/main.uya` 的 `dispatch_external_upm()` 转发）。
+> - **尚未落地**：本文设想的 `bin/uya-build`、`bin/uya-run`、`bin/uya-test`、`bin/uya-lint`、
+>   `bin/uya-doc` 等**独立可执行**都不存在，`src/tools/*.uya` 也不存在。
+>   `src/cmd/build/main.uya` 只是转发到 `build_compiler_driver_main()` 的薄壳，业务仍在 `src/main.uya`。
+> - **fmt 现状**：`uya fmt` 用进程内 `src/fmt.uya`（只支持 `[-w] <文件>`）；完整的 gofmt 式 CLI 在
+>   `tools/fmt.uya`，由 `make check-fmt` 构建为 `bin/uyafmt`（支持 `-w/-l/-d/-s/-r`、多路径、目录递归、stdin）。
+> - **Makefile 现状**：与本文 §6.1 的示意不同，实际目标是 `from-c` / `from-c-native` / `uya` /
+>   `uya-hosted` / `b` / `b-hosted` / `tests` / `check` / `cmds` / `cmd-upm` / `install` / `clean` 等，
+>   详见 `make help` 或 [`usage_guide.md`](usage_guide.md) 的「Make 目标速查」。
+
 ## 1. 概述
 
 Uya 工具链采用**子命令独立程序**架构，每个子命令是一个独立的小程序，`uya` 作为主入口进行转发。

@@ -1,8 +1,12 @@
 # Uya 编译器入口瘦身 TODO
 
-> **核对头（2026-09-27）**：状态 "implementation pending" 基本属实，但已有部分落地：
-> `src/cmd/build/main.uya`、`src/cmd/upm/main.uya`（含 `upm_lib`）与 `src/driver/{modules,toolchain}.uya` 已存在；
-> 本 TODO 的核心目标**尚未完成**：`src/main.uya` 仍为 3902 行单文件，`CommandType`、`parse_args()`、`print_usage()` 与 build/run/test 共享流程都在其中，`src/compiler_driver.uya` 尚不存在。
+> **核对头（2026-10-19，v0.10.4）**：状态 "implementation pending" 基本属实，但已有部分落地：
+> `src/cmd/build/main.uya`、`src/cmd/upm/main.uya`（含 `upm_lib`）与 `src/driver/{modules,path_list,toolchain}.uya` 已存在；
+> `Makefile` 已有 `cmds` / `cmd-upm` / `bin/cmd/%` 目标，`src/main.uya` 已有 `dispatch_external_upm()`
+> 把 `uya upm` 转发到 `bin/cmd/upm`，`tests/test_cmd_upm_direct.sh` 也已存在。
+> 本 TODO 的核心目标**尚未完成**：`src/main.uya` 仍是 3912 行的单文件，`CommandType`、`parse_args()`、
+> `print_usage()` 与 build/run/test 共享流程都在其中，`src/compiler_driver.uya` 尚不存在，
+> `src/cmd/build/main.uya` 只是转发到 `build_compiler_driver_main()` 的薄壳。
 
 **状态**: executable TODO, implementation pending
 **更新日期**: 2026-05-03
@@ -12,13 +16,13 @@
 
 ## 当前基线
 
-当前仓库仍处于设计待实现状态：
+当前仓库处于「部分外置」状态（2026-10-19 度量）：
 
-- `src/main.uya` 仍约 8400 行，`parse_args()` 与 `main()` 仍直接处理 `build`/`check`/`run`/`test`/`fmt` 等业务。
-- `src/cmd/*/main.uya` 尚未创建。
-- `Makefile` 尚未提供 `make cmds` 与 `cmd-*` 目标。
-- `src/main.uya` 尚未实现 `dispatch_external_cmd`。
-- `tests/test_cmd_upm_direct.sh` 尚未创建。
+- `src/main.uya` 约 **3912** 行，`parse_args()` 与 `main()` 仍直接处理 `build`/`check`/`run`/`test`/`fmt` 等业务。
+- `src/cmd/build/main.uya` 与 `src/cmd/upm/main.uya` **已创建**（前者是薄壳，后者含 `upm_lib` 实现）。
+- `Makefile` **已提供** `cmds`、`cmd-upm` 与通用 `bin/cmd/%` 规则。
+- `src/main.uya` **仅有** `dispatch_external_upm`（针对 `upm` 一条命令），没有通用的 `dispatch_external_cmd`。
+- `tests/test_cmd_upm_direct.sh` **已创建**；`tests/verify_cmd_bins_nostdlib_static.sh` 校验外置命令为静态链接。
 
 ---
 

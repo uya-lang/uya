@@ -1,5 +1,8 @@
 # TLS 纯 Uya 实现待办文档
 
+> **核对头（2026-10-19）**：阶段 0–4 的**全部勾选项已按 `lib/tls/` 现有 28 个 `.uya` 文件与 `tests/test_tls_*.uya`（19 个）+ `test_raw_tls.uya` + `tests/test_https_*.uya`（8 个）复核**。本文原「总览」表把阶段 2/3/4 标成「待办」，与各阶段内已全部打钩的条目自相矛盾，现按代码修正为「已完成（含已知占位项）」。
+> 需要区分「已完成」与「仍是占位」：`lib/tls/crypto/chacha20_poly1305.uya` **仍是占位实现**（加密/解密恒返回非 0，不做 ChaCha20/Poly1305 计算，见该文件 `:1`/`:33`/`:57`），DTLS 仍未实现重传/超时/cookie。其余阶段 2–4 条目（SHA/HMAC/HKDF/AES/GCM/RSA/EC/X25519/DRBG/ASN.1/cert/verify/record/handshake/context/1.3 骨架）均有真实实现与测试。
+
 本文档为 [tls_uya_design.md](tls_uya_design.md) 的配套待办：按阶段列出任务、验收标准及测试要求。实现时需在 **分支 `feature/tls-pure-uya`** 进行；测试文件位于 **`tests/` 根目录**，命名 `test_tls_*.uya`，且需同时通过 `--c99` 与 `--uya --c99`（参考 [.cursorrules](../.cursorrules) 与 [todo_mini_to_full.md](todo_mini_to_full.md)）。
 
 ---
@@ -17,13 +20,13 @@
 
 ## 总览
 
-| 阶段 | 内容 | 状态 |
+| 阶段 | 内容 | 状态（2026-10-19 复核） |
 |------|------|------|
 | 0 | 分支、common、测试占位、文档 | 已完成 |
-| 1 | 基础层：MPI、熵（DRBG 移至阶段 2） | 已完成 |
-| 2 | 密码学层：DRBG、哈希、HMAC、HKDF、AES、GCM、RSA、EC、X25519 | 待办 |
-| 3 | X.509 层：ASN.1、证书解析、链验证 | 待办 |
-| 4 | SSL/TLS 层：记录、握手、context；可选 DTLS | 待办 |
+| 1 | 基础层：MPI、熵（DRBG 移至阶段 2） | 已完成（`base/mpi.uya`、`base/entropy.uya`） |
+| 2 | 密码学层：DRBG、哈希、HMAC、HKDF、AES、GCM、RSA、EC、X25519 | 已完成（`crypto/` 12 个文件；仅 ChaCha20-Poly1305 仍是占位） |
+| 3 | X.509 层：ASN.1、证书解析、链验证 | 已完成（另有 `x509/store.uya`、`x509/trust_store.uya`） |
+| 4 | SSL/TLS 层：记录、握手、context；可选 DTLS | 已完成主体（TLS 1.2 含真实 PRF + 会话复用；TLS 1.3 有 HKDF 密钥调度；DTLS 仅最小往返，无重传/超时） |
 
 ---
 
@@ -112,7 +115,8 @@
 
 - [x] AES-128/256：块加密、CBC/ECB（按需）；接口与设计一致。
 - [x] AES-GCM：encrypt/decrypt，nonce、tag 显式传入/传出；解密验 tag 失败返回错误。
-- [x] （可选）ChaCha20-Poly1305：同上风格（当前为 API 占位：提供 encrypt/decrypt 接口与测试，后续可接 RFC 8439 向量与纯 Uya 实现）。
+- [x] （可选）ChaCha20-Poly1305：同上风格。
+  - **注意（2026-10-19 复核）**：`lib/tls/crypto/chacha20_poly1305.uya` **仍是占位实现**——文件头 `:1` 写明「占位实现」，`:33`/`:57` 注释说明不做实际加密与 Poly1305 计算、加密/解密恒返回非 0。RFC 8439 向量与纯 Uya 实现仍待补。
 - [x] `tests/test_tls_aes_gcm.uya`：NIST GCM 向量。
 - [x] 验收：AES-GCM 测试通过。
 
@@ -175,7 +179,8 @@
 ### 4.2 握手（lib/tls/ssl/handshake.uya）
 
 - [x] 收发抽象：由调用方提供 recv_buf/recv_len 与 send_buf/send_max/send_len_out；handshake_client_start、handshake_client_step、handshake_server_step 返回 NeedSend/NeedRecv/Done/Error。
-- [x] 最小状态机：HandshakeCtx（state/role）、客户端 ClientHelloSent→Done、服务端 ServerHelloSent→Done；当前为占位消息（5 字节），未接 PRF/RecordCtx。
+- [x] 最小状态机：HandshakeCtx（state/role）、客户端 ClientHelloSent→Done、服务端 ServerHelloSent→Done。
+  - **2026-10-19 更正**：早已不是「占位消息（5 字节）、未接 PRF/RecordCtx」。现状是有真实 TLS 1.2 实现：`hs_tls12_prf_sha256`（`handshake.uya:440`）、master_secret / key_block 推导（`:524`/`:526`）、`tls12_compute_verify_data`（`:1071`）、Finished 走 `record_encrypt`（`:1092`）。
 - [x] `tests/test_tls_handshake.uya`：内存 mock 两端，client_start→server_step→client_step→server_step，双方 Done。
 - [x] 验收：test_tls_handshake.uya 通过 `--c99` 与 `--uya --c99`。
 
@@ -190,7 +195,17 @@
 
 - [x] 1-RTT 握手骨架：ClientHello（占位 6 字节含 0x03 0x04）→ ServerHello（占位）→ Done；密钥 schedule 占位（后续用 HKDF）。
 - [x] 与 context 集成：SslContext13 + ssl13_init/ssl13_handshake_step/ssl13_write/ssl13_read，应用在 init 时选 1.2（SslContext）或 1.3（SslContext13）。
+  - **2026-10-19 更正**：密钥 schedule 已用 `hkdf_expand_sha256` 派生 client/server app secret（`handshake13.uya:84`/`:85`），并导出 `handshake13_get_app_traffic_secret`（`:285`）；不再是纯占位。
 - [x] 验收：test_context13_handshake_and_write_read 在 test_tls_handshake.uya 中通过；`--c99` 与 `--uya --c99` 通过。
+
+### 4.6 TLS 1.2 会话复用（2026-10-19 新增条目，已落地）
+
+- [x] 会话 ID 缓存：`TlsSessionCache`（进程内单例、`TLS_SESSION_CACHE_MAX = 8` 条、`TLS_SESSION_ID_LEN = 32`、host 上限 128）—— `lib/tls/ssl/handshake.uya:59-80`
+- [x] 缓存读写：`tls_session_cache_store`（`:174`）、`tls_session_cache_lookup`（`:221`）、`tls_session_cache_stats`（`:160`）、`tls_session_cache_clear`（`:167`）
+- [x] 客户端侧：`handshake_set_resume_session_id`（`:360`）在 ClientHello 携带会话 ID；`handshake_session_resumed`（`:377`）报告是否复用成功
+- [x] 服务端侧：服务器回显同一 ID 即接受复用，跳过密钥协商直接沿用缓存 `master_secret`（`:276`）
+- [x] `lib/tls/https.uya` 暴露对应入口（`9bb39dee` 新增 37 行）
+- [x] 测试：`tests/test_tls_session_resumption.uya`（437 行，`9bb39dee`）
 
 ### 4.5 DTLS（可选）
 
@@ -202,12 +217,12 @@
 
 ## 里程碑与依赖
 
-| 里程碑 | 内容 | 依赖 |
-|--------|------|------|
-| M1 | 阶段 1（MPI+entropy）+ 阶段 2（含 DRBG、哈希、HMAC、HKDF、AES-GCM、RSA/EC/X25519）完成；对应单元测试通过 | 无 |
-| M2 | 阶段 3 完成；解析并验证真实证书链 | M1 |
-| M3 | 阶段 4.1–4.3 完成；内存内 TLS 1.2/1.3 握手与加密通信 | M2 |
-| M4 | DTLS、0-RTT、或与 mbedTLS 互操作（可选） | M3 |
+| 里程碑 | 内容 | 依赖 | 2026-10-19 状态 |
+|--------|------|------|---------------------|
+| M1 | 阶段 1（MPI+entropy）+ 阶段 2（含 DRBG、哈希、HMAC、HKDF、AES-GCM、RSA/EC/X25519）完成；对应单元测试通过 | 无 | ✅ 达成（ChaCha20-Poly1305 除外，仍占位） |
+| M2 | 阶段 3 完成；解析并验证真实证书链 | M1 | ✅ 达成（`test_tls_x509.uya`、`test_tls_store.uya`） |
+| M3 | 阶段 4.1–4.3 完成；内存内 TLS 1.2/1.3 握手与加密通信 | M2 | ✅ 达成（另加 TLS 1.2 会话复用） |
+| M4 | DTLS、0-RTT、或与 mbedTLS 互操作（可选） | M3 | 🔲 仅 DTLS 最小往返（`test_tls_dtls.uya`）；0-RTT 与 mbedTLS 互操作未做 |
 
 ---
 

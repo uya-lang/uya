@@ -8,6 +8,19 @@
 
 **发布日期：** 待定
 
+### 规范文档同步 v0.10.4（2026-10-19）
+
+本轮按 `src/` 实现回填语言规范，规范版本升到 **0.49.54**（详见 `uya.md` 的「规范变更」）：
+
+- **类型化管道 `|>`**：收录 `pipeline_expr = or_expr { '|>' postfix_expr }`（左结合，优先级在 `||` 与 `=` 之间）与类型规则：左侧必须 `Pipeline` / `!Pipeline`，右侧最外层必须是调用，callee 首参必须是 `Pipeline`，`!Pipeline` 走 try-forward；`Pipeline` 是 `std.process` 的不透明 move-only 执行计划。
+- **`@align(N)` 声明属性**：写在 `fn` 前、`@async_fn` 之前，设置异步状态机帧对齐；属声明属性而非 `@` 内置函数。
+- **`for` 迭代**：受体是定长数组 / 迭代器接口 / 整数范围；切片不能直接 for 迭代；`for obj |i|` 只是值绑定，**没有**专门的索引迭代形式（需要索引用 `for 0..@len(obj) |i|`）；数组也不支持 `for obj {}`。
+- **`try` 语义**：只做 `!T` 错误传播，不做算术溢出检查（`try a + b` 报错）；溢出改用区间证明或饱和/包装运算符。
+- **切片**：没有负数索引，`&arr[-3:3]` 会切出越界内容（缺口登记在 `buglist.md`）。
+- **`extern struct`**：语言没有这个声明语法；`extern` 只支持 `extern fn` / `extern union` / `extern const|var`，Uya `struct` 统一 C 布局。
+- **复合赋值**：`+=` `-=` `*=` `/=` `%=` 支持；只有 `&=` `|=` `^=` `<<=` `>>=` 与 `++`/`--` 不支持。
+- **清单对齐**：关键字表、类型表（补 `isize`）、内置函数表（补 `@params` / `@src_*` / `@func_name` / `@print` / `@println` / `@syscall` / `@asm_target` / `@ptr_from_usize` / `@usize_from_ptr`）、标准库模块清单按 `lib/std/` 实际导出核对。
+
 ### Hosted Web / unknown target：libc/syscall bridge smoke（2026-05-20）
 
 - **运行时桥接**：`lib/libc/syscall.uya` 在 `std.target_os == .tos_unknown` 下补入一组受限 `libc.sys_*` 实现，通过宿主 bridge 覆盖 `read/write/open/close/mmap/gettimeofday/clock_gettime/nanosleep` 等 bring-up 所需路径，避免与仓库内同名 wrapper 递归。

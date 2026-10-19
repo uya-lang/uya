@@ -1,6 +1,6 @@
 # 标准库重构待办
 
-> **核对头（2026-09-27）**：本文件为 `std` 重构设计配套清单，未逐条核对；实现现状以 `lib/std/` 目录结构与测试为准。总体口径见 `docs/todo_status_index.md`。
+> **核对头（2026-10-19）**：本文件为 `std` 重构设计配套清单，已按 `lib/{syscall,mem,osal,libc,std}/` 实际目录与 `tests/` 现有测试逐节复核；本次修正了 `HeapAllocator` 的实际依赖（`libc.sys_mmap`，非 `osal.os_mmap`）与 `lib/std` 的跨层依赖清单。总体口径见 `docs/todo_status_index.md`。
 
 基于 [std_refactor_design.md](std_refactor_design.md)，执行前请阅读设计文档。开发流程遵循 [.codebuddy/rules/uya-dev-flow.mdc](../.codebuddy/rules/uya-dev-flow.mdc)（TDD、`make check`）。
 
@@ -210,7 +210,8 @@ export fn my_func(s: &byte) void;
 - [x] 错误类型：`AllocError`、`AllocOutOfMemory`、`AllocInvalidSize`、`AllocInvalidPointer`（与设计中 union 式命名不同，以源码为准）。
 - [x] 测试：**`tests/test_mem_allocator.uya`**（`test "..." {}`），覆盖分配/释放、`alloc(0)` 错误、`dealloc(null)`、`realloc` 扩容与空指针语义等；纳入 **`make tests`**。
 - [x] **`lib/std/mem/arena.uya`**：**`export struct Arena : IAllocator`**（`alloc` / `dealloc` 空操作 / **`realloc`** 仅对**最后一次 bump** 原地缩扩；否则 **`AllocInvalidPointer`** / OOM）；保留 **`arena_init`**、**`arena_alloc`**、**`arena_reset`**；测试 **`tests/test_mem_arena.uya`**。设计名 **ArenaAllocator / FixedBufferAllocator** 在注释中与 **`Arena`** 对齐；独立类型别名待编译器对结构体别名 + `IAllocator` 单态 C 输出完善后再做。
-- [x] **`lib/std/mem/heap.uya`**：**`HeapAllocator : IAllocator`**，基于 **`osal.os_mmap` / `osal.os_munmap`**（匿名私有映射 + 首部 `usize` 记录映射总长）；**`g_heap_allocator`**、**`get_heap_allocator()`**；测试 **`tests/test_mem_heap.uya`**。
+- [x] **`lib/std/mem/heap.uya`**：**`HeapAllocator : IAllocator`**，基于 **`libc.sys_mmap` / `libc.sys_munmap`**（`heap.uya:4-9`；匿名私有映射 + 首部 `usize` 记录映射总长）；**`g_heap_allocator`**、**`get_heap_allocator()`**；测试 **`tests/test_mem_heap.uya`**。
+  - **2026-10-19 核对修正**：原先记为“基于 `osal.os_mmap` / `osal.os_munmap`”**不正确**——`heap.uya` 实际 `use libc.sys_mmap` / `libc.sys_munmap` / `libc.MAP_ANONYMOUS` 等常量 + `mem.mem_copy`，与「libc 未接入 osal」的现状一致。`realloc` 语义：`new_size <= old_user` 原地返回，否则新分配 + `mem_copy` + 释放旧块。
 
 ---
 
@@ -261,12 +262,12 @@ export fn my_func(s: &byte) void;
 ## Phase 5：std 层
 
 - [x] 在现有 `lib/std/` 基础上对齐设计文档：核心类型（`std.core.option.Option`、`std.core.error` 错误标签包装）与 traits（`Clone/Eq/Ord/Hash/Display` 接口）已就绪；新增 `tests/test_option_core.uya`，并完成 `make check`。
-- [x] I/O 抽象（部分）：已导出 **`std.io.reader.Reader`**、**`std.io.writer.Writer`**；**`std.io.File`** + **`file_open` / `file_close` / `file_read` / `file_write`**（基于 **`libc.sys_*`**，与编译器依赖一致，避免拉入 `lib/syscall/linux.uya` 破坏多文件 C 的 err_union 顺序）。**`struct File : Reader, Writer`** 待编译器/单态稳定后再接；测试 **`tests/test_std_io_file.uya`**，`make check` 通过。
-- [x] HeapAllocator（与 Phase 2.1 一致）：**`lib/std/mem/heap.uya`** 已用 **`osal.os_mmap` / `osal.os_munmap`** 实现 **`IAllocator`**；**`tests/test_mem_heap.uya`**。
+- [x] I/O 抽象（部分）：已导出 **`std.io.reader.Reader`**、**`std.io.writer.Writer`**；**`std.io.File`** + **`file_open` / `file_close` / `file_read` / `file_write`**（基于 **`libc.sys_*`**，与编译器依赖一致，避免拉入 `lib/syscall/linux.uya` 破坏多文件 C 的 err_union 顺序）。**`struct File : Reader, Writer`** 待编译器/单态稳定后再接（2026-10-19 核对：`File` 仍只是 `{ fd: i32, owns_fd: bool }`，未声明接口实现）；测试 **`tests/test_std_io_file.uya`**，`make check` 通过。
+- [x] HeapAllocator（与 Phase 2.1 一致）：**`lib/std/mem/heap.uya`** 已实现 **`IAllocator`**；实现底层为 **`libc.sys_mmap` / `libc.sys_munmap`**（**不是** `osal.os_mmap`，见 Phase 2.1 的 2026-10-19 修正）；**`tests/test_mem_heap.uya`**。
 - [x] 泛型容器（部分）：**`Vec<T>`**（**`lib/std/collections/vec.uya`** + **`tests/test_vec.uya`**）；**`StringBuf`**（**`lib/std/collections/string_buf.uya`**，内联 `byte` 缓冲、**不内嵌 `Vec<byte>`**，避免 C 后端对嵌套泛型 `Vec` 字段发射不完整；**`tests/test_string_buf.uya`**）。
 - [x] 泛型容器：其余容器与设计对齐（如与 `Vec` 组合的更高层 API）；`HashMap` 通过 `values_vec/keys_vec` 将数据填充到调用方 `Vec`，并配套 `tests/test_hashmap.uya`。
 - [x] SQL 抽象（首版）：已新增 **`lib/std/sql/`**，包含 **`types`** / **`driver`** / **`db`**；提供参考 Go `database/sql` 的 `Driver` / `Conn` / `Stmt` / `Rows` / `Tx` / `DB` 分层。为兼容当前 C99 backend，接口层优先采用“普通返回值 + `out` 参数”的稳定组合；回归 **`tests/test_std_sql.uya`** 已通过，真实 SQLite / MySQL 驱动待后续接入。
-- [x] 验证：自举与测试通过；`lib/std` 仅向下依赖 **`libc`**、**`mem`**、**`syscall`**、**`osal`**（如 `HeapAllocator` 用 `osal`+`syscall` 常量），**`mem` / `osal` / `syscall` 不 `use std`**；`lib/libc` 中少数 shim 仍 `use std.runtime`（argv/env），为已知例外。2026-04-02：`make check` 通过（713/713）。
+- [x] 验证：自举与测试通过；`lib/std` 的向下依赖**实际只有 `libc.*` 与 `mem.*`**（2026-10-19 复核：`grep -rn "use osal\|use syscall" lib/std/` 无命中；`grep -rl "use libc\." lib/std/` 命中 23 个文件、共 154 条 `use libc.*` 导入；`grep -rl "^use mem\." lib/std/` 命中 2 个文件、共 2 条）。`mem` / `osal` / `syscall` 不 `use std`；`lib/libc` 中少数 shim 仍 `use std.runtime`（argv/env），为已知例外。2026-04-02 基线：`make check` 通过（713/713）。
 
 ---
 

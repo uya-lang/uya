@@ -1,5 +1,8 @@
 # TLS/HTTPS 落地 TODO
 
+> **核对头（2026-10-19）**：阶段 1–5 的条目已按 `lib/tls/`（28 个 `.uya`）与 `tests/test_tls_*.uya` / `tests/test_https_*.uya` / `tests/test_raw_tls.uya` 复核，勾选状态与代码一致。本次修正：把 11 处指向旧绝对路径 `/media/winger/_dde_home/winger/uya/...` 的链接改为仓库相对路径；并补充「仍未清理项」的具体位置（`lib/tls/crypto/chacha20_poly1305.uya` 占位、`lib/tls/crypto/x25519.uya:7` 残留的 `extern fn x25519_ref_impl` 声明与 `:2` 的过期注释）。
+> 2026-04 → 2026-10 新增能力：TLS 1.2 **会话复用**（`9bb39dee`，`lib/tls/ssl/handshake.uya` 会话 ID 缓存 + ClientHello 携带 + 服务端白名单认同；测试 `tests/test_tls_session_resumption.uya`），未在本文件的阶段清单里，见 `docs/tls_todo.md` §4.6。
+
 本文档聚焦一个具体问题：**把当前 `lib/tls/` 这套纯 Uya TLS 零件，补成可以真正支撑 HTTPS 的实现**。
 
 当前仓库已经具备很多基础能力，包括：
@@ -48,21 +51,21 @@
 
 ### 1.1 TLS 1.2 最小互操作握手
 
-- [x] 在 [lib/tls/ssl/handshake.uya](/media/winger/_dde_home/winger/uya/lib/tls/ssl/handshake.uya) 中补齐真实消息流。
+- [x] 在 [lib/tls/ssl/handshake.uya](./lib/tls/ssl/handshake.uya) 中补齐真实消息流。
 - [x] 支持 `ClientHello -> ServerHello -> Certificate -> ServerKeyExchange -> ServerHelloDone -> ClientKeyExchange -> ChangeCipherSpec -> Finished` 的最小子集。
 - [x] 客户端和服务端都能推进到 `DONE`，并在状态机里记录已协商参数。
 - [x] 至少支持一个可测试的密码套件组合，例如 RSA + AES-GCM 或 ECDHE + AES-GCM。
 
 ### 1.2 TLS 1.3 最小互操作握手
 
-- [x] 在 [lib/tls/ssl/handshake13.uya](/media/winger/_dde_home/winger/uya/lib/tls/ssl/handshake13.uya) 中补齐真正的 1-RTT 流程。
+- [x] 在 [lib/tls/ssl/handshake13.uya](./lib/tls/ssl/handshake13.uya) 中补齐真正的 1-RTT 流程。
 - [x] 完成 key schedule：early secret、handshake secret、master secret。
 - [x] 补齐 Finished 验证。
 - [x] 将 `handshake13_client_start` / `handshake13_server_step` 从占位消息改成规范化消息编码。
 
 ### 1.3 会话状态
 
-- [x] 给 [lib/tls/ssl/context.uya](/media/winger/_dde_home/winger/uya/lib/tls/ssl/context.uya) 增加协商结果字段。
+- [x] 给 [lib/tls/ssl/context.uya](./lib/tls/ssl/context.uya) 增加协商结果字段。
 - [x] 记录协议版本、密码套件、握手完成状态、应用数据是否可读写。
 - [x] 让 `ssl_is_handshake_done` 与记录层状态一致。
 
@@ -77,7 +80,7 @@
 
 ### 2.1 TLS 1.2 记录加密
 
-- [x] 在 [lib/tls/ssl/record.uya](/media/winger/_dde_home/winger/uya/lib/tls/ssl/record.uya) 中加入 AEAD 或 CBC 模式的真实加密实现。
+- [x] 在 [lib/tls/ssl/record.uya](./lib/tls/ssl/record.uya) 中加入 AEAD 或 CBC 模式的真实加密实现。
 - [x] 明确每条记录的 nonce / explicit IV / tag 生成方式。
 - [x] `record_encrypt` 和 `record_decrypt` 能处理长度检查、认证失败；当前最小实现未覆盖大报文分片。
 
@@ -103,13 +106,13 @@
 
 ### 3.1 证书验证接入握手
 
-- [x] 在握手完成联动中调用 [lib/tls/x509/verify.uya](/media/winger/_dde_home/winger/uya/lib/tls/x509/verify.uya)。
+- [x] 在握手完成联动中调用 [lib/tls/x509/verify.uya](./lib/tls/x509/verify.uya)。
 - [x] 将服务器证书链、信任锚、用途校验和主机名校验串起来。
 - [x] 证书校验失败时会阻止握手进入可读写状态。
 
 ### 3.2 主机名
 
-- [x] 为 [lib/tls/ssl/context.uya](/media/winger/_dde_home/winger/uya/lib/tls/ssl/context.uya) 的 `ssl_set_hostname` 填充真实实现。
+- [x] 为 [lib/tls/ssl/context.uya](./lib/tls/ssl/context.uya) 的 `ssl_set_hostname` 填充真实实现。
 - [x] 主机名参与客户端握手参数，并在 client 侧握手完成时进入 hostname 校验。
 - [x] 支持精确匹配和单层 wildcard。
 
@@ -183,15 +186,19 @@
 - [x] 检查大文件、长证书链、坏 tag、坏长度、坏序列号。
 - [x] 检查 `make b`、`--c99`、`--uya --c99` 全部通过。
 - [ ] 清理所有临时占位实现和只为测试引入的兼容分支。
+  - 2026-10-19 复核后仍存在的具体残留：
+    - `lib/tls/crypto/chacha20_poly1305.uya`：仍是占位（`encrypt`/`decrypt` 恒返回非 0，不做 ChaCha20/Poly1305 运算），文件头 `:1`、`:33`、`:57` 均有标注
+    - `lib/tls/crypto/x25519.uya:7`：`extern fn x25519_ref_impl(...)` 声明**已无任何调用点**（`x25519()` 走 `x25519_pure_mpi_impl`，`x25519.uya:363`），提供它的 `x25519_ref.c` 已删除；`:2` 的「默认通过 x25519_ref_impl（OpenSSL）提供参考实现」注释也已过期
+    - `lib/tls/ssl/dtls_handshake.uya`：只有最小往返，未实现重传/超时/HelloVerifyRequest cookie
 
 ### 6.1 收回 EC/X25519 参考桥
 
-- [x] 将 [lib/tls/crypto/ec_ref.c](/media/winger/_dde_home/winger/uya/lib/tls/crypto/ec_ref.c) 的能力逐步迁回纯 Uya 实现。
+- [x] 将 `lib/tls/crypto/ec_ref.c` 的能力逐步迁回纯 Uya 实现。（2026-10-19 核对：该 `.c` 文件已不存在，`ls lib/tls/crypto/*.c` 无匹配）
 - [x] 优先完成 P-256 ECDH 的纯 Uya 稳定实现，并补独立回归测试。
-- [x] 优先完成 P-256 公钥生成的纯 Uya 稳定实现，并以 [tests/test_tls_ecdsa.uya](/media/winger/_dde_home/winger/uya/tests/test_tls_ecdsa.uya) / [tests/test_tls_rsa.uya](/media/winger/_dde_home/winger/uya/tests/test_tls_rsa.uya) 已知向量回归覆盖。
+- [x] 优先完成 P-256 公钥生成的纯 Uya 稳定实现，并以 [tests/test_tls_ecdsa.uya](./tests/test_tls_ecdsa.uya) / [tests/test_tls_rsa.uya](./tests/test_tls_rsa.uya) 已知向量回归覆盖。
 - [x] 补齐 P-384 公钥生成与 ECDH 的纯 Uya 路径，并补独立回归测试。
 - [x] 再补齐 P-384 的签名/验签纯 Uya 路径，最后移除 `ec_ref.c` 的测试链接依赖。
-- [x] **移除 X25519 OpenSSL 参考实现** `lib/tls/crypto/x25519_ref.c`，纯 Uya 实现已通过 RFC 7748 全部向量。
+- [x] **移除 X25519 OpenSSL 参考实现** `lib/tls/crypto/x25519_ref.c`，纯 Uya 实现已通过 RFC 7748 全部向量。（2026-10-19 核对：`.c` 已不存在，`x25519()` 走 `x25519_pure_mpi_impl`；但 `x25519.uya:7` 的 `extern fn x25519_ref_impl` 声明与 `:2` 的注释仍是残留，见阶段 6 清理项）
 
 ---
 
@@ -213,6 +220,6 @@
 
 ## 参考文档
 
-- [docs/tls_uya_design.md](/media/winger/_dde_home/winger/uya/docs/tls_uya_design.md)
-- [docs/tls_todo.md](/media/winger/_dde_home/winger/uya/docs/tls_todo.md)
-- [docs/tls_uya_plan.md](/media/winger/_dde_home/winger/uya/docs/tls_uya_plan.md)
+- [docs/tls_uya_design.md](./tls_uya_design.md)
+- [docs/tls_todo.md](./tls_todo.md)
+- [docs/tls_uya_plan.md](./tls_uya_plan.md)

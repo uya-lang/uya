@@ -1,5 +1,12 @@
 # 穿戴设备能力运行时 MVP 场景与验收标准
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：本文的场景是**产品验收口径**，不是代码勾选表。
+> 底座已在 `lib/std/runtime/capability/` 落地（`abi` / `types` / `manifest` / `policy` / `registry` /
+> `loader` / `manager` / `backend` / `native_backend` / `wamr_backend` / `fake_backend`），
+> 回归见 `tests/test_capability_runtime_compat.uya`、`tests/run_capability_runtime_compat.sh`、
+> 基准 `tests/bench_capability_runtime.uya`。场景级 App/插件（如饮水提醒）与签名分发链路尚未作为
+> 产品功能实现，引用本文时请以 `docs/todo_status_index.md` 为准。
+
 **版本**：v0.1  
 **日期**：2026-04-05
 

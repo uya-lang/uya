@@ -8,6 +8,12 @@
 - [todo_http.md](todo_http.md) — HTTP 框架实现待办（Phase 1-9 详细任务）
 - [http_framework_design.md](http_framework_design.md) — HTTP 框架设计文档
 - [std_async_design.md](std_async_design.md) — 异步运行时设计文档
+
+> **核对头（2026-10-19）**：本文是 2026-04 阶段的综合待办；表中仅两处需要刷新，其余结论与源码一致：
+> - **P1 #9「Waker 单 fd」**原先标「待办」，现**已完成**：`WAKER_IO_SLOT_MAX = 4`（`lib/std/async.uya:198`）、`_io_slot_fds` / `_io_slot_interests`（`:210-211`），回归 `tests/test_async_waker_multi_interest.uya`。
+> - **第五部分风险表「Linux 专属 … 跨平台需 kqueue/iocp」**：macOS kqueue 已落地（`lib/std/async_event.uya`，`register()` 的 `std.cfg` 分支 `:617-623`，失败回退 `poll(2)`），Windows IOCP 仍缺。
+> - 其余仍属"部分完成"的项保持不变：#12 `ThreadPool` 固定上限数组未动态化、#14 async 格式化/helper。
+> - 未列入本表的 2026-10 收口项（供交叉参考）：HTTP/1.1 连接池（`lib/std/http/http1_async.uya:226-261`）、TLS 1.2 会话复用（`lib/tls/ssl/handshake.uya:174/221/360/377`）、HTTP 头容量（`:36/41/56`）。
 - [todo_mini_to_full.md](todo_mini_to_full.md) §16/19/26 — 主待办中异步/标准库/并发安全条目
 - [async_loop_await_design.md](async_loop_await_design.md) — 循环 await 设计文档
 
@@ -40,7 +46,7 @@
 | 7 | **block_on busy-wait** | `lib/std/async.uya` `block_on_*` 系列函数 | CPU 100% 占用，无法用于生产 | 集成 EventLoop：poll 返回 Pending 时注册 epoll，epoll_wait 等待唤醒 | ✅ 已完成（`block_on_with_event_loop`） |
 | 8 | **循环变量持久化硬编码** | `src/codegen/c99/function.uya` | 仅 `n`+`written` 组合被识别为循环变量；其他变量名在 await 后值丢失 | 已改为基于「循环内定义 + 跨 await 引用」的作用域分析 | ✅ 已完成（不再依赖 n/written/total 特判） |
 | 8a | **async 状态机 lowering 缺陷（历史主链路缺口已转正）** | `collect_awaits_recursive` + emit | Bug A: 连续 while+await 循环状态转移失败；Bug B: await 间同步代码被吃掉；Bug C: `return try @await` 生成非法 C；Bug D: 分裂点局部变量丢失；复合表达式中的 `try @await` 未走正确回放路径 | 相关回归已通过；Bug A/B/C/D 与复合表达式 `try @await` 均已转正；该结论仅表示当时主链路缺口关闭，不等于当前 async 生产化已完成 | ✅ 已完成 |
-| 9 | **Waker 单 fd** | `lib/std/async.uya:12` `_io_fd: i32` | 无法同时关注读+写或多个 fd | 改为数组或链表；单 fd 时退化为当前行为 | 待办 |
+| 9 | **Waker 单 fd** | `lib/std/async.uya` `_io_fd: i32` | 无法同时关注读+写或多个 fd | 改为数组或链表；单 fd 时退化为当前行为 | ✅ 已完成（2026-10-19 核对：有界槽表 `WAKER_IO_SLOT_MAX = 4`，`lib/std/async.uya:198`；`_io_slot_fds` / `_io_slot_interests` 见 `:210-211`；同 fd 的 RD\|WR 合并为 `READWRITE`；调度器全槽注册 + 陈旧 fd 差集注销；回归 `tests/test_async_waker_multi_interest.uya`） |
 | 10 | **错误类型不一致** | `async_event`/`async_scheduler` | 调用方难以统一错误处理 | 定义 `std.async.Error` 枚举，统一所有异步错误 | ✅ 已完成（`EventLoopSlotsFull` 等已统一） |
 
 ### P2：架构改进
@@ -229,5 +235,5 @@ make check && make backup
 |------|------|------|
 | 栈大小 | 状态机栈分配 + 深层调用可能溢出 | 参考 `docs/STACK_SIZE.md`；P0 #4 解决堆分配 |
 | 泛型限制 | 曾阻碍 `Future<!T>` + typedef 与 `ok<bool>` 单态 | **已缓解**：`AsyncComputeFuture<T>` 泛型体 + C99 装箱/成员调用修复；对外仅 **`async_compute<T>`**（含 f32/f64）；typedef 别名保留 |
-| Linux 专属 | epoll/eventfd 仅 Linux；跨平台需 kqueue/iocp | 当前专注 Linux；设计时抽象 EventLoop 接口 |
+| Linux 专属 | epoll/eventfd 仅 Linux；跨平台需 kqueue/iocp | 当前专注 Linux；设计时抽象 EventLoop 接口。**2026-10-19 更新**：macOS kqueue 已在 `lib/std/async_event.uya` 落地（失败回退 `poll(2)`）；Windows IOCP 仍缺 |
 | 估计偏差 | HTTP 解析器边界情况可能超预期 | Phase 3 预留 2 周缓冲 |

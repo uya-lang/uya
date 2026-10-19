@@ -1,5 +1,13 @@
 # macOS 平台移植分析与实施边界
 
+> **状态（2026-10-19 核对，v0.10.4）**：本文记录的阻塞点（`make uya-hosted` 报
+> 「'/.../src/main.uya' 既不是文件也不是目录」）**已解决**。当前 macOS 支持面：
+> `make from-c-native` 冷启动、`backup/uya-hosted-macos{.c,-arm64.c,-x86_64.c}` 种子家族、
+> `.github/workflows/macos-ci.yml`、C99 `@syscall` 的 Darwin 分支与 libc host bridge、
+> `lib/std/async_event.uya` 的 kqueue 后端（失败回退 `poll`）、`make microapp-macos-runtime-check`。
+> 本文作为当时的问题分析保留；剩余项（macOS 上 async/pthread 用例默认跳过、真机全量闭环）
+> 见 `docs/todo_status_index.md` 与 `docs/todo_multiplatform_migration.md`。
+
 ## 背景
 
 当前项目已经在 macOS 上完成了第一阶段验证：

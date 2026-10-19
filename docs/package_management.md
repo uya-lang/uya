@@ -1,5 +1,12 @@
 # Uya Package Management v1 Draft
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：`uya upm` 已落地为外置子命令（源码 `src/cmd/upm/`，
+> 可执行 `bin/cmd/upm`，构建目标 `make cmd-upm` / `make cmds`，回归 `make upm-check` 与
+> `tests/test_cmd_upm_direct.sh`）。当前子命令：
+> `init`（`--src-layout`）、`install`、`update`、`add`（`--path` / `--git` + `--branch|--tag|--commit`，
+> 支持 `--dev`）、`remove`（`--dep` / `--dev`）、`graph`、`why`、`doctor`、`cache dir`、`vendor`、`publish`；
+> 另有 `--manifest-path` 覆盖 manifest 路径。以 `./bin/cmd/upm --help` 为准。
+
 **状态**: design draft, MVP/M4 implemented + Phase 5 local backend prototype in current branch
 **更新日期**: 2026-06-18
 **适用范围**: `uya.toml`、`uya.lock`、`uya upm`、带依赖的 `uya build/check/run/test`

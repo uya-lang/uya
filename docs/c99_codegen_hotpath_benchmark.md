@@ -2,6 +2,13 @@
 
 **更新日期**：2026-03-23（默认 `-O2` 链 `bin/uya`、`get_c_name` 标识符缓存、声明缓存 4096、prelude 分段子计时）
 
+> **v0.10.4 补充（2026-10-19）**：本文的绝对数字是 2026-03 的单机记录，**已不是当前基线**。
+> v0.10.4 引入前端进程级并行（`--jobs`，默认 `min(CPU,32)`）+ 增量指纹短路后，
+> 同一台 44 线程机器上 parse 2.25 s → 0.54 s、codegen 6.70 s → 2.62 s，
+> `make uya` 22.0 s → 14.0 s（无改动 0.4 s）。当前口径与复现命令见
+> [`build_speed.md`](build_speed.md) 第二节。
+> 另：根 `Makefile` 的默认 `CFLAGS` 已去掉 `-g`，现为 `-std=c99 -O2 -fno-builtin -Werror`。
+
 ## 复现入口
 
 - `make bench-compile-stats`
@@ -31,7 +38,7 @@ cd src && ./compile.sh --c99 -e -v --nostdlib
 |----|-----|
 | 仓库 commit | `48c66b291469cb16b676213880f679b87e5bc2f5`（示例；以 `git rev-parse HEAD` 为准） |
 | 内核 / 架构 | `Linux ... 6.12.65-amd64 ... x86_64 GNU/Linux`（主机名略） |
-| 默认构建 | `CFLAGS ?= -std=c99 -O2 -g -fno-builtin -Werror`（见根目录 `Makefile`；调试可用 `CFLAGS='-std=c99 -O0 ...'` 覆盖） |
+| 默认构建 | `CFLAGS ?= -std=c99 -O2 -fno-builtin -Werror`（**v0.10.4 起已去掉 `-g`**；调试可用 `CFLAGS='-std=c99 -O0 -g ...'` 覆盖） |
 
 ## 本轮实现（与「生成耗时」相关）
 

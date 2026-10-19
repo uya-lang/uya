@@ -1,5 +1,7 @@
 # TLS 纯 Uya 实现详细设计文档
 
+> **核对头（2026-10-19）**：本文是设计与接口约定；实现现状请对照 [tls_todo.md](tls_todo.md)（已按代码复核）。已按 `lib/tls/` 的实际文件清单修正 §2.2 目录树（补 `https.uya`、`crypto/ec_p256.uya`、`crypto/ec_p384.uya`、`x509/store.uya`、`x509/trust_store.uya`），并在 §4.3、§6.5 标注「仍是占位」与「已落地」的差别。
+
 本文档描述在 Uya 中从零实现与 mbedTLS 功能对等的 TLS/DTLS 库的架构、模块接口、数据流与实现约束。与 [tls_todo.md](tls_todo.md) 配合使用：设计文档定「做什么、长什么样」，待办文档定「按什么顺序做、做到什么算完成」。
 
 ---
@@ -45,10 +47,12 @@ X.509 层       证书解析（DER/ASN.1）、链验证
 ```
 lib/tls/
 ├── common.uya          # 错误码、常量、公共类型
+├── https.uya           # 面向 HTTPS 的封装：https_get / https_server_* / https_*_async（2026-10-19 补录，
+│                       #   原设计稿未列；46450 字节 / 1262 行）
 ├── base/
 │   ├── mpi.uya         # 多精度整数
 │   ├── entropy.uya     # 熵源（如 /dev/urandom）
-│   └── drbg.uya        # 确定性随机数（CTR-DRBG 或 HMAC-DRBG）
+│   └── drbg.uya        # 确定性随机数（HMAC-DRBG，SP 800-90A）
 ├── crypto/
 │   ├── sha256.uya      # SHA-256
 │   ├── sha384.uya      # SHA-384
@@ -56,21 +60,25 @@ lib/tls/
 │   ├── hkdf.uya        # HKDF（RFC 5869）
 │   ├── aes.uya         # AES-128/256 ECB/CBC
 │   ├── gcm.uya         # AES-GCM AEAD
-│   ├── chacha20_poly1305.uya  # 可选
+│   ├── chacha20_poly1305.uya  # ⚠️ 仍是占位实现（恒返回非 0，无实际 AEAD 运算）
 │   ├── rsa.uya         # RSA 签名/验签、加密/解密
-│   ├── ec.uya          # ECDH/ECDSA（P-256/P-384）
+│   ├── ec.uya          # ECDH/ECDSA 通用入口
+│   ├── ec_p256.uya     # P-256 有限域/标量/点运算（Fe256、Sc256）
+│   ├── ec_p384.uya     # P-384（原设计稿只写"ec.uya"，实际拆出独立文件）
 │   └── x25519.uya      # X25519 密钥交换
 ├── x509/
 │   ├── asn1.uya        # DER 解析（最小子集）
 │   ├── cert.uya        # X.509 证书解析
-│   └── verify.uya      # 证书链验证、主机名验证
+│   ├── verify.uya      # 证书链验证、主机名验证
+│   ├── store.uya       # 证书存储（原设计稿未列）
+│   └── trust_store.uya # 信任锚列表（原设计稿未列）
 └── ssl/
     ├── record.uya      # TLS 记录层
-    ├── handshake.uya   # TLS 1.2 握手
-    ├── handshake13.uya # TLS 1.3 握手（或合并到 handshake）
-    ├── context.uya    # 配置、会话、收发抽象
-    ├── dtls_record.uya # 可选 DTLS 记录
-    └── dtls_handshake.uya # 可选 DTLS 握手
+    ├── handshake.uya   # TLS 1.2 握手 + 会话 ID 缓存/复用
+    ├── handshake13.uya # TLS 1.3 握手（HKDF 密钥调度）
+    ├── context.uya     # 配置、会话、收发抽象
+    ├── dtls_record.uya # DTLS 记录（仅最小实现）
+    └── dtls_handshake.uya # DTLS 握手（最小实现，无重传/超时/cookie）
 ```
 
 - 模块路径：当前约定 **`UYA_ROOT=lib/`**（与 `tests/run_programs_parallel.sh` 一致），故 `lib/tls/common.uya` 对应 `use tls.common`，`lib/tls/base/mpi.uya` 对应 `use tls.base.mpi`；目录下每文件为一子模块（与现有 `std.io`、`std.mem` 解析方式一致）。
@@ -140,6 +148,7 @@ lib/tls/
 - **AES**：块加密 128/256 位密钥；ECB/CBC 模式（用于兼容或早期）；接口 `fn aes_encrypt_block(...)`、`fn aes_cbc_encrypt(...)` 等，调用方提供 key/iv 缓冲区。
 - **AES-GCM**：AEAD；接口 `fn aes_gcm_encrypt(key: &const byte, key_len: usize, nonce: &const byte, nonce_len: usize, aad: &const byte, aad_len: usize, plain: &const byte, plain_len: usize, cipher_out: &byte, tag_out: &byte) !void`；解密同理，验 tag 失败返回错误。
 - **ChaCha20-Poly1305**（可选）：同上，接口风格一致，nonce 12 字节，tag 16 字节。
+  - **实现状态（2026-10-19）**：`lib/tls/crypto/chacha20_poly1305.uya` **只是占位**——文件头写明「占位实现」，`encrypt`/`decrypt` 恒返回非 0，不做 ChaCha20 流加密与 Poly1305 MAC。RFC 8439 向量与真实实现仍待补；TLS 侧因此不能协商 `TLS_CHACHA20_POLY1305_SHA256`。
 - **测试**：NIST GCM 向量、RFC 7539 向量。
 
 ### 4.4 公钥（crypto/rsa.uya, ec.uya, x25519.uya）
@@ -201,6 +210,18 @@ lib/tls/
 
 - **记录**：在 TLS 记录前增加 DTLS 头（序号、epoch、fragment 等）；`dtls_record.uya` 封装/解析该头并调用现有 record 加解密。
 - **握手**：重传、超时、HelloVerifyRequest cookie；状态机扩展；可与 TLS 握手共用大部分逻辑，仅消息边界与重传不同。
+- **实现状态（2026-10-19）**：`dtls_record.uya` 已有 13 字节头封装/解析（单条明文 payload）；`dtls_handshake.uya` 只有 ClientHello/ServerHello → Done 的最小往返，**未实现重传、超时与 HelloVerifyRequest cookie**。测试 `tests/test_tls_dtls.uya`。
+
+### 6.5 会话复用（TLS 1.2，2026-10-19 补录，已落地）
+
+`lib/tls/ssl/handshake.uya` 实现了基于会话 ID 的 TLS 1.2 会话复用（提交 `9bb39dee`）：
+
+- **缓存**：`TlsSessionCache` 为进程内单例、有界缓存，常量 `TLS_SESSION_CACHE_MAX = 8`（条）、`TLS_SESSION_ID_LEN = 32`（字节）、host 上限 `TLS_SESSION_HOST_MAX = 128`（`handshake.uya:59-80`）。条目保存 host、会话 ID、`master_secret`（`HS_MASTER_SECRET_LEN`）与密码套件。
+- **接口**：`tls_session_cache_store(host, session_id, id_len, master, suite) bool`（`:174`）、`tls_session_cache_lookup(...)`（`:221`）、`tls_session_cache_stats()`（`:160`）、`tls_session_cache_clear()`（`:167`）。
+- **客户端**：`handshake_set_resume_session_id(ctx, id, len) !void`（`:360`）让 ClientHello 携带上次的会话 ID；`handshake_session_resumed(&ctx) bool`（`:377`）查询是否命中。
+- **服务端**：回显同一会话 ID 即表示接受复用，此时**跳过密钥协商**、直接沿用缓存中的 `master_secret`（`:276` 注释与实现）。
+- **上层入口**：`lib/tls/https.uya` 暴露对应封装（`9bb39dee` 新增 37 行）。
+- **测试**：`tests/test_tls_session_resumption.uya`（437 行）。
 
 ---
 

@@ -97,8 +97,11 @@ Windows 目标没有 fork，`parallel_available()` 返回 0，自动全串行。
 `UYA_GCC_JOBS` 控制 split-C 目录里 `make -j` 的并行度：
 
 - 根 `Makefile`：`UYA_GCC_JOBS ?= $(UYA_TEST_JOBS)`，即默认 CPU 核数；
-- `src/driver/toolchain.uya` 与 `src/compile.sh` 都不再封顶 16（原先默认 16 在 44 线程机器上
-  白白丢掉约 9%）。
+- `src/compile.sh`：未设置时按 `nproc` / `sysctl -n hw.ncpu` 自动探测（兜底 4），不再封顶 16
+  （原先默认 16 在 44 线程机器上白白丢掉约 9%）；
+- `src/driver/toolchain.uya`（`uya build` 自己发起的 split 链接）在**未设置** `UYA_GCC_JOBS`
+  时仍取字面量 16；根 Makefile 的所有自举目标都显式传入 `UYA_GCC_JOBS="$(UYA_GCC_JOBS)"`
+  （= CPU 核数），因此 `make uya` / `make b` 走的是 CPU 核数。
 
 实测 `-j8 / -j16 / -j44` = 6.80 s / 4.83 s / 4.39 s。关键路径是单个大 TU
 （`src/codegen/c99/expr.c`，约 1 MB，单文件 `cc -c` 需 3.5 s），所以再提高并行度收益有限。

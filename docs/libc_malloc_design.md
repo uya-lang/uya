@@ -4,7 +4,13 @@
 
 本文档记录了 Uya 语言 libc 内存分配器的 musl 风格实现方案。
 
-## 当前实现（与 `lib/libc/heap.uya` 同步，截至 2026-06-25）- 小块 bins + large mmap 直连
+## 当前实现（与 `lib/libc/heap.uya` 同步，截至 2026-10-19 复核）- 小块 bins + tcache + large mmap 直连
+
+> **核对（2026-10-19）**：`lib/libc/heap.uya` 现为 **1423 行**。下面「小块 bins + large mmap 直连」的描述仍然成立，但**已不止这些**：
+> - 常量（`heap.uya:36-44`）：`HEAP_PAGE_SIZE = 4096`、`CHUNK_MAGIC = 0xDEADBEEF`（`:37`）、`CHUNK_FLAG_FREE = 1`、`CHUNK_FLAG_TCACHE = 2`、`NUM_BINS = 8`、`TCACHE_MAX_SIZE = 2048`、`TCACHE_BATCH = 8`、`NUM_TCACHE_BINS = 7`
+> - **per-thread tcache 已落地**（下文「改进建议 / 长期」第 2 条已不是待办）：`orphan_tcache_heads` / `orphan_tcache_counts`（`:76-77`）、`heap_flush_thread_cache`（`:736`）、`heap_flush_current_thread_cache`（`:749`）、`heap_detach_thread_cache_for_exit`（`:756`），配合 `pthread_heap_cache_t`
+> - 新增 14 个 `export fn heap_debug_*` 观测接口（`:289-408`），覆盖 last-find steps / bin 长度 / tcache 命中与未命中 / large mmap 与 munmap 计数 / 锁获取与竞争计数
+> - `malloc` / `free` / `realloc` 分别位于 `heap.uya:1285` / `:1358` / `:1414`
 
 ### 核心特性
 
@@ -143,15 +149,17 @@ large path 只保留 `ChunkHeader` 作为 `to_header/to_user_ptr` 兼容层与 m
    - 直接 mmap 独立映射
    - 在映射头部写入 `LargeRegion` 元数据
    - 返回 header 之后的用户指针
-3. 否则计算目标 size class，从对应 bin 起跳查找空闲链表（首次适配）
-4. 如果没有合适块：
+3. 否则先查当前线程 tcache（payload ≤ `TCACHE_MAX_SIZE = 2048` 且落在 7 个 tcache bin 内）：
+   - 命中则直接摘下 chunk 返回（计入 `heap_debug_tcache_alloc_hit_count`）
+4. 未命中则计算目标 size class，从对应 bin 起跳查找空闲链表（首次适配）
+5. 如果没有合适块：
    - 调用 mmap 扩展普通堆 region
    - 添加到空闲链表
    - 重新查找
-5. 从空闲链表移除
-6. 清除空闲标志并写入 footer
-7. 分割块（如果剩余空间达到最小 chunk 总大小）
-8. 返回用户指针
+6. 从空闲链表移除
+7. 清除空闲标志并写入 footer
+8. 分割块（如果剩余空间达到最小 chunk 总大小）
+9. 返回用户指针
 ```
 
 ### free 流程
@@ -161,9 +169,10 @@ large path 只保留 `ChunkHeader` 作为 `to_header/to_user_ptr` 兼容层与 m
 2. owns_ptr(ptr) 所属 region 校验
 3. 获取块头部
 4. 验证魔数
-5. 写入当前块 footer 并执行相邻空闲块合并
-6. 转换为合并后的 FreeChunk
-7. 添加到空闲链表头部
+5. 若块可由 tcache 收纳（小对象且对应 bin 未满），直接挂到当前线程 tcache 并打 `CHUNK_FLAG_TCACHE`，跳过合并
+6. 否则写入当前块 footer 并执行相邻空闲块合并
+7. 转换为合并后的 FreeChunk
+8. 添加到空闲链表头部
 ```
 
 ## 改进建议
@@ -174,8 +183,8 @@ large path 只保留 `ChunkHeader` 作为 `to_header/to_user_ptr` 兼容层与 m
 3. ✅ **boundary tag footer + 块合并**：已实现
 
 ### 长期
-1. **最佳适配算法**：在 bin 内进一步减少碎片和扫描成本
-2. **per-thread cache**：降低多线程场景的全局锁竞争
+1. **最佳适配算法**：在 bin 内进一步减少碎片和扫描成本（当前仍为从目标 bin 起跳的首次适配，`heap_debug_last_find_start_bin` / `heap_debug_last_find_steps` 可观测）
+2. ✅ **per-thread cache**：**已落地**（7 个 tcache bin、`TCACHE_MAX_SIZE = 2048`、`TCACHE_BATCH = 8`，见 `heap.uya:42-44` 与 `heap_flush_thread_cache` 等）；剩余工作是调参与命中率优化，可用 `heap_debug_tcache_alloc_hit_count` / `heap_debug_tcache_alloc_miss_count` 度量
 
 ## 测试验证
 
@@ -183,7 +192,18 @@ large path 只保留 `ChunkHeader` 作为 `to_header/to_user_ptr` 兼容层与 m
 ./bin/uya test tests/test_std_stdlib_malloc.uya
 ./bin/uya test tests/test_libc_heap_bins.uya
 ./bin/uya test tests/test_libc_heap_large_path.uya
+# 2026-10-19 核对时已知的其余 heap 相关测试（均在仓库内）
+./bin/uya test tests/test_libc_heap_coalescing_adjacent.uya
+./bin/uya test tests/test_libc_heap_find_chunk_cross_bin.uya
+./bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya
+./bin/uya test tests/test_libc_heap_realloc_in_place.uya
+./bin/uya test tests/test_libc_heap_tcache.uya
+./bin/uya test tests/test_libc_heap_tcache_metrics.uya
+./bin/uya test tests/test_pthread_heap_cache_identity.uya
+./bin/uya test tests/test_pthread_heap_concurrency.uya
 ```
+
+基准脚本：`tests/run_malloc_throughput_benchmark.sh`、`tests/run_malloc_phase4_compare.sh`，负载在 `tests/bench_malloc_*.uya`。
 
 ## 参考资料
 

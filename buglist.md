@@ -1,6 +1,7 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-12（**UB 漏检批次 7 条收口 ①②④⑦ + ⑤ 的缺口 2，余 ③、⑤ 的缺口 1、⑥ 未修复**：
+**最后更新：** 2026-10-19（新增 **P1：负 `start` 切片 `&arr[-3:3]` 静默切出越界内容**；**P2：`@max`/`@min` 极值常量发射不可靠**、`@print` 负值与浮点插值、`@asm` memory clobber 检查失效；**P3：命名空间 + `&receiver` 方法调用生成坏 C**。最小复现与规避写法见「编译器 bug」前五条。）
+此前：2026-10-12（**UB 漏检批次 7 条收口 ①②④⑦ + ⑤ 的缺口 2，余 ③、⑤ 的缺口 1、⑥ 未修复**：
 ① 常量 -1 下标（`checker_eval_const_expr` 拿 -1 兼作「非常量」哨兵）、② 嵌套字段移动后
 同一块堆内存被 free 两次（实测真 double free）、④ `return` 里的 cast/实参位置跳过越界检查、
 ⑦ 元组下标越界落到 C 编译器才报错 —— 四条取向都是「证明不成立就不放行」；
@@ -301,6 +302,66 @@
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [ ] **P1 / 高：负 `start` 的切片静默通过并切出越界内容（`&arr[-3:3]`）**
+  - 状态：**未修复**（2026-10-19 文档同步时实测发现）
+  - 现象：
+    ```uya
+    var arr: [i32: 10] = [0,1,2,3,4,5,6,7,8,9];
+    const tail: &[i32] = &arr[-3:3];   // 编译通过
+    // 实测 tail[0] == 0（不是 arr[7] == 7），tail[1]/tail[2] 是栈上垃圾
+    ```
+    文档此前声称「负索引自动换算成 `len - n`」，但 checker/codegen 都没有这条换算；`check_slice_bounds`
+    只校验 `start + len <= 底层长度`（`-3 + 3 == 0` 通过），**没有校验 `start >= 0`**。
+  - 影响：静默生成越界读，属于健全性漏洞（违反 §14「所有 UB 必须被编译期证明」）。
+  - 归属：`src/checker/proof.uya` 的 `check_slice_bounds`（补 `start >= 0` 常量判定）；
+    `docs/uya.md` §1.4、`readme.md`、`docs/comparison.md` 已按「没有负索引」回填。
+  - 验证：`./bin/uya run` 上面的 5 行程序即可复现（本轮实测）；修复后应报「切片起始位置越界」。
+
+- [ ] **P2 / 中：`@max` / `@min` 作为调用实参出现在复合表达式里时被发射成 `0`**
+  - 状态：**未修复**（2026-10-19 文档同步时实测发现）
+  - 现象：`@max` 只有作为「带类型注解声明的直接初始化器」时才取到正确极值；一旦作为调用实参嵌进更大的表达式，就发射成 `0`：
+    ```uya
+    const MAXV: i32 = @max;
+    fn id_int(a: i32) i32 { return a; }
+
+    const a: i32 = id_int(MAXV);        // ✅ 2147483647
+    const b: i32 = id_int(@max) + 0;    // ❌ 0
+    const c: i32 = 1 + id_int(@max);    // ❌ 1
+    ```
+  - 生成的 C（`uya build --c99 --no-split-c`）：
+    ```c
+    const int32_t a = id_int(2147483647LL);
+    const int32_t b = (id_int(0) + 0);
+    const int32_t c = (1 + id_int(0));
+    ```
+  - 最小复现：`tests/repros/` 下暂无文件；上面的 5 行程序即可复现（本轮用它验证过 `b=0 c=1`）。
+  - 影响：`@max` / `@min` 只在简单声明处可靠；`add_saturating(@max, 1)` 这类内联写法会静默得到错误值，进而让「上溢返回 max」一类断言失败。规避：先写 `const MAXV: i32 = @max;` 再用变量。
+  - 归属：`src/checker/`（`@max` / `@min` 的类型推断依赖上下文）与 `src/codegen/c99/expr.uya`（内置极值的常量发射）。
+  - 备注：`examples/add_safe*.uya` 与 `examples/add_saturating.uya` 已改为 `const MAXV: i32 = @max;` 写法以保持可运行。
+  - 同类：`const a8: i8 = @max;` 也会发射成 `0`（`--c99` 输出 `const int8_t a8 = 0;`），即小整数类型的极值常量发射同样不可靠。
+
+- [ ] **P2 / 中：`@print` / `@println` 直打负 `i32` 输出零扩展值；浮点插值裸 `${f}` 输出错值**
+  - 状态：**未修复**（2026-10-19 实测）
+  - 现象：
+    - `@println(-100)` 输出 `4294967196`（按无符号/零扩展打印）；字符串插值 `${x}` 对同一变量输出正确。
+    - 浮点插值不给格式说明符时（`${f}`）输出整数字面量般的错值（如 `1189128536`）；`${pi:g}` 正常。
+  - 归属：`src/codegen/c99/expr.uya` 的 `@print` / 插值格式串生成。
+  - 规避：打印负数用插值 `${x}`；浮点必须写 `${x:g}` / `${x:.2f}` 等格式说明符。
+
+- [ ] **P2 / 中：`@asm` 的 `clobbers = ["memory"]` 检查失效，内存屏障指令必报错**
+  - 状态：**未修复**（2026-10-19 核对）
+  - 现象：parser 把 `"memory"` 记进 `asm_clobbers_memory` 标志（`src/parser/primary.uya:1331-1332`），
+    但 checker 只在 `asm_clobbers[]` 列表里搜 `"memory"`（`src/checker/check_expr.uya:4007-4024`），
+    于是 `has_memory_clobber` 永远为 0；含 `mfence`/`lfence`/`sfence` 的块即使写了
+    `clobbers = ["memory"]` 仍报「内存屏障指令需要声明 clobbers = ["memory"]」。
+  - 归属：`src/checker/check_expr.uya` 应同时读取 `asm_clobbers_memory` 标志。
+
+- [ ] **P3 / 低：显式命名空间 + 引用 receiver 的方法调用生成坏 C（`Counter.get(&c)`）**
+  - 状态：**未修复**（2026-10-19 实测）
+  - 现象：`Counter.get(&c)` 生成 `({ void __uya_recv_0 = (&c); ... })`，类型不匹配；
+    `Counter.getval(c)`（按值 receiver）与 `c.get()` 正常。
+  - 归属：`src/codegen/c99/expr.uya` 的命名空间方法调用 receiver 物化。
 
 - [ ] **P0 / 严重：UB 漏检一批（7 条，含实测 double free）—— 常量 -1 下标、循环体下标、切片下标/范围、指针形参解引用、嵌套字段移动、元组下标越界**
   - 状态：**部分修复**（2026-10-11 发现；2026-10-12 收口 ①②④⑦ 与 ⑤ 的缺口 2；

@@ -3,6 +3,16 @@
 **版本**：v0.7.3  
 **更新日期**：2026-02-23
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：本文设计的 Pass 1–5 已在
+> `src/checker/optimizer.uya` 落地，实现状态见 [`compile_time_optimization_status.md`](compile_time_optimization_status.md)。
+> 两点口径差异务必注意：
+>
+> 1. **Pass 4（内联）与 Pass 5（循环展开）目前只做 AST 标记**（`is_inlined` / `inlined_body` /
+>    `is_unrolled` / `unroll_count` + `optimizer_stats`），`src/codegen/c99/` 尚未消费这些字段；
+>    真正生效的是 Pass 1（常量折叠）、Pass 2（死代码消除）、Pass 3（证明优化）。
+> 2. **`--opt=N` 不等于宿主 C 编译器的 `-O`**。C99 后端生成的 C 由宿主 `CFLAGS` 编译，
+>    其默认值自 v0.10.4 起为 `-std=c99 -O2 -fno-builtin`（提交 `6c90874c`），指令级内联/展开由宿主编译器完成。
+
 ## 概述
 
 本文档定义 Uya 编译器的编译期优化功能，遵循"程序员提供证明，编译器验证证明"的设计哲学。

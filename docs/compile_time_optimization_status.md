@@ -167,6 +167,8 @@
 
 ### 测试结果
 
+✅ **`make release` 已通过**（v0.10.4；2026-10-19；clean 重编 + `make b` 自举对比字节一致 + `make check` **1153/1153** 单文件测试 + 各闸门；详见 `CHANGELOG.md` 的 v0.10.4「验证」段落）。
+
 ✅ **`make release` 已通过**（v0.10.2；2026-09-27；44 线程；含 microapp / `@embed` / `@c_import` / exec vm / fmt / if expression / async runtime / UPM / typed pipeline / `std.process` / `std.path` 等回归，1110/1110 测试通过）：
 - ✅ 9 个 @asm 正向测试
 - ✅ 17 个 @asm 反向测试
@@ -204,7 +206,7 @@
 ./bin/uya build main.uya -o app.c --c99 --opt=2
 ./bin/uya build main.uya -o app.c --c99 -O2
 
-# 启用所有优化（内联和循环展开已实现）
+# 启用所有优化（内联 / 循环展开目前只做 AST 标记与统计，后端未消费）
 ./bin/uya build main.uya -o app.c --c99 --opt=3
 ./bin/uya build main.uya -o app.c --c99 -O3
 ```
@@ -214,9 +216,14 @@
 | 级别 | 选项 | 功能 |
 |------|------|------|
 | 0 | `--opt=0` 或 `-O0` | 禁用优化（调试模式） |
-| 1 | `--opt=1` 或 `-O1` | 常量折叠 + 死代码消除（**默认**） |
-| 2 | `--opt=2` 或 `-O2` | + 证明优化 |
-| 3 | `--opt=3` 或 `-O3` | + 内联 + 循环展开（已实现） |
+| 1 | `--opt=1` 或 `-O1` | 常量折叠 + 死代码消除（**默认**，`src/main.uya` 的 `opt_level[0] = 1`） |
+| 2 | `--opt=2` 或 `-O2` | + 证明优化（codegen 消费 `is_proved_safe`） |
+| 3 | `--opt=3` 或 `-O3` | + 内联 + 循环展开；**当前仅做 AST 标记与统计**（`is_inlined` / `is_unrolled`），C99 后端尚未消费这些标记 |
+
+> **口径说明（v0.10.4）**：`--opt=N` 只控制 Uya 自己的优化 Pass，**不影响宿主 C 编译器的 `-O`**。
+> C99 后端生成的 C 由宿主 `CFLAGS` 编译，其默认值已从 `-std=c99 -O0 -fno-builtin` 提升为
+> `-std=c99 -O2 -fno-builtin`（提交 `6c90874c`；`src/compile.sh` 与 `src/driver/toolchain.uya` 均已改），
+> 真正的指令级内联 / 展开由宿主 C 编译器完成。也就说「`-O0` 更慢」不再只是 Uya 内部优化差异。
 
 ## 实现示例
 
@@ -256,7 +263,8 @@ AST → 类型检查 → 优化 → 代码生成
 - **级别 0**：不优化（开发模式）
 - **级别 1**：常量折叠 + 死代码消除（默认）
 - **级别 2**：+ 证明优化
-- **级别 3**：+ 内联 + 循环展开（已实现）
+- **级别 3**：+ 内联 + 循环展开（`inline_pass` / `loop_unrolling_pass` 会写 `is_inlined` /
+  `is_unrolled` 并计入 `optimizer_stats`，但 `src/codegen/c99/` 目前不读取这两个字段）
 
 ### 安全保证
 所有优化必须：
@@ -275,6 +283,6 @@ AST → 类型检查 → 优化 → 代码生成
 6. 性能测试和调优
 
 ## 参考资料
-- [Uya 语言规范](./docs/uya_ai_prompt.md)
-- [内存安全证明机制](./docs/compile_time_optimization.md)
-- [开发流程](./docs/DEVELOPMENT.md)
+- [Uya 语言规范](./uya_ai_prompt.md)
+- [内存安全证明机制](./compile_time_optimization.md)
+- [开发流程](./DEVELOPMENT.md)

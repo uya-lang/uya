@@ -1,7 +1,16 @@
 # Uya 语言 libc 实现进度与 TODO 清单
 
-> **核对头（2026-09-27）**：本文件是 libc 路线图，未勾选的 9 项均为**长期方向性**条目（更多功能迁移到 `std.*`、与系统 libc 的性能对比基准、POSIX 兼容层、Windows 支持），不是当前阻塞项。
+> **核对头（2026-10-19）**：已按 `lib/libc/`（16 个文件）与 `lib/std/` 实际导出复核。未勾选的长期方向性条目（功能迁移到 `std.*`、性能基准、POSIX 兼容层、Windows 支持）仍然有效、未开始。本次修正：`malloc`/`free`/`realloc` 的实际位置是 `lib/libc/heap.uya`（不是 `stdlib.uya`）；补充 2026-04 之后落地的四个 libc 修复。
 > 具体实现进度请以 `lib/libc/`、`lib/std/` 与 `tests/test_libc*`/`test_std_*` 的实际覆盖为准。
+
+## 近期关键修复（2026-04 → 2026-10）
+
+| 提交 | 内容 | 落点 |
+| --- | --- | --- |
+| `ff540fa5` | 去掉 `CLOCKS_PER_SEC` 重复定义（split-C 下 multiple definition） | `lib/libc/stdlib.uya` |
+| `fad26acd` | 修复 `signal()` 装的处理器一收到信号就 SIGSEGV | `lib/libc/signal.uya`、`tests/test_signal.uya` |
+| `d8201b4a` | 修复 `pthread_join` 早释放线程栈导致的偶发 SIGSEGV（#139） | `lib/libc/pthread.uya`、`tests/test_pthread_join_stack_reuse.uya` |
+| `30aa8cac` | 修复 hosted stdio、模块作用域、macOS 交叉与微应用发射 | `src/checker/*`、`src/codegen/c99/*`（编译器侧） |
 
 ## 概述
 
@@ -303,14 +312,14 @@
 
 ### 1. 性能优化
 
-- [x] **内存分配器优化**: [malloc](file:///media/winger/_dde_home/winger/uya/lib/libc/stdlib.uya#L15-L32)/[free](file:///media/winger/_dde_home/winger/uya/lib/libc/stdlib.uya#L34-L40)/[realloc](file:///media/winger/_dde_home/winger/uya/lib/libc/stdlib.uya#L63-L81)现在参考musl实现，使用空闲链表和块合并策略
+- [x] **内存分配器优化**: `malloc`（`lib/libc/heap.uya:1285`）/`free`（`lib/libc/heap.uya:1358`）/`realloc`（`lib/libc/heap.uya:1414`）现在参考musl实现，使用空闲链表和块合并策略
 - [x] **字符串操作优化**: 字符串函数（strlen、strcmp、strncmp、strcpy等）已实现基本功能，性能优化已验证稳定
-- [x] **I/O缓冲机制**: 实现缓冲机制以减少系统调用次数，提升[fwrite](file:///media/winger/_dde_home/winger/uya/lib/libc/stdio.uya#L678-L688)、[fread](file:///media/winger/_dde_home/winger/uya/lib/libc/stdio.uya#L335-L356)等函数的性能
-- [x] **格式化函数优化**: [printf](file:///media/winger/_dde_home/winger/uya/lib/libc/stdio.uya)系列函数现已支持 %s、%d、%ld、%u、%zu、%x、%X、%p、%c、%g、%.Ng、%%
+- [x] **I/O缓冲机制**: 实现缓冲机制以减少系统调用次数，提升`fwrite`（`lib/libc/stdio.uya`）、`fread`（`lib/libc/stdio.uya`）等函数的性能
+- [x] **格式化函数优化**: `printf`（`lib/libc/stdio.uya`）系列函数现已支持 %s、%d、%ld、%u、%zu、%x、%X、%p、%c、%g、%.Ng、%%
 
 ### 2. 功能增强
 
-- [x] **完善realloc实现**: 现在的[realloc](file:///media/winger/_dde_home/winger/uya/lib/libc/stdlib.uya#L63-L81)已能正确复制旧数据
+- [x] **完善realloc实现**: 现在的`realloc`（`lib/libc/heap.uya:1414`）已能正确复制旧数据
 - [x] **错误处理机制**: 关键函数已实现适当的错误报告机制，errno设置功能已完成
 - [x] **边界检查**: 字符串和内存函数已包含基本的null指针检查，防止缓冲区溢出
 - [x] **线程安全性**: pthread库已实现互斥锁、条件变量、一次性初始化和取消/键值接口的基础机制，仍在补齐 TSD / joinstate / cancel state/type
@@ -320,7 +329,7 @@
 - [x] **模块分离**: 功能已模块化拆分到lib/libc/和lib/std/目录，可维护性良好
 - [x] **API统一**: 所有相似功能的API保持一致的命名和行为，遵循C标准库规范
 - [x] **文档完善**: 为所有函数添加了详细文档说明，libc_todo.md记录了完整进度
-- [x] **单元测试**: 为所有函数编写了充分的单元测试，483个测试全部通过
+- [x] **单元测试**: 为所有函数编写了充分的单元测试；「483 个测试」是 2026-03-05 的历史快照，当前 `tests/test_*.uya` 已有 894 个文件，具体通过数以 `make check` 输出为准
 
 ### 4. 兼容性改进
 
@@ -352,15 +361,23 @@
 
 当前 Uya 的 libc 实现已经覆盖了核心功能，包括基本的字符串操作、内存管理、文件I/O、标准库函数、系统调用和POSIX线程等。我们已经完成了几个重要的优化：
 
-1. **内存分配器优化**：重构了[malloc](file:///media/winger/_dde_home/winger/uya/lib/libc/stdlib.uya#L15-L32)、[free](file:///media/winger/_dde_home/winger/uya/lib/libc/stdlib.uya#L34-L40)和[realloc](file:///media/winger/_dde_home/winger/uya/lib/libc/stdlib.uya#L63-L81)函数，参考musl实现，使用空闲链表和块合并策略，提高了内存利用率
+1. **内存分配器优化**：重构了`malloc`（`lib/libc/heap.uya:1285`）、`free`（`lib/libc/heap.uya:1358`）和`realloc`（`lib/libc/heap.uya:1414`）函数，参考musl实现，使用空闲链表和块合并策略，提高了内存利用率
 2. **I/O缓冲机制**：为stdio函数添加了缓冲机制，减少了系统调用的频率
 3. **POSIX线程支持**：实现了pthread_t、pthread_mutex_t、pthread_cond_t等核心结构，支持线程创建、互斥锁、条件变量、一次性初始化、取消和键值接口的基础能力，但整体仍是 NPTL-lite 语义
 4. **字符串操作完善**：实现了完整的字符串操作函数集，包括strlen、strcmp、strncmp、strcpy、strchr、strrchr、strstr等
-5. **测试覆盖完整**：483个测试全部通过，确保所有功能稳定可靠
+5. **测试覆盖完整**：2026-03-05 快照为 483 个测试通过（当前测试文件数为 894，以 `make check` 为准）
 
-### 最新更新（2026年3月5日）
+### 最近更新（2026-04 → 2026-10，已核对）
 
-✅ **项目状态稳定**：所有483个测试通过，自举验证成功，备份已完成
+✅ **`signal()` SIGSEGV 修复**（`fad26acd`）：`lib/libc/signal.uya` 重写，处理器不再一收到信号就崩溃；新增 `tests/test_signal.uya`。
+✅ **`pthread_join` 偶发 SIGSEGV 修复**（`d8201b4a`，#139）：不再提前释放线程栈；新增 `tests/test_pthread_join_stack_reuse.uya`。
+✅ **`CLOCKS_PER_SEC` 重复定义修复**（`ff540fa5`）：split-C 下不再 multiple definition。
+✅ **hosted stdio / 模块作用域 / macOS 交叉**（`30aa8cac`）：编译器侧标签修正 + hosted `stdio` 路径统一。
+✅ **分配器拆分**：`malloc` / `free` / `realloc` 现位于 `lib/libc/heap.uya`（`stdlib.uya` 只剩 `calloc` 等），另新增 `tests/test_libc_heap_realloc_in_place.uya`、`tests/bench_malloc_*.uya`。
+
+### 最新更新（2026年3月5日，历史快照）
+
+✅ **项目状态稳定**：截至 2026-03-05 所有 483 个测试通过，自举验证成功，备份已完成（历史记录，非当前数字）
 ✅ **字符串函数优化**：已实现基本功能，性能稳定
 ✅ **线程安全机制**：pthread库已覆盖线程取消、分离、特定数据等接口的基础实现，但还不是完整的 NPTL 语义
 ✅ **错误处理机制**：关键函数已实现适当的错误报告机制

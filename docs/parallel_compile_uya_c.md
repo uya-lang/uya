@@ -7,7 +7,7 @@
 | 层面 | 手段 | 入口 |
 |---|---|---|
 | 前端（parse / codegen） | **fork 出来的多进程**，按文件 / 按镜像 TU 分派；共享 `mmap(MAP_SHARED)` 传 AST，不需要序列化 | `--jobs N` / `-jN` / `UYA_JOBS` |
-| C 阶段 | C99 后端默认输出多文件（`.uyacache`），由 `make -jN` 并行 `cc -c` | `UYA_GCC_JOBS`（默认 CPU 核数） |
+| C 阶段 | C99 后端默认输出多文件（`.uyacache`），由 `make -jN` 并行 `cc -c` | `UYA_GCC_JOBS`（Makefile / `compile.sh` 默认 CPU 核数；`uya build` 自身链接未设置时取 16） |
 | 增量 | 输入指纹短路 + 生成物 mtime 保持 + 签名式缓存清理 | `UYA_FORCE_BUILD` / `UYA_SPLIT_C_CLEAN` |
 
 实测：`make uya` 22.0 s → 14.0 s（无改动 0.4 s），`make b` 43.1 s → 26.6 s。

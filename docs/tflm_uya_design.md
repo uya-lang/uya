@@ -1,5 +1,8 @@
 # TensorFlow Lite Micro 纯 Uya 实现 — 详细设计文档
 
+> **核对头（2026-10-19）**：已按 `lib/tflm/` 实际 10 个文件复核——`common/common.uya`、`model/model.uya`、`arena/arena.uya`、`tensor/tensor.uya`、`resolver/resolver.uya`、`interpreter/interpreter.uya`、`kernels/kernels.uya`、`quant/quant.uya`、`backend/backend.uya`、`backend/arm.uya`，与 §2.2 目录树**完全一致**。测试 5 个：`tests/test_tflm_model.uya`、`test_tflm_arena.uya`、`test_tflm_interpreter.uya`、`test_tflm_phase2.uya`、`test_tflm_cmsis.uya`（后者额外链接 `tests/tflm_cmsis_host_stub.c`）。
+> **最需要注意的偏差**：§3 描述的 FlatBuffer 加载**尚未实现**，Phase 1 用的是线性 stub；实际入口是 `load_model_plan(data: &byte, len: usize) !ModelPlan`（`model/model.uya:29`，`TFLM_MODEL_HEADER_SIZE = 12`），不是本文示例的 `load_model(&[u8]) !&const ModelHeader`。详见 §3.3 的核对注记。
+
 本文档描述用 Uya 语言从零实现与 TensorFlow Lite Micro (TFLM) 功能对等的嵌入式推理引擎的架构、模块接口、数据流与实现约束。与 [tflm_uya_todo.md](tflm_uya_todo.md) 配合使用：设计文档定「做什么、长什么样」，待办文档定「按什么顺序做、做到什么算完成」。
 
 ---
@@ -128,6 +131,14 @@ fn load_model(data: &[u8]) !&const ModelHeader {
     return model;
 }
 ```
+
+> **2026-10-19 核对（重要）**：上面这段是**设计目标，不是当前实现**。现行代码是 Phase 1 的**线性 stub**：
+> - `export const TFLM_MODEL_HEADER_SIZE: usize = 12;`（`lib/tflm/model/model.uya:6`）
+> - `export struct ModelPlan { ... }`（`:8`）
+> - `export fn load_model_plan(data: &byte, len: usize) !ModelPlan`（`:29`）—— 参数是 `(ptr, len)` 而非 `&[u8]`，返回的是值语义的 `ModelPlan` 而非 `&const ModelHeader`
+> - `export fn model_plan_opcode_at(plan: &ModelPlan, i: usize) !i32`（`:57`）
+> - 固定小端头 + opcode 列表，**不做** FlatBuffer vtable 走查；`error.ModelCorrupted` 等 9 个错误已在 `common/common.uya:4-12` 定义（`ModelTooShort`、`VersionMismatch`、`ModelCorrupted`、`OpNotSupported`、`ArenaExhausted`、`InvalidAlignment`、`DimensionMismatch`、`BufferTooSmall`、`ResolverFull`）。
+> 真 `.tflite` 解析仍是待办（`tflm_uya_todo.md` 阶段 2 的最后一条/阶段 3）。
 
 - 子图、算子、张量、buffer 的访问均通过偏移/索引在模型根表上计算；越界与空指针由运行时检查，必要时返回 `error.ModelCorrupted`。
 
@@ -358,7 +369,7 @@ fn conv2d_cmsis_wrapper(ctx: &Context) !void {
 ## 9. 测试策略
 
 - **单元**：`test_tflm_model.uya`（模型加载、版本/长度错误）；`test_tflm_arena.uya`（分配、对齐、ArenaExhausted）；`test_tflm_conv.uya`（单算子输入输出与已知向量一致）。
-- **集成**：`test_tflm_interpreter.uya` 使用最小 FlatBuffer 模型（单子图、单算子），跑通 invoke 并校验输出张量；需通过 `./tests/run_programs_parallel.sh --c99` 与 `--uya --c99`。
+- **集成**：`test_tflm_interpreter.uya` 使用最小模型跑通 invoke 并校验输出张量；需通过 `./tests/run_programs_parallel.sh --c99` 与 `--uya --c99`。（2026-10-19 核对：这里用的仍是 stub `ModelPlan`，不是真 FlatBuffer；另有 `test_tflm_phase2.uya`、`test_tflm_cmsis.uya`。）
 - **回归**：与 TFLite 转换的 .tflite 模型对比（相同输入下输出一致），可选、依赖测试数据与工具链。
 
 ---

@@ -1,5 +1,11 @@
 # Uya 微容器多平台实现方案（ESP32 / RV1106）
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：当前真正落地的 profile 是
+> `linux_x86_64_hardvm` / `linux_aarch64_hardvm` / `macos_arm64_hardvm`（hardvm + call_gate）
+> 与 `rv32_baremetal_softvm` / `xtensa_baremetal_softvm`（softvm + trap），见 `microapp_profiles.md`。
+> 本文的 ESP32 / RV1106 属于目标板级方案，**尚未作为产品功能实现**；引用时以 `microapp_profiles.md`
+> 与 `portable_native_todo.md` 为准。
+
 **版本**: v1.3  
 **日期**: 2026-04-02  
 **关联文档**: `docs/microcontainer/requirements_v1.3.md`

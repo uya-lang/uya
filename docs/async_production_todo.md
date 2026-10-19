@@ -1,7 +1,20 @@
 # Uya 异步量产 TODO
 
-**最后更新**：2026-06-21（2026-04 历史收口记录保留；补充当前生产收口口径，避免把旧主链路结论误读为共享 async runtime 矩阵已完成）
+**最后更新**：2026-06-21（2026-04 历史收口记录保留；补充当前生产收口口径，避免把旧主链路结论误读为共享 async runtime 矩阵已完成）；2026-10-19 复核 P2 清单
 **目标范围**：Linux + C99 后端 + `@async_fn` / `@await` / `Future` / `Poll` / `Waker` + `AsyncFd` / `LinuxEpoll`，优先保障 DNS、HTTP/1.1、HTTPS 客户端主链路达到可量产状态。
+
+> **核对头（2026-10-19）**：本文 P2 清单里的 5 项原有 4 项未做，现按源码复核为「3 项已落地 + 2 项仍未做」：
+>
+> | P2 项 | 2026-10-19 状态 | 证据 |
+> |---|---|---|
+> | DNS A/AAAA 并发聚合 | ✅ 已落地 | `dns_client_query_all_async()`（`lib/std/net/dns.uya:1826`），提交 `61469fe3` |
+> | HTTP 连接池与 keep-alive 复用 | ✅ 已落地 | `Http1AsyncPool` / `http1_async_pool_stats()` / `http1_async_pool_take_raw()` / `http1_async_pool_put_raw()`（`lib/std/http/http1_async.uya:226-261`；取连接 `:1199`、存连接 `:1413`），回归 `tests/test_http1_async_client.uya` |
+> | TLS 会话复用 | ✅ 已落地（会话 ID 路径；session ticket 未做） | `tls_session_cache_store()`（`lib/tls/ssl/handshake.uya:174`）、`tls_session_cache_lookup()`（`:221`）、`handshake_set_resume_session_id()`（`:360`）、`handshake_session_resumed()`（`:377`），回归 `tests/test_tls_session_resumption.uya` |
+> | macOS kqueue 后端 | ✅ 已落地（`lib/std/async_event.uya` 内部，非独立文件；失败回退 `poll(2)`） | `kqueue_build_transition()`（`:110`）、`kqueue_submit_transition()`（`:138`）、`register()` 的 `std.cfg(std.target_os == .tos_macos, ...)` 分支（`:617-623`），回归 `tests/test_async_event_kqueue_transition.uya` |
+> | Windows IOCP 后端 | ❌ **仍未做** | `grep "IOCP\|CreateIoCompletionPort\|WSAEventSelect\|tos_windows" lib/std/async*.uya` 无命中 |
+> | 每 release async benchmark baseline | ❌ **仍未做**（UyaGin 侧 `build/uyagin_http_bench/` 只有 `runs=1` 的单场景冒烟，见 `docs/uyagin_todo.md`） | — |
+>
+> 另：多 interest `Waker`（`WAKER_IO_SLOT_MAX = 4`，`lib/std/async.uya:198`）与 HTTP/1 头容量（`HTTP1_ASYNC_REQUEST_HEADER_INLINE_CAP = 4096` 起步、`HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP = 65536` + `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP`）也已落地，不在本文 P2 清单里但属同批收口。
 
 > **2026-06-17 注意**
 >
@@ -148,13 +161,18 @@
 
 > 2026-09-27 核对：第 1 项（DNS A/AAAA 并发聚合）**已完成**——`dns_client_query_all_any_async` 现在先创建 A / AAAA 两个 transport future，
 > 再用 `async_join2_usize_results` 并发 join（提交 `61469fe3`）；第 2–5 项仍然有效。
+> 2026-10-19 复核：第 2–4 项已落地（见文首核对头），只剩第 5 项（benchmark baseline）未做；Windows IOCP 部分仍缺。
 
 - [x] DNS A / AAAA 并发聚合，减少高 RTT 下延迟。
   - 2026-09-27 更新：`dns_client_query_all_any_async` 已改为"先建两个 future，再并发 join"，不再是顺序 `A -> AAAA`。
-- [ ] HTTP 连接池与 keep-alive 复用。
-- [ ] TLS 会话复用。
-- [ ] macOS kqueue / Windows IOCP 后端。
-- [ ] 更细粒度性能优化，建立每 release 的 async benchmark baseline。
+  - 2026-10-19 证据：`lib/std/net/dns.uya:1826` `dns_client_query_all_async()`。
+- [x] HTTP 连接池与 keep-alive 复用。
+  - 2026-10-19 证据：`lib/std/http/http1_async.uya:226` `Http1AsyncPool`、`:241` `http1_async_pool_stats()`、`:248` `http1_async_pool_close_all()`、`:254` `http1_async_pool_put_raw()`、`:260` `http1_async_pool_take_raw()`；请求路径取连接 `:1199`、响应完成存回 `:1413`；回归 `tests/test_http1_async_client.uya`。
+- [x] TLS 会话复用。
+  - 2026-10-19 证据（TLS 1.2 会话 ID 路径，提交 `9bb39dee`）：`lib/tls/ssl/handshake.uya:174` `tls_session_cache_store()`、`:221` `tls_session_cache_lookup()`、`:360` `handshake_set_resume_session_id()`、`:377` `handshake_session_resumed()`；回归 `tests/test_tls_session_resumption.uya`。**session ticket（RFC 5077）仍未做**。
+- [~] macOS kqueue / Windows IOCP 后端。
+  - 2026-10-19：macOS kqueue **已落地**（提交 `53deabe3`；代码在 `lib/std/async_event.uya:24-181` + `register()` 的 `std.cfg` 分支 `:617-623`，kqueue 创建失败回退 `poll(2)`；回归 `tests/test_async_event_kqueue_transition.uya`）。**Windows IOCP 仍未实现**：`grep "IOCP\|CreateIoCompletionPort\|WSAEventSelect\|tos_windows" lib/std/async*.uya` 无命中，Windows async 运行时整体缺失。
+- [ ] 更细粒度性能优化，建立每 release 的 async benchmark baseline。（**未做**）
 
 ## 验收清单（2026-04 历史验收）
 
@@ -204,9 +222,10 @@
 
 **已知限制（已文档化，纳入 P2）**：
 - 跨平台 async 后端（macOS kqueue / Windows IOCP）
-- HTTP 连接池与 keep-alive 复用
-- TLS 会话复用
-- DNS A/AAAA 并发聚合（当前为顺序查询）
+  - 2026-10-19：macOS kqueue 已落地；**Windows IOCP 仍缺**
+- HTTP 连接池与 keep-alive 复用 —— 2026-10-19：**已落地**
+- TLS 会话复用 —— 2026-10-19：**已落地**（会话 ID 路径；session ticket 未做）
+- DNS A/AAAA 并发聚合（当前为顺序查询）—— 2026-10-19：**已落地**（并发聚合）
 
 ---
 

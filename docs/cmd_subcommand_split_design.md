@@ -1,12 +1,20 @@
 # Uya 编译器入口瘦身设计：`src/main.uya` 拆分与职责外置
 
-> **核对头（2026-09-27）**：设计有效；实施进度见 `docs/todo_cmd_subcommand_split.md` 的核对头（`src/cmd/{build,upm}` 与 `src/driver/` 已存在，`src/main.uya` 仍未瘦身）。
+> **核对头（2026-10-19，v0.10.4）**：设计有效；实施进度见 `docs/todo_cmd_subcommand_split.md` 的核对头
+> （`src/cmd/{build,upm}` 与 `src/driver/` 已存在且 `make cmds` / `bin/cmd/upm` 已落地，`uya upm` 已由
+> `dispatch_external_upm()` 转发；但 `src/main.uya` 仍未瘦身）。
 
 **状态**: design draft, implementation pending
 **更新日期**: 2026-05-03
 **范围**: `src/main.uya` 物理拆分，`build`/`check`/`run`/`test`/`fmt`/`upm` 真实独立
 
-> **当前问题**: 当前仓库中 `src/main.uya` 仍约 8400 行，`parse_args()` 和 `main()` 仍直接处理 `build`/`check`/`run`/`test`/`fmt` 等业务参数；`src/cmd/` 入口、`make cmds`、`dispatch_external_cmd` 和 `bin/cmd/*` 尚未落地。本设计目标是先把业务逻辑物理拆出 `src/main.uya`，再引入真实独立子命令，而不是增加一层回调 `src/main.uya` 的代理壳。
+> **当前问题（2026-10-19 度量）**: `src/main.uya` 仍是约 **3912 行**的单文件，`parse_args()` 和 `main()`
+> 仍直接处理 `build`/`check`/`run`/`test`/`fmt` 等业务参数；**尚未落地**的是 `src/compiler_driver.uya`、
+> 通用的 `dispatch_external_cmd`（现在只有 `dispatch_external_upm`）以及 `check`/`run`/`test`/`fmt` 的
+> 外置入口。已落地部分：`src/cmd/build/main.uya`（薄壳）、`src/cmd/upm/main.uya` + `upm_lib`、
+> `src/driver/{modules,path_list,toolchain}.uya`、`Makefile` 的 `cmds` / `cmd-upm` / `bin/cmd/%`、
+> `bin/cmd/upm`。本设计目标是先把业务逻辑物理拆出 `src/main.uya`，再引入真实独立子命令，
+> 而不是增加一层回调 `src/main.uya` 的代理壳。
 
 ---
 

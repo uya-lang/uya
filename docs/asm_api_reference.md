@@ -1,6 +1,13 @@
 # @asm 内置函数 API 参考文档
 
 > **核对头（2026-09-27）**：`@asm` 已完成，本文件属历史过程记录。现状与证据见 `docs/ASM_TODO.md` 的核对头与 `docs/todo_status_index.md`。
+>
+> **实现口径（2026-10-19，编译器 v0.10.4 复核）**：本文示例里的 `{a}` / `{b}` 占位符、`@asm_mem(...)` 转换和 `@asm_reg_*` 变量**均未实现**——
+> ① `gen_asm_block`（`src/codegen/c99/expr.uya:10549-10657`）把指令字符串**原样**发射进 C 的 `__asm__ volatile`，不做任何占位符替换；操作数要用 GCC 位置编号 `%0`/`%1`（**输出在前、输入在后**）与 `%%reg`（寄存器字面量）。等价的第一个示例是 `"movl %1, %0\n\taddl %2, %0" (a, b, -> result)`。
+> ② `@asm_reg*` / `@asm_mem` 只在 checker 的类型识别表里（`src/checker/type_from_ast.uya:615-633`），不在 lexer 的 `@` 白名单（`src/lexer.uya:1315-1374`），源码写出来直接报"未知内置"。
+> ③ `@asm_target()` 的类型是枚举名 `@asm_target`：`if @asm_target() == .x86_64_linux` 语法报错，`if @asm_target() == 0` 类型不匹配；正确写法 `if @asm_target() as i32 == 0` 或先赋给 `i32` 变量。
+> ④ 每条指令的输入/输出上限都是 **8**（parser 报 `@asm 指令最多 8 个输入` / `8 个输出`），指令总数上限 32，clobber 名字上限 16。
+> ⑤ 含 `lfence`/`mfence`/`sfence`/`lock ` 前缀的指令当前**一律报错**（checker 的 `has_memory_clobber` 不读 `asm_clobbers_memory`），详见 `docs/builtin_functions.md` §10 与 `docs/ASM_TODO.md` 核对节。
 
 **版本**：v1.0.0
 **创建日期**：2026-02-22
@@ -83,7 +90,7 @@ fn syscall_write(fd: i32, buf: &const byte, count: i32) !i32 {
 | 元素 | 说明 | 示例 |
 |------|------|------|
 | `instruction template` | 汇编指令模板 | `"add {a}, {b}"` |
-| `{name}` | 占位符，引用输入/输出 | `{a}`, `{b}` |
+| `{name}` | 占位符，引用输入/输出（**未实现**，见文首实现口径；实际用 `%0`/`%1` 位置编号） | `%0`, `%1` |
 | `input_exprs` | 输入表达式列表 | `a, b, c` |
 | `output_exprs` | 输出表达式列表 | `-> result` |
 | `clobbers` | 被修改的寄存器列表 | `clobbers = ["rax", "rcx"]` |
@@ -312,21 +319,23 @@ fn atomic_compare_exchange(ptr: &atomic i32, expected: i32, desired: i32) bool {
 #### 4.1.1 平台类型
 
 ```uya
+// 概念上的平台枚举（数值 = @asm_target() 的返回值，见 src/codegen/c99/main.uya:2311-2338）
+// 注意：实现里没有真正的 enum 声明，@asm_target() 只能当整数比较/赋值
 enum @asm_target {
-    x86_64_linux,
-    x86_64_macos,
-    x86_64_windows,
-    arm64_linux,
-    arm64_macos,
-    arm64_windows,
-    riscv64_linux,
+    x86_64_linux = 0,
+    x86_64_macos = 1,
+    x86_64_windows = 2,
+    arm64_linux = 3,
+    arm64_macos = 4,
+    arm64_windows = 5,
+    riscv64_linux = 6,
 }
 ```
 
 #### 4.1.2 获取当前平台
 
 ```uya
-const target: @asm_target = @asm_target();
+const target: i32 = @asm_target();   // 必须是整数类型；枚举字面量 .x86_64_linux 不可用
 ```
 
 **使用示例**：

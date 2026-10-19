@@ -16,14 +16,14 @@ Uya 是一个系统编程语言，专注于**内存安全**、**并发安全**�
 - **联合体（union）**：编译期标签跟踪，与 C union 100% 互操作，零运行时开销
 - **泛型语法**：使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: Ord + Clone + Default>`（`Vec<i32>`、`HashMap<K, V>`）
 - **数字字面量增强**：支持多进制（十六进制 `0xFF`、八进制 `0o755`、二进制 `0b1010`）和下划线分隔符（`1_000_000`、`0xFF_00_AA`）
-- **extern struct 完全解放**：C 兼容结构体可以有方法、drop、实现接口，同时保持 100% C 兼容性
+- **C 结构体互操作**：Uya `struct` 统一使用 C 内存布局（无需 `extern` 关键字），可以直接与 C 代码互操作，也能有方法、drop、实现接口
 - **内存安全强制**：所有 UB 必须被编译期证明为安全，失败即编译错误
 - **并发安全强制**：`atomic T` 关键字，自动原子指令，零数据竞争，零运行时锁
 - **错误处理**：显式错误联合类型 `!T`，支持预定义和运行时错误
 - **接口系统**：鸭子类型接口，零注册，编译期生成
 - **模块系统**：目录级模块、显式导出、路径导入，编译期解析
 - **字符串插值**：支持 `"a${x}"` 和 `"pi=${pi:.2f}"` 两种形式
-- **切片语法**：支持 `&arr[start:len]` 返回切片视图，包括负数索引，for循环支持值/引用/索引迭代
+- **切片语法**：支持 `&arr[start:len]` 返回切片视图，for 循环支持数组的值/引用迭代（切片需用 `0..@len` 走索引）
 - **安全指针算术**：支持 `ptr +/- offset`，必须通过编译期证明安全
 - **类型大小和对齐**：`@size_of(T)` 和 `@align_of(T)` 等内置函数（均以 `@` 开头，编译期常量，无需导入）
 - **SIMD 向量内建**：支持 `@vector(T, N)`、`@mask(N)`、`@vector.splat`、`@vector.any`、`@vector.all` 的语言级规范
@@ -82,8 +82,8 @@ interface IWriter {
 // FFI 调用
 extern printf(fmt: *byte, ...) i32;
 
-// extern struct 完全解放：C 兼容结构体获得 Uya 超能力
-extern struct File {
+// C 兼容结构体：Uya struct 统一是 C 布局，不需要 extern 关键字
+struct File {
   fd: i32
   fn read(self: &Self, buf: *byte, len: i32) !i32 { /* ... */ }
   fn drop(self: &Self) void { close(self.fd); }
@@ -96,7 +96,7 @@ struct Vec<T: Default> {
   cap: i32
 }
 fn create_vec() Vec<i32> {
-  return Vec<i32>{ data: ..., len: 0, cap: 0 };
+  return Vec<i32>{ data: null, len: 0, cap: 0 };
 }
 
 // 显式宏（可选特性）
@@ -116,20 +116,20 @@ export struct File {
 }
 
 export fn open_file(path: *byte) !File {
-    let value: i32 = helper_func();  // 使用导入的函数
+    const value: i32 = helper_func();  // 使用导入的函数
     return File{ fd: 1 };
 }
 
-// 切片语法：&arr[start:len] 返回切片视图，支持负数索引
+// 切片语法：&arr[start:len] 返回切片视图（没有负索引，需自行算非负下标）
 var arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 const slice: &[i32] = &arr[2:5];      // 动态长度切片
 const exact_slice: &[i32: 3] = &arr[2:3]; // 已知长度切片
-const tail: &[i32] = &arr[-3:3];      // 负数索引，等价于 &arr[7:3]
+const tail: &[i32] = &arr[7:3];       // 最后 3 个元素（等价写法）
 
-// for循环支持切片迭代
-for slice |value| { }        // 值迭代（只读）
-for slice |&ptr| { }         // 引用迭代（可修改）
-for slice |i| { }            // 索引迭代
+// for 循环：受体是定长数组 / 迭代器接口 / 整数范围（切片需先用 0..@len 走索引）
+for arr |value| { }          // 值迭代（只读）
+for arr |&ptr| { }           // 引用迭代（可修改，需 var 数组）
+for 0..@len(arr) |i| { }     // 需要索引时用整数范围
 
 // 安全指针算术：ptr +/- offset，编译器验证边界安全
 const ptr: &i32 = &arr[0];
@@ -163,15 +163,14 @@ fn main() i32 {
 
 ## 标准库 Crypto
 
-`lib/std/crypto/` 当前提供一组纯 Uya 的摘要、MAC 与校验能力：
+`lib/std/crypto/` 当前提供一组纯 Uya 的摘要、MAC、公钥原语与校验能力：
 
-- `use std.crypto.blake2b.blake2b_digest;`
-- `use std.crypto.blake2s.blake2s_digest;`
-- `use std.crypto.blake3.blake3_digest;`
-- `use std.crypto.sha256.sha256_digest;`
-- `use std.crypto.hmac_sha256.hmac_sha256;`
-- `use std.crypto.md5.md5_digest;`
-- `use std.crypto.crc32.crc32_compute;`
+- 摘要：`use std.crypto.md5.md5_digest;`（返回 `!void`）、`std.crypto.sha1.sha1_digest`、`std.crypto.sha256.sha256_digest`、`std.crypto.sha512.sha512_digest`
+- MAC：`std.crypto.hmac_sha256.hmac_sha256`、`std.crypto.hmac_sha256.hmac_sha256_stream`、`std.crypto.sha512.hmac_sha512`
+- 其他摘要：`std.crypto.blake2b.blake2b_digest`、`std.crypto.blake2s.blake2s_digest`、`std.crypto.blake3.blake3_digest`
+- 校验：`std.crypto.crc32.crc32_compute`
+- 大整数：`std.crypto.bigint`（`bigint_add/sub/cmp`、`bigint_mont_mul`、`bigint_modexp_be` 等，4096 位 / 64 个 u64 字）
+- 公钥：`std.crypto.curve25519`（`x25519_base`、`x25519_scalarmult`）、`std.crypto.ed25519`（`ed25519_public_key`、`ed25519_sign`、`ed25519_verify`）
 
 最小示例：
 
@@ -179,11 +178,26 @@ fn main() i32 {
 use std.crypto.md5.md5_digest;
 use std.crypto.crc32.crc32_compute;
 
-var digest: [byte: 16] = [];
-md5_digest(&"abc"[0: 3], digest[0: 16]);
+fn md5_demo() !void {
+  var digest: [byte: 16] = [];
+  try md5_digest(&"abc"[0: 3], digest[0: 16]);
+}
 
-const checksum: u32 = crc32_compute(&"123456789"[0: 9]);
+fn checksum_demo() u32 {
+  return crc32_compute(&"123456789"[0: 9]);
+}
 ```
+
+## 标准库 Image（JPEG）
+
+`lib/std/image/` 提供纯 Uya 的内存位图与**基线 JPEG 编解码**（Huffman + 8×8 DCT，全整数定点，零 libm、零 C 依赖）：
+
+- `std.image.image`：`Image`、`image_new` / `image_free` / `image_get` / `image_set` / `image_fill` / `image_bytes_for` / `image_is_valid`
+- `jpeg_encode` / `jpeg_decode`：编码/解码入口（详见 [`docs/std_jpeg.md`](docs/std_jpeg.md)）
+
+## 标准库模块一览
+
+`lib/std/` 当前模块（以目录为准）：`async`、`async_channel`、`async_event`、`async_frame`、`async_scheduler`、`collections`（vec / hashmap / ring_queue / string_buf）、`core`（option / error / traits）、`crypto`、`encoding`（base64）、`env`、`error`、`fmt`、`http`（parse / router / server / http1_async / http2 / websocket / uyagin）、`image`、`io`（file / reader / stream / writer）、`json`、`macro_typeinfo`、`mem`（allocator / arena / heap）、`microapp`、`mqtt`、`net`（addr / dns / socket）、`path`、`platform`、`process`、`protobuf`、`runtime`、`script`、`sql`、`string`、`testing`、`thread`、`time`、`yaml`；仓库 `lib/` 顶层还有 `kernel`、`libc`、`osal`、`syscall`、`tflm`、`tls`。
 
 ## 标准库 SQL（实验性）
 
@@ -233,10 +247,11 @@ Uya 采用**程序员提供证明，编译器验证证明**的设计哲学。程
 // 约束语法：<T: Ord>、<T: Ord + Clone + Default>
 ```
 
-#### 2. extern struct 完全解放
+#### 2. C 结构体互操作（无需 extern 关键字）
 
 ```uya
-extern struct File {
+// Uya struct 统一是 C 布局，可直接传给 C 函数
+struct File {
     fd: i32
     fn read(self: &Self, buf: *byte, len: i32) !i32 { /* ... */ }
     fn drop(self: &Self) void { close(self.fd); }
@@ -249,7 +264,7 @@ File : IReadable { /* ... */ }
 - **C 代码看到**：纯数据，标准布局，100% C 兼容
 - **Uya 代码看到**：完整对象，有方法、接口、RAII，100% Uya 能力
 
-> **注**：如需了解 Uya 与其他语言的详细对比，请参阅 [comparison.md](./comparison.md)
+> **注**：如需了解 Uya 与其他语言的详细对比，请参阅 [docs/comparison.md](./docs/comparison.md)
 
 ### 核心收益
 
@@ -264,6 +279,7 @@ File : IReadable { /* ... */ }
 |---------|-----------|------|
 | `i8` `i16` `i32` `i64` | 1 2 4 8 B | 对齐 = 类型大小；支持 `@max`/`@min` 内置函数访问极值 |
 | `u8` `u16` `u32` `u64` | 1 2 4 8 B | 对齐 = 类型大小；无符号整数类型 |
+| `usize` `isize` | 4/8 B（平台相关） | `usize` 为指针宽度的无符号大小类型（C99 映射 `size_t`）；`isize` 为有符号大小类型（当前 checker 归一为 `i64`，C99 映射 `int64_t`） |
 | `f32` `f64` | 4/8 B | 对齐 = 类型大小 |
 | `bool` | 1 B | 0/1，对齐 1 B |
 | `byte` | 1 B | 无符号字节，对齐 1 B，用于字节数组 |
@@ -327,9 +343,9 @@ fn increment(counter: *Counter) void {
 
 - **自举编译器**：已完成自举，所有测试通过。编译器能编译自身，输出 C99 代码（默认多文件至 `.uyacache`，可用 `--no-split-c` 单文件）。
 - **开发模式**：仅维护 `src/` 目录的自举编译器。
-- **快速构建**：`gcc -std=c99 -O3 -fno-builtin bin/uya.c -o bin/uya` 即可从 C99 代码构建编译器。
-- **内存验证**：Valgrind 验证通过，无内存泄漏，无内存错误。
-- **语言规范**：完整版见 [docs/uya.md](./docs/uya.md)。
+- **快速构建**：Linux 冷启动 `make from-c`，macOS 冷启动 `make from-c-native`；日常自举构建 `make uya`（nostdlib 静态）/ `make uya-hosted`（hosted）。前端默认按 CPU 核数进程级并行（`--jobs/-j`，上限 32），无改动时增量指纹直接短路。
+- **安全验证**：`make uya-safety` 构建启用内存安全检查的编译器；默认构建在编译期证明 UB，无法证明即编译错误。
+- **语言规范**：完整版见 [docs/uya.md](./docs/uya.md)（0.49.54）。
 - **最新特性**：在 **v0.10.3** 的检查器动态表与 async 网络组合基础上，当前 **v0.10.4** 收口**编译器容量与速度**——输入文件表 / call edge 表 / reachable 函数表 / 顶层全局类型查找全部按需增长（大工程不再撞「容量已满」与静默丢函数），前端进程级并行 + 增量指纹让 `make uya` 从 22s 降到 14s（无改动 0.4s）；新增**密码学底座** `std.crypto`（SHA-512/HMAC、4096 位 bigint + Montgomery、Curve25519、Ed25519，含 RSA-4096 Montgomery 溢出与 Ed25519 小阶点两处真缺陷修复）与**纯 Uya 的基线 JPEG 编解码** `std.image`；**Windows 目标**用 zig cc 打通自举（Winsock / 控制台代码页 / LLP64 / 区间运算 UB）；检查器再收口 4 条 UB 漏检并接上切片范围校验；C99 后端默认优化提到 `-O2`。
 
 ## 文档
@@ -340,20 +356,25 @@ fn increment(counter: *Counter) void {
 - **[buglist.md](./buglist.md)** - 当前已知问题与优先级清单，便于后续自动收集
 - **[docs/todo_status_index.md](./docs/todo_status_index.md)** - 任务文档状态总表：区分"真实剩余工作"与"已过期/已归档文档"，避免按旧复选框误判进度
 - **[docs/uya.md](./docs/uya.md)** - 完整语言规范（Markdown）
+- **[docs/grammar_formal.md](./docs/grammar_formal.md)** - 完整 BNF 语法规范
+- **[docs/grammar_quick.md](./docs/grammar_quick.md)** - 语法速查手册
+- **[docs/builtin_functions.md](./docs/builtin_functions.md)** - `@` 内置函数参考
 - **[docs/changelog.md](./docs/changelog.md)** - 语言规范变更历史
 - **[docs/std_sql.md](./docs/std_sql.md)** - `std.sql` 模块与 SQLite/MySQL 驱动接入说明
+- **[docs/std_jpeg.md](./docs/std_jpeg.md)** - `std.image` 基线 JPEG 编解码
+- **[docs/std_http_websocket.md](./docs/std_http_websocket.md)** - HTTP / WebSocket 标准库说明
 - **[docs/comparison.md](./docs/comparison.md)** - 与其他语言的对比
 - **[src/](./src/)** - 自举编译器源代码（唯一维护源）
-- **[bin/uya.c](./bin/uya.c)** - 自举编译器输出的 C99 代码（已提交，作为构建种子）
+- **[backup/uya.c](./backup/uya.c)** - 仓库跟踪的单文件 C99 自举种子（`bin/` 为本地构建产物，不入库）
 
 ## 一句话总结
 
-> **Uya = 默认即高级内存安全 + 并发安全 + 显式错误处理 + 切片语法 + 安全指针算术 + @size_of/@align_of**；  
-> **泛型语法：使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: Ord + Clone + Default>`**；  
-> **宏系统：编译时元编程 + 类型反射 + 智能缓存 + 环境集成，零运行时开销**；  
-> **extern struct 完全解放，C 结构体获得 Uya 超能力**；  
-> **只加 1 个关键字 `atomic T`，其余零新符号**；  
-> **所有 UB 必须被编译期证明为安全 → 失败即编译错误**；  
+> **Uya = 默认即高级内存安全 + 并发安全 + 显式错误处理 + 切片语法 + 安全指针算术 + @size_of/@align_of**；
+> **泛型语法：使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: Ord + Clone + Default>`**；
+> **宏系统：编译时元编程 + 类型反射 + 智能缓存 + 环境集成，零运行时开销**；
+> **C 结构体互操作：Uya struct 统一 C 布局，无需 extern 关键字**；
+> **只加 1 个关键字 `atomic T`，其余零新符号**；
+> **所有 UB 必须被编译期证明为安全 → 失败即编译错误**；
 > **编译期证明（本函数内），无法证明则编译错误，不降级、不插运行时锁。**
 
 ## 贡献
@@ -362,6 +383,6 @@ fn increment(counter: *Counter) void {
 
 ---
 
-**注意**：语言规范为完整版（0.72）；当前 **补丁发行**为 **v0.10.4**，说明见 [docs/releases/RELEASE_v0.10.4.md](./docs/releases/RELEASE_v0.10.4.md)；上一里程碑总览见 [docs/releases/RELEASE_v0.10.3.md](./docs/releases/RELEASE_v0.10.3.md) 与 [docs/uya.md](./docs/uya.md)。
+**注意**：语言规范为完整版（0.49.54）；当前 **补丁发行**为 **v0.10.4**，说明见 [docs/releases/RELEASE_v0.10.4.md](./docs/releases/RELEASE_v0.10.4.md)；上一里程碑总览见 [docs/releases/RELEASE_v0.10.3.md](./docs/releases/RELEASE_v0.10.3.md) 与 [docs/uya.md](./docs/uya.md)。
 
 **许可证**：本项目采用 [MIT 许可证](./LICENSE)。Copyright (c) 2025-2026 Uya 语言项目

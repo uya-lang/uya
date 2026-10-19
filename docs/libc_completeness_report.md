@@ -1,26 +1,31 @@
 # Uya libc 实现完成度评估报告
 
-> **核对头（2026-09-27）**：本报告为 2026-03 的 libc 完整性快照，其中未勾选项不代表当前缺口；进度以 `lib/libc/`、`lib/std/` 与 `tests/` 实际覆盖为准。总体口径见 `docs/todo_status_index.md`。
+> **核对头（2026-10-19）**：本报告原为 2026-03-03 的 libc 完整性快照，**各模块的「缺失」清单已按当前源码逐项复核并更新**（方法：对每个函数名执行 `grep -rn "fn <name>(" lib/libc/*.uya`）。原快照里大量标为缺失的函数其实已经实现（`qsort`/`bsearch`/`rand`/`srand`/`div`/`ldiv`/`atoll`/`strtoll`/`strtoull`/`setenv`/`putenv`/`unsetenv`/`vfprintf`/`vprintf`/`fscanf`/`sscanf`/`tmpfile`/`tmpnam`/`setbuf`/`setvbuf`/`fgetpos`/`fsetpos`/`fseek`/`ftell`/`feof`/`ferror`/`clearerr`/`perror`/`remove`/`rename`/`strerror`），下面已改标为 `[x]`。
+> 进度以 `lib/libc/`、`lib/std/` 与 `tests/` 实际覆盖为准；总体口径见 `docs/todo_status_index.md`。
 
-**评估日期**: 2026 年 3 月 3 日  
-**代码总量**: 4,082 行  
-**测试覆盖**: 464 个测试全部通过
+**评估日期**: 2026 年 3 月 3 日（原始快照）；**复核日期**: 2026-10-19
+
+**代码总量**: 4,082 行（原始快照；当前 `lib/libc/` 有 16 个文件，`stdio.uya`/`stdlib.uya`/`pthread.uya` 均已显著增长）
+
+**测试覆盖**: 464 个测试全部通过（原始快照；当前 `tests/test_*.uya` 有 894 个文件，通过数以 `make check` 为准）
 
 ---
 
 ## 总体完成度
 
+> 下表「已实现」列已按 2026-10-19 的实际 `export extern "libc"` 数量校准：`ctype.uya` 16、`string.uya` 18、`mem.uya` 5、`stdio.uya` 50、`stdlib.uya` 32（另有 `heap.uya` 的 malloc/free/realloc）、`unistd.uya` 25。
+
 | 模块 | 已实现 | C 标准库总数 | 完成度 | 状态 |
 |------|--------|-------------|--------|------|
 | **ctype.h** | 16 | 16 | 100% | ✅ 完成 |
-| **string.h** | 18 | 24 | 75% | 🟡 大部分完成 |
+| **string.h** | 19 | 24 | 79% | 🟡 大部分完成（`strerror` 在 `errno.uya` 提供） |
 | **memory.h** | 5 | 5 | 100% | ✅ 完成 |
-| **stdio.h** | 35+ | 50+ | 70% | 🟡 大部分完成 |
-| **stdlib.h** | 28+ | 40+ | 70% | 🟡 大部分完成 |
-| **unistd.h** | 20+ | 30+ | 67% | 🟡 大部分完成 |
+| **stdio.h** | 42+ | 50+ | ~84% | 🟡 大部分完成（50 个 export；缺 `scanf` 家族、`ungetc`/`getc`/`putc`/`fdopen`/`freopen`/`fileno`） |
+| **stdlib.h** | 32+ | 40+ | ~80% | 🟡 大部分完成（缺 `mkstemp`、`realpath`） |
+| **unistd.h** | 25 | 30+ | ~83% | 🟡 大部分完成（缺 `pipe`/`link`/`symlink`/`chown`/`chmod`/`truncate`/`fsync`/`getuid` 家族/`gethostname`） |
 | **errno.h** | 完整 | - | 100% | ✅ 完成 |
 | **syscall** | 完整 | - | 100% | ✅ 完成 |
-| **总计** | ~150 | ~165+ | **91%** | 🟢 高度完成 |
+| **总计（仅上表 6 个模块 + errno + syscall）** | 19+16+5+42+32+25 = 139 个具名函数 | ~165+ | ~84% | 🟢 高度完成（另有 `math`/`time`/`signal`/`setjmp`/`stdarg`/`wchar`/`pthread`（71 个 `export extern`）未计入本表，故总体实际远超 165 个符号；表中百分比只描述「C 标准头里的常用函数覆盖率」） |
 
 ---
 
@@ -72,13 +77,13 @@
 - [x] strpbrk - 查找任一字符
 - [x] strtok - 字符串分割
 
-**缺失 (6):**
-- [ ] strcoll - 区域设置字符串比较
-- [ ] strxfrm - 字符串转换
-- [ ] strerror - 错误信息字符串
-- [ ] memccpy - 带条件内存复制
-- [ ] strlcat - 安全字符串连接
-- [ ] strlcpy - 安全字符串复制
+**缺失 (5):**（2026-10-19 复核）
+- [ ] strcoll - 区域设置字符串比较（`grep -n "fn strcoll(" lib/libc/*.uya` 无命中）
+- [ ] strxfrm - 字符串转换（无命中）
+- [x] ~~strerror~~ - 错误信息字符串 → **已实现**，位于 `lib/libc/errno.uya`（不在 `string.uya`）
+- [ ] memccpy - 带条件内存复制（无命中）
+- [ ] strlcat - 安全字符串连接（无命中）
+- [ ] strlcpy - 安全字符串复制（无命中）
 
 **评价**: 核心字符串操作函数已完整实现，缺失的主要是区域设置相关和安全版本函数。
 
@@ -118,16 +123,17 @@
 - [x] stdin/stdout/stderr - 标准流
 - [x] FILE 结构体
 
-**缺失:**
-- [ ] fscanf/scanf - 格式化输入
-- [ ] sscanf - 字符串格式化输入
-- [ ] vfprintf/vprintf - 可变参数版本
-- [ ] remove/rename - 文件操作
-- [ ] tmpfile/tmpnam - 临时文件
-- [ ] setbuf/setvbuf - 缓冲区设置
-- [ ] fgetpos/fsetpos/ftell/fseek - 文件定位
-- [ ] feof/ferror/clearerr - 状态检查
-- [ ] perror - 错误输出
+**缺失 (2026-10-19 复核，原清单 9 项中 8 项已落地):**
+- [x] ~~fscanf/scanf~~ - `fscanf` **已实现**；`scanf`（stdin 版）仍缺（`grep -n "fn scanf(" lib/libc/*.uya` 无命中）
+- [x] ~~sscanf~~ - **已实现**
+- [x] ~~vfprintf/vprintf~~ - **已实现**
+- [x] ~~remove/rename~~ - **已实现**
+- [x] ~~tmpfile/tmpnam~~ - **已实现**
+- [x] ~~setbuf/setvbuf~~ - **已实现**
+- [x] ~~fgetpos/fsetpos/ftell/fseek~~ - **均已实现**（`stdio.uya:1972` `fseek`、`:1983` `ftell`）
+- [x] ~~feof/ferror/clearerr~~ - **均已实现**
+- [x] ~~perror~~ - **已实现**
+- [ ] 仍未实现：`scanf`、`ungetc`、`getc`、`putc`、`fdopen`、`freopen`、`fileno`
 
 **评价**: 输出功能完善，输入功能较弱。缓冲机制已实现。
 
@@ -155,15 +161,16 @@
 - [x] opendir/readdir/closedir - 目录操作
 - [x] readlink - 读取符号链接
 
-**缺失:**
-- [ ] qsort/bsearch - 排序和搜索
-- [ ] rand/srand - 随机数
-- [ ] div/ldiv - 除法运算
-- [ ] atoll/strtoll - 长长整型转换
-- [ ] strtoull - 无符号长长整型转换
-- [ ] mkstemp - 临时文件
-- [ ] putenv/setenv/unsetenv - 环境变量操作
-- [ ] realpath - 规范化路径
+**缺失 (2026-10-19 复核，原清单 8 项中 6 项已落地):**
+- [x] ~~qsort/bsearch~~ - **均已实现**（`stdlib.uya:811` `qsort`、`:818` `bsearch`）
+- [x] ~~rand/srand~~ - **均已实现**（`stdlib.uya:507` `rand`）
+- [x] ~~div/ldiv~~ - **均已实现**
+- [x] ~~atoll/strtoll~~ - **均已实现**（`stdlib.uya:585` `strtoll`）
+- [x] ~~strtoull~~ - **已实现**
+- [x] ~~putenv/setenv/unsetenv~~ - **均已实现**
+- [ ] mkstemp - 临时文件（无命中）
+- [ ] realpath - 规范化路径（无命中）
+- 另：`malloc`/`free`/`realloc` 已从 `stdlib.uya` 拆到 `lib/libc/heap.uya`
 
 **评价**: 内存分配器已实现 musl 风格空闲链表，数字转换功能完整。
 
@@ -189,17 +196,17 @@
 - [x] sleep - 睡眠
 - [x] system - 系统命令
 
-**缺失:**
-- [ ] pipe - 管道
-- [ ] link/symlink - 链接
-- [ ] readlink - 读取链接 (已在 stdlib 实现)
-- [ ] chown/lchown - 改变所有者
-- [ ] chmod/fchmod - 改变权限
-- [ ] truncate/ftruncate - 截断文件
-- [ ] fsync/fdatasync - 同步文件
-- [ ] getuid/geteuid/setuid - 用户 ID
-- [ ] getgid/getegid/setgid - 组 ID
-- [ ] gethostname/sethostname - 主机名
+**缺失 (2026-10-19 复核，全部仍未实现):**
+- [ ] pipe - 管道（`grep -n "fn pipe(" lib/libc/*.uya` 无命中）
+- [ ] link/symlink - 链接（无命中）
+- [x] ~~readlink~~ - 读取链接 → **已实现**，在 `stdlib.uya`（原清单已注明）
+- [ ] chown/lchown - 改变所有者（无命中）
+- [ ] chmod/fchmod - 改变权限（无命中）
+- [ ] truncate/ftruncate - 截断文件（无命中）
+- [ ] fsync/fdatasync - 同步文件（无命中）
+- [ ] getuid/geteuid/setuid - 用户 ID（无命中）
+- [ ] getgid/getegid/setgid - 组 ID（无命中）
+- [ ] gethostname/sethostname - 主机名（无命中）
 
 **评价**: 核心 POSIX 功能已实现，缺少部分系统管理功能。
 
@@ -241,15 +248,15 @@
 
 ## 实现亮点
 
-### 1. musl 风格内存分配器 ⭐⭐⭐
+### 1. musl 风格内存分配器 ⭐⭐⭐（当前实现位于 `lib/libc/heap.uya`，`CHUNK_MAGIC = 0xDEADBEEF` 见 `heap.uya:37`）
 - 空闲链表管理
 - 首次适配算法
 - 块分割策略
-- 魔数验证 (0xDEADBEEF)
+- 魔数验证 (`heap.uya:37` `CHUNK_MAGIC: u64 = 3735928559` = `0xDEADBEEF`)
 - 原地优化 (realloc 缩小)
 
 ### 2. 标准 I/O 缓冲机制 ⭐⭐⭐
-- 4096 字节缓冲区
+- 4096 字节缓冲区（`lib/libc/stdio.uya:1337` `var local_buf: [byte: 4096]`）
 - 行缓冲/全缓冲/无缓冲三种模式
 - stdout 默认行缓冲
 - stderr 默认无缓冲
@@ -263,26 +270,27 @@
 
 ## 优先级建议
 
-### 高优先级 (核心功能增强)
-1. **scanf/fscanf 系列** - 完善输入功能
-2. **qsort/bsearch** - 通用排序搜索
-3. **vfprintf/vprintf** - 可变参数支持
+### 高优先级 (核心功能增强) — 2026-10-19 复核后的实际剩余
+1. **`scanf`（stdin 版）** — `fscanf`/`sscanf` 已有，只差 stdin 版本；顺带补 `ungetc`/`getc`/`putc`/`fdopen`/`freopen`/`fileno`
+2. **`qsort`/`bsearch`** — ✅ 已实现，已从待办移除
+3. **`vfprintf`/`vprintf`** — ✅ 已实现，已从待办移除
 
 ### 中优先级 (功能完善)
-4. **rand/srand** - 随机数生成
-5. **文件定位函数** - fseek/ftell 等
-6. **环境变量操作** - setenv/unsetenv
+4. **`rand`/`srand`** — ✅ 已实现，已从待办移除
+5. **文件定位函数** — ✅ `fseek`/`ftell`/`fgetpos`/`fsetpos` 均已实现，已从待办移除
+6. **环境变量操作** — ✅ `setenv`/`putenv`/`unsetenv` 均已实现，已从待办移除
 
 ### 低优先级 (扩展功能)
-7. **管道支持** - pipe
-8. **更多 POSIX 函数** - 用户/组 ID 等
-9. **区域设置支持** - strcoll 等
+7. **管道支持** - `pipe`（仍未实现）
+8. **更多 POSIX 函数** - `getuid`/`getgid`/`chown`/`chmod`/`truncate`/`fsync`/`link`/`symlink`/`gethostname`（仍未实现）
+9. **区域设置支持** - `strcoll`/`strxfrm`（仍未实现）
+10. **其他** - `mkstemp`、`realpath`、`memccpy`、`strlcpy`/`strlcat`（仍未实现）
 
 ---
 
 ## 总结
 
-**整体评价**: Uya libc 已实现 C 标准库的核心功能，完成度约 **73%**。
+**整体评价**: Uya libc 已实现 C 标准库的核心功能，完成度约 **73%**（2026-03 原始快照的结论）；2026-10-19 复核后按上表口径约为 **84%**（`stdio` 50 个 export、`stdlib` 32、`unistd` 25、`string` 18 + `errno.strerror`），剩余缺口集中在 `scanf` 家族、`pipe`/`chmod`/`chown`/`truncate`/`fsync` 等 POSIX 文件系统函数与 `strcoll`/`strxfrm`/`mkstemp`/`realpath`。
 
 **优势**:
 - ✅ 字符分类和内存操作 100% 完成
@@ -291,10 +299,11 @@
 - ✅ 标准 I/O 缓冲机制
 - ✅ 完整的系统调用接口
 
-**待完善**:
-- ⏳ 格式化输入功能 (scanf 系列)
-- ⏳ 排序和搜索函数
-- ⏳ 可变参数格式化输出
+**待完善**（2026-10-19 复核后）:
+- ⏳ 格式化输入只剩 stdin 版 `scanf` 与 `ungetc`/`getc`/`putc` 等字符 I/O
+- ✅ 排序和搜索函数（`qsort`/`bsearch`）已实现
+- ✅ 可变参数格式化输出（`vfprintf`/`vprintf`）已实现
+- ⏳ POSIX 文件系统类补充：`pipe`/`chmod`/`chown`/`truncate`/`fsync`/`link`/`symlink`
 
 **适用场景**:
 - ✅ 系统编程

@@ -4,6 +4,11 @@
 
 实现时遵循项目 TDD 流程：先添加测试 → 实现代码 → `make check` 验证。新增测试需同时通过 `--c99` 与 `--uya --c99`。
 
+> **核对头（2026-10-19）**：逐条按 `lib/std/http/*.uya` 复核复选框，**发现两项被漏标完成**（已就地改正）：
+> - 2.4 的 `Handler` 接口与 `Middleware` 接口**都已存在**：`lib/std/http/types.uya:230`（`export interface Handler { fn serve(self: &Self, ctx: &Context) !void; }`）与 `:239`（`export interface Middleware { fn process(self: &Self, ctx: &Context, next: &Handler) !void; }`）。原标 `[ ]` 已改为 `[x]`。
+> - 其余仍为 `[ ]` 的项经复核**确实未做**：`ResourceHandlers` / `router_resource`（`grep` 无命中）、`http_run_epoll_loop` 级连接闭环、±5% 基准回归闸门（`benchmarks/run_bench.sh` 只解析并打印 p50/p95/p99/rps，无阈值断言）、`ServerMode.ThreadPool`、`std.json` 请求/响应集成。
+> - **部分完成**：中间件实现——`uyagin` 已有 `AsyncMiddleware` 接口与路由/分组 middleware 槽（`lib/std/http/uyagin.uya:185`、`:216`、`:599-610`）以及 access log（`UyaginAccessLogOptions`，`:82`、`:1241`），但 **CORS 与 jwt_auth 包装中间件仍未提供**（`jwt.uya` 只有签发/校验原语）。
+
 ## 进展补记（2026-04-25）
 
 - `std.http.parse` 现已补入 8-byte word-at-a-time 扫描、Header 小写/哈希缓存与常见头快速路径。
@@ -52,8 +57,8 @@
 
 ### 2.4 接口与辅助
 
-- [ ] Handler 接口：`fn serve(self: &Self, ctx: &Context) !void`
-- [ ] Middleware 接口：`fn process(self: &Self, ctx: &Context, next: Handler) !void`（首版仅类型）
+- [x] Handler 接口：`fn serve(self: &Self, ctx: &Context) !void`（`lib/std/http/types.uya:230`，2026-10-19 核对）
+- [x] Middleware 接口：`fn process(self: &Self, ctx: &Context, next: &Handler) !void`（首版仅类型；`lib/std/http/types.uya:239`，2026-10-19 核对）
 - [x] `request_get_header(req, name)` / `get_bearer_token(req)`（`lib/std/http/types.uya`；头名大小写不敏感；Bearer 前缀大小写不敏感；测试见 `test_http_types.uya`、`parse_then_request_get_header`）
 - [x] ServerConfig：mode、max_connections
 
@@ -190,7 +195,9 @@
 ## Phase 9/10：后续迭代
 
 - [ ] ServerMode.Epoll 多路复用实现（首步：`epoll_server` 监听侧 poll+accept 已落地，见 5.2 与 `tests/test_epoll_server.uya`；待：连接级 epoll、非阻塞 I/O、与 `http_conn_read_parse`/路由闭环）
-- [ ] 中间件实现：logging、CORS、jwt_auth（包装 Handler，401/403 语义见设计文档）
+  - **2026-10-19 复核**：仍缺连接级通用 run 循环。已具备的零件：`epoll_server_try_accept_register_nb` / `epoll_server_drain_listen_accepts_nb`（非阻塞 accept 到 `EAGAIN`）、`epoll_server_ctl_mod`、`epoll_server_wait_events`；并且 `http_conn_read_parse_nonblocking` / `http_conn_read_parse_nonblocking_into` 已在 `server.uya:282/334`。缺的是把它们串成单线程事件循环的封装函数。
+- [~] 中间件实现：logging、CORS、jwt_auth（包装 Handler，401/403 语义见设计文档）
+  - **2026-10-19 复核**：logging 已有（`uyagin` 的 `AsyncMiddleware` 接口 `lib/std/http/uyagin.uya:185` + access log `UyaginAccessLogOptions` `:82`）；**CORS 与 jwt_auth 包装中间件仍缺**（`lib/std/http/jwt.uya` 只提供签发/校验原语）。
 - [ ] 异步 Handler、线程池模式（ThreadPool）
 - [~] http.client（可选；已有实验性 `lib/std/http/http1_async.uya`，提供 `http1_async_get/post`，通过 nonblocking socket + epoll readiness 完成 connect/read/write）
 - [ ] 与 std.json 集成（请求/响应 JSON 序列化）

@@ -2,6 +2,9 @@
 
 > **状态：✅ 已实现** (2026-03-03)
 > **版本：v0.7.2**
+>
+> **实现状态核对（2026-10-19，编译器 v0.10.4）**：`@naked_fn` 全链路在 `src/` 可用——AST 字段 `fn_decl_is_naked`（`src/ast.uya:232`）、parser（`src/parser/main.uya:776-838`，且 extern 函数禁用该属性）、codegen 发射 `__attribute__((naked))`（`src/codegen/c99/function.uya:1897`、`2079`）；用法示例 `lib/libc/setjmp.uya`，测试 `tests/test_naked_fn.uya` 与 `tests/test_longjmp_full.uya` 均存在。
+> **与本文的差异**：§2.2 表格中"函数体只能包含 `@asm` 块"目前**没有编译期检查**——`export @naked_fn fn f() i32 { var x: i32 = 1; return x; }` 仍会通过并生成裸函数体（已用 `bin/uya --c99` 实测）。该约束目前只是使用约定，§5 风险表里的"添加编译时检查（可选）"尚未做。
 
 ## 1. 背景
 

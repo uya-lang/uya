@@ -2,6 +2,19 @@
 
 **参考**：[yaml_design.md](yaml_design.md)
 
+**最后核对**：2026-10-19，按 `lib/std/yaml/{value,parser,encoder,errors,convert,impl}.uya` 与 `tests/test_yaml_*.uya`（17 个）逐条回填。
+
+### 总体状态
+
+| Phase | 状态 | 依据 |
+| --- | --- | --- |
+| Phase 1 Flow 解析 | 完成 | `parser.uya:1166`；`test_yaml_parse_flow_*.uya` |
+| Phase 2 编码与互转 | 完成 | `encoder.uya:464/476/483`；`convert.uya:22/60`；`test_yaml_encode_*.uya`、`test_yaml_json_convert.uya` |
+| Phase 3 Block/块标量/多文档 | 完成 | `parser.uya` 缩进栈 + 块标量（竖线 `\|` 与折叠符 `>`）+ `parse_multi(:1236)`；`test_yaml_parse_block*.uya`、`test_yaml_parse_multi.uya`、`test_yaml_fold_block.uya`、`test_yaml_encode_fold_roundtrip.uya` |
+| Phase 4 锚点/别名 | 解析完成，编码仅占位 | `parser.uya:17-19` 三个上限常量；`YamlEncodeStyle.FlowAnchors` 与 Flow 同路径 |
+| `ToYaml` 接口 / `to_yaml` 宏 | 仅接口声明，无实现 | `impl.uya:6` 是唯一 `ToYaml` 命中，无宏、无实现者 |
+| Benchmark | 未开始 | 无 `tests/bench_yaml.uya`、无 `tests/data/yaml/` |
+
 实现时遵循项目 TDD 流程：先添加测试 → 实现代码 → `make check` 验证。
 
 ---
@@ -23,6 +36,7 @@
 
 - [x] 创建 `lib/std/yaml/` 目录
 - [x] `errors.uya`：YAML 解析错误（InvalidUtf8、InvalidEscape、InvalidScalar、UnexpectedToken、UnexpectedEof、InvalidIndent、NumberOverflow、InvalidNumber、NestingTooDeep）
+  - 现状（2026-10-19 核对，`lib/std/yaml/errors.uya`）：14 个 `export error`，上述 9 个之外还有 `BufferTooSmall`、`UnsupportedEncodeStyle`（编码侧）与 `AnchorTooDeep`、`AnchorOverflow`、`UnknownAlias`（Phase 4 锚点）
 - [x] `value.uya`：`YamlValue`、`YamlStrView`、`YamlArray`、`YamlKeyValue`、`YamlObject`（与 JsonValue 对称；变体名为 `y_str`/`y_arr`/`y_obj`，避免与 `JsonValue` 的 `str`/`arr`/`obj` C 字段同名导致合并编译 match 错型）
 
 ### 1.4 解析器
@@ -54,6 +68,8 @@
 ### 2.2 基础类型 ToYaml
 
 - [x] `impl.uya`：`ToYaml` 接口（标量用 `yaml_write_*`）
+  - **核对（2026-10-19）**：接口已声明（`impl.uya:6`：`fn to_yaml(self: &Self, w: &YamlWriter) void;`），但**没有任何基础类型或结构体实现它**，编码器也不接收 `&impl ToYaml`。当前标量写入直接调用 `encoder.uya` 的 `yaml_write_null/bool/i32/i64/f64/str_view`，等价功能已可用，接口本身是空壳。
+- [ ] 结构体 ↔ YAML 的 `to_yaml` 反射宏（对应 json 侧 `to_json<T>` 单态展开）——`impl_macro.uya` 与 `impl_yaml!` 均不存在
 
 ### 2.3 API
 
@@ -103,6 +119,8 @@
 - [x] `tests/test_yaml_parse_block_scalar.uya`
 - [x] `tests/test_yaml_parse_multi.uya`
 - [x] `tests/test_yaml_tab_indent.uya`：Tab 缩进解析失败（`error_*` 保留给编译期失败）
+- [x] `tests/test_yaml_fold_block.uya`：YAML 1.2.2 块折叠规则（空行 → `\n`；行首空白内容行不折叠为空格）
+- [x] `tests/test_yaml_encode_fold_roundtrip.uya`：Block 折叠编码 ↔ 解析往返
 
 ---
 

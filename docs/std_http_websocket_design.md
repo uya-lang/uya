@@ -10,6 +10,11 @@
 
 **当前实现进度（截至 2026-05-30）**：
 
+> **核对头（2026-10-19）**：本节状态逐条复核**仍然成立**，另补两处遗漏：
+> - 下列文件名清单缺 `websocket_json.uya`，该模块实际存在（`export fn websocket_json_decode_value` / `websocket_conn_write_json_value` / `websocket_conn_write_json<T>`），已补入清单。
+> - "仍待实现"两项保持不变，并有反向证据：`grep -rln "extended_connect\|quic_" lib/std/http/*.uya` 只命中 `websocket_http2_h3_route.uya` 占位文件；该文件只有 `WebSocketHttp2RoutePlan` / `WebSocketHttp3RoutePlan` 两个结构体与 `websocket_http2_route_plan_default()` / `websocket_http3_route_plan_default()`，`validation_scope = "compile_and_interface_smoke"`。
+> - HTTP/2 基础栈导出规模（可用于判断"基础栈"到底覆盖到哪）：`http2_types.uya` 37 个导出、`http2_frame.uya` 9 个、`http2_stream.uya` 11 个、`hpack.uya` 11 个。
+
 - 已落地：
   - `http2_types.uya`
   - `http2_frame.uya`
@@ -21,6 +26,7 @@
   - `websocket_async.uya`
   - `websocket_tls.uya`
   - `websocket_client.uya`
+  - `websocket_json.uya`
   - `websocket_http2_h3_route.uya`
   - `uyagin_websocket.uya`
   - `std.crypto.sha1`

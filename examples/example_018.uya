@@ -1,4 +1,4 @@
-extern fn printf(fmt: *byte, ...) i32;
+use libc.printf;
 
 fn divide(a: i32, b: i32) !i32 {
     if b == 0 {
@@ -8,10 +8,15 @@ fn divide(a: i32, b: i32) !i32 {
 }
 
 fn example() void {
+    // catch 块的**最后一条表达式语句**（以 `;` 结尾）的值成为整个 catch 表达式的值
     const result: i32 = divide(10, 0) catch |err| {
-        printf("Error: %d\n", err);
-        0  // 返回默认值，result = 0
+        printf("Error: %d\n" as *byte, @error_id(err));
+        0;  // 返回默认值，result = 0
     };
     // result 的类型是 i32（不是 !i32），值为 0
 }
-      
+
+export fn main() i32 {
+    example();
+    return 0;
+}

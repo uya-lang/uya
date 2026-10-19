@@ -1,7 +1,16 @@
 # Uya fmt Phase 4 TodoList
 
-> **核对头（2026-09-27）**：本 phase 文档的 "Not started" 勾选状态已过时——对应能力已在 `src/fmt.uya` + `tests/test_fmt_*.uya` 落地（`uya fmt` 命令见 `src/main.uya` 的 `COMMAND_FMT`）。
-> 保留本文件作为任务分解记录；唯一仍明确未支持的是 `fmt_phase4_cli_tasks.md` 里的"stdin 与 `-s/-r` 组合"。
+> **核对头（2026-10-19，v0.10.4）**：本 phase 文档的 "Not started" 勾选状态已过时——CLI 已在
+> `tools/fmt.uya`（构建为 `bin/uyafmt`）+ `lib/std/fmt/` + `tests/test_fmt_*.uya` 落地，
+> `uya fmt` 子命令见 `src/main.uya` 的 `COMMAND_FMT`。保留本文件作为任务分解记录。
+>
+> **本文 Phase 4 的 CLI 能力属于 `bin/uyafmt`，不是 `uya fmt`**：
+>
+> - `bin/uyafmt`（`tools/fmt.uya`，`make check-fmt` 构建）：`-w`/`-l`/`-d`/`-s`/`-r <rule>`、多路径、
+>   目录递归、stdin；`-w`+`-l`、`-w`+`-d`、`-l`+`-d` 互斥；stdin 模式不能再带任何上述选项。
+> - `uya fmt`（进程内 `src/fmt.uya`）：只支持 `[-w] <单个文件>`，其余选项与目录/stdin 都不支持。
+>
+> 仍明确未支持：`uya fmt` 侧的 `-d/-l/-s/-r`、目录递归与 stdin（需要走 `bin/uyafmt`）。
 
 > 基于 `docs/fmt_development_plan.md` 的方案 B，Phase 4 聚焦 `uya fmt` 命令、输出模式与工程集成。
 

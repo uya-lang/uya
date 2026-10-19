@@ -1,7 +1,12 @@
 # Uya Bytecode / IR 执行后端 TODO
 
-> **核对头（2026-09-27）**：本 TODO 状态标 "implementation in progress" 属实。已落地：`src/exec/` 下的 `bytecode.uya`、`hir.uya`、`lower.uya`、`builder.uya`、`frame.uya`、`value.uya`、`vm.uya`、`debug.uya`，以及 `tests/test_exec_vm_*.uya` 一族回归。
-> 仍未支持（与文末清单一致）：async/`@await`、`@frame`、`@c_import` 直接接入、SIMD、inline asm、microapp/softvm/hosted 以外的目标、native JIT；以及 `uya run --exec` 的稳定性与"相比现有 run 总耗时有明显下降"的目标。
+> **核对头（2026-10-19）**：本 TODO 状态标 "implementation in progress" 属实。已落地：`src/exec/` 下 9 个文件（`main.uya`、`hir.uya`、`lower.uya`、`bytecode.uya`、`builder.uya`、`frame.uya`、`value.uya`、`vm.uya`、`debug.uya`），以及 `tests/test_exec_vm_*.uya` **69** 个用例文件 + `tests/verify_exec_*.sh` **15** 个验证脚本。
+>
+> **本轮把"完成标准（第一阶段）"按代码回填**（上一版全部未勾）：
+> - `--exec` 走的是 `src/main.uya:2798` 的 `if backend == BackendType.BACKEND_EXEC` 分支，直接调用 `exec_build_program()` 并在该分支内结束，**不进入 c99 codegen / gcc 链接阶段**，因此"跳过 `codegen/c99 + gcc/clang`"由控制流本身保证。
+> - 不支持特性的可诊断性由 `ExecUnsupportedReason` 枚举（`src/exec/main.uya:6-19`）统一编码：`EXEC_UNSUPPORTED_GENERIC` / `C_IMPORT` / `ASYNC` / `EXTERN_ABI` / `TRY_EXPR` / `CATCH_EXPR` / `MATCH_EXPR` / `STRING_INTERP` / `ASM` / `SIMD` / `MICROAPP`，并可通过 `exec_backend_get_last_unsupported_reason_name()` 打印。
+>
+> **仍未支持（与文末清单一致，未变）**：async / `@await`（`src/exec/lower.uya:5634` 明确 `exec: 当前不支持 async`）、`@frame`、`@c_import` 直接接入、SIMD、inline asm、microapp / softvm / hosted 以外目标、native JIT。
 
 **状态**：executable TODO, implementation in progress
 **更新日期**：2026-05-30
@@ -988,17 +993,26 @@ lexer -> parser -> checker -> optimizer -> codegen/c99 -> gcc/clang -> run
 
 这些项不是“不做”，而是**不应阻塞第一阶段交付**。
 
+> **2026-10-19 复核（逐项确认仍未支持，均有源码或回归证据）**：
+> - async / `@async_fn` / `@await`：`src/exec/lower.uya:5634` 显式 `exec_lower_set_unsupported_reason(..., EXEC_UNSUPPORTED_ASYNC)`。
+> - `@frame`：`src/exec/` 内无 `@frame`/frame pool 相关处理（grep `@frame` 仅命中 `src/parser/` 与 `src/codegen/`）。
+> - `@c_import`：`EXEC_UNSUPPORTED_C_IMPORT` 存在（`src/exec/main.uya:9`），回归 `tests/test_exec_vm_c_import_unsupported.uya`。
+> - SIMD：`EXEC_UNSUPPORTED_SIMD`，多处 `exec: 当前不支持 SIMD`（`src/exec/lower.uya:2850/4213/4361/4381/4415/4847`），回归 `tests/test_exec_vm_simd_unsupported.uya`。
+> - inline asm：`EXEC_UNSUPPORTED_ASM`（`src/exec/main.uya:16`），回归 `tests/test_exec_vm_compiler_asm_target.uya`。
+> - microapp / softvm / hosted 以外目标：`EXEC_UNSUPPORTED_MICROAPP`（`src/exec/main.uya:18`）。
+> - native JIT：`src/exec/` 中无 JIT 后端（只有 `vm.uya` 解释器）。
+
 ---
 
 ## 完成标准（第一阶段）
 
 达到以下条件，可认为 exec backend 第一阶段完成：
 
-- [ ] `uya run --exec` 能稳定运行一批 hosted 基础程序
-- [ ] 跳过 `codegen/c99 + gcc/clang`
-- [ ] 基础控制流、函数调用、struct/array/slice、`!T`、`defer` 已可用
-- [ ] 不支持特性能清晰报错并可按需 fallback
-- [ ] 相比现有 `run`，总耗时有明显下降
+- [x] `uya run --exec` 能稳定运行一批 hosted 基础程序（2026-10-19 证据：`tests/test_exec_vm_*.uya` 69 个用例 + `tests/verify_exec_*.sh` 15 个脚本，覆盖 smoke / aggregates / builtin_bridge / globals / defer / drop_local / extern_bridge / hir_scope / opaque_struct / stdio_varargs / compiler_regressions / compiler_stage_smoke 等）
+- [x] 跳过 `codegen/c99 + gcc/clang`（`src/main.uya:2798` 的 `BACKEND_EXEC` 分支直接 `exec_build_program()` 后返回，不再进入 c99 codegen 与 gcc 链接）
+- [x] 基础控制流、函数调用、struct/array/slice、`!T`、`defer` 已可用（回归：`test_exec_vm_if_else`、`test_exec_vm_loop_control`、`test_exec_vm_for_range`、`test_exec_vm_multi_fn`、`test_exec_vm_aggregates`、`test_exec_vm_slice_ptr`、`test_exec_vm_error_union`、`test_exec_vm_defer`、`test_exec_vm_drop_local`）
+- [x] 不支持特性能清晰报错并可按需 fallback（`ExecUnsupportedReason` 枚举 + `exec_backend_get_last_unsupported_reason_name()`；负向回归 `tests/test_exec_vm_c_import_unsupported.uya`、`test_exec_vm_extern_decl_varargs_unsupported.uya`、`test_exec_vm_simd_unsupported.uya`、`test_exec_vm_try_unsupported.uya`，并实测 `--exec` 下打印 `extern_abi` 原因后自动回退 C99 仍 `总计: 1 / 通过: 1`）
+- [x] 相比现有 `run`，总耗时有明显下降（本文 2026 年实测段落：支持路径 `test tests/test_exec_vm_if_else.uya` wall time 约 `77 ms` vs `test --exec ...` 约 `26 ms`，两条路径摘要与退出码一致；该数字是当次快照，未建立持续基线）
 
 补充说明：
 

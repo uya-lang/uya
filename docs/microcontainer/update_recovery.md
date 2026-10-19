@@ -1,5 +1,9 @@
 # Uya 微容器热更新与崩溃恢复规范
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：热更新槽与崩溃恢复由 `make microapp-recovery-check`
+> 覆盖（`tests/` 下 microapp recovery 相关脚本）；`lib/kernel/update.uya` 负责元数据与 CRC32
+> （复用 `std.crypto.crc32`）。下文是规范原文，具体槽位/上限以代码为准。
+
 **版本**: v1.3  
 **日期**: 2026-04-02  
 **关联文档**: `docs/microcontainer/requirements_v1.3.md`

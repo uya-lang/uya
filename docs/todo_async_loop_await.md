@@ -3,6 +3,9 @@
 **设计文档**：[async_loop_await_design.md](async_loop_await_design.md)  
 **主待办**：[todo_mini_to_full.md](todo_mini_to_full.md) §16 异步编程
 
+> **核对头（2026-10-19）**：本文所有 `[ ]` 项均已勾选完成，`grep -n "^\- \[ \]" docs/todo_async_loop_await.md` 无命中；Bug A–F 全部转正并各有回归（见下方「相关测试」表）。
+> 唯一仍开放的「仍建议关注的方向」3 条属长期补洞方向：其中第 2 条里的 `for iter |&x|` + `@async_fn` 已于 `tests/test_async_for_iterator_ref_await.uya` 转正，只剩接口值迭代（同步也不支持的通用语言边界）继续显式报错。
+
 ---
 
 ## 完成状态

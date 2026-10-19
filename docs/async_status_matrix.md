@@ -1,9 +1,24 @@
 # Uya Async 现状总表
 
-**最后更新**：2026-06-21（正文）；2026-09-27 加了核对头（见下）
+**最后更新**：2026-06-21（正文）；2026-09-27 / 2026-10-04 加过核对头；2026-10-19 复核并刷新（见下）
 **范围**：Linux + C99 后端；聚焦 `@async_fn` / `@await` / `Future` / `Poll` / `Waker` / `AsyncFd` / `Scheduler` / `async_compute`
 
-> ## 2026-09-27 核对头（先读这段再看下面的历史表）
+> ## 2026-10-19 核对头（最新，先读这段）
+>
+> 本轮按 `lib/` + `tests/` 逐项复核，确认 2026-10 那批"已收口"结论全部有源码与回归支撑，同时把正文里三处仍写着"未完成"的旧句子改掉：
+>
+> | 能力 | 2026-10-19 结论 | 证据 |
+> |---|---|---|
+> | macOS `kqueue` 后端 | **已落地**（写在 `lib/std/async_event.uya` 内部，不是独立 `std/async/event/macos.uya` 文件；kqueue 创建失败回退 `poll(2)`） | `KQUEUE_EVFILT_*`/`KQUEUE_EV_*`（`:24-28`）、`kqueue_build_transition()`（`:110`）、`kqueue_submit_transition()`（`:138`）、`register()` 的 `std.cfg(std.target_os == .tos_macos, ...)` 分支（`:617-623`）；回归 `tests/test_async_event_kqueue_transition.uya` |
+> | 多 interest `Waker` | **已落地** | `WAKER_IO_SLOT_MAX = 4`（`lib/std/async.uya:198`）、`_io_slot_fds`/`_io_slot_interests`（`:210-211`）；回归 `tests/test_async_waker_multi_interest.uya` |
+> | HTTP/1.1 连接池 + keep-alive | **已落地** | `Http1AsyncPool`（`lib/std/http/http1_async.uya:226-261`）、取连接 `:1199`、存连接 `:1413`；回归 `tests/test_http1_async_client.uya` |
+> | TLS 1.2 会话复用（会话 ID 路径） | **已落地** | `tls_session_cache_store()`（`lib/tls/ssl/handshake.uya:174`）、`tls_session_cache_lookup()`（`:221`）、`handshake_set_resume_session_id()`（`:360`）、`handshake_session_resumed()`（`:377`）；回归 `tests/test_tls_session_resumption.uya` |
+> | HTTP/1 请求头/响应头容量 | **已落地** | `HTTP1_ASYNC_REQUEST_HEADER_INLINE_CAP = 4096`（起步容量，超出按实际需求分配）、`HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP = 65536` + 环境变量 `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP`（`http1_async_response_header_max_cap()`，`:36/41/46/56`） |
+> | DNS `A/AAAA` 并发聚合 | **已落地** | `dns_client_query_all_async()`（`lib/std/net/dns.uya:1826`） |
+>
+> **仍未完成（源码级确认缺失）**：Windows `IOCP` 后端（`grep "IOCP\|CreateIoCompletionPort\|WSAEventSelect\|tos_windows" lib/std/async*.uya` 无命中）、TLS session ticket（RFC 5077）、`ThreadPool` 真动态扩缩容、更丰富的 async formatting/helper。
+
+> ## 2026-09-27 核对头（历史，保留）
 >
 > 本文是 2026-06 写的能力快照，**下表中"仍需收口/未完成"的多项已在 2026-09 由实测闸门覆盖**，避免下一轮再按旧结论误判：
 >
@@ -60,7 +75,7 @@
 | 跨线程 wake / `eventfd` | ✅ Linux 阶段性覆盖 | `Scheduler` 在 `Pending` 时同步注册 `eventfd + io fd`；worker/外部线程 `wake()` 可直接唤醒主 `EventLoop` | 仅证明 Linux eventfd 路径；跨平台与跨 HTTP/DNS/TLS 组合仍需另行验收 | `test_std_async_scheduler.uya` 外部 wake 场景 | `async_production_todo.md` `todo_async_runtime_and_http.md` |
 | 协作式取消语义 | ✅ 阶段性覆盖 | `Waker.cancel()`、`TaskQueue.cancel()`、统一 deregister / eventfd close / slot cleanup；结果用 `error.Cancelled` 写回 | 已覆盖调度器和 async_compute 相关路径；HTTP/DNS/TLS 与共享调度组合中的取消语义仍需矩阵化验收 | `test_std_async_scheduler.uya` 取消 slot；`test_std_thread.uya` queued/running cancel | `std_async_design.md` `async_production_todo.md` |
 | `std.thread.async_compute<T>` 集成 | ✅ Linux 主路径已覆盖 | 未启动/排队/one-shot 任务可立即取消；运行中的共享槽任务在结果回收时稳定返回 `error.Cancelled`；`ThreadPoolConfig.submit_strategy` 已显式固定默认策略为 queue-or-error，pending/task slot 容量可配置到 legacy 常量之上 | `Future<!T>` 单态、typedef 装箱、成员调用、`f32/f64` helper 已收口；ThreadPool 仍保留兼容常量和显式容量边界，尚未形成真正动态扩缩容；仍需纳入跨 HTTP/DNS/TLS 的共享 runtime 验收 | `test_std_thread.uya` `test_std_thread_async_boundary.uya` `test_async_compute_types.uya` `test_async_compute_dynamic_resource_pressure.uya` `test_async_thread_pool_dynamic_growth.uya` | `todo_async_runtime_and_http.md` `todo_mini_to_full.md` |
-| HTTP/DNS/TLS async 客户端主链路 | ⚠️ 生产收口中 | HTTP/1.1 nonblocking connect/read/write、DNS async 查询、timeout/deadline 已接通；但尚未作为“HTTP/DNS/TLS/`async_compute`/`Scheduler` 共享同一 runtime 语义”的完整矩阵统一验收 | async lowering / 变量提升相关缺口已修复到主链路可用；仍需把共享 runtime 矩阵纳入生产闸门 | `test_http1_async_client.uya` `test_std_dns_async_transport.uya` `test_https_loopback.uya`；待补共享 runtime 矩阵 | `async_production_todo.md` `todo_async_full_language_dynamic_resources.md` |
+| HTTP/DNS/TLS async 客户端主链路 | ⚠️ 生产收口中 | HTTP/1.1 nonblocking connect/read/write、DNS async 查询、timeout/deadline 已接通；HTTP 连接池/keep-alive 与 TLS 1.2 会话复用已于 2026-10 落地；但尚未作为“HTTP/DNS/TLS/`async_compute`/`Scheduler` 共享同一 runtime 语义”的完整矩阵统一验收 | async lowering / 变量提升相关缺口已修复到主链路可用；共享 runtime 矩阵已有 `tests/verify_async_shared_runtime_matrix.sh`，仍需纳入生产闸门 | `test_http1_async_client.uya` `test_std_dns_async_transport.uya` `test_https_loopback.uya` `test_tls_session_resumption.uya` `verify_async_shared_runtime_matrix.sh` | `async_production_todo.md` `todo_async_full_language_dynamic_resources.md` |
 | UyaGin async 服务端协议热路径 | ✅ P6 阶段性覆盖 | request parser 已支持 chunked request 原地解码；response 已支持 `writev` 聚合写、显式 chunked response、Linux x86_64 `sendfile` 优先发送；`Engine` 已补入 access log/metrics/error trace/config/mode 主链路 | 为支撑观测包装，`engine.handle` 现在统一走 request observation wrapper；当前剩余噪音仍是 parser 对 `catch { ... }` 某些写法的假告警，不影响 codegen/run；不代表 HTTP/DNS/TLS/`async_compute`/`Scheduler` 共享 runtime 已统一验收 | `test_http_parse.uya` `test_http_server.uya` `test_http_uyagin.uya` `test_https_loopback.uya` | `uyagin_todo.md` `uyagin_design.md` `tls_https_todo.md` |
 
 ## 阶段性回归与共享主链路的区别
@@ -112,9 +127,9 @@
 |------|----------------|----------|
 | `Scheduler` / `TaskQueue<T>` | ✅ `Future` / `Poll` / `Waker` / `LinuxEpoll` 单轮推进、协作式取消与 slot 清理已有回归；默认队列超过 legacy `64` 可自动增长 | 仍缺 HTTP/DNS/TLS/`async_compute` 同队列 smoke，以及 release 口径下的统一共享 runtime 验收 |
 | `async_compute<T>` | ✅ worker wake 复用 `eventfd`；取消结果通过共享调度语义回到调用侧；pending/task slot 容量可显式配置到 legacy 常量之上 | 运行中取消不抢占宿主计算；ThreadPool 仍未形成真正动态扩缩容；仍需纳入跨 HTTP/DNS/TLS 的组合矩阵 |
-| HTTP/1.1 async 客户端 | ✅ nonblocking connect/read/write 复用 `AsyncFd`、`Waker` 与 `LinuxEpoll` readiness | 连接池、keep-alive、真实服务端压力和共享调度组合仍是后续项 |
-| DNS async 查询 | ✅ 上层 async 查询已接入 timeout/deadline 和 async transport 回归 | `A/AAAA` 并发聚合未完成；仍需证明与其他链路共享 `Scheduler` 时的资源边界 |
-| TLS / HTTPS | ⚠️ loopback 与同步 HTTPS 生产基础能力已有回归 | TLS 仍未证明完整接入同一 async runtime；会话复用、handshake async 化与共享调度组合仍未收口 |
+| HTTP/1.1 async 客户端 | ✅ nonblocking connect/read/write 复用 `AsyncFd`、`Waker` 与 `LinuxEpoll` readiness；**连接池 + keep-alive 已落地**（`Http1AsyncPool`，`lib/std/http/http1_async.uya:226-261`；回归 `tests/test_http1_async_client.uya`） | 真实服务端压力与共享调度组合仍是后续项 |
+| DNS async 查询 | ✅ 上层 async 查询已接入 timeout/deadline 和 async transport 回归；**`A/AAAA` 并发聚合已落地**（`dns_client_query_all_async()`，`lib/std/net/dns.uya:1826`） | 仍需证明与其他链路共享 `Scheduler` 时的资源边界 |
+| TLS / HTTPS | ⚠️ loopback 与同步 HTTPS 生产基础能力已有回归；**TLS 1.2 会话复用（会话 ID 路径）已落地**（`tls_session_cache_store/lookup`、`handshake_session_resumed`，`lib/tls/ssl/handshake.uya:174/221/377`；回归 `tests/test_tls_session_resumption.uya`） | session ticket（RFC 5077）未做；TLS 仍未证明完整接入同一 async runtime，handshake async 化与共享调度组合仍未收口 |
 
 ## 已完成但仍需记住的约束
 
@@ -130,11 +145,12 @@
 ## 剩余 P2
 
 > 2026-09-27 核对：第 6 项（DNS `A/AAAA` 并发聚合）已完成（见核对头），第 7 项已由 `tests/test_tls_async_io_future.uya` 部分覆盖；其余 1–5 项仍然有效。
+> 2026-10-19 复核：下面 5 项划掉的条目已逐条回到源码确认（行号见文首核对头）；**未划掉的两项仍是真缺口**——Windows `IOCP` 后端（`lib/std/async*.uya` 无任何 windows/iocp 分支）与 async formatting/helper。
 
-- ~~macOS `kqueue` 后端~~（2026-10-04 已完成；运行时未真机验收）
-- Windows `IOCP` 后端
-- 更丰富 async formatting/helper（typed writer、`write_byte`、更高层格式化输出等）
+- ~~macOS `kqueue` 后端~~（2026-10-04 已完成；2026-10-19 确认代码在 `lib/std/async_event.uya:24-181/610-623`，回归 `tests/test_async_event_kqueue_transition.uya`；仍缺 macOS 真机运行时验收）
+- Windows `IOCP` 后端（**未实现**）
+- 更丰富 async formatting/helper（typed writer、`write_byte`、更高层格式化输出等）（**未实现**）
 - ~~多 interest `Waker`~~（2026-10-04 已完成：有界槽表 + 调度器全槽注册，回归 `tests/test_async_waker_multi_interest.uya`）
-- ~~HTTP 连接池与 keep-alive 复用~~（2026-10-04 已完成）
-- ~~TLS 会话复用~~（2026-10-04 已完成会话 ID 路径；session ticket 仍待做）
-- ~~DNS `A/AAAA` 并发聚合~~（2026-09-27 已完成，提交 `61469fe3`）
+- ~~HTTP 连接池与 keep-alive 复用~~（2026-10-04 已完成；2026-10-19 确认 `lib/std/http/http1_async.uya:226-261`，回归 `tests/test_http1_async_client.uya`）
+- ~~TLS 会话复用~~（2026-10-04 已完成会话 ID 路径；session ticket 仍待做。2026-10-19 确认 `lib/tls/ssl/handshake.uya:174/221/360/377`，回归 `tests/test_tls_session_resumption.uya`）
+- ~~DNS `A/AAAA` 并发聚合~~（2026-09-27 已完成，提交 `61469fe3`；2026-10-19 确认 `lib/std/net/dns.uya:1826` `dns_client_query_all_async()`）

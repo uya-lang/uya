@@ -1,5 +1,11 @@
 # va_list 原生支持设计文档
 
+> **实现状态（2026-10-19 核对，编译器 v0.10.4）**：本文的主线已落地，正文保留原设计文本。
+> - `va_list` 已是 checker 认识的类型名（`src/checker/type_from_ast.uya:635-636` → `TypeKind.TYPE_VA_LIST`，`src/checker/types.uya:94`），C99 侧发射为 `typedef __builtin_va_list va_list;`（`src/codegen/c99/main.uya:2298`、`2400`）。
+> - §3.2「新规则」已实现：`@va_arg` 在"可变参数函数"**或**"形参里带 `va_list` 的函数"内都可用（`src/checker/check_expr.uya:1714-1753`，报错文案 `@va_arg 只能在可变参数函数或接收 va_list 参数的函数内使用`）；`@va_copy` 同样放宽（`src/checker/check_expr.uya:1762-1792`）。
+> - 因此 §1.1 里"❌ 当前无法实现 `vprintf` 系列"**已过时**：`fn vf(fmt: &byte, ap: va_list) i32 { const v: i32 = @va_arg(ap, i32); ... }` 现在可以编译（已用 `bin/uya --c99` 实测）。
+> - `@va_start` / `@va_end` 仍要求处于可变参数函数内（`src/checker/check_expr.uya:1695-1712`）。
+
 ## 1. 概述
 
 ### 1.1 背景

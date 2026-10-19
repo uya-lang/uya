@@ -3,6 +3,25 @@
 **版本**：v0.1  
 **日期**：2026-04-05
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：本权限模型已在 `lib/std/runtime/capability/` 落地。
+>
+> - §3 权限分类与 §4 MVP 集合 → `types.uya` 的 `CapabilityPermissionId`（`TimeRead` / `DeviceInfoRead` /
+>   `LogWrite` / `VibrateUse` / `ScreenDrawBasic` / `NotificationPost` / `SensorStepRead` / `SensorHrRead` /
+>   `SensorAccelRead` / `StorageKvRead` / `StorageKvWrite` / `BleRead` / `BleWrite` / `NetRequest`），
+>   位图映射见 `capability_permission_to_mask`。
+> - §2.1/2.2 声明与授予分离 → `policy.uya` 的 `CapabilityPermissionSet` 与
+>   `capability_permission_set_declare` / `_grant` / `_is_declared` / `_is_granted` / `_require`；
+>   对应错误 `CapabilityPermissionDenied` / `CapabilityPermissionNotDeclared`。
+> - §2.3 调用时检查 → `capability_permission_require()` 在 Host API 入口调用。
+> - §5 判定流程 → `policy.uya` + `abi.uya` 的 `CapabilityStatusCode`（`PermissionDenied` / `Disabled` /
+>   `TimedOut` / `ResourceExceeded`）。
+> - §8 Host API 与权限映射 → `hostapi.uya` 的 `CapabilityHostApi` 与 `abi.uya` 的 `CapabilityHostCallId`。
+>   已实现权限检查的 Host API 为 `time_now` / `log_write` / `vibrate` / `kv_get` / `kv_set`；
+>   `ScreenDrawText` 目前只有 `CapabilityHostCallId` 枚举值，`hostapi.uya` 尚未提供该函数。
+> - Manifest 侧声明字段：`manifest.uya` 的 `permissions: [CapabilityPermissionId: CAPABILITY_MAX_PERMISSIONS]`。
+>
+> 本文仍是**语义与策略**的定义处；实现细节以代码为准。
+
 ---
 
 ## 1. 目标

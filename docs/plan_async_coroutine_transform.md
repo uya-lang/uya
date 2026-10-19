@@ -1,5 +1,10 @@
 # 通用 @async_fn 协程变换实现计划
 
+> **核对头（2026-10-19）**：本文描述的方案**就是**仓库当前实际路线（C99 codegen 层递归段发射，不改 parser/checker、不新增 AST 节点），与 [async_coroutine_transform_design.md](async_coroutine_transform_design.md) 的 AST 变换备选方案相反。
+> 关键函数仍在位：`gen_async_function_stage_b()`（`src/codegen/c99/function.uya:1855` 调用点）、`emit_async_segment()`（`:5874`）、`emit_async_segment_with_control()`（`:5082`）、`emit_async_continuation` 路径（`:4939`/`:5051`/`:5070`/`:5106`）。
+> 下方"实现步骤"里的行号（2785-3081 等）是 2026-04 快照，已随文件增长漂移，请按**函数名**而非行号定位。
+> 第 15 行"`for iter |&x|` 引用绑定需继续报错"已被推翻：该形态已成正向回归 `tests/test_async_for_iterator_ref_await.uya`。
+
 ## Context
 
 早期 `@async_fn` 状态机在 C99 codegen 层大量依赖模式匹配 AST 形状，易漏语句与错状态转移（Bug A/B/C/D，以及复合表达式里的 `try @await`）。

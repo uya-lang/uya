@@ -3,6 +3,8 @@
 > **核对头（2026-09-27）**：本计划的任务清单指向**已退役的 `compiler-c/` 路线**（`compiler-c/src/ast.h`、`parser.c` 等），按 `AGENTS.md` 不再维护该路线。
 > 新树现状：`@extern_var` 已在 `src/` 落地（`src/ast.uya` 的 `AST_EXTERN_VAR_DECL`、`src/checker/check_expr*.uya`/`check_stmt.uya`、`src/codegen/c99/global.uya` 的 `gen_extern_var_decl`）。
 > 本文件仅作历史设计参考；如需补新语义（例如新的 ABI 约束），请基于 `src/` 重新开条目。
+>
+> **实现状态核对（2026-10-19，编译器 v0.10.4）**：`extern var` / `extern const` / `export var` / `export const` / `export extern const|var` 在 `src/` 全部可用（已用 `bin/uya --c99` 实测：`extern var optind: i32;` → `extern int32_t optind;`，`export var debug_mode: i32 = 0;` → `int32_t debug_mode = 0;`，`export extern const ENOENT: i32;` 不生成定义）。落地位置：parser `src/parser/declarations.uya:2186`、`2250`（`AST_EXTERN_VAR_DECL`），字段见 `src/ast.uya`，codegen `src/codegen/c99/global.uya:943`（`gen_extern_var_decl`）；样例 `tests/extern_var_test.uya`。`@extern_var` 只是本文对这条 `extern` 变量/常量特性的旧称，**不是**语言内置函数。
 
 ## 概述
 
@@ -232,18 +234,15 @@ int symbol_table_add_extern_var(SymbolTable *table, ASTNode *node);
 
 | 文件 | 修改内容 | 状态 |
 |------|----------|------|
-| `compiler-c/src/ast.h` | AST 节点类型和字段 | ✅ |
-| `compiler-c/src/ast.c` | 节点初始化 | ✅ |
-| `compiler-c/src/parser.c` | 解析逻辑 | ✅ |
-| `compiler-c/src/checker.c` | 类型检查 | ✅ |
-| `compiler-c/src/codegen/c99/global.c` | 代码生成 | ✅ |
-| `compiler-c/src/codegen/c99/internal.h` | 函数声明 | ✅ |
-| `compiler-c/src/codegen/c99/main.c` | 集成调用 | ✅ |
-| `src/ast.uya` | AST 节点类型和字段 | ✅ |
-| `src/parser.uya` | 解析逻辑 | ✅ |
-| `src/checker.uya` | 类型检查 | ✅ |
-| `src/codegen/c99/global.uya` | 代码生成 | ✅ |
+| `compiler-c/src/ast.h`、`ast.c`、`parser.c`、`checker.c`、`codegen/c99/global.c`、`codegen/c99/internal.h`、`codegen/c99/main.c` | 旧 C 版路线（`compiler-c/` 已退役，目录不在仓库中） | ⛔ 已退役 |
+| `src/ast.uya`（`AST_EXTERN_VAR_DECL` 及 `extern_var_decl_*` 字段） | AST 节点类型和字段 | ✅ |
+| `src/parser/declarations.uya:2186`、`2250` | 解析 `extern var/const` 与 `export extern var/const` | ✅ |
+| `src/parser/main.uya:825`、`909` | 声明分派与 export 标记 | ✅ |
+| `src/checker/proof.uya:206-280`（及其它 `checker/*`） | 类型检查与 const 折叠 | ✅ |
+| `src/codegen/c99/global.uya:943`（`gen_extern_var_decl`） | 代码生成 | ✅ |
 | `src/codegen/c99/main.uya` | 集成调用 | ✅ |
+
+> 说明：早期表格把自举侧的路径写成 `src/parser.uya` / `src/checker.uya`，实际已按目录拆分——parser 在 `src/parser/`，checker 在 `src/checker/`。
 
 ---
 

@@ -1,5 +1,10 @@
 # Uya 微容器镜像与加载验证规范
 
+> **实现状态（2026-10-19 核对，v0.10.4）**：镜像校验已落为 CLI 子命令 ——
+> `uya verify-image <xxx.pobj|xxx.uapp>`（校验镜像或载荷对象）、`uya inspect-image`（打印头信息）、
+> `uya pack-image <xxx.pobj> -o <xxx.uapp>`；`.uapp` v1/v2 兼容回归由 `make microapp-compat-check`
+> 覆盖，crash/recovery/update 由 `make microapp-recovery-check` 覆盖。下文是规范原文。
+
 **版本**: v1.3  
 **日期**: 2026-04-02  
 **关联文档**: `docs/microcontainer/requirements_v1.3.md`

@@ -2,7 +2,19 @@
 
 **版本**：v0.2  
 **日期**：2026-04-20  
-**状态**：设计完成，待实现
+**状态**：已实现（2026-10-19 核对，v0.10.4）
+
+> **实现核对**：
+>
+> - 词法白名单与错误文案：`src/lexer.uya`（`@embed` / `@embed_dir` 均在未知内置错误列表中）。
+> - 解析：`src/parser/primary.uya`，参数收紧为「恰好一个字符串字面量」。
+> - 类型与内容读取：`src/checker/check_expr.uya`；`@embed` → `&[const byte]`，
+>   `@embed_dir` → `&[const EmbedDirEntry]`（`EmbedDirEntry` 由 checker 前置阶段合成注入）。
+> - Codegen：按需延迟补发射，镜像 split-C 下同样可用。
+> - 回归：`tests/test_embed_builtin.uya`、`tests/verify_embed_dedupe.sh`、
+>   `tests/verify_embed_dir_multifile_reuse.sh`、`tests/verify_embed_multifile_reuse.sh`、
+>   `tests/verify_embed_empty_dir.sh`、`tests/verify_embed_nostdlib.sh`，以及
+>   `tests/error_embed_*.uya` 一组负例。
 
 ---
 

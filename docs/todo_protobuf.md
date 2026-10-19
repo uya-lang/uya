@@ -2,6 +2,19 @@
 
 **参考**：[protobuf_design.md](protobuf_design.md)
 
+**最后核对**：2026-10-19，按 `lib/std/protobuf/{wire,impl,demo,decode,encode,dynamic,errors}.uya` 与 `tests/test_protobuf_*.uya`（10 个）、`tests/bench_protobuf.uya` 逐条回填。
+
+### 总体状态
+
+| Phase | 状态 | 依据 |
+| --- | --- | --- |
+| Phase 1 Wire + 基础类型 | 完成 | `wire.uya`、`errors.uya`、`impl.uya`、`demo.uya`、`decode.uya:36`、`encode.uya:89` |
+| Phase 2 嵌套 + repeated | 完成 | `decode_demo_outer(_d)`、`decode_demo_inner_list`、packed/unpacked 编码 |
+| Phase 3 map / oneof / enum / optional | 完成 | `demo.uya:44-78` + `decode.uya:395/442/490/516` + `encode.uya:249/304/335/342` |
+| Phase 4 动态解析 | 完成 | `dynamic.uya:86` `decode_dynamic`、`:120` `pb_message_find_field` |
+| 泛型 `decode<T>` / `impl_protobuf!` 宏 | **未实现** | 无 `impl_macro.uya`；所有编解码均为 `xxx_<type>` 手写函数 |
+| Benchmark | 完成 | `tests/bench_protobuf.uya`；数据见 `protobuf_design.md` §13 |
+
 实现时遵循项目 TDD 流程：先添加测试 → 实现代码 → `make check` 验证。
 
 ---
@@ -17,6 +30,7 @@
 
 - [x] 创建 `lib/std/protobuf/` 目录
 - [x] `errors.uya`：TruncatedInput、InvalidVarint、InvalidTag、UnknownWireType、FieldNumberOverflow、RecursionLimit、BufferTooSmall、InvalidBool（模块名 **`errors`**，避免与关键字 `error` 冲突）
+  - 现状（2026-10-19 核对，`lib/std/protobuf/errors.uya:4-13`）：实为 **10 个** `export error`，另有 Phase 3 增加的 `MapTooMany`（map 条目超 `DEMO_STR_INT_MAP_MAX`）与 `PbFieldMissing`（`pb_message_find_field` 未命中）
 - [x] `wire.uya`：varint 读、tag 拆分/校验、`skip_field`、fixed32/fixed64 读、zigzag（sint32/sint64）
 - [x] `encode.uya`：`PbWriter` + varint/tag/fixed 写（与 wire 对称）
 
@@ -31,6 +45,7 @@
 - [x] `decode.uya`：`decode_demo_user(arena, ptr, len) !DemoUser`（手写示例；未知 field 跳过）
 - [x] `encode.uya`：`encode_demo_user_to`、`encode_demo_user_into_arena`（Arena 分配输出）、`encode_demo_user_size`
 - [ ] 泛型 `decode<T>` / 宏 `impl_protobuf!`（延至后续）
+  - 2026-10-19 核对：仍**未实现**。`lib/std/protobuf/` 无 `impl_macro.uya`，编译器侧也无 `impl_protobuf` 宏展开；每个 message 都必须手写 `decode_xxx` / `encode_xxx_to`。目前仓库中唯一的 message 定义是 `lib/std/protobuf/demo.uya` 里的 9 个 Demo* 结构体。
 
 ### 1.5 测试
 
@@ -69,6 +84,7 @@
 - [x] enum（varint）
 - [x] optional
 - [x] 测试：`tests/test_protobuf_map.uya`、`test_protobuf_oneof.uya`
+  - 覆盖明细（2026-10-19 核对）：`test_protobuf_map.uya` 覆盖 `DemoStrIntMap`；`test_protobuf_oneof.uya` 同时覆盖 oneof（`DemoOneofMsg`）、enum（`DemoPaint` / `DemoColor_*`）与 optional（`DemoOptScores`）——即 Phase 3 四类特性都落在上面两个测试里，没有单独的 `test_protobuf_enum.uya` / `test_protobuf_optional.uya`
 
 ---
 

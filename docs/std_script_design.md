@@ -1,7 +1,7 @@
 # Uya 脚本标准库与运行时设计文档
 
-**状态**：design draft  
-**更新日期**：2026-07-10
+**状态**：design draft（2026-10-19 复核：分层与语义约束仍有效；"当前缺口"已按实现刷新）
+**更新日期**：2026-07-10（正文）；2026-10-19 补核对
 **配套 TODO**：[`todo_std_script.md`](todo_std_script.md)
 **类型化管道设计**：[`typed_pipeline_design.md`](typed_pipeline_design.md)
 
@@ -93,12 +93,13 @@
 
 ### 当前缺口
 
-1. **缺少高层模块边界**
-   - 现在更接近 syscall/libc/osal 能力集合，还没有 `std.process`、`std.fs`、`std.env`、`std.path`、`std.script` 这类脚本作者直接可用的高层 API。
+1. **高层模块边界：大部分已补，`std.fs` 仍缺**（2026-10-19 核对）
+   - **已存在**：`lib/std/process.uya`（typed pipeline，158 KB，`export opaque struct Pipeline` 在 `:2609`）、`lib/std/env.uya`（`get` `:112` / `has` `:135` / `EnvBlockBuilder` `:154`）、`lib/std/path.uya`（10 个 `export fn`：`path_list_separator` / `executable_suffix` / `is_abs` / `normalize` / `basename` / `stem` / `extension` / `dirname` / `join` / `find_executable`）、`lib/std/script/file.uya`（`std.process` 的 facade，20 个导出）。
+   - **仍缺**：`lib/std/fs.uya`（本设计 3.1 的 `exists` / `is_file` / `mkdir_all` / `remove_dir_all` / `read_text` / `write_text` / `read_dir` / `create_temp_dir` 等**均无高层模块**）。当前只有底层原语：`lib/std/io/file.uya`（`file_open/close/read/write` + stdio 包装）与 `lib/libc/syscall.uya` 的 `sys_mkdir/sys_rmdir/sys_rename/sys_unlink/sys_stat/sys_getdents64`。
 
 2. **当前进程全局环境变量写接口未完成**
    - child-only env block builder 已可用于子进程环境覆盖/删除。
-   - `setenv` / `unsetenv` / `clearenv` 仍是占位实现，不适合作为脚本运行时公开“修改当前进程环境”的语义。
+   - `setenv` / `unsetenv` / `clearenv` 在仓库里**只有 `export extern "libc"` 绑定**（`lib/libc/stdlib.uya:1042/1050/1058`），没有 Uya 侧实现；hosted 下等于直接借宿主 libc，固定 ABI 语义（尤其 `environ` 可见性）尚未由 Uya 自己的 canonical env view 保证，因此仍不作为公开“修改当前进程环境”的承诺。
 
 3. **默认 `run` 路径仍有字符串拼接**
    - 当前 `uya run/test` 仍有一部分逻辑靠命令字符串 + `system()` 驱动，不适合作为未来标准库 API 的方向。

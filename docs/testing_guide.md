@@ -1,77 +1,91 @@
 # Uya 测试规范
 
-**版本**: v1.1.0  
-**日期**: 2026-02-15
+**版本**: 2.0.0
+**日期**: 2026-10-19
 
 ---
 
 ## 1. 概述
 
-本规范定义了 Uya 项目的测试编写标准，充分利用 Uya 的 `error` 类型系统。
+本规范定义 Uya 项目的测试编写标准，依据当前 `lib/std/testing/testing.uya` 与
+`src/main.uya` 的 `uya test` 实现整理。
 
 ### 1.1 核心理念
 
-- **错误即测试失败**：测试函数返回 `!void`，失败时返回 `error`
+- **错误即测试失败**：测试函数返回 `!void`，断言失败返回 `error`
 - **自动传播**：使用 `try` 自动传播断言失败
-- **资源安全**：使用 `errdefer` 确保错误时资源清理
-- **统一报告**：框架自动统计并输出测试结果
-- **零依赖**：测试程序完全使用 libc，不依赖 bridge.c
+- **资源安全**：使用 `defer` / `errdefer` 确保清理
+- **统一报告**：测试运行器自动统计通过/失败数与断言数
+- **零依赖**：测试程序走标准库 + libc，不需要额外 bridge 文件
 
 ---
 
 ## 2. 测试框架
 
-### 2.1 导入
+### 2.1 两种写法
+
+**推荐：`test "名称" { ... }` 块**（`tests/` 中 400+ 个文件使用）：
 
 ```uya
-// 单独导入需要的函数和宏
-use std.testing.assert;
 use std.testing.assert_eq_i32;
-use std.testing.expect;
+
+test "addition" {
+    const sum: i32 = 1 + 1;
+    try assert_eq_i32(sum, 2);
+}
+```
+
+**显式 runner**（需要自定义入口或输出时）：
+
+```uya
+use std.testing.assert_eq_i32;
 use std.testing.test_suite_begin;
 use std.testing.test_suite_end;
-use std.testing.run_test;  // 宏
+use std.testing.run_test;
+
+fn test_addition() !void {
+    try assert_eq_i32(1 + 1, 2);
+}
+
+export fn main() i32 {
+    test_suite_begin("Arithmetic Tests");
+    run_test("addition", test_addition);
+    return test_suite_end();
+}
 ```
 
-### 2.2 核心组件
+### 2.2 核心组件（`lib/std/testing/testing.uya`）
 
-|| 组件 | 说明 |
-||------|------|
-|| `test_suite_begin(name)` | 开始测试套件 |
-|| `run_test(name, test_fn)` | 运行单个测试 |
-|| `test_suite_end()` | 结束套件，返回失败数 |
-|| `skip_test(name, reason)` | 跳过测试 |
+| 组件 | 说明 |
+|------|------|
+| `test_suite_begin(name)` | 开始测试套件 |
+| `run_test(name, test_fn)` | 宏：运行单个测试（`test_fn` 返回 `!void`） |
+| `test_pass(name)` / `test_fail(name)` | 记录单个测试结果 |
+| `test_suite_end()` | 结束套件，返回失败数（作为进程返回码） |
 
-### 2.3 断言函数
+> `run_test` 是 `mc` 宏，不是普通函数；调用处不要加 `try`。
 
-#### 基本断言
+### 2.3 断言宏
 
-```uya
-// 带消息的断言
-try assert(condition, "message");
-try assert_eq_i32(actual, expected, "message");
-try assert_eq_bool(actual, expected, "message");
-try assert_ne_i32(actual, expected, "message");
-try assert_gt_i32(actual, expected, "message");
-try assert_lt_i32(actual, expected, "message");
-try assert_ge_i32(actual, expected, "message");
-try assert_le_i32(actual, expected, "message");
-try assert_null(ptr, "message");
-try assert_not_null(ptr, "message");
-try assert_ptr_eq(actual, expected, "message");
-```
-
-#### 简写断言（无消息）
+全部来自 `std.testing`，返回 `!void`，调用处需 `try`：
 
 ```uya
-try expect(condition);
-try expect_eq(actual, expected);    // i32
-try expect_ne(actual, expected);    // i32
-try expect_true(value);
-try expect_false(value);
-try expect_null(ptr);
+try assert(condition, "message");          // 条件 + 消息
+try assert_true(condition);                // 只验证条件
+try expect(condition);                     // assert_true 的别名风格
+
+try assert_eq_i32(actual, expected);
+try assert_eq_i64(actual, expected);
+try assert_eq_u64(actual, expected);
+try assert_eq_bool(actual, expected);
+
 try expect_not_null(ptr);
+try expect_null(ptr);
 ```
+
+**不存在** `expect_eq` / `expect_true` / `expect_false` / `assert_ne_i32` / `assert_gt_i32` /
+`assert_lt_i32` / `assert_ge_i32` / `assert_le_i32` / `assert_ptr_eq` / `assert_null` / `skip_test`。
+需要比较大小或检查不等时，直接用布尔表达式配合 `assert` / `expect`。
 
 ---
 
@@ -79,157 +93,91 @@ try expect_not_null(ptr);
 
 ### 3.1 文件命名
 
-```
-tests/programs/test_<module>.uya      # 模块测试
-```
+| 前缀 | 用途 | 期望 |
+|------|------|------|
+| `test_*.uya` | 正向回归 | 编译并运行通过 |
+| `error_*.uya` | 负向用例 | 编译/检查阶段必须报错 |
+| `recursive_*` / `nested_*` | 递归 / 嵌套结构 | 编译并运行通过 |
+| `tests/repros/*.uya` | 最小复现（缺陷未修时保留） | 记录用，不保证通过 |
+| `verify_*.sh` / `stress_*.sh` | 脚本化验证 / 压测 | 由 `make check` 或专项目标调用 |
+
+当前规模：`tests/test_*.uya` 894 个、`tests/error_*.uya` 198 个、`tests/repros/` 17 个、
+`tests/*.sh` 184 个。
 
 ### 3.2 标准模板
 
 ```uya
 // test_<module>.uya - <模块描述>
-// 使用 lib/std/testing.uya 测试框架
-// 编译时需包含 entry.uya 入口模块
+//
+// 覆盖：<场景 1>、<场景 2>
+// 运行：./bin/uya test tests/test_<module>.uya
 
-use libc.function1;
-use libc.function2;
-use std.testing.*;
+use std.testing.assert_eq_i32;
+use std.testing.expect_not_null;
 
-// ============================================================
-// 测试用例
-// ============================================================
-
-fn test_function1() !void {
+test "<scenario one>" {
     const result: i32 = function1(input);
-    try assert_eq_i32(result, expected, "description");
+    try assert_eq_i32(result, expected);
 }
 
-fn test_function2_with_resource() !void {
+test "<scenario with resource>" {
     var resource: Resource = try create_resource();
-    
-    // 错误时清理
-    errdefer {
-        cleanup_on_error(resource);
-    }
-    
-    // 正常结束时清理
-    defer {
-        cleanup(resource);
-    }
-    
-    try assert_not_null(resource.data, "resource should have data");
-}
+    defer { cleanup(resource); }
+    errdefer { cleanup_on_error(resource); }
 
-// ============================================================
-// 主函数（当前使用 fn main() 兼容 bridge.c）
-// 未来测试脚本升级后可改为 export fn main() 配合 entry.uya
-// ============================================================
-
-fn main() i32 {
-    test_suite_begin("<Module> Tests");
-    
-    run_test("function1", test_function1);
-    run_test("function2 with resource", test_function2_with_resource);
-    
-    return test_suite_end();
+    try expect_not_null(resource.data);
 }
 ```
 
 ### 3.3 入口机制
 
-**当前状态**（兼容 bridge.c）：
-```
-C Runtime → bridge.c::main() → main_main()
-                              └─ 用户测试代码
-```
+- `test "名称" {}` 块由编译器收集，`uya test` 自动生成运行器。
+- 显式 runner 使用 `export fn main() i32 { ... }`；需要 entry 模块时 `use std.runtime.entry`。
 
-测试文件使用 `fn main()` 兼容测试脚本的 bridge.c 链接方式。
-
-**未来规划**（使用 entry.uya）：
-```
-C Runtime → entry.uya::main() → main_main()
-                              └─ 用户测试代码
-```
-
-|| 声明方式 | 编译结果 | 用途 |
-||----------|----------|------|
-|| `fn main()` | `main_main()` | 测试文件（兼容 bridge.c） |
-|| `export fn main()` | `main_main()` | 应用程序入口（配合 entry.uya） |
-
-### 3.4 编译命令
-
-如果你只是想先确认当前测试文件能否通过语法和 checker，而不想生成 C 或运行程序，可以先用：
+### 3.4 运行与编译命令
 
 ```bash
-bin/uya check tests/programs/test_xxx.uya
+# 推荐：直接编译并运行（默认 C99 split-C，放在 .uyacache）
+./bin/uya test tests/test_std_sql.uya
+
+# 指定 C99 后端 / 栈大小（KB）
+./bin/uya test --c99 --stack-size 65536 tests/test_std_sql.uya
+
+# 只做语法 + 类型检查（不生成 C、不运行）
+./bin/uya check tests/test_std_sql.uya
+
+# 单文件 C 输出（便于观察生成的 C）
+./bin/uya build tests/test_std_sql.uya -o /tmp/test_std_sql.c --c99 --no-split-c
+gcc -std=c99 /tmp/test_std_sql.c -o /tmp/test_std_sql -lm
+/tmp/test_std_sql
+
+# 批量 / 并行
+make tests
+./tests/run_programs_parallel.sh --uya --c99 -j 8
 ```
 
-这条路径会停在 checker，适合在改测试输入、parser、checker 或 proof 相关代码时快速验证。
+如果测试依赖 `@c_import`，推荐直接 `./bin/uya build ... --c99` 让编译器完成链接；只输出
+`.c` 时会额外生成 sidecar，可用 `tests/link_cimports_posix.sh` 手动链接：
 
 ```bash
-# 仅生成 C99
-bin/uya build tests/programs/test_xxx.uya -o /tmp/test_xxx.c --c99
-
-# 手动编译生成的 C（当前 bridge.c 路线）
-gcc -std=c99 -no-pie /tmp/test_xxx.c tests/bridge_minimal.c -o /tmp/test_xxx -lm
-
-# 运行测试
-/tmp/test_xxx
-```
-
-如果测试依赖 `@c_import`，且你选择只输出 `.c`，则编译器还会额外写出同名 sidecar：
-
-```bash
-bin/uya build tests/test_c_import_file.uya -o /tmp/test_c_import_file.c --c99
-# 额外生成：/tmp/test_c_import_file.cimports.sh
-```
-
-推荐用仓库自带脚本消费 sidecar：
-
-```bash
+./bin/uya build tests/test_c_import_file.uya -o /tmp/test_c_import_file.c --c99 --no-split-c
 CC=gcc ./tests/link_cimports_posix.sh /tmp/test_c_import_file.c /tmp/test_c_import_file
 /tmp/test_c_import_file
-```
-
-说明：
-- sidecar 中保存 `UYA_CIMPORT_SRC_*`、`UYA_CIMPORT_REL_*`、`UYA_CIMPORT_CFLAG_*_*` 与 `UYA_CIMPORT_LDFLAG_*`
-- 脚本会先编译导入的 C object，再与主 `.c` 一起链接
-- 若测试走 split-C 路径，则导入的 C object 直接进入 Makefile，不依赖 sidecar
-
-当前更推荐直接让编译器在 `-e` 模式下调用宿主工具链完成链接：
-
-```bash
-# 原生 hosted 测试
-bin/uya build tests/programs/test_xxx.uya -o /tmp/test_xxx.c --c99 -e
-
-# 使用 zig cc 做统一工具链
-TOOLCHAIN=zig ZIG=/path/to/zig \
-bin/uya build tests/programs/test_xxx.uya -o /tmp/test_xxx.c --c99 -e
-```
-
-如需交叉或显式指定 C 驱动，可继续传入 `CC_DRIVER` / `CC_TARGET_FLAGS`：
-
-```bash
-CC_DRIVER="/path/to/zig cc" \
-CC_TARGET_FLAGS="-target aarch64-macos-none" \
-bin/uya build tests/programs/test_xxx.uya -o /tmp/test_xxx.c --c99 -e
 ```
 
 ---
 
 ## 4. 返回码约定
 
-遵循 Unix 惯例：
-
-|| 返回值 | 含义 |
-||--------|------|
-|| `0` | 所有测试通过 |
-|| `非零` | 失败的测试数量 |
+| 返回值 | 含义 |
+|--------|------|
+| `0` | 所有测试通过 |
+| 非零 | 失败的测试数量（`test_suite_end()` 的返回值） |
 
 ### 4.1 CI/CD 集成
 
 ```bash
-# 运行测试
-./test_xxx
+./bin/uya test tests/test_std_sql.uya
 exit_code=$?
 
 if [ $exit_code -eq 0 ]; then
@@ -252,25 +200,20 @@ fn test_feature() !void {
     try expect(condition);
 }
 
-// 错误：旧方式返回 i32
+// 旧方式（不推荐）
 fn test_feature() i32 {
-    return 0;  // 不要这样写
+    return 0;
 }
 ```
 
 ### 5.2 断言使用
 
 ```uya
-// 推荐：带描述消息
-try assert_eq_i32(result, 5, "2 + 3 should equal 5");
+// 推荐：带语义的断言
+try assert_eq_i32(result, 5);
 
-// 可接受：简写形式
-try expect_eq(result, 5);
-
-// 不推荐：手动判断
-if result != 5 {
-    return error.TestFailed;  // 过于冗长
-}
+// 比较大小：用布尔条件
+try assert(result > 0, "result should be positive");
 ```
 
 ### 5.3 资源管理
@@ -278,34 +221,23 @@ if result != 5 {
 ```uya
 fn test_with_file() !void {
     const file: FileHandle = try open_file("test.txt");
-    
-    // 错误时回滚
-    errdefer {
-        rollback(file);
-    }
-    
-    // 总是关闭
-    defer {
-        close_file(file);
-    }
-    
-    // 测试逻辑...
-    try assert_not_null(file.data, "file should be open");
+
+    errdefer { rollback(file); }   // 出错时回滚
+    defer { close_file(file); }    // 总是关闭
+
+    try expect_not_null(file.data);
 }
 ```
 
 ### 5.4 错误测试
 
 ```uya
-fn test_error_case() !void {
+test "divide by zero returns error" {
     const result: i32 = divide(10, 0) catch |err| {
-        // 验证返回了预期的错误
         try expect(@error_id(err) == @error_id(error.DivisionByZero));
-        return;  // 测试通过
+        return;
     };
-    
-    // 如果到这里，说明没有返回错误
-    return error.TestFailed;
+    try assert(false, "divide should have failed");
 }
 ```
 
@@ -317,19 +249,19 @@ struct TestCase {
     expected: i32,
 }
 
-fn test_table_driven() !void {
+fn square(x: i32) i32 {
+    return x * x;
+}
+
+test "square table" {
     const cases: [TestCase: 3] = [
         TestCase{ input: 1, expected: 1 },
         TestCase{ input: 2, expected: 4 },
         TestCase{ input: 3, expected: 9 },
     ];
-    
-    var i: i32 = 0;
-    while i < 3 {
+    for 0..3 |i| {
         const tc: TestCase = cases[i];
-        const result: i32 = square(tc.input);
-        try assert_eq_i32(result, tc.expected, "square test");
-        i = i + 1;
+        try assert_eq_i32(square(tc.input), tc.expected);
     }
 }
 ```
@@ -340,221 +272,104 @@ fn test_table_driven() !void {
 
 ### 6.1 标准输出
 
+`uya test` 的真实输出形如：
+
 ```
-=== Test Suite: libc.string ===
-  TEST: strlen ... OK
-  TEST: strcmp ... OK
-  TEST: strcpy ... FAILED
-    ASSERT FAILED: strcpy should copy correctly
-      Expected: 5
-      Actual:   0
-  TEST: strcat ... OK
+=== Running 2 tests ===
+  TEST: addition ... OK
+  TEST: failing ... assert_eq_i32 failed: 1 + 1 == 3 (actual: 2, expected: 3)
+ERROR
 
 === Results ===
-  Passed:  3
-  Failed:  1
-  Skipped: 0
-==================
+  Tests Passed:       1
+  Tests Failed:       1
+  Assertions Passed:  1
+================================
+总计: 1 个测试
+通过: 0
+失败: 1
+================================
+程序运行返回码：1
 ```
 
 ### 6.2 测试跳过
 
-```
-  TEST: large_file ... SKIPPED (requires > 1GB memory)
-```
+按平台/网络条件跳过的脚本级用例由 `tests/run_programs_parallel.sh` 的 `SKIP_TEST_PATTERNS` /
+`SKIP_TESTS` / `SKIP_NETWORK` 处理（例如 macOS 默认跳过部分 Linux-centric 用例），
+测试框架本身没有 `skip_test` 函数。
 
 ---
 
-## 7. 编译与运行
+## 7. 最佳实践
 
-### 7.1 编译命令
+### 7.1 测试命名
 
-```bash
-# 编译 Uya 测试文件（兼容 bridge.c）
-bin/uya-c --c99 tests/programs/test_xxx.uya -o /tmp/test_xxx.c
+- 文件名：`test_<功能>.uya`；负例：`error_<功能>.uya`
+- 测试名：描述「行为 + 条件」，如 `test "empty input returns zero"`
 
-# 编译 C 代码
-gcc -std=c99 -no-pie /tmp/test_xxx.c tests/bridge_minimal.c -o /tmp/test_xxx -lm
-```
+### 7.2 测试隔离
 
-### 7.2 运行测试
+- 每个 `test` 块自带作用域，避免共享可变全局。
+- 需要全局状态时，在每个测试里显式重置。
 
-```bash
-# 运行
-/tmp/test_xxx
+### 7.3 边界条件
 
-# 检查返回码
-echo $?
-```
+优先覆盖：空输入、零/负数、最大/最小值、越界（负例）、错误路径、资源释放次数。
 
----
+### 7.4 断言选择
 
-## 8. 迁移指南
-
-### 8.1 旧模式 vs 新模式
-
-|| 旧模式 | 新模式 |
-||--------|--------|
-|| `fn test_xxx() i32` | `fn test_xxx() !void` |
-|| `if x != 5 { return 1; }` | `try expect(x == 5);` |
-|| `return 0;` | `return test_suite_end();` |
-|| `var passed = 1; ...` | `try expect(...);` |
-|| 手动计数失败 | 框架自动统计 |
-|| `fn main()` | `fn main()` + test_suite_* |
-
-### 8.2 迁移步骤
-
-1. 添加 `use std.testing.*;`
-2. 修改测试函数签名为 `!void`
-3. 替换手动断言为框架断言
-4. 修改 `main()` 使用 test_suite_* API
-5. 删除冗余代码（passed 变量、手动输出等）
-
-### 8.3 编译方式
-
-```bash
-# 编译测试文件（兼容 bridge.c）
-bin/uya-c --c99 test.uya -o test.c
-gcc -std=c99 -no-pie test.c tests/bridge_minimal.c -o test -lm
-```
+- 能证明「具体值」就断言具体值，不要只断言非空。
+- 负向用例要断言**具体错误**（`@error_id`），不要只断言「失败了」。
 
 ---
 
-## 9. 最佳实践
+## 8. 附录
 
-### 9.1 测试命名
-
-```uya
-// 好的命名
-fn test_strlen_empty_string() !void { }
-fn test_strcmp_equal_strings() !void { }
-fn test_malloc_zero_size() !void { }
-
-// 不好的命名
-fn test1() !void { }
-fn test_strlen() !void { }  // 太笼统
-```
-
-### 9.2 测试隔离
+### 8.1 完整示例
 
 ```uya
-// 每个测试应该独立
-fn test_a() !void {
-    // 不依赖其他测试的状态
-    errno = 0;  // 重置全局状态
-    try expect(errno == 0);
+// test_stack.uya - 计数器与资源释放
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+struct Counter {
+    value: i32,
 }
 
-fn test_b() !void {
-    errno = 0;  // 重置全局状态
-    // ...
-}
-```
-
-### 9.3 边界条件
-
-```uya
-fn test_boundary() !void {
-    // 边界值
-    try expect_eq(strlen(""), 0);      // 空字符串
-    try expect_eq(strlen("a"), 1);     // 单字符
-    try expect_eq(strlen("ab"), 2);    // 多字符
-    
-    // 边界条件
-    try expect(abs(0) == 0);           // 零
-    try expect(abs(-2147483648) >= 0); // INT_MIN
-}
-```
-
----
-
-## 10. 附录
-
-### 10.1 完整示例
-
-```uya
-// tests/programs/test_example.uya
-// 描述：示例测试文件
-// 编译：bin/uya-c --c99 test_example.uya -o test_example.c
-
-use libc.malloc;
-use libc.free;
-use libc.strlen;
-use std.testing.*;
-
-// ============================================================
-// 测试用例
-// ============================================================
-
-fn test_strlen_basic() !void {
-    try expect_eq(strlen("hello"), 5);
-    try expect_eq(strlen(""), 0);
-}
-
-fn test_malloc_free() !void {
-    const ptr: *byte = malloc(100);
-    try expect_not_null(ptr);
-
-    defer {
-        free(ptr);
+Counter {
+    fn bump(self: &Counter) void {
+        self.value = self.value + 1;
     }
-
-    // 使用内存...
 }
 
-fn test_error_propagation() !void {
-    const ptr: *byte = malloc(0);
-
-    // malloc(0) 可能返回 null 或有效指针
-    if ptr == null as *byte {
-        skip_test("malloc(0) returned null", "platform specific");
-        return;
-    }
-
-    defer {
-        free(ptr);
-    }
-
-    try expect_not_null(ptr);
+test "counter bump" {
+    var c: Counter = Counter{ value: 0 };
+    c.bump();
+    c.bump();
+    try assert_eq_i32(c.value, 2);
 }
 
-// ============================================================
-// 主函数（当前使用 fn main() 兼容 bridge.c）
-// ============================================================
-
-fn main() i32 {
-    test_suite_begin("Example Tests");
-
-    run_test("strlen basic", test_strlen_basic);
-    run_test("malloc/free", test_malloc_free);
-    run_test("error propagation", test_error_propagation);
-
-    return test_suite_end();
+test "defer runs once" {
+    var closed: i32 = 0;
+    {
+        defer { closed = closed + 1; }
+        try expect(closed == 0);
+    }
+    try expect(closed == 1);
 }
 ```
 
-### 10.2 断言函数完整列表
+### 8.2 断言宏完整列表
 
-|| 函数 | 类型 | 说明 |
-||------|------|------|
-|| `assert(cond, msg)` | bool | 基本断言 |
-|| `assert_eq_i32(a, e, msg)` | i32 | 相等 |
-|| `assert_eq_u32(a, e, msg)` | u32 | 相等 |
-|| `assert_eq_i64(a, e, msg)` | i64 | 相等 |
-|| `assert_eq_u64(a, e, msg)` | u64 | 相等 |
-|| `assert_eq_bool(a, e, msg)` | bool | 相等 |
-|| `assert_ne_i32(a, e, msg)` | i32 | 不等 |
-|| `assert_gt_i32(a, e, msg)` | i32 | 大于 |
-|| `assert_lt_i32(a, e, msg)` | i32 | 小于 |
-|| `assert_ge_i32(a, e, msg)` | i32 | 大于等于 |
-|| `assert_le_i32(a, e, msg)` | i32 | 小于等于 |
-|| `assert_null(p, msg)` | *byte | 空指针 |
-|| `assert_not_null(p, msg)` | *byte | 非空指针 |
-|| `assert_ptr_eq(a, e, msg)` | *byte | 指针相等 |
-|| `expect(cond)` | bool | 简写断言 |
-|| `expect_eq(a, e)` | i32 | 简写相等 |
-|| `expect_ne(a, e)` | i32 | 简写不等 |
-|| `expect_true(v)` | bool | 期望 true |
-|| `expect_false(v)` | bool | 期望 false |
-|| `expect_null(p)` | *byte | 简写空指针 |
-|| `expect_not_null(p)` | *byte | 简写非空 |
+| 宏 | 签名 | 说明 |
+|----|------|------|
+| `assert` | `(condition, message)` | 条件为假时报错并带消息 |
+| `assert_true` | `(condition)` | 条件为假时报错 |
+| `expect` | `(condition)` | 同 `assert_true` |
+| `assert_eq_i32` | `(actual, expected)` | i32 相等 |
+| `assert_eq_i64` | `(actual, expected)` | i64 相等 |
+| `assert_eq_u64` | `(actual, expected)` | u64 相等 |
+| `assert_eq_bool` | `(actual, expected)` | bool 相等 |
+| `expect_not_null` | `(ptr)` | 指针非空 |
+| `expect_null` | `(ptr)` | 指针为空 |
+| `run_test` | `(name, test_fn)` | 运行单个测试（`stmt` 宏） |

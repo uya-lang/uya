@@ -7,6 +7,10 @@
 **关联文档**: `docs/libc_malloc_design.md`
 **基线说明**: 阶段 1 对照基线固定为提交 `bee7df32`：`ChunkHeader` 为 16B、`FreeChunk` 为 32B、未引入 footer。当前实现已完成阶段 2，`ChunkHeader + ChunkFooter` 开销为 24B，阶段 3 起的性能对比以此为新基线。
 
+> **核对头（2026-10-19）**：四个阶段的结构性成果已按 `lib/libc/heap.uya`（1423 行）逐项确认——`NUM_BINS = 8`（`:41`）、`TCACHE_MAX_SIZE = 2048` / `TCACHE_BATCH = 8` / `NUM_TCACHE_BINS = 7`（`:42-44`）、footer 与 `chunk_overhead()`（`:229`、`:623`）、large 直连 `LargeRegion`（`:67`）、tcache 刷新与线程退出接口（`:736` / `:749` / `:756`）、`heap_debug_*` 观测接口（`:289-408`）。
+> 本节的历史实测数字保持不变（当时的真机数据，不作追认或改写）。
+> 仍未完成的是**流程收尾**而非代码：`make clean && make backup-all` 尚未在本文档留证；阶段 4 的 fresh-process `tcache` 冷启动长尾优化仍待做（见下文阶段 4 结论）。
+
 ---
 
 ## 可勾选执行清单
@@ -233,16 +237,16 @@ BIN 7:  [4096, ∞)    — 顶层普通堆 bin；直接 mmap/munmap 留给 Task 
 
 ## 优化任务优先级总览
 
-| 阶段 | 任务 | 优先级 | 难度 | 预期收益 |
-|------|------|--------|------|----------|
-| 1.1 | 位运算替代除法 | P0 | 极低 | 热路径常数加速 10-50x |
-| 1.2 | owns_ptr 命中缓存 | P0 | 低 | free 延迟从 O(n)→O(1) |
-| 1.3 | MIN_CHUNK_SIZE=32 | P1 | 极低 | 小对象内存利用率 +50% |
-| 2.1 | 相邻块合并 | P0 | 中 | 根治碎片化，解决假性 OOM |
-| 2.2 | realloc 原地扩展 | P1 | 低 | 避免不必要拷贝 |
-| 3.1 | 大小分箱 | P1 | 中 | 分配延迟从 O(n)→O(1) |
-| 3.2 | 大块 mmap 快速路径 | P1 | 低 | 大块分配不污染自由链表 |
-| 4.1 | per-thread cache | P2 | 高 | 多线程吞吐线性扩展 |
+| 阶段 | 任务 | 优先级 | 难度 | 预期收益 | 2026-10-19 状态 |
+|------|------|--------|------|----------|---------------------|
+| 1.1 | 位运算替代除法 | P0 | 极低 | 热路径常数加速 10-50x | ✅ 已完成（`CHUNK_FLAG_FREE`/`CHUNK_STATE_MASK` 位标记，`heap.uya:38-40`） |
+| 1.2 | owns_ptr 命中缓存 | P0 | 低 | free 延迟从 O(n)→O(1) | ✅ 已完成（`owns_ptr_with_cache`，`heap.uya:178`） |
+| 1.3 | MIN_CHUNK_SIZE=32 | P1 | 极低 | 小对象内存利用率 +50% | ✅ 已完成（最小 chunk 总大小 64B，见 `libc_malloc_design.md`） |
+| 2.1 | 相邻块合并 | P0 | 中 | 根治碎片化，解决假性 OOM | ✅ 已完成（footer + `to_footer`，`heap.uya:623`） |
+| 2.2 | realloc 原地扩展 | P1 | 低 | 避免不必要拷贝 | ✅ 已完成（阶段 2 实测原地命中率 0%→100%） |
+| 3.1 | 大小分箱 | P1 | 中 | 分配延迟从 O(n)→O(1) | ✅ 已完成（`NUM_BINS = 8`，`heap.uya:41`） |
+| 3.2 | 大块 mmap 快速路径 | P1 | 低 | 大块分配不污染自由链表 | ✅ 已完成（`LargeRegion`，`heap.uya:67`） |
+| 4.1 | per-thread cache | P2 | 高 | 多线程吞吐线性扩展 | ✅ 已完成（7 个 tcache bin，`heap.uya:42-44`） |
 
 ---
 

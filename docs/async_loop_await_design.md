@@ -4,6 +4,11 @@
 **状态**：通用 lowering 主路径已落地，Bug B 与复合表达式 `try @await` 已转正（维护/补洞）
 **相关**：[std_async_design.md](std_async_design.md)、[todo_mini_to_full.md](todo_mini_to_full.md) §16 异步编程、[plan_async_coroutine_transform.md](plan_async_coroutine_transform.md)
 
+> **核对头（2026-10-19）**：正文状态与源码一致，无过期结论。
+> - 实现仍在 `src/codegen/c99/` 层：`gen_async_function_stage_b()`（`function.uya:1855` 调用点）、`emit_async_segment()`（`function.uya:5874`）、`emit_async_segment_with_control()`（`:5082`）；§7 表的 `collect_awaits_recursive` / `async_collect_*` 也仍在 `function.uya` / `internal.uya`。
+> - §7 里 `src/codegen/c99/async_transform.uya` 标注的"（若存在）"已确认：**该文件存在**（`src/codegen/c99/async_transform.uya`），是 c99 codegen 目录的 12 个文件之一。
+> - §6 最后一行"接口值迭代仍需显式报错"仍成立，且**不是 async 独有缺口**（同步 `for` 迭代接口值同样被禁止），反向回归为 `tests/error_for_iterator_interface_value.uya` / `tests/error_async_for_iterator_interface_await.uya`；引用绑定 `for iter |&x|` 已是正向回归 `tests/test_async_for_iterator_ref_await.uya`。
+
 ---
 
 ## 1. 概述
