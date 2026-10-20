@@ -624,7 +624,7 @@ fn read_hex_pair_lexer(lexer: &Lexer) i32 {
         return -1;
     }
     advance_char(lexer);
-    return h1 * 16 + h2;
+    return h1 *% 16 +% h2;
 }
 
 // 从当前位置读取四个十六进制数字 → 0..65535；失败返回 -1
@@ -661,7 +661,7 @@ fn read_hex_quad_lexer(lexer: &Lexer) i32 {
         return -1;
     }
     advance_char(lexer);
-    return ((a * 16 + b) * 16 + c2) * 16 + d;
+    return ((a *% 16 +% b) *% 16 +% c2) *% 16 +% d;
 }
 
 fn lexer_push_byte_string(lexer: &Lexer, b: byte) i32 {

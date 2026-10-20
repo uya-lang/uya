@@ -1030,7 +1030,7 @@ export extern "libc" fn math_gcd(a: i64, b: i64) i64 {
 // lcm - 最小公倍数
 export extern "libc" fn math_lcm(a: i64, b: i64) i64 {
     if a == 0 || b == 0 { return 0; }
-    return (a / math_gcd(a, b)) * b;
+    return (a / math_gcd(a, b)) *| b;
 }
 
 // factorial - 阶乘

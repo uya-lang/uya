@@ -69,7 +69,7 @@ const I32_MIN: i32 = @min;
 // 检测 i32 加法溢出
 fn check_i32_add_overflow(left: i32, right: i32) i32 {
     if left > 0 && right > 0 {
-        if left > I32_MAX - right {
+        if left > (I32_MAX -| right) {
             return 1;
         }
     }
@@ -455,7 +455,7 @@ fn get_type_size_bytes(t: &Type) i32 {
     if t.kind == TypeKind.TYPE_ARRAY && t.array_size >= 0 {
         const elem_size: i32 = get_type_size_bytes(t.element_type);
         if elem_size > 0 && t.array_size <= 0x7FFFFFFF / elem_size {
-            return elem_size * t.array_size;
+            return elem_size *| t.array_size;
         }
     }
     return -1;
@@ -624,13 +624,13 @@ export fn checker_eval_const_expr_in_block(checker: &TypeChecker, expr: &ASTNode
         const op: TokenType = op_tmp.value;
         if op == TokenType.TOKEN_PLUS {
             if check_i32_add_overflow(left_val, right_val) != 0 { return -1; }
-            return left_val + right_val;
+            return left_val +| right_val;
         } else if op == TokenType.TOKEN_MINUS {
             if check_i32_sub_overflow(left_val, right_val) != 0 { return -1; }
-            return left_val - right_val;
+            return left_val -| right_val;
         } else if op == TokenType.TOKEN_ASTERISK {
             if check_i32_mul_overflow(left_val, right_val) != 0 { return -1; }
-            return left_val * right_val;
+            return left_val *| right_val;
         } else if op == TokenType.TOKEN_SLASH {
             if right_val == 0 { return -1; }
             return left_val / right_val;

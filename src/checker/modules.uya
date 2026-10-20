@@ -219,7 +219,7 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
             }
         }
         if module_len > 0 {
-            const total_len: usize = 4 + module_len;
+            const total_len: usize = (4 as usize) +| module_len;
             const module_name: &byte = compiler_arena_alloc(checker.arena, total_len + 1) as &byte;
             if module_name != null {
                 strcpy(module_name as *byte, "std." as *byte);
@@ -303,7 +303,7 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
 
         if module_len_c > 0 {
             // 构建模块路径：std.c.xxx
-            const total_len_c: usize = 6 + module_len_c; // "std.c." + 路径长度
+            const total_len_c: usize = (6 as usize) +| module_len_c; // "std.c." + 路径长度
             const module_name_c: &byte = compiler_arena_alloc(checker.arena, total_len_c + 1) as &byte;
             if module_name_c != null {
                 strcpy(module_name_c as *byte, "std.c." as *byte);
@@ -389,7 +389,7 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
             base_len_tls = rel_len_tls - 4;
         }
         if base_len_tls > 0 {
-            const total_len_tls: usize = 4 + base_len_tls;
+            const total_len_tls: usize = (4 as usize) +| base_len_tls;
             const module_name_tls: &byte = compiler_arena_alloc(checker.arena, total_len_tls + 1) as &byte;
             if module_name_tls != null {
                 strcpy(module_name_tls as *byte, "tls." as *byte);
@@ -651,7 +651,7 @@ fn append_module_export(
         return 0;
     }
 
-    const new_count: i32 = module.export_count + 1;
+    const new_count: i32 = module.export_count +| 1;
     const new_exports: &ExportedItem = compiler_arena_alloc(checker.arena, @size_of(ExportedItem) * new_count) as &ExportedItem;
     if new_exports == null {
         return 0;
@@ -1566,7 +1566,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
 
                 if dep_exists == 0 {
                     // 添加新依赖
-                    const new_count: i32 = current_module.dependency_count + 1;
+                    const new_count: i32 = current_module.dependency_count +| 1;
                     const new_deps: &ModuleDependency = compiler_arena_alloc(checker.arena, @size_of(ModuleDependency) * new_count) as &ModuleDependency;
                     if new_deps != null {
                         if current_module.dependencies != null && current_module.dependency_count > 0 {

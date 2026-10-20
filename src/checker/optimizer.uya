@@ -1030,7 +1030,7 @@ fn get_range_iteration_count(node: &ASTNode, checker: &TypeChecker) i32 {
     const end_val: i32 = checker_eval_const_expr(checker, end);
     
     // 计算迭代次数
-    const count: i32 = end_val - start_val;
+    const count: i32 = end_val -| start_val;
     if count < UNROLL_MIN_ITERATIONS || count > UNROLL_MAX_ITERATIONS {
         return -1;
     }

@@ -246,7 +246,7 @@ fn register_mono_instance(checker: &TypeChecker, generic_name: &byte,
     }
     var entry: i32 = mono_index_head_at(slot);
     while entry != 0 {
-        const current_idx: i32 = entry - 1;
+        const current_idx: i32 = entry -| 1;
         if current_idx >= 0 && current_idx < checker.mono_instance_count &&
             checker.mono_instances != null && current_idx < checker.mono_instance_capacity {
             const inst: &MonoInstance = &checker.mono_instances[current_idx];

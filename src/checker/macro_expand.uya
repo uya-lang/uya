@@ -221,7 +221,7 @@ fn get_type_name_from_ast(type_node: &ASTNode, arena: &CompilerArena) &byte {
         if buf != null {
             buf[0] = 38 as i8;  // '&' 字符的 ASCII 码
             memcpy((buf + 1) as *void, inner as *void, inner_len as u64);
-            const idx: i32 = inner_len + 1;
+            const idx: i32 = inner_len +| 1;
             if idx >= 0 && idx < 1000000 {
                 buf[idx] = 0 as i8;
             }
@@ -708,8 +708,8 @@ fn ast_expr_to_source_string(node: &ASTNode, arena: &CompilerArena, filename: &b
         }
         buf[0] = 34 as i8;
         memcpy((buf + 1) as *void, raw as *void, (len + 1) as u64);
-        const idx1: i32 = len + 1;
-        const idx2: i32 = len + 2;
+        const idx1: i32 = len +| 1;
+        const idx2: i32 = len +| 2;
         if idx1 >= 0 && idx1 < 1000000 {
             buf[idx1] = 34 as i8;
         }
@@ -1081,7 +1081,7 @@ fn hygiene_lookup_binding(state: &HygieneCopyState, name: &byte) &byte {
     if state == null || name == null {
         return null;
     }
-    var i: i32 = state.scope_entry_count - 1;
+    var i: i32 = state.scope_entry_count -| 1;
     while i >= 0 {
         const entry_idx: i32 = i;
         if entry_idx < 0 {
@@ -1112,7 +1112,7 @@ fn create_hygiene_name(ctx: &MacroExpandContext, original_name: &byte) &byte {
     const local_id: i32 = ctx.hygiene_next_local_id;
     ctx.hygiene_next_local_id = ctx.hygiene_next_local_id +| 1;
     const name_len: i32 = strlen(original_name as *byte);
-    const buf_len: i32 = name_len + 48;
+    const buf_len: i32 = name_len +| 48;
     const buf: &byte = compiler_arena_alloc(ctx.arena, buf_len as u64) as &byte;
     if buf == null {
         return original_name;
@@ -1671,11 +1671,11 @@ fn macro_eval_expr(expr: &ASTNode, ctx: &MacroExpandContext, success: &i32) i64 
         const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
         const op: TokenType = op_tmp.value;
         if op == TokenType.TOKEN_PLUS {
-            return left + right;
+            return left +| right;
         } else if op == TokenType.TOKEN_MINUS {
-            return left - right;
+            return left -| right;
         } else if op == TokenType.TOKEN_ASTERISK {
-            return left * right;
+            return left *| right;
         } else if op == TokenType.TOKEN_SLASH {
             if right != 0 {
                 return left / right;
@@ -1718,7 +1718,7 @@ fn macro_eval_expr(expr: &ASTNode, ctx: &MacroExpandContext, success: &i32) i64 
         const op_tmp: !TokenType = expr.unary_expr_op as! TokenType;
         const op: TokenType = op_tmp.value;
         if op == TokenType.TOKEN_MINUS {
-            return 0 - operand;
+            return (0 as i64) -| operand;
         } else if op == TokenType.TOKEN_EXCLAMATION {
             if operand != 0 { return 0; } else { return 1; }
         } else {
@@ -1892,7 +1892,7 @@ fn extract_macro_output_with_params(body: &ASTNode, ctx: &MacroExpandContext, fi
     var merged_ctx: MacroExpandContext = *ctx;
     const MAX_LOCAL_BINDINGS: i32 = 64;
     if local_binding_count > 0 {
-        const total_bindings: i32 = ctx.binding_count + local_binding_count;
+        const total_bindings: i32 = ctx.binding_count +| local_binding_count;
         const all_bindings: &MacroParamBinding = compiler_arena_alloc(ctx.arena, @size_of(MacroParamBinding) * total_bindings) as &MacroParamBinding;
         if all_bindings != null {
             var k: i32 = 0;
@@ -1904,7 +1904,7 @@ fn extract_macro_output_with_params(body: &ASTNode, ctx: &MacroExpandContext, fi
             for 0..local_binding_count |kidx| {
                 if kidx < MAX_LOCAL_BINDINGS {
                     const src_idx: i32 = kidx;
-                    const dst_idx: i32 = ctx.binding_count + kidx;
+                    const dst_idx: i32 = ctx.binding_count +| kidx;
                     // 动态分配的数组，运行时边界检查
                     const total: i32 = total_bindings;
                     if dst_idx >= 0 && dst_idx < total && src_idx >= 0 && src_idx < MAX_LOCAL_BINDINGS {
@@ -1921,7 +1921,7 @@ fn extract_macro_output_with_params(body: &ASTNode, ctx: &MacroExpandContext, fi
     const body_to_use: &ASTNode = expand_body_for_over_typeinfo_fields(body, &merged_ctx, filename);
     
     // 遍历宏体语句，查找输出节点
-    var i: i32 = body_to_use.block_stmt_count - 1;
+    var i: i32 = body_to_use.block_stmt_count -| 1;
     while i >= 0 {
         const stmt: &ASTNode = body_to_use.block_stmts[i];
         if stmt == null {
@@ -2115,7 +2115,7 @@ fn extract_macro_output_simple(body: &ASTNode, arena: &CompilerArena, filename: 
     }
     
     // 遍历宏体语句，查找 @mc_code 节点
-    var i: i32 = body.block_stmt_count - 1;
+    var i: i32 = body.block_stmt_count -| 1;
     while i >= 0 {
         const stmt: &ASTNode = body.block_stmts[i];
         if stmt == null {
@@ -2624,7 +2624,7 @@ fn build_json_write_value_stmt(checker: &TypeChecker, type_node: &ASTNode, value
     var is_json_str_view: i32 = 0;
     if strcmp(type_name as *byte, "JsonStrView" as *byte) == 0 { is_json_str_view = 1; }
     if inner_decl != null && inner_decl.struct_decl_fields != null && inner_decl.struct_decl_field_count > 0 && is_json_str_view == 0 {
-        const stmt_count: i32 = 2 + count_encode_field_stmts(checker, inner_decl);
+        const stmt_count: i32 = 2 +| count_encode_field_stmts(checker, inner_decl);
         const stmts: &(&ASTNode) = compiler_arena_alloc(arena, (@size_of(&ASTNode) * stmt_count) as u64) as &(&ASTNode);
         if stmts == null { return null; }
         var idx: i32 = 0;
@@ -2771,7 +2771,7 @@ fn build_encode_to_to_json_block(checker: &TypeChecker, type_arg: &ASTNode, valu
     value_deref.array_access_index = create_number_literal(0, arena, line + line_off, column + col_off);
 
     const field_stmts: i32 = count_encode_field_stmts(checker, struct_decl);
-    const stmt_count: i32 = 5 + field_stmts;
+    const stmt_count: i32 = 5 +| field_stmts;
     const stmts: &(&ASTNode) = compiler_arena_alloc(arena, (@size_of(&ASTNode) * stmt_count) as u64) as &(&ASTNode);
     if stmts == null { return null; }
     var idx: i32 = 0;
@@ -3305,7 +3305,7 @@ fn build_decode_struct_expr(checker: &TypeChecker, struct_decl: &ASTNode, type_n
     addr_obj.unary_expr_op = unary_amp;
     addr_obj.unary_expr_operand = id_obj;
 
-    const inner_stmt_count: i32 = 2 * n_fields + 1;
+    const inner_stmt_count: i32 = 2 *| n_fields +| 1;
     const field_names: &(&byte) = compiler_arena_alloc(arena, (n_fields * 8) as u64) as &(&byte);
     const field_values: &(&ASTNode) = compiler_arena_alloc(arena, (n_fields * 8) as u64) as &(&ASTNode);
     const inner_stmts: &(&ASTNode) = compiler_arena_alloc(arena, (@size_of(&ASTNode) * (inner_stmt_count + 4)) as u64) as &(&ASTNode);
@@ -3610,7 +3610,7 @@ fn build_decode_struct_expr(checker: &TypeChecker, struct_decl: &ASTNode, type_n
             if_stmt.if_stmt_condition = bin_neq;
             if_stmt.if_stmt_then_branch = return_err;
             if_stmt.if_stmt_else_branch = null;
-            var arr_block_len: i32 = 2 + arr_size + 1;
+            var arr_block_len: i32 = 2 +| arr_size +| 1;
             const arr_stmts: &(&ASTNode) = compiler_arena_alloc(arena, (@size_of(&ASTNode) * (arr_block_len + 2)) as u64) as &(&ASTNode);
             if arr_stmts == null { fi = fi + 1; continue; }
             var arr_idx: i32 = 0;

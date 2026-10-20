@@ -714,7 +714,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 // seg_count > 0 已经保证了 prev_idx >= 0
                 // 但仍需检查 < MAX_INTERP_SEGMENTS
                 if seg_count < MAX_INTERP_SEGMENTS {
-                    const prev_idx: i32 = seg_count - 1;
+                    const prev_idx: i32 = seg_count -| 1;
                     if prev_idx >= 0 && prev_idx < MAX_INTERP_SEGMENTS {
                         if seg_is_text[prev_idx] == 0 && seg_expr[prev_idx] != null && seg_format_spec[prev_idx] == null {
                             seg_format_spec[prev_idx] = parser.current_token.value;

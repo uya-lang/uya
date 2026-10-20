@@ -227,7 +227,7 @@ fn raw_chunk_size(raw: usize) usize {
 }
 
 fn chunk_overhead() usize {
-    return @size_of(ChunkHeader) + @size_of(ChunkFooter);
+    return @size_of(ChunkHeader) +| @size_of(ChunkFooter);
 }
 
 fn chunk_total_for_payload(payload: usize) usize {
