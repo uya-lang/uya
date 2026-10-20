@@ -1376,6 +1376,14 @@ fn wide_interval_of_expr(checker: &TypeChecker, expr: &ASTNode, kind: i32) WideI
         return wide_unknown();
     }
     if expr.type == ASTNodeType.AST_IDENTIFIER {
+        // 先尝试常量求值：`const A: i32 = 128;` 这类编译期常量在约束表里查不到
+        // （const 不参与区间传播），但值是完全已知的。不解析它，
+        // `A * B` 这样的上界就永远证不出来。
+        var c_ok: i32 = 0;
+        const c_val: i32 = checker_eval_const_expr_ex(checker, expr, &c_ok);
+        if c_ok != 0 {
+            return wide_point(c_val as i64);
+        }
         return wide_interval_of_var(checker, expr.identifier_name, kind);
     }
     if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_target_type != null {
