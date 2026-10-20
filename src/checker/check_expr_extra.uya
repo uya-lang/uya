@@ -1206,6 +1206,30 @@ export fn checker_node_in_checked_arith(checker: &TypeChecker, node: &ASTNode) i
     return 0;
 }
 
+// 表达式的根运算符是否为算术运算符（+ - * / % 或一元负）。
+// 用于 try/catch 操作数的闸门豁免：只判形态，不判完整类型，
+// 避免因检查顺序或 const 解析导致的漏判。
+export fn checker_expr_root_is_arith(node: &ASTNode) i32 {
+    if node == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        const op: TokenType = checker_token_or_plus_extra(node.binary_expr_op);
+        if op == TokenType.TOKEN_PLUS || op == TokenType.TOKEN_MINUS || op == TokenType.TOKEN_ASTERISK ||
+            op == TokenType.TOKEN_SLASH || op == TokenType.TOKEN_PERCENT {
+            return 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        const uop: TokenType = checker_token_or_plus_extra(node.unary_expr_op);
+        if uop == TokenType.TOKEN_MINUS {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 // 算术运算符的原文（用于溢出闸门诊断文案）
 fn proof_op_text(op: TokenType) &byte {
     if op == TokenType.TOKEN_PLUS { return "+" as &byte; }

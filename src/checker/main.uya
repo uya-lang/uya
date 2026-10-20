@@ -1166,8 +1166,11 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         return 1;
     } else if node.type == ASTNodeType.AST_TRY_EXPR {
         if node.try_expr_operand != null {
-            // checked 算术操作数由运行时检查负责，豁免 --strict-overflow 静态闸门
-            const checked_operand: i32 = checker_expr_is_checked_arith(checker, node.try_expr_operand);
+            // checked 算术操作数由运行时检查负责，豁免 --strict-overflow 静态闸门。
+            // 这里按**根运算符**判断即可：完整类型判定依赖推断结果，在检查顺序不佳时
+            // （如操作数里含 const 标识符）会漏判；即便误判放行，
+            // infer_try_expr 也会给出自己的诊断，不会静默放过非法代码。
+            const checked_operand: i32 = checker_expr_root_is_arith(node.try_expr_operand);
             if checked_operand != 0 {
                 checker.suppress_overflow_gate = checker.suppress_overflow_gate +| 1;
             }
@@ -1184,7 +1187,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         return 1;
     } else if node.type == ASTNodeType.AST_CATCH_EXPR {
         if node.catch_expr_operand != null {
-            const checked_catch_operand: i32 = checker_expr_is_checked_arith(checker, node.catch_expr_operand);
+            const checked_catch_operand: i32 = checker_expr_root_is_arith(node.catch_expr_operand);
             if checked_catch_operand != 0 {
                 checker.suppress_overflow_gate = checker.suppress_overflow_gate +| 1;
             }
