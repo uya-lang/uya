@@ -1,0 +1,54 @@
+// 饱和/包装运算符的 C99 ↔ exec VM 一致性回归（main 形态）
+//
+// 背景：C99 后端曾把 u8/u16/u32 的饱和边界错写成有符号极值
+// （`uint8_t` 含子串 `int8`），使 `255 +| 1` 得到 127，而 VM 得到 255。
+// 本文件用返回码表达断言，`run`（C99）与 `run --vm` 都必须返回 0；
+// tests/verify_saturating_parity.sh 会同时跑这两条路径。
+
+export fn main() i32 {
+    // ===== 无符号饱和：回归 C99 边界值 bug =====
+    var u8max: u8 = 255 as u8;
+    var u8one: u8 = 1 as u8;
+    if (u8max +| u8one) != 255 as u8 { return 1; }          // 曾是 127
+    if (0 as u8 -| u8one) != 0 as u8 { return 2; }          // 曾是 -128
+    var u8big: u8 = 200 as u8;
+    var u8two: u8 = 2 as u8;
+    if (u8big *| u8two) != 255 as u8 { return 3; }
+
+    var u16max: u16 = 65535 as u16;
+    var u16one: u16 = 1 as u16;
+    if (u16max +| u16one) != 65535 as u16 { return 4; }
+
+    var u32max: u32 = @max;
+    var u32one: u32 = 1 as u32;
+    if (u32max +| u32one) != @max { return 5; }
+    if (0 as u32 -| u32one) != 0 as u32 { return 6; }
+
+    var uszmax: usize = @max;
+    var uszone: usize = 1 as usize;
+    if (uszmax +| uszone) != @max { return 7; }
+    if (0 as usize -| uszone) != 0 as usize { return 8; }
+
+    // ===== 有符号饱和 =====
+    var i8max: i8 = 127 as i8;
+    var i8one: i8 = 1 as i8;
+    if (i8max +| i8one) != 127 as i8 { return 9; }
+    var i16min: i16 = -32768 as i16;
+    var i16one: i16 = 1 as i16;
+    if (i16min -| i16one) != -32768 as i16 { return 10; }
+
+    var sm: i32 = @max;
+    var sone: i32 = 1;
+    if (sm +| sone) != @max { return 11; }
+
+    // ===== 包装（模运算）=====
+    var wm: u8 = 255 as u8;
+    var wone: u8 = 1 as u8;
+    if (wm +% wone) != 0 as u8 { return 12; }
+    if (0 as u8 -% wone) != 255 as u8 { return 13; }
+    var wm32: i32 = @max;
+    var wone32: i32 = 1;
+    if (wm32 +% wone32) != @min { return 14; }
+
+    return 0;
+}

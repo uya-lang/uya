@@ -6,7 +6,7 @@ fn checker_check_program_node(checker: &TypeChecker, node: &ASTNode) i32 {
     if checker == null || node == null || node.type != ASTNodeType.AST_PROGRAM {
         return 0;
     }
-    const decl_bytes: usize = @size_of(&ASTNode) * (node.program_decl_count as usize);
+    const decl_bytes: usize = (@size_of(&ASTNode) as usize) *| (node.program_decl_count as usize);
     const var_decls: & & ASTNode = compiler_arena_alloc(checker.arena, decl_bytes) as & & ASTNode;
     const use_decls: & & ASTNode = compiler_arena_alloc(checker.arena, decl_bytes) as & & ASTNode;
     const other_decls: & & ASTNode = compiler_arena_alloc(checker.arena, decl_bytes) as & & ASTNode;

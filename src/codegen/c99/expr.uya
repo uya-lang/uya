@@ -262,6 +262,29 @@ fn gen_saturate_limit_from_type_c(codegen: &C99CodeGenerator, type_c: &byte, is_
         if is_max != 0 { fputs("2147483647LL" as *byte, codegen.emit_stream as *void); } else { fputs("(-2147483647LL-1LL)" as *byte, codegen.emit_stream as *void); }
         return;
     }
+    // 无符号类型**必须先判**：`uint8_t` 里含有子串 `int8`（uint16_t/uint32_t 同理），
+    // 若先做有符号的 strstr 检查，u8/u16/u32 的饱和边界会被错写成有符号极值
+    // （例如 u8 的 `255 +| 1` 钳到 127 而不是 255）。这是 C99 与 exec VM 结果不一致的根因。
+    if strstr(type_c as *byte, "uint8_t" as *byte) != null || strstr(type_c as *byte, "uint8 " as *byte) != null {
+        if is_max != 0 { fputs("255" as *byte, codegen.emit_stream as *void); } else { fputs("0" as *byte, codegen.emit_stream as *void); }
+        return;
+    }
+    if strstr(type_c as *byte, "uint16_t" as *byte) != null || strstr(type_c as *byte, "uint16 " as *byte) != null {
+        if is_max != 0 { fputs("65535" as *byte, codegen.emit_stream as *void); } else { fputs("0" as *byte, codegen.emit_stream as *void); }
+        return;
+    }
+    if strstr(type_c as *byte, "uint32_t" as *byte) != null || strstr(type_c as *byte, "uint32 " as *byte) != null {
+        if is_max != 0 { fputs("4294967295U" as *byte, codegen.emit_stream as *void); } else { fputs("0" as *byte, codegen.emit_stream as *void); }
+        return;
+    }
+    if strstr(type_c as *byte, "uint64_t" as *byte) != null || strstr(type_c as *byte, "uint64 " as *byte) != null {
+        if is_max != 0 { fputs("18446744073709551615ULL" as *byte, codegen.emit_stream as *void); } else { fputs("0" as *byte, codegen.emit_stream as *void); }
+        return;
+    }
+    if strstr(type_c as *byte, "size_t" as *byte) != null || strstr(type_c as *byte, "uintptr_t" as *byte) != null {
+        if is_max != 0 { fputs("((size_t)-1)" as *byte, codegen.emit_stream as *void); } else { fputs("0" as *byte, codegen.emit_stream as *void); }
+        return;
+    }
     if strstr(type_c as *byte, "int8" as *byte) != null {
         if is_max != 0 { fputs("127" as *byte, codegen.emit_stream as *void); } else { fputs("(-128)" as *byte, codegen.emit_stream as *void); }
         return;
@@ -6220,6 +6243,25 @@ fn c99_emit_simd_lane_sat_wrap(codegen: &C99CodeGenerator, op_code: i32, type_c:
         fprintf(codegen.emit_stream as *void, "%s _l = %s.lanes[%d]; " as *byte, base_type as *byte, left_name as *byte, lane);
         fprintf(codegen.emit_stream as *void, "%s _r = %s.lanes[%d]; " as *byte, base_type as *byte, right_name as *byte, lane);
         fprintf(codegen.emit_stream as *void, "%s _s; " as *byte, base_type as *byte);
+        // 无符号通道同样不能做符号判断（语义上无负数，且触发 -Werror=type-limits）
+        const lane_unsigned: i32 = c99_c_type_is_unsigned(type_c);
+        if lane_unsigned != 0 {
+            if op_code == TokenType.TOKEN_PLUS_PIPE as i32 {
+                fputs("__builtin_add_overflow(_l, _r, &_s) ? " as *byte, codegen.emit_stream as *void);
+                gen_saturate_limit_from_type_c(codegen, type_c, 1);
+                fputs(" : _s; })" as *byte, codegen.emit_stream as *void);
+            } else if op_code == TokenType.TOKEN_MINUS_PIPE as i32 {
+                fputs("__builtin_sub_overflow(_l, _r, &_s) ? " as *byte, codegen.emit_stream as *void);
+                gen_saturate_limit_from_type_c(codegen, type_c, 0);
+                fputs(" : _s; })" as *byte, codegen.emit_stream as *void);
+            } else {
+                fprintf(codegen.emit_stream as *void, "%s _res; " as *byte, base_type as *byte);
+                fputs("if (__builtin_mul_overflow(_l, _r, &_s)) _res = " as *byte, codegen.emit_stream as *void);
+                gen_saturate_limit_from_type_c(codegen, type_c, 1);
+                fputs("; else _res = _s; _res; })" as *byte, codegen.emit_stream as *void);
+            }
+            return;
+        }
         if op_code == TokenType.TOKEN_PLUS_PIPE as i32 {
             fputs("__builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? " as *byte, codegen.emit_stream as *void);
         } else if op_code == TokenType.TOKEN_MINUS_PIPE as i32 {
@@ -8089,6 +8131,27 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 gen_expr(codegen, right);
                 fputs("); " as *byte, codegen.emit_stream as *void);
                 fprintf(codegen.emit_stream as *void, "%s _s; " as *byte, base_type as *byte);
+                // 无符号类型没有负数，符号判断既无意义还会触发
+                // -Werror=type-limits（`comparison is always true`）。
+                // 语义上：u 型 `+|` 溢出只可能钳到 MAX，`-|` 下溢只可能钳到 0，
+                // `*|` 溢出只可能钳到 MAX —— 无需分支。
+                const sat_unsigned: i32 = c99_c_type_is_unsigned(type_c);
+                if sat_unsigned != 0 {
+                    if op_code == TokenType.TOKEN_PLUS_PIPE as i32 {
+                        fputs("__builtin_add_overflow(_l, _r, &_s) ? " as *byte, codegen.emit_stream as *void);
+                        gen_saturate_limit_from_type_c(codegen, type_c, 1);
+                        fputs(" : _s; })" as *byte, codegen.emit_stream as *void);
+                    } else if op_code == TokenType.TOKEN_MINUS_PIPE as i32 {
+                        fputs("__builtin_sub_overflow(_l, _r, &_s) ? " as *byte, codegen.emit_stream as *void);
+                        gen_saturate_limit_from_type_c(codegen, type_c, 0);
+                        fputs(" : _s; })" as *byte, codegen.emit_stream as *void);
+                    } else {
+                        fprintf(codegen.emit_stream as *void, "%s _res; " as *byte, base_type as *byte);
+                        fputs("if (__builtin_mul_overflow(_l, _r, &_s)) _res = " as *byte, codegen.emit_stream as *void);
+                        gen_saturate_limit_from_type_c(codegen, type_c, 1);
+                        fputs("; else _res = _s; _res; })" as *byte, codegen.emit_stream as *void);
+                    }
+                } else {
                 if op_code == TokenType.TOKEN_PLUS_PIPE as i32 {
                     fputs("__builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? " as *byte, codegen.emit_stream as *void);
                 } else if op_code == TokenType.TOKEN_MINUS_PIPE as i32 {
@@ -8104,6 +8167,7 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     fputs("; else _res = _s; _res; })" as *byte, codegen.emit_stream as *void);
                 } else {
                     fputs(") : _s; })" as *byte, codegen.emit_stream as *void);
+                }
                 }
             } else {
                 const ut: &byte = unsigned_type_for_wrapping(type_c);

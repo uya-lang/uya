@@ -2178,6 +2178,19 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             opcode = BCOpcode.BC_CMP_GT;
         } else if expr.binary_op == TokenType.TOKEN_GREATER_EQUAL as i32 {
             opcode = BCOpcode.BC_CMP_GE;
+        } else if expr.binary_op == TokenType.TOKEN_PLUS_PIPE as i32 {
+            opcode = BCOpcode.BC_ADD_SAT;
+        } else if expr.binary_op == TokenType.TOKEN_MINUS_PIPE as i32 {
+            opcode = BCOpcode.BC_SUB_SAT;
+        } else if expr.binary_op == TokenType.TOKEN_ASTERISK_PIPE as i32 {
+            opcode = BCOpcode.BC_MUL_SAT;
+        } else if expr.binary_op == TokenType.TOKEN_PLUS_PERCENT as i32 {
+            // 包装语义：VM 内部按目标类型截断，普通 BC_ADD 天然即包装
+            opcode = BCOpcode.BC_ADD;
+        } else if expr.binary_op == TokenType.TOKEN_MINUS_PERCENT as i32 {
+            opcode = BCOpcode.BC_SUB;
+        } else if expr.binary_op == TokenType.TOKEN_ASTERISK_PERCENT as i32 {
+            opcode = BCOpcode.BC_MUL;
         } else {
             exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: 当前不支持该 binary 运算符" as *byte);
             return -1;
@@ -3236,6 +3249,8 @@ fn exec_builder_validate_function(module: &HIRModule, fn_hir: &HIRFunction, out_
             }
         } else if instr.opcode == BCOpcode.BC_ADD || instr.opcode == BCOpcode.BC_SUB ||
             instr.opcode == BCOpcode.BC_MUL || instr.opcode == BCOpcode.BC_DIV ||
+            instr.opcode == BCOpcode.BC_ADD_SAT || instr.opcode == BCOpcode.BC_SUB_SAT ||
+            instr.opcode == BCOpcode.BC_MUL_SAT ||
             instr.opcode == BCOpcode.BC_REM || instr.opcode == BCOpcode.BC_BIT_AND ||
             instr.opcode == BCOpcode.BC_BIT_OR || instr.opcode == BCOpcode.BC_BIT_XOR ||
             instr.opcode == BCOpcode.BC_SHL || instr.opcode == BCOpcode.BC_SHR ||

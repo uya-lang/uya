@@ -57,6 +57,109 @@ fn exec_vm_value_kind_is_unsigned(kind: ExecValueKind) i32 {
     return 0;
 }
 
+// 按目标整数类型求饱和边界（有符号）
+fn exec_vm_sat_bounds_signed(kind: ExecValueKind, out_min: &i64, out_max: &i64) void {
+    out_min[0] = -2147483647 - 1;
+    out_max[0] = 2147483647;
+    if kind == ExecValueKind.EXEC_VALUE_I8 {
+        out_min[0] = -128;  out_max[0] = 127;
+    } else if kind == ExecValueKind.EXEC_VALUE_I16 {
+        out_min[0] = -32768; out_max[0] = 32767;
+    } else if kind == ExecValueKind.EXEC_VALUE_I64 || kind == ExecValueKind.EXEC_VALUE_ISIZE {
+        out_min[0] = @min; out_max[0] = @max;
+    }
+}
+
+// 按目标整数类型求饱和边界（无符号）
+fn exec_vm_sat_bounds_unsigned(kind: ExecValueKind, out_max: &u64) void {
+    out_max[0] = 4294967295u64;
+    if kind == ExecValueKind.EXEC_VALUE_U8 {
+        out_max[0] = 255u64;
+    } else if kind == ExecValueKind.EXEC_VALUE_U16 {
+        out_max[0] = 65535u64;
+    } else if kind == ExecValueKind.EXEC_VALUE_U64 || kind == ExecValueKind.EXEC_VALUE_USIZE {
+        out_max[0] = @max;
+    } else if kind == ExecValueKind.EXEC_VALUE_BYTE {
+        out_max[0] = 255u64;
+    }
+}
+
+// 饱和加法：结果超出目标类型时钳到极值
+fn exec_vm_sat_add(kind: ExecValueKind, a_signed: i64, a_unsigned: u64, b_signed: i64, b_unsigned: u64) ExecValue {
+    if exec_vm_value_kind_is_unsigned(kind) != 0 {
+        var umax: [u64: 1] = [0u64];
+        exec_vm_sat_bounds_unsigned(kind, &umax[0]);
+        const sum: u64 = a_unsigned + b_unsigned;
+        if sum < a_unsigned {
+            return exec_vm_make_integer_by_kind(kind, 0, umax[0]);
+        }
+        if sum > umax[0] {
+            return exec_vm_make_integer_by_kind(kind, 0, umax[0]);
+        }
+        return exec_vm_make_integer_by_kind(kind, 0, sum);
+    }
+    var lo: [i64: 1] = [0i64];
+    var hi: [i64: 1] = [0i64];
+    exec_vm_sat_bounds_signed(kind, &lo[0], &hi[0]);
+    var sum2: i64 = a_signed + b_signed;
+    if b_signed > 0 && a_signed > hi[0] - b_signed {
+        sum2 = hi[0];
+    } else if b_signed < 0 && a_signed < lo[0] - b_signed {
+        sum2 = lo[0];
+    }
+    return exec_vm_make_integer_by_kind(kind, sum2, 0);
+}
+
+// 饱和减法
+fn exec_vm_sat_sub(kind: ExecValueKind, a_signed: i64, a_unsigned: u64, b_signed: i64, b_unsigned: u64) ExecValue {
+    if exec_vm_value_kind_is_unsigned(kind) != 0 {
+        if b_unsigned > a_unsigned {
+            return exec_vm_make_integer_by_kind(kind, 0, 0u64);
+        }
+        return exec_vm_make_integer_by_kind(kind, 0, a_unsigned - b_unsigned);
+    }
+    var lo: [i64: 1] = [0i64];
+    var hi: [i64: 1] = [0i64];
+    exec_vm_sat_bounds_signed(kind, &lo[0], &hi[0]);
+    var diff: i64 = a_signed - b_signed;
+    if b_signed < 0 && a_signed > hi[0] + b_signed {
+        diff = hi[0];
+    } else if b_signed > 0 && a_signed < lo[0] + b_signed {
+        diff = lo[0];
+    }
+    return exec_vm_make_integer_by_kind(kind, diff, 0);
+}
+
+// 饱和乘法
+fn exec_vm_sat_mul(kind: ExecValueKind, a_signed: i64, a_unsigned: u64, b_signed: i64, b_unsigned: u64) ExecValue {
+    if exec_vm_value_kind_is_unsigned(kind) != 0 {
+        var umax: [u64: 1] = [0u64];
+        exec_vm_sat_bounds_unsigned(kind, &umax[0]);
+        if a_unsigned != 0u64 && b_unsigned > umax[0] / a_unsigned {
+            return exec_vm_make_integer_by_kind(kind, 0, umax[0]);
+        }
+        return exec_vm_make_integer_by_kind(kind, 0, a_unsigned * b_unsigned);
+    }
+    var lo: [i64: 1] = [0i64];
+    var hi: [i64: 1] = [0i64];
+    exec_vm_sat_bounds_signed(kind, &lo[0], &hi[0]);
+    const prod: i64 = a_signed * b_signed;
+    // 用除法回验是否溢出（避免依赖未定义的乘法溢出）
+    if a_signed != 0 && (prod / a_signed != b_signed) {
+        if (a_signed > 0 && b_signed > 0) || (a_signed < 0 && b_signed < 0) {
+            return exec_vm_make_integer_by_kind(kind, hi[0], 0);
+        }
+        return exec_vm_make_integer_by_kind(kind, lo[0], 0);
+    }
+    if prod > hi[0] {
+        return exec_vm_make_integer_by_kind(kind, hi[0], 0);
+    }
+    if prod < lo[0] {
+        return exec_vm_make_integer_by_kind(kind, lo[0], 0);
+    }
+    return exec_vm_make_integer_by_kind(kind, prod, 0);
+}
+
 fn exec_vm_make_integer_by_kind(kind: ExecValueKind, signed_value: i64, unsigned_value: u64) ExecValue {
     if kind == ExecValueKind.EXEC_VALUE_I8 {
         return exec_make_i8(signed_value as i8);
@@ -1585,6 +1688,43 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             slot_a[0] = exec_vm_make_integer_by_kind(add_kind, 0, (slot_b.i64_value as u64) + (slot_c.i64_value as u64));
         } else {
             slot_a[0] = exec_vm_make_integer_by_kind(add_kind, slot_b.i64_value + slot_c.i64_value, 0);
+        }
+    } else if instr.opcode == BCOpcode.BC_ADD_SAT {
+        if slot_a == null || slot_b == null || slot_c == null {
+            exec_backend_set_error(function.decl, "exec: ADD_SAT 槽位越界" as *byte, 0);
+            return -1;
+        }
+        const sat_add_kind: ExecValueKind = exec_vm_value_kind_from_type_code(instr.imm as i32, slot_b.kind);
+        if exec_vm_value_kind_is_float(sat_add_kind) != 0 {
+            // 浮点没有饱和语义，按普通加法处理
+            slot_a[0] = exec_vm_make_float_by_kind(sat_add_kind, exec_value_as_f64(slot_b) + exec_value_as_f64(slot_c));
+        } else {
+            slot_a[0] = exec_vm_sat_add(sat_add_kind, slot_b.i64_value, slot_b.i64_value as u64,
+                slot_c.i64_value, slot_c.i64_value as u64);
+        }
+    } else if instr.opcode == BCOpcode.BC_SUB_SAT {
+        if slot_a == null || slot_b == null || slot_c == null {
+            exec_backend_set_error(function.decl, "exec: SUB_SAT 槽位越界" as *byte, 0);
+            return -1;
+        }
+        const sat_sub_kind: ExecValueKind = exec_vm_value_kind_from_type_code(instr.imm as i32, slot_b.kind);
+        if exec_vm_value_kind_is_float(sat_sub_kind) != 0 {
+            slot_a[0] = exec_vm_make_float_by_kind(sat_sub_kind, exec_value_as_f64(slot_b) - exec_value_as_f64(slot_c));
+        } else {
+            slot_a[0] = exec_vm_sat_sub(sat_sub_kind, slot_b.i64_value, slot_b.i64_value as u64,
+                slot_c.i64_value, slot_c.i64_value as u64);
+        }
+    } else if instr.opcode == BCOpcode.BC_MUL_SAT {
+        if slot_a == null || slot_b == null || slot_c == null {
+            exec_backend_set_error(function.decl, "exec: MUL_SAT 槽位越界" as *byte, 0);
+            return -1;
+        }
+        const sat_mul_kind: ExecValueKind = exec_vm_value_kind_from_type_code(instr.imm as i32, slot_b.kind);
+        if exec_vm_value_kind_is_float(sat_mul_kind) != 0 {
+            slot_a[0] = exec_vm_make_float_by_kind(sat_mul_kind, exec_value_as_f64(slot_b) * exec_value_as_f64(slot_c));
+        } else {
+            slot_a[0] = exec_vm_sat_mul(sat_mul_kind, slot_b.i64_value, slot_b.i64_value as u64,
+                slot_c.i64_value, slot_c.i64_value as u64);
         }
     } else if instr.opcode == BCOpcode.BC_SUB {
         if slot_a == null || slot_b == null || slot_c == null {

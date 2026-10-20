@@ -758,7 +758,7 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
 
         // 输出整数部分
         const int_digit: i32 = normalized as i32;
-        buf[pos] = (48 + int_digit) as byte;
+        buf[pos] = (48 +| int_digit) as byte;
         pos = pos + 1;
 
         // 输出小数部分
@@ -770,7 +770,7 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
             while k < frac_prec && pos < buf_max {
                 frac = frac * 10.0;
                 const d: i32 = frac as i32;
-                buf[pos] = (48 + d) as byte;
+                buf[pos] = (48 +| d) as byte;
                 pos = pos + 1;
                 frac = frac - (d as f64);
                 k = k + 1;
@@ -811,7 +811,7 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
             buf[pos] = 48;
             pos = pos + 1;
         }
-        buf[pos] = (48 + exp) as byte;
+        buf[pos] = (48 +| exp) as byte;
         pos = pos + 1;
     } else {
         // 普通格式输出：固定小数位
@@ -848,7 +848,7 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
             while i < frac_prec && pos < buf_max {
                 frac = frac * 10.0;
                 const d: i32 = frac as i32;
-                buf[pos] = (48 + d) as byte;
+                buf[pos] = (48 +| d) as byte;
                 pos = pos + 1;
                 frac = frac - (d as f64);
                 i = i + 1;
@@ -957,9 +957,9 @@ fn _fmt_f64_hex_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, pre
             if d >= 16 { d = 15; }
             frac = frac - (d as f64);
             if uppercase != 0 {
-                if d >= 10 { buf[pos] = (65 + d - 10) as byte; } else { buf[pos] = (48 + d) as byte; }
+                if d >= 10 { buf[pos] = (65 +| (d -| 10)) as byte; } else { buf[pos] = (48 +| d) as byte; }
             } else {
-                if d >= 10 { buf[pos] = (97 + d - 10) as byte; } else { buf[pos] = (48 + d) as byte; }
+                if d >= 10 { buf[pos] = (97 +| (d -| 10)) as byte; } else { buf[pos] = (48 +| d) as byte; }
             }
             pos = pos + 1;
             k = k + 1;
@@ -993,7 +993,7 @@ fn _fmt_f64_hex_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, pre
         if pos < buf_max { buf[pos] = (48 + exp / 10) as byte; pos = pos + 1; }
         exp = exp % 10;
     }
-    if pos < buf_max { buf[pos] = (48 + exp) as byte; pos = pos + 1; }
+    if pos < buf_max { buf[pos] = (48 +| exp) as byte; pos = pos + 1; }
     return pos;
 }
 // 支持 %s、%d、%ld、%u、%x、%X、%p、%c、%zu、%g、%%、%*s、%.Ng

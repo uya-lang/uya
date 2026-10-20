@@ -660,6 +660,19 @@ check: uya
 		exit 1; \
 	fi; \
 	echo ""; \
+	echo "验证饱和/包装后端一致性..."; \
+	if ./tests/verify_saturating_parity.sh > /tmp/verify_out.txt 2>&1; then \
+		grep -E "✓|✗|sat-parity" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=0; \
+	else \
+		cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=1; \
+	fi; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ 饱和/包装后端一致性验证失败"; \
+		exit 1; \
+	fi; \
+	echo ""; \
 	echo "验证 --strict-overflow 溢出闸门..."; \
 	if ./tests/verify_strict_overflow.sh > /tmp/verify_out.txt 2>&1; then \
 		grep -E "✓|✗|strict-overflow" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \

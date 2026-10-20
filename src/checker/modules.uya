@@ -212,7 +212,7 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
         if last_slash_uya != null {
             const slash_pos_tmp: !usize = ptr_diff(last_slash_uya as *byte, relative_path as *byte) as! usize;
             const slash_pos: usize = slash_pos_tmp.value;
-            const base_name: &byte = (relative_path as *byte + slash_pos + 1) as &byte;
+            const base_name: &byte = (relative_path as *byte + (slash_pos + 1)) as &byte;
             const base_name_len: usize = base_len - slash_pos - 1;
             if base_name_len == 4 && strncmp(base_name as *byte, "file" as *byte, 4) == 0 {
                 module_len = slash_pos;
@@ -311,10 +311,13 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
             if module_name_c != null {
                 strcpy(module_name_c as *byte, "std.c." as *byte);
                 memcpy((module_name_c as *byte + 6) as *void, relative_path_c as *void, module_len_c);
-                module_name_c[6 + module_len_c] = 0;
+                const name_end_c: usize = (6 as usize) +| module_len_c;
+                if name_end_c < total_len_c + 1 {
+                    module_name_c[name_end_c] = 0;
+                }
                 // 将 '/' 替换为 '.'
                 var idx_c: usize = 6;
-                while idx_c < 6 + module_len_c {
+                while idx_c < name_end_c {
                     if module_name_c[idx_c] == 47 || module_name_c[idx_c] == 92 {
                         module_name_c[idx_c] = 46;
                     }
@@ -664,7 +667,7 @@ fn append_module_export(
     }
 
     if module.exports != null && module.export_count > 0 {
-        memcpy(new_exports as *void, module.exports as *void, @size_of(ExportedItem) * module.export_count);
+        memcpy(new_exports as *void, module.exports as *void, (@size_of(ExportedItem) as usize) *| (module.export_count as usize));
     }
 
     const last_idx: i32 = module.export_count;
@@ -1576,7 +1579,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
                     const new_deps: &ModuleDependency = compiler_arena_alloc(checker.arena, @size_of(ModuleDependency) * new_count) as &ModuleDependency;
                     if new_deps != null {
                         if current_module.dependencies != null && current_module.dependency_count > 0 {
-                            memcpy(new_deps as *void, current_module.dependencies as *void, @size_of(ModuleDependency) * current_module.dependency_count);
+                            memcpy(new_deps as *void, current_module.dependencies as *void, (@size_of(ModuleDependency) as usize) *| (current_module.dependency_count as usize));
                         }
                         const last_idx: i32 = current_module.dependency_count;
                         new_deps[last_idx].target_module = module_name;

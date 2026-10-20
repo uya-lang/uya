@@ -15,6 +15,10 @@ enum BCOpcode {
     BC_ADD,
     BC_SUB,
     BC_MUL,
+    // 饱和加/减/乘：结果超出目标整数类型时钳到该类型的极值
+    BC_ADD_SAT,
+    BC_SUB_SAT,
+    BC_MUL_SAT,
     BC_DIV,
     BC_REM,
     BC_BIT_AND,

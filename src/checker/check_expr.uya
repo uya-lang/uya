@@ -148,9 +148,10 @@ fn checker_embed_normalize_path(input: &byte, out: &byte, out_cap: i32) i32 {
             continue;
         }
         if seg_len == 2 && input[seg_start] == 46 as byte && input[seg_start + 1] == 46 as byte {
-            if seg_count > 0 && seg_count - 1 >= 0 && seg_count - 1 < 256 {
-                const prev_start: i32 = seg_starts[seg_count - 1];
-                const prev_len: i32 = seg_lens[seg_count - 1];
+            const prev_idx: i32 = seg_count - 1;
+            if seg_count > 0 && prev_idx >= 0 && prev_idx < 256 {
+                const prev_start: i32 = seg_starts[prev_idx];
+                const prev_len: i32 = seg_lens[prev_idx];
                 if !(prev_len == 2 && input[prev_start] == 46 as byte && input[prev_start + 1] == 46 as byte) {
                     seg_count = seg_count -| 1;
                     continue;
@@ -202,7 +203,7 @@ fn checker_embed_normalize_path(input: &byte, out: &byte, out_cap: i32) i32 {
             if out_pos + 1 >= out_cap {
                 return -1;
             }
-            out[out_pos] = input[seg_starts[si] + sj];
+            out[out_pos] = input[seg_starts[si] +| sj];
             out_pos = out_pos + 1;
             sj = sj + 1;
         }
@@ -243,7 +244,7 @@ fn checker_embed_extract_dir(filename: &byte, out: &byte, out_cap: i32) i32 {
     if last_slash == null {
         return 0;
     }
-    const dir_len: i32 = (ptr_diff(last_slash, filename as *byte) as i32) + 1;
+    const dir_len: i32 = (ptr_diff(last_slash, filename as *byte) as i32) +| 1;
     if (dir_len +| 1) > out_cap {
         return -1;
     }

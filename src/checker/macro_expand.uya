@@ -777,7 +777,7 @@ fn ast_expr_to_source_string(node: &ASTNode, arena: &CompilerArena, filename: &b
             if node.call_expr_args != null {
                 const arg: &byte = ast_expr_to_source_string(node.call_expr_args[i], arena, filename);
                 if arg != null {
-                    parts_len = parts_len +| ((strlen(arg as *byte) as i32) + 2);
+                    parts_len = parts_len +| ((strlen(arg as *byte) as i32) +| 2);
                 }
             }
             i = i + 1;
@@ -3659,7 +3659,7 @@ fn build_decode_struct_expr(checker: &TypeChecker, struct_decl: &ASTNode, type_n
                 ai = ai + 1;
             }
             const id_arr_final: &ASTNode = create_identifier_from_string(val_var_name, arena, line + line_off, column + col_off);
-            if id_arr_final == null { fi = fi + 1; continue; }
+            if id_arr_final == null { fi = fi +| 1; continue; }
             arr_stmts[arr_idx] = id_arr_final;
             arr_idx = arr_idx + 1;
             const arr_block: &ASTNode = ast_new_node(ASTNodeType.AST_BLOCK, line + line_off, column + col_off, arena, filename);
@@ -3667,7 +3667,7 @@ fn build_decode_struct_expr(checker: &TypeChecker, struct_decl: &ASTNode, type_n
             arr_block.block_stmts = arr_stmts;
             arr_block.block_stmt_count = arr_idx;
             const arms_arr: &ASTMatchArm = compiler_arena_alloc(arena, (2 * @size_of(ASTMatchArm)) as u64) as &ASTMatchArm;
-            if arms_arr == null { fi = fi + 1; continue; }
+            if arms_arr == null { fi = fi +| 1; continue; }
             arms_arr[0].kind = MatchPatternKind.MATCH_PAT_UNION;
             arms_arr[0].variant_name = macro_arena_strdup(arena, ("arr" as *byte) as &byte);
             arms_arr[0].var_name = s_a;
@@ -3678,7 +3678,7 @@ fn build_decode_struct_expr(checker: &TypeChecker, struct_decl: &ASTNode, type_n
             if err_arr != null { err_arr.error_value_name = s_WrongType; }
             arms_arr[1].result_expr = err_arr;
             const match_arr: &ASTNode = ast_new_node(ASTNodeType.AST_MATCH_EXPR, line + line_off, column + col_off, arena, filename);
-            if match_arr == null { fi = fi + 1; continue; }
+            if match_arr == null { fi = fi +| 1; continue; }
             match_arr.match_expr_expr = pairs_idx_value;
             match_arr.match_expr_arms = arms_arr;
             match_arr.match_expr_arm_count = 2;
@@ -3732,9 +3732,9 @@ fn build_decode_struct_expr(checker: &TypeChecker, struct_decl: &ASTNode, type_n
                 if init_expr != null { init_expr.try_expr_operand = call_expect; }
             }
         }
-        if init_expr == null { fi = fi + 1; continue; }
+        if init_expr == null { fi = fi +| 1; continue; }
         const var_val: &ASTNode = ast_new_node(ASTNodeType.AST_VAR_DECL, line + line_off, column + col_off, arena, filename);
-        if var_val == null { fi = fi + 1; continue; }
+        if var_val == null { fi = fi +| 1; continue; }
         var_val.var_decl_name = val_var_name;
         var_val.var_decl_type = field_type_node;
         var_val.var_decl_init = init_expr;
@@ -3743,7 +3743,7 @@ fn build_decode_struct_expr(checker: &TypeChecker, struct_decl: &ASTNode, type_n
         inner_idx = inner_idx + 1;
         field_names[field_val_idx] = fname;
         const id_val: &ASTNode = create_identifier_from_string(val_var_name, arena, line + line_off, column + col_off);
-        if id_val == null { fi = fi + 1; continue; }
+        if id_val == null { fi = fi +| 1; continue; }
         field_values[field_val_idx] = id_val;
         field_val_idx = field_val_idx + 1;
         fi = fi +| 1;

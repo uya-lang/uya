@@ -134,7 +134,7 @@ export extern "libc" fn gmtime(timer: &const time_t) &tm {
     _gmtime_result.tm_hour = (remaining / 3600) as i32;
     remaining = remaining -| (_gmtime_result.tm_hour as i64 * 3600);
     _gmtime_result.tm_min = (remaining / 60) as i32;
-    _gmtime_result.tm_sec = (remaining - (_gmtime_result.tm_min as i64 * 60)) as i32;
+    _gmtime_result.tm_sec = (remaining -| ((_gmtime_result.tm_min as i64) *| (60 as i64))) as i32;
     
     // 计算星期几（1970 年 1 月 1 日是星期四）
     _gmtime_result.tm_wday = ((days + (4 as i64)) % (7 as i64)) as i32;
@@ -376,8 +376,8 @@ export extern "libc" fn mktime(timeptr: &tm) time_t {
 
     // 计算总秒数
     var seconds: i64 = days *| (86400 as i64);
-    seconds = seconds +| (hour as i64 * 3600);
-    seconds = seconds +| (min as i64 * 60);
+    seconds = seconds +| ((hour as i64) *| (3600 as i64));
+    seconds = seconds +| ((min as i64) *| (60 as i64));
     seconds = seconds +| (sec as i64);
 
     return seconds as time_t;
@@ -531,7 +531,7 @@ export extern "libc" fn strftime(s: &byte, maxsize: usize, format: &const byte, 
             } else if spec == 83 {  // %S - 秒
                 _strftime_write_2d(s, maxsize, &pos, timeptr.tm_sec);
             } else if spec == 119 {  // %w - 星期几
-                if pos < maxsize { s[pos] = (48 + timeptr.tm_wday) as byte; pos = pos + 1; }
+                if pos < maxsize { s[pos] = (48 +| timeptr.tm_wday) as byte; pos = pos + 1; }
             } else if spec == 97 {  // %a - 星期名称缩写
                 if timeptr.tm_wday >= 0 && timeptr.tm_wday < 7 {
                     _strftime_write(s, maxsize, &pos, _WDAY_ABBREV[timeptr.tm_wday as usize]);

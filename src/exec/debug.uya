@@ -15,6 +15,9 @@ fn exec_debug_opcode_name(opcode: BCOpcode) &byte {
     if opcode == BCOpcode.BC_STORE_LOCAL { return "BC_STORE_LOCAL" as &byte; }
     if opcode == BCOpcode.BC_STORE_GLOBAL { return "BC_STORE_GLOBAL" as &byte; }
     if opcode == BCOpcode.BC_ADD { return "BC_ADD" as &byte; }
+    if opcode == BCOpcode.BC_ADD_SAT { return "BC_ADD_SAT" as &byte; }
+    if opcode == BCOpcode.BC_SUB_SAT { return "BC_SUB_SAT" as &byte; }
+    if opcode == BCOpcode.BC_MUL_SAT { return "BC_MUL_SAT" as &byte; }
     if opcode == BCOpcode.BC_SUB { return "BC_SUB" as &byte; }
     if opcode == BCOpcode.BC_MUL { return "BC_MUL" as &byte; }
     if opcode == BCOpcode.BC_DIV { return "BC_DIV" as &byte; }

@@ -1,0 +1,114 @@
+// 饱和/包装运算符语义回归（C99 与 exec VM 双后端一致性）
+//
+// 这两个运算符是 --strict-overflow 迁移的主要逃生口：写 `+|` / `+%` 就是在用代码
+// 表达「我知道这里会饱和 / 会回绕」，而不是靠标注去说服编译器。
+//
+// 语义：
+//   `+|` `-|` `*|`  饱和：超出目标类型时钳到该类型极值
+//   `+%` `-%` `*%`  包装：按目标类型位宽取模回绕
+//
+// **重点覆盖无符号类型**：C99 后端曾把 u8/u16/u32 的饱和边界错写成有符号极值
+// （`uint8_t` 含子串 `int8`，导致 `255 +| 1` 钳到 127），与 exec VM 给出不同结果。
+// 本文件在 C99 与 VM 下都必须返回 0。
+
+use std.testing.assert_eq_i32;
+
+const MAX_I32: i32 = @max;
+const MIN_I32: i32 = @min;
+
+// ===== 有符号 =====
+
+test "sat_add_i32" {
+    var one: i32 = 1;
+    try assert_eq_i32(MAX_I32 +| one, MAX_I32);
+    try assert_eq_i32(10 +| 20, 30);
+}
+
+test "sat_sub_i32" {
+    var one: i32 = 1;
+    try assert_eq_i32(MIN_I32 -| one, MIN_I32);
+    try assert_eq_i32(30 -| 10, 20);
+}
+
+test "sat_mul_i32" {
+    var two: i32 = 2;
+    try assert_eq_i32(MAX_I32 *| two, MAX_I32);
+    try assert_eq_i32(6 *| 7, 42);
+}
+
+// ===== 无符号（回归 C99 边界值 bug）=====
+
+test "sat_add_u8" {
+    var m: u8 = 255 as u8;
+    var one: u8 = 1 as u8;
+    // 修复前 C99 输出 127；正确值是 255
+    try assert_eq_i32((m +| one) as i32, 255);
+}
+
+test "sat_sub_u8_underflow" {
+    var z: u8 = 0 as u8;
+    var one: u8 = 1 as u8;
+    // 下溢必须钳到 0（不是 -128）
+    try assert_eq_i32((z -| one) as i32, 0);
+}
+
+test "sat_mul_u8" {
+    var big: u8 = 200 as u8;
+    var two: u8 = 2 as u8;
+    try assert_eq_i32((big *| two) as i32, 255);
+}
+
+test "sat_add_u16" {
+    var m: u16 = 65535 as u16;
+    var one: u16 = 1 as u16;
+    try assert_eq_i32((m +| one) as i32, 65535);
+}
+
+test "sat_u32_and_usize" {
+    var m32: u32 = @max;
+    var one32: u32 = 1 as u32;
+    try assert_eq_i32((m32 +| one32) == @max, true);
+    try assert_eq_i32((0 as u32 -| one32) == 0 as u32, true);
+
+    var msz: usize = @max;
+    var onesz: usize = 1 as usize;
+    try assert_eq_i32((msz +| onesz) == @max, true);
+    try assert_eq_i32((0 as usize -| onesz) == 0 as usize, true);
+}
+
+test "sat_narrow_signed" {
+    var s8: i8 = 127 as i8;
+    var one8: i8 = 1 as i8;
+    try assert_eq_i32((s8 +| one8) as i32, 127);
+    var n16: i16 = -32768 as i16;
+    var one16: i16 = 1 as i16;
+    try assert_eq_i32((n16 -| one16) as i32, -32768);
+}
+
+// ===== 包装 =====
+
+test "wrap_add_i32" {
+    var one: i32 = 1;
+    try assert_eq_i32(MAX_I32 +% one, MIN_I32);
+    try assert_eq_i32(10 +% 20, 30);
+}
+
+test "wrap_mul_i32" {
+    var two: i32 = 2;
+    const r: i32 = MAX_I32 *% two;
+    try assert_eq_i32(r, 0 - 2);
+}
+
+test "wrap_u8_modular" {
+    var m: u8 = 255 as u8;
+    var one: u8 = 1 as u8;
+    // 无符号包装：255 + 1 回绕到 0
+    try assert_eq_i32((m +% one) as i32, 0);
+    // 无符号包装减法：0 - 1 回绕到 255
+    try assert_eq_i32((0 as u8 -% one) as i32, 255);
+}
+
+test "empty_sentinel_must_be_zero" {
+    // 最小自检：无断言时的基线
+    try assert_eq_i32(0, 0);
+}
