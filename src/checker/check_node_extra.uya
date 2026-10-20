@@ -464,7 +464,7 @@ fn check_for_stmt_node(checker: &TypeChecker, node: &ASTNode) i32 {
             }
         }
         checker_enter_scope(checker);
-        checker.loop_depth = checker.loop_depth + 1;
+        checker.loop_depth = checker.loop_depth +| 1;
         if node.for_stmt_var_name != null {
             const loop_var: &Symbol = compiler_arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
             if loop_var != null {
@@ -513,7 +513,7 @@ fn check_for_stmt_node(checker: &TypeChecker, node: &ASTNode) i32 {
         // 恢复约束状态
         checker.constraint_count = saved_constraint_count;
         
-        checker.loop_depth = checker.loop_depth - 1;
+        checker.loop_depth = checker.loop_depth -| 1;
         checker_exit_scope(checker);
         return 1;
     }
@@ -555,7 +555,7 @@ fn check_for_stmt_node(checker: &TypeChecker, node: &ASTNode) i32 {
                     
                     // 进入循环作用域并添加循环变量
                     checker_enter_scope(checker);
-                    checker.loop_depth = checker.loop_depth + 1;
+                    checker.loop_depth = checker.loop_depth +| 1;
                     
                     // 创建循环变量类型（从 value 方法返回类型）
                     const var_type: Type = value_return_type;
@@ -584,7 +584,7 @@ fn check_for_stmt_node(checker: &TypeChecker, node: &ASTNode) i32 {
                     }
                     
                     // 退出循环作用域
-                    checker.loop_depth = checker.loop_depth - 1;
+                    checker.loop_depth = checker.loop_depth -| 1;
                     checker_exit_scope(checker);
                     return 1;
                 } else {
@@ -629,11 +629,11 @@ fn check_for_stmt_node(checker: &TypeChecker, node: &ASTNode) i32 {
                 // 符号表中也没有有效的数组类型，报告错误但继续检查
                 checker_report_error(checker, node, "for 循环需要数组类型或实现了迭代器接口的结构体，但无法推断表达式类型" as *byte);
                 checker_enter_scope(checker);
-                checker.loop_depth = checker.loop_depth + 1;
+                checker.loop_depth = checker.loop_depth +| 1;
                 if node.for_stmt_body != null {
                     checker_check_node(checker, node.for_stmt_body);
                 }
-                checker.loop_depth = checker.loop_depth - 1;
+                checker.loop_depth = checker.loop_depth -| 1;
                 checker_exit_scope(checker);
                 return 1;
             }
@@ -642,22 +642,22 @@ fn check_for_stmt_node(checker: &TypeChecker, node: &ASTNode) i32 {
             // 放宽检查，允许通过（不报错），继续检查循环体
             // 这在编译器自举时很常见，因为类型推断可能失败
             checker_enter_scope(checker);
-            checker.loop_depth = checker.loop_depth + 1;
+            checker.loop_depth = checker.loop_depth +| 1;
             if node.for_stmt_body != null {
                 checker_check_node(checker, node.for_stmt_body);
             }
-            checker.loop_depth = checker.loop_depth - 1;
+            checker.loop_depth = checker.loop_depth -| 1;
             checker_exit_scope(checker);
             return 1;
         } else {
             // 不是标识符或字段访问，无法从符号表获取，报告错误但继续检查
             checker_report_error(checker, node, "for 循环需要数组类型或实现了迭代器接口的结构体，但无法推断表达式类型" as *byte);
             checker_enter_scope(checker);
-            checker.loop_depth = checker.loop_depth + 1;
+            checker.loop_depth = checker.loop_depth +| 1;
             if node.for_stmt_body != null {
                 checker_check_node(checker, node.for_stmt_body);
             }
-            checker.loop_depth = checker.loop_depth - 1;
+            checker.loop_depth = checker.loop_depth -| 1;
             checker_exit_scope(checker);
             return 1;
         }
@@ -688,11 +688,11 @@ fn check_for_stmt_node(checker: &TypeChecker, node: &ASTNode) i32 {
             // 元素类型无效，报告错误
             checker_report_error(checker, node, "for 循环数组类型无效：无法确定元素类型" as *byte);
             checker_enter_scope(checker);
-            checker.loop_depth = checker.loop_depth + 1;
+            checker.loop_depth = checker.loop_depth +| 1;
             if node.for_stmt_body != null {
                 checker_check_node(checker, node.for_stmt_body);
             }
-            checker.loop_depth = checker.loop_depth - 1;
+            checker.loop_depth = checker.loop_depth -| 1;
             checker_exit_scope(checker);
             return 1;  // 继续检查，但已报告错误
         }
@@ -706,11 +706,11 @@ fn check_for_stmt_node(checker: &TypeChecker, node: &ASTNode) i32 {
             if ref_element_type_ptr == null {
                 checker_report_error(checker, node, "类型检查错误：内存分配失败" as *byte);
                 checker_enter_scope(checker);
-                checker.loop_depth = checker.loop_depth + 1;
+                checker.loop_depth = checker.loop_depth +| 1;
                 if node.for_stmt_body != null {
                     checker_check_node(checker, node.for_stmt_body);
                 }
-                checker.loop_depth = checker.loop_depth - 1;
+                checker.loop_depth = checker.loop_depth -| 1;
                 checker_exit_scope(checker);
                 return 1;
             } else {
@@ -751,7 +751,7 @@ fn check_for_stmt_node(checker: &TypeChecker, node: &ASTNode) i32 {
         }
         
         // 5. 退出循环作用域和循环深度
-        checker.loop_depth = checker.loop_depth - 1;
+        checker.loop_depth = checker.loop_depth -| 1;
         checker_exit_scope(checker);
     }
     return 1;

@@ -132,14 +132,14 @@ export extern "libc" fn gmtime(timer: &const time_t) &tm {
     
     // 计算小时、分钟、秒
     _gmtime_result.tm_hour = (remaining / 3600) as i32;
-    remaining = remaining - (_gmtime_result.tm_hour as i64 * 3600);
+    remaining = remaining -| (_gmtime_result.tm_hour as i64 * 3600);
     _gmtime_result.tm_min = (remaining / 60) as i32;
     _gmtime_result.tm_sec = (remaining - (_gmtime_result.tm_min as i64 * 60)) as i32;
     
     // 计算星期几（1970 年 1 月 1 日是星期四）
     _gmtime_result.tm_wday = ((days + (4 as i64)) % (7 as i64)) as i32;
     if _gmtime_result.tm_wday < 0 {
-        _gmtime_result.tm_wday = _gmtime_result.tm_wday + 7;
+        _gmtime_result.tm_wday = _gmtime_result.tm_wday +| 7;
     }
     
     // 计算年份
@@ -168,7 +168,7 @@ export extern "libc" fn gmtime(timer: &const time_t) &tm {
         }
         
         if remaining_days < month_days { break; }
-        remaining_days = remaining_days - month_days;
+        remaining_days = remaining_days -| month_days;
         month = month + 1;
     }
     
@@ -368,17 +368,17 @@ export extern "libc" fn mktime(timeptr: &tm) time_t {
         if m == 1 && is_leap_year(year) {
             month_days = 29;
         }
-        days = days + month_days as i64;
+        days = days +| month_days as i64;
         m = m + 1;
     }
     
-    days = days + (day - 1) as i64;
+    days = days +| (day - 1) as i64;
 
     // 计算总秒数
     var seconds: i64 = days * 86400;
-    seconds = seconds + (hour as i64 * 3600);
-    seconds = seconds + (min as i64 * 60);
-    seconds = seconds + (sec as i64);
+    seconds = seconds +| (hour as i64 * 3600);
+    seconds = seconds +| (min as i64 * 60);
+    seconds = seconds +| (sec as i64);
 
     return seconds as time_t;
 }

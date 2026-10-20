@@ -152,7 +152,7 @@ fn checker_embed_normalize_path(input: &byte, out: &byte, out_cap: i32) i32 {
                 const prev_start: i32 = seg_starts[seg_count - 1];
                 const prev_len: i32 = seg_lens[seg_count - 1];
                 if !(prev_len == 2 && input[prev_start] == 46 as byte && input[prev_start + 1] == 46 as byte) {
-                    seg_count = seg_count - 1;
+                    seg_count = seg_count -| 1;
                     continue;
                 }
             }
@@ -273,7 +273,7 @@ fn checker_embed_join_path(base_dir: &byte, path_literal: &byte, out: &byte, out
     var pos: i32 = base_len;
     if pos > 0 && checker_embed_is_path_sep(out[pos - 1]) == 0 {
         out[pos] = 47 as byte;
-        pos = pos + 1;
+        pos = pos +| 1;
     }
     memcpy((&out[pos]) as *void, path_literal as *void, (lit_len + 1) as usize);
     return 0;
@@ -469,7 +469,7 @@ fn checker_embed_collect_dir_files_recursive(
                     closedir(dir);
                     return 0;
                 }
-                out_count[0] = out_count[0] + 1;
+                out_count[0] = out_count[0] +| 1;
             } else {
                 closedir(dir);
                 return 0;
@@ -787,7 +787,7 @@ fn checker_c_import_collect_dir_recursive(
     if visited_dirs[visited_count[0]] == null {
         return 0;
     }
-    visited_count[0] = visited_count[0] + 1;
+    visited_count[0] = visited_count[0] +| 1;
 
     const dir: &DIR = opendir(current_dir as &const byte);
     if dir == null {
@@ -866,7 +866,7 @@ fn checker_c_import_collect_dir_recursive(
                         closedir(dir);
                         return 0;
                     }
-                    out_count[0] = out_count[0] + 1;
+                    out_count[0] = out_count[0] +| 1;
                 }
             } else {
                 closedir(dir);
@@ -1650,7 +1650,7 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
                 }
                 data_items[di] = one_data;
                 size_items[di] = one_size;
-                di = di + 1;
+                di = di +| 1;
             }
             expr.embed_dir_paths = rel_paths;
             expr.embed_dir_resolved_paths = resolved_paths;
@@ -1880,7 +1880,7 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         while i < expr.string_interp_segment_count {
             const seg: &ASTStringInterpSegment = &expr.string_interp_segments[i];
             if seg.is_text != 0 {
-                total = total + (strlen(seg.text as *byte) as i32);
+                total = total +| (strlen(seg.text as *byte) as i32);
             } else {
                 const seg_type: Type = checker_infer_type(checker, seg.expr);
                 const w: i32 = checker_interp_format_max_width(copy_type(&seg_type), seg.format_spec);
@@ -1888,7 +1888,7 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
                     checker_report_error(checker, seg.expr, "不支持的插值类型或格式说明符" as *byte);
                     return make_void_type();
                 }
-                total = total + w;
+                total = total +| w;
             }
             i = i + 1;
         }
@@ -2989,7 +2989,7 @@ fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
                     const mtbl_cap: i32 = checker.module_table.table.capacity;
                     var mi: i32 = (mh as i32) % mtbl_cap;
                     if mi < 0 {
-                        mi = mi + mtbl_cap;
+                        mi = mi +| mtbl_cap;
                     }
                     var i3: i32 = 0;
                     while i3 < mtbl_cap {
@@ -3504,7 +3504,7 @@ fn infer_member_access(checker: &TypeChecker, expr: &ASTNode) Type {
                 const itbl_cap: i32 = checker.import_table.table.capacity;
                 var ii: i32 = ih % itbl_cap;
                 if ii < 0 {
-                    ii = ii + itbl_cap;
+                    ii = ii +| itbl_cap;
                 }
                 var i2: i32 = 0;
                 while i2 < itbl_cap {
@@ -4173,9 +4173,9 @@ fn infer_try_expr(checker: &TypeChecker, expr: &ASTNode) Type {
     if checker == null || expr == null {
         return make_void_type();
     }
-    checker.suppress_overflow_gate = checker.suppress_overflow_gate + 1;
+    checker.suppress_overflow_gate = checker.suppress_overflow_gate +| 1;
     const inferred: Type = infer_try_expr_inner(checker, expr);
-    checker.suppress_overflow_gate = checker.suppress_overflow_gate - 1;
+    checker.suppress_overflow_gate = checker.suppress_overflow_gate -| 1;
     return inferred;
 }
 
@@ -4312,9 +4312,9 @@ fn infer_catch_expr(checker: &TypeChecker, expr: &ASTNode) Type {
     if checker == null || expr == null {
         return make_void_type();
     }
-    checker.suppress_overflow_gate = checker.suppress_overflow_gate + 1;
+    checker.suppress_overflow_gate = checker.suppress_overflow_gate +| 1;
     const inferred: Type = infer_catch_expr_inner(checker, expr);
-    checker.suppress_overflow_gate = checker.suppress_overflow_gate - 1;
+    checker.suppress_overflow_gate = checker.suppress_overflow_gate -| 1;
     return inferred;
 }
 

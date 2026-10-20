@@ -63,7 +63,7 @@ fn checker_ensure_async_frame_meta_capacity(checker: &TypeChecker, needed: i32) 
         new_cap = ASYNC_FRAME_META_INITIAL_CAPACITY;
     }
     while new_cap < needed {
-        new_cap = new_cap * 2;
+        new_cap = new_cap *| 2;
         if new_cap <= 0 {
             return -1;
         }
@@ -104,7 +104,7 @@ fn checker_register_async_frame_meta(checker: &TypeChecker, meta: &AsyncFrameMet
         return -1;
     }
     checker_set_async_frame_meta(checker, idx, meta);
-    checker.async_frame_meta_count = checker.async_frame_meta_count + 1;
+    checker.async_frame_meta_count = checker.async_frame_meta_count +| 1;
     return idx;
 }
 

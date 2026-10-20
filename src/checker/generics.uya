@@ -77,7 +77,7 @@ fn mono_instance_index_ensure_capacity(checker: &TypeChecker, needed: i32) i32 {
         new_cap = MONO_INSTANCE_INITIAL_CAPACITY;
     }
     while new_cap < needed {
-        new_cap = new_cap * 2;
+        new_cap = new_cap *| 2;
         if new_cap <= 0 {
             return -1;
         }
@@ -116,7 +116,7 @@ fn checker_ensure_mono_instance_capacity(checker: &TypeChecker, needed: i32) i32
         new_cap = MONO_INSTANCE_INITIAL_CAPACITY;
     }
     while new_cap < needed {
-        new_cap = new_cap * 2;
+        new_cap = new_cap *| 2;
         if new_cap <= 0 {
             return -1;
         }
@@ -138,7 +138,7 @@ fn checker_ensure_mono_instance_capacity(checker: &TypeChecker, needed: i32) i32
 fn mono_instance_index_slot(generic_name: &byte, is_function: i32) i32 {
     var h: i32 = hash_string(generic_name);
     if is_function != 0 {
-        h = h + 97;
+        h = h +| 97;
     }
     return (h & MONO_INSTANCE_INDEX_MASK) as i32;
 }

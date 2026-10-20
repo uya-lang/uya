@@ -1417,11 +1417,11 @@ export extern "libc" fn pthread_mutex_timedlock(mutex: &pthread_mutex_t, abstime
             var rel_nsec: i64 = abstime.tv_nsec - (now.tv_usec * 1000);
             while rel_nsec < 0 {
                 rel_nsec = rel_nsec + 1000000000;
-                rel_sec = rel_sec - 1;
+                rel_sec = rel_sec -| (1 as i64);
             }
             while rel_nsec >= 1000000000 {
                 rel_nsec = rel_nsec - 1000000000;
-                rel_sec = rel_sec + 1;
+                rel_sec = rel_sec +| (1 as i64);
             }
             if rel_sec < 0 || (rel_sec == 0 && rel_nsec <= 0) {
                 return 110; // ETIMEDOUT
@@ -1627,7 +1627,7 @@ export extern "libc" fn pthread_cond_timedwait(cond: &pthread_cond_t, mutex: &pt
     // 处理纳秒溢出
     while rel_nsec < 0 {
         rel_nsec = rel_nsec + 1000000000;
-        rel_sec = rel_sec - 1;
+        rel_sec = rel_sec -| (1 as i64);
     }
 
     // 检查是否已经超时
@@ -2169,7 +2169,7 @@ export extern "libc" fn pthread_key_create(key: &pthread_key_t, destructor: &voi
     while idx < PTHREAD_KEYS_MAX as i32 {
         var k: &pthread_key_t = (_pthread_keys as usize + idx as usize * @size_of(pthread_key_t)) as &pthread_key_t;
         if k.seq == 0 {
-            _pthread_key_next = _pthread_key_next + 1;
+            _pthread_key_next = _pthread_key_next +| 1;
             k.seq = _pthread_key_next;
             k.destructor = destructor;
             key.seq = _pthread_key_next;
@@ -2200,7 +2200,7 @@ export extern "libc" fn pthread_key_delete(key: &pthread_key_t) i32 {
         if k.seq == key.seq && k.seq != 0 {
             k.seq = -k.seq;
             k.destructor = null;
-            _pthread_key_count = _pthread_key_count - 1;
+            _pthread_key_count = _pthread_key_count -| 1;
             _ = pthread_mutex_unlock(&_pthread_key_mutex);
             return 0;
         }

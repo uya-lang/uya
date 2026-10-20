@@ -583,7 +583,7 @@ fn macro_append_bytes(dst: &byte, pos: &i32, src: &byte) void {
     }
     const len: i32 = strlen(src as *byte);
     memcpy((dst + pos[0]) as *void, src as *void, len as u64);
-    pos[0] = pos[0] + len;
+    pos[0] = pos[0] +| len;
     const p: i32 = pos[0];
     if p >= 0 && p < 1000000 {
         dst[p] = 0;
@@ -777,7 +777,7 @@ fn ast_expr_to_source_string(node: &ASTNode, arena: &CompilerArena, filename: &b
             if node.call_expr_args != null {
                 const arg: &byte = ast_expr_to_source_string(node.call_expr_args[i], arena, filename);
                 if arg != null {
-                    parts_len = parts_len + strlen(arg as *byte) + 2;
+                    parts_len = parts_len +| ((strlen(arg as *byte) as i32) + 2);
                 }
             }
             i = i + 1;
@@ -967,7 +967,7 @@ fn macro_ctx_has_hygiene(ctx: &MacroExpandContext) i32 {
 
 fn next_macro_hygiene_expansion_id() i32 {
     const expansion_id: i32 = macro_hygiene_expansion_counter;
-    macro_hygiene_expansion_counter = macro_hygiene_expansion_counter + 1;
+    macro_hygiene_expansion_counter = macro_hygiene_expansion_counter +| 1;
     return expansion_id;
 }
 
@@ -1110,7 +1110,7 @@ fn create_hygiene_name(ctx: &MacroExpandContext, original_name: &byte) &byte {
         return original_name;
     }
     const local_id: i32 = ctx.hygiene_next_local_id;
-    ctx.hygiene_next_local_id = ctx.hygiene_next_local_id + 1;
+    ctx.hygiene_next_local_id = ctx.hygiene_next_local_id +| 1;
     const name_len: i32 = strlen(original_name as *byte);
     const buf_len: i32 = name_len + 48;
     const buf: &byte = compiler_arena_alloc(ctx.arena, buf_len as u64) as &byte;
@@ -3746,7 +3746,7 @@ fn build_decode_struct_expr(checker: &TypeChecker, struct_decl: &ASTNode, type_n
         if id_val == null { fi = fi + 1; continue; }
         field_values[field_val_idx] = id_val;
         field_val_idx = field_val_idx + 1;
-        fi = fi + 1;
+        fi = fi +| 1;
     }
     const struct_init: &ASTNode = ast_new_node(ASTNodeType.AST_STRUCT_INIT, line + line_off, column + col_off, arena, filename);
     if struct_init == null { return null; }

@@ -559,7 +559,7 @@ fn checker_grow_call_edges(checker: &TypeChecker) i32 {
     if ncap <= 0 {
         ncap = MAX_FN_CALL_EDGES;
     } else {
-        ncap = ncap * 2;
+        ncap = ncap *| 2;
         if ncap <= 0 {
             return -1;   // i32 溢出（病态输入）
         }
@@ -788,7 +788,7 @@ fn reset_symbol_lookup_cache() void {
         g_symbol_lookup_cache_valid[i] = 0;
         i = i + 1;
     }
-    g_symbol_lookup_generation = g_symbol_lookup_generation + 1;
+    g_symbol_lookup_generation = g_symbol_lookup_generation +| 1;
 }
 
 fn symbol_lookup_cache_slot(name_hash: i32) i32 {
@@ -796,7 +796,7 @@ fn symbol_lookup_cache_slot(name_hash: i32) i32 {
 }
 
 fn symbol_lookup_cache_bump_generation() void {
-    g_symbol_lookup_generation = g_symbol_lookup_generation + 1;
+    g_symbol_lookup_generation = g_symbol_lookup_generation +| 1;
 }
 
 // 符号表查找函数（支持作用域查找，返回最内层匹配的符号）
@@ -1145,7 +1145,7 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
 // 进入作用域
 fn checker_enter_scope(checker: &TypeChecker) void {
     if checker != null {
-        checker.scope_level = checker.scope_level + 1;
+        checker.scope_level = checker.scope_level +| 1;
         symbol_lookup_cache_bump_generation();
     }
 }
@@ -1182,7 +1182,7 @@ fn checker_exit_scope(checker: &TypeChecker) void {
             }
             var index: i32 = hash % sym_cap;
             if index < 0 {
-                index = index + sym_cap;
+                index = index +| sym_cap;
             }
 
             var i: i32 = 0;
@@ -1286,7 +1286,7 @@ fn string_pool_ensure_buckets(pool: &StringPool, want: i32) bool {
         nc = 8;
     }
     while nc < want {
-        nc = nc * 2;
+        nc = nc *| 2;
         if nc <= 0 {
             return false;
         }
@@ -1394,7 +1394,7 @@ fn string_pool_intern(pool: &StringPool, arena: &CompilerArena, str: &byte) &byt
     new_entry.hash = hash;
     new_entry.next = pool.buckets[bucket_idx];
     pool.buckets[bucket_idx] = new_entry;
-    pool.count = pool.count + 1;
+    pool.count = pool.count +| 1;
 
     return new_str;
 }

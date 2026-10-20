@@ -997,9 +997,9 @@ export extern "libc" fn ipow(base: i64, exp: i32) i64 {
     
     while e > 0 {
         if (e & 1) != 0 {
-            result = result * b;
+            result = result *| b;
         }
-        b = b * b;
+        b = b *| b;
         e = e >> 1;
     }
     

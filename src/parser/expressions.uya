@@ -411,7 +411,7 @@ fn parser_parse_rel_expr(parser: &Parser) &ASTNode {
                                 var i: i32 = 0;
                                 while i < type_arg_count {
                                     new_type_args[i] = type_args[i];
-                                    i = i + 1;
+                                    i = i +| 1;
                                 }
                             }
                             
@@ -489,7 +489,7 @@ fn parser_parse_rel_expr(parser: &Parser) &ASTNode {
                                 var i: i32 = 0;
                                 while i < arg_count {
                                     new_args[i] = args[i];
-                                    i = i + 1;
+                                    i = i +| 1;
                                 }
                             }
                             

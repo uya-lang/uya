@@ -849,7 +849,7 @@ fn state_machine_size_estimate(await_count: i32, param_count: i32) i32 {
             if total > max_v - part {
                 return max_v;
             }
-            total = total + part;
+            total = total +| part;
         }
         i = i + 1;
     }

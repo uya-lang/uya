@@ -180,10 +180,10 @@ fn advance_char(lexer: &Lexer) byte {
     const c: byte = lexer_buffer_at(lexer, pos);
     lexer.position = pos + 1;
     if c == 10 {
-        lexer.line = lexer.line + 1;
+        lexer.line = lexer.line +| 1;
         lexer.column = 1;
     } else {
-        lexer.column = lexer.column + 1;
+        lexer.column = lexer.column +| 1;
     }
     return c;
 }

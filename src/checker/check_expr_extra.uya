@@ -673,7 +673,7 @@ fn checker_get_pipeline_callee_first_param_type(checker: &TypeChecker, call_node
                 const mtbl_cap: i32 = checker.module_table.table.capacity;
                 var mi: i32 = (mh as i32) % mtbl_cap;
                 if mi < 0 {
-                    mi = mi + mtbl_cap;
+                    mi = mi +| mtbl_cap;
                 }
                 var i3: i32 = 0;
                 while i3 < mtbl_cap {
@@ -908,7 +908,7 @@ fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
         return result;
     }
 
-    checker.pipeline_chain_depth = checker.pipeline_chain_depth + 1;
+    checker.pipeline_chain_depth = checker.pipeline_chain_depth +| 1;
     // 进入时即判定是否为最外层：后续内层 pipeline 返回时 depth 也会回到 1，
     // 若只在返回时判断会误标最左侧变量。
     const is_outermost: i32 = if checker.pipeline_chain_depth == 1 { 1 } else { 0 };
@@ -921,7 +921,7 @@ fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
             existing_leftmost.identifier_name != null &&
             moved_set_contains(checker, existing_leftmost.identifier_name) != 0 {
             checker_report_error_moved(checker, existing_leftmost, existing_leftmost.identifier_name);
-            checker.pipeline_chain_depth = checker.pipeline_chain_depth - 1;
+            checker.pipeline_chain_depth = checker.pipeline_chain_depth -| 1;
             return result;
         }
     }
@@ -940,7 +940,7 @@ fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
         node.pipeline_expr_move_checked = 1;
     }
 
-    checker.pipeline_chain_depth = checker.pipeline_chain_depth - 1;
+    checker.pipeline_chain_depth = checker.pipeline_chain_depth -| 1;
     return result;
 }
 
@@ -971,12 +971,12 @@ fn checker_infer_type_bypass_moved(checker: &TypeChecker, expr: &ASTNode) Type {
     if last_idx >= 0 && last_idx < MAX_MOVED_NAMES {
         checker.moved_names[found_idx] = checker.moved_names[last_idx];
     }
-    checker.moved_count = checker.moved_count - 1;
+    checker.moved_count = checker.moved_count -| 1;
     const result: Type = checker_infer_type(checker, expr);
     if checker.moved_count >= 0 && checker.moved_count < MAX_MOVED_NAMES {
         checker.moved_names[checker.moved_count] = saved_name;
     }
-    checker.moved_count = checker.moved_count + 1;
+    checker.moved_count = checker.moved_count +| 1;
     return result;
 }
 

@@ -496,7 +496,7 @@ fn parser_parse_cfg_decl_block(parser: &Parser) &ASTNode {
                             if decls != null {
                                 new_decls[copy_i] = decls[copy_i];
                             }
-                            copy_i = copy_i + 1;
+                            copy_i = copy_i +| 1;
                         }
                         decls = new_decls;
                         decl_capacity = new_capacity;
@@ -524,7 +524,7 @@ fn parser_parse_cfg_decl_block(parser: &Parser) &ASTNode {
                     if decls != null {
                         new_decls2[copy_i2] = decls[copy_i2];
                     }
-                    copy_i2 = copy_i2 + 1;
+                    copy_i2 = copy_i2 +| 1;
                 }
                 decls = new_decls2;
                 decl_capacity = new_capacity2;
@@ -1000,7 +1000,7 @@ fn parser_parse(parser: &Parser) &ASTNode {
                 var i: i32 = 0;
                 while i < decl_count {
                     new_decls[i] = decls[i];
-                    i = i + 1;
+                    i = i +| 1;
                 }
             }
             
@@ -1027,7 +1027,7 @@ fn parser_parse(parser: &Parser) &ASTNode {
                         var copy_i3: i32 = 0;
                         while copy_i3 < decl_count {
                             new_decls3[copy_i3] = decls[copy_i3];
-                            copy_i3 = copy_i3 + 1;
+                            copy_i3 = copy_i3 +| 1;
                         }
                         decls = new_decls3;
                         decl_capacity = new_capacity3;

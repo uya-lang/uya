@@ -260,7 +260,7 @@ fn constant_fold_binary(checker: &TypeChecker, node: &ASTNode) &ASTNode {
     node.is_optimized = 1;
     node.optimized_value = value;
     
-    optimizer_stats.constant_folded = optimizer_stats.constant_folded + 1;
+    optimizer_stats.constant_folded = optimizer_stats.constant_folded +| 1;
     
     if optimizer_verbose != 0 {
         printf("[optimize] constant folded: expression -> %d\n" as *byte, value);
@@ -303,7 +303,7 @@ export fn constant_folding_pass(checker: &TypeChecker, node: &ASTNode) &ASTNode 
         if value != -1 {
             node.is_optimized = 1;
             node.optimized_value = value;
-            optimizer_stats.constant_folded = optimizer_stats.constant_folded + 1;
+            optimizer_stats.constant_folded = optimizer_stats.constant_folded +| 1;
             if optimizer_verbose != 0 {
                 printf("[optimize] constant folded: expression -> %d\n" as *byte, value);
             }
@@ -354,7 +354,7 @@ fn get_total_asm_input_count(node: &ASTNode) i32 {
     var total: i32 = 0;
     var i: i32 = 0;
     while i < node.asm_instruction_count {
-        total = total + node.asm_input_counts[i];
+        total = total +| node.asm_input_counts[i];
         i = i + 1;
     }
     return total;
@@ -430,7 +430,7 @@ fn constant_fold_asm_block(checker: &TypeChecker, node: &ASTNode) &ASTNode {
                 // 注意：@asm 是语句块，不应该标记 is_optimized（那是用于表达式的）
                 // 如果是 nop 等无副作用指令，可以标记为死代码
                 
-                optimizer_stats.constant_folded = optimizer_stats.constant_folded + 1;
+                optimizer_stats.constant_folded = optimizer_stats.constant_folded +| 1;
             }
             
             i = i + 1;
@@ -575,7 +575,7 @@ export fn dead_code_elimination_pass(checker: &TypeChecker, node: &ASTNode) &AST
                 // 条件恒为真：标记 else 分支为死代码
                 if node.if_stmt_else_branch != null {
                     node.if_stmt_else_branch.is_dead_code = 1;
-                    optimizer_stats.dead_code_eliminated = optimizer_stats.dead_code_eliminated + 1;
+                    optimizer_stats.dead_code_eliminated = optimizer_stats.dead_code_eliminated +| 1;
                     
                     if optimizer_verbose != 0 {
                         printf("[optimize] dead code eliminated: else branch (condition always true)\n" as *byte);
@@ -585,7 +585,7 @@ export fn dead_code_elimination_pass(checker: &TypeChecker, node: &ASTNode) &AST
                 // 条件恒为假：标记 then 分支为死代码
                 if node.if_stmt_then_branch != null {
                     node.if_stmt_then_branch.is_dead_code = 1;
-                    optimizer_stats.dead_code_eliminated = optimizer_stats.dead_code_eliminated + 1;
+                    optimizer_stats.dead_code_eliminated = optimizer_stats.dead_code_eliminated +| 1;
                     
                     if optimizer_verbose != 0 {
                         printf("[optimize] dead code eliminated: then branch (condition always false)\n" as *byte);
@@ -672,7 +672,7 @@ fn proof_optimization_pass_impl(checker: &TypeChecker, node: &ASTNode, enclosing
         if can_prove_bounds_check(checker, array_expr, index_expr) != 0 {
             // 可以证明边界安全，标记为优化
             node.is_proved_safe = 1;
-            optimizer_stats.proof_optimized = optimizer_stats.proof_optimized + 1;
+            optimizer_stats.proof_optimized = optimizer_stats.proof_optimized +| 1;
             
             if optimizer_verbose != 0 {
                 printf("[optimize] proof optimized: bounds check removed\n" as *byte);
@@ -696,7 +696,7 @@ fn proof_optimization_pass_impl(checker: &TypeChecker, node: &ASTNode, enclosing
             const cond_value: i32 = get_constant_condition_value_in_block(checker, condition, enclosing_block);
             if cond_value == 1 {
                 node.is_proved_safe = 1;
-                optimizer_stats.proof_optimized = optimizer_stats.proof_optimized + 1;
+                optimizer_stats.proof_optimized = optimizer_stats.proof_optimized +| 1;
                 
                 if optimizer_verbose != 0 {
                     printf("[optimize] proof optimized: condition proved true\n" as *byte);
@@ -854,7 +854,7 @@ fn inline_call_expr(checker: &TypeChecker, call_node: &ASTNode, current_fn: &AST
     call_node.inlined_body = fn_decl.fn_decl_body;
     
     // 更新统计
-    optimizer_stats.inlined_functions = optimizer_stats.inlined_functions + 1;
+    optimizer_stats.inlined_functions = optimizer_stats.inlined_functions +| 1;
     
     if optimizer_verbose != 0 {
         printf("[optimize] inlined function: %s\n" as *byte, fn_name);
@@ -872,10 +872,10 @@ fn inline_call_expr(checker: &TypeChecker, call_node: &ASTNode, current_fn: &AST
     // 递归处理内联后的函数体
     inline_depth = inline_depth + 1;
     inline_pass(checker, fn_decl.fn_decl_body);
-    inline_depth = inline_depth - 1;
+    inline_depth = inline_depth -| 1;
 
     // 从调用栈弹出
-    inline_call_stack_top = inline_call_stack_top - 1;
+    inline_call_stack_top = inline_call_stack_top -| 1;
     if inline_call_stack_top >= 0 && inline_call_stack_top < @len(inline_call_stack) {
         inline_call_stack_set(inline_call_stack_top, null);
     }
@@ -1063,7 +1063,7 @@ export fn loop_unrolling_pass(checker: &TypeChecker, node: &ASTNode) &ASTNode {
             node.is_unrolled = 1;
             node.unroll_count = iter_count;
             
-            optimizer_stats.loops_unrolled = optimizer_stats.loops_unrolled + 1;
+            optimizer_stats.loops_unrolled = optimizer_stats.loops_unrolled +| 1;
             
             if optimizer_verbose != 0 {
                 printf("[optimize] loop unrolled: %d iterations\n" as *byte, iter_count);
@@ -1183,7 +1183,7 @@ export fn instruction_fusion_pass(checker: &TypeChecker, node: &ASTNode) &ASTNod
                 if fusion_result.can_fuse != 0 {
                     // 标记可以融合
                     // TODO: 实际的指令融合需要修改代码生成阶段
-                    optimizer_stats.proof_optimized = optimizer_stats.proof_optimized + 1;
+                    optimizer_stats.proof_optimized = optimizer_stats.proof_optimized +| 1;
                     
                     if optimizer_verbose != 0 {
                         printf("[optimize] instruction fusion opportunity detected at index %d\n" as *byte, i);
@@ -1317,7 +1317,7 @@ export fn redundant_instruction_elimination_pass(checker: &TypeChecker, node: &A
                     // 注意：不能直接删除指令，需要标记让代码生成阶段处理
                     // node.asm_instructions[i] = null; // 不推荐直接修改
                     
-                    optimizer_stats.dead_code_eliminated = optimizer_stats.dead_code_eliminated + 1;
+                    optimizer_stats.dead_code_eliminated = optimizer_stats.dead_code_eliminated +| 1;
                     
                     if optimizer_verbose != 0 {
                         printf("[optimize] redundant instruction detected: %s (%s)\n" as *byte, instr, redundant_result.reason);

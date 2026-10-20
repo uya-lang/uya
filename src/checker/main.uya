@@ -736,7 +736,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                     &saved_constraint_names[0], &saved_constraint_ops[0], &saved_constraint_values[0], saved_constraint_count,
                     node.if_stmt_else_branch != null);
             }
-            ai = ai + 1;
+            ai = ai +| 1;
         }
 
         return 1;
@@ -765,13 +765,13 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         }
         
         // 进入循环（增加循环深度）
-        checker.loop_depth = checker.loop_depth + 1;
+        checker.loop_depth = checker.loop_depth +| 1;
         // 检查循环体
         if node.while_stmt_body != null {
             checker_check_node(checker, node.while_stmt_body);
         }
         // 退出循环（减少循环深度）
-        checker.loop_depth = checker.loop_depth - 1;
+        checker.loop_depth = checker.loop_depth -| 1;
         
         // 循环结束后，恢复约束状态（循环可能不执行）
         checker.constraint_count = saved_constraint_count;
@@ -1169,11 +1169,11 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             // checked 算术操作数由运行时检查负责，豁免 --strict-overflow 静态闸门
             const checked_operand: i32 = checker_expr_is_checked_arith(checker, node.try_expr_operand);
             if checked_operand != 0 {
-                checker.suppress_overflow_gate = checker.suppress_overflow_gate + 1;
+                checker.suppress_overflow_gate = checker.suppress_overflow_gate +| 1;
             }
             checker_check_node(checker, node.try_expr_operand);
             if checked_operand != 0 {
-                checker.suppress_overflow_gate = checker.suppress_overflow_gate - 1;
+                checker.suppress_overflow_gate = checker.suppress_overflow_gate -| 1;
             }
         }
         return 1;
@@ -1186,11 +1186,11 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         if node.catch_expr_operand != null {
             const checked_catch_operand: i32 = checker_expr_is_checked_arith(checker, node.catch_expr_operand);
             if checked_catch_operand != 0 {
-                checker.suppress_overflow_gate = checker.suppress_overflow_gate + 1;
+                checker.suppress_overflow_gate = checker.suppress_overflow_gate +| 1;
             }
             checker_check_node(checker, node.catch_expr_operand);
             if checked_catch_operand != 0 {
-                checker.suppress_overflow_gate = checker.suppress_overflow_gate - 1;
+                checker.suppress_overflow_gate = checker.suppress_overflow_gate -| 1;
             }
         }
         if node.catch_expr_err_name != null {

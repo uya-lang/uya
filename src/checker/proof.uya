@@ -763,7 +763,7 @@ fn checker_report_error_with_notes(checker: &TypeChecker, node: &ASTNode, messag
         }
         last_checker_error_message = stash_checker_error_message(message);
         checker_record_reported_error(checker, node, last_checker_error_message);
-        checker.error_count = checker.error_count + 1;
+        checker.error_count = checker.error_count +| 1;
         if libc.stderr != null && message != null {
             var filename: &byte = "(unknown)" as *byte;
             if node != null && node.filename != null {
@@ -880,7 +880,7 @@ fn checker_report_error(checker: &TypeChecker, node: &ASTNode, message: &byte) v
         }
         last_checker_error_message = stash_checker_error_message(message);
         checker_record_reported_error(checker, node, last_checker_error_message);
-        checker.error_count = checker.error_count + 1;
+        checker.error_count = checker.error_count +| 1;
         if libc.stderr != null && message != null {
             var filename: &byte = "(unknown)" as *byte;
             if node != null && node.filename != null {
@@ -906,7 +906,7 @@ fn checker_report_error_moved(checker: &TypeChecker, node: &ASTNode, var_name: &
             return;
         }
         checker_record_reported_error(checker, node, last_checker_error_message);
-        checker.error_count = checker.error_count + 1;
+        checker.error_count = checker.error_count +| 1;
         if libc.stderr != null {
             var filename: &byte = "(unknown)" as *byte;
             if node != null && node.filename != null {
@@ -938,7 +938,7 @@ fn checker_report_error_ex(checker: &TypeChecker, node: &ASTNode, error_type: &b
             return;
         }
         
-        checker.error_count = checker.error_count + 1;
+        checker.error_count = checker.error_count +| 1;
         if libc.stderr != null {
             var filename: &byte = "(unknown)" as *byte;
             if node != null && node.filename != null {
@@ -969,7 +969,7 @@ fn checker_proof_step(checker: &TypeChecker, node: &ASTNode) i32 {
     if checker == null {
         return 0;
     }
-    checker.proof_step_count = checker.proof_step_count + 1;
+    checker.proof_step_count = checker.proof_step_count +| 1;
     if checker.proof_step_count > checker.proof_step_limit {
         checker_report_error(checker, node, "证明超时：证明步数超过限制，请简化代码或添加显式检查" as *byte);
         return 0;
@@ -1388,7 +1388,7 @@ fn compute_async_state_machine_size(
             if bs < 0 {
                 return -1;
             }
-            total = total + bs;
+            total = total +| bs;
         }
         ai = ai + 1;
     }
@@ -1404,7 +1404,7 @@ fn compute_async_state_machine_size(
             if ps < 0 {
                 return -1;
             }
-            total = total + ps;
+            total = total +| ps;
         }
         pi = pi + 1;
     }

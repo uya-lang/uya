@@ -2176,7 +2176,7 @@ export extern "libc" fn tmpfile() &FILE {
     name[8] = 95;  // '_'
 
     // 使用计数器生成唯一ID
-    _tmpfile_counter = _tmpfile_counter + 1;
+    _tmpfile_counter = _tmpfile_counter +| 1;
     var tmpfile_counter: i32 = _tmpfile_counter;
     var idx: usize = 9;
 
@@ -2250,7 +2250,7 @@ export extern "libc" fn tmpnam(s: &byte) &byte {
     if s == null { return null; }
 
     // 使用计数器生成唯一文件名
-    _tmpfile_counter = _tmpfile_counter + 1;
+    _tmpfile_counter = _tmpfile_counter +| 1;
 
     s[0] = 47; s[1] = 116; s[2] = 109; s[3] = 112;  // "/tmp"
     s[4] = 47;
@@ -2592,7 +2592,7 @@ export extern "libc" fn sscanf(str: &const byte, format: &const byte, ...) i32 {
                 }
                 
                 while str_pos < str_len && str[str_pos] >= 48 && str[str_pos] <= 57 {
-                    num = num * 10 + (str[str_pos] as i32 - 48);
+                    num = num *| 10 + (str[str_pos] as i32 - 48);
                     str_pos = str_pos + 1;
                 }
                 

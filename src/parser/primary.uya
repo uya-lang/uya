@@ -221,7 +221,7 @@ fn parser_parse_postfix_expr_tail(parser: &Parser, base: &ASTNode) &ASTNode {
                         if args != null {
                             new_args[i] = args[i];
                         }
-                        i = i + 1;
+                        i = i +| 1;
                     }
                     args = new_args;
                     arg_capacity = new_capacity;
@@ -426,7 +426,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                                 if call_type_args != null {
                                     new_type_args[i] = call_type_args[i];
                                 }
-                                i = i + 1;
+                                i = i +| 1;
                             }
                             call_type_args = new_type_args;
                             call_type_arg_capacity = new_cap;
@@ -522,7 +522,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                             if args != null {
                                 new_args[i] = args[i];
                             }
-                            i = i + 1;
+                            i = i +| 1;
                         }
                         args = new_args;
                         arg_capacity = new_capacity;
@@ -2129,7 +2129,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                                 if call_type_args != null {
                                     new_type_args[i] = call_type_args[i];
                                 }
-                                i = i + 1;
+                                i = i +| 1;
                             }
                             }
                             
@@ -2239,7 +2239,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                             var i: i32 = 0;
                             while i < arg_count {
                                 new_args[i] = args[i];
-                                i = i + 1;
+                                i = i +| 1;
                             }
                         }
                         
@@ -2404,7 +2404,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                             while i < field_count {
                                 new_field_names[i] = field_names[i];
                                 new_field_values[i] = field_values[i];
-                                i = i + 1;
+                                i = i +| 1;
                             }
                         }
                         
@@ -2551,7 +2551,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                                 if args != null {
                                     new_a[i] = args[i];
                                 }
-                                i = i + 1;
+                                i = i +| 1;
                             }
                             args = new_a;
                             arg_cap = new_cap;
@@ -2637,7 +2637,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                         var i: i32 = 0;
                         while i < element_count {
                             new_elements[i] = elements[i];
-                            i = i + 1;
+                            i = i +| 1;
                         }
                     }
                     elements = new_elements;

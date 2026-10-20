@@ -518,7 +518,7 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
                         if type_args != null {
                             new_type_args[i] = type_args[i];
                         }
-                        i = i + 1;
+                        i = i +| 1;
                     }
                     type_args = new_type_args;
                     type_arg_cap = new_cap;
@@ -642,7 +642,7 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
                         if type_args != null {
                             new_type_args[i] = type_args[i];
                         }
-                        i = i + 1;
+                        i = i +| 1;
                     }
                     type_args = new_type_args;
                     type_arg_cap = new_cap;
@@ -732,7 +732,7 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
                         if args != null {
                             new_args[i] = args[i];
                         }
-                        i = i + 1;
+                        i = i +| 1;
                     }
                     args = new_args;
                     arg_cap = new_cap;

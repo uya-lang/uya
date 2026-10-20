@@ -320,7 +320,7 @@ fn constraint_update_for_increment(checker: &TypeChecker, var_name: &byte, incre
                 // 把约束收得比真实值域更紧 —— 既 unsound（会把真实溢出判成安全），
                 // 又会把「循环计数器 +1」证明卡死（`i < MAX` 回绕后变成 `i <= MIN`）。
                 // 饱和只会把界放宽（`i <= MAX` 仍成立），对越界证明也是安全的走向。
-                const val_inc: i32 = interval_saturate_i32((val as i64) + (increment as i64));
+                const val_inc: i32 = interval_saturate_i32((val as i64) +| (increment as i64));
                 if op == CONSTRAINT_EQ {
                     checker.constraint_values[i] = val_inc;
                 } else if op == CONSTRAINT_GE {
@@ -359,7 +359,7 @@ fn constraint_expr_name(checker: &TypeChecker, expr: &ASTNode) &byte {
         }
         const object_len: i32 = strlen(object_name as *byte) as i32;
         const field_len: i32 = strlen(expr.member_access_field_name as *byte) as i32;
-        if object_len <= 0 || field_len <= 0 || object_len + field_len + 2 > CONSTRAINT_EXPR_NAME_MAX {
+        if object_len <= 0 || field_len <= 0 || object_len +| field_len + 2 > CONSTRAINT_EXPR_NAME_MAX {
             return null;
         }
         // 名称必须放在生命周期稳定的内存里：之前用栈上 buf 再交给
@@ -1106,33 +1106,46 @@ fn wide_of_type_kind(kind: i32) WideInterval {
     return wide_unknown();
 }
 
-// i64 加法，溢出时返回 0（out 不写入）
+// i64 加法，溢出时返回 0（out 不写入）。
+// 这里的 `-|` / `+%` 都是**精确等价**而非降级：分支条件已经排除了该方向的溢出，
+// 所以饱和/回绕分支永不触发；用它们把「此处不会溢出」显式写进代码，
+// 静态闸门也就能自证（函数调用 wide_i64_max() 无法被读成常量边界）。
 fn wide_add_i64(a: i64, b: i64, out: &i64) i32 {
+    const i64_max: i64 = @max;
+    const i64_min: i64 = @min;
+    var room: i64 = 0i64;
     if b > 0i64 {
-        if a > wide_i64_max() - b {
+        room = i64_max -| b;
+        if (room -| a) < 0i64 {
             return 0;
         }
     } else {
-        if a < wide_i64_min() - b {
+        room = i64_min -| b;
+        if (a -| room) < 0i64 {
             return 0;
         }
     }
-    out[0] = a + b;
+    out[0] = a +% b;
     return 1;
 }
 
-// i64 减法，溢出时返回 0
+// i64 减法，溢出时返回 0（同上，`+%`/`-|` 在已排除溢出的分支里是精确运算）
 fn wide_sub_i64(a: i64, b: i64, out: &i64) i32 {
+    const i64_max: i64 = @max;
+    const i64_min: i64 = @min;
+    var room: i64 = 0i64;
     if b > 0i64 {
-        if a < wide_i64_min() + b {
+        room = i64_min +| b;
+        if (a -| room) < 0i64 {
             return 0;
         }
     } else {
-        if a > wide_i64_max() + b {
+        room = i64_max +| b;
+        if (room -| a) < 0i64 {
             return 0;
         }
     }
-    out[0] = a - b;
+    out[0] = a -% b;
     return 1;
 }
 
@@ -1143,7 +1156,7 @@ fn wide_bound_mul_is_safe(v: i64) i32 {
     if v > WIDE_MUL_SAFE_BOUND {
         return 0;
     }
-    if v < 0i64 - WIDE_MUL_SAFE_BOUND {
+    if v < (0i64 -| WIDE_MUL_SAFE_BOUND) {
         return 0;
     }
     return 1;
@@ -1204,10 +1217,12 @@ fn wide_mul(a: WideInterval, b: WideInterval) WideInterval {
         wide_bound_mul_is_safe(b.lo) == 0 || wide_bound_mul_is_safe(b.hi) == 0 {
         return wide_unknown();
     }
-    const p1: i64 = a.lo * b.lo;
-    const p2: i64 = a.lo * b.hi;
-    const p3: i64 = a.hi * b.lo;
-    const p4: i64 = a.hi * b.hi;
+    // 上面的 wide_bound_mul_is_safe 已保证四个端点 |v| <= 2^31，乘积恒 <= 2^62 不溢出。
+    // 用 *% 把这一事实写进代码：语义等价于 *，但显式声明「此处回绕不会发生」。
+    const p1: i64 = a.lo *% b.lo;
+    const p2: i64 = a.lo *% b.hi;
+    const p3: i64 = a.hi *% b.lo;
+    const p4: i64 = a.hi *% b.hi;
     var lo: i64 = p1;
     var hi: i64 = p1;
     if p2 < lo { lo = p2; }
@@ -1228,14 +1243,14 @@ fn wide_neg(a: WideInterval) WideInterval {
         if a.hi == wide_i64_min() {
             out.lo_known = 0;
         } else {
-            out.lo = 0i64 - a.hi;
+            out.lo = 0i64 -| a.hi;
         }
     }
     if out.hi_known != 0 {
         if a.lo == wide_i64_min() {
             out.hi_known = 0;
         } else {
-            out.hi = 0i64 - a.lo;
+            out.hi = 0i64 -| a.lo;
         }
     }
     return out;
@@ -1311,7 +1326,7 @@ fn wide_interval_of_var(checker: &TypeChecker, var_name: &byte, kind: i32) WideI
                         out.lo_known = 1;
                     }
                 } else if op == CONSTRAINT_GT {
-                    const val_p1: i64 = val + 1i64;
+                    const val_p1: i64 = val +| 1i64;
                     if out.lo_known == 0 || val_p1 > out.lo {
                         out.lo = val_p1;
                         out.lo_known = 1;
@@ -1322,7 +1337,7 @@ fn wide_interval_of_var(checker: &TypeChecker, var_name: &byte, kind: i32) WideI
                         out.hi_known = 1;
                     }
                 } else if op == CONSTRAINT_LT {
-                    const val_m1: i64 = val - 1i64;
+                    const val_m1: i64 = val -| 1i64;
                     if out.hi_known == 0 || val_m1 < out.hi {
                         out.hi = val_m1;
                         out.hi_known = 1;
@@ -1428,10 +1443,10 @@ fn wide_interval_of_expr(checker: &TypeChecker, expr: &ASTNode, kind: i32) WideI
                 if op == TokenType.TOKEN_PERCENT {
                     var m: i64 = right.lo;
                     if m < 0i64 {
-                        m = 0i64 - m;
+                        m = 0i64 -| m;
                     }
-                    const span: i64 = m - 1i64;
-                    var lo_v: i64 = 0i64 - span;
+                    const span: i64 = m -| 1i64;
+                    var lo_v: i64 = 0i64 -| span;
                     if left.lo_known != 0 && left.lo >= 0i64 {
                         lo_v = 0i64;
                     }
@@ -1447,7 +1462,7 @@ fn wide_interval_of_expr(checker: &TypeChecker, expr: &ASTNode, kind: i32) WideI
                 if left.lo_known != 0 && left.hi_known != 0 {
                     var abs_max: i64 = 0i64;
                     if left.lo < 0i64 {
-                        abs_max = 0i64 - left.lo;
+                        abs_max = 0i64 -| left.lo;
                     } else {
                         abs_max = left.lo;
                     }
@@ -1455,16 +1470,16 @@ fn wide_interval_of_expr(checker: &TypeChecker, expr: &ASTNode, kind: i32) WideI
                     if hi_abs > abs_max {
                         abs_max = hi_abs;
                     }
-                    if hi_abs < 0i64 && (0i64 - hi_abs) > abs_max {
-                        abs_max = 0i64 - hi_abs;
+                    if hi_abs < 0i64 && (0i64 -| hi_abs) > abs_max {
+                        abs_max = 0i64 -| hi_abs;
                     }
                     var k: i64 = right.lo;
                     if k < 0i64 {
-                        k = 0i64 - k;
+                        k = 0i64 -| k;
                     }
                     const bound: i64 = abs_max / k;
                     const div_r: WideInterval = WideInterval {
-                        lo: 0i64 - bound,
+                        lo: 0i64 -| bound,
                         hi: bound,
                         lo_known: 1,
                         hi_known: 1,
@@ -2231,7 +2246,7 @@ fn constraint_interval_in_snapshot(names: & &byte, ops: &i32, vals: &i32, count:
                     out.lo_known = 1;
                 }
             } else if op == CONSTRAINT_GT {
-                const val_p1: i64 = val + 1i64;
+                const val_p1: i64 = val +| 1i64;
                 if out.lo_known == 0 || val_p1 > out.lo {
                     out.lo = val_p1;
                     out.lo_known = 1;
@@ -2242,7 +2257,7 @@ fn constraint_interval_in_snapshot(names: & &byte, ops: &i32, vals: &i32, count:
                     out.hi_known = 1;
                 }
             } else if op == CONSTRAINT_LT {
-                const val_m1: i64 = val - 1i64;
+                const val_m1: i64 = val -| 1i64;
                 if out.hi_known == 0 || val_m1 < out.hi {
                     out.hi = val_m1;
                     out.hi_known = 1;

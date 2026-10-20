@@ -797,7 +797,7 @@ fn ast_merge_programs(programs: &(&ASTNode), count: i32, arena: &CompilerArena) 
     var total_decl_count: i32 = 0;
     i = 0;
     while i < count {
-        total_decl_count = total_decl_count + programs[i].program_decl_count;
+        total_decl_count = total_decl_count +| programs[i].program_decl_count;
         i = i + 1;
     }
     const first: &ASTNode = programs[0];
@@ -859,7 +859,7 @@ fn ast_nested_program_leaf_decl_count(program: &ASTNode) i32 {
     while i < program.program_decl_count {
         const d: &ASTNode = program.program_decls[i];
         if d != null && d.type == ASTNodeType.AST_PROGRAM {
-            n = n + ast_nested_program_leaf_decl_count(d);
+            n = n +| ast_nested_program_leaf_decl_count(d);
         } else if d != null {
             n = n + 1;
         }
@@ -880,7 +880,7 @@ fn ast_nested_program_collect_decls(program: &ASTNode, out: & & ASTNode, write_p
             pos = ast_nested_program_collect_decls(d, out, pos);
         } else if d != null {
             out[pos] = d;
-            pos = pos + 1;
+            pos = pos +| 1;
         }
         i = i + 1;
     }
