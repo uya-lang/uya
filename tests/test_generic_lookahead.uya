@@ -1,0 +1,121 @@
+// 泛型实参前瞻的回归测试
+//
+// 历史 bug：parser 判断 `ID <` 是泛型实参还是比较运算时，只 peek 1~2 个 token
+// 并按一张 token 白名单猜，两边都会误判：
+//   - `p.hi < upper {` 这类比较被当成泛型开头，把 `{` 当成泛型闭合吞掉，
+//     产生误导性的「意外的 token '{'」；
+//   - `Poll<!T>.Ready(...)`、`@size_of(Box<T>)` 这类**真泛型**在 `>` 后
+//     跟 `.` 或 `)` 时被误判成比较运算。
+// 现改为平衡扫描（parser_peek_is_generic_args），并完整保存/恢复 lexer 状态
+// （Lexer 有 11 个可变字段，旧实现只存了 3 个）。
+//
+// 本文件同时覆盖两类形态，任一方向回退都会失败。
+// 用 main 返回码表达断言（test 块里泛型不会被单态化，见既有 codegen 限制）。
+
+struct Box<T> {
+    v: T,
+}
+
+struct Pair<A, B> {
+    a: A,
+    b: B,
+}
+
+struct Pt {
+    lo: i32,
+    hi: i32,
+}
+
+fn identity<T>(x: T) T {
+    return x;
+}
+
+fn first_of<A, B>(p: Pair<A, B>) A {
+    return p.a;
+}
+
+// `>` 后跟 `)`：泛型类型作为表达式实参
+fn box_size<T>() i32 {
+    return @size_of(Box<T>) as i32;
+}
+
+// 比较运算后紧跟 `{`：不能把 `<` 当成泛型开头
+fn cmp_with_brace(p: Pt, upper: i32) i32 {
+    if p.lo >= 0 && p.hi < upper {
+        return p.hi;
+    }
+    return 0 - 1;
+}
+
+// 比较两侧都是复杂表达式
+fn cmp_complex(x: i32, y: i32) i32 {
+    var hits: i32 = 0;
+    if x < (y - 1) {
+        hits = hits + 1;
+    }
+    if (x + 1) < y {
+        hits = hits + 1;
+    }
+    if (x >> 1) < y {
+        hits = hits + 1;
+    }
+    return hits;
+}
+
+// 同一函数里既有泛型调用又有比较
+fn mixed(upper: i32) i32 {
+    const v: i32 = identity<i32>(3);
+    if v < upper {
+        return v;
+    }
+    return 0 - 1;
+}
+
+export fn main() i32 {
+    // 1. 泛型函数调用
+    const idv: i32 = identity<i32>(7);
+    if idv != 7 {
+        return 1;
+    }
+
+    // 2. 泛型结构体字面量
+    const b: Box<i32> = Box<i32> { v: 9 };
+    if b.v != 9 {
+        return 2;
+    }
+
+    // 3. 多类型参数
+    const p: Pair<i32, i64> = Pair<i32, i64> { a: 4, b: 5i64 };
+    const pa: i32 = first_of<i32, i64>(p);
+    if pa != 4 {
+        return 3;
+    }
+
+    // 4. 嵌套泛型
+    const nb: Box<i32> = identity<Box<i32>>(b);
+    if nb.v != 9 {
+        return 4;
+    }
+
+    // 5. 泛型类型作为表达式实参（`>` 后跟 `)`）
+    const bs: i32 = box_size<i32>();
+    if bs <= 0 {
+        return 5;
+    }
+
+    // 6. 比较不能被误判为泛型
+    if cmp_with_brace(Pt { lo: 1, hi: 5 }, 9) != 5 {
+        return 6;
+    }
+    if cmp_with_brace(Pt { lo: 1, hi: 15 }, 9) != 0 - 1 {
+        return 7;
+    }
+    if cmp_complex(3, 10) != 3 {
+        return 8;
+    }
+    if mixed(5) != 3 {
+        return 9;
+    }
+
+    return 0;
+}

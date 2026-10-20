@@ -255,6 +255,109 @@ fn parser_parse_postfix_expr_tail(parser: &Parser, base: &ASTNode) &ASTNode {
 
 // 解析基础表达式
 // 支持：数字、标识符、布尔字面量、括号表达式、函数调用、结构体字面量、字段访问、块表达式
+// 泛型实参前瞻：判断当前位置的 `<` 是否开启类型参数列表。
+//
+// 旧实现只 peek 1~2 个 token 并按一张 token 白名单猜，既不完整也不安全：
+//   - `f<T>(...)` 与 `a < b` 的区别其实取决于「配对 `>` 之后跟什么」；
+//   - 更糟的是它只保存了 lexer 的 position/line/column，而 Lexer 还有
+//     string_mode / interp_depth / reading_spec / string_text_len 等 8 个可变字段，
+//     peek 若跨进字符串插值就会留下脏状态，污染后续解析。
+//
+// 这里改成**平衡扫描**：从 `<` 起跟踪嵌套深度，配对成功后看下一个 token
+// 是否为 `(`（泛型调用）或 `{`（泛型结构体字面量）；否则一律当作比较运算符。
+// 扫描前后完整保存/恢复 lexer 状态，且带迭代上限避免病态输入。
+//
+// 参数：parser - 解析器（当前 token 必须是 `<`）
+// 返回：1 表示是泛型实参列表；0 表示是比较运算符
+fn parser_peek_is_generic_args(parser: &Parser) i32 {
+    if parser == null || parser.lexer == null || parser.current_token == null ||
+        parser.current_token.type != TokenType.TOKEN_LESS {
+        return 0;
+    }
+    const lexer: &Lexer = parser.lexer;
+    // 完整保存 lexer 可变状态
+    const sv_position: usize = lexer.position;
+    const sv_line: i32 = lexer.line;
+    const sv_column: i32 = lexer.column;
+    const sv_has_error: i32 = lexer.has_error;
+    const sv_string_mode: i32 = lexer.string_mode;
+    const sv_raw_string_mode: i32 = lexer.raw_string_mode;
+    const sv_interp_depth: i32 = lexer.interp_depth;
+    const sv_pending_interp_open: i32 = lexer.pending_interp_open;
+    const sv_reading_spec: i32 = lexer.reading_spec;
+    const sv_has_seen_interp: i32 = lexer.has_seen_interp_in_string;
+    const sv_string_text_len: usize = lexer.string_text_len;
+
+    var result: i32 = 0;
+    var depth: i32 = 1;   // 已消费掉当前 `<`
+    var steps: i32 = 0;
+    // 扫描期只允许「类型实参里可能出现的 token」；其余一律判定为比较运算。
+    //   `,` 允许（Pair<i32, i64>）；`<` 加深；`>` 减一；`>>` 减二。
+    //   右括号 / 右方括号 / 分号 / 大括号 / EOF / 字面量 / 算术与逻辑运算符
+    //   都说明左侧不是类型列表 —— 直接判定为比较运算。
+    while steps < 256 && depth > 0 {
+        const tok: &Token = lexer_next_token(lexer, parser.arena);
+        steps = steps + 1;
+        if tok == null {
+            depth = 0 - 1;
+            break;
+        }
+        const tt: TokenType = tok.type;
+        if tt == TokenType.TOKEN_EOF || tt == TokenType.TOKEN_SEMICOLON ||
+            tt == TokenType.TOKEN_LEFT_BRACE || tt == TokenType.TOKEN_RIGHT_BRACE ||
+            tt == TokenType.TOKEN_RIGHT_PAREN || tt == TokenType.TOKEN_RIGHT_BRACKET ||
+            tt == TokenType.TOKEN_STRING || tt == TokenType.TOKEN_FLOAT ||
+            tt == TokenType.TOKEN_NUMBER ||
+            tt == TokenType.TOKEN_PLUS || tt == TokenType.TOKEN_MINUS ||
+            tt == TokenType.TOKEN_SLASH || tt == TokenType.TOKEN_PERCENT ||
+            tt == TokenType.TOKEN_LOGICAL_AND || tt == TokenType.TOKEN_LOGICAL_OR ||
+            tt == TokenType.TOKEN_EQUAL || tt == TokenType.TOKEN_NOT_EQUAL ||
+            tt == TokenType.TOKEN_LESS_EQUAL || tt == TokenType.TOKEN_GREATER_EQUAL {
+            depth = 0 - 1;
+            break;
+        }
+        if tt == TokenType.TOKEN_LESS {
+            depth = depth + 1;
+        } else if tt == TokenType.TOKEN_GREATER {
+            depth = depth - 1;
+        } else if tt == TokenType.TOKEN_RSHIFT {
+            depth = depth - 2;
+        }
+    }
+    if depth == 0 {
+        // 配对成功后看紧邻 token —— 它决定这个 `<…>` 属于哪种构造：
+        //   `(` → 泛型函数调用        `{` → 泛型结构体字面量
+        //   `.` → 泛型枚举变体访问    `)`/`,`/`]`/`>` → 泛型类型作为表达式实参
+        //                                 （如 @size_of(TaskQueueSlot<T>)、f(A<B>, c)）
+        // 其余（标识符、运算符等）说明这里其实是 `a < b > c` 形态的比较运算。
+        const after: &Token = lexer_next_token(lexer, parser.arena);
+        if after != null &&
+           (after.type == TokenType.TOKEN_LEFT_PAREN ||
+            after.type == TokenType.TOKEN_LEFT_BRACE ||
+            after.type == TokenType.TOKEN_DOT ||
+            after.type == TokenType.TOKEN_RIGHT_PAREN ||
+            after.type == TokenType.TOKEN_COMMA ||
+            after.type == TokenType.TOKEN_RIGHT_BRACKET ||
+            after.type == TokenType.TOKEN_GREATER) {
+            result = 1;
+        }
+    }
+
+    // 恢复 lexer 完整状态
+    lexer.position = sv_position;
+    lexer.line = sv_line;
+    lexer.column = sv_column;
+    lexer.has_error = sv_has_error;
+    lexer.string_mode = sv_string_mode;
+    lexer.raw_string_mode = sv_raw_string_mode;
+    lexer.interp_depth = sv_interp_depth;
+    lexer.pending_interp_open = sv_pending_interp_open;
+    lexer.reading_spec = sv_reading_spec;
+    lexer.has_seen_interp_in_string = sv_has_seen_interp;
+    lexer.string_text_len = sv_string_text_len;
+    return result;
+}
+
 fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
     if parser == null || parser.current_token == null {
         return null;
@@ -2041,56 +2144,9 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         var call_type_arg_count: i32 = 0;
         
         if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_LESS {
-            // 需要区分泛型参数 ID<Type> 和比较运算符 ID < expr
-            // 策略：peek '<' 后面的 token，判断是类型还是表达式
-            const lexer: &Lexer = parser.lexer;
-            const saved_position: usize = lexer.position;
-            const saved_line: i32 = lexer.line;
-            const saved_column: i32 = lexer.column;
-            
-            // Peek '<' 后面的 token
-            const after_less: &Token = lexer_next_token(lexer, parser.arena);
-            
-            // 如果 '<' 后面是表达式的开始（数字、浮点、字符串、负号等），则 '<' 是比较运算符
-            var is_comparison: i32 = 0;
-            if after_less != null {
-                const t: TokenType = after_less.type;
-                if t == TokenType.TOKEN_NUMBER || t == TokenType.TOKEN_FLOAT || t == TokenType.TOKEN_STRING ||
-                   t == TokenType.TOKEN_MINUS || t == TokenType.TOKEN_TILDE ||
-                   t == TokenType.TOKEN_TRUE || t == TokenType.TOKEN_FALSE || t == TokenType.TOKEN_NULL ||
-                   t == TokenType.TOKEN_LEFT_PAREN || t == TokenType.TOKEN_AT_IDENTIFIER ||
-                   t == TokenType.TOKEN_INTERP_OPEN {
-                    is_comparison = 1;
-                } else if t == TokenType.TOKEN_IDENTIFIER {
-                    // 如果是标识符，需要进一步判断
-                    // - 如果标识符后面是 '>'、','、'*'、'['、'<'（嵌套泛型），则可能是泛型参数（类型）
-                    // - 如果标识符后面是运算符、'{'、'.'、'['（成员访问/索引），则是比较运算符（变量）
-                    const after_id: &Token = lexer_next_token(lexer, parser.arena);
-                    if after_id != null {
-                        const t2: TokenType = after_id.type;
-                        // 如果标识符后面是这些 token，则 '<' 是比较运算符
-                        // 注意：TOKEN_LESS 可能是嵌套泛型（如 Box<Pair<i32, i32>>），不应该被视为比较运算符
-                        if t2 == TokenType.TOKEN_PLUS || t2 == TokenType.TOKEN_MINUS || t2 == TokenType.TOKEN_ASTERISK ||
-                           t2 == TokenType.TOKEN_SLASH || t2 == TokenType.TOKEN_PERCENT ||
-                           // t2 == TokenType.TOKEN_LESS ||  // 移除：TOKEN_LESS 可能是嵌套泛型
-                           t2 == TokenType.TOKEN_LESS_EQUAL || t2 == TokenType.TOKEN_GREATER_EQUAL ||
-                           t2 == TokenType.TOKEN_EQUAL || t2 == TokenType.TOKEN_NOT_EQUAL ||
-                           t2 == TokenType.TOKEN_LOGICAL_AND || t2 == TokenType.TOKEN_LOGICAL_OR ||
-                           t2 == TokenType.TOKEN_LEFT_BRACE || t2 == TokenType.TOKEN_SEMICOLON ||
-                           t2 == TokenType.TOKEN_AMPERSAND || t2 == TokenType.TOKEN_PIPE || t2 == TokenType.TOKEN_CARET ||
-                           t2 == TokenType.TOKEN_RIGHT_PAREN ||
-                           t2 == TokenType.TOKEN_DOT || t2 == TokenType.TOKEN_LEFT_BRACKET || t2 == TokenType.TOKEN_LEFT_PAREN ||
-                           t2 == TokenType.TOKEN_AS || t2 == TokenType.TOKEN_AS_BANG {
-                            is_comparison = 1;
-                        }
-                    }
-                }
-            }
-            
-            // 恢复 lexer 状态
-            lexer.position = saved_position;
-            lexer.line = saved_line;
-            lexer.column = saved_column;
+            // 区分泛型实参 ID<Type>(…) 与比较运算 ID < expr：
+            // 交给平衡扫描前瞻判断（见 parser_peek_is_generic_args 的注释）。
+            const is_comparison: i32 = (parser_peek_is_generic_args(parser) == 0) as i32;
             
             if is_comparison == 0 {
                 // 泛型函数调用：解析类型参数列表
