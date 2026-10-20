@@ -551,17 +551,6 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         }
         stmt.var_decl_type = type;
 
-        // 可选区间契约：`var count: i32 @range(0, 1000000) = 0;`
-        // 让循环计数器这类「静态无上界」的局部量可参与溢出证明。
-        var local_range_lo: &ASTNode = null;
-        var local_range_hi: &ASTNode = null;
-        const local_range_rc: i32 = parser_parse_optional_range_contract(parser, &local_range_lo, &local_range_hi);
-        if local_range_rc < 0 {
-            return null;
-        }
-        stmt.var_decl_range_lo = local_range_lo;
-        stmt.var_decl_range_hi = local_range_hi;
-
         // @frame(...) 类型允许无初始化（由声明点负责分配/零初始化）
         if type.type == ASTNodeType.AST_TYPE_FRAME {
             if parser.current_token.type == TokenType.TOKEN_ASSIGN {

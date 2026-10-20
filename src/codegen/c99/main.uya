@@ -285,34 +285,6 @@ fn emit_microapp_mmu_helpers(codegen: &C99CodeGenerator) void {
     fputs("}\n\n" as *byte, codegen.emit_stream as *void);
 }
 
-// 区间契约（@range）的运行时检查辅助函数。
-//
-// 契约**不是**纯静态假设：静态能证明时调用点会被优化掉；
-// 证不了（或调用方违约）时必须由运行期兜底，否则等于把「让编译器闭嘴」
-// 当成「保证安全」——契约说谎时会静默回绕/越界，比不做检查更危险。
-// 这里生成 `_uya_range_violation`，违反契约时打印并退出（不可恢复的程序 bug）。
-fn emit_range_check_helper(codegen: &C99CodeGenerator) void {
-    if codegen == null || codegen.emit_stream == null {
-        return;
-    }
-    // 契约违约是**程序 bug**（调用方破坏了声明前提），不是可恢复错误。
-    // 处理方式：直接 trap。这里刻意不调用任何 libc 函数 —— split-C 下本段
-    // 会被放进没有 stdio/stdlib 声明的共享头文件，引 printf/exit 会与 Uya 自己
-    // 的 extern "libc" 原型冲突（-Werror 直接失败）。__builtin_trap() 零依赖，
-    // GCC/Clang/zig cc 均支持；诊断信息由调用前由用户自己打点。
-    fputs("#ifndef UYA_RANGE_CHECK_DECLARED\n" as *byte, codegen.emit_stream as *void);
-    fputs("#define UYA_RANGE_CHECK_DECLARED 1\n" as *byte, codegen.emit_stream as *void);
-    fputs("static void _uya_range_violation(const char *kind, const char *fn_name, const char *var_name, long long value, long long lo, long long hi) {\n" as *byte, codegen.emit_stream as *void);
-    // 只 trap：任何构建（hosted / nostdlib / split-C）都零依赖且行为一致。
-    // 打印诊断需要 stdio，而本段会进 split-C 的共享头（那里没有 stdio 声明），
-    // 用 __builtin_printf 又因 stdout 全缓冲在 abort 前不可靠。
-    // 定位手段：SIGILL（退出码 132）+ 调试器回溯到调用点。
-    fputs("    (void)kind; (void)fn_name; (void)var_name; (void)value; (void)lo; (void)hi;\n" as *byte, codegen.emit_stream as *void);
-    fputs("    __builtin_trap();\n" as *byte, codegen.emit_stream as *void);
-    fputs("}\n" as *byte, codegen.emit_stream as *void);
-    fputs("#endif\n\n" as *byte, codegen.emit_stream as *void);
-}
-
 fn emit_error_name_helper(codegen: &C99CodeGenerator) void {
     if codegen == null || codegen.emit_stream == null {
         return;
@@ -2979,7 +2951,6 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("struct err_union_void { uint32_t error_id; };\n" as *byte, codegen.emit_stream as *void);
     mark_struct_defined(codegen, ("err_union_void" as *byte) as &byte);
     emit_error_name_helper(codegen);
-    emit_range_check_helper(codegen);
     // 该块是 macOS 目标专用的宿主绑定：先做 stat/time_t/timespec/S_IF* 宏重命名并 include
     // <sys/stat.h>，再声明 uya_host_* / 生成 uya_macos_* 包装。
     // 条件必须同时覆盖「宿主是 macOS」（__APPLE__）与「目标是 macOS 而宿主不是」（UYA_TARGET_MACOS）：

@@ -81,8 +81,15 @@
   - **真正的阻塞点**：这些站点都是同名模式 —— `compiler_arena_alloc` 返回的 `&byte`
     长度未知，此前**全靠陈旧约束 `pos == 0` 才通过**下标证明。改成真汇合后，需要
     **指针长度追踪**（让 arena 分配的长度进入 `Symbol.pointer_known_length`，
-    或用 `@range` 之外的长度契约）才能系统性修好，而不是逐点加守卫。
-  - 结论：这是翻 `--strict-overflow` 默认的**真正前置**，也是应优先于迁移的 P0 项。
+    或用长度契约）才能系统性修好，而不是逐点加守卫。
+  - **已修复**：if 合并改为分支汇合（凸包），并补上 arena 分配长度追踪
+    （`checker_arena_alloc_capacity` 把 `compiler_arena_alloc` 的容量写进
+    `Symbol.pointer_known_length`）。上面的最小复现现在正确报「数组索引安全证明失败」。
+    回归：`tests/error_branch_assign_stale_bounds.uya`（负例）+
+    `tests/test_branch_assign_bounds_ok.uya`（正例）。
+  - 修复过程中顺带确认：**函数开头的普通守卫（`if x < 0 || x > N { return … }`）
+    与调用点守卫足以覆盖原 `@range` 想解决的场景**，因此 `@range` 语法已删除
+    （它引入新符号却带不来额外能力，且被质疑为「让证明器闭嘴的标注」）。
 
 
 - [x] **已修：Uya 自带 `%d` 格式化 INT32_MIN 输出错误（只输出负号）**

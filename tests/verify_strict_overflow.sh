@@ -123,7 +123,7 @@ EOF
 
 # ---------- 用例 ----------
 
-log "1/8 默认关闭：无守卫算术照常编译"
+log "1/6 默认关闭：无守卫算术照常编译"
 if "$COMPILER" check "$TMP_DIR/unguarded.uya" > "$TMP_DIR/out1.log" 2>&1; then
     log "  ✓ 默认不拦（兼容性保持）"
 else
@@ -131,7 +131,7 @@ else
     cat "$TMP_DIR/out1.log" >&2
 fi
 
-log "2/8 闸门开启：无守卫的加/减/乘报溢出无法证明"
+log "2/6 闸门开启：无守卫的加/减/乘报溢出无法证明"
 if "$COMPILER" check --strict-overflow "$TMP_DIR/unguarded.uya" > "$TMP_DIR/out2.log" 2>&1; then
     fail "闸门开启后无守卫算术仍然通过"
 else
@@ -144,7 +144,7 @@ else
     fi
 fi
 
-log "3/8 闸门开启：区间守卫收窄后放行"
+log "3/6 闸门开启：区间守卫收窄后放行"
 if "$COMPILER" check --strict-overflow "$TMP_DIR/guarded.uya" > "$TMP_DIR/out3.log" 2>&1; then
     log "  ✓ 守卫 / 常量 / checked / 饱和 / 包装 全部放行"
 else
@@ -152,7 +152,7 @@ else
     cat "$TMP_DIR/out3.log" >&2
 fi
 
-log "4/8 闸门开启：诊断给出三条可用修法"
+log "4/6 闸门开启：诊断给出三条可用修法"
 if grep -q "try a" "$TMP_DIR/out2.log" && grep -q "区间守卫" "$TMP_DIR/out2.log"; then
     log "  ✓ 诊断含 checked / 守卫 / 饱和包装 提示"
 else
@@ -160,7 +160,7 @@ else
     cat "$TMP_DIR/out2.log" >&2
 fi
 
-log "5/8 闸门只覆盖有符号：无符号模运算放行"
+log "5/6 闸门只覆盖有符号：无符号模运算放行"
 cat > "$TMP_DIR/unsigned.uya" <<'UEOF'
 fn negate_u64(v: u64) u64 {
     // 二补数取负：无符号回绕是良定义语义，不应被闸门拦下
@@ -186,58 +186,7 @@ else
     cat "$TMP_DIR/out6.log" >&2
 fi
 
-log "6/8 区间契约 @range 让参数/调用算术可证"
-cat > "$TMP_DIR/contract.uya" <<'UEOF'
-fn advance(line: i32 @range(0, 1000000), off: i32 @range(0, 1000)) i32 @range(0, 1001000) {
-    return line + off;
-}
-fn double_it(n: i32 @range(0, 100)) i32 @range(0, 200) {
-    return n * 2;
-}
-fn use_contract(n: i32 @range(0, 100)) i32 {
-    return double_it(n) + 5;
-}
-export fn main() i32 {
-    _ = advance(100, 5);
-    _ = use_contract(9);
-    return 0;
-}
-UEOF
-if "$COMPILER" check --strict-overflow "$TMP_DIR/contract.uya" > "$TMP_DIR/out7.log" 2>&1; then
-    log "  ✓ 参数契约 + 返回契约均生效（无守卫也可证）"
-else
-    fail "区间契约未生效"
-    cat "$TMP_DIR/out7.log" >&2
-fi
-
-log "7/8 契约违约在运行期被终止（不是被静默忽略）"
-cat > "$TMP_DIR/violation.uya" <<'UEOF'
-fn add(a: i32 @range(0, 1000), b: i32 @range(0, 1000)) i32 @range(0, 2000) {
-    return a + b;
-}
-export fn main() i32 {
-    const v: i32 = add(2000000000, 1000000);
-    if v < 0 {
-        return 42;
-    }
-    return 0;
-}
-UEOF
-if "$COMPILER" run --strict-overflow "$TMP_DIR/violation.uya" > "$TMP_DIR/out8.log" 2>&1; then
-    fail "契约违约未被运行期检查捕获（会静默回绕）"
-    cat "$TMP_DIR/out8.log" >&2
-else
-    # 违约走 __builtin_trap()：退出码 132（SIGILL）/ 134（SIGABRT）都算被捕获
-    rc8=$?
-    if [ "$rc8" -eq 132 ] || [ "$rc8" -eq 134 ]; then
-        log "  ✓ 运行期以 trap 终止（退出码 $rc8），不会静默回绕"
-    else
-        fail "契约违约退出码为 $rc8（期望 132/134 的 trap）"
-        cat "$TMP_DIR/out8.log" >&2
-    fi
-fi
-
-log "8/8 闸门可关闭：--no-strict-overflow 恢复默认行为"
+log "6/6 闸门可关闭：--no-strict-overflow 恢复默认行为"
 if "$COMPILER" check --strict-overflow --no-strict-overflow "$TMP_DIR/unguarded.uya" > "$TMP_DIR/out5.log" 2>&1; then
     log "  ✓ 显式关闭后不拦"
 else

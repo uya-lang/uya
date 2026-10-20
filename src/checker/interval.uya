@@ -1363,25 +1363,6 @@ fn wide_interval_of_expr(checker: &TypeChecker, expr: &ASTNode, kind: i32) WideI
     if expr.type == ASTNodeType.AST_IDENTIFIER {
         return wide_interval_of_var(checker, expr.identifier_name, kind);
     }
-    if expr.type == ASTNodeType.AST_CALL_EXPR && expr.call_expr_callee != null {
-        // 函数调用：只有被调函数声明了返回值区间契约（@range）时才有界。
-        // 否则 `f(x) + y` 永远无法证明。
-        var callee_name: &byte = null;
-        const callee: &ASTNode = expr.call_expr_callee;
-        if callee.type == ASTNodeType.AST_IDENTIFIER && callee.identifier_name != null {
-            callee_name = callee.identifier_name;
-        } else if callee.type == ASTNodeType.AST_MEMBER_ACCESS && callee.member_access_field_name != null &&
-            callee.member_access_is_module_access == 0 {
-            callee_name = callee.member_access_field_name;
-        }
-        if callee_name != null && checker.program_node != null {
-            const fn_decl: &ASTNode = find_fn_decl_from_program(checker.program_node, callee_name);
-            if fn_decl != null {
-                return fn_out_range_interval(checker, fn_decl);
-            }
-        }
-        return wide_unknown();
-    }
     if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_target_type != null {
         // 转换到整数类型后，取值必然落在目标类型的值域内（`as` 是截断语义，
         // `as!` 检查失败会返回错误而不是越界值）。例如 `(x as byte)` 恒在 [0,255]，
@@ -2160,57 +2141,6 @@ fn verify_linear_expr_bounds_ex(checker: &TypeChecker, linear_expr: &LinearExpr,
         return 1;
     }
     return 0;
-}
-
-// ===== 参数 / 返回值区间契约（@range）=====
-
-// 把函数参数的 @range 契约写成可信约束（供函数体内的证明使用）。
-// 契约由调用方负责遵守，因此这里直接按 sound 处理。
-// 参数：checker - 类型检查器；fn_node - 函数声明节点
-// 返回：无
-export fn fn_apply_param_range_contracts(checker: &TypeChecker, fn_node: &ASTNode) void {
-    if checker == null || fn_node == null || fn_node.type != ASTNodeType.AST_FN_DECL {
-        return;
-    }
-    if fn_node.fn_decl_params == null {
-        return;
-    }
-    var i: i32 = 0;
-    while i < fn_node.fn_decl_param_count {
-        const p: &ASTNode = fn_node.fn_decl_params[i];
-        if p != null && p.type == ASTNodeType.AST_VAR_DECL && p.var_decl_name != null &&
-            p.var_decl_range_lo != null && p.var_decl_range_hi != null {
-            var lo_ok: i32 = 0;
-            var hi_ok: i32 = 0;
-            const lo_v: i32 = checker_eval_const_expr_ex(checker, p.var_decl_range_lo, &lo_ok);
-            const hi_v: i32 = checker_eval_const_expr_ex(checker, p.var_decl_range_hi, &hi_ok);
-            if lo_ok != 0 && hi_ok != 0 {
-                constraint_add(checker, p.var_decl_name, CONSTRAINT_GE, lo_v);
-                constraint_add(checker, p.var_decl_name, CONSTRAINT_LE, hi_v);
-            }
-        }
-        i = i + 1;
-    }
-}
-
-// 函数返回值区间契约：若 fn_node 声明了 @range(lo, hi)，返回其区间。
-// 参数：checker - 类型检查器；fn_node - 被调函数声明
-// 返回：返回值的宽化区间（无契约时 unknown）
-fn fn_out_range_interval(checker: &TypeChecker, fn_node: &ASTNode) WideInterval {
-    if checker == null || fn_node == null || fn_node.type != ASTNodeType.AST_FN_DECL {
-        return wide_unknown();
-    }
-    if fn_node.fn_decl_out_range_lo == null || fn_node.fn_decl_out_range_hi == null {
-        return wide_unknown();
-    }
-    var lo_ok: i32 = 0;
-    var hi_ok: i32 = 0;
-    const lo_v: i64 = checker_eval_const_expr_ex(checker, fn_node.fn_decl_out_range_lo, &lo_ok) as i64;
-    const hi_v: i64 = checker_eval_const_expr_ex(checker, fn_node.fn_decl_out_range_hi, &hi_ok) as i64;
-    if lo_ok == 0 || hi_ok == 0 || lo_v > hi_v {
-        return wide_unknown();
-    }
-    return WideInterval { lo: lo_v, hi: hi_v, lo_known: 1, hi_known: 1 };
 }
 
 // ===== 分配长度识别（供指针下标证明）=====

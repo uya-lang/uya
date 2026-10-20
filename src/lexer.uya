@@ -1367,8 +1367,6 @@ fn lexer_next_token(lexer: &Lexer, arena: &CompilerArena) &Token {
             if str_equals_lexer(value, "mask" as &byte) != 0 { is_builtin = 1; }
             // 函数对齐属性（@align(N)）
             if str_equals_lexer(value, "align" as &byte) != 0 { is_builtin = 1; }
-            // 参数/返回区间契约（@range(lo, hi)），见 src/parser/declarations.uya
-            if str_equals_lexer(value, "range" as &byte) != 0 { is_builtin = 1; }
 
             if is_builtin != 0 {
                 return make_token(arena, TokenType.TOKEN_AT_IDENTIFIER, value, line, column);

@@ -302,19 +302,6 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         }
     }
     
-    // 局部变量的区间契约：`var count: i32 @range(0, 1000000) = 0;`
-    // 声明即假设，作为可信约束注入（循环计数器靠它获得上界）。
-    if node.var_decl_name != null && node.var_decl_range_lo != null && node.var_decl_range_hi != null {
-        var lr_lo_ok: i32 = 0;
-        var lr_hi_ok: i32 = 0;
-        const lr_lo: i32 = checker_eval_const_expr_ex(checker, node.var_decl_range_lo, &lr_lo_ok);
-        const lr_hi: i32 = checker_eval_const_expr_ex(checker, node.var_decl_range_hi, &lr_hi_ok);
-        if lr_lo_ok != 0 && lr_hi_ok != 0 {
-            constraint_add(checker, node.var_decl_name, CONSTRAINT_GE, lr_lo);
-            constraint_add(checker, node.var_decl_name, CONSTRAINT_LE, lr_hi);
-        }
-    }
-
     // 安全证明：将初始化表达式的区间传播给新变量
     if checker.enable_safety_proof != 0 && node.var_decl_name != null && node.var_decl_init != null {
         const init_interval: Interval = eval_expr_interval(checker, node.var_decl_init);
@@ -749,10 +736,6 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     // 检查函数体（如果有）
     if node.fn_decl_body != null {
         checker_enter_scope(checker);
-        // 参数区间契约：`fn f(x: i32 @range(lo, hi))` 声明的范围作为**可信约束**
-        // 注入函数体，供溢出/越界证明使用。契约是调用方必须遵守的假设（类似 unsafe）。
-        // 必须放在 checker_reset_proof_steps / enter_scope 之后，否则约束会被清掉。
-        fn_apply_param_range_contracts(checker, node);
         
         // 将参数添加到符号表（仅用于函数体内的类型检查）
         var i: i32 = 0;

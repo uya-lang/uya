@@ -295,39 +295,6 @@ postfix_expr   = primary_expr { '.' (ID | NUM) | '[' expr ']' | '(' arg_list ')'
                 # 0.49.41：STRING 为 primary_expr 时，可接 '[' expr ']'（下标）或 slice_op（与数组字面量、标识符一致），如 "hello"[0:3]、&"hello"[0:3]
 catch_op       = 'catch' [ '|' ID '|' ] '{' statements '}'      # 后缀，可连续多个（左结合），见 src/parser/expressions.uya:63-138；是 cast 级后缀，就地处理整条算术须写 (a + b) catch {}
 
-# 区间契约（声明属性；供 --strict-overflow 证明器使用，并生成运行期检查——静态可证处被优化掉，违约则 trap）
-range_contract = '@range' '(' const_expr ',' const_expr ')'          # 可跟在参数类型、局部变量类型、返回类型之后
-                                                                     # 例：x: i32 @range(0, 1000)；var c: i32 @range(0, 1000000) = 0；fn f() i32 @range(0, 2000)
-primary_expr   = ID | NUM | STRING | CHAR | 'true' | 'false' | 'null'
-               | builtin_expr
-               | struct_literal | array_literal | tuple_literal | enum_literal | union_literal
-               | match_expr | if_expr | block_expr | '(' expr ')'
-if_expr        = 'if' expr ( '{' statements '}' | statement ) [ 'else' ( if_expr | '{' statements '}' | statement ) ]  # if 可作表达式
-block_expr     = '{' statements '}'   # 块表达式（宏 stmt 参数等场景）
-builtin_expr   = '@' ('params' | 'max' | 'min' | 'src_name' | 'src_path' | 'src_line' | 'src_col' | 'func_name')  # 无实参的内置值
-               | '@' ('size_of' | 'align_of' | 'len' | 'va_start' | 'va_end' | 'va_arg' | 'va_copy' | 'asm_target' | 'embed' | 'embed_dir' | 'ptr_from_usize' | 'usize_from_ptr' | 'print' | 'println') '(' arg_list ')'
-               | '@syscall' '(' expr { ',' expr } ')'          # 至少 1 个实参（系统调用号），最多 7 个
-               | '@' ('mc_type' | 'mc_eval' | 'mc_ast' | 'mc_code' | 'mc_error' | 'mc_get_env' | 'mc_source' | 'error_id' | 'error_name') '(' expr_list ')'
-               | '@await' unary_expr | asm_stmt          # asm_stmt 见[内联汇编](#内联汇编)
-               | vector_builtin_expr
-               # @size_of(T)、@align_of(T)、@len(expr)、@embed("path")、@embed_dir("path") 为调用形式；@max、@min 为值形式（类型由上下文推断）；@params 为函数体内参数元组；@va_start(&ap,last)、@va_end(&ap)、@va_arg(ap,Type)、@va_copy(&dest,src) 为可变参数栈访问（uya.md §5.4）；@error_id(err) 读取错误 ID；@error_name(err) 返回语言级错误名字符串；@asm 为内联汇编块（uya.md §19）
-               # '@align' 不是内置函数：它只作为函数声明属性出现（见[函数声明](#函数声明)）
-               # '@frame(T)' 是类型（见 frame_type）；在表达式位置只允许作为 '@size_of(...)' / '@align_of(...)' 的实参（src/parser/primary.uya:1660-1668）
-               # 宏系统内置（uya.md §25）：@mc_type(expr) 返回 TypeInfo；@mc_eval(expr) 编译时求值；@mc_ast(code)、@mc_code(ast)、@mc_error(msg)、@mc_get_env(name)；@mc_source(expr) 编译期将表达式序列化为字符串
-vector_builtin_expr
-               = '@vector' '.' 'splat' '(' expr ')'
-               | '@vector' '.' 'load'  '(' expr ')'
-               | '@vector' '.' 'store' '(' expr ',' expr ')'
-               | '@vector' '.' 'select' '(' expr ',' expr ',' expr ')'
-               | '@vector' '.' 'reduce_add' '(' expr ')'
-               | '@vector' '.' 'reduce_mul' '(' expr ')'
-               | '@vector' '.' 'reduce_min' '(' expr ')'
-               | '@vector' '.' 'reduce_max' '(' expr ')'
-               | '@vector' '.' 'any'   '(' expr ')'
-               | '@vector' '.' 'all'   '(' expr ')'
-union_literal  = ID '.' ID '(' expr ')'  # 联合体创建，如 IntOrFloat.i(42)、NetworkPacket.ipv4([...])
-```
-
 **类型化管道 `|>` 的语义约束**（`src/checker/check_expr_extra.uya:793-870`）：
 
 - 左侧类型必须是规范类型 `Pipeline`（`lib/std/process.uya:2609` 的 `export opaque struct Pipeline`）或 `!Pipeline`；否则报「管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型」
