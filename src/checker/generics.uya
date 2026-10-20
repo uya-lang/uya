@@ -269,7 +269,7 @@ fn register_mono_instance(checker: &TypeChecker, generic_name: &byte,
     
     // 注册新实例
     const idx: i32 = checker.mono_instance_count;
-    checker.mono_instance_count = idx + 1;
+    checker.mono_instance_count = idx +| 1;
     
     // 复制 generic_name 到 Arena
     var name_len: i32 = 0;

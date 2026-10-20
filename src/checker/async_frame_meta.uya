@@ -86,7 +86,7 @@ fn checker_register_async_frame_meta(checker: &TypeChecker, meta: &AsyncFrameMet
     if checker == null || meta == null {
         return -1;
     }
-    const needed: i32 = checker.async_frame_meta_count + 1;
+    const needed: i32 = checker.async_frame_meta_count +| 1;
     if checker_ensure_async_frame_meta_capacity(checker, needed) != 0 {
         if libc.stderr != null {
             fprintf(libc.stderr, "错误: async frame meta 表扩容失败，目标容量 %d\n" as *byte, needed);

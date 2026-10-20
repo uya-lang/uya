@@ -967,7 +967,7 @@ fn checker_infer_type_bypass_moved(checker: &TypeChecker, expr: &ASTNode) Type {
         return checker_infer_type(checker, expr);
     }
     const saved_name: &byte = checker.moved_names[found_idx];
-    const last_idx: i32 = checker.moved_count - 1;
+    const last_idx: i32 = checker.moved_count -| 1;
     if last_idx >= 0 && last_idx < MAX_MOVED_NAMES {
         checker.moved_names[found_idx] = checker.moved_names[last_idx];
     }
@@ -2721,7 +2721,7 @@ fn checker_program_prepend_decl(checker: &TypeChecker, program: &ASTNode, decl: 
     if checker == null || program == null || decl == null || program.type != ASTNodeType.AST_PROGRAM {
         return 0;
     }
-    const new_count: i32 = program.program_decl_count + 1;
+    const new_count: i32 = program.program_decl_count +| 1;
     const new_decls: & & ASTNode = compiler_arena_alloc(checker.arena, @size_of(&ASTNode) * (new_count as usize)) as & & ASTNode;
     if new_decls == null {
         return 0;

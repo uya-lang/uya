@@ -2056,7 +2056,7 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
                 // 使用 find_interface_method_sig 支持组合接口
                 const msig: &ASTNode = find_interface_method_sig(checker.program_node, object_type.interface_name, method_name);
                 if msig != null {
-                    var expected_args: i32 = msig.fn_decl_param_count - 1;
+                    var expected_args: i32 = msig.fn_decl_param_count -| 1;
                     if expected_args < 0 { expected_args = 0; }
                     if node.call_expr_arg_count != expected_args {
                         checker_report_error(checker, node, "接口方法调用实参个数不匹配" as *byte);
@@ -2080,7 +2080,7 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
         if object_type.kind == TypeKind.TYPE_UNION && object_type.union_name != null && method_name != null && checker.program_node != null {
             const m: &ASTNode = find_instance_method_in_union(checker.program_node, object_type.union_name, method_name);
             if m != null {
-                var expected_args: i32 = m.fn_decl_param_count - 1;
+                var expected_args: i32 = m.fn_decl_param_count -| 1;
                 if expected_args < 0 { expected_args = 0; }
                 if node.call_expr_arg_count != expected_args {
                     checker_report_error(checker, node, "联合体方法调用实参个数不匹配" as *byte);
@@ -2190,7 +2190,7 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
                     register_mono_instance(checker, mono_name as &byte, type_args, type_arg_count, 1);
                     
                     // 检查参数个数（不包括 self 参数）
-                    var expected_args: i32 = m.fn_decl_param_count - 1;
+                    var expected_args: i32 = m.fn_decl_param_count -| 1;
                     if expected_args < 0 { expected_args = 0; }
                     if node.call_expr_arg_count != expected_args {
                         checker_report_error(checker, node, "泛型方法调用参数个数不匹配" as *byte);
@@ -2236,7 +2236,7 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
                 }
                 
                 // 非泛型方法调用
-                var expected_args: i32 = m.fn_decl_param_count - 1;
+                var expected_args: i32 = m.fn_decl_param_count -| 1;
                 if expected_args < 0 { expected_args = 0; }
                 if node.call_expr_arg_count != expected_args {
                     checker_report_error(checker, node, "结构体方法调用实参个数不匹配" as *byte);
@@ -2289,7 +2289,7 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
                     }
                 }
                 if m_fallback != null {
-                    var expected_args: i32 = m_fallback.fn_decl_param_count - 1;
+                    var expected_args: i32 = m_fallback.fn_decl_param_count -| 1;
                     if expected_args < 0 { expected_args = 0; }
                     if node.call_expr_arg_count != expected_args {
                         checker_report_error(checker, node, "方法调用实参个数不匹配" as *byte);

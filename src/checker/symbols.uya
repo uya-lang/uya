@@ -657,7 +657,7 @@ fn checker_mark_reachability_node_visited(checker: &TypeChecker, node: &ASTNode)
             checker.reachability_visit_count = checker.reachability_visit_count + 1;
             return 1;
         }
-        slot = (slot + 1) & (MAX_REACHABILITY_VISIT_SLOTS - 1);
+        slot = (slot +| 1) & (MAX_REACHABILITY_VISIT_SLOTS -| 1);
         probe = probe + 1;
     }
     return 1;
@@ -1345,8 +1345,8 @@ fn string_pool_intern(pool: &StringPool, arena: &CompilerArena, str: &byte) &byt
     // （链式桶本来就能容忍长链，扩桶只是摊销优化，不是正确性要求）。
     if pool.bucket_count <= 0 {
         _ = string_pool_ensure_buckets(pool, STRING_POOL_SIZE);
-    } else if pool.count > pool.bucket_count * 4 {
-        _ = string_pool_ensure_buckets(pool, pool.bucket_count * 2);
+    } else if pool.count > pool.bucket_count *| 4 {
+        _ = string_pool_ensure_buckets(pool, pool.bucket_count *| 2);
     }
     if pool.bucket_count <= 0 {
         return str;

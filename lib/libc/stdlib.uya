@@ -278,7 +278,7 @@ export extern "libc" fn strtod(nptr: &const byte, endptr: & &const byte) f64 {
         }
         var exp_val: i32 = 0;
         while nptr[i] >= 48 as byte && nptr[i] <= 57 as byte {
-            exp_val = exp_val *| 10 + (nptr[i] as i32 - 48);
+            exp_val = exp_val *| 10 +| (nptr[i] as i32 -| 48);
             i = i + 1;
         }
         if exp_neg != 0 {
@@ -405,7 +405,7 @@ export extern "libc" fn strtol(nptr: &const byte, endptr: & &const byte, base: i
             break;
         }
         
-        result = result *| radix as i64 + digit;
+        result = result *| (radix as i64) +| digit;
         i = i + 1;
     }
     

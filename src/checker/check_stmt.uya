@@ -846,7 +846,7 @@ fn state_machine_size_estimate(await_count: i32, param_count: i32) i32 {
                 return max_v;
             }
             const part: i32 = n * 16;
-            if total > max_v - part {
+            if total > (max_v -| part) {
                 return max_v;
             }
             total = total +| part;
@@ -870,7 +870,7 @@ fn await_count_add(acc: i32, delta: i32) i32 {
         return delta;
     }
     const max_v: i32 = @max;
-    if acc > max_v - delta {
+    if acc > (max_v -| delta) {
         return max_v;
     }
     return acc +| delta;

@@ -244,7 +244,7 @@ fn checker_embed_extract_dir(filename: &byte, out: &byte, out_cap: i32) i32 {
         return 0;
     }
     const dir_len: i32 = (ptr_diff(last_slash, filename as *byte) as i32) + 1;
-    if dir_len + 1 > out_cap {
+    if (dir_len +| 1) > out_cap {
         return -1;
     }
     memcpy(out as *void, filename as *void, dir_len as usize);
@@ -258,7 +258,7 @@ fn checker_embed_join_path(base_dir: &byte, path_literal: &byte, out: &byte, out
     }
     if checker_embed_path_is_absolute(path_literal) != 0 || base_dir == null || base_dir[0] == 0 as byte {
         const path_len: i32 = strlen(path_literal as *byte) as i32;
-        if path_len + 1 > out_cap {
+        if (path_len +| 1) > out_cap {
             return -1;
         }
         memcpy(out as *void, path_literal as *void, (path_len + 1) as usize);
@@ -266,7 +266,7 @@ fn checker_embed_join_path(base_dir: &byte, path_literal: &byte, out: &byte, out
     }
     const base_len: i32 = strlen(base_dir as *byte) as i32;
     const lit_len: i32 = strlen(path_literal as *byte) as i32;
-    if base_len + lit_len + 2 > out_cap {
+    if (base_len +| lit_len +| 2) > out_cap {
         return -1;
     }
     memcpy(out as *void, base_dir as *void, base_len as usize);

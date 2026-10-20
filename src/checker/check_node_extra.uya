@@ -385,7 +385,7 @@ fn check_assign_node(checker: &TypeChecker, node: &ASTNode) i32 {
                     if op == TokenType.TOKEN_PLUS {
                         constraint_update_for_increment(checker, var_name, right_val);
                     } else if op == TokenType.TOKEN_MINUS {
-                        constraint_update_for_increment(checker, var_name, 0 - right_val);
+                        constraint_update_for_increment(checker, var_name, 0 -| right_val);
                     } else {
                         constraint_remove_var(checker, var_name);
                     }
@@ -682,7 +682,7 @@ fn check_for_stmt_node(checker: &TypeChecker, node: &ASTNode) i32 {
         
         // 3. 进入循环作用域并添加循环变量
         checker_enter_scope(checker);
-        checker.loop_depth = checker.loop_depth + 1;  // 进入循环（增加循环深度）
+        checker.loop_depth = checker.loop_depth +| 1;  // 进入循环（增加循环深度）
         
         if array_type.element_type == null {
             // 元素类型无效，报告错误

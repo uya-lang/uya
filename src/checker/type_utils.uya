@@ -369,7 +369,7 @@ fn check_type_param_constraints(checker: &TypeChecker, type: Type,
         if constraint != null && type_satisfies_constraint(checker, type, constraint) == 0 {
             var buf: [byte: MAX_BASE_NAME_LEN * 2] = [];
             const type_name: &byte = type_to_string(checker.arena, copy_type(&type));
-            snprintf(buf as *byte, MAX_BASE_NAME_LEN * 2, 
+            snprintf(buf as *byte, MAX_BASE_NAME_LEN *| 2, 
                      "类型 '%s' 不满足泛型参数 '%s' 的约束 '%s'" as *byte,
                      type_name as *byte,
                      param_name,

@@ -74,7 +74,7 @@ fn check_i32_add_overflow(left: i32, right: i32) i32 {
         }
     }
     if left < 0 && right < 0 {
-        if left < I32_MIN - right {
+        if left < (I32_MIN -| right) {
             return 1;
         }
     }
@@ -84,12 +84,12 @@ fn check_i32_add_overflow(left: i32, right: i32) i32 {
 // 检测 i32 减法溢出
 fn check_i32_sub_overflow(left: i32, right: i32) i32 {
     if left >= 0 && right < 0 {
-        if left > I32_MAX + right {
+        if left > (I32_MAX +| right) {
             return 1;
         }
     }
     if left < 0 && right > 0 {
-        if left < I32_MIN + right {
+        if left < (I32_MIN +| right) {
             return 1;
         }
     }
@@ -1102,7 +1102,7 @@ export fn check_slice_bounds(checker: &TypeChecker, array_expr: &ASTNode, start_
     if array_expr.type == ASTNodeType.AST_STRING && array_expr.string_literal_value != null {
         const sl_tmp: !i32 = strlen(array_expr.string_literal_value as *byte) as! i32;
         const sl: i32 = sl_tmp.value;
-        result.array_size = sl + 1;
+        result.array_size = sl +| 1;
     } else {
         const array_type: Type = checker_infer_type(checker, array_expr);
         if array_type.kind != TypeKind.TYPE_ARRAY {
@@ -1119,7 +1119,7 @@ export fn check_slice_bounds(checker: &TypeChecker, array_expr: &ASTNode, start_
         // 处理负数索引
         var actual_start: i32 = start_pos_value;
         if start_pos_value < 0 {
-            actual_start = result.array_size + start_pos_value;
+            actual_start = result.array_size +| start_pos_value;
         }
         
         if actual_start < 0 || actual_start > result.array_size {
@@ -1151,10 +1151,10 @@ export fn check_slice_bounds(checker: &TypeChecker, array_expr: &ASTNode, start_
         if start_expr != null && start_is_const != 0 {
             var actual_start: i32 = start_value;
             if start_value < 0 {
-                actual_start = result.array_size + start_value;
+                actual_start = result.array_size +| start_value;
             }
             
-            if actual_start + len_value > result.array_size {
+            if (actual_start +| len_value) > result.array_size {
                 result.risk = BoundsCheckRisk.BOUNDS_ERROR as i32;
                 result.message = "切片结束位置越界" as &byte;
                 return result;
@@ -1427,7 +1427,7 @@ fn validate_async_report_error(checker: &TypeChecker, node: &ASTNode, message: &
         return;
     }
     checker_report_error(checker, node, message);
-    *errors = *errors + 1;
+    *errors = *errors +| 1;
 }
 
 fn find_first_await_expr(node: &ASTNode) &ASTNode {

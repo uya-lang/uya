@@ -441,7 +441,7 @@ fn parser_parse_rel_expr(parser: &Parser) &ASTNode {
                         fake_greater.type = TokenType.TOKEN_GREATER;
                         fake_greater.value = ">" as *byte;
                         fake_greater.line = rshift_token.line;
-                        fake_greater.column = rshift_token.column + 1;
+                        fake_greater.column = rshift_token.column +| 1;
                         parser.pending_greater_token = fake_greater;
                     }
                 } else {

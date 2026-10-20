@@ -224,9 +224,12 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
             if module_name != null {
                 strcpy(module_name as *byte, "std." as *byte);
                 memcpy((module_name as *byte + 4) as *void, relative_path as *void, module_len);
-                module_name[4 + module_len] = 0;
+                const name_end: usize = (4 as usize) +| module_len;
+                if name_end < total_len + 1 {
+                    module_name[name_end] = 0;
+                }
                 var idx: usize = 4;
-                while idx < 4 + module_len {
+                while idx < name_end {
                     if module_name[idx] == 47 || module_name[idx] == 92 {
                         module_name[idx] = 46;
                     }
@@ -394,9 +397,12 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
             if module_name_tls != null {
                 strcpy(module_name_tls as *byte, "tls." as *byte);
                 memcpy((module_name_tls as *byte + 4) as *void, relative_path_tls as *void, base_len_tls);
-                module_name_tls[4 + base_len_tls] = 0;
+                const name_end_tls: usize = (4 as usize) +| base_len_tls;
+                if name_end_tls < total_len_tls + 1 {
+                    module_name_tls[name_end_tls] = 0;
+                }
                 var idx_tls: usize = 4;
-                while idx_tls < 4 + base_len_tls {
+                while idx_tls < name_end_tls {
                     if module_name_tls[idx_tls] == 47 || module_name_tls[idx_tls] == 92 {
                         module_name_tls[idx_tls] = 46;
                     }

@@ -993,7 +993,7 @@ fn lexer_next_token(lexer: &Lexer, arena: &CompilerArena) &Token {
                     return make_token(arena, TokenType.TOKEN_RAW_STRING, value, lexer.line, lexer.column);
                 }
                 // 原始字符串：所有字符按字面量处理，不转义
-                if lexer.string_text_len >= LEXER_STRING_INTERP_BUFFER_SIZE - 1 {
+                if lexer.string_text_len >= (LEXER_STRING_INTERP_BUFFER_SIZE -| 1) {
                     return null;
                 }
                 const c2: byte = advance_char(lexer);

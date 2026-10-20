@@ -359,7 +359,7 @@ fn constraint_expr_name(checker: &TypeChecker, expr: &ASTNode) &byte {
         }
         const object_len: i32 = strlen(object_name as *byte) as i32;
         const field_len: i32 = strlen(expr.member_access_field_name as *byte) as i32;
-        if object_len <= 0 || field_len <= 0 || object_len +| field_len + 2 > CONSTRAINT_EXPR_NAME_MAX {
+        if object_len <= 0 || field_len <= 0 || (object_len +| field_len +| 2) > CONSTRAINT_EXPR_NAME_MAX {
             return null;
         }
         // 名称必须放在生命周期稳定的内存里：之前用栈上 buf 再交给
