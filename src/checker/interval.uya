@@ -1869,11 +1869,21 @@ fn eval_expr_interval(checker: &TypeChecker, expr: &ASTNode) Interval {
             return interval_invalid();
         }
 
-        if op_code == TokenType.TOKEN_PLUS as i32 {
+        // 饱和 `+| -| *|` 与包装 `+% -% *%` 的区间传播与普通算术一致：
+        // 两者都是目标类型上的单调运算，端点值落在同一区间里
+        // （饱和只会把端点收得更内，包装在无溢出时与普通运算相同）。
+        // 让区间分析认识它们，才能证明 `stack[slot *| N +| i]` 这类下标。
+        if op_code == TokenType.TOKEN_PLUS as i32 ||
+            op_code == TokenType.TOKEN_PLUS_PIPE as i32 ||
+            op_code == TokenType.TOKEN_PLUS_PERCENT as i32 {
             return interval_add(left_interval, right_interval);
-        } else if op_code == TokenType.TOKEN_MINUS as i32 {
+        } else if op_code == TokenType.TOKEN_MINUS as i32 ||
+            op_code == TokenType.TOKEN_MINUS_PIPE as i32 ||
+            op_code == TokenType.TOKEN_MINUS_PERCENT as i32 {
             return interval_sub(left_interval, right_interval);
-        } else if op_code == TokenType.TOKEN_ASTERISK as i32 {
+        } else if op_code == TokenType.TOKEN_ASTERISK as i32 ||
+            op_code == TokenType.TOKEN_ASTERISK_PIPE as i32 ||
+            op_code == TokenType.TOKEN_ASTERISK_PERCENT as i32 {
             return interval_mul(left_interval, right_interval);
         } else if op_code == TokenType.TOKEN_SLASH as i32 {
             return interval_div(left_interval, right_interval);

@@ -1461,9 +1461,9 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
             result.kind = TypeKind.TYPE_I32;
             return result;
         }
-        if left_type.kind != right_type.kind {
-            checker_report_error(checker, node, "饱和/包装运算符的两个操作数类型必须一致" as *byte);
-        }
+        // 与 `+` / `-` / `*` 保持一致：允许混合整数类型，结果取左操作数类型。
+        // codegen 会把两个操作数都 cast 到左类型再运算，因此「在左类型里饱和/回绕」
+        // 是明确定义的语义；强制要求两端同类型只会逼用户到处写 as 转换。
         result.kind = left_type.kind;
         return result;
     }

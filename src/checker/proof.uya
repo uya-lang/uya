@@ -176,6 +176,42 @@ fn checker_const_ok(out_ok: &i32, value: i32) i32 {
     return value;
 }
 
+// 常量折叠：饱和加/减/乘（超出 i32 时钳到极值）
+fn checker_const_fold_saturating(op: TokenType, a: i32, b: i32) i32 {
+    const max_v: i32 = @max;
+    const min_v: i32 = @min;
+    // 守卫本身也要用饱和运算：`max_v - b`（b 为整个 i32 域）自己会溢出，
+    // 用 `-|` 让边界计算本身良定义，语义上也正是我们要的比较基准。
+    if op == TokenType.TOKEN_PLUS_PIPE {
+        if b > 0 && a > (max_v -| b) { return max_v; }
+        if b < 0 && a < (min_v -| b) { return min_v; }
+        return a +| b;
+    }
+    if op == TokenType.TOKEN_MINUS_PIPE {
+        if b < 0 && a > (max_v +| b) { return max_v; }
+        if b > 0 && a < (min_v +| b) { return min_v; }
+        return a -| b;
+    }
+    // 乘法：用 i64 判断是否越界（i64 上的乘积最多 2^62，无需再防 i64 溢出）
+    const pa: i64 = a as i64;
+    const pb: i64 = b as i64;
+    const prod: i64 = pa *% pb;
+    if prod > (max_v as i64) { return max_v; }
+    if prod < (min_v as i64) { return min_v; }
+    return prod as i32;
+}
+
+// 常量折叠：包装加/减/乘（按 i32 位宽取模）
+fn checker_const_fold_wrapping(op: TokenType, a: i32, b: i32) i32 {
+    if op == TokenType.TOKEN_PLUS_PERCENT {
+        return ((a as u32) + (b as u32)) as i32;
+    }
+    if op == TokenType.TOKEN_MINUS_PERCENT {
+        return ((a as u32) - (b as u32)) as i32;
+    }
+    return ((a as u32) * (b as u32)) as i32;
+}
+
 fn checker_eval_const_expr_ex_impl(checker: &TypeChecker, expr: &ASTNode, out_ok: &i32) i32 {
     if expr == null || checker == null {
         return -1;
@@ -328,6 +364,16 @@ fn checker_eval_const_expr_ex_impl(checker: &TypeChecker, expr: &ASTNode, out_ok
                 return -1;
             }
             return checker_const_ok(out_ok, left_val * right_val);
+        } else if op == TokenType.TOKEN_PLUS_PIPE || op == TokenType.TOKEN_MINUS_PIPE ||
+            op == TokenType.TOKEN_ASTERISK_PIPE {
+            // 常量折叠必须理解饱和运算，否则 `const cap = A *| B` 算不出值，
+            // 依赖它做上界比较的下标证明就会失败（饱和/包装本就该在编译期定值）。
+            const sat_v: i32 = checker_const_fold_saturating(op, left_val, right_val);
+            return checker_const_ok(out_ok, sat_v);
+        } else if op == TokenType.TOKEN_PLUS_PERCENT || op == TokenType.TOKEN_MINUS_PERCENT ||
+            op == TokenType.TOKEN_ASTERISK_PERCENT {
+            const wrap_v: i32 = checker_const_fold_wrapping(op, left_val, right_val);
+            return checker_const_ok(out_ok, wrap_v);
         } else if op == TokenType.TOKEN_SLASH {
             if right_val == 0 {
                 checker_report_error(checker, expr, "常量表达式除零错误" as *byte);
