@@ -758,10 +758,10 @@ fn upm_shell_append_quoted(cmd: &byte, cap: usize, len: &i32, token: &byte) i32 
         return 1;
     }
     const written: i32 = snprintf((cmd as *byte) + len[0], cap - len[0] as usize, " %s" as *byte, &quoted[0] as *byte);
-    if written <= 0 || len[0] + written >= cap as i32 {
+    if written <= 0 || len[0] +| written >= cap as i32 {
         return 1;
     }
-    len[0] = len[0] + written;
+    len[0] = len[0] +| written;
     return 0;
 }
 
@@ -872,7 +872,7 @@ fn upm_forward_build(start_index: i32) i32 {
             }
             if strcmp(arg as *byte, "--manifest-path" as *byte) == 0 ||
                 strcmp(arg as *byte, "--project-root" as *byte) == 0 {
-                arg_index = arg_index + 2;
+                arg_index = arg_index +| 2;
                 continue;
             }
             const value_mode: UPMBuildArgValueMode = upm_build_arg_value_mode(arg);
@@ -880,39 +880,39 @@ fn upm_forward_build(start_index: i32) i32 {
                 if upm_shell_append_quoted(&cmd[0] as &byte, UPM_CMD_MAX as usize, &cmd_len, arg) != 0 {
                     return 1;
                 }
-                if arg_index + 1 >= get_argc() {
+                if arg_index +| 1 >= get_argc() {
                     return 1;
                 }
-                const value: &byte = get_argv(arg_index + 1);
+                const value: &byte = get_argv(arg_index +| 1);
                 if value == null || upm_shell_append_quoted(&cmd[0] as &byte, UPM_CMD_MAX as usize, &cmd_len, value) != 0 {
                     return 1;
                 }
-                arg_index = arg_index + 2;
+                arg_index = arg_index +| 2;
                 continue;
             }
             if value_mode == UPMBuildArgValueMode.UPM_BUILD_ARG_VALUE_OPTIONAL {
                 if upm_shell_append_quoted(&cmd[0] as &byte, UPM_CMD_MAX as usize, &cmd_len, arg) != 0 {
                     return 1;
                 }
-                if arg_index + 1 < get_argc() {
-                    const value: &byte = get_argv(arg_index + 1);
+                if arg_index +| 1 < get_argc() {
+                    const value: &byte = get_argv(arg_index +| 1);
                     if value == null || upm_shell_append_quoted(&cmd[0] as &byte, UPM_CMD_MAX as usize, &cmd_len, value) != 0 {
                         return 1;
                     }
-                    arg_index = arg_index + 2;
+                    arg_index = arg_index +| 2;
                 } else {
-                    arg_index = arg_index + 1;
+                    arg_index = arg_index +| 1;
                 }
                 continue;
             }
             if arg[0] != 45 as byte && strcmp(arg as *byte, &input_path[0] as *byte) == 0 {
-                arg_index = arg_index + 1;
+                arg_index = arg_index +| 1;
                 continue;
             }
             if upm_shell_append_quoted(&cmd[0] as &byte, UPM_CMD_MAX as usize, &cmd_len, arg) != 0 {
                 return 1;
             }
-            arg_index = arg_index + 1;
+            arg_index = arg_index +| 1;
         }
         if upm_shell_append_quoted(&cmd[0] as &byte, UPM_CMD_MAX as usize, &cmd_len, &plan.compile_input[0] as &byte) != 0 {
             return 1;
@@ -1094,7 +1094,7 @@ export fn upm_cli_main(start_index: i32) i32 {
         var target_dir: [byte: UPM_PATH_MAX] = [];
         _ = upm_string_copy(&target_dir[0] as &byte, UPM_PATH_MAX, "." as &byte);
         var src_layout: i32 = 0;
-        var i: i32 = start_index + 1;
+        var i: i32 = start_index +| 1;
         while i < get_argc() {
             const arg: &byte = get_argv(i);
             if arg == null {
@@ -1110,7 +1110,7 @@ export fn upm_cli_main(start_index: i32) i32 {
                 fprintf(libc.stderr, "错误: upm init 不支持的参数: %s\n" as *byte, arg as *byte);
                 return 1;
             }
-            i = i + 1;
+            i = i +| 1;
         }
         return upm_init_package(&target_dir[0] as &byte, src_layout);
     }

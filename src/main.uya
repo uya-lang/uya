@@ -282,7 +282,7 @@ fn split_c_parse_owner_pid(text: &byte) i32 {
     var value: i32 = 0;
     var digit_count: i32 = 0;
     while text[i] >= '0' as byte && text[i] <= '9' as byte {
-        value = value * 10 + (text[i] as i32 - '0' as i32);
+        value = value * 10 +| (text[i] as i32 -| '0' as i32);
         digit_count = digit_count + 1;
         i = i + 1;
     }
@@ -687,7 +687,7 @@ fn exit_code_from_system_status(wstatus: i32) i32 {
     if sig == 0 {
         return 1;
     }
-    return 128 + sig;
+    return 128 +| sig;
 }
 
 fn shell_quote_append(cmd: &byte, cap: i32, len: &i32, text: &byte) i32 {
@@ -696,41 +696,41 @@ fn shell_quote_append(cmd: &byte, cap: i32, len: &i32, text: &byte) i32 {
     }
     var i: usize = 0;
     if len[0] > 0 {
-        if len[0] + 1 >= cap {
+        if len[0] +| 1 >= cap {
             return 1;
         }
         cmd[len[0] as usize] = 32 as byte;
-        len[0] = len[0] + 1;
+        len[0] = len[0] +| 1;
     }
-    if len[0] + 2 >= cap {
+    if len[0] +| 2 >= cap {
         return 1;
     }
     cmd[len[0] as usize] = 39 as byte;
-    len[0] = len[0] + 1;
+    len[0] = len[0] +| 1;
     while text[i] != 0 as byte {
         if text[i] == 39 as byte {
-            if len[0] + 4 >= cap {
+            if len[0] +| 4 >= cap {
                 return 1;
             }
             cmd[len[0] as usize] = 39 as byte;
             cmd[(len[0] + 1) as usize] = 92 as byte;
             cmd[(len[0] + 2) as usize] = 39 as byte;
             cmd[(len[0] + 3) as usize] = 39 as byte;
-            len[0] = len[0] + 4;
+            len[0] = len[0] +| 4;
         } else {
-            if len[0] + 1 >= cap {
+            if len[0] +| 1 >= cap {
                 return 1;
             }
             cmd[len[0] as usize] = text[i];
-            len[0] = len[0] + 1;
+            len[0] = len[0] +| 1;
         }
         i = i + 1;
     }
-    if len[0] + 2 >= cap {
+    if len[0] +| 2 >= cap {
         return 1;
     }
     cmd[len[0] as usize] = 39 as byte;
-    len[0] = len[0] + 1;
+    len[0] = len[0] +| 1;
     cmd[len[0] as usize] = 0 as byte;
     return 0;
 }
@@ -858,7 +858,7 @@ fn dedupe_paths_in_place(paths: &PathList) i32 {
                     duplicate = 1;
                     break;
                 }
-                seen_idx = seen_idx + 1;
+                seen_idx = seen_idx +| 1;
             }
         }
         if duplicate == 0 {
@@ -1564,7 +1564,7 @@ fn host_append_temp_path_i32(buf: &byte, cap: usize, pos: &usize, value: i32) i3
         if host_append_temp_path_byte(buf, cap, pos, 45 as byte) != 0 {
             return -1;
         }
-        v = 0 - v;
+        v = 0 -| v;
     }
     var n: usize = 0;
     if v == 0 {
@@ -1991,7 +1991,7 @@ fn parse_args(
                     var j: i32 = 0;
                     var size_val: i32 = 0;
                     while size_str[j] >= 48 && size_str[j] <= 57 {
-                        size_val = size_val * 10 + (size_str[j] - 48);
+                        size_val = size_val * 10 +| (size_str[j] - 48);
                         j = j + 1;
                     }
                     if size_val > 0 {
@@ -2255,7 +2255,7 @@ fn compile_files(
         already_lib = 1;
     }
     if already_lib == 0 && last_slash != null && strcmp(last_slash, "/bin" as *byte) == 0 {
-        const slash_idx: usize = ((last_slash as i64 - &uya_root_base[0] as i64) as! usize) catch { 0usize; };
+        const slash_idx: usize = ((last_slash as i64 -| &uya_root_base[0] as i64) as! usize) catch { 0usize; };
         uya_root_base[slash_idx] = 0;
     }
     var uya_root_buffer: [byte: PATH_MAX] = [];
@@ -2369,7 +2369,7 @@ fn compile_files(
                 if module_root == null {
                     const input_last_slash: *byte = strrchr(input_path, 47);
                     if input_last_slash != null {
-                        const dir_len: usize = ptr_diff(input_last_slash, input) + 1;
+                        const dir_len: usize = ptr_diff(input_last_slash, input) +| 1;
                         if dir_len < PATH_MAX {
                             memcpy(&module_root_buffer[0], input_path, dir_len);
                             module_root_buffer[dir_len] = 0 as byte;
@@ -2810,11 +2810,11 @@ fn compile_files(
         const exec_result: i32 = exec_build_program(checker, merged_ast, module_name as &byte);
         codegen_end_time = clock();
 
-        stats.parse_time_ms = (parse_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
-        stats.merge_time_ms = (merge_end_time - parse_end_time) * 1000 / CLOCKS_PER_SEC;
-        stats.check_time_ms = (check_end_time - merge_end_time) * 1000 / CLOCKS_PER_SEC;
-        stats.codegen_time_ms = (codegen_end_time - opt_end_time) * 1000 / CLOCKS_PER_SEC;
-        stats.total_time_ms = (codegen_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
+        stats.parse_time_ms = (parse_end_time -| start_time) *| 1000 / CLOCKS_PER_SEC;
+        stats.merge_time_ms = (merge_end_time -| parse_end_time) *| 1000 / CLOCKS_PER_SEC;
+        stats.check_time_ms = (check_end_time -| merge_end_time) *| 1000 / CLOCKS_PER_SEC;
+        stats.codegen_time_ms = (codegen_end_time -| opt_end_time) *| 1000 / CLOCKS_PER_SEC;
+        stats.total_time_ms = (codegen_end_time -| start_time) *| 1000 / CLOCKS_PER_SEC;
 
         if g_verbose_output != 0 {
             fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
@@ -2823,7 +2823,7 @@ fn compile_files(
             fprintf(libc.stderr, "合并耗时: %ld ms\n" as *byte, stats.merge_time_ms);
             fprintf(libc.stderr, "检查耗时: %ld ms\n" as *byte, stats.check_time_ms);
             if opt_level > 0 {
-                const opt_time_ms_exec: i64 = (opt_end_time - check_end_time) * 1000 / CLOCKS_PER_SEC;
+                const opt_time_ms_exec: i64 = (opt_end_time -| check_end_time) *| 1000 / CLOCKS_PER_SEC;
                 fprintf(libc.stderr, "优化耗时: %ld ms\n" as *byte, opt_time_ms_exec);
             }
             fprintf(libc.stderr, "exec lowering 耗时: %ld ms\n" as *byte, exec_backend_get_last_lower_time_ms());
@@ -2922,11 +2922,11 @@ fn compile_files(
     codegen_end_time = clock();
 
     // 计算各阶段耗时（毫秒）
-    stats.parse_time_ms = (parse_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
-    stats.merge_time_ms = (merge_end_time - parse_end_time) * 1000 / CLOCKS_PER_SEC;
-    stats.check_time_ms = (check_end_time - merge_end_time) * 1000 / CLOCKS_PER_SEC;
-    stats.codegen_time_ms = (codegen_end_time - opt_end_time) * 1000 / CLOCKS_PER_SEC;
-    stats.total_time_ms = (codegen_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
+    stats.parse_time_ms = (parse_end_time -| start_time) *| 1000 / CLOCKS_PER_SEC;
+    stats.merge_time_ms = (merge_end_time -| parse_end_time) *| 1000 / CLOCKS_PER_SEC;
+    stats.check_time_ms = (check_end_time -| merge_end_time) *| 1000 / CLOCKS_PER_SEC;
+    stats.codegen_time_ms = (codegen_end_time -| opt_end_time) *| 1000 / CLOCKS_PER_SEC;
+    stats.total_time_ms = (codegen_end_time -| start_time) *| 1000 / CLOCKS_PER_SEC;
 
     // 输出编译统计
     if g_verbose_output != 0 {
@@ -2936,7 +2936,7 @@ fn compile_files(
         fprintf(libc.stderr, "合并耗时: %ld ms\n" as *byte, stats.merge_time_ms);
         fprintf(libc.stderr, "检查耗时: %ld ms\n" as *byte, stats.check_time_ms);
         if opt_level > 0 {
-            const opt_time_ms: i64 = (opt_end_time - check_end_time) * 1000 / CLOCKS_PER_SEC;
+            const opt_time_ms: i64 = (opt_end_time -| check_end_time) *| 1000 / CLOCKS_PER_SEC;
             fprintf(libc.stderr, "优化耗时: %ld ms\n" as *byte, opt_time_ms);
         }
         fprintf(libc.stderr, "生成耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
@@ -3513,13 +3513,13 @@ export fn main() i32 {
                     const run_arg: *byte = get_argv(run_arg_i);
                     if run_arg != null {
                         const appended: i32 = snprintf((&run_cmd[0] as *byte) + run_cmd_len, 4096 - run_cmd_len, " \"%s\"" as *byte, run_arg);
-                        if appended <= 0 || run_cmd_len + appended >= 4096 {
+                        if appended <= 0 || run_cmd_len +| appended >= 4096 {
                             fprintf(libc.stderr, "错误：运行时参数过长\n" as *byte);
                             return 1;
                         }
-                        run_cmd_len = run_cmd_len + appended;
+                        run_cmd_len = run_cmd_len +| appended;
                     }
-                    run_arg_i = run_arg_i + 1;
+                    run_arg_i = run_arg_i +| 1;
                 }
             }
         }
@@ -3603,7 +3603,7 @@ fn generate_libc(output_dir: &byte) i32 {
     }
     const last_slash: *byte = strrchr(&uya_root_buffer[0], 47);
     if last_slash != null && strcmp(last_slash, "/bin" as *byte) == 0 {
-        const slash_idx: usize = ((last_slash as i64 - &uya_root_buffer[0] as i64) as! usize) catch { 0usize; };
+        const slash_idx: usize = ((last_slash as i64 -| &uya_root_buffer[0] as i64) as! usize) catch { 0usize; };
         uya_root_buffer[slash_idx] = 0;
     }
     var lib_dir: [byte: PATH_MAX] = [];

@@ -261,7 +261,7 @@ fn exec_debug_dump_block(block: &HIRBlock, indent: i32) void {
             fprintf(libc.stderr, "scope exit #%d\n" as *byte, stmt.scope_id);
         } else if stmt.kind == HIRStmtKind.HIR_STMT_BLOCK {
             fprintf(libc.stderr, "block {\n" as *byte);
-            exec_debug_dump_block(stmt.then_block, indent + 1);
+            exec_debug_dump_block(stmt.then_block, indent +| 1);
             j = 0;
             while j < indent {
                 fprintf(libc.stderr, "  " as *byte);
@@ -283,7 +283,7 @@ fn exec_debug_dump_block(block: &HIRBlock, indent: i32) void {
             fprintf(libc.stderr, "\n" as *byte);
         } else if stmt.kind == HIRStmtKind.HIR_STMT_DEFER {
             fprintf(libc.stderr, "defer {\n" as *byte);
-            exec_debug_dump_block(stmt.cleanup_block, indent + 1);
+            exec_debug_dump_block(stmt.cleanup_block, indent +| 1);
             j = 0;
             while j < indent {
                 fprintf(libc.stderr, "  " as *byte);
@@ -292,7 +292,7 @@ fn exec_debug_dump_block(block: &HIRBlock, indent: i32) void {
             fprintf(libc.stderr, "}\n" as *byte);
         } else if stmt.kind == HIRStmtKind.HIR_STMT_ERRDEFER {
             fprintf(libc.stderr, "errdefer {\n" as *byte);
-            exec_debug_dump_block(stmt.cleanup_block, indent + 1);
+            exec_debug_dump_block(stmt.cleanup_block, indent +| 1);
             j = 0;
             while j < indent {
                 fprintf(libc.stderr, "  " as *byte);
@@ -311,7 +311,7 @@ fn exec_debug_dump_block(block: &HIRBlock, indent: i32) void {
             fprintf(libc.stderr, "if " as *byte);
             exec_debug_dump_expr(stmt.expr);
             fprintf(libc.stderr, " {\n" as *byte);
-            exec_debug_dump_block(stmt.then_block, indent + 1);
+            exec_debug_dump_block(stmt.then_block, indent +| 1);
             j = 0;
             while j < indent {
                 fprintf(libc.stderr, "  " as *byte);
@@ -320,7 +320,7 @@ fn exec_debug_dump_block(block: &HIRBlock, indent: i32) void {
             fprintf(libc.stderr, "}" as *byte);
             if stmt.else_block != null && stmt.else_block.stmt_count > 0 {
                 fprintf(libc.stderr, " else {\n" as *byte);
-                exec_debug_dump_block(stmt.else_block, indent + 1);
+                exec_debug_dump_block(stmt.else_block, indent +| 1);
                 j = 0;
                 while j < indent {
                     fprintf(libc.stderr, "  " as *byte);
@@ -331,7 +331,7 @@ fn exec_debug_dump_block(block: &HIRBlock, indent: i32) void {
             fprintf(libc.stderr, "\n" as *byte);
         } else if stmt.kind == HIRStmtKind.HIR_STMT_LOOP {
             fprintf(libc.stderr, "loop {\n" as *byte);
-            exec_debug_dump_block(stmt.loop_body, indent + 1);
+            exec_debug_dump_block(stmt.loop_body, indent +| 1);
             j = 0;
             while j < indent {
                 fprintf(libc.stderr, "  " as *byte);

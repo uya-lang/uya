@@ -86,7 +86,7 @@ fn parse_parallel_worker_source_bytes(files: &(&byte), count: i32, worker_index:
     var i: i32 = worker_index;
     while i < count {
         total = total + parse_parallel_file_size(files[i]);
-        i = i + worker_count;
+        i = i +| worker_count;
     }
     return total;
 }

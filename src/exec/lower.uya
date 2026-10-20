@@ -665,7 +665,7 @@ fn exec_lower_find_slot(ctx: &ExecLowerContext, name: &byte) i32 {
     if ctx == null || name == null {
         return -1;
     }
-    var i: i32 = ctx.active_local_count - 1;
+    var i: i32 = ctx.active_local_count -| 1;
     while i >= 0 {
         if i >= 0 && i < EXEC_MAX_LOCALS {
             if ctx.local_names[i] != null && str_equals(ctx.local_names[i], name) != 0 {
@@ -681,7 +681,7 @@ fn exec_lower_find_global_slot(ctx: &ExecLowerContext, name: &byte) i32 {
     if ctx == null || name == null {
         return -1;
     }
-    var i: i32 = ctx.global_count - 1;
+    var i: i32 = ctx.global_count -| 1;
     while i >= 0 {
         if i >= 0 && i < EXEC_MAX_GLOBALS {
             if ctx.global_names[i] != null && str_equals(ctx.global_names[i], name) != 0 {
@@ -825,7 +825,7 @@ fn exec_lower_alloc_scope_id(ctx: &ExecLowerContext) i32 {
         return -1;
     }
     const scope_id: i32 = ctx.next_scope_id;
-    ctx.next_scope_id = ctx.next_scope_id + 1;
+    ctx.next_scope_id = ctx.next_scope_id +| 1;
     return scope_id;
 }
 
@@ -896,7 +896,7 @@ fn exec_lower_alloc_scoped_block(ctx: &ExecLowerContext, ast_node: &ASTNode, bod
         exec_backend_set_error(ast_node, "exec: scope id 分配失败" as *byte, 0);
         return null;
     }
-    const total_stmt_count: i32 = body_stmt_count + 2;
+    const total_stmt_count: i32 = body_stmt_count +| 2;
     const block: &HIRBlock = compiler_arena_alloc(ctx.arena, @size_of(HIRBlock)) as &HIRBlock;
     const stmts: & & HIRStmt = compiler_arena_alloc(ctx.arena, @size_of(&HIRStmt) * total_stmt_count as usize) as & & HIRStmt;
     if block == null || stmts == null {
@@ -913,7 +913,7 @@ fn exec_lower_alloc_scoped_block(ctx: &ExecLowerContext, ast_node: &ASTNode, bod
         return null;
     }
     stmts[0] = enter_stmt;
-    stmts[total_stmt_count - 1] = exit_stmt;
+    stmts[total_stmt_count -| 1] = exit_stmt;
     return block;
 }
 
@@ -921,7 +921,7 @@ fn exec_lower_alloc_scoped_block_raw(arena: &CompilerArena, ast_node: &ASTNode, 
     if arena == null || body_stmt_count < 0 {
         return null;
     }
-    const total_stmt_count: i32 = body_stmt_count + 2;
+    const total_stmt_count: i32 = body_stmt_count +| 2;
     const block: &HIRBlock = compiler_arena_alloc(arena, @size_of(HIRBlock)) as &HIRBlock;
     const stmts: & & HIRStmt = compiler_arena_alloc(arena, @size_of(&HIRStmt) * total_stmt_count as usize) as & & HIRStmt;
     if block == null || stmts == null {
@@ -938,7 +938,7 @@ fn exec_lower_alloc_scoped_block_raw(arena: &CompilerArena, ast_node: &ASTNode, 
         return null;
     }
     stmts[0] = enter_stmt;
-    stmts[total_stmt_count - 1] = exit_stmt;
+    stmts[total_stmt_count -| 1] = exit_stmt;
     return block;
 }
 
@@ -1434,7 +1434,7 @@ fn exec_lower_add_unique_decl(out_decls: & & ASTNode, out_count: &i32, decl: &AS
         return -1;
     }
     out_decls[out_count[0]] = decl;
-    out_count[0] = out_count[0] + 1;
+    out_count[0] = out_count[0] +| 1;
     return 0;
 }
 
@@ -1490,7 +1490,7 @@ fn exec_lower_interface_method_index(ctx: &ExecLowerContext, interface_type: &Ty
         if sig != null && sig.fn_decl_name != null && str_equals(sig.fn_decl_name, method_name) != 0 {
             return i;
         }
-        i = i + 1;
+        i = i +| 1;
     }
     return -1;
 }
@@ -1768,7 +1768,7 @@ fn exec_lower_collect_interface_dispatch_decls(ctx: &ExecLowerContext, interface
             return -1;
         }
         out_decls[i] = impl_decl;
-        i = i + 1;
+        i = i +| 1;
     }
     out_count[0] = sig_count;
     return 0;
@@ -1805,7 +1805,7 @@ fn exec_lower_box_interface_expr(ctx: &ExecLowerContext, expr: &ASTNode, interfa
     var di: i32 = 0;
     while di < dispatch_count {
         dispatch_decls[di] = dispatch_buf[di];
-        di = di + 1;
+        di = di +| 1;
     }
     const source_ref: &HIRExpr = exec_lower_make_ref_expr(ctx, expr);
     var source_expr: &HIRExpr = source_ref;
@@ -2342,7 +2342,7 @@ fn exec_lower_find_module_export_decl(checker: &TypeChecker, module_name: &byte,
     const mtbl_cap: i32 = checker.module_table.table.capacity;
     var mi: i32 = (mh as i32) % mtbl_cap;
     if mi < 0 {
-        mi = mi + mtbl_cap;
+        mi = mi +% mtbl_cap;
     }
     var i: i32 = 0;
     while i < mtbl_cap {
@@ -2601,7 +2601,7 @@ fn exec_lower_joined_module_name_len(segments: & & byte, count: i32) i32 {
         }
         total = total + (strlen(segments[i] as *byte) as i32);
         if i + 1 < count {
-            total = total + 1;
+            total = total +| 1;
         }
         i = i + 1;
     }
@@ -2749,7 +2749,7 @@ fn exec_lower_find_enum_variant_value(enum_decl: &ASTNode, variant_name: &byte) 
         if str_equals(variant.name, variant_name) != 0 {
             return current_value;
         }
-        current_value = current_value + 1;
+        current_value = current_value +| 1;
         i = i + 1;
     }
     return -1;
@@ -2871,7 +2871,7 @@ fn exec_lower_append_global_slot(checker: &TypeChecker, decl: &ASTNode, globals:
         is_const: exec_lower_global_is_const(decl),
         init_expr: null,
     };
-    out_count[0] = out_count[0] + 1;
+    out_count[0] = out_count[0] +| 1;
     return 0;
 }
 
@@ -3024,7 +3024,7 @@ fn exec_lower_add_requested_module_global_name(out_names: & & byte, out_count: &
         return;
     }
     out_names[out_count[0]] = name;
-    out_count[0] = out_count[0] + 1;
+    out_count[0] = out_count[0] +| 1;
 }
 
 fn exec_lower_collect_module_global_use_names_expr(checker: &TypeChecker, expr: &ASTNode, module_name: &byte, out_names: & & byte, out_count: &i32) void {
@@ -3565,7 +3565,7 @@ fn exec_lower_collect_exec_reachable_fn_decls(checker: &TypeChecker, out_decls: 
                         return -1;
                     }
                     out_decls[out_count[0]] = to_decl;
-                    out_count[0] = out_count[0] + 1;
+                    out_count[0] = out_count[0] +| 1;
                     queue[tail] = to_decl;
                     tail = tail + 1;
                 }
@@ -3597,7 +3597,7 @@ fn exec_lower_collect_global_slots_from_reachable_runtime_functions(checker: &Ty
                 return -1;
             }
         }
-        i = i + 1;
+        i = i +| 1;
     }
     return 0;
 }
@@ -3667,7 +3667,7 @@ fn exec_lower_collect_called_decls_from_expr(expr: &HIRExpr, out_decls: & & ASTN
         exec_lower_decl_index(out_decls, out_count[0], expr.callee_decl) < 0 {
         if out_count[0] < MAX_REACHABLE_FN_DECLS {
             out_decls[out_count[0]] = expr.callee_decl;
-            out_count[0] = out_count[0] + 1;
+            out_count[0] = out_count[0] +| 1;
         }
     }
     if expr.kind == HIRExprKind.HIR_EXPR_INTERFACE_BOX && expr.dispatch_decls != null {
@@ -3678,7 +3678,7 @@ fn exec_lower_collect_called_decls_from_expr(expr: &HIRExpr, out_decls: & & ASTN
                 exec_lower_decl_index(out_decls, out_count[0], dispatch_decl) < 0 &&
                 out_count[0] < MAX_REACHABLE_FN_DECLS {
                 out_decls[out_count[0]] = dispatch_decl;
-                out_count[0] = out_count[0] + 1;
+                out_count[0] = out_count[0] +| 1;
             }
             di = di + 1;
         }
@@ -3775,7 +3775,7 @@ fn exec_lower_collect_cleanup_decls_from_function(checker: &TypeChecker, fn_hir:
             exec_lower_decl_index(out_decls, out_count[0], drop_decl) < 0 &&
             out_count[0] < MAX_REACHABLE_FN_DECLS {
             out_decls[out_count[0]] = drop_decl;
-            out_count[0] = out_count[0] + 1;
+            out_count[0] = out_count[0] +| 1;
         }
         i = i + 1;
     }

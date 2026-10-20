@@ -244,7 +244,7 @@ fn emit_drop_cleanup_at_scope(codegen: &C99CodeGenerator, scope_idx: i32) void {
     }
     var i: i32 = n - 1;
     while i >= 0 {
-        const drop_slot: i32 = scope_idx * C99_MAX_DROP_VARS_PER_BLOCK + i;
+        const drop_slot: i32 = scope_idx * C99_MAX_DROP_VARS_PER_BLOCK +| i;
         const drop_struct_name: &byte = c99_drop_struct_name_at(codegen, drop_slot);
         const drop_c: &byte = get_method_c_name(codegen, drop_struct_name, "drop" as *byte);
         const var_safe: &byte = c99_drop_var_safe_at(codegen, drop_slot);
@@ -313,7 +313,7 @@ fn emit_drop_cleanup_at_scope_for_return_expr(codegen: &C99CodeGenerator, scope_
     }
     var i: i32 = n - 1;
     while i >= 0 {
-        const drop_slot: i32 = scope_idx * C99_MAX_DROP_VARS_PER_BLOCK + i;
+        const drop_slot: i32 = scope_idx * C99_MAX_DROP_VARS_PER_BLOCK +| i;
         const drop_struct_name: &byte = c99_drop_struct_name_at(codegen, drop_slot);
         const drop_c: &byte = get_method_c_name(codegen, drop_struct_name, "drop" as *byte);
         const var_safe: &byte = c99_drop_var_safe_at(codegen, drop_slot);
@@ -331,7 +331,7 @@ fn emit_all_active_scope_cleanup_for_return_expr(codegen: &C99CodeGenerator, ret
     if codegen == null {
         return;
     }
-    var scope_idx: i32 = codegen.defer_stack_depth - 1;
+    var scope_idx: i32 = codegen.defer_stack_depth -| 1;
     while scope_idx >= 0 {
         emit_defer_cleanup_at_scope(codegen, scope_idx, 0);
         emit_drop_cleanup_at_scope_for_return_expr(codegen, scope_idx, return_expr);
@@ -393,9 +393,9 @@ fn emit_defer_cleanup_at_scope(codegen: &C99CodeGenerator, scope_idx: i32, emit_
         return;
     }
     if emit_errdefer != 0 {
-        var i: i32 = c99_defer_count_at(codegen, scope_idx, 1) - 1;
+        var i: i32 = c99_defer_count_at(codegen, scope_idx, 1) -| 1;
         while i >= 0 {
-            const defer_slot: i32 = scope_idx * C99_MAX_DEFERS_PER_BLOCK + i;
+            const defer_slot: i32 = scope_idx * C99_MAX_DEFERS_PER_BLOCK +| i;
             const n: &ASTNode = c99_defer_node_at(codegen, defer_slot, 1);
             if n != null && n.type == ASTNodeType.AST_ERRDEFER_STMT && n.errdefer_stmt_body != null {
                 c99_emit(codegen, "/* errdefer */ " as *byte);
@@ -404,9 +404,9 @@ fn emit_defer_cleanup_at_scope(codegen: &C99CodeGenerator, scope_idx: i32, emit_
             i = i - 1;
         }
     }
-    var i: i32 = c99_defer_count_at(codegen, scope_idx, 0) - 1;
+    var i: i32 = c99_defer_count_at(codegen, scope_idx, 0) -| 1;
     while i >= 0 {
-        const defer_slot: i32 = scope_idx * C99_MAX_DEFERS_PER_BLOCK + i;
+        const defer_slot: i32 = scope_idx * C99_MAX_DEFERS_PER_BLOCK +| i;
         const n: &ASTNode = c99_defer_node_at(codegen, defer_slot, 0);
         if n != null && n.type == ASTNodeType.AST_DEFER_STMT && n.defer_stmt_body != null {
             c99_emit(codegen, "/* defer */ " as *byte);
@@ -430,7 +430,7 @@ fn emit_all_active_scope_cleanup(codegen: &C99CodeGenerator, emit_errdefer: i32)
         return;
     }
     var scope_idx: i32 = codegen.current_drop_scope;
-    const defer_scope_idx: i32 = codegen.defer_stack_depth - 1;
+    const defer_scope_idx: i32 = codegen.defer_stack_depth -| 1;
     if defer_scope_idx > scope_idx {
         scope_idx = defer_scope_idx;
     }
@@ -696,7 +696,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 const inner: &ASTNode = stmt.print_expr;
                 if inner.type == ASTNodeType.AST_STRING_INTERP && inner.string_interp_segment_count > 0 {
                     const temp_name_idx: i32 = codegen.interp_temp_counter;
-                    codegen.interp_temp_counter = codegen.interp_temp_counter + 1;
+                    codegen.interp_temp_counter = codegen.interp_temp_counter +| 1;
                     var interp_size: i32 = inner.string_interp_computed_size;
                     if interp_size <= 0 {
                         // computed_size 未必在所有阶段都可靠；给一个保守上限，保证插值填充能运行。
@@ -734,11 +734,11 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                         fputs(";\n" as *byte, codegen.emit_stream as *void);
                         c99_emit_indent(codegen);
                         fputs("if (_uya_stmt_tmp.error_id != 0) {\n" as *byte, codegen.emit_stream as *void);
-                        codegen.indent_level = codegen.indent_level + 1;
+                        codegen.indent_level = codegen.indent_level +| 1;
                         emit_all_active_scope_cleanup(codegen, 1);
                         c99_emit_indent(codegen);
                         fprintf(codegen.emit_stream as *void, "return (%s){ .error_id = _uya_stmt_tmp.error_id };\n" as *byte, ret_union_c as *byte);
-                        codegen.indent_level = codegen.indent_level - 1;
+                        codegen.indent_level = codegen.indent_level -| 1;
                         c99_emit_indent(codegen);
                         fputs("}\n" as *byte, codegen.emit_stream as *void);
                         return;
@@ -825,11 +825,11 @@ fn gen_if_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         fputs("if (" as *byte, codegen.emit_stream as *void);
         c99_emit_condition_expr(codegen, condition);
         fputs(") {\n" as *byte, codegen.emit_stream as *void);
-        codegen.indent_level = codegen.indent_level + 1;
+        codegen.indent_level = codegen.indent_level +| 1;
         if then_is_dead == 0 {
             gen_stmt(codegen, then_branch);
         }
-        codegen.indent_level = codegen.indent_level - 1;
+        codegen.indent_level = codegen.indent_level -| 1;
         c99_emit(codegen, "}" as *byte);
         c99_emit_newline(codegen);
         return;
@@ -840,17 +840,17 @@ fn gen_if_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     fputs("if (" as *byte, codegen.emit_stream as *void);
     c99_emit_condition_expr(codegen, condition);
     fputs(") {\n" as *byte, codegen.emit_stream as *void);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     if then_is_dead == 0 {
         gen_stmt(codegen, then_branch);
     }
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit(codegen, "}" as *byte);
     if else_branch != null && else_is_dead == 0 {
         fputs(" else {\n" as *byte, codegen.emit_stream as *void);
-        codegen.indent_level = codegen.indent_level + 1;
+        codegen.indent_level = codegen.indent_level +| 1;
         gen_stmt(codegen, else_branch);
-        codegen.indent_level = codegen.indent_level - 1;
+        codegen.indent_level = codegen.indent_level -| 1;
         c99_emit(codegen, "}" as *byte);
     }
     c99_emit_newline(codegen);
@@ -865,7 +865,7 @@ fn gen_while_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     fputs("while (" as *byte, codegen.emit_stream as *void);
     c99_emit_condition_expr(codegen, condition);
     fputs(") {\n" as *byte, codegen.emit_stream as *void);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     const saved_async_control_while: &ASTNode = codegen.async_control_while;
     const saved_async_control_for: &ASTNode = codegen.async_control_for;
     codegen.async_control_while = null;
@@ -873,7 +873,7 @@ fn gen_while_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     gen_stmt(codegen, body);
     codegen.async_control_while = saved_async_control_while;
     codegen.async_control_for = saved_async_control_for;
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit(codegen, "}\n" as *byte);
 }
 
@@ -939,7 +939,7 @@ fn gen_for_range(codegen: &C99CodeGenerator, stmt: &ASTNode, body2: &ASTNode) vo
     }
     c99_emit_indent(codegen);
     fputs("{\n" as *byte, codegen.emit_stream as *void);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     c99_emit_indent(codegen);
     fputs("// for range\n" as *byte, codegen.emit_stream as *void);
     if end_expr != null {
@@ -976,7 +976,7 @@ fn gen_for_range(codegen: &C99CodeGenerator, stmt: &ASTNode, body2: &ASTNode) vo
         c99_emit_indent(codegen);
         fputs("while (1) {\n" as *byte, codegen.emit_stream as *void);
     }
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     const saved_async_control_while: &ASTNode = codegen.async_control_while;
     const saved_async_control_for: &ASTNode = codegen.async_control_for;
     codegen.async_control_while = null;
@@ -984,9 +984,9 @@ fn gen_for_range(codegen: &C99CodeGenerator, stmt: &ASTNode, body2: &ASTNode) vo
     gen_stmt(codegen, body2);
     codegen.async_control_while = saved_async_control_while;
     codegen.async_control_for = saved_async_control_for;
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit(codegen, "}\n" as *byte);
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit(codegen, "}\n" as *byte);
 }
 
@@ -1008,7 +1008,7 @@ fn gen_for_array(codegen: &C99CodeGenerator, stmt: &ASTNode, body2: &ASTNode) vo
     
     c99_emit_indent(codegen);
     fputs("{\n" as *byte, codegen.emit_stream as *void);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     c99_emit_indent(codegen);
     fputs("// for loop - array traversal\n" as *byte, codegen.emit_stream as *void);
     c99_emit_indent(codegen);
@@ -1019,7 +1019,7 @@ fn gen_for_array(codegen: &C99CodeGenerator, stmt: &ASTNode, body2: &ASTNode) vo
     fputs("[0]);\n" as *byte, codegen.emit_stream as *void);
     c99_emit_indent(codegen);
     fputs("for (size_t _i = 0; _i < _len; _i++) {\n" as *byte, codegen.emit_stream as *void);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     
     if is_ref != 0 {
         gen_for_array_ref(codegen, array, var_name2, elem_type_c);
@@ -1034,9 +1034,9 @@ fn gen_for_array(codegen: &C99CodeGenerator, stmt: &ASTNode, body2: &ASTNode) vo
     gen_stmt(codegen, body2);
     codegen.async_control_while = saved_async_control_while;
     codegen.async_control_for = saved_async_control_for;
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit(codegen, "}\n" as *byte);
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit(codegen, "}\n" as *byte);
 }
 
@@ -1092,7 +1092,7 @@ fn gen_for_iterator(codegen: &C99CodeGenerator, stmt: &ASTNode, body2: &ASTNode,
     
     c99_emit_indent(codegen);
     fputs("{\n" as *byte, codegen.emit_stream as *void);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     c99_emit_indent(codegen);
     fputs("// for loop - iterator interface\n" as *byte, codegen.emit_stream as *void);
     
@@ -1103,7 +1103,7 @@ fn gen_for_iterator(codegen: &C99CodeGenerator, stmt: &ASTNode, body2: &ASTNode,
     
     c99_emit_indent(codegen);
     fputs("while (1) {\n" as *byte, codegen.emit_stream as *void);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     
     const next_cname: &byte = get_method_c_name(codegen, &struct_name_buf[0], "next" as *byte);
     if next_cname != null {
@@ -1111,10 +1111,10 @@ fn gen_for_iterator(codegen: &C99CodeGenerator, stmt: &ASTNode, body2: &ASTNode,
         fprintf(codegen.emit_stream as *void, "struct err_union_void _uya_next_result = %s(&_uya_iter);\n" as *byte, next_cname as *byte);
         c99_emit_indent(codegen);
         fputs("if (_uya_next_result.error_id != 0) {\n" as *byte, codegen.emit_stream as *void);
-        codegen.indent_level = codegen.indent_level + 1;
+        codegen.indent_level = codegen.indent_level +| 1;
         c99_emit_indent(codegen);
         fputs("break;  // error.IterEnd\n" as *byte, codegen.emit_stream as *void);
-        codegen.indent_level = codegen.indent_level - 1;
+        codegen.indent_level = codegen.indent_level -| 1;
         c99_emit_indent(codegen);
         c99_emit_close_brace_newline(codegen);
     }
@@ -1133,10 +1133,10 @@ fn gen_for_iterator(codegen: &C99CodeGenerator, stmt: &ASTNode, body2: &ASTNode,
     codegen.async_control_while = saved_async_control_while;
     codegen.async_control_for = saved_async_control_for;
     
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit_indent(codegen);
     c99_emit_close_brace_newline(codegen);
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit_indent(codegen);
     c99_emit_close_brace_newline(codegen);
     return 1;
@@ -1373,7 +1373,7 @@ fn c99_async_try_emit_error_future_literal_poll_return(codegen: &C99CodeGenerato
         return 0;
     }
     c99_emit(codegen, "{\n" as *byte);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     codegen.needs_stdlib_h = 1;
     c99_emit_indent(codegen);
     fprintf(codegen.emit_stream as *void,
@@ -1392,7 +1392,7 @@ fn c99_async_try_emit_error_future_literal_poll_return(codegen: &C99CodeGenerato
         iface_c as *byte,
         safe_future as *byte,
         safe_future as *byte);
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit_indent(codegen);
     c99_emit(codegen, "}\n" as *byte);
     return 1;
@@ -1425,7 +1425,7 @@ fn gen_return_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         if codegen.async_poll_inner_is_err_union != 0 && codegen.async_poll_ready_payload_c != null &&
             async_full_is_error_future == 0 {
             c99_emit(codegen, "{\n" as *byte);
-            codegen.indent_level = codegen.indent_level + 1;
+            codegen.indent_level = codegen.indent_level +| 1;
             c99_emit_indent(codegen);
             if c99_async_poll_error_payload_is_void(codegen) != 0 {
                 fprintf(codegen.emit_stream as *void, "%s _uya_async_ok = (%s){ .error_id = 0 };\n" as *byte,
@@ -1440,7 +1440,7 @@ fn gen_return_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             c99_emit_indent(codegen);
             fprintf(codegen.emit_stream as *void, "return (%s){ ._tag = 1, .u = (%s){ .Ready = _uya_async_ok } };\n" as *byte,
                 codegen.async_poll_ret_c as *byte, codegen.async_poll_union_c as *byte, codegen.async_poll_ready_payload_c as *byte);
-            codegen.indent_level = codegen.indent_level - 1;
+            codegen.indent_level = codegen.indent_level -| 1;
             c99_emit_indent(codegen);
             c99_emit(codegen, "}\n" as *byte);
         } else {
@@ -1506,7 +1506,7 @@ fn gen_return_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     // 有返回值的 return expr：规范要求先计算返回值，再执行 defer，最后返回
     c99_emit_indent(codegen);
     c99_emit(codegen, "{\n" as *byte);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     var is_array_return: i32 = 0;
     if return_type != null && return_type.type == ASTNodeType.AST_TYPE_ARRAY {
         is_array_return = 1;
@@ -1559,7 +1559,7 @@ fn gen_return_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     emit_all_active_scope_cleanup_for_return_expr(codegen, expr);
     // 3. 返回临时变量
     c99_emit(codegen, "return _uya_ret;\n" as *byte);
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit_indent(codegen);
     c99_emit(codegen, "}\n" as *byte);
 }
@@ -1708,7 +1708,7 @@ fn gen_return_normal(codegen: &C99CodeGenerator, expr: &ASTNode, return_type: &A
                     if local_count > C99_MAX_LOCAL_VARS {
                         local_count = C99_MAX_LOCAL_VARS;
                     }
-                    var wi: i32 = local_count - 1;
+                    var wi: i32 = local_count -| 1;
                     while wi >= 0 {
                         if wi >= C99_MAX_LOCAL_VARS {
                             wi = wi - 1;
@@ -1986,7 +1986,7 @@ fn gen_return_error_union(codegen: &C99CodeGenerator, expr: &ASTNode, return_typ
                         if local_count2 > C99_MAX_LOCAL_VARS {
                             local_count2 = C99_MAX_LOCAL_VARS;
                         }
-                        var wi: i32 = local_count2 - 1;
+                        var wi: i32 = local_count2 -| 1;
                         while wi >= 0 {
                             if wi >= C99_MAX_LOCAL_VARS {
                                 wi = wi - 1;
@@ -2194,7 +2194,7 @@ fn gen_assign_string_to_byte_array(codegen: &C99CodeGenerator, dest: &ASTNode, s
         return;
     }
     const vis: i32 = c99_string_literal_visible_len(src.string_literal_value);
-    const copy_len: i32 = vis + 1;
+    const copy_len: i32 = vis +| 1;
     c99_emit_indent(codegen);
     fputs("memset(" as *byte, codegen.emit_stream as *void);
     codegen.emitting_assign_lhs = 1;
@@ -2337,7 +2337,7 @@ fn check_assign_is_array(codegen: &C99CodeGenerator, dest: &ASTNode) i32 {
     if local_count > C99_MAX_LOCAL_VARS {
         local_count = C99_MAX_LOCAL_VARS;
     }
-    var i: i32 = local_count - 1;
+    var i: i32 = local_count -| 1;
     while i >= 0 {
         if i >= C99_MAX_LOCAL_VARS {
             i = i - 1;
@@ -2509,7 +2509,7 @@ fn gen_atomic_compound(codegen: &C99CodeGenerator, dest: &ASTNode, op: TokenType
         }
         c99_emit_indent(codegen);
         fputs("{\n" as *byte, codegen.emit_stream as *void);
-        codegen.indent_level = codegen.indent_level + 1;
+        codegen.indent_level = codegen.indent_level +| 1;
         c99_emit_indent(codegen);
         fprintf(codegen.emit_stream as *void, "%s _uya_atomic_expected = __atomic_load_n(" as *byte, inner_type as *byte);
         _ = emit_atomic_pointer_arg(codegen, dest, safe_name);
@@ -2518,7 +2518,7 @@ fn gen_atomic_compound(codegen: &C99CodeGenerator, dest: &ASTNode, op: TokenType
         fprintf(codegen.emit_stream as *void, "%s _uya_atomic_desired;\n" as *byte, inner_type as *byte);
         c99_emit_indent(codegen);
         fputs("for (;;) {\n" as *byte, codegen.emit_stream as *void);
-        codegen.indent_level = codegen.indent_level + 1;
+        codegen.indent_level = codegen.indent_level +| 1;
         c99_emit_indent(codegen);
         fputs("_uya_atomic_desired = _uya_atomic_expected " as *byte, codegen.emit_stream as *void);
         if op == TokenType.TOKEN_ASTERISK {
@@ -2535,10 +2535,10 @@ fn gen_atomic_compound(codegen: &C99CodeGenerator, dest: &ASTNode, op: TokenType
         fputs("if (__atomic_compare_exchange_n(" as *byte, codegen.emit_stream as *void);
         _ = emit_atomic_pointer_arg(codegen, dest, safe_name);
         fputs(", &_uya_atomic_expected, _uya_atomic_desired, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) break;\n" as *byte, codegen.emit_stream as *void);
-        codegen.indent_level = codegen.indent_level - 1;
+        codegen.indent_level = codegen.indent_level -| 1;
         c99_emit_indent(codegen);
         fputs("}\n" as *byte, codegen.emit_stream as *void);
-        codegen.indent_level = codegen.indent_level - 1;
+        codegen.indent_level = codegen.indent_level -| 1;
         c99_emit_indent(codegen);
         fputs("}\n" as *byte, codegen.emit_stream as *void);
     } else {
@@ -2558,7 +2558,7 @@ fn gen_block_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         c99_drop_var_count_set(codegen, d, 0);
         c99_defer_count_set(codegen, d, 0, 0);
         c99_defer_count_set(codegen, d, 1, 0);
-        codegen.defer_stack_depth = codegen.defer_stack_depth + 1;
+        codegen.defer_stack_depth = codegen.defer_stack_depth +| 1;
     }
     i = 0;
     while i < stmt_count {
@@ -2567,7 +2567,7 @@ fn gen_block_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             if d < C99_MAX_DEFER_STACK {
                 const nd: i32 = c99_defer_count_at(codegen, d, 0);
                 if nd >= 0 && nd < C99_MAX_DEFERS_PER_BLOCK {
-                    codegen.defer_stack[d * C99_MAX_DEFERS_PER_BLOCK + nd] = s;
+                    codegen.defer_stack[d *| C99_MAX_DEFERS_PER_BLOCK +| nd] = s;
                     c99_defer_count_set(codegen, d, 0, nd + 1);
                 }
             }
@@ -2575,7 +2575,7 @@ fn gen_block_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             if d < C99_MAX_DEFER_STACK {
                 const ne: i32 = c99_defer_count_at(codegen, d, 1);
                 if ne >= 0 && ne < C99_MAX_DEFERS_PER_BLOCK {
-                    codegen.errdefer_stack[d * C99_MAX_DEFERS_PER_BLOCK + ne] = s;
+                    codegen.errdefer_stack[d *| C99_MAX_DEFERS_PER_BLOCK +| ne] = s;
                     c99_defer_count_set(codegen, d, 1, ne + 1);
                 }
             }
@@ -2586,7 +2586,7 @@ fn gen_block_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     }
     // 若块以 return/break/continue 结尾，该语句已执行 defer，块尾不再重复
     var last_is_terminal: i32 = 0;
-    i = stmt_count - 1;
+    i = stmt_count -| 1;
     while i >= 0 {
         const s: &ASTNode = stmts[i];
         if s.type != ASTNodeType.AST_DEFER_STMT && s.type != ASTNodeType.AST_ERRDEFER_STMT {
@@ -2603,7 +2603,7 @@ fn gen_block_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     }
     emit_drop_cleanup(codegen, stmts, stmt_count);
     if d < C99_MAX_DEFER_STACK {
-        codegen.defer_stack_depth = codegen.defer_stack_depth - 1;
+        codegen.defer_stack_depth = codegen.defer_stack_depth -| 1;
     }
     codegen.current_drop_scope = saved_drop_scope;
 }
@@ -2875,7 +2875,7 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                         // 为 "const " 前缀分配空间
                         stored_type_c = compiler_arena_alloc(codegen.arena, type_len + 7) as &byte;
                         if stored_type_c != null {
-                            snprintf(stored_type_c as *byte, type_len + 7, "const %s" as *byte, type_c as *byte);
+                            snprintf(stored_type_c as *byte, type_len +% 7, "const %s" as *byte, type_c as *byte);
                         }
                     }
                 } else {
@@ -2909,7 +2909,7 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                             type_c = null;
                             c99_emit_indent(codegen);
                             fputs("{\n" as *byte, codegen.emit_stream as *void);
-                            codegen.indent_level = codegen.indent_level + 1;
+                            codegen.indent_level = codegen.indent_level +| 1;
                             const try_operand: &ASTNode = init_expr.try_expr_operand;
                             const eu_node: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_ERROR_UNION, stmt.line, stmt.column, codegen.arena, stmt.filename);
                             var union_c: &byte = null;
@@ -2931,11 +2931,11 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                                 }
                                 c99_emit_indent(codegen);
                                 fprintf(codegen.emit_stream as *void, "if (_uya_try_arr_tmp.error_id != 0) {\n" as *byte);
-                                codegen.indent_level = codegen.indent_level + 1;
+                                codegen.indent_level = codegen.indent_level +| 1;
                                 emit_all_active_scope_cleanup(codegen, 1);
                                 c99_emit_indent(codegen);
                                 fprintf(codegen.emit_stream as *void, "return (%s){ .error_id = _uya_try_arr_tmp.error_id };\n" as *byte, ret_union_c as *byte);
-                                codegen.indent_level = codegen.indent_level - 1;
+                                codegen.indent_level = codegen.indent_level -| 1;
                                 c99_emit_indent(codegen);
                                 fputs("}\n" as *byte, codegen.emit_stream as *void);
                                 var ci: i32 = 0;
@@ -2945,7 +2945,7 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                                     ci = ci + 1;
                                 }
                             }
-                            codegen.indent_level = codegen.indent_level - 1;
+                            codegen.indent_level = codegen.indent_level -| 1;
                             c99_emit_indent(codegen);
                             fputs("}\n" as *byte, codegen.emit_stream as *void);
                             if stored_type_c != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
@@ -3157,7 +3157,7 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     } else {
                         fputs("0" as *byte, codegen.emit_stream as *void);
                     }
-                    if i < n - 1 {
+                    if i < n -| 1 {
                         c99_emit_comma_space(codegen);
                     }
                     i = i + 1;
@@ -3444,7 +3444,7 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 if dd >= 0 {
                     if dd < C99_MAX_DEFER_STACK {
                         const drop_count: i32 = c99_drop_var_count_at(codegen, dd);
-                        const drop_slot: i32 = dd * C99_MAX_DROP_VARS_PER_BLOCK + drop_count;
+                        const drop_slot: i32 = dd * C99_MAX_DROP_VARS_PER_BLOCK +| drop_count;
                         if drop_count >= 0 {
                             if drop_count < C99_MAX_DROP_VARS_PER_BLOCK {
                                 if drop_slot >= 0 {
@@ -3474,7 +3474,7 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 if dd >= 0 {
                     if dd < C99_MAX_DEFER_STACK {
                         const drop_count2: i32 = c99_drop_var_count_at(codegen, dd);
-                        const drop_slot2: i32 = dd * C99_MAX_DROP_VARS_PER_BLOCK + drop_count2;
+                        const drop_slot2: i32 = dd * C99_MAX_DROP_VARS_PER_BLOCK +| drop_count2;
                         if drop_count2 >= 0 {
                             if drop_count2 < C99_MAX_DROP_VARS_PER_BLOCK {
                                 if drop_slot2 >= 0 {
@@ -3507,7 +3507,7 @@ fn gen_match_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             m_type = "int32_t" as &byte;
         }
         c99_emit(codegen, "{\n" as *byte);
-        codegen.indent_level = codegen.indent_level + 1;
+        codegen.indent_level = codegen.indent_level +| 1;
         c99_emit_indent(codegen);
         fprintf(codegen.emit_stream as *void, "%s _uya_m = " as *byte, m_type as *byte);
         gen_expr(codegen, match_expr);
@@ -3533,9 +3533,9 @@ fn gen_match_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 }
                 if stmt.match_expr_arms[i].result_is_block != 0 {
                     fputs("{\n" as *byte, codegen.emit_stream as *void);
-                    codegen.indent_level = codegen.indent_level + 1;
+                    codegen.indent_level = codegen.indent_level +| 1;
                     gen_stmt(codegen, stmt.match_expr_arms[i].result_expr);
-                    codegen.indent_level = codegen.indent_level - 1;
+                    codegen.indent_level = codegen.indent_level -| 1;
                     c99_emit(codegen, "}\n" as *byte);
                 } else {
                     gen_expr(codegen, stmt.match_expr_arms[i].result_expr);
@@ -3622,7 +3622,7 @@ fn gen_match_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                         if bind != null {
                             c99_emit_indent(codegen);
                             fprintf(codegen.emit_stream as *void, "%sif (_uya_m._tag == %d) {\n" as *byte, prefix as *byte, idx);
-                            codegen.indent_level = codegen.indent_level + 1;
+                            codegen.indent_level = codegen.indent_level +| 1;
                             c99_emit_indent(codegen);
                             fprintf(codegen.emit_stream as *void, "%s %s = _uya_m.u.%s;\n" as *byte, vtype as *byte, bind as *byte, vname as *byte);
                             if stmt.match_expr_arms[i].var_name != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
@@ -3635,23 +3635,23 @@ fn gen_match_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                         if stmt.match_expr_arms[i].result_is_block != 0 {
                             if bind == null {
                                 fputs("{\n" as *byte, codegen.emit_stream as *void);
-                                codegen.indent_level = codegen.indent_level + 1;
+                                codegen.indent_level = codegen.indent_level +| 1;
                             }
                             gen_stmt(codegen, stmt.match_expr_arms[i].result_expr);
                             if bind == null {
-                                codegen.indent_level = codegen.indent_level - 1;
+                                codegen.indent_level = codegen.indent_level -| 1;
                             }
                             c99_emit(codegen, "}\n" as *byte);
                             // 与上方「if (_uya_m._tag == …) {」处的 indent++ 对称；否则后续 else if 与块尾 } 错位，
                             // 会把函数尾部的兜底 return 嵌进 while（如 block_on：Pending 时误 return {0}）。
                             if bind != null {
-                                codegen.indent_level = codegen.indent_level - 1;
+                                codegen.indent_level = codegen.indent_level -| 1;
                             }
                         } else {
                             gen_expr(codegen, stmt.match_expr_arms[i].result_expr);
                             c99_emit_semi_newline(codegen);
                             if bind != null {
-                                codegen.indent_level = codegen.indent_level - 1;
+                                codegen.indent_level = codegen.indent_level -| 1;
                                 c99_emit(codegen, "}\n" as *byte);
                             }
                         }
@@ -3674,9 +3674,9 @@ fn gen_match_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 }
                 if stmt.match_expr_arms[i].result_is_block != 0 {
                     fputs("{\n" as *byte, codegen.emit_stream as *void);
-                    codegen.indent_level = codegen.indent_level + 1;
+                    codegen.indent_level = codegen.indent_level +| 1;
                     gen_stmt(codegen, stmt.match_expr_arms[i].result_expr);
-                    codegen.indent_level = codegen.indent_level - 1;
+                    codegen.indent_level = codegen.indent_level -| 1;
                     c99_emit(codegen, "}\n" as *byte);
                 } else {
                     gen_expr(codegen, stmt.match_expr_arms[i].result_expr);
@@ -3689,7 +3689,7 @@ fn gen_match_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 c99_emit_indent(codegen);
                 if v != null && bind_payload != null {
                     fprintf(codegen.emit_stream as *void, "%sif (_uya_m.error_id == 0U) {\n" as *byte, prefix as *byte);
-                    codegen.indent_level = codegen.indent_level + 1;
+                    codegen.indent_level = codegen.indent_level +| 1;
                     c99_emit_indent(codegen);
                     fprintf(codegen.emit_stream as *void, "%s %s = _uya_m.value;\n" as *byte, bind_payload as *byte, v as *byte);
                     if stmt.match_expr_arms[i].var_name != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
@@ -3705,7 +3705,7 @@ fn gen_match_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     fprintf(codegen.emit_stream as *void, "%s{\n" as *byte, prefix as *byte);
                 }
                 if bind_err_union_ok == 0 {
-                    codegen.indent_level = codegen.indent_level + 1;
+                    codegen.indent_level = codegen.indent_level +| 1;
                 }
                 if stmt.match_expr_arms[i].result_is_block != 0 {
                     gen_stmt(codegen, stmt.match_expr_arms[i].result_expr);
@@ -3716,19 +3716,19 @@ fn gen_match_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 if v != null && stmt.match_expr_arms[i].var_name != null && codegen.local_variable_count > 0 {
                     codegen.local_variable_count = codegen.local_variable_count - 1;
                 }
-                codegen.indent_level = codegen.indent_level - 1;
+                codegen.indent_level = codegen.indent_level -| 1;
                 c99_emit(codegen, "}\n" as *byte);
             } else if stmt.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_WILDCARD || stmt.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_ELSE {
                 c99_emit_indent(codegen);
                 fprintf(codegen.emit_stream as *void, "%s{\n" as *byte, prefix as *byte);
-                codegen.indent_level = codegen.indent_level + 1;
+                codegen.indent_level = codegen.indent_level +| 1;
                 if stmt.match_expr_arms[i].result_is_block != 0 {
                     gen_stmt(codegen, stmt.match_expr_arms[i].result_expr);
                 } else {
                     gen_expr(codegen, stmt.match_expr_arms[i].result_expr);
                     c99_emit_semi_newline(codegen);
                 }
-                codegen.indent_level = codegen.indent_level - 1;
+                codegen.indent_level = codegen.indent_level -| 1;
                 c99_emit(codegen, "}\n" as *byte);
             } else if stmt.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_ERROR {
                 var id: i32 = c99_get_or_add_error_id(codegen, stmt.match_expr_arms[i].error_name);
@@ -3739,9 +3739,9 @@ fn gen_match_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 fprintf(codegen.emit_stream as *void, "%sif (_uya_m.error_id == %uU) " as *byte, prefix as *byte, id as u32);
                 if stmt.match_expr_arms[i].result_is_block != 0 {
                     fputs("{\n" as *byte, codegen.emit_stream as *void);
-                    codegen.indent_level = codegen.indent_level + 1;
+                    codegen.indent_level = codegen.indent_level +| 1;
                     gen_stmt(codegen, stmt.match_expr_arms[i].result_expr);
-                    codegen.indent_level = codegen.indent_level - 1;
+                    codegen.indent_level = codegen.indent_level -| 1;
                     c99_emit(codegen, "}\n" as *byte);
                 } else {
                     gen_expr(codegen, stmt.match_expr_arms[i].result_expr);
@@ -3750,7 +3750,7 @@ fn gen_match_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             }
             i = i + 1;
         }
-        codegen.indent_level = codegen.indent_level - 1;
+        codegen.indent_level = codegen.indent_level -| 1;
         c99_emit(codegen, "}\n" as *byte);
 }
 
@@ -3873,7 +3873,7 @@ fn gen_var_decl_struct_init_memcpy(codegen: &C99CodeGenerator, var_name: &byte, 
             gen_expr(codegen, field_value);
         }
         
-        if i < field_count - 1 {
+        if i < field_count -| 1 {
             c99_emit_comma_space(codegen);
         }
         i = i + 1;
@@ -3949,7 +3949,7 @@ fn gen_var_decl_void_type(codegen: &C99CodeGenerator, init_expr: &ASTNode) i32 {
                 fprintf(codegen.emit_stream as *void, "%s _uya_catch_tmp = " as *byte, union_c as *byte);
                 c99_emit_try_catch_operand(codegen, catch_checked_arith, operand, catch_checked_kind);
                 fputs("; if (_uya_catch_tmp.error_id != 0) {\n" as *byte, codegen.emit_stream as *void);
-                codegen.indent_level = codegen.indent_level + 1;
+                codegen.indent_level = codegen.indent_level +| 1;
                 const saved_local_count: i32 = codegen.local_variable_count;
                 if err_name != null {
                     const safe: &byte = get_safe_c_identifier(codegen, err_name);
@@ -3969,7 +3969,7 @@ fn gen_var_decl_void_type(codegen: &C99CodeGenerator, init_expr: &ASTNode) i32 {
                     i = i + 1;
                 }
                 codegen.local_variable_count = saved_local_count;
-                codegen.indent_level = codegen.indent_level - 1;
+                codegen.indent_level = codegen.indent_level -| 1;
                 c99_emit_indent(codegen);
                 c99_emit_close_brace_newline(codegen);
                 return 1;
@@ -4048,7 +4048,7 @@ fn emit_pointer_const_decl(codegen: &C99CodeGenerator, var_name: &byte, type_c: 
             }
             fprintf(codegen.emit_stream as *void, "%s(* const %s)%s" as *byte, &temp_buf[0] as *byte, var_name as *byte, bracket);
             // 存储类型字符串：T (* const)[N]（用于变量表）
-            const total_len: i32 = prefix_len + suffix_len + 10; // "(* const)" + null
+            const total_len: i32 = prefix_len +| suffix_len +| 10; // "(* const)" + null
             var stored_type: &byte = compiler_arena_alloc(arena, total_len) as &byte;
             if stored_type != null {
                 var temp_buf2: [byte: TEMP_BUF_SIZE] = [];
@@ -4111,7 +4111,7 @@ fn iface_name_from_c_type_c(type_c: &byte, out: &byte, out_cap: i32) &byte {
     }
     const start: &byte = &marker[14] as &byte;   // strlen("uya_interface_")
     var n: i32 = 0;
-    while start[n] != 0 && start[n] != 32 && start[n] != 42 && n < out_cap - 1 {
+    while start[n] != 0 && start[n] != 32 && start[n] != 42 && n < out_cap -| 1 {
         out[n] = start[n];
         n = n + 1;
     }
@@ -4139,7 +4139,7 @@ fn struct_name_from_c_type_c(type_c: &byte, out: &byte, out_cap: i32) &byte {
     }
     const start: &byte = &p[7] as &byte;
     var n: i32 = 0;
-    while start[n] != 0 && start[n] != 32 && start[n] != 42 && n < out_cap - 1 {
+    while start[n] != 0 && start[n] != 32 && start[n] != 42 && n < out_cap -| 1 {
         out[n] = start[n];
         n = n + 1;
     }
@@ -4169,7 +4169,7 @@ fn assign_src_struct_name_c(
             return null;
         }
         var n: i32 = 0;
-        while st_name[n] != 0 && n < out_cap - 1 {
+        while st_name[n] != 0 && n < out_cap -| 1 {
             out[n] = st_name[n];
             n = n + 1;
         }
@@ -4180,7 +4180,7 @@ fn assign_src_struct_name_c(
                 src.struct_init_type_args, src.struct_init_type_arg_count);
             if mono != null {
                 var k: i32 = 0;
-                while mono[k] != 0 && k < out_cap - 1 {
+                while mono[k] != 0 && k < out_cap -| 1 {
                     out[k] = mono[k];
                     k = k + 1;
                 }

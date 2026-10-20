@@ -330,13 +330,13 @@ fn async_lower_ensure_plan_capacity(plan: &AsyncLowerPlan, arena: &CompilerArena
         new_cap = ASYNC_LOWER_INITIAL_PLAN_CAPACITY;
     }
     while new_cap < needed {
-        new_cap = new_cap * 2;
+        new_cap = new_cap *| 2;
         if new_cap <= 0 {
             async_lower_report_resource_failure(plan, "@async_fn lowering await 点表扩容失败，容量计算溢出" as &byte, needed, 0);
             return -1;
         }
     }
-    const request_bytes: usize = @size_of(AsyncLowerAwaitPoint) * new_cap as usize;
+    const request_bytes: usize = @size_of(AsyncLowerAwaitPoint) *| new_cap as usize;
     var filename: &byte = null;
     var line: i32 = 0;
     var column: i32 = 0;
@@ -385,13 +385,13 @@ fn async_lower_ensure_cleanup_region_capacity(plan: &AsyncLowerPlan, arena: &Com
         new_cap = ASYNC_LOWER_INITIAL_PLAN_CAPACITY;
     }
     while new_cap < needed {
-        new_cap = new_cap * 2;
+        new_cap = new_cap *| 2;
         if new_cap <= 0 {
             async_lower_report_resource_failure(plan, "@async_fn lowering cleanup region 表扩容失败，容量计算溢出" as &byte, needed, 0);
             return -1;
         }
     }
-    const request_bytes: usize = @size_of(AsyncLowerCleanupRegion) * new_cap as usize;
+    const request_bytes: usize = @size_of(AsyncLowerCleanupRegion) *| new_cap as usize;
     var filename: &byte = null;
     var line: i32 = 0;
     var column: i32 = 0;
@@ -501,7 +501,7 @@ fn async_lower_register_cleanup_region(
         plan.build_failed = 1;
         return parent_region;
     }
-    plan.cleanup_region_count = idx + 1;
+    plan.cleanup_region_count = idx +| 1;
     const region: &AsyncLowerCleanupRegion = &plan.cleanup_regions[idx];
     region.block = block;
     region.parent_region = parent_region;
@@ -519,7 +519,7 @@ fn async_lower_claim_await_slot(plan: &AsyncLowerPlan, arena: &CompilerArena) i3
         plan.build_failed = 1;
         return -1;
     }
-    plan.await_count = idx + 1;
+    plan.await_count = idx +| 1;
     return idx;
 }
 

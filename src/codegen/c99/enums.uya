@@ -311,7 +311,7 @@ fn c99_get_enum_module_prefix(codegen: &C99CodeGenerator, filename: &byte) &byte
                     i = i + 1;
                 }
                 ((buf as *byte) + module_len)[0] = 95 as byte;
-                ((buf as *byte) + module_len + 1)[0] = 0 as byte;
+                ((buf as *byte) + (module_len +| 1))[0] = 0 as byte;
                 return buf;
             }
         }
@@ -376,7 +376,7 @@ fn find_enum_variant_value(codegen: &C99CodeGenerator, enum_decl: &ASTNode, vari
         }
         
         // 为下一变体准备值（无论是否有显式值都递增）
-        current_value = current_value + 1;
+        current_value = current_value +| 1;
         
         i = i + 1;
     }
@@ -461,7 +461,7 @@ fn gen_enum_definition(codegen: &C99CodeGenerator, enum_decl: &ASTNode) i32 {
     // 输出枚举定义
     c99_emit_indent(codegen);
     fprintf(codegen.emit_stream as *void, "enum %s {\n" as *byte, enum_name as *byte);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     
     const variants: &EnumVariant = enum_decl.enum_decl_variants;
     const variant_count: i32 = enum_decl.enum_decl_variant_count;
@@ -495,20 +495,20 @@ fn gen_enum_definition(codegen: &C99CodeGenerator, enum_decl: &ASTNode) i32 {
         }
         
         // 添加逗号（除非是最后一个）
-        if i < variant_count - 1 {
+        if i < variant_count -| 1 {
             fputs("," as *byte, codegen.emit_stream as *void);
         }
         c99_emit_newline(codegen);
         
         // 如果没有显式值，下一个变体的值会自动递增
         if variant.value == null {
-            current_value = current_value + 1;
+            current_value = current_value +| 1;
         }
         
         i = i + 1;
     }
     
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit_indent(codegen);
     fputs("};\n" as *byte, codegen.emit_stream as *void);
     

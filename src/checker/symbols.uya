@@ -878,8 +878,8 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
     }
     
     // P54：符号表也是动态哈希表 —— 先按负载因子扩容，再把符号放进空槽。
-    if (checker.symbol_table.table.count + 1) * DYN_TABLE_LOAD_DEN
-        > checker.symbol_table.table.capacity * DYN_TABLE_LOAD_NUM {
+    if (checker.symbol_table.table.count +| 1) *| DYN_TABLE_LOAD_DEN
+        > checker.symbol_table.table.capacity *| DYN_TABLE_LOAD_NUM {
         if checker.symbol_table.table.reserve(checker.symbol_table.table.capacity * 2) != 0 {
             return -1;
         }
@@ -900,7 +900,7 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
 
         if checker_symbol_slot_at(checker, slot_idx) == null {
             checker_symbol_slot_set(checker, slot_idx, symbol);
-            checker.symbol_table.table.count = checker.symbol_table.table.count + 1;
+            checker.symbol_table.table.count = checker.symbol_table.table.count +| 1;
 
             // 添加到当前作用域的链表头部
             const scope: i32 = symbol.scope_level;
@@ -1060,8 +1060,8 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
     }
 
     // 先扩容再插入：留出负载因子余量，探测长度才可控（与 dyn_table.put 同口径）
-    if (checker.function_table.table.count + 1) * DYN_TABLE_LOAD_DEN
-        > checker.function_table.table.capacity * DYN_TABLE_LOAD_NUM {
+    if (checker.function_table.table.count +| 1) *| DYN_TABLE_LOAD_DEN
+        > checker.function_table.table.capacity *| DYN_TABLE_LOAD_NUM {
         if checker.function_table.table.reserve(checker.function_table.table.capacity * 2) != 0 {
             return -1;
         }
@@ -1084,7 +1084,7 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
 
         if existing == null {
             checker_function_slot_set(checker, slot_idx, sig);
-            checker.function_table.table.count = checker.function_table.table.count + 1;
+            checker.function_table.table.count = checker.function_table.table.count +| 1;
             return 0;
         }
 
@@ -1190,7 +1190,7 @@ fn checker_exit_scope(checker: &TypeChecker) void {
                 const slot: i32 = (index + i) % sym_cap;
                 if checker_symbol_slot_at(checker, slot) == symbol {
                     checker_symbol_slot_set(checker, slot, null);
-                    checker.symbol_table.table.count = checker.symbol_table.table.count - 1;
+                    checker.symbol_table.table.count = checker.symbol_table.table.count -| 1;
                     break;
                 }
                 if checker_symbol_slot_at(checker, slot) == null {

@@ -155,7 +155,7 @@ export fn c99_parallel_body_begin(codegen: &C99CodeGenerator, workers: i32) i32 
     if workers < 2 {
         return 0 - 1;
     }
-    const slot_count: i32 = codegen.split_mirror_count + 1;
+    const slot_count: i32 = codegen.split_mirror_count +| 1;
     const slots_n: usize = (slot_count as! usize) catch { return 0 - 1; };
     const orig: &(&void) = compiler_arena_alloc(codegen.arena, slots_n * @size_of(&void)) as &(&void);
     const temps: &(&void) = compiler_arena_alloc(codegen.arena, slots_n * @size_of(&void)) as &(&void);
@@ -224,7 +224,7 @@ export fn c99_parallel_body_discard(codegen: &C99CodeGenerator) void {
     if temps == null || orig == null {
         return;
     }
-    const slot_count: i32 = codegen.split_mirror_count + 1;
+    const slot_count: i32 = codegen.split_mirror_count +| 1;
     var si: i32 = 0;
     while si < slot_count {
         if temps[si] != null {
@@ -269,7 +269,7 @@ export fn c99_parallel_body_commit(codegen: &C99CodeGenerator) i32 {
     if temps == null || orig == null {
         return 0 - 1;
     }
-    const slot_count: i32 = codegen.split_mirror_count + 1;
+    const slot_count: i32 = codegen.split_mirror_count +| 1;
     var si: i32 = 0;
     // 先把临时分片关掉（保证内容落盘），再把句柄指回真正的 TU 文件。
     while si < slot_count {
@@ -365,7 +365,7 @@ export fn c99_parallel_body_worker_finish(codegen: &C99CodeGenerator) void {
     if temps == null {
         return;
     }
-    const slot_count: i32 = codegen.split_mirror_count + 1;
+    const slot_count: i32 = codegen.split_mirror_count +| 1;
     var si: i32 = 0;
     while si < slot_count {
         if temps[si] != null {

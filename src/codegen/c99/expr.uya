@@ -121,7 +121,7 @@ fn c99_type_is_pointer_to_array_c(type_c: &byte) i32 {
         return 0;
     }
     const asterisk_offset: i32 = ptr_diff(asterisk, type_c as *byte);
-    var after_asterisk_offset: i32 = asterisk_offset + 1;
+    var after_asterisk_offset: i32 = asterisk_offset +| 1;
     const type_c_len: i32 = strlen(type_c as *byte);
     while after_asterisk_offset < type_c_len && type_c[after_asterisk_offset] == 32 {  // ' '
         after_asterisk_offset = after_asterisk_offset + 1;
@@ -552,7 +552,7 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
         return;
     }
     const fill_id: i32 = codegen.interp_fill_counter;
-    codegen.interp_fill_counter = codegen.interp_fill_counter + 1;
+    codegen.interp_fill_counter = codegen.interp_fill_counter +| 1;
     c99_emit_indent(codegen);
     fprintf(codegen.emit_stream as *void, "int _off_%d = 0;\n" as *byte, fill_id);
     var i: i32 = 0;
@@ -735,7 +735,7 @@ fn gen_pipeline_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
 
     const stream: &void = codegen.emit_stream as &void;
     const base_temp_id: i32 = codegen.pipeline_temp_counter;
-    codegen.pipeline_temp_counter = base_temp_id + 1;
+    codegen.pipeline_temp_counter = base_temp_id +| 1;
     var tmp_buf: [byte: 64] = [];
 
     fputs("({ " as *byte, stream);
@@ -997,7 +997,7 @@ fn gen_pipeline_synthetic_call(codegen: &C99CodeGenerator, call_node: &ASTNode, 
     if codegen == null || call_node == null || prev_tmp_name == null {
         return;
     }
-    const total_arg_count: i32 = call_node.call_expr_arg_count + 1;
+    const total_arg_count: i32 = call_node.call_expr_arg_count +| 1;
     const synthetic_call: &ASTNode = ast_new_node(ASTNodeType.AST_CALL_EXPR, call_node.line, call_node.column, codegen.arena, call_node.filename);
     if synthetic_call == null {
         fputs("0" as *byte, codegen.emit_stream as *void);
@@ -1119,7 +1119,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             }
             if basename != null {
                 // 跳过 '/' 或 '\\'
-                basename = (basename as i64 + 1) as &byte;
+                basename = (basename as i64 +| 1) as &byte;
             } else {
                 basename = filename;
             }
@@ -1384,7 +1384,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                             subst_bind_type = codegen.async_collect_types[abi2];
                             abi2 = codegen.async_bind_count;
                         }
-                        abi2 = abi2 + 1;
+                        abi2 = abi2 +| 1;
                     }
                 }
                 if codegen.expected_type != null && codegen.expected_type.type == ASTNodeType.AST_TYPE_ERROR_UNION &&
@@ -1435,7 +1435,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             var i: i32 = 0;
             while i < n {
                 const et: &byte = get_c_type_of_expr(codegen, elements[i]);
-                total_len = total_len + strlen(et as *byte) + 24;
+                total_len = total_len +| strlen(et as *byte) +| 24;
                 i = i + 1;
             }
             const type_buf: &byte = compiler_arena_alloc(codegen.arena, total_len) as &byte;
@@ -1443,7 +1443,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 fputs("(struct { int32_t f0; }){ .f0 = 0 }" as *byte, codegen.emit_stream as *void);
             } else {
                 var off: i32 = 0;
-                off = off + snprintf(type_buf as *byte + off, total_len - off, "struct { " as *byte);
+                off = off +| snprintf(type_buf as *byte + off, total_len - off, "struct { " as *byte);
                 i = 0;
                 while i < n {
                     const et: &byte = get_c_type_of_expr(codegen, elements[i]);
@@ -1451,10 +1451,10 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     if et != null {
                         et_str = et;
                     }
-                    off = off + snprintf(type_buf as *byte + off, total_len - off, "%s f%d; " as *byte, et_str as *byte, i);
+                    off = off +% snprintf(type_buf as *byte + off, total_len - off, "%s f%d; " as *byte, et_str as *byte, i);
                     i = i + 1;
                 }
-                snprintf(type_buf as *byte + off, total_len - off, "}" as *byte);
+                snprintf(type_buf as *byte + off, total_len -| off, "}" as *byte);
                 fprintf(codegen.emit_stream as *void, "(%s){" as *byte, type_buf as *byte);
                 i = 0;
                 while i < n {
@@ -1490,7 +1490,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 fputs("(struct { int32_t f0; }){ .f0 = 0 }" as *byte, codegen.emit_stream as *void);
             } else {
                 var off: i32 = 0;
-                off = off + snprintf(type_buf as *byte + off, total_len - off, "struct { " as *byte);
+                off = off +| snprintf(type_buf as *byte + off, total_len - off, "struct { " as *byte);
                 i = 0;
                 while i < n {
                     const p: &ASTNode = params[i];
@@ -1501,10 +1501,10 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                             et = etc;
                         }
                     }
-                    off = off + snprintf(type_buf as *byte + off, total_len - off, "%s f%d; " as *byte, et as *byte, i);
+                    off = off +% snprintf(type_buf as *byte + off, total_len - off, "%s f%d; " as *byte, et as *byte, i);
                     i = i + 1;
                 }
-                snprintf(type_buf as *byte + off, total_len - off, "}" as *byte);
+                snprintf(type_buf as *byte + off, total_len -| off, "}" as *byte);
                 fprintf(codegen.emit_stream as *void, "(%s){" as *byte, type_buf as *byte);
                 i = 0;
                 while i < n {
@@ -1707,7 +1707,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         
         // 找到最后一个非声明的表达式作为返回值
         var last_expr_idx: i32 = -1;
-        var j: i32 = block_count - 1;
+        var j: i32 = block_count -| 1;
         while j >= 0 {
             const bs: &ASTNode = block_stmts[j];
             if bs == null {
@@ -1750,7 +1750,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 k = k + 1;
                 continue;
             }
-            if use_if_as_value != 0 && k == block_count - 1 {
+            if use_if_as_value != 0 && k == block_count -| 1 {
                 var union_c: &byte = codegen.expected_block_union_type;
                 if union_c == null { union_c = ("struct err_union_size_t" as *byte) as &byte; }
                 const cond: &ASTNode = last_stmt.if_stmt_condition;
@@ -3314,7 +3314,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         if do_va_forward != 0 {
             vname = get_vprintf_style_name(callee_name);
             const cur_fn: &ASTNode = codegen.current_function_decl;
-            const last_p: &ASTNode = cur_fn.fn_decl_params[cur_fn.fn_decl_param_count - 1];
+            const last_p: &ASTNode = cur_fn.fn_decl_params[cur_fn.fn_decl_param_count -| 1];
             if last_p != null && last_p.type == ASTNodeType.AST_VAR_DECL {
                 last_param = last_p.var_decl_name;
             }
@@ -3330,7 +3330,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             if arg != null && arg.type == ASTNodeType.AST_STRING_INTERP && arg.string_interp_computed_size > 0 {
                 var name_buf: [byte: SHORT_NAME_BUF_SIZE] = [];
                 snprintf(&name_buf[0] as *byte, SHORT_NAME_BUF_SIZE, "__uya_interp_%d" as *byte, codegen.interp_temp_counter);
-                codegen.interp_temp_counter = codegen.interp_temp_counter + 1;
+                codegen.interp_temp_counter = codegen.interp_temp_counter +| 1;
                 const temp_name: &byte = c99_arena_strdup(codegen.arena, &name_buf[0] as &byte);
                 if temp_name != null {
                     codegen.interp_arg_temp_names[arg_idx] = temp_name;
@@ -3537,7 +3537,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                                     const us: *byte = strchr(start, 95);
                                     if us != null && us[1] != 0 {
                                         const suffix: &byte = &us[1] as &byte;
-                                        const need: i32 = 6 + strlen(suffix as *byte) + 1;
+                                        const need: i32 = 6 +| strlen(suffix as *byte) +| 1;
                                         if need > 0 && need < 128 {
                                             const buf: &byte = compiler_arena_alloc(codegen.arena, need as usize) as &byte;
                                             if buf != null {
@@ -3623,7 +3623,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                                 const us: *byte = strchr(start, 95);
                                 if us != null && us[1] != 0 {
                                     const suffix: &byte = &us[1] as &byte;
-                                    const need: i32 = 6 + strlen(suffix as *byte) + 1;
+                                    const need: i32 = 6 +| strlen(suffix as *byte) +| 1;
                                     if need > 0 && need < 128 {
                                         const buf: &byte = compiler_arena_alloc(codegen.arena, need as usize) as &byte;
                                         if buf != null {
@@ -3928,7 +3928,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         if do_va_forward != 0 && vname != null && last_param != null {
             const last_safe: &byte = get_safe_c_identifier(codegen, last_param);
             c99_emit(codegen, "((void)0, ({\n" as *byte);
-            codegen.indent_level = codegen.indent_level + 1;
+            codegen.indent_level = codegen.indent_level +| 1;
             c99_emit(codegen, "va_list uya_va;\n" as *byte);
             c99_emit_indent(codegen);
             fprintf(codegen.emit_stream as *void, "va_start(uya_va, %s);\n" as *byte, last_safe as *byte);
@@ -3962,7 +3962,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             fputs(", uya_va);\n" as *byte, codegen.emit_stream as *void);
             c99_emit(codegen, "va_end(uya_va);\n" as *byte);
             c99_emit(codegen, "_uya_ret;\n" as *byte);
-            codegen.indent_level = codegen.indent_level - 1;
+            codegen.indent_level = codegen.indent_level -| 1;
             c99_emit(codegen, "}))" as *byte);
         } else {
             // 生成被调用函数名
@@ -4258,7 +4258,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             }
             }
             }  // is_format_arg == 0 的 else 结束
-            if i < arg_count - 1 {
+            if i < arg_count -| 1 {
                 c99_emit_comma_space(codegen);
             }
             i = i + 1;
@@ -4443,7 +4443,7 @@ fn c99_emit_struct_decl_comparison(codegen: &C99CodeGenerator, left: &ASTNode, r
             c99_emit_struct_compare_value_path(codegen, right, &child_path[0], pi);
             fputs(")" as *byte, codegen.emit_stream as *void);
         }
-        if i < struct_decl.struct_decl_field_count - 1 {
+        if i < struct_decl.struct_decl_field_count -| 1 {
             fputs(" && " as *byte, codegen.emit_stream as *void);
         }
         i = i + 1;
@@ -4491,7 +4491,7 @@ fn gen_struct_memcmp_comparison(codegen: &C99CodeGenerator, left: &ASTNode, righ
 fn c99_make_temp_name(codegen: &C99CodeGenerator, prefix: &byte) &byte {
     var name_buf: [byte: SHORT_NAME_BUF_SIZE] = [];
     snprintf(&name_buf[0] as *byte, SHORT_NAME_BUF_SIZE, "%s%d" as *byte, prefix as *byte, codegen.interp_temp_counter);
-    codegen.interp_temp_counter = codegen.interp_temp_counter + 1;
+    codegen.interp_temp_counter = codegen.interp_temp_counter +| 1;
     return c99_arena_strdup(codegen.arena, &name_buf[0] as &byte);
 }
 
@@ -4957,7 +4957,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 123 {
-        const wi8a: i32 = lanes - lane_off;
+        const wi8a: i32 = lanes -| lane_off;
         if wi8a >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_add_i8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -4972,7 +4972,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 124 {
-        const wi8s: i32 = lanes - lane_off;
+        const wi8s: i32 = lanes -| lane_off;
         if wi8s >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_sub_i8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -4987,7 +4987,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 125 {
-        const wi8m: i32 = lanes - lane_off;
+        const wi8m: i32 = lanes -| lane_off;
         if wi8m >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_mul_i8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5002,7 +5002,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 126 {
-        const wi8d: i32 = lanes - lane_off;
+        const wi8d: i32 = lanes -| lane_off;
         if wi8d >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_div_i8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5017,7 +5017,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 127 {
-        const wi8r: i32 = lanes - lane_off;
+        const wi8r: i32 = lanes -| lane_off;
         if wi8r >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_rem_i8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5032,7 +5032,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 128 {
-        const wi8l: i32 = lanes - lane_off;
+        const wi8l: i32 = lanes -| lane_off;
         if wi8l >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_shl_i8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5047,7 +5047,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 129 {
-        const wi8h: i32 = lanes - lane_off;
+        const wi8h: i32 = lanes -| lane_off;
         if wi8h >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_shr_i8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5062,7 +5062,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 130 {
-        const wi8n: i32 = lanes - lane_off;
+        const wi8n: i32 = lanes -| lane_off;
         if wi8n >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_and_i8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5077,7 +5077,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 131 {
-        const wi8o: i32 = lanes - lane_off;
+        const wi8o: i32 = lanes -| lane_off;
         if wi8o >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_or_i8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5092,7 +5092,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 132 {
-        const wi8x: i32 = lanes - lane_off;
+        const wi8x: i32 = lanes -| lane_off;
         if wi8x >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_xor_i8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5107,7 +5107,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 133 {
-        const wu8a: i32 = lanes - lane_off;
+        const wu8a: i32 = lanes -| lane_off;
         if wu8a >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_add_u8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5122,7 +5122,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 134 {
-        const wu8s: i32 = lanes - lane_off;
+        const wu8s: i32 = lanes -| lane_off;
         if wu8s >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_sub_u8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5137,7 +5137,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 135 {
-        const wu8m: i32 = lanes - lane_off;
+        const wu8m: i32 = lanes -| lane_off;
         if wu8m >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_mul_u8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5152,7 +5152,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 136 {
-        const wu8d: i32 = lanes - lane_off;
+        const wu8d: i32 = lanes -| lane_off;
         if wu8d >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_div_u8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5167,7 +5167,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 137 {
-        const wu8r: i32 = lanes - lane_off;
+        const wu8r: i32 = lanes -| lane_off;
         if wu8r >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_rem_u8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5182,7 +5182,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 138 {
-        const wu8l: i32 = lanes - lane_off;
+        const wu8l: i32 = lanes -| lane_off;
         if wu8l >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_shl_u8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5197,7 +5197,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 139 {
-        const wu8h: i32 = lanes - lane_off;
+        const wu8h: i32 = lanes -| lane_off;
         if wu8h >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_shr_u8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5212,7 +5212,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 140 {
-        const wu8n: i32 = lanes - lane_off;
+        const wu8n: i32 = lanes -| lane_off;
         if wu8n >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_and_u8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5227,7 +5227,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 141 {
-        const wu8o: i32 = lanes - lane_off;
+        const wu8o: i32 = lanes -| lane_off;
         if wu8o >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_or_u8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5242,7 +5242,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 142 {
-        const wu8x: i32 = lanes - lane_off;
+        const wu8x: i32 = lanes -| lane_off;
         if wu8x >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_xor_u8x16(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5317,7 +5317,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
         fprintf(codegen.emit_stream as *void, "uya_simd_sse_xor_u64x2(%s, %s, %s); " as *byte,
             &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
     } else if fast_kind == 163 {
-        const wm8e: i32 = lanes - lane_off;
+        const wm8e: i32 = lanes -| lane_off;
         if wm8e >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_eq_i8x16_mask(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5332,7 +5332,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 164 {
-        const wm8n: i32 = lanes - lane_off;
+        const wm8n: i32 = lanes -| lane_off;
         if wm8n >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_ne_i8x16_mask(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5347,7 +5347,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 165 {
-        const wm8l: i32 = lanes - lane_off;
+        const wm8l: i32 = lanes -| lane_off;
         if wm8l >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_lt_i8x16_mask(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5362,7 +5362,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 166 {
-        const wm8g: i32 = lanes - lane_off;
+        const wm8g: i32 = lanes -| lane_off;
         if wm8g >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_gt_i8x16_mask(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5377,7 +5377,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 167 {
-        const wm8le: i32 = lanes - lane_off;
+        const wm8le: i32 = lanes -| lane_off;
         if wm8le >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_le_i8x16_mask(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5392,7 +5392,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 168 {
-        const wm8ge: i32 = lanes - lane_off;
+        const wm8ge: i32 = lanes -| lane_off;
         if wm8ge >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_ge_i8x16_mask(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5407,7 +5407,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 169 {
-        const wu8me: i32 = lanes - lane_off;
+        const wu8me: i32 = lanes -| lane_off;
         if wu8me >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_eq_u8x16_mask(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5422,7 +5422,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 170 {
-        const wu8mn: i32 = lanes - lane_off;
+        const wu8mn: i32 = lanes -| lane_off;
         if wu8mn >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_ne_u8x16_mask(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5437,7 +5437,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 171 {
-        const wu8ml: i32 = lanes - lane_off;
+        const wu8ml: i32 = lanes -| lane_off;
         if wu8ml >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_lt_u8x16_mask(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5452,7 +5452,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 172 {
-        const wu8mg: i32 = lanes - lane_off;
+        const wu8mg: i32 = lanes -| lane_off;
         if wu8mg >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_gt_u8x16_mask(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5467,7 +5467,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 173 {
-        const wu8mle: i32 = lanes - lane_off;
+        const wu8mle: i32 = lanes -| lane_off;
         if wu8mle >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_le_u8x16_mask(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -5482,7 +5482,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
         }
     } else if fast_kind == 174 {
-        const wu8mge: i32 = lanes - lane_off;
+        const wu8mge: i32 = lanes -| lane_off;
         if wu8mge >= 16 {
             fprintf(codegen.emit_stream as *void, "uya_simd_sse_ge_u8x16_mask(%s, %s, %s); " as *byte,
                 &pr[0] as *byte, &pl[0] as *byte, &pb[0] as *byte);
@@ -6952,13 +6952,13 @@ fn c99_identifier_type_node_cache_ensure(codegen: &C99CodeGenerator) void {
 fn c99_identifier_type_node_cache_slot(codegen: &C99CodeGenerator, name: &byte) i32 {
     var h: i32 = hash_string(name);
     if codegen != null && codegen.current_function_decl != null {
-        h = h + ((@usize_from_ptr(codegen.current_function_decl as &void) & 65535usize) as i32);
+        h = h +| ((@usize_from_ptr(codegen.current_function_decl as &void) & 65535usize) as i32);
     }
     if codegen != null {
-        h = h + (codegen.local_variable_count * 17);
-        h = h + (codegen.global_variable_count * 29);
+        h = h +| (codegen.local_variable_count *| 17);
+        h = h +| (codegen.global_variable_count *| 29);
         if codegen.current_method_struct_name != null {
-            h = h + (hash_string(codegen.current_method_struct_name) * 37);
+            h = h +% (hash_string(codegen.current_method_struct_name) *% 37);
         }
     }
     return (h & C99_IDENTIFIER_TYPE_NODE_CACHE_MASK) as i32;
@@ -7008,7 +7008,7 @@ fn c99_find_identifier_type_node_uncached(codegen: &C99CodeGenerator, name: &byt
             abi = abi + 1;
         }
     }
-    var local_i: i32 = codegen.local_variable_count - 1;
+    var local_i: i32 = codegen.local_variable_count -| 1;
     while local_i >= 0 {
         if local_i >= C99_MAX_LOCAL_VARS {
             local_i = local_i - 1;
@@ -8517,7 +8517,7 @@ fn gen_sizeof_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 if bracket != null && asterisk != null && bracket < asterisk {
                     // 检查 * 是否在末尾（后面只有空格或结束）
                     const asterisk_offset: i32 = ptr_diff(asterisk, type_c as *byte);
-                    var after_asterisk_offset: i32 = asterisk_offset + 1;
+                    var after_asterisk_offset: i32 = asterisk_offset +| 1;
                     const type_c_len: i32 = strlen(type_c as *byte);
                     while after_asterisk_offset < type_c_len && type_c[after_asterisk_offset] == 32 {  // ' '
                         after_asterisk_offset = after_asterisk_offset + 1;
@@ -8528,7 +8528,7 @@ fn gen_sizeof_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                         const close_bracket: *byte = strchr(bracket, 93);  // ']'
                         if close_bracket != null {
                             const base_len: i32 = ptr_diff(bracket, type_c as *byte);
-                            const array_spec_len: i32 = ptr_diff(close_bracket, bracket) + 1;
+                            const array_spec_len: i32 = ptr_diff(close_bracket, bracket) +| 1;
                             // 注意：Uya Mini 不支持 %.*s，需要手动处理
                             var temp_buf: [byte: TEMP_BUF_SIZE] = [];
                             var j: i32 = 0;
@@ -8684,7 +8684,7 @@ fn gen_len_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             var array_size: i32 = -1;
             
             // 检查局部变量
-            var i: i32 = codegen.local_variable_count - 1;
+            var i: i32 = codegen.local_variable_count -| 1;
             while i >= 0 {
                 if i >= C99_MAX_LOCAL_VARS {
                     i = i - 1;
@@ -8701,7 +8701,7 @@ fn gen_len_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                             const close_bracket: *byte = strchr(&type_c[bracket_offset + 1] as *byte, 93);  // ']'
                             if close_bracket != null {
                                 // 提取数字部分
-                                const num_len: i32 = ptr_diff(close_bracket, bracket) - 1;
+                                const num_len: i32 = ptr_diff(close_bracket, bracket) -| 1;
                                 var num_buf: [byte: NUM_BUF_SIZE] = [];
                                 if num_len < NUM_BUF_SIZE && num_len > 0 {
                                     memcpy(&num_buf[0] as *void, &type_c[bracket_offset + 1] as *void, num_len);
@@ -9019,7 +9019,7 @@ fn gen_struct_init(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 const safe_field_name: &byte = get_safe_c_identifier(codegen, expr.struct_init_field_names[i]);
                 fprintf(codegen.emit_stream as *void, ".%s = " as *byte, safe_field_name as *byte);
                 gen_expr(codegen, expr.struct_init_field_values[i]);
-                if i < init_field_count - 1 {
+                if i < init_field_count -| 1 {
                     c99_emit_comma_space(codegen);
                 }
                 i = i + 1;
@@ -9106,14 +9106,15 @@ fn gen_match_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     k = expr.match_expr_arm_count;
                     break;
                 }
-                k = k + 1;
+                k = k +| 1;
             }
         }
         // 检测是否是指针类型（以 " *" 结尾）
         var is_ptr: i32 = 0;
         const m_type_len: i32 = strlen(m_type as *byte);
         if m_type_len > 2 {
-            const last2: &byte = m_type as &byte + m_type_len - 2;
+            // 指针算术：`ptr + len - 2`，中间的减法是指针偏移，不能用饱和运算
+            const last2: &byte = m_type as &byte + (m_type_len - 2);
             if strcmp(last2 as *byte, " *" as *byte) == 0 || strcmp(last2 as *byte, "* " as *byte) == 0 {
                 is_ptr = 1;
             }
@@ -9195,7 +9196,7 @@ fn gen_match_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                             const wrap_result: &ASTNode = expr.match_expr_arms[i].result_expr;
                             if wrap_result != null && wrap_result.type == ASTNodeType.AST_BLOCK && wrap_result.block_stmts != null {
                                 var last_expr: &ASTNode = null;
-                                var wj: i32 = wrap_result.block_stmt_count - 1;
+                                var wj: i32 = wrap_result.block_stmt_count -| 1;
                                 while wj >= 0 {
                                     const wsj: &ASTNode = wrap_result.block_stmts[wj];
                                     if wsj != null && wsj.type != ASTNodeType.AST_VAR_DECL &&
@@ -9607,7 +9608,7 @@ fn gen_catch_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             fputs("; __typeof__(_uya_catch_tmp.value) _uya_catch_result" as *byte, codegen.emit_stream as *void);
         }
         fputs("; if (_uya_catch_tmp.error_id != 0) {\n" as *byte, codegen.emit_stream as *void);
-        codegen.indent_level = codegen.indent_level + 1;
+        codegen.indent_level = codegen.indent_level +| 1;
         const saved_local_count: i32 = codegen.local_variable_count;
         if err_name != null {
             const safe: &byte = get_safe_c_identifier(codegen, err_name);
@@ -9629,7 +9630,7 @@ fn gen_catch_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         while i < n {
             const s: &ASTNode = block.block_stmts[i];
             if s != null {
-                if i == n - 1 && last_stmt != null && last_stmt.type != ASTNodeType.AST_RETURN_STMT &&
+                if i == n -| 1 && last_stmt != null && last_stmt.type != ASTNodeType.AST_RETURN_STMT &&
                     (is_void_payload == 0 || wrap_result_as_err_union != 0) {
                     c99_emit_indent(codegen);
                     fputs("_uya_catch_result = (" as *byte, codegen.emit_stream as *void);
@@ -9669,7 +9670,7 @@ fn gen_catch_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             i = i + 1;
         }
         codegen.local_variable_count = saved_local_count;
-        codegen.indent_level = codegen.indent_level - 1;
+        codegen.indent_level = codegen.indent_level -| 1;
         c99_emit_indent(codegen);
         if wrap_result_as_err_union != 0 && result_union_c != null {
             if result_payload_c == null {
@@ -10039,7 +10040,7 @@ fn gen_array_literal_contents(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             var i: i32 = 0;
             while i < nn {
                 gen_expr(codegen, expr.array_literal_elements[0]);
-                if i < nn - 1 {
+                if i < nn -| 1 {
                     c99_emit_comma_space(codegen);
                 }
                 i = i + 1;
@@ -10160,7 +10161,7 @@ fn gen_print_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             // 需要自己生成插值缓冲区；否则 gen_expr(AST_STRING_INTERP) 会在 string_interp_buf 为空时返回 (char*)0。
             if inner.type == ASTNodeType.AST_STRING_INTERP && inner.string_interp_segment_count > 0 {
                 const temp_name_idx: i32 = codegen.interp_temp_counter;
-                codegen.interp_temp_counter = codegen.interp_temp_counter + 1;
+                codegen.interp_temp_counter = codegen.interp_temp_counter +| 1;
 
                 var interp_size: i32 = inner.string_interp_computed_size;
                 if interp_size <= 0 {
@@ -10323,7 +10324,7 @@ fn c99_try_emit_error_return_value(codegen: &C99CodeGenerator, ret_union_c: &byt
 
 fn c99_try_emit_error_return_stmt(codegen: &C99CodeGenerator, ret_union_c: &byte, kind: i32) void {
     fputs("; if (_uya_try_tmp.error_id != 0) {\n" as *byte, codegen.emit_stream as *void);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     emit_all_active_scope_cleanup(codegen, 1);
     // async poll 内 kind==0：当 poll 的 Ready 载荷不是错误联合体时（poll 类型不含 "err_"），
     // 无法将 error_id 直接嵌入 Ready，改为存入帧的 _uya_frame_error 字段，返回零值 Ready。
@@ -10343,7 +10344,7 @@ fn c99_try_emit_error_return_stmt(codegen: &C99CodeGenerator, ret_union_c: &byte
         c99_try_emit_error_return_value(codegen, ret_union_c, kind);
         fputs(";\n" as *byte, codegen.emit_stream as *void);
     }
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit_indent(codegen);
     fputs("}" as *byte, codegen.emit_stream as *void);
 }
@@ -10470,7 +10471,7 @@ fn gen_try_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                             var payload_ast: &ASTNode = null;
                             if first_result.type == ASTNodeType.AST_BLOCK && first_result.block_stmts != null {
                                 var block_tail_expr: &ASTNode = null;
-                                var si: i32 = first_result.block_stmt_count - 1;
+                                var si: i32 = first_result.block_stmt_count -| 1;
                                 while si >= 0 {
                                     const st: &ASTNode = first_result.block_stmts[si];
                                     if st != null && st.type != ASTNodeType.AST_VAR_DECL &&
@@ -10486,7 +10487,7 @@ fn gen_try_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                                 }
                                 if block_tail_expr != null && block_tail_expr.type == ASTNodeType.AST_IDENTIFIER &&
                                     block_tail_expr.identifier_name != null {
-                                    si = first_result.block_stmt_count - 1;
+                                    si = first_result.block_stmt_count -| 1;
                                     while si >= 0 {
                                         const st2: &ASTNode = first_result.block_stmts[si];
                                         if st2 != null && st2.type == ASTNodeType.AST_VAR_DECL &&
@@ -10711,7 +10712,7 @@ fn gen_slice_from_array_literal(codegen: &C99CodeGenerator, unary_expr: &ASTNode
             var i: i32 = 0;
             while i < element_count {
                 gen_expr(codegen, array_expr.array_literal_elements[i]);
-                if i < element_count - 1 {
+                if i < element_count -| 1 {
                     c99_emit_comma_space(codegen);
                 }
                 i = i + 1;

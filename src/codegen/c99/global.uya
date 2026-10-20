@@ -181,13 +181,13 @@ fn c99_ident_ref_cache_ensure(codegen: &C99CodeGenerator) void {
 fn c99_ident_ref_cache_slot(codegen: &C99CodeGenerator, name: &byte) i32 {
     var h: i32 = hash_string(name);
     if codegen != null && codegen.current_function_decl != null {
-        h = h + ((@usize_from_ptr(codegen.current_function_decl as &void) & 65535usize) as i32);
+        h = h +| ((@usize_from_ptr(codegen.current_function_decl as &void) & 65535usize) as i32);
     }
     if codegen != null {
-        h = h + (codegen.local_variable_count * 17);
-        h = h + (codegen.global_variable_count * 29);
+        h = h +| (codegen.local_variable_count *| 17);
+        h = h +| (codegen.global_variable_count *| 29);
         if codegen.current_method_struct_name != null {
-            h = h + (hash_string(codegen.current_method_struct_name) * 37);
+            h = h +% (hash_string(codegen.current_method_struct_name) *% 37);
         }
     }
     return (h & C99_IDENT_REF_CACHE_MASK) as i32;
@@ -345,7 +345,7 @@ fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode, init_ctx_typ
                 next_ctx = nested_type;
             }
             gen_global_init_expr(codegen, nested_init, next_ctx);
-            g_c99_global_init_expand_depth = g_c99_global_init_expand_depth - 1;
+            g_c99_global_init_expand_depth = g_c99_global_init_expand_depth -| 1;
             return;
         }
     }
@@ -385,7 +385,7 @@ fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode, init_ctx_typ
             }
             fprintf(codegen.emit_stream as *void, ".%s = " as *byte, safe_field_name as *byte);
             gen_global_init_expr(codegen, expr.struct_init_field_values[i], field_ctx);
-            if i < field_count - 1 {
+            if i < field_count -| 1 {
                 c99_emit_comma_space(codegen);
             }
             i = i + 1;
@@ -407,7 +407,7 @@ fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode, init_ctx_typ
             var i: i32 = 0;
             while i < nn {
                 gen_global_init_expr(codegen, expr.array_literal_elements[0], elem_ctx);
-                if i < nn - 1 {
+                if i < nn -| 1 {
                     c99_emit_comma_space(codegen);
                 }
                 i = i + 1;
@@ -696,7 +696,7 @@ fn c99_mark_local_variable_error_value(codegen: &C99CodeGenerator, name: &byte) 
     }
     const safe_name: &byte = get_safe_c_identifier(codegen, name);
     // 数组容量是编译期常量，用常量上界守卫让下标证明可证
-    var i: i32 = codegen.local_variable_count - 1;
+    var i: i32 = codegen.local_variable_count -| 1;
     if i >= C99_MAX_LOCAL_VARS {
         i = C99_MAX_LOCAL_VARS - 1;
     }
@@ -727,7 +727,7 @@ fn c99_identifier_is_error_value(codegen: &C99CodeGenerator, name: &byte) i32 {
         return 0;
     }
     const safe_name: &byte = get_safe_c_identifier(codegen, name);
-    var i: i32 = codegen.local_variable_count - 1;
+    var i: i32 = codegen.local_variable_count -| 1;
     while i >= 0 {
         const li: i32 = i;
         if li >= 0 && li < C99_MAX_LOCAL_VARS {
@@ -766,7 +766,7 @@ fn get_c_name_for_identifier_ref(codegen: &C99CodeGenerator, name: &byte) &byte 
                 const n_len: i32 = strlen(name as *byte);
                 const buf: &byte = compiler_arena_alloc(codegen.arena, (s_len + 2 + n_len + 1) as usize) as &byte;
                 if buf != null {
-                    snprintf(buf as *byte, s_len + 2 + n_len + 1, "%s->%s" as *byte,
+                    snprintf(buf as *byte, s_len +% 2 +% n_len +% 1, "%s->%s" as *byte,
                         codegen.async_state_var as *byte, name as *byte);
                     return buf;
                 }
@@ -787,7 +787,7 @@ fn get_c_name_for_identifier_ref(codegen: &C99CodeGenerator, name: &byte) &byte 
                     const pfx: &byte = "_uya_loc_" as &byte;
                     const plen: i32 = strlen(pfx as *byte);
                     const nl: i32 = strlen(loc_safe as *byte);
-                    const buf_len: i32 = s_len + 2 + plen + nl + 1;
+                    const buf_len: i32 = s_len +| 2 +| plen +| nl +| 1;
                     const buf2: &byte = compiler_arena_alloc(codegen.arena, buf_len as usize) as &byte;
                     if buf2 != null {
                         snprintf(buf2 as *byte, buf_len, "%s->_uya_loc_%s" as *byte,
@@ -809,7 +809,7 @@ fn get_c_name_for_identifier_ref(codegen: &C99CodeGenerator, name: &byte) &byte 
                 const s_len: i32 = strlen(codegen.async_state_var as *byte);
                 const n_len: i32 = strlen(name as *byte);
                 // 格式：s->_uya_bind_NAME（需要额外 8 字节 for "_uya_bind_")
-                const buf_len: i32 = s_len + 2 + 10 + n_len + 1;
+                const buf_len: i32 = s_len +| 2 +| 10 +| n_len +| 1;
                 const buf: &byte = compiler_arena_alloc(codegen.arena, buf_len as usize) as &byte;
                 if buf != null {
                     snprintf(buf as *byte, buf_len, "%s->_uya_bind_%s" as *byte,
@@ -926,7 +926,7 @@ fn get_c_name_for_identifier_ref(codegen: &C99CodeGenerator, name: &byte) &byte 
                 }
                 pdi = codegen.program_node.program_decl_count;
             }
-            pdi = pdi + 1;
+            pdi = pdi +| 1;
         }
     }
     if result == null {

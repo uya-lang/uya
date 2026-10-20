@@ -698,7 +698,7 @@ fn gen_union_definition(codegen: &C99CodeGenerator, union_decl: &ASTNode) i32 {
     }
     c99_emit_indent(codegen);
     fprintf(codegen.emit_stream as *void, "union %s {\n" as *byte, union_name as *byte);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     var i: i32 = 0;
     while i < n {
         const v: &ASTNode = variants[i];
@@ -716,7 +716,7 @@ fn gen_union_definition(codegen: &C99CodeGenerator, union_decl: &ASTNode) i32 {
         }
         i = i + 1;
     }
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit(codegen, "};\n" as *byte);
     if union_decl.union_decl_is_extern == 0 {
         c99_emit_indent(codegen);
@@ -813,7 +813,7 @@ fn gen_mono_union_definition(codegen: &C99CodeGenerator, union_decl: &ASTNode, t
 
     c99_emit_indent(codegen);
     fprintf(codegen.emit_stream as *void, "union %s {\n" as *byte, union_name as *byte);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     var i: i32 = 0;
     while i < n {
         const v: &ASTNode = variants[i];
@@ -847,7 +847,7 @@ fn gen_mono_union_definition(codegen: &C99CodeGenerator, union_decl: &ASTNode, t
         }
         i = i + 1;
     }
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit(codegen, "};\n" as *byte);
     if union_decl.union_decl_is_extern == 0 {
         c99_emit_indent(codegen);
@@ -984,7 +984,7 @@ fn collect_value_struct_deps_from_type(codegen: &C99CodeGenerator, type_node: &A
         // 再添加该结构体本身（在依赖之后）
         if out_count[0] < max_count {
             out_names[out_count[0]] = dep_struct_name;
-            out_count[0] = out_count[0] + 1;
+            out_count[0] = out_count[0] +| 1;
         }
     } else if type_node.type == ASTNodeType.AST_TYPE_ARRAY {
         // 数组类型：递归处理元素类型
@@ -1707,7 +1707,7 @@ fn get_method_c_name(codegen: &C99CodeGenerator, struct_name: &byte, method_name
     if safe_s == null || safe_m == null {
         return null;
     }
-    const len: i32 = 5 + strlen(safe_s as *byte) + 1 + strlen(safe_m as *byte) + 1;
+    const len: i32 = 5 +| strlen(safe_s as *byte) +| 1 +| strlen(safe_m as *byte) +| 1;
     const buf: &byte = compiler_arena_alloc(codegen.arena, len) as &byte;
     if buf == null {
         return null;
@@ -1749,7 +1749,7 @@ fn get_mono_method_c_name(codegen: &C99CodeGenerator, struct_name: &byte, method
         return null;
     }
 
-    const len: i32 = 5 + strlen(safe_s as *byte) + 1 + strlen(safe_m as *byte) + 1 + strlen(&suffix[0]) + 1;
+    const len: i32 = 5 +| strlen(safe_s as *byte) +| 1 +| strlen(safe_m as *byte) +| 1 +| strlen(&suffix[0]) +| 1;
     const buf: &byte = compiler_arena_alloc(codegen.arena, len as usize) as &byte;
     if buf == null {
         return null;
@@ -2011,7 +2011,7 @@ fn emit_interface_structs_and_vtables(codegen: &C99CodeGenerator) void {
         const safe_iface: &byte = get_safe_c_identifier(codegen, iface_name);
         fprintf(codegen.emit_stream as *void, "struct uya_interface_%s { void *vtable; void *data; };\n" as *byte, safe_iface as *byte);
         fprintf(codegen.emit_stream as *void, "struct uya_vtable_%s {\n" as *byte, safe_iface as *byte);
-        codegen.indent_level = codegen.indent_level + 1;
+        codegen.indent_level = codegen.indent_level +| 1;
         
         // 使用 collect_interface_method_sigs 收集所有方法（包括组合接口的方法）
         var all_sigs: [&ASTNode: C99_MAX_INTERFACE_METHODS] = [];
@@ -2044,7 +2044,7 @@ fn emit_interface_structs_and_vtables(codegen: &C99CodeGenerator) void {
             fputs(");\n" as *byte, codegen.emit_stream as *void);
             j = j + 1;
         }
-        codegen.indent_level = codegen.indent_level - 1;
+        codegen.indent_level = codegen.indent_level -| 1;
         fputs("};\n" as *byte, codegen.emit_stream as *void);
         i = i + 1;
     }
@@ -2091,7 +2091,7 @@ fn emit_interface_structs_and_vtables(codegen: &C99CodeGenerator) void {
 
             fprintf(codegen.emit_stream as *void, "struct uya_interface_%s { void *vtable; void *data; };\n" as *byte, safe_mono_iface as *byte);
             fprintf(codegen.emit_stream as *void, "struct uya_vtable_%s {\n" as *byte, safe_mono_iface as *byte);
-            codegen.indent_level = codegen.indent_level + 1;
+            codegen.indent_level = codegen.indent_level +| 1;
 
             // 收集方法签名（不包含 composed 泛型接口的单态展开；Future<T> 无 composed，足够）
             var all_sigs: [&ASTNode: C99_MAX_INTERFACE_METHODS] = [];
@@ -2123,7 +2123,7 @@ fn emit_interface_structs_and_vtables(codegen: &C99CodeGenerator) void {
                 fputs(");\n" as *byte, codegen.emit_stream as *void);
                 j = j + 1;
             }
-            codegen.indent_level = codegen.indent_level - 1;
+            codegen.indent_level = codegen.indent_level -| 1;
             fputs("};\n" as *byte, codegen.emit_stream as *void);
 
             // 标记已定义，避免后续重复输出
@@ -2282,7 +2282,7 @@ fn emit_vtable_constants(codegen: &C99CodeGenerator) void {
                                 if is_struct_defined(codegen, iface_struct_name2) == 0 {
                                     fprintf(codegen.emit_stream as *void, "struct uya_interface_%s { void *vtable; void *data; };\n" as *byte, safe_mono_iface as *byte);
                                     fprintf(codegen.emit_stream as *void, "struct uya_vtable_%s {\n" as *byte, safe_mono_iface as *byte);
-                                    codegen.indent_level = codegen.indent_level + 1;
+                                    codegen.indent_level = codegen.indent_level +| 1;
                                     var sigsA: [&ASTNode: C99_MAX_INTERFACE_METHODS] = [];
                                     const scA: i32 = collect_interface_method_sigs(codegen, iface_decl.interface_decl_name, &sigsA[0], C99_MAX_INTERFACE_METHODS);
                                     var sjA: i32 = 0;
@@ -2306,7 +2306,7 @@ fn emit_vtable_constants(codegen: &C99CodeGenerator) void {
                                         }
                                         sjA = sjA + 1;
                                     }
-                                    codegen.indent_level = codegen.indent_level - 1;
+                                    codegen.indent_level = codegen.indent_level -| 1;
                                     fputs("};\n" as *byte, codegen.emit_stream as *void);
                                     mark_struct_defined(codegen, iface_struct_name2);
                                     mark_struct_defined(codegen, vtable_struct_name2);
@@ -2422,7 +2422,7 @@ fn emit_vtable_constants(codegen: &C99CodeGenerator) void {
                         if is_struct_defined(codegen, iface_struct_name) == 0 {
                             fprintf(codegen.emit_stream as *void, "struct uya_interface_%s { void *vtable; void *data; };\n" as *byte, safe_mono_iface as *byte);
                             fprintf(codegen.emit_stream as *void, "struct uya_vtable_%s {\n" as *byte, safe_mono_iface as *byte);
-                            codegen.indent_level = codegen.indent_level + 1;
+                            codegen.indent_level = codegen.indent_level +| 1;
                             var sigs0: [&ASTNode: C99_MAX_INTERFACE_METHODS] = [];
                             const sc0: i32 = collect_interface_method_sigs(codegen, iface_decl.interface_decl_name, &sigs0[0], C99_MAX_INTERFACE_METHODS);
                             var sj: i32 = 0;
@@ -2446,7 +2446,7 @@ fn emit_vtable_constants(codegen: &C99CodeGenerator) void {
                                 }
                                 sj = sj + 1;
                             }
-                            codegen.indent_level = codegen.indent_level - 1;
+                            codegen.indent_level = codegen.indent_level -| 1;
                             fputs("};\n" as *byte, codegen.emit_stream as *void);
                             mark_struct_defined(codegen, iface_struct_name);
                             mark_struct_defined(codegen, vtable_struct_name);
@@ -2604,7 +2604,7 @@ fn gen_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode) i32 
     // 输出结构体定义
     c99_emit_indent(codegen);
     fprintf(codegen.emit_stream as *void, "struct %s {\n" as *byte, struct_name as *byte);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     
     // 生成字段
     const field_count: i32 = struct_decl.struct_decl_field_count;
@@ -2657,7 +2657,7 @@ fn gen_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode) i32 
         }
     }
     
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit_indent(codegen);
     fputs("};\n" as *byte, codegen.emit_stream as *void);
     
@@ -2769,7 +2769,7 @@ fn has_unresolved_mono_type_args(generic_decl: &ASTNode, type_args: & & ASTNode,
 // 辅助函数：将类型参数追加到后缀字符串中（递归处理嵌套泛型）
 fn append_type_arg_suffix(codegen: &C99CodeGenerator, type_arg: &ASTNode, 
                           suffix: &byte, suffix_len: i32, max_len: i32) i32 {
-    if type_arg == null || suffix_len >= max_len - 1 {
+    if type_arg == null || suffix_len >= max_len -| 1 {
         return suffix_len;
     }
     
@@ -2829,7 +2829,7 @@ fn append_type_arg_suffix(codegen: &C99CodeGenerator, type_arg: &ASTNode,
         }
 
         var j: i32 = 0;
-        while type_name[j] != 0 && result_len < max_len - 1 {
+        while type_name[j] != 0 && result_len < max_len -| 1 {
             suffix[result_len] = type_name[j];
             result_len = result_len + 1;
             j = j + 1;
@@ -2843,7 +2843,7 @@ fn append_type_arg_suffix(codegen: &C99CodeGenerator, type_arg: &ASTNode,
             // 递归处理嵌套类型参数
             var k: i32 = 0;
             while k < actual_type.type_named_type_arg_count {
-                if result_len < max_len - 1 {
+                if result_len < max_len -| 1 {
                     suffix[result_len] = 95 as byte;  // '_'
                     result_len = result_len + 1;
                 }
@@ -2857,7 +2857,7 @@ fn append_type_arg_suffix(codegen: &C99CodeGenerator, type_arg: &ASTNode,
         // 指针类型：ptr_T
         const ptr_prefix: &byte = "ptr_";
         var k: i32 = 0;
-        while ptr_prefix[k] != 0 && result_len < max_len - 1 {
+        while ptr_prefix[k] != 0 && result_len < max_len -| 1 {
             suffix[result_len] = ptr_prefix[k];
             result_len = result_len + 1;
             k = k + 1;
@@ -2868,7 +2868,7 @@ fn append_type_arg_suffix(codegen: &C99CodeGenerator, type_arg: &ASTNode,
         // 错误联合类型：err_T
         const err_prefix: &byte = "err_";
         var k: i32 = 0;
-        while err_prefix[k] != 0 && result_len < max_len - 1 {
+        while err_prefix[k] != 0 && result_len < max_len -| 1 {
             suffix[result_len] = err_prefix[k];
             result_len = result_len + 1;
             k = k + 1;
@@ -2942,7 +2942,7 @@ fn get_mono_struct_name(codegen: &C99CodeGenerator, generic_name: &byte, type_ar
     
     // 分配并构建完整名称
     const safe_name: &byte = get_safe_c_identifier(codegen, generic_name);
-    const name_len: i32 = (strlen(safe_name as *byte) as i32) + 1 + suffix_len + 1;
+    const name_len: i32 = (strlen(safe_name as *byte) as i32) +| 1 +| suffix_len +| 1;
     const mono_name: &byte = compiler_arena_alloc(codegen.arena, name_len as usize) as &byte;
     if mono_name == null {
         return generic_name;
@@ -2975,7 +2975,7 @@ fn get_mono_union_name(codegen: &C99CodeGenerator, generic_name: &byte, type_arg
     }
     normalize_redundant_err_suffix(&suffix[0] as &byte);
     const safe_name: &byte = get_safe_c_identifier(codegen, generic_name);
-    const name_len: i32 = (strlen(safe_name as *byte) as i32) + 1 + suffix_len + 1;
+    const name_len: i32 = (strlen(safe_name as *byte) as i32) +| 1 +| suffix_len +| 1;
     const mono_name: &byte = compiler_arena_alloc(codegen.arena, name_len as usize) as &byte;
     if mono_name == null {
         return generic_name;
@@ -3438,7 +3438,7 @@ fn gen_mono_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode,
     
     // 输出结构体定义
     fprintf(codegen.emit_stream as *void, "struct %s {\n" as *byte, mono_name as *byte);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     
     // 生成字段（field_count 和 fi 已在前面定义）
     if field_count == 0 {
@@ -3449,7 +3449,7 @@ fn gen_mono_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode,
         while fi < field_count {
             const field: &ASTNode = struct_decl.struct_decl_fields[fi];
             if field == null || field.type != ASTNodeType.AST_VAR_DECL {
-                codegen.indent_level = codegen.indent_level - 1;
+                codegen.indent_level = codegen.indent_level -| 1;
                 codegen.current_type_params = saved_type_params;
                 codegen.current_type_param_count = saved_type_param_count;
                 codegen.current_type_args = saved_type_args;
@@ -3465,7 +3465,7 @@ fn gen_mono_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode,
             const field_type: &ASTNode = field.var_decl_type;
             
             if field_name == null || field_type == null {
-                codegen.indent_level = codegen.indent_level - 1;
+                codegen.indent_level = codegen.indent_level -| 1;
                 codegen.current_type_params = saved_type_params;
                 codegen.current_type_param_count = saved_type_param_count;
                 codegen.current_type_args = saved_type_args;
@@ -3518,7 +3518,7 @@ fn gen_mono_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode,
                         if iface_decl != null && iface_decl.interface_decl_type_param_count > 0 {
                             const mono_iface_name: &byte = get_mono_struct_name(codegen, generic_name, generic_args, generic_arg_count);
                             if mono_iface_name != null {
-                                const mono_iface_len: i32 = (strlen(mono_iface_name as *byte) as i32) + 24;
+                                const mono_iface_len: i32 = (strlen(mono_iface_name as *byte) as i32) +| 24;
                                 const mono_iface_buf: &byte = compiler_arena_alloc(codegen.arena, mono_iface_len as usize) as &byte;
                                 if mono_iface_buf != null {
                                     snprintf(mono_iface_buf as *byte, mono_iface_len, "struct uya_interface_%s" as *byte, mono_iface_name as *byte);
@@ -3531,7 +3531,7 @@ fn gen_mono_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode,
                             if generic_union_decl != null && is_generic_union_c99(generic_union_decl) != 0 {
                                 const mono_union_name: &byte = get_mono_union_name(codegen, generic_name, generic_args, generic_arg_count);
                                 if mono_union_name != null {
-                                    const mono_union_len: i32 = (strlen(mono_union_name as *byte) as i32) + 24;
+                                    const mono_union_len: i32 = (strlen(mono_union_name as *byte) as i32) +| 24;
                                     const mono_union_buf: &byte = compiler_arena_alloc(codegen.arena, mono_union_len as usize) as &byte;
                                     if mono_union_buf != null {
                                         snprintf(mono_union_buf as *byte, mono_union_len, "struct uya_tagged_%s" as *byte, mono_union_name as *byte);
@@ -3543,7 +3543,7 @@ fn gen_mono_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode,
                         if field_type_c == null {
                             const mono_struct_name: &byte = get_mono_struct_name(codegen, generic_name, generic_args, generic_arg_count);
                             if mono_struct_name != null {
-                                const mono_struct_len: i32 = (strlen(mono_struct_name as *byte) as i32) + 8;
+                                const mono_struct_len: i32 = (strlen(mono_struct_name as *byte) as i32) +| 8;
                                 const mono_struct_buf: &byte = compiler_arena_alloc(codegen.arena, mono_struct_len as usize) as &byte;
                                 if mono_struct_buf != null {
                                     snprintf(mono_struct_buf as *byte, mono_struct_len, "struct %s" as *byte, mono_struct_name as *byte);
@@ -3563,7 +3563,7 @@ fn gen_mono_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode,
         }
     }
     
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     fputs("};\n" as *byte, codegen.emit_stream as *void);
     
     // 标记为已定义

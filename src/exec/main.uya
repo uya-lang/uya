@@ -193,7 +193,7 @@ export fn exec_build_program(checker: &TypeChecker, program: &ASTNode, module_na
     const lower_start_time: i64 = clock();
     const lowered: &HIRModule = exec_lower_module(checker.arena, checker, program);
     const lower_end_time: i64 = clock();
-    g_exec_last_lower_time_ms = (lower_end_time - lower_start_time) * 1000 / CLOCKS_PER_SEC;
+    g_exec_last_lower_time_ms = (lower_end_time -| lower_start_time) *| 1000 / CLOCKS_PER_SEC;
     if lowered == null {
         if exec_backend_error_is_unsupported() != 0 {
             return 2;
@@ -207,7 +207,7 @@ export fn exec_build_program(checker: &TypeChecker, program: &ASTNode, module_na
     const build_start_time: i64 = clock();
     const bytecode: &BCProgram = exec_build_bytecode(checker.arena, checker, lowered);
     const build_end_time: i64 = clock();
-    g_exec_last_bytecode_build_time_ms = (build_end_time - build_start_time) * 1000 / CLOCKS_PER_SEC;
+    g_exec_last_bytecode_build_time_ms = (build_end_time -| build_start_time) *| 1000 / CLOCKS_PER_SEC;
     if bytecode == null {
         if exec_backend_error_is_unsupported() != 0 {
             return 2;
@@ -235,7 +235,7 @@ export fn exec_run_program() i32 {
     const run_start_time: i64 = clock();
     const exit_code: i32 = vm_run_program(g_exec_bc_program, g_exec_trace_vm_enabled);
     const run_end_time: i64 = clock();
-    g_exec_last_vm_run_time_ms = (run_end_time - run_start_time) * 1000 / CLOCKS_PER_SEC;
+    g_exec_last_vm_run_time_ms = (run_end_time -| run_start_time) *| 1000 / CLOCKS_PER_SEC;
     return exit_code;
 }
 

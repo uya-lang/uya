@@ -9,10 +9,10 @@ fn layout_align_up_i32(value: i32, align: i32) i32 {
     if remainder == 0 {
         return value;
     }
-    if value > 0x7FFFFFFF - (align - remainder) {
+    if value > 0x7FFFFFFF -| (align -| remainder) {
         return -1;
     }
-    return value + (align - remainder);
+    return value +| (align -| remainder);
 }
 
 fn compute_struct_align_v2(checker: &TypeChecker, decl: &ASTNode, program_node: &ASTNode) i32 {
@@ -84,7 +84,7 @@ fn compute_struct_size_v2(checker: &TypeChecker, decl: &ASTNode, program_node: &
         if offset < 0 || offset > 0x7FFFFFFF - fs {
             return -1;
         }
-        offset = offset + fs;
+        offset = offset +| fs;
         if fa > max_align {
             max_align = fa;
         }
@@ -239,7 +239,7 @@ fn get_type_size_bytes_v2(checker: &TypeChecker, t: &Type, program_node: &ASTNod
     if t.kind == TypeKind.TYPE_ARRAY {
         const elem_sz: i32 = get_type_size_bytes_v2(checker, t.element_type, program_node);
         if elem_sz > 0 && t.array_size > 0 && t.array_size <= 0x7FFFFFFF / elem_sz {
-            return elem_sz * t.array_size;
+            return elem_sz *| t.array_size;
         }
         return -1;
     }
@@ -261,7 +261,7 @@ fn get_type_size_bytes_v2(checker: &TypeChecker, t: &Type, program_node: &ASTNod
             if total < 0 || total > 0x7FFFFFFF - fs {
                 return -1;
             }
-            total = total + fs;
+            total = total +| fs;
             if fa > max_align {
                 max_align = fa;
             }

@@ -196,7 +196,7 @@ export fn upm_registry_list_versions(module_name: &byte, out: &byte, cap: usize,
                 closedir(dir);
                 return 1;
             }
-            count_out[0] = count_out[0] + 1;
+            count_out[0] = count_out[0] +| 1;
         }
         entry = readdir(dir);
     }

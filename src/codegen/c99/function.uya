@@ -487,7 +487,7 @@ fn c99_find_module_export_function_decl(codegen: &C99CodeGenerator, module_name:
     const mtbl_cap: i32 = checker_ptr.module_table.table.capacity;
     var mi: i32 = (mh as i32) % mtbl_cap;
     if mi < 0 {
-        mi = mi + mtbl_cap;
+        mi = mi +% mtbl_cap;
     }
     var i3: i32 = 0;
     while i3 < mtbl_cap {
@@ -848,15 +848,15 @@ fn get_module_prefix_from_filename(codegen: &C99CodeGenerator, filename: &byte) 
         if last_slash != null {
             const slash_pos_tmp: !usize = ptr_diff(last_slash as *byte, rel as *byte) as! usize;
             const slash_pos: usize = slash_pos_tmp.value;
-            const total_len: usize = 4 + slash_pos + 2;
+            const total_len: usize = 4 +| slash_pos +| 2;
             const prefix: &byte = compiler_arena_alloc(codegen.arena, total_len) as &byte;
             if prefix != null {
                 strcpy(prefix as *byte, "std_" as *byte);
                 memcpy((prefix as *byte + 4) as *void, rel as *void, slash_pos);
-                prefix[4 + slash_pos] = 95 as byte;
-                prefix[4 + slash_pos + 1] = 0 as byte;
+                prefix[4 +| slash_pos] = 95 as byte;
+                prefix[4 +| slash_pos +| 1] = 0 as byte;
                 var idx: usize = 4;
-                while idx < 4 + slash_pos {
+                while idx < 4 +| slash_pos {
                     if prefix[idx] == 47 || prefix[idx] == 92 {
                         prefix[idx] = 95 as byte;
                     }
@@ -882,13 +882,13 @@ fn get_module_prefix_from_filename(codegen: &C99CodeGenerator, filename: &byte) 
         if rel_tls_len > 4 && strcmp((rel_tls as *byte + (rel_tls_len - 4)) as *byte, ".uya" as *byte) == 0 {
             base_tls_len = rel_tls_len - 4;
         }
-        const total_tls_len: usize = 4 + base_tls_len + 2;
+        const total_tls_len: usize = 4 +| base_tls_len +| 2;
         const prefix_tls: &byte = compiler_arena_alloc(codegen.arena, total_tls_len) as &byte;
         if prefix_tls != null {
             strcpy(prefix_tls as *byte, "tls_" as *byte);
             memcpy((prefix_tls as *byte + 4) as *void, rel_tls as *void, base_tls_len);
-            const tls_idx1: i32 = 4 + base_tls_len as i32;
-            const tls_idx2: i32 = tls_idx1 + 1;
+            const tls_idx1: i32 = 4 +| base_tls_len as i32;
+            const tls_idx2: i32 = tls_idx1 +| 1;
             if tls_idx1 >= 0 && tls_idx1 < 1000000 {
                 prefix_tls[tls_idx1] = 95 as byte;
             }
@@ -896,7 +896,7 @@ fn get_module_prefix_from_filename(codegen: &C99CodeGenerator, filename: &byte) 
                 prefix_tls[tls_idx2] = 0 as byte;
             }
             var ti: usize = 4;
-            while ti < 4 + base_tls_len {
+            while ti < 4 +| base_tls_len {
                 if prefix_tls[ti] == 47 || prefix_tls[ti] == 92 {
                     prefix_tls[ti] = 95 as byte;
                 }
@@ -930,7 +930,7 @@ fn get_module_prefix_from_filename(codegen: &C99CodeGenerator, filename: &byte) 
         if prefix != null {
             memcpy(prefix as *void, rel as *void, base_len);
             const p_idx1: i32 = base_len as i32;
-            const p_idx2: i32 = p_idx1 + 1;
+            const p_idx2: i32 = p_idx1 +| 1;
             if p_idx1 >= 0 && p_idx1 < 1000000 {
                 prefix[p_idx1] = 95 as byte;
             }
@@ -1622,7 +1622,7 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                     const param_type_c: &byte = c99_type_to_c(codegen, param_type);
                     format_param_type(codegen, param_type_c, param_name, codegen.emit_stream as *void);
                 }
-                if j < param_count - 1 {
+                if j < param_count -| 1 {
                     fputs(", " as *byte, codegen.emit_stream);
                 }
             }
@@ -1733,7 +1733,7 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                         param_type_c = c99_type_to_c(codegen, param_type);
                     }
                     fprintf(codegen.emit_stream, "%s *%s" as *byte, param_type_c as *byte, param_name as *byte);
-                    if i < param_count - 1 {
+                    if i < param_count -| 1 {
                         fputs(", " as *byte, codegen.emit_stream);
                     }
                     i = i + 1;
@@ -1777,7 +1777,7 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                     format_param_type(codegen, param_type_c, param_name, codegen.emit_stream);
                 }
             }
-            if i < param_count - 1 {
+            if i < param_count -| 1 {
                 fputs(", " as *byte, codegen.emit_stream);
             }
         }
@@ -1995,7 +1995,7 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                         format_param_type(codegen, param_type_c, param_name, codegen.emit_stream);
                     }
                 }
-                if i < param_count - 1 {
+                if i < param_count -| 1 {
                     fputs(", " as *byte, codegen.emit_stream);
                 }
             }
@@ -2021,7 +2021,7 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     } else {
         fputs(") {\n" as *byte, codegen.emit_stream);
     }
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     
     // 保存当前函数的返回类型（用于生成返回语句）
     codegen.current_function_return_type = return_type;
@@ -2125,7 +2125,7 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     if body != null && body.type == ASTNodeType.AST_BLOCK {
         const stmts: & & ASTNode = body.block_stmts;
         const stmt_count: i32 = body.block_stmt_count;
-        var j: i32 = stmt_count - 1;
+        var j: i32 = stmt_count -| 1;
         while j >= 0 {
             const s: &ASTNode = stmts[j];
             if s != null && s.type != ASTNodeType.AST_DEFER_STMT && s.type != ASTNodeType.AST_ERRDEFER_STMT {
@@ -2152,10 +2152,10 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
         }
         if is_void_payload != 0 {
             // !void 类型：返回成功的错误联合（缩进与 C 编译器一致）
-            codegen.indent_level = codegen.indent_level + 1;
+            codegen.indent_level = codegen.indent_level +| 1;
             c99_emit_indent(codegen);
             fprintf(codegen.emit_stream as *void, "return (%s){ .error_id = 0 };\n" as *byte, return_c as *byte);
-            codegen.indent_level = codegen.indent_level - 1;
+            codegen.indent_level = codegen.indent_level -| 1;
         }
     }
     // 若返回类型非 void 且函数体末尾无 return，补兜底 return 避免 -Wreturn-type（缩进与 C 编译器一致）
@@ -2174,14 +2174,14 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
             }
         }
         if is_void == 0 {
-            codegen.indent_level = codegen.indent_level + 1;
+            codegen.indent_level = codegen.indent_level +| 1;
             c99_emit_indent(codegen);
             if return_c != null && strncmp(return_c as *byte, "struct " as *byte, 7) == 0 {
                 fprintf(codegen.emit_stream as *void, "return (%s){0};\n" as *byte, return_c as *byte);
             } else {
                 fputs("return 0;\n" as *byte, codegen.emit_stream as *void);
             }
-            codegen.indent_level = codegen.indent_level - 1;
+            codegen.indent_level = codegen.indent_level -| 1;
         }
     }
     
@@ -2196,7 +2196,7 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     codegen.local_variable_count = saved_local_variable_count;
     codegen.current_depth = saved_current_depth;
     
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit_indent(codegen);
     c99_emit_close_brace_newline(codegen);
 }
@@ -2209,10 +2209,10 @@ fn c99_layout_align_up_i32(value: i32, align: i32) i32 {
     if remainder == 0 {
         return value;
     }
-    if value > 0x7FFFFFFF - (align - remainder) {
+    if value > 0x7FFFFFFF -| (align -| remainder) {
         return -1;
     }
-    return value + (align - remainder);
+    return value +| (align -| remainder);
 }
 
 fn c99_compute_struct_align_bytes(codegen: &C99CodeGenerator, decl: &ASTNode) i32 {
@@ -2284,7 +2284,7 @@ fn c99_compute_struct_size_bytes(codegen: &C99CodeGenerator, decl: &ASTNode) i32
         if offset < 0 || offset > 0x7FFFFFFF - fs {
             return -1;
         }
-        offset = offset + fs;
+        offset = offset +| fs;
         if fa > max_align {
             max_align = fa;
         }
@@ -2349,7 +2349,7 @@ fn get_type_size_bytes_resolved(codegen: &C99CodeGenerator, t: &Type) i32 {
         if t.element_type != null && t.array_size > 0 {
             const esz: i32 = get_type_size_bytes_resolved(codegen, t.element_type);
             if esz > 0 && t.array_size <= 0x7FFFFFFF / esz {
-                return esz * t.array_size;
+                return esz *| t.array_size;
             }
         }
         return -1;
@@ -2369,7 +2369,7 @@ fn get_type_size_bytes_resolved(codegen: &C99CodeGenerator, t: &Type) i32 {
                 if total < 0 || total > 0x7FFFFFFF - es {
                     return -1;
                 }
-                total = total + es;
+                total = total +| es;
                 if ea > max_align {
                     max_align = ea;
                 }
@@ -2491,12 +2491,12 @@ fn c99_async_await_codegen_total_bytes(await_count: i32, include_bind_names: i32
         return 0 as usize;
     }
     const count: usize = await_count as usize;
-    var total: usize = (@size_of(&ASTNode) * count * (8 as usize));
-    total = total + (@size_of(&byte) * count);
+    var total: usize = (@size_of(&ASTNode) *| count *| (8 as usize));
+    total = total + (@size_of(&byte) *| count);
     if include_bind_names != 0 {
-        total = total + (@size_of(&byte) * count);
+        total = total + (@size_of(&byte) *| count);
     }
-    total = total + (@size_of(i32) * count * (3 as usize));
+    total = total + (@size_of(i32) *| count *| (3 as usize));
     return total;
 }
 
@@ -2505,7 +2505,7 @@ fn c99_async_param_codegen_total_bytes(param_count: i32) usize {
         return 0 as usize;
     }
     const count: usize = param_count as usize;
-    return (@size_of(&ASTNode) * count) + (@size_of(&byte) * count * (2 as usize));
+    return (@size_of(&ASTNode) *| count) +| (@size_of(&byte) *| count *| (2 as usize));
 }
 
 fn c99_report_async_codegen_resource_failure(codegen: &C99CodeGenerator, message: &byte, needed: i32, request_bytes: usize) void {
@@ -2556,7 +2556,7 @@ fn c99_ensure_async_await_capacity(codegen: &C99CodeGenerator, needed: i32) i32 
         new_cap = C99_ASYNC_INITIAL_AWAIT_CAPACITY;
     }
     while new_cap < needed {
-        new_cap = new_cap * 2;
+        new_cap = new_cap *| 2;
         if new_cap <= 0 {
             c99_report_async_codegen_resource_failure(codegen, "@async_fn C99 await 元数据扩容失败，容量计算溢出" as &byte, needed, 0);
             return -1;
@@ -3206,66 +3206,66 @@ fn c99_async_count_identifier_uses(node: &ASTNode, name: &byte) i32 {
     if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
         var i: i32 = 0;
         while i < node.block_stmt_count {
-            count = count + c99_async_count_identifier_uses(node.block_stmts[i], name);
+            count = count +| c99_async_count_identifier_uses(node.block_stmts[i], name);
             i = i + 1;
         }
     } else if node.type == ASTNodeType.AST_IF_STMT {
-        count = count + c99_async_count_identifier_uses(node.if_stmt_condition, name);
-        count = count + c99_async_count_identifier_uses(node.if_stmt_then_branch, name);
-        count = count + c99_async_count_identifier_uses(node.if_stmt_else_branch, name);
+        count = count +| c99_async_count_identifier_uses(node.if_stmt_condition, name);
+        count = count +| c99_async_count_identifier_uses(node.if_stmt_then_branch, name);
+        count = count +| c99_async_count_identifier_uses(node.if_stmt_else_branch, name);
     } else if node.type == ASTNodeType.AST_WHILE_STMT {
-        count = count + c99_async_count_identifier_uses(node.while_stmt_condition, name);
-        count = count + c99_async_count_identifier_uses(node.while_stmt_body, name);
+        count = count +| c99_async_count_identifier_uses(node.while_stmt_condition, name);
+        count = count +| c99_async_count_identifier_uses(node.while_stmt_body, name);
     } else if node.type == ASTNodeType.AST_FOR_STMT {
-        count = count + c99_async_count_identifier_uses(node.for_stmt_array, name);
-        count = count + c99_async_count_identifier_uses(node.for_stmt_range_start, name);
-        count = count + c99_async_count_identifier_uses(node.for_stmt_range_end, name);
-        count = count + c99_async_count_identifier_uses(node.for_stmt_body, name);
+        count = count +| c99_async_count_identifier_uses(node.for_stmt_array, name);
+        count = count +| c99_async_count_identifier_uses(node.for_stmt_range_start, name);
+        count = count +| c99_async_count_identifier_uses(node.for_stmt_range_end, name);
+        count = count +| c99_async_count_identifier_uses(node.for_stmt_body, name);
     } else if node.type == ASTNodeType.AST_RETURN_STMT {
-        count = count + c99_async_count_identifier_uses(node.return_stmt_expr, name);
+        count = count +| c99_async_count_identifier_uses(node.return_stmt_expr, name);
     } else if node.type == ASTNodeType.AST_VAR_DECL {
-        count = count + c99_async_count_identifier_uses(node.var_decl_init, name);
+        count = count +| c99_async_count_identifier_uses(node.var_decl_init, name);
     } else if node.type == ASTNodeType.AST_ASSIGN {
-        count = count + c99_async_count_identifier_uses(node.assign_dest, name);
-        count = count + c99_async_count_identifier_uses(node.assign_src, name);
+        count = count +| c99_async_count_identifier_uses(node.assign_dest, name);
+        count = count +| c99_async_count_identifier_uses(node.assign_src, name);
     } else if node.type == ASTNodeType.AST_BINARY_EXPR {
-        count = count + c99_async_count_identifier_uses(node.binary_expr_left, name);
-        count = count + c99_async_count_identifier_uses(node.binary_expr_right, name);
+        count = count +| c99_async_count_identifier_uses(node.binary_expr_left, name);
+        count = count +| c99_async_count_identifier_uses(node.binary_expr_right, name);
     } else if node.type == ASTNodeType.AST_UNARY_EXPR {
-        count = count + c99_async_count_identifier_uses(node.unary_expr_operand, name);
+        count = count +% c99_async_count_identifier_uses(node.unary_expr_operand, name);
     } else if node.type == ASTNodeType.AST_CALL_EXPR {
-        count = count + c99_async_count_identifier_uses(node.call_expr_callee, name);
+        count = count +| c99_async_count_identifier_uses(node.call_expr_callee, name);
         if node.call_expr_args != null {
             var i: i32 = 0;
             while i < node.call_expr_arg_count {
-                count = count + c99_async_count_identifier_uses(node.call_expr_args[i], name);
+                count = count +| c99_async_count_identifier_uses(node.call_expr_args[i], name);
                 i = i + 1;
             }
         }
     } else if node.type == ASTNodeType.AST_MEMBER_ACCESS {
-        count = count + c99_async_count_identifier_uses(node.member_access_object, name);
+        count = count +| c99_async_count_identifier_uses(node.member_access_object, name);
     } else if node.type == ASTNodeType.AST_ARRAY_ACCESS {
-        count = count + c99_async_count_identifier_uses(node.array_access_array, name);
-        count = count + c99_async_count_identifier_uses(node.array_access_index, name);
+        count = count +| c99_async_count_identifier_uses(node.array_access_array, name);
+        count = count +| c99_async_count_identifier_uses(node.array_access_index, name);
     } else if node.type == ASTNodeType.AST_SLICE_EXPR {
-        count = count + c99_async_count_identifier_uses(node.slice_expr_base, name);
-        count = count + c99_async_count_identifier_uses(node.slice_expr_start_expr, name);
-        count = count + c99_async_count_identifier_uses(node.slice_expr_len_expr, name);
+        count = count +| c99_async_count_identifier_uses(node.slice_expr_base, name);
+        count = count +| c99_async_count_identifier_uses(node.slice_expr_start_expr, name);
+        count = count +| c99_async_count_identifier_uses(node.slice_expr_len_expr, name);
     } else if node.type == ASTNodeType.AST_TRY_EXPR {
-        count = count + c99_async_count_identifier_uses(node.try_expr_operand, name);
+        count = count +% c99_async_count_identifier_uses(node.try_expr_operand, name);
     } else if node.type == ASTNodeType.AST_CATCH_EXPR {
-        count = count + c99_async_count_identifier_uses(node.catch_expr_operand, name);
-        count = count + c99_async_count_identifier_uses(node.catch_expr_catch_block, name);
+        count = count +% c99_async_count_identifier_uses(node.catch_expr_operand, name);
+        count = count +| c99_async_count_identifier_uses(node.catch_expr_catch_block, name);
     } else if node.type == ASTNodeType.AST_CAST_EXPR {
-        count = count + c99_async_count_identifier_uses(node.cast_expr_expr, name);
+        count = count +| c99_async_count_identifier_uses(node.cast_expr_expr, name);
     } else if node.type == ASTNodeType.AST_AWAIT_EXPR {
-        count = count + c99_async_count_identifier_uses(node.await_expr_operand, name);
+        count = count +% c99_async_count_identifier_uses(node.await_expr_operand, name);
     } else if node.type == ASTNodeType.AST_MATCH_EXPR {
-        count = count + c99_async_count_identifier_uses(node.match_expr_expr, name);
+        count = count +| c99_async_count_identifier_uses(node.match_expr_expr, name);
         if node.match_expr_arms != null {
             var i: i32 = 0;
             while i < node.match_expr_arm_count {
-                count = count + c99_async_count_identifier_uses(node.match_expr_arms[i].result_expr, name);
+                count = count +| c99_async_count_identifier_uses(node.match_expr_arms[i].result_expr, name);
                 i = i + 1;
             }
         }
@@ -3273,7 +3273,7 @@ fn c99_async_count_identifier_uses(node: &ASTNode, name: &byte) i32 {
         if node.struct_init_field_values != null {
             var i: i32 = 0;
             while i < node.struct_init_field_count {
-                count = count + c99_async_count_identifier_uses(node.struct_init_field_values[i], name);
+                count = count +| c99_async_count_identifier_uses(node.struct_init_field_values[i], name);
                 i = i + 1;
             }
         }
@@ -3281,29 +3281,29 @@ fn c99_async_count_identifier_uses(node: &ASTNode, name: &byte) i32 {
         if node.array_literal_elements != null {
             var i: i32 = 0;
             while i < node.array_literal_element_count {
-                count = count + c99_async_count_identifier_uses(node.array_literal_elements[i], name);
+                count = count +| c99_async_count_identifier_uses(node.array_literal_elements[i], name);
                 i = i + 1;
             }
         }
-        count = count + c99_async_count_identifier_uses(node.array_literal_repeat_count_expr, name);
+        count = count +| c99_async_count_identifier_uses(node.array_literal_repeat_count_expr, name);
     } else if node.type == ASTNodeType.AST_TUPLE_LITERAL {
         if node.tuple_literal_elements != null {
             var i: i32 = 0;
             while i < node.tuple_literal_element_count {
-                count = count + c99_async_count_identifier_uses(node.tuple_literal_elements[i], name);
+                count = count +| c99_async_count_identifier_uses(node.tuple_literal_elements[i], name);
                 i = i + 1;
             }
         }
     } else if node.type == ASTNodeType.AST_SIZEOF {
-        count = count + c99_async_count_identifier_uses(node.sizeof_expr_target, name);
+        count = count +| c99_async_count_identifier_uses(node.sizeof_expr_target, name);
     } else if node.type == ASTNodeType.AST_LEN {
-        count = count + c99_async_count_identifier_uses(node.len_expr_array, name);
+        count = count +| c99_async_count_identifier_uses(node.len_expr_array, name);
     } else if node.type == ASTNodeType.AST_ALIGNOF {
-        count = count + c99_async_count_identifier_uses(node.alignof_expr_target, name);
+        count = count +| c99_async_count_identifier_uses(node.alignof_expr_target, name);
     } else if node.type == ASTNodeType.AST_DEFER_STMT {
-        count = count + c99_async_count_identifier_uses(node.defer_stmt_body, name);
+        count = count +| c99_async_count_identifier_uses(node.defer_stmt_body, name);
     } else if node.type == ASTNodeType.AST_ERRDEFER_STMT {
-        count = count + c99_async_count_identifier_uses(node.errdefer_stmt_body, name);
+        count = count +| c99_async_count_identifier_uses(node.errdefer_stmt_body, name);
     }
     return count;
 }
@@ -3329,7 +3329,7 @@ fn c99_async_scan_inline_temp_vars(codegen: &C99CodeGenerator, body: &ASTNode) v
                             const inline_temp_idx: i32 = codegen.async_inline_temp_var_count;
                             if inline_temp_idx >= 0 && inline_temp_idx < 32 {
                                 codegen.async_inline_temp_var_names[inline_temp_idx] = name;
-                                codegen.async_inline_temp_var_count = codegen.async_inline_temp_var_count + 1;
+                                codegen.async_inline_temp_var_count = codegen.async_inline_temp_var_count +| 1;
                                 codegen.async_collect_operands[j] = init;
                             }
                         }
@@ -3408,7 +3408,7 @@ fn c99_emit_await_fut_assign_from_expr(codegen: &C99CodeGenerator, operand: &AST
                                         }
                                     }
                                 }
-                                ii = ii + 1;
+                                ii = ii +| 1;
                             }
                         }
                     }
@@ -4628,7 +4628,7 @@ fn c99_async_block_has_trailing_terminal(block: &ASTNode) i32 {
     if block == null || block.type != ASTNodeType.AST_BLOCK || block.block_stmts == null {
         return 0;
     }
-    var i: i32 = block.block_stmt_count - 1;
+    var i: i32 = block.block_stmt_count -| 1;
     while i >= 0 {
         const stmt: &ASTNode = block.block_stmts[i];
         if stmt != null && stmt.type != ASTNodeType.AST_DEFER_STMT && stmt.type != ASTNodeType.AST_ERRDEFER_STMT {
@@ -4958,7 +4958,7 @@ fn emit_async_after_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) i32 {
     if c99_find_stmt_in_block_tree(stmt, codegen.async_fn_body, &parent_block[0], &stmt_si[0]) == 0 {
         return 1;
     }
-    const r: i32 = emit_async_segment(codegen, parent_block[0], stmt_si[0] + 1, parent_block[0].block_stmt_count);
+    const r: i32 = emit_async_segment(codegen, parent_block[0], stmt_si[0] +| 1, parent_block[0].block_stmt_count);
     if r == ASYNC_SEGMENT_TERMINATED_RETURN {
         return 0;
     }
@@ -5070,7 +5070,7 @@ fn emit_async_continue_in_parent(codegen: &C99CodeGenerator, child_block: &ASTNo
             return 0;
         }
     }
-    const r: i32 = emit_async_segment(codegen, parent_blk[0], stmt_idx[0] + 1, parent_blk[0].block_stmt_count);
+    const r: i32 = emit_async_segment(codegen, parent_blk[0], stmt_idx[0] +| 1, parent_blk[0].block_stmt_count);
     if r == ASYNC_SEGMENT_TERMINATED_RETURN {
         return 0;
     }
@@ -5234,7 +5234,7 @@ fn emit_async_while_with_await(codegen: &C99CodeGenerator, while_stmt: &ASTNode,
         fputs("        }\n" as *byte, codegen.emit_stream as *void);
     }
     fprintf(codegen.emit_stream as *void, "_uya_async_while_exit_%zu:\n" as *byte, label_id);
-    const r: i32 = emit_async_continue_after_range(codegen, parent_block, while_si + 1, parent_to_si);
+    const r: i32 = emit_async_continue_after_range(codegen, parent_block, while_si +| 1, parent_to_si);
     if r != 0 {
         // while 后无更多代码 — 跳到终态
         c99_emit_async_set_terminal_state(codegen);
@@ -5442,7 +5442,7 @@ fn emit_async_for_with_await(codegen: &C99CodeGenerator, for_stmt: &ASTNode, for
                     fputs(") {\n" as *byte, codegen.emit_stream as *void);
                     _ = c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody.block_stmt_count, null, for_stmt);
                     fputs("        } else {\n" as *byte, codegen.emit_stream as *void);
-                    const r5: i32 = emit_async_continue_after_range(codegen, parent_block, for_si + 1, parent_to_si);
+                    const r5: i32 = emit_async_continue_after_range(codegen, parent_block, for_si +| 1, parent_to_si);
                     if r5 != 0 {
                         c99_emit_async_set_terminal_state(codegen);
                     }
@@ -5471,7 +5471,7 @@ fn emit_async_for_with_await(codegen: &C99CodeGenerator, for_stmt: &ASTNode, for
                     fputs(") {\n" as *byte, codegen.emit_stream as *void);
                     _ = c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody.block_stmt_count, null, for_stmt);
                     fputs("        } else {\n" as *byte, codegen.emit_stream as *void);
-                    const r6: i32 = emit_async_continue_after_range(codegen, parent_block, for_si + 1, parent_to_si);
+                    const r6: i32 = emit_async_continue_after_range(codegen, parent_block, for_si +| 1, parent_to_si);
                     if r6 != 0 {
                         c99_emit_async_set_terminal_state(codegen);
                     }
@@ -5516,7 +5516,7 @@ fn emit_async_for_with_await(codegen: &C99CodeGenerator, for_stmt: &ASTNode, for
                 codegen.async_state_var as *byte, iter_safe2 as *byte);
             _ = c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody.block_stmt_count, null, for_stmt);
             fputs("        } else {\n" as *byte, codegen.emit_stream as *void);
-            const r_iter2: i32 = emit_async_continue_after_range(codegen, parent_block, for_si + 1, parent_to_si);
+            const r_iter2: i32 = emit_async_continue_after_range(codegen, parent_block, for_si +| 1, parent_to_si);
             if r_iter2 != 0 {
                 c99_emit_async_set_terminal_state(codegen);
             }
@@ -5527,7 +5527,7 @@ fn emit_async_for_with_await(codegen: &C99CodeGenerator, for_stmt: &ASTNode, for
     }
     const elem_cb: &byte = c99_async_for_array_elem_type_c(codegen, for_stmt);
     if elem_cb == null {
-        const r7: i32 = emit_async_continue_after_range(codegen, parent_block, for_si + 1, parent_to_si);
+        const r7: i32 = emit_async_continue_after_range(codegen, parent_block, for_si +| 1, parent_to_si);
         if r7 != 0 {
             c99_emit_async_set_terminal_state(codegen);
         }
@@ -5558,7 +5558,7 @@ fn emit_async_for_with_await(codegen: &C99CodeGenerator, for_stmt: &ASTNode, for
         c99_emit_async_for_array_iter_bind_indexed(codegen, for_stmt, elem_cb, &idx_expr2[0] as &byte);
         _ = c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody.block_stmt_count, null, for_stmt);
         fputs("        } else {\n" as *byte, codegen.emit_stream as *void);
-        const r8: i32 = emit_async_continue_after_range(codegen, parent_block, for_si + 1, parent_to_si);
+        const r8: i32 = emit_async_continue_after_range(codegen, parent_block, for_si +| 1, parent_to_si);
         if r8 != 0 {
             c99_emit_async_set_terminal_state(codegen);
         }
@@ -5621,7 +5621,7 @@ fn emit_async_if_with_await(codegen: &C99CodeGenerator, if_stmt: &ASTNode, if_si
     }
     fputs("        }\n" as *byte, codegen.emit_stream as *void);
     fprintf(codegen.emit_stream as *void, "_uya_async_if_exit_%zu:\n" as *byte, label_id);
-    const r_after_if: i32 = emit_async_continue_after_range(codegen, parent_block, if_si + 1, parent_to_si);
+    const r_after_if: i32 = emit_async_continue_after_range(codegen, parent_block, if_si +| 1, parent_to_si);
     if r_after_if != 0 {
         c99_emit_async_set_terminal_state(codegen);
     }
@@ -5855,7 +5855,7 @@ fn c99_async_emit_var_decl_catch_with_await(
     fprintf(codegen.emit_stream as *void,
         "        if (_uya_async_catch_tmp_%zu.error_id != 0) {\n" as *byte,
         label_id);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     const saved_local_count: i32 = codegen.local_variable_count;
     if init.catch_expr_err_name != null {
         const err_safe: &byte = get_safe_c_identifier(codegen, init.catch_expr_err_name);
@@ -5871,19 +5871,19 @@ fn c99_async_emit_var_decl_catch_with_await(
     }
     c99_emit_async_arm_and_fallthrough(codegen, await_index);
     codegen.local_variable_count = saved_local_count;
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     fputs("        } else {\n" as *byte, codegen.emit_stream as *void);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     const value_ref: &byte = compiler_arena_alloc(codegen.arena, 128) as &byte;
     if value_ref != null {
         snprintf(value_ref as *byte, 128, "_uya_async_catch_tmp_%zu.value" as *byte, label_id);
         _ = c99_async_emit_var_decl_target_assign(codegen, stmt, value_ref);
     }
-    const cont_r: i32 = emit_async_continue_after_range(codegen, block, si + 1, to_si);
+    const cont_r: i32 = emit_async_continue_after_range(codegen, block, si +| 1, to_si);
     if cont_r == ASYNC_SEGMENT_REACHED_END {
         c99_emit_async_set_terminal_state(codegen);
     }
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     fputs("        }\n" as *byte, codegen.emit_stream as *void);
     return 1;
 }
@@ -5939,7 +5939,7 @@ fn emit_async_segment(codegen: &C99CodeGenerator, block: &ASTNode, from_si: i32,
         }
         // 提升到状态机的局部变量：发射 s->_uya_loc_name = expr
         if stmt.type == ASTNodeType.AST_VAR_DECL && c99_emit_async_local_init_single(codegen, stmt) != 0 {
-            si = si + 1;
+            si = si +| 1;
             continue;
         }
         // lowered plan 已给出当前语句的 await split 点；这里不再按 var/return/compound 形状重新推断。
@@ -5961,7 +5961,7 @@ fn emit_async_segment(codegen: &C99CodeGenerator, block: &ASTNode, from_si: i32,
         }
         // 普通语句
         gen_stmt(codegen, stmt);
-        si = si + 1;
+        si = si +| 1;
     }
     return ASYNC_SEGMENT_REACHED_END;
 }
@@ -6044,7 +6044,7 @@ fn emit_async_continuation(codegen: &C99CodeGenerator, cur_ai: i32) i32 {
     }
     if ew != null && ew.type == ASTNodeType.AST_WHILE_STMT {
         // await 在 while 内：发射 while 体剩余语句
-        const reached_end: i32 = emit_async_segment_with_control(codegen, ab, asi + 1, ab.block_stmt_count, ew, null);
+        const reached_end: i32 = emit_async_segment_with_control(codegen, ab, asi +| 1, ab.block_stmt_count, ew, null);
         if reached_end == ASYNC_SEGMENT_REACHED_END {
             // 最后一个 await 在 while 内 → 回跳或退出
             c99_async_emit_completed_block_cleanup(codegen, ab);
@@ -6053,14 +6053,14 @@ fn emit_async_continuation(codegen: &C99CodeGenerator, cur_ai: i32) i32 {
     } else {
         const ef: &ASTNode = codegen.async_collect_enclosing_for[cur_ai];
         if ef != null && ef.type == ASTNodeType.AST_FOR_STMT {
-            const reached_for: i32 = emit_async_segment_with_control(codegen, ab, asi + 1, ab.block_stmt_count, null, ef);
+            const reached_for: i32 = emit_async_segment_with_control(codegen, ab, asi +| 1, ab.block_stmt_count, null, ef);
             if reached_for == ASYNC_SEGMENT_REACHED_END {
                 c99_async_emit_completed_block_cleanup(codegen, ab);
                 emit_async_for_loopback_or_exit(codegen, ef);
             }
         } else {
             // 非循环 await：发射 block 剩余语句（遇 return 语句停止）
-            const r: i32 = emit_async_segment(codegen, ab, asi + 1, ab.block_stmt_count);
+            const r: i32 = emit_async_segment(codegen, ab, asi +| 1, ab.block_stmt_count);
             if r == ASYNC_SEGMENT_TERMINATED_RETURN {
                 result = 0;
             } else if r == ASYNC_SEGMENT_REACHED_END {
@@ -6437,7 +6437,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
             await_cleanup_region_ids[ci] = codegen.async_collect_cleanup_region_ids[ci];
             await_enclosing_while[ci] = codegen.async_collect_enclosing_while[ci];
             await_enclosing_for[ci] = codegen.async_collect_enclosing_for[ci];
-            ci = ci + 1;
+            ci = ci +| 1;
         }
         collect_async_pre_return_locals(codegen, body);
         c99_async_hoist_for_with_await_vars_rec(codegen, fn_decl, body);
@@ -6503,14 +6503,14 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
             if bind_type_node != null {
                 const sz: i32 = get_type_node_size_bytes(codegen, bind_type_node);
                 if sz > 0 {
-                    est = est + sz;
+                    est = est +| sz;
                 } else {
                     est = est + 16;
                 }
             } else {
                 est = est + 16;
             }
-            ai = ai + 1;
+            ai = ai +| 1;
         }
         // 参数：按实际类型大小
         {
@@ -6522,9 +6522,9 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 if param != null && param.type == ASTNodeType.AST_VAR_DECL {
                     const sz: i32 = get_type_node_size_bytes(codegen, param.var_decl_type);
                     if sz > 0 {
-                        est = est + sz;
+                        est = est +| sz;
                     } else {
-                        est = est + 16;
+                        est = est +| 16;
                     }
                 }
                 pi2 = pi2 + 1;
@@ -6884,7 +6884,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
             if c99_async_await_operand_is_inlineable(codegen, await_operands[inline_i], &inline_struct_name) != 0 && inline_struct_name != null {
                 fprintf(codegen.emit_stream as *void, "struct %s _uya_inline_await_%d; " as *byte, inline_struct_name as *byte, inline_i);
             }
-            inline_i = inline_i + 1;
+            inline_i = inline_i +| 1;
         }
         // 输出所有 await 绑定变量到结构体（确保跨 poll 调用时值不丢失）
         while bind_i < await_count {
@@ -6905,7 +6905,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                     c99_emit_struct_field_decl_fragment(codegen, await_bind_types[bind_i], "_uya_bind_" as &byte, bind_safe_name);
                 }
             }
-            bind_i = bind_i + 1;
+            bind_i = bind_i +| 1;
         }
         while loc_i < codegen.async_local_count && loc_i < @len(codegen.async_local_names) {
             const lname_safe: &byte = get_safe_c_identifier(codegen, codegen.async_local_names[loc_i]);
@@ -6918,7 +6918,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                         loc_seen = 1;
                         prev_loc_i = loc_i;
                     } else {
-                        prev_loc_i = prev_loc_i + 1;
+                        prev_loc_i = prev_loc_i +| 1;
                     }
                 }
                 if loc_seen == 0 {
@@ -6970,12 +6970,12 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         if await_count > 0 && concrete_future_safe != null && await_operand_is_err_future != 0 {
             var st_sz: i32 = get_type_node_size_bytes(codegen, effective_return_type);
             if st_sz <= 0 { st_sz = 24; }
-            est_offset = ((est_offset + 7) / 8) * 8;
-            est_offset = est_offset + st_sz;
+            est_offset = ((est_offset + 7) / 8) *| 8;
+            est_offset = est_offset +| st_sz;
             if 8 > est_align { est_align = 8; }
         }
-        est_offset = ((est_offset + 7) / 8) * 8;
-        est_offset = est_offset + 16;
+        est_offset = ((est_offset +| 7) / 8) *| 8;
+        est_offset = est_offset +| 16;
         if 8 > est_align { est_align = 8; }
         // 加上内联 child frame 的大小
         var inline_sz_i: i32 = 0;
@@ -6993,11 +6993,11 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 }
                 if child_sz <= 0 { child_sz = 64; }
                 if child_al <= 0 { child_al = 8; }
-                est_offset = ((est_offset + child_al - 1) / child_al) * child_al;
-                est_offset = est_offset + child_sz;
+                est_offset = ((est_offset +| child_al -| 1) / child_al) *| child_al;
+                est_offset = est_offset +| child_sz;
                 if child_al > est_align { est_align = child_al; }
             }
-            inline_sz_i = inline_sz_i + 1;
+            inline_sz_i = inline_sz_i +| 1;
         }
         bind_i = 0;
         while bind_i < await_count {
@@ -7008,11 +7008,11 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 if use_sz <= 0 { use_sz = 8; }
                 var use_al: i32 = bal;
                 if use_al <= 0 { use_al = 8; }
-                est_offset = ((est_offset + use_al - 1) / use_al) * use_al;
-                est_offset = est_offset + use_sz;
+                est_offset = ((est_offset +| use_al -| 1) / use_al) *| use_al;
+                est_offset = est_offset +| use_sz;
                 if use_al > est_align { est_align = use_al; }
             }
-            bind_i = bind_i + 1;
+            bind_i = bind_i +| 1;
         }
         loc_i = 0;
         while loc_i < codegen.async_local_count && loc_i < @len(codegen.async_local_names) {
@@ -7023,8 +7023,8 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 if use_sz <= 0 { use_sz = 8; }
                 var use_al: i32 = lal;
                 if use_al <= 0 { use_al = 8; }
-                est_offset = ((est_offset + use_al - 1) / use_al) * use_al;
-                est_offset = est_offset + use_sz;
+                est_offset = ((est_offset +| use_al -| 1) / use_al) *| use_al;
+                est_offset = est_offset +| use_sz;
                 if use_al > est_align { est_align = use_al; }
             }
             loc_i = loc_i + 1;
@@ -7039,8 +7039,8 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 if use_sz <= 0 { use_sz = 8; }
                 var use_al: i32 = pal;
                 if use_al <= 0 { use_al = 8; }
-                est_offset = ((est_offset + use_al - 1) / use_al) * use_al;
-                est_offset = est_offset + use_sz;
+                est_offset = ((est_offset +| use_al -| 1) / use_al) *| use_al;
+                est_offset = est_offset +| use_sz;
                 if use_al > est_align { est_align = use_al; }
             }
             pi = pi + 1;
@@ -7049,7 +7049,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
             est_align = fn_decl.fn_decl_align;
         }
         if est_align > 0 {
-            est_offset = ((est_offset + est_align - 1) / est_align) * est_align;
+            est_offset = ((est_offset +| est_align -| 1) / est_align) *| est_align;
         }
         if est_offset < 0 { est_offset = 0; }
         codegen.async_frame_size = est_offset as usize;
@@ -7117,13 +7117,13 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
     var bind_idx: i32 = 0;
     while bind_idx < await_count && codegen.async_bind_names != null && await_bind_names != null {
         codegen.async_bind_names[bind_idx] = await_bind_names[bind_idx];
-        bind_idx = bind_idx + 1;
+        bind_idx = bind_idx +| 1;
     }
     codegen.async_param_names = null;
     codegen.async_param_count = 0;
     codegen.async_param_capacity = 0;
     if param_count > 0 {
-        const param_name_request_bytes: usize = (@size_of(&byte) * param_count as usize);
+        const param_name_request_bytes: usize = (@size_of(&byte) *| param_count as usize);
         var param_name_filename: &byte = null;
         var param_name_line: i32 = 0;
         var param_name_column: i32 = 0;
@@ -7235,14 +7235,14 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
     var emit_await_count: i32 = await_count;
     var state_k: i32 = 1;
     while state_k <= emit_await_count {
-        const state_idx: i32 = state_k - 1;
+        const state_idx: i32 = state_k -| 1;
         if state_idx < 0 {
-            state_k = state_k + 1;
+            state_k = state_k +| 1;
             continue;
         }
         const state_id: i32 = c99_async_state_id_at(await_state_ids, await_count, state_idx);
         if state_id <= 0 {
-            state_k = state_k + 1;
+            state_k = state_k +| 1;
             continue;
         }
         // 每段 await 的 Poll/vtable 类型可能不同：按操作数推断并单态化
@@ -7371,7 +7371,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 codegen.defer_stack_depth = saved_state_depth;
                 codegen.current_drop_scope = saved_state_drop_scope;
                 fputs("    }\n" as *byte, codegen.emit_stream as *void);
-                state_k = state_k + 1;
+                state_k = state_k +| 1;
                 continue;
             }
             // Bug C: "return try @await" — 无 bind name：直接 return Ready(r.value)
@@ -7391,7 +7391,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 codegen.defer_stack_depth = saved_state_depth;
                 codegen.current_drop_scope = saved_state_drop_scope;
                 fputs("    }\n" as *byte, codegen.emit_stream as *void);
-                state_k = state_k + 1;
+                state_k = state_k +| 1;
                 continue;
             }
             // 通用 continuation：递归段发射（emit_async_segment 遇 return 语句停止）
@@ -7464,7 +7464,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         codegen.defer_stack_depth = saved_state_depth;
         codegen.current_drop_scope = saved_state_drop_scope;
         fputs("    }\n" as *byte, codegen.emit_stream as *void);
-        state_k = state_k + 1;
+        state_k = state_k +| 1;
     }
 
     // 终态 — while/if 的无 await 分支可能到达 lowered plan 指定的 terminal state。
@@ -7498,7 +7498,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
             // Loop back to state 0 to avoid an empty block that falls through and causes UB.
             var last_stmt_is_loop: i32 = 0;
             if body != null && body.type == ASTNodeType.AST_BLOCK && body.block_stmts != null && body.block_stmt_count > 0 {
-                var last_si: i32 = body.block_stmt_count - 1;
+                var last_si: i32 = body.block_stmt_count -| 1;
                 while last_si >= 0 {
                     const last_st: &ASTNode = body.block_stmts[last_si];
                     if last_st != null {
@@ -7507,7 +7507,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                         }
                         break;
                     }
-                    last_si = last_si - 1;
+                    last_si = last_si -| 1;
                 }
             }
             if last_stmt_is_loop != 0 {
@@ -7622,7 +7622,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                     fprintf(codegen.emit_stream as *void, "    %s(&s->_uya_inline_await_%d);\n" as *byte, child_rel_fields as *byte, rel_i);
                 }
             }
-            rel_i = rel_i + 1;
+            rel_i = rel_i +| 1;
         }
         fputs("    s->state = 0;\n" as *byte, codegen.emit_stream as *void);
         fputs("    s->_uya_frame_active = 0;\n" as *byte, codegen.emit_stream as *void);
@@ -7969,7 +7969,7 @@ fn gen_method_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_na
         const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
         const param_type_c: &byte = c99_type_to_c_with_self_opt(codegen, param.var_decl_type, struct_name, 0);
         format_param_type(codegen, param_type_c, param_name, codegen.emit_stream as *void);
-        if i < param_count - 1 {
+        if i < param_count -| 1 {
             c99_emit_comma_space(codegen);
         }
         i = i + 1;
@@ -8042,13 +8042,13 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
         const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
         const param_type_c: &byte = c99_type_to_c_with_self_opt(codegen, param.var_decl_type, struct_name, 0);
         format_param_type(codegen, param_type_c, param_name, codegen.emit_stream as *void);
-        if i < param_count - 1 {
+        if i < param_count -| 1 {
             c99_emit_comma_space(codegen);
         }
         i = i + 1;
     }
     fputs(") {\n" as *byte, codegen.emit_stream as *void);
-    codegen.indent_level = codegen.indent_level + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
     codegen.current_function_return_type = fn_decl.fn_decl_return_type;
     const saved_current_function_decl: &ASTNode = codegen.current_function_decl;
     codegen.current_function_decl = fn_decl;
@@ -8082,7 +8082,7 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
         const self_safe: &byte = get_safe_c_identifier(codegen, "self" as *byte);
         if struct_decl != null && struct_decl.struct_decl_fields != null && self_safe != null {
             const fc: i32 = struct_decl.struct_decl_field_count;
-            var fi: i32 = fc - 1;
+            var fi: i32 = fc -| 1;
             while fi >= 0 {
                 const field: &ASTNode = struct_decl.struct_decl_fields[fi];
                 if field == null || field.type != ASTNodeType.AST_VAR_DECL || field.var_decl_name == null {
@@ -8130,27 +8130,27 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
                 if has_variant_drop == 0 {
                     c99_emit_indent(codegen);
                     fprintf(codegen.emit_stream as *void, "switch (%s._tag) {\n" as *byte, self_safe as *byte);
-                    codegen.indent_level = codegen.indent_level + 1;
+                    codegen.indent_level = codegen.indent_level +| 1;
                     has_variant_drop = 1;
                 }
                 c99_emit_indent(codegen);
                 fprintf(codegen.emit_stream as *void, "case %d:\n" as *byte, vi);
-                codegen.indent_level = codegen.indent_level + 1;
+                codegen.indent_level = codegen.indent_level +| 1;
                 c99_emit_indent(codegen);
                 fprintf(codegen.emit_stream as *void, "/* drop active union variant */ %s(%s.u.%s);\n" as *byte, drop_c as *byte, self_safe as *byte, variant_safe as *byte);
                 c99_emit_indent(codegen);
                 c99_emit(codegen, "break;\n" as *byte);
-                codegen.indent_level = codegen.indent_level - 1;
+                codegen.indent_level = codegen.indent_level -| 1;
                 vi = vi + 1;
             }
             if has_variant_drop != 0 {
                 c99_emit_indent(codegen);
                 c99_emit(codegen, "default:\n" as *byte);
-                codegen.indent_level = codegen.indent_level + 1;
+                codegen.indent_level = codegen.indent_level +| 1;
                 c99_emit_indent(codegen);
                 c99_emit(codegen, "break;\n" as *byte);
-                codegen.indent_level = codegen.indent_level - 1;
-                codegen.indent_level = codegen.indent_level - 1;
+                codegen.indent_level = codegen.indent_level -| 1;
+                codegen.indent_level = codegen.indent_level -| 1;
                 c99_emit_indent(codegen);
                 c99_emit(codegen, "}\n" as *byte);
             }
@@ -8163,7 +8163,7 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
     if fn_decl.fn_decl_body != null && fn_decl.fn_decl_body.type == ASTNodeType.AST_BLOCK {
         const stmts: & & ASTNode = fn_decl.fn_decl_body.block_stmts;
         const stmt_count: i32 = fn_decl.fn_decl_body.block_stmt_count;
-        var j: i32 = stmt_count - 1;
+        var j: i32 = stmt_count -| 1;
         while j >= 0 {
             const s: &ASTNode = stmts[j];
             if s != null && s.type != ASTNodeType.AST_DEFER_STMT && s.type != ASTNodeType.AST_ERRDEFER_STMT {
@@ -8190,10 +8190,10 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
         }
         if is_void_payload != 0 {
             // !void 类型：返回成功的错误联合（缩进与 C 编译器一致）
-            codegen.indent_level = codegen.indent_level + 1;
+            codegen.indent_level = codegen.indent_level +| 1;
             c99_emit_indent(codegen);
             fprintf(codegen.emit_stream as *void, "return (%s){ .error_id = 0 };\n" as *byte, return_c as *byte);
-            codegen.indent_level = codegen.indent_level - 1;
+            codegen.indent_level = codegen.indent_level -| 1;
         }
     }
     
@@ -8202,7 +8202,7 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
     codegen.current_method_struct_name = saved_method_struct;
     codegen.local_variable_count = saved_local_count;
     codegen.current_depth = saved_depth;
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     c99_emit_indent(codegen);
     c99_emit_close_brace_newline(codegen);
 }
@@ -8444,7 +8444,7 @@ fn c99_async_compute_alloc_formatted_name(codegen: &C99CodeGenerator, fmt: &byte
     }
     const left_len: i32 = strlen(left as *byte);
     const right_len: i32 = strlen(right as *byte);
-    const name_len: i32 = left_len + right_len + 64;
+    const name_len: i32 = left_len +| right_len +| 64;
     const name: &byte = compiler_arena_alloc(codegen.arena, name_len as usize) as &byte;
     if name == null {
         return null;
@@ -8648,9 +8648,9 @@ fn substitute_type_arg(codegen: &C99CodeGenerator, type_node: &ASTNode) &ASTNode
 // 获取类型的 C 表示（支持类型参数替换）
 fn c99_mono_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
     const substituted: &ASTNode = substitute_type_arg(codegen, type_node);
-    codegen.type_conv_depth = codegen.type_conv_depth + 1;
+    codegen.type_conv_depth = codegen.type_conv_depth +| 1;
     const r: &byte = c99_type_to_c(codegen, substituted);
-    codegen.type_conv_depth = codegen.type_conv_depth - 1;
+    codegen.type_conv_depth = codegen.type_conv_depth -| 1;
     return r;
 }
 
@@ -8820,7 +8820,7 @@ fn gen_mono_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode, ty
         const param_type: &ASTNode = param.var_decl_type;
         const param_type_c: &byte = c99_mono_type_to_c(codegen, param_type);
         format_param_type(codegen, param_type_c, param_name, codegen.emit_stream);
-        if i < param_count - 1 {
+        if i < param_count -| 1 {
             c99_emit_comma_space(codegen);
         }
         i = i + 1;
@@ -8898,7 +8898,7 @@ fn gen_mono_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, type_args: &
                 const param_name2: &byte = get_safe_c_identifier(codegen, param2.var_decl_name);
                 const param_type2: &byte = c99_mono_type_to_c(codegen, param2.var_decl_type);
                 format_param_type(codegen, param_type2, param_name2, codegen.emit_stream);
-                if ai < param_count - 1 {
+                if ai < param_count -| 1 {
                     c99_emit_comma_space(codegen);
                 }
                 ai = ai + 1;
@@ -9013,7 +9013,7 @@ fn gen_mono_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, type_args: &
         const param_type: &ASTNode = param.var_decl_type;
         const param_type_c: &byte = c99_mono_type_to_c(codegen, param_type);
         format_param_type(codegen, param_type_c, param_name, codegen.emit_stream);
-        if i < param_count - 1 {
+        if i < param_count -| 1 {
             c99_emit_comma_space(codegen);
         }
         i = i + 1;
@@ -9037,8 +9037,8 @@ fn gen_mono_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, type_args: &
     
     codegen.current_function_return_type = return_type;
     codegen.current_function_decl = fn_decl;
-    codegen.indent_level = codegen.indent_level + 1;
-    codegen.current_depth = codegen.current_depth + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
+    codegen.current_depth = codegen.current_depth +| 1;
     
     // 将参数添加到局部变量表
     i = 0;
@@ -9075,7 +9075,7 @@ fn gen_mono_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, type_args: &
     if body_to_gen.type == ASTNodeType.AST_BLOCK && body_to_gen.block_stmts != null {
         const stmts_mono: & & ASTNode = body_to_gen.block_stmts;
         const stmt_count_mono: i32 = body_to_gen.block_stmt_count;
-        var j: i32 = stmt_count_mono - 1;
+        var j: i32 = stmt_count_mono -| 1;
         while j >= 0 {
             const s: &ASTNode = stmts_mono[j];
             if s != null && s.type != ASTNodeType.AST_DEFER_STMT && s.type != ASTNodeType.AST_ERRDEFER_STMT {
@@ -9104,14 +9104,14 @@ fn gen_mono_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, type_args: &
             }
         }
         if is_void_mono == 0 {
-            codegen.indent_level = codegen.indent_level + 1;
+            codegen.indent_level = codegen.indent_level +| 1;
             c99_emit_indent(codegen);
             if return_c != null && strncmp(return_c as *byte, "struct " as *byte, 7) == 0 {
                 fprintf(codegen.emit_stream as *void, "return (%s){0};\n" as *byte, return_c as *byte);
             } else {
                 fputs("return 0;\n" as *byte, codegen.emit_stream as *void);
             }
-            codegen.indent_level = codegen.indent_level - 1;
+            codegen.indent_level = codegen.indent_level -| 1;
         }
     }
     
@@ -9120,7 +9120,7 @@ fn gen_mono_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, type_args: &
     codegen.current_function_decl = saved_current_function_decl;
     codegen.local_variable_count = saved_local_count;
     codegen.current_depth = saved_depth;
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     
     c99_emit_close_brace_newline(codegen);
     
@@ -9185,7 +9185,7 @@ fn gen_mono_method_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode, stru
         const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
         const param_type_c: &byte = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
         format_param_type(codegen, param_type_c, param_name, codegen.emit_stream);
-        if i < param_count - 1 {
+        if i < param_count -| 1 {
             c99_emit_comma_space(codegen);
         }
         i = i + 1;
@@ -9282,7 +9282,7 @@ fn gen_mono_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struc
         const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
         const param_type_c: &byte = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
         format_param_type(codegen, param_type_c, param_name, codegen.emit_stream);
-        if i < param_count - 1 {
+        if i < param_count -| 1 {
             c99_emit_comma_space(codegen);
         }
         i = i + 1;
@@ -9299,8 +9299,8 @@ fn gen_mono_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struc
     
     codegen.current_function_return_type = return_type;
     codegen.current_function_decl = fn_decl;
-    codegen.indent_level = codegen.indent_level + 1;
-    codegen.current_depth = codegen.current_depth + 1;
+    codegen.indent_level = codegen.indent_level +| 1;
+    codegen.current_depth = codegen.current_depth +| 1;
     
     // 将参数添加到局部变量表
     i = 0;
@@ -9338,7 +9338,7 @@ fn gen_mono_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struc
     if body.type == ASTNodeType.AST_BLOCK && body.block_stmts != null {
         const stmts_mono: & & ASTNode = body.block_stmts;
         const stmt_count_mono: i32 = body.block_stmt_count;
-        var j: i32 = stmt_count_mono - 1;
+        var j: i32 = stmt_count_mono -| 1;
         while j >= 0 {
             const s: &ASTNode = stmts_mono[j];
             if s != null && s.type != ASTNodeType.AST_DEFER_STMT && s.type != ASTNodeType.AST_ERRDEFER_STMT {
@@ -9367,14 +9367,14 @@ fn gen_mono_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struc
             }
         }
         if is_void_mono == 0 {
-            codegen.indent_level = codegen.indent_level + 1;
+            codegen.indent_level = codegen.indent_level +| 1;
             c99_emit_indent(codegen);
             if return_c != null && strncmp(return_c as *byte, "struct " as *byte, 7) == 0 {
                 fprintf(codegen.emit_stream as *void, "return (%s){0};\n" as *byte, return_c as *byte);
             } else {
                 fputs("return 0;\n" as *byte, codegen.emit_stream as *void);
             }
-            codegen.indent_level = codegen.indent_level - 1;
+            codegen.indent_level = codegen.indent_level -| 1;
         }
     }
     
@@ -9384,7 +9384,7 @@ fn gen_mono_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struc
     codegen.local_variable_count = saved_local_count;
     codegen.current_depth = saved_depth;
     codegen.current_method_struct_name = saved_method_struct;
-    codegen.indent_level = codegen.indent_level - 1;
+    codegen.indent_level = codegen.indent_level -| 1;
     
     c99_emit_close_brace_newline(codegen);
     

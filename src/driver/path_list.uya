@@ -99,7 +99,7 @@ fn path_list_reserve(l: &PathList, want: i32) i32 {
         nc = PATH_LIST_MIN_CAPACITY;
     }
     while nc < want {
-        nc = nc * 2;
+        nc = nc *| 2;
         if nc <= 0 {
             return -1;   // i32 溢出（病态输入）
         }
@@ -137,7 +137,7 @@ fn path_list_push(l: &PathList, p: &byte) i32 {
         return -1;
     }
     l.items[l.count] = p;
-    l.count = l.count + 1;
+    l.count = l.count +| 1;
     return 0;
 }
 
@@ -220,7 +220,7 @@ fn int_list_reserve(l: &IntList, want: i32) i32 {
         nc = PATH_LIST_MIN_CAPACITY;
     }
     while nc < want {
-        nc = nc * 2;
+        nc = nc *| 2;
         if nc <= 0 {
             return -1;
         }
@@ -257,6 +257,6 @@ fn int_list_push(l: &IntList, v: i32) i32 {
         return -1;
     }
     l.items[l.count] = v;
-    l.count = l.count + 1;
+    l.count = l.count +| 1;
     return 0;
 }

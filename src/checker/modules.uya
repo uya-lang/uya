@@ -598,8 +598,8 @@ fn find_or_create_module(checker: &TypeChecker, module_name: &byte, filename: &b
     // P54：模块表是动态哈希表 —— 先按负载因子扩容，再用「容量取模」定起点。
     // 旧实现是 `hash & (MODULE_TABLE_SIZE - 1)` 的掩码式，掩码只在容量是编译期
     // 2 的幂时才成立；容量已经是运行时值，所以统一走 `%`。
-    if (checker.module_table.table.count + 1) * DYN_TABLE_LOAD_DEN
-        > checker.module_table.table.capacity * DYN_TABLE_LOAD_NUM {
+    if (checker.module_table.table.count +| 1) *| DYN_TABLE_LOAD_DEN
+        > checker.module_table.table.capacity *| DYN_TABLE_LOAD_NUM {
         if checker.module_table.table.reserve(checker.module_table.table.capacity * 2) != 0 {
             return null;
         }
@@ -639,7 +639,7 @@ fn find_or_create_module(checker: &TypeChecker, module_name: &byte, filename: &b
             module.dependency_count = 0;
             // slot_set 会一并写键（见 checker_module_slot_set 的注释）
             checker_module_slot_set(checker, slot, module);
-            checker.module_table.table.count = checker.module_table.table.count + 1;
+            checker.module_table.table.count = checker.module_table.table.count +| 1;
             return module;
         }
         i = i + 1;
@@ -1070,7 +1070,7 @@ fn checker_insert_import_item(
         const slot: i32 = (import_index + slot_i) % imp_cap;
         if checker_import_slot_at(checker, slot) == null {
             checker_import_slot_set(checker, slot, import);
-            checker.import_table.table.count = checker.import_table.table.count + 1;
+            checker.import_table.table.count = checker.import_table.table.count +| 1;
             return 1;
         }
         slot_i = slot_i + 1;
@@ -1634,7 +1634,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
             const slot: i32 = (import_index + j) % imp_cap2;
             if checker_import_slot_at(checker, slot) == null {
                 checker_import_slot_set(checker, slot, import);
-                checker.import_table.table.count = checker.import_table.table.count + 1;
+                checker.import_table.table.count = checker.import_table.table.count +| 1;
                 break;
             }
             j = j + 1;
@@ -1719,7 +1719,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
             const slot: i32 = (import_index + slot_i) % imp_cap;
             if checker_import_slot_at(checker, slot) == null {
                 checker_import_slot_set(checker, slot, import);
-                checker.import_table.table.count = checker.import_table.table.count + 1;
+                checker.import_table.table.count = checker.import_table.table.count +| 1;
                 break;
             }
             slot_i = slot_i + 1;

@@ -889,7 +889,7 @@ fn c99_mirror_lcp_len_flat(uniq: &byte, count: i32) i32 {
                 same = 0;
                 u2 = count;
             }
-            u2 = u2 + 1;
+            u2 = u2 +| 1;
         }
         if same == 0 {
             break;
@@ -954,9 +954,9 @@ fn c99_copy_uya_rel_to_c(rel_uya: &byte, out_rel: &byte, max_out: i32) i32 {
     out_rel[i] = 0 as byte;
     if i >= 5 && out_rel[i - 4] == 46 as byte && out_rel[i - 3] == 117 as byte &&
        out_rel[i - 2] == 121 as byte && out_rel[i - 1] == 97 as byte {
-        out_rel[i - 4] = 46 as byte;
-        out_rel[i - 3] = 99 as byte;
-        out_rel[i - 2] = 0 as byte;
+        out_rel[i -| 4] = 46 as byte;
+        out_rel[i -| 3] = 99 as byte;
+        out_rel[i -| 2] = 0 as byte;
         return 0;
     }
     return -1;
@@ -1001,8 +1001,8 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
     // 原先写死 [[byte:512]:128] —— 源文件超过 128 个时会在镜像阶段静默少开 .c，
     // 报的却是「无法打开输出文件: <第 128 个之后的某条路径>」，与真实原因无关。
     var uniq_cap: i32 = C99_MIRROR_INIT_SLOTS;
-    if program.program_decl_count + 1 > uniq_cap {
-        uniq_cap = program.program_decl_count + 1;
+    if program.program_decl_count +| 1 > uniq_cap {
+        uniq_cap = program.program_decl_count +| 1;
     }
     const uniq_nu: usize = (uniq_cap as! usize) catch { return -1; };
     const uniq: &([byte: 512]) = compiler_arena_alloc(codegen.arena, uniq_nu * 512usize) as &([byte: 512]);
@@ -1023,7 +1023,7 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
                     found = 1;
                     u = uniq_count;
                 }
-                u = u + 1;
+                u = u +| 1;
             }
             if found == 0 {
                 var skip_entry: i32 = 0;
@@ -1092,8 +1092,8 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
     // 起步槽，源文件多于它时下面 ci 会写到表外（heap 越界），现场是 uya_part1_types.h 里
     // 出现被踩坏的 `struct <乱码>;` —— 报错完全指向别处。这里按 uniq_count 精确分配。
     var mirror_cap: i32 = C99_MIRROR_INIT_SLOTS;
-    if uniq_count + 1 > mirror_cap {
-        mirror_cap = uniq_count + 1;
+    if uniq_count +| 1 > mirror_cap {
+        mirror_cap = uniq_count +| 1;
     }
     const mirror_nu: usize = (mirror_cap as! usize) catch { return -1; };
     const mkeys: &(&byte) = compiler_arena_alloc(codegen.arena, mirror_nu * @size_of(&byte)) as &(&byte);
@@ -1538,8 +1538,8 @@ export fn c99_write_mirror_manifest(codegen: &C99CodeGenerator, program: &ASTNod
     fputs("# 合并 AST 中出现的源文件路径（去重），一行一个；用于后续按目录镜像拆分为多 .c\n" as *byte, mf as *void);
     // 同 c99_split_mirror_prepare：按声明数分配，不再有 128 个源文件的固定上限。
     var m_cap: i32 = C99_MIRROR_INIT_SLOTS;
-    if program.program_decl_count + 1 > m_cap {
-        m_cap = program.program_decl_count + 1;
+    if program.program_decl_count +| 1 > m_cap {
+        m_cap = program.program_decl_count +| 1;
     }
     const m_nu: usize = (m_cap as! usize) catch { return; };
     const uniq: &([byte: 512]) = compiler_arena_alloc(codegen.arena, m_nu * 512usize) as &([byte: 512]);
@@ -1559,7 +1559,7 @@ export fn c99_write_mirror_manifest(codegen: &C99CodeGenerator, program: &ASTNod
                     found = 1;
                     u = uniq_count;
                 }
-                u = u + 1;
+                u = u +| 1;
             }
             if found == 0 {
                 if uniq_count >= 0 {
@@ -1639,8 +1639,8 @@ export fn c99_write_split_makefile(codegen: &C99CodeGenerator) void {
                             }
                         }
                         if pi2 >= 3 {
-                            const p1: i32 = pi2 - 1;
-                            const p2: i32 = pi2 - 2;
+                            const p1: i32 = pi2 -| 1;
+                            const p2: i32 = pi2 -| 2;
                             if p2 >= 0 && p2 < 512 && p1 >= 0 && p1 < 512 {
                                 const p2b: byte = opath[p2];
                                 const p1b: byte = opath[p1];
@@ -1728,8 +1728,8 @@ export fn c99_write_split_makefile(codegen: &C99CodeGenerator) void {
                             }
                         }
                         if qi2 >= 3 {
-                            const q1: i32 = qi2 - 1;
-                            const q2: i32 = qi2 - 2;
+                            const q1: i32 = qi2 -| 1;
+                            const q2: i32 = qi2 -| 2;
                             if q2 >= 0 && q2 < 512 && q1 >= 0 && q1 < 512 {
                                 const q2b: byte = opr[q2];
                                 const q1b: byte = opr[q1];
@@ -1884,7 +1884,7 @@ fn c99_emit_indent(codegen: &C99CodeGenerator) void {
         effective_indent = 63;
     }
     // 预先计算总空格数，避免循环
-    const total: i32 = effective_indent * 4;
+    const total: i32 = effective_indent *| 4;
     if total > 255 {
         // 超过缓存大小，使用循环（很少见）
         var i: i32 = 0;
@@ -2690,11 +2690,11 @@ fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
         }
         
         if op == TokenType.TOKEN_PLUS {
-            return left_val + right_val;
+            return left_val +| right_val;
         } else if op == TokenType.TOKEN_MINUS {
-            return left_val - right_val;
+            return left_val -| right_val;
         } else if op == TokenType.TOKEN_ASTERISK {
-            return left_val * right_val;
+            return left_val *| right_val;
         } else if op == TokenType.TOKEN_SLASH {
             if right_val == 0 {
                 return -1;
@@ -2854,7 +2854,7 @@ fn collect_string_constants_from_expr(codegen: &C99CodeGenerator, expr: &ASTNode
                 basename = strrchr(filename as *byte, 92) as &byte;  // '\\' = ASCII 92
             }
             if basename != null {
-                basename = (basename as i64 + 1) as &byte;
+                basename = (basename as i64 +| 1) as &byte;
             } else {
                 basename = filename;
             }

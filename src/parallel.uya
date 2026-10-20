@@ -365,7 +365,7 @@ export fn parallel_status_is_ok(status: i32) i32 {
 export fn parallel_status_exit_code(status: i32) i32 {
     const low: i32 = status & 0x7f;
     if low != 0 {
-        return 128 + low;
+        return 128 +| low;
     }
     return (status >> 8) & 0xff;
 }

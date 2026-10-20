@@ -152,7 +152,7 @@ fn c_import_append_token_sequence(arena: &CompilerArena, dst_tokens: & & & byte,
         return 0;
     }
     const old_count: i32 = dst_count[0];
-    const new_count: i32 = old_count + src_count;
+    const new_count: i32 = old_count +| src_count;
     const merged: & & byte = compiler_arena_alloc(arena, HOST_SIZE_PTR_BYTES * new_count as usize) as & & byte;
     if merged == null {
         return 1;
@@ -230,7 +230,7 @@ fn collect_c_import_plan(arena: &CompilerArena, program: &ASTNode, plan: &CImpor
                         ld_seen = 1;
                         break;
                     }
-                    ld_i = ld_i + 1;
+                    ld_i = ld_i +| 1;
                 }
                 if ld_seen == 0 {
                     var ld_tokens: & & byte = null;
@@ -262,7 +262,7 @@ fn collect_c_import_plan(arena: &CompilerArena, program: &ASTNode, plan: &CImpor
                         existing_idx = item_i;
                         break;
                     }
-                    item_i = item_i + 1;
+                    item_i = item_i +| 1;
                 }
 
                 if existing_idx >= 0 {
@@ -421,7 +421,7 @@ fn shell_cmd_append_raw(cmd: &byte, cap: i32, len: &i32, text: &byte) i32 {
     if cmd == null || len == null || text == null || text[0] == 0 as byte {
         return 0;
     }
-    const remaining: i32 = cap - len[0];
+    const remaining: i32 = cap -| len[0];
     if remaining <= 1 {
         return 1;
     }
@@ -434,7 +434,7 @@ fn shell_cmd_append_raw(cmd: &byte, cap: i32, len: &i32, text: &byte) i32 {
     if written <= 0 || written >= remaining {
         return 1;
     }
-    len[0] = len[0] + written;
+    len[0] = len[0] +| written;
     return 0;
 }
 
@@ -443,43 +443,43 @@ fn shell_cmd_append_quoted_word(cmd: &byte, cap: i32, len: &i32, word: &byte) i3
         return 1;
     }
     if len[0] > 0 {
-        if len[0] + 1 >= cap {
+        if len[0] +| 1 >= cap {
             return 1;
         }
         cmd[len[0]] = 32 as byte;
-        len[0] = len[0] + 1;
+        len[0] = len[0] +| 1;
     }
-    if len[0] + 2 >= cap {
+    if len[0] +| 2 >= cap {
         return 1;
     }
     cmd[len[0]] = 39 as byte;
-    len[0] = len[0] + 1;
+    len[0] = len[0] +| 1;
     var i: usize = 0;
     while word[i] != 0 as byte {
         const ch: byte = word[i];
         if ch == 39 as byte {
-            if len[0] + 4 >= cap {
+            if len[0] +| 4 >= cap {
                 return 1;
             }
             cmd[len[0]] = 39 as byte;
-            cmd[len[0] + 1] = 92 as byte;
-            cmd[len[0] + 2] = 39 as byte;
-            cmd[len[0] + 3] = 39 as byte;
-            len[0] = len[0] + 4;
+            cmd[len[0] +| 1] = 92 as byte;
+            cmd[len[0] +| 2] = 39 as byte;
+            cmd[len[0] +| 3] = 39 as byte;
+            len[0] = len[0] +| 4;
         } else {
-            if len[0] + 1 >= cap {
+            if len[0] +| 1 >= cap {
                 return 1;
             }
             cmd[len[0]] = ch;
-            len[0] = len[0] + 1;
+            len[0] = len[0] +| 1;
         }
         i = i + 1;
     }
-    if len[0] + 1 >= cap {
+    if len[0] +| 1 >= cap {
         return 1;
     }
     cmd[len[0]] = 39 as byte;
-    len[0] = len[0] + 1;
+    len[0] = len[0] +| 1;
     cmd[len[0]] = 0 as byte;
     return 0;
 }

@@ -478,7 +478,7 @@ fn upm_resolve_dependency_recursive(
         return 1;
     }
     visited[visited_count[0]] = &dep_manifest.package_root[0] as &byte;
-    visited_count[0] = visited_count[0] + 1;
+    visited_count[0] = visited_count[0] +| 1;
     var i: i32 = 0;
     while i < dep_manifest.dep_count {
         if upm_resolve_dependency_recursive(&dep_manifest, &dep_manifest.deps[i], plan, visited, visited_count, force_git_refresh, materialize) != 0 {
@@ -486,7 +486,7 @@ fn upm_resolve_dependency_recursive(
         }
         i = i + 1;
     }
-    visited_count[0] = visited_count[0] - 1;
+    visited_count[0] = visited_count[0] -| 1;
     return 0;
 }
 

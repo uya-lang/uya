@@ -775,7 +775,7 @@ fn exec_value_get_index(value: &ExecValue, idx: i32) ExecValue {
             }
             return exec_make_void();
         }
-        return slice_data.aggregate.values[slice_data.start + idx];
+        return slice_data.aggregate.values[slice_data.start +| idx];
     }
     return exec_make_void();
 }
@@ -834,7 +834,7 @@ fn exec_value_set_index(dst: &ExecValue, idx: i32, value: &ExecValue) i32 {
             slice_data.raw_ptr[idx] = value.i64_value as byte;
             return 0;
         }
-        slice_data.aggregate.values[slice_data.start + idx] = exec_value_clone(value);
+        slice_data.aggregate.values[slice_data.start +| idx] = exec_value_clone(value);
         return 0;
     }
     return -1;

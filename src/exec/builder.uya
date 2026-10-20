@@ -449,7 +449,7 @@ fn exec_builder_make_source(node: &ASTNode) BCSourceMap {
 
 fn exec_builder_new_temp(ctx: &ExecFunctionBuildContext) i32 {
     const slot: i32 = ctx.next_temp_slot;
-    ctx.next_temp_slot = ctx.next_temp_slot + 1;
+    ctx.next_temp_slot = ctx.next_temp_slot +| 1;
     if ctx.next_temp_slot > ctx.max_slot_count {
         ctx.max_slot_count = ctx.next_temp_slot;
     }
@@ -1406,7 +1406,7 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: interface 装箱缺少方法表" as *byte);
             return -1;
         }
-        if expr.dispatch_decl_count + 1 > 256 {
+        if expr.dispatch_decl_count +| 1 > 256 {
             exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: interface 方法表过大" as *byte);
             return -1;
         }
@@ -1441,7 +1441,7 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: interface 方法表下标越界" as *byte);
             return -1;
         }
-        const packed_base: i32 = exec_builder_pack_source_slots(ctx, expr.ast_node, &item_sources[0], expr.dispatch_decl_count + 1);
+        const packed_base: i32 = exec_builder_pack_source_slots(ctx, expr.ast_node, &item_sources[0], expr.dispatch_decl_count +| 1);
         const dst_iface: i32 = exec_builder_new_temp(ctx);
         if packed_base < 0 || dst_iface < 0 {
             return -1;
@@ -2531,7 +2531,7 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             }
             ai3 = ai3 + 1;
         }
-        const total_args2: i32 = expr.call_arg_count + 1;
+        const total_args2: i32 = expr.call_arg_count +| 1;
         const arg_base2: i32 = exec_builder_pack_source_slots(ctx, expr.ast_node, &arg_sources2[0], total_args2);
         if arg_base2 < 0 {
             return -1;
@@ -2720,7 +2720,7 @@ fn exec_builder_emit_cleanup_scope(ctx: &ExecFunctionBuildContext, scope_idx: i3
         return -1;
     }
     if include_errdefer != 0 {
-        var ei: i32 = scope.errdefer_count - 1;
+        var ei: i32 = scope.errdefer_count -| 1;
         while ei >= 0 {
             const stmt_err: &HIRStmt = exec_builder_errdefer_stmt_ref(scope, ei);
             if stmt_err == null || stmt_err.cleanup_block == null {
@@ -2733,7 +2733,7 @@ fn exec_builder_emit_cleanup_scope(ctx: &ExecFunctionBuildContext, scope_idx: i3
             ei = ei - 1;
         }
     }
-    var di: i32 = scope.defer_count - 1;
+    var di: i32 = scope.defer_count -| 1;
     while di >= 0 {
         const stmt_defer: &HIRStmt = exec_builder_defer_stmt_ref(scope, di);
         if stmt_defer == null || stmt_defer.cleanup_block == null {
@@ -2745,7 +2745,7 @@ fn exec_builder_emit_cleanup_scope(ctx: &ExecFunctionBuildContext, scope_idx: i3
         }
         di = di - 1;
     }
-    var li: i32 = scope.drop_local_count - 1;
+    var li: i32 = scope.drop_local_count -| 1;
     while li >= 0 {
         const drop_local: &HIRLocalSlot = exec_builder_drop_local_ref(scope, li);
         if exec_builder_emit_drop_local(ctx, drop_local) < 0 {
@@ -2760,7 +2760,7 @@ fn exec_builder_emit_all_cleanup(ctx: &ExecFunctionBuildContext, include_errdefe
     if ctx == null {
         return -1;
     }
-    var scope_idx: i32 = ctx.cleanup_depth - 1;
+    var scope_idx: i32 = ctx.cleanup_depth -| 1;
     while scope_idx >= 0 {
         if exec_builder_emit_cleanup_scope(ctx, scope_idx, include_errdefer) < 0 {
             return -1;
@@ -3017,7 +3017,7 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                 return -1;
             }
             const loop_end: i32 = ctx.instr_count;
-            const loop_patch: &ExecLoopPatch = exec_builder_loop_patch_ref(ctx, ctx.loop_depth - 1);
+            const loop_patch: &ExecLoopPatch = exec_builder_loop_patch_ref(ctx, ctx.loop_depth -| 1);
             if loop_patch == null {
                 exec_backend_set_error(stmt.ast_node, "exec: loop patch 读取失败" as *byte, 0);
                 return -1;
@@ -3042,7 +3042,7 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                 exec_builder_patch_jump(ctx, continue_jump[0], loop_patch.continue_target);
                 ci = ci + 1;
             }
-            ctx.loop_depth = ctx.loop_depth - 1;
+            ctx.loop_depth = ctx.loop_depth -| 1;
         } else if stmt.kind == HIRStmtKind.HIR_STMT_BREAK {
             if ctx.loop_depth <= 0 {
                 exec_backend_set_error(stmt.ast_node, "exec: break 不在 loop 内" as *byte, 0);
@@ -3656,7 +3656,7 @@ fn exec_builder_build_function(arena: &CompilerArena, checker: &TypeChecker, con
     if exec_builder_compile_block(&ctx, fn_hir.body) != 0 {
         return null;
     }
-    const last_instr: &BCInstr = exec_builder_instr_slot(&ctx, ctx.instr_count - 1);
+    const last_instr: &BCInstr = exec_builder_instr_slot(&ctx, ctx.instr_count -| 1);
     if ctx.instr_count == 0 || last_instr == null || last_instr.opcode != BCOpcode.BC_RET {
         if exec_builder_emit(&ctx, BCInstr {
             opcode: BCOpcode.BC_RET,
@@ -3676,7 +3676,7 @@ fn exec_builder_build_function(arena: &CompilerArena, checker: &TypeChecker, con
         exec_backend_set_error(fn_hir.decl, "exec: bytecode function 分配失败" as *byte, 0);
         return null;
     }
-    memcpy(out_instrs as *void, &ctx.instrs[0] as *void, @size_of(BCInstr) * ctx.instr_count as usize);
+    memcpy(out_instrs as *void, &ctx.instrs[0] as *void, @size_of(BCInstr) *| ctx.instr_count as usize);
     _ = memset(out_fn as *byte, 0, @size_of(BCFunction));
     out_fn.name = fn_hir.name;
     out_fn.decl = fn_hir.decl;
@@ -3710,7 +3710,7 @@ export fn exec_build_bytecode(arena: &CompilerArena, checker: &TypeChecker, modu
     };
     var total_function_count: i32 = module.function_count;
     if module.global_init_function != null {
-        total_function_count = total_function_count + 1;
+        total_function_count = total_function_count +| 1;
     }
     const functions: &BCFunction = compiler_arena_alloc(arena, @size_of(BCFunction) * total_function_count as usize) as &BCFunction;
     const program: &BCProgram = compiler_arena_alloc(arena, @size_of(BCProgram)) as &BCProgram;
@@ -3761,7 +3761,7 @@ export fn exec_build_bytecode(arena: &CompilerArena, checker: &TypeChecker, modu
             exec_backend_set_error(module.entry_function.decl, "exec: const pool 分配失败" as *byte, 0);
             return null;
         }
-        memcpy(const_values as *void, &const_pool_builder.values[0] as *void, @size_of(ExecValue) * const_pool_builder.count as usize);
+        memcpy(const_values as *void, &const_pool_builder.values[0] as *void, @size_of(ExecValue) *| const_pool_builder.count as usize);
         program.const_pool = BCConstPool {
             values: const_values,
             count: const_pool_builder.count,
@@ -3778,7 +3778,7 @@ export fn exec_build_bytecode(arena: &CompilerArena, checker: &TypeChecker, modu
             exec_backend_set_error(module.entry_function.decl, "exec: hostcall 表分配失败" as *byte, 0);
             return null;
         }
-        memcpy(host_calls as *void, &host_call_builder.sites[0] as *void, @size_of(BCHostCallSite) * host_call_builder.count as usize);
+        memcpy(host_calls as *void, &host_call_builder.sites[0] as *void, @size_of(BCHostCallSite) *| host_call_builder.count as usize);
         program.host_calls = host_calls;
         program.host_call_count = host_call_builder.count;
     } else {

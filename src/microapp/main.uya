@@ -1101,7 +1101,7 @@ fn microapp_aarch64_patch_branch26(insn: u32, place_va: u32, target_va: u32) !u3
     }
     const place_i64: !i64 = place_va as! i64;
     const target_i64: !i64 = target_va as! i64;
-    const disp: i64 = (target_i64 catch { return 0u32; }) - (place_i64 catch { return 0u32; });
+    const disp: i64 = (target_i64 catch { return 0u32; }) -| (place_i64 catch { return 0u32; });
     if (disp % (4 as i64)) != 0 {
         return error.InvalidState;
     }
@@ -1113,7 +1113,7 @@ fn microapp_aarch64_patch_branch26(insn: u32, place_va: u32, target_va: u32) !u3
 fn microapp_aarch64_patch_adr_lo21(insn: u32, place_va: u32, target_va: u32) !u32 {
     const place_i64: !i64 = place_va as! i64;
     const target_i64: !i64 = target_va as! i64;
-    const disp: i64 = (target_i64 catch { return 0u32; }) - (place_i64 catch { return 0u32; });
+    const disp: i64 = (target_i64 catch { return 0u32; }) -| (place_i64 catch { return 0u32; });
     const field: u32 = try microapp_aarch64_encode_signed_field(disp, 21u32);
     return (insn & 2667577375u32) |
         ((field & 3u32) << 29) |
@@ -1138,7 +1138,7 @@ fn microapp_aarch64_patch_ld_prel_lo19(insn: u32, place_va: u32, target_va: u32)
     }
     const place_i64: !i64 = place_va as! i64;
     const target_i64: !i64 = target_va as! i64;
-    const disp: i64 = (target_i64 catch { return 0u32; }) - (place_i64 catch { return 0u32; });
+    const disp: i64 = (target_i64 catch { return 0u32; }) -| (place_i64 catch { return 0u32; });
     if (disp % (4 as i64)) != 0 {
         return error.InvalidState;
     }
@@ -2173,13 +2173,13 @@ fn microapp_append_shell_token(cmd: &byte, cmd_cap: i32, cmd_len: &i32, token: &
         return -1;
     }
     const token_len: usize = strlen(token as *byte);
-    if cmd_len[0] + token_len as i32 + 1 >= cmd_cap {
+    if cmd_len[0] +| token_len as i32 +| 1 >= cmd_cap {
         return -1;
     }
     cmd[cmd_len[0] as usize] = 32 as byte;
-    cmd_len[0] = cmd_len[0] + 1;
+    cmd_len[0] = cmd_len[0] +| 1;
     memcpy(cmd + cmd_len[0] as usize, token as *void, token_len);
-    cmd_len[0] = cmd_len[0] + token_len as i32;
+    cmd_len[0] = cmd_len[0] +| token_len as i32;
     cmd[cmd_len[0] as usize] = 0 as byte;
     return 0;
 }

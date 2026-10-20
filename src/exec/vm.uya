@@ -101,10 +101,10 @@ fn exec_vm_sat_add(kind: ExecValueKind, a_signed: i64, a_unsigned: u64, b_signed
     var lo: [i64: 1] = [0i64];
     var hi: [i64: 1] = [0i64];
     exec_vm_sat_bounds_signed(kind, &lo[0], &hi[0]);
-    var sum2: i64 = a_signed + b_signed;
-    if b_signed > 0 && a_signed > hi[0] - b_signed {
+    var sum2: i64 = a_signed +| b_signed;
+    if b_signed > 0 && a_signed > hi[0] -| b_signed {
         sum2 = hi[0];
-    } else if b_signed < 0 && a_signed < lo[0] - b_signed {
+    } else if b_signed < 0 && a_signed < lo[0] -| b_signed {
         sum2 = lo[0];
     }
     return exec_vm_make_integer_by_kind(kind, sum2, 0);
@@ -121,10 +121,10 @@ fn exec_vm_sat_sub(kind: ExecValueKind, a_signed: i64, a_unsigned: u64, b_signed
     var lo: [i64: 1] = [0i64];
     var hi: [i64: 1] = [0i64];
     exec_vm_sat_bounds_signed(kind, &lo[0], &hi[0]);
-    var diff: i64 = a_signed - b_signed;
-    if b_signed < 0 && a_signed > hi[0] + b_signed {
+    var diff: i64 = a_signed -| b_signed;
+    if b_signed < 0 && a_signed > hi[0] +| b_signed {
         diff = hi[0];
-    } else if b_signed > 0 && a_signed < lo[0] + b_signed {
+    } else if b_signed > 0 && a_signed < lo[0] +| b_signed {
         diff = lo[0];
     }
     return exec_vm_make_integer_by_kind(kind, diff, 0);
@@ -143,7 +143,7 @@ fn exec_vm_sat_mul(kind: ExecValueKind, a_signed: i64, a_unsigned: u64, b_signed
     var lo: [i64: 1] = [0i64];
     var hi: [i64: 1] = [0i64];
     exec_vm_sat_bounds_signed(kind, &lo[0], &hi[0]);
-    const prod: i64 = a_signed * b_signed;
+    const prod: i64 = a_signed *| b_signed;
     // 用除法回验是否溢出（避免依赖未定义的乘法溢出）
     if a_signed != 0 && (prod / a_signed != b_signed) {
         if (a_signed > 0 && b_signed > 0) || (a_signed < 0 && b_signed < 0) {
@@ -379,11 +379,11 @@ fn exec_vm_pointer_address(value: &ExecValue) usize {
 }
 
 fn exec_vm_encode_ref_kind(pointee_kind: i32) i32 {
-    return EXEC_VM_REF_KIND_BASE + pointee_kind;
+    return EXEC_VM_REF_KIND_BASE +| pointee_kind;
 }
 
 fn exec_vm_encode_index_ref_kind(pointee_kind: i32) i32 {
-    return EXEC_VM_REF_KIND_INDEX_BASE + pointee_kind;
+    return EXEC_VM_REF_KIND_INDEX_BASE +| pointee_kind;
 }
 
 fn exec_vm_decode_ref_kind(encoded_kind: i32) i32 {
@@ -621,7 +621,7 @@ fn exec_vm_index_ref(value: &ExecValue, index_value: i32) &ExecValue {
         if slice_data == null || slice_data.aggregate == null || index_value >= slice_data.len {
             return null;
         }
-        return &slice_data.aggregate.values[slice_data.start + index_value];
+        return &slice_data.aggregate.values[slice_data.start +| index_value];
     }
     if exec_vm_pointer_is_internal_ref(value) != 0 {
         const target: &ExecValue = exec_vm_ref_target_value(value);
@@ -1385,7 +1385,7 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             return -1;
         }
         const arg0: &ExecValue = exec_vm_slot_ref(frame, arg_base);
-        const arg1: &ExecValue = exec_vm_slot_ref(frame, arg_base + 1);
+        const arg1: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
         if arg0 == null || arg1 == null {
             exec_backend_set_error(function.decl, "exec: strcmp 参数槽位非法" as *byte, 0);
             return -1;
@@ -1412,7 +1412,7 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             return -1;
         }
         const arg0: &ExecValue = exec_vm_slot_ref(frame, arg_base);
-        const arg1: &ExecValue = exec_vm_slot_ref(frame, arg_base + 1);
+        const arg1: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
         if arg0 == null || arg1 == null {
             exec_backend_set_error(function.decl, "exec: mkdir 参数槽位非法" as *byte, 0);
             return -1;
@@ -1439,8 +1439,8 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             return -1;
         }
         const ptr_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base);
-        const expected_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base + 1);
-        const desired_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base + 2);
+        const expected_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        const desired_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
         if ptr_arg == null || expected_arg == null || desired_arg == null {
             exec_backend_set_error(function.decl, "exec: atomic compare_exchange 参数槽位非法" as *byte, 0);
             return -1;
@@ -1474,7 +1474,7 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             return -1;
         }
         const arg0: &ExecValue = exec_vm_slot_ref(frame, arg_base);
-        const arg1: &ExecValue = exec_vm_slot_ref(frame, arg_base + 1);
+        const arg1: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
         if arg0 == null || arg1 == null {
             exec_backend_set_error(function.decl, "exec: fprintf 参数槽位非法" as *byte, 0);
             return -1;
@@ -1507,7 +1507,7 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             return -1;
         }
         const arg0: &ExecValue = exec_vm_slot_ref(frame, arg_base);
-        const arg1: &ExecValue = exec_vm_slot_ref(frame, arg_base + 1);
+        const arg1: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
         if arg0 == null || arg1 == null {
             exec_backend_set_error(function.decl, "exec: sprintf 参数槽位非法" as *byte, 0);
             return -1;
@@ -1521,8 +1521,8 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             return -1;
         }
         const arg0: &ExecValue = exec_vm_slot_ref(frame, arg_base);
-        const arg1: &ExecValue = exec_vm_slot_ref(frame, arg_base + 1);
-        const arg2: &ExecValue = exec_vm_slot_ref(frame, arg_base + 2);
+        const arg1: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        const arg2: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
         if arg0 == null || arg1 == null || arg2 == null {
             exec_backend_set_error(function.decl, "exec: snprintf 参数槽位非法" as *byte, 0);
             return -1;
@@ -1687,7 +1687,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         } else if exec_vm_value_kind_is_unsigned(add_kind) != 0 {
             slot_a[0] = exec_vm_make_integer_by_kind(add_kind, 0, (slot_b.i64_value as u64) + (slot_c.i64_value as u64));
         } else {
-            slot_a[0] = exec_vm_make_integer_by_kind(add_kind, slot_b.i64_value + slot_c.i64_value, 0);
+            slot_a[0] = exec_vm_make_integer_by_kind(add_kind, slot_b.i64_value +| slot_c.i64_value, 0);
         }
     } else if instr.opcode == BCOpcode.BC_ADD_SAT {
         if slot_a == null || slot_b == null || slot_c == null {
@@ -1737,7 +1737,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         } else if exec_vm_value_kind_is_unsigned(sub_kind) != 0 {
             slot_a[0] = exec_vm_make_integer_by_kind(sub_kind, 0, (slot_b.i64_value as u64) - (slot_c.i64_value as u64));
         } else {
-            slot_a[0] = exec_vm_make_integer_by_kind(sub_kind, slot_b.i64_value - slot_c.i64_value, 0);
+            slot_a[0] = exec_vm_make_integer_by_kind(sub_kind, slot_b.i64_value -| slot_c.i64_value, 0);
         }
     } else if instr.opcode == BCOpcode.BC_MUL {
         if slot_a == null || slot_b == null || slot_c == null {
@@ -1750,7 +1750,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         } else if exec_vm_value_kind_is_unsigned(mul_kind) != 0 {
             slot_a[0] = exec_vm_make_integer_by_kind(mul_kind, 0, (slot_b.i64_value as u64) * (slot_c.i64_value as u64));
         } else {
-            slot_a[0] = exec_vm_make_integer_by_kind(mul_kind, slot_b.i64_value * slot_c.i64_value, 0);
+            slot_a[0] = exec_vm_make_integer_by_kind(mul_kind, slot_b.i64_value *| slot_c.i64_value, 0);
         }
     } else if instr.opcode == BCOpcode.BC_DIV {
         if slot_a == null || slot_b == null || slot_c == null {
@@ -1856,7 +1856,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         } else if exec_vm_value_kind_is_unsigned(neg_kind) != 0 {
             slot_a[0] = exec_vm_make_integer_by_kind(neg_kind, 0, (0 as u64) - (slot_b.i64_value as u64));
         } else {
-            slot_a[0] = exec_vm_make_integer_by_kind(neg_kind, 0 - slot_b.i64_value, 0);
+            slot_a[0] = exec_vm_make_integer_by_kind(neg_kind, 0 -| slot_b.i64_value, 0);
         }
     } else if instr.opcode == BCOpcode.BC_NOT {
         if slot_a == null || slot_b == null {
@@ -1990,7 +1990,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         }
         if exec_value_is_raw_array(&slice_base) != 0 {
             const count: i32 = slice_base.i64_value as i32;
-            if requested_start + slice_len > count {
+            if requested_start +| slice_len > count {
                 exec_backend_set_error(function.decl, "exec: slice 越界" as *byte, 0);
                 return -1;
             }
@@ -2002,7 +2002,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             slot_a[0] = exec_make_raw_slice(raw_base_ptr.ptr_value, exec_value_raw_array_element_kind(&slice_base), slice_len);
         } else if exec_value_is_raw_slice(&slice_base) != 0 {
             const parent_raw_len: i32 = exec_value_count(&slice_base);
-            if requested_start + slice_len > parent_raw_len {
+            if requested_start +| slice_len > parent_raw_len {
                 exec_backend_set_error(function.decl, "exec: slice 越界" as *byte, 0);
                 return -1;
             }
@@ -2021,17 +2021,17 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                     exec_backend_set_error(function.decl, "exec: slice 基值无效" as *byte, 0);
                     return -1;
                 }
-                if requested_start + slice_len > parent_slice.len {
+                if requested_start +| slice_len > parent_slice.len {
                     exec_backend_set_error(function.decl, "exec: slice 越界" as *byte, 0);
                     return -1;
                 }
-                start_idx = parent_slice.start + start_idx;
+                start_idx = parent_slice.start +| start_idx;
             }
             const aggregate2: &ExecAggregate = exec_vm_get_aggregate_for_slice(function, slice_base);
             if aggregate2 == null {
                 return -1;
             }
-            if slice_base_is_slice == 0 && start_idx + slice_len > aggregate2.count {
+            if slice_base_is_slice == 0 && start_idx +| slice_len > aggregate2.count {
                 exec_backend_set_error(function.decl, "exec: slice 越界" as *byte, 0);
                 return -1;
             }

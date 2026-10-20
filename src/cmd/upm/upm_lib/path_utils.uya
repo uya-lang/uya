@@ -69,11 +69,13 @@ export fn upm_normalize_path(input: &byte, out: &byte, out_cap: usize) i32 {
             continue;
         }
         if seg_len == 2 && input[seg_start] == 46 as byte && input[seg_start + 1] == 46 as byte {
-            if seg_count > 0 && seg_count - 1 >= 0 && seg_count - 1 < 256 {
-                const prev_start: i32 = seg_starts[seg_count - 1];
-                const prev_len: i32 = seg_lens[seg_count - 1];
+            // 下标表达式必须是简单变量：先算出具名下标的再访问
+            const prev_idx: i32 = seg_count -| 1;
+            if seg_count > 0 && prev_idx >= 0 && prev_idx < 256 {
+                const prev_start: i32 = seg_starts[prev_idx];
+                const prev_len: i32 = seg_lens[prev_idx];
                 if !(prev_len == 2 && input[prev_start] == 46 as byte && input[prev_start + 1] == 46 as byte) {
-                    seg_count = seg_count - 1;
+                    seg_count = seg_count -| 1;
                     continue;
                 }
             }
@@ -160,7 +162,7 @@ export fn upm_exit_code_from_system_status(wstatus: i32) i32 {
     if sig == 0 {
         return 1;
     }
-    return 128 + sig;
+    return 128 +| sig;
 }
 
 export fn upm_string_copy(dst: &byte, cap: usize, src: &byte) i32 {

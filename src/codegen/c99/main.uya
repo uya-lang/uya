@@ -46,7 +46,7 @@ fn c99_output_basename_equals(output_file: &byte, expected: &byte) i32 {    if o
         basename = strrchr(output_file as *byte, 92) as &byte;
     }
     if basename != null {
-        basename = (basename as i64 + 1) as &byte;
+        basename = (basename as i64 +| 1) as &byte;
     } else {
         basename = output_file;
     }
@@ -866,7 +866,7 @@ fn c99_codegen_ensure_mono_method(codegen: &C99CodeGenerator, owner_name: &byte,
         owner_name as *byte, method_name as *byte);
     var i: i32 = 0;
     while i < type_arg_count && pos < NAME_BUF_SIZE - 2 {
-        pos = pos + snprintf(&inst_name_buf[pos] as *byte, NAME_BUF_SIZE - pos, "_" as *byte);
+        pos = pos +| snprintf(&inst_name_buf[pos] as *byte, NAME_BUF_SIZE - pos, "_" as *byte);
         pos = append_type_arg_suffix(codegen, type_args[i], &inst_name_buf[0], pos, NAME_BUF_SIZE);
         i = i + 1;
     }
@@ -1149,7 +1149,7 @@ fn collect_err_union_from_ast(codegen: &C99CodeGenerator, node: &ASTNode) void {
                         first_result = arm.result_expr;
                         ai = operand.match_expr_arm_count;
                     }
-                    ai = ai + 1;
+                    ai = ai +| 1;
                 }
                 if first_result != null {
                     var payload_ast: &ASTNode = null;
@@ -1798,7 +1798,7 @@ fn c99_grow_reachable_functions(codegen: &C99CodeGenerator) i32 {
     if ncap <= 0 {
         ncap = C99_MAX_REACHABLE_FUNCTIONS;
     } else {
-        ncap = ncap * 2;
+        ncap = ncap *| 2;
         if ncap <= 0 {
             return -1;   // i32 溢出（病态输入）
         }
@@ -2258,7 +2258,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     }
     if prof_codegen != 0 {
         t_mk1 = clock();
-        prof_ms_precollect = ((t_mk1 as i64) - (t_precollect_start as i64)) * 1000 / (CLOCKS_PER_SEC as i64);
+        prof_ms_precollect = ((t_mk1 as i64) -| (t_precollect_start as i64)) *| 1000 / (CLOCKS_PER_SEC as i64);
     }
 
     // 镜像多 TU：须在 precollect 之后打开各 .c，以便根据 has_stdio_conflicts 写入 stdin/stdout/stderr 前向声明
@@ -2650,7 +2650,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                     }
                 }
             }
-            di = di + 1;
+            di = di +| 1;
         }
         if codegen.freestanding == 0 {
             if is_bootstrap == 0 {
@@ -4396,7 +4396,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     c99_emit_newline(codegen);
     if prof_codegen != 0 {
         t_mk2 = clock();
-        prof_ms_header = ((t_mk2 as i64) - (t_mk1 as i64)) * 1000 / (CLOCKS_PER_SEC as i64);
+        prof_ms_header = ((t_mk2 as i64) -| (t_mk1 as i64)) *| 1000 / (CLOCKS_PER_SEC as i64);
     }
     
     // 第一步：字符串池与 uya_common（镜像模式延后到第六步 d2 之后，使枚举/typedef/结构体等先写入 uya_part1_types.h）
@@ -4562,7 +4562,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     c99_emit_newline(codegen);
     if prof_codegen != 0 {
         t_mk3 = clock();
-        prof_ms_step1_typedef = ((t_mk3 as i64) - (t_mk2 as i64)) * 1000 / (CLOCKS_PER_SEC as i64);
+        prof_ms_step1_typedef = ((t_mk3 as i64) -| (t_mk2 as i64)) *| 1000 / (CLOCKS_PER_SEC as i64);
     }
     
     // 第六步 a：切片/SIMD/err_union 类型已在统一预收集阶段完成
@@ -4580,7 +4580,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         emit_simd_x86_sse_runtime_helpers(codegen);
         if prof_codegen != 0 {
             const t_simd1: clock_t = clock();
-            prof_simd_ms = ((t_simd1 as i64) - (t_simd0 as i64)) * 1000 / (CLOCKS_PER_SEC as i64);
+            prof_simd_ms = ((t_simd1 as i64) - (t_simd0 as i64)) *| 1000 / (CLOCKS_PER_SEC as i64);
         }
         c99_emit_newline(codegen);
     }
@@ -5355,7 +5355,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     }
     if prof_codegen != 0 {
         t_mk4 = clock();
-        prof_ms_step6_mid = ((t_mk4 as i64) - (t_mk3 as i64)) * 1000 / (CLOCKS_PER_SEC as i64);
+        prof_ms_step6_mid = ((t_mk4 as i64) -| (t_mk3 as i64)) *| 1000 / (CLOCKS_PER_SEC as i64);
     }
 
     // 第六步 d2：补注册单态化泛型函数体中的嵌套泛型调用。
@@ -5652,8 +5652,8 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     }
     if prof_codegen != 0 {
         const t_prelude_end: clock_t = clock();
-        prof_ms_prelude = ((t_prelude_end as i64) - (prof_t0 as i64)) * 1000 / (CLOCKS_PER_SEC as i64);
-        prof_ms_step6e_tail = ((t_prelude_end as i64) - (t_mk4 as i64)) * 1000 / (CLOCKS_PER_SEC as i64);
+        prof_ms_prelude = ((t_prelude_end as i64) - (prof_t0 as i64)) *| 1000 / (CLOCKS_PER_SEC as i64);
+        prof_ms_step6e_tail = ((t_prelude_end as i64) - (t_mk4 as i64)) *| 1000 / (CLOCKS_PER_SEC as i64);
     }
     
     // 镜像分 TU：第七步函数原型写入 uya_split_protos.h（各镜像 .c 首行 #include）
@@ -6066,7 +6066,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                             fw = want_workers;
                         } else {
                             cg_body_pids[fw] = cg_pid;
-                            fw = fw + 1;
+                            fw = fw +| 1;
                         }
                     }
                     if cg_body_mode == 0 {
@@ -6425,7 +6425,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                                 const ptype_c: &byte = c99_type_to_c(codegen, ptype);
                                 format_param_type(codegen, ptype_c, pname, codegen.emit_stream as *void);
                             }
-                            if pj < pcount - 1 {
+                            if pj < pcount -| 1 {
                                 fputs(", " as *byte, codegen.emit_stream as *void);
                             }
                         }
@@ -6448,9 +6448,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                 // 生成函数体（使用 gen_stmt 触发 gen_block_stmt 的完整逻辑，包括 defer 和 drop 清理）
                 const body: &ASTNode = decl.fn_decl_body;
                 if body != null {
-                    codegen.indent_level = codegen.indent_level + 1;
+                    codegen.indent_level = codegen.indent_level +| 1;
                     gen_stmt(codegen, body);
-                    codegen.indent_level = codegen.indent_level - 1;
+                    codegen.indent_level = codegen.indent_level -| 1;
                 }
 
                 // 恢复之前的返回类型
@@ -6555,7 +6555,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     
     if prof_codegen != 0 {
         const t1: clock_t = clock();
-        const total_ms: i64 = ((t1 as i64) - (prof_t0 as i64)) * 1000 / (CLOCKS_PER_SEC as i64);
+        const total_ms: i64 = ((t1 as i64) - (prof_t0 as i64)) *| 1000 / (CLOCKS_PER_SEC as i64);
         var body_ms: i64 = total_ms - prof_ms_prelude;
         if body_ms < 0 {
             body_ms = 0;
@@ -6645,7 +6645,7 @@ fn emit_async_frame_descriptors(codegen: &C99CodeGenerator) void {
             } else {
                 fputs("        { 0, 0, (void*)0 }" as *byte, codegen.emit_stream as *void);
             }
-            if i < count - 1 {
+            if i < count -| 1 {
                 fputs("," as *byte, codegen.emit_stream as *void);
             }
             fputs("\n" as *byte, codegen.emit_stream as *void);

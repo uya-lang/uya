@@ -463,7 +463,7 @@ fn c99_make_simd_name_suffix(codegen: &C99CodeGenerator, type_c: &byte) &byte {
         } else if c == 32 || c == 45 {
             if j > 0 && buf[j - 1] != 95 {
                 buf[j] = 95;
-                j = j + 1;
+                j = j +| 1;
             }
         }
         i = i + 1;
@@ -580,7 +580,7 @@ fn c99_register_simd_struct(codegen: &C99CodeGenerator, name: &byte, element_typ
         codegen.simd_struct_is_mask[simd_idx] = is_mask;
         codegen.simd_struct_count = simd_idx + 1;
         if is_mask == 0 && element_type != null {
-            codegen.simd_vector_struct_reg_count = codegen.simd_vector_struct_reg_count + 1;
+            codegen.simd_vector_struct_reg_count = codegen.simd_vector_struct_reg_count +| 1;
             c99_simd_update_max_lanes_for_element(codegen, element_type, lanes);
         }
         add_struct_definition(codegen, name);
@@ -742,9 +742,9 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
                         if codegen.struct_type_args[spi] == type_node {
                             return tp_name;
                         }
-                        codegen.type_conv_depth = codegen.type_conv_depth + 1;
+                        codegen.type_conv_depth = codegen.type_conv_depth +| 1;
                         const r2: &byte = c99_type_to_c(codegen, codegen.struct_type_args[spi]);
-                        codegen.type_conv_depth = codegen.type_conv_depth - 1;
+                        codegen.type_conv_depth = codegen.type_conv_depth -| 1;
                         return r2;
                     }
                 }
@@ -763,9 +763,9 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
                         if codegen.current_type_args[tpi] == type_node {
                             return tp_name;
                         }
-                        codegen.type_conv_depth = codegen.type_conv_depth + 1;
+                        codegen.type_conv_depth = codegen.type_conv_depth +| 1;
                         const r: &byte = c99_type_to_c(codegen, codegen.current_type_args[tpi]);
-                        codegen.type_conv_depth = codegen.type_conv_depth - 1;
+                        codegen.type_conv_depth = codegen.type_conv_depth -| 1;
                         return r;
                     }
                 }
@@ -844,7 +844,7 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
                 const mono_name_i: &byte = get_mono_struct_name(codegen, name,
                     named_type_args,
                     type_node.type_named_type_arg_count);
-                const mn_len_i: i32 = (strlen(mono_name_i as *byte) as i32) + 24;
+                const mn_len_i: i32 = (strlen(mono_name_i as *byte) as i32) +| 24;
                 const buf_i: &byte = compiler_arena_alloc(codegen.arena, mn_len_i as usize) as &byte;
                 if buf_i != null {
                     snprintf(buf_i as *byte, mn_len_i, "struct uya_interface_%s" as *byte, mono_name_i as *byte);
@@ -857,7 +857,7 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
                 const mono_name: &byte = get_mono_union_name(codegen, name,
                     named_type_args,
                     type_node.type_named_type_arg_count);
-                const mn_len: i32 = (strlen(mono_name as *byte) as i32) + 24;
+                const mn_len: i32 = (strlen(mono_name as *byte) as i32) +| 24;
                 const buf: &byte = compiler_arena_alloc(codegen.arena, mn_len as usize) as &byte;
                 if buf != null {
                     snprintf(buf as *byte, mn_len, "struct uya_tagged_%s" as *byte, mono_name as *byte);
@@ -872,7 +872,7 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
             const mono_name: &byte = get_mono_struct_name(codegen, name,
                 named_type_args,
                 type_node.type_named_type_arg_count);
-            const mn_len: i32 = (strlen(mono_name as *byte) as i32) + 8;  // "struct " + name + '\0'
+            const mn_len: i32 = (strlen(mono_name as *byte) as i32) +| 8;  // "struct " + name + '\0'
             const buf: &byte = compiler_arena_alloc(codegen.arena, mn_len as usize) as &byte;
             if buf != null {
                 snprintf(buf as *byte, mn_len, "struct %s" as *byte, mono_name as *byte);
@@ -1143,9 +1143,9 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
             const dims: *byte = bracket;
             const dims_len: i32 = strlen(dims);
             // 重新分配更大的缓冲区
-            var total_len: i32 = base_len + dims_len + 8; // " (*)" + null
+            var total_len: i32 = base_len +| dims_len +| 8; // " (*)" + null
             if is_const != 0 {
-                total_len = base_len + dims_len + 15; // " const (*)" + null
+                total_len = base_len +| dims_len +| 15; // " const (*)" + null
             }
             const arr_ptr: &byte = compiler_arena_alloc(codegen.arena, total_len) as &byte;
             if arr_ptr == null {
@@ -1203,7 +1203,7 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
         }
         const inner_c: &byte = c99_type_to_c(codegen, inner_type);
         const inner_len: i32 = strlen(inner_c as *byte);
-        const len: i32 = inner_len + 12;  // "_Atomic()" + inner type + null
+        const len: i32 = inner_len +| 12;  // "_Atomic()" + inner type + null
         const result: &byte = compiler_arena_alloc(codegen.arena, len) as &byte;
         if result == null {
             return ("void" as *byte) as &byte;
@@ -1525,7 +1525,7 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
         var i: i32 = 0;
         while i < n {
             const et: &byte = c99_type_to_c(codegen, element_types[i]);
-            total_len = total_len + strlen(et as *byte) + 24;
+            total_len = total_len +| strlen(et as *byte) +| 24;
             i = i + 1;
         }
         const result: &byte = compiler_arena_alloc(codegen.arena, total_len) as &byte;
@@ -1533,7 +1533,7 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
             return ("void" as *byte) as &byte;
         }
         var off: i32 = 0;
-        off = off + snprintf(result as *byte + off, total_len - off, "struct { " as *byte);
+        off = off +| snprintf(result as *byte + off, total_len - off, "struct { " as *byte);
         i = 0;
         while i < n {
             const et: &byte = c99_type_to_c(codegen, element_types[i]);
@@ -1541,10 +1541,10 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
             if et != null {
                 et_str = et;
             }
-            off = off + snprintf(result as *byte + off, total_len - off, "%s f%d; " as *byte, et_str as *byte, i);
+            off = off +% snprintf(result as *byte + off, total_len - off, "%s f%d; " as *byte, et_str as *byte, i);
             i = i + 1;
         }
-        snprintf(result as *byte + off, total_len - off, "}" as *byte);
+        snprintf(result as *byte + off, total_len -| off, "}" as *byte);
         return result;
     } else {
         return ("void" as *byte) as &byte;
@@ -7098,7 +7098,7 @@ fn c99_array_index_result_type_c(codegen: &C99CodeGenerator, array_type_c: &byte
 
     var prefix_len: i32 = (left_bracket - (array_type_c as *byte)) as i32;
     while prefix_len > 0 && (array_type_c[prefix_len - 1] == 32 || array_type_c[prefix_len - 1] == 9) {
-        prefix_len = prefix_len - 1;
+        prefix_len = prefix_len -| 1;
     }
 
     const suffix: &byte = &right_bracket[1] as &byte;
@@ -7374,7 +7374,7 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
             }
             var len: i32 = (asterisk - (ptr_type as *byte)) as i32;
             while len > 0 && (ptr_type[len - 1] == 32 || ptr_type[len - 1] == 9) {
-                len = len - 1;
+                len = len -| 1;
             }
             const buf: &byte = compiler_arena_alloc(codegen.arena, (len + 1) as usize) as &byte;
             if buf == null {
@@ -7494,7 +7494,7 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
         if star != null {
             var len: i32 = (star - (base_c as *byte)) as i32;
             while len > 0 && (base_c[len - 1] == 32 || base_c[len - 1] == 9) {
-                len = len - 1;
+                len = len -| 1;
             }
             if len > 0 {
                 const elem_type: &byte = compiler_arena_alloc(codegen.arena, (len + 1) as usize) as &byte;
@@ -7522,7 +7522,7 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
             const mtbl_cap: i32 = codegen.checker.module_table.table.capacity;
             var mi: i32 = (mh as i32) % mtbl_cap;
             if mi < 0 {
-                mi = mi + mtbl_cap;
+                mi = mi +% mtbl_cap;
             }
             var i3: i32 = 0;
             while i3 < mtbl_cap {
@@ -7736,7 +7736,7 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
                         k = expr.match_expr_arm_count;
                         break;
                     }
-                    k = k + 1;
+                    k = k +| 1;
                 }
             }
             if first_t != null && strcmp(first_t as *byte, "int32_t" as *byte) != 0 {
@@ -7810,7 +7810,7 @@ fn calculate_struct_size(codegen: &C99CodeGenerator, type_node: &ASTNode) i32 {
         const field_count: i32 = struct_decl.struct_decl_field_count;
         // 简单估算：每个字段 4 字节（i32）
         // 实际大小可能因对齐而不同，但用于判断是否 >16 字节足够
-        return field_count * 4;
+        return field_count *| 4;
     }
     
     return 0;
@@ -7842,7 +7842,7 @@ fn is_member_access_pointer_type(codegen: &C99CodeGenerator, member_access: &AST
         if local_count > C99_MAX_LOCAL_VARS {
             local_count = C99_MAX_LOCAL_VARS;
         }
-        var i: i32 = local_count - 1;
+        var i: i32 = local_count -| 1;
         while i >= 0 {
             if i >= C99_MAX_LOCAL_VARS {
                 i = i - 1;
@@ -7939,7 +7939,7 @@ fn is_member_access_pointer_type(codegen: &C99CodeGenerator, member_access: &AST
             if local_count2 > C99_MAX_LOCAL_VARS {
                 local_count2 = C99_MAX_LOCAL_VARS;
             }
-            var i2: i32 = local_count2 - 1;
+            var i2: i32 = local_count2 -| 1;
             while i2 >= 0 {
                 if i2 >= C99_MAX_LOCAL_VARS {
                     i2 = i2 - 1;
@@ -8075,13 +8075,13 @@ fn c99_identifier_type_cache_ensure(codegen: &C99CodeGenerator) void {
 fn c99_identifier_type_cache_slot(codegen: &C99CodeGenerator, name: &byte) i32 {
     var h: i32 = hash_string(name);
     if codegen != null && codegen.current_function_decl != null {
-        h = h + ((@usize_from_ptr(codegen.current_function_decl as &void) & 65535usize) as i32);
+        h = h +| ((@usize_from_ptr(codegen.current_function_decl as &void) & 65535usize) as i32);
     }
     if codegen != null {
-        h = h + (codegen.local_variable_count * 17);
-        h = h + (codegen.global_variable_count * 29);
+        h = h +| (codegen.local_variable_count *| 17);
+        h = h +| (codegen.global_variable_count *| 29);
         if codegen.current_method_struct_name != null {
-            h = h + (hash_string(codegen.current_method_struct_name) * 37);
+            h = h +% (hash_string(codegen.current_method_struct_name) *% 37);
         }
     }
     return (h & C99_IDENTIFIER_TYPE_CACHE_MASK) as i32;
@@ -8134,7 +8134,7 @@ fn lookup_identifier_type_c_impl(codegen: &C99CodeGenerator, name: &byte) &byte 
     if local_count3 > C99_MAX_LOCAL_VARS {
         local_count3 = C99_MAX_LOCAL_VARS;
     }
-    var i: i32 = local_count3 - 1;
+    var i: i32 = local_count3 -| 1;
     while i >= 0 {
         if i >= C99_MAX_LOCAL_VARS {
             i = i - 1;
@@ -8195,7 +8195,7 @@ fn lookup_identifier_type_c_impl(codegen: &C99CodeGenerator, name: &byte) &byte 
         if local_count3 > C99_MAX_LOCAL_VARS {
             local_count3 = C99_MAX_LOCAL_VARS;
         }
-        i = local_count3 - 1;
+        i = local_count3 -| 1;
         while i >= 0 {
             if i >= C99_MAX_LOCAL_VARS {
                 i = i - 1;
@@ -8363,15 +8363,15 @@ fn get_array_wrapper_struct_name(codegen: &C99CodeGenerator, array_type: &ASTNod
             if pos >= 0 && pos < NAME_BUF_SIZE {
                 name_buf[pos] = 95;  // '_'
             }
-            pos = pos + 1;
+            pos = pos +| 1;
         }
         first = 0;
         
         // 添加元素类型名称
         const name_len: i32 = strlen(elem_name as *byte);
-        if pos + name_len < TEMP_BUF_LIMIT {
+        if pos +| name_len < TEMP_BUF_LIMIT {
             memcpy(&name_buf[pos] as *void, elem_name as *void, name_len);
-            pos = pos + name_len;
+            pos = pos +| name_len;
         }
         
         // 添加数组大小
@@ -8381,9 +8381,9 @@ fn get_array_wrapper_struct_name(codegen: &C99CodeGenerator, array_type: &ASTNod
                 var size_str: [byte: NUM_BUF_SIZE] = [];
                 snprintf(&size_str[0] as *byte, 32, "_%d" as *byte, size);
                 const size_len: i32 = strlen(&size_str[0] as *byte);
-                if pos + size_len < TEMP_BUF_LIMIT {
+                if pos +| size_len < TEMP_BUF_LIMIT {
                     memcpy(&name_buf[pos] as *void, &size_str[0] as *void, size_len);
-                    pos = pos + size_len;
+                    pos = pos +| size_len;
                 }
             }
         }
@@ -8519,7 +8519,7 @@ fn get_array_element_type(codegen: &C99CodeGenerator, array_expr: &ASTNode) &byt
         if local_count4 > C99_MAX_LOCAL_VARS {
             local_count4 = C99_MAX_LOCAL_VARS;
         }
-        var i: i32 = local_count4 - 1;
+        var i: i32 = local_count4 -| 1;
         while i >= 0 {
             if i >= C99_MAX_LOCAL_VARS {
                 i = i - 1;
@@ -8549,7 +8549,7 @@ fn get_array_element_type(codegen: &C99CodeGenerator, array_expr: &ASTNode) &byt
                         }
                         memcpy(elem_type as *void, type_c as *void, base_len);
                         memcpy(&elem_type[base_len] as *void, second_bracket as *void, inner_dims_len);
-                        elem_type[base_len + inner_dims_len] = 0;
+                        elem_type[base_len +| inner_dims_len] = 0;
                         return elem_type;
                     } else {
                         // 单层数组：提取基类型
@@ -8614,7 +8614,7 @@ fn get_array_element_type(codegen: &C99CodeGenerator, array_expr: &ASTNode) &byt
                         }
                         memcpy(elem_type3 as *void, type_c2 as *void, base_len2);
                         memcpy(&elem_type3[base_len2] as *void, second_bracket2 as *void, inner_dims_len2);
-                        elem_type3[base_len2 + inner_dims_len2] = 0;
+                        elem_type3[base_len2 +| inner_dims_len2] = 0;
                         return elem_type3;
                     } else {
                         // 单层数组：提取基类型
@@ -8743,7 +8743,7 @@ fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNo
         if local_count5 > C99_MAX_LOCAL_VARS {
             local_count5 = C99_MAX_LOCAL_VARS;
         }
-        var i: i32 = local_count5 - 1;
+        var i: i32 = local_count5 -| 1;
         while i >= 0 {
             if i >= C99_MAX_LOCAL_VARS {
                 i = i - 1;
@@ -8822,7 +8822,7 @@ fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNo
             if local_count6 > C99_MAX_LOCAL_VARS {
                 local_count6 = C99_MAX_LOCAL_VARS;
             }
-            var i: i32 = local_count6 - 1;
+            var i: i32 = local_count6 -| 1;
             while i >= 0 {
                 if i >= C99_MAX_LOCAL_VARS {
                     i = i - 1;
