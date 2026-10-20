@@ -1441,6 +1441,21 @@ fn wide_interval_of_expr(checker: &TypeChecker, expr: &ASTNode, kind: i32) WideI
         if op == TokenType.TOKEN_ASTERISK {
             return wide_mul(left, right);
         }
+        // 按位与：`x & c` 的结果必然落在 [0, c]（c >= 0 时）。
+        // 这条规则让 zigzag 编码里的 `(z & 1)` 能被证明成 [0,1]，
+        // 进而 `-(z & 1)` 不会溢出 —— 否则一元负永远过不了闸门。
+        if op == TokenType.TOKEN_AMPERSAND && right.lo_known != 0 && right.hi_known != 0 &&
+            right.lo == right.hi && right.lo >= 0i64 {
+            var out_and: WideInterval = wide_unknown();
+            out_and.lo_known = 1;
+            out_and.lo = 0i64;
+            out_and.hi_known = 1;
+            out_and.hi = right.lo;
+            if left.lo_known != 0 && left.lo >= 0i64 && left.hi_known != 0 && left.hi < right.lo {
+                out_and.hi = left.hi;
+            }
+            return out_and;
+        }
         const is_div_op: i32 = (op == TokenType.TOKEN_SLASH || op == TokenType.TOKEN_PERCENT) as i32;
         if is_div_op != 0 && right.lo_known != 0 && right.hi_known != 0 {
             // 除数必须是**确定的非零单点**常量，否则无法排除除零 UB。
