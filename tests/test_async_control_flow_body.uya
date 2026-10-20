@@ -6,7 +6,7 @@ use std.testing.assert_eq_i32;
 
 fn sync_control_flow(seed: i32) i32 {
     if seed < 0 {
-        return 100 - seed;
+        return 100 -% seed;
     }
 
     var total: i32 = 0;
@@ -21,7 +21,7 @@ fn sync_control_flow(seed: i32) i32 {
             break;
         }
         {
-            const bump: i32 = seed + i;
+            const bump: i32 = seed +% i;
             total = total + bump;
         }
     }
@@ -35,20 +35,20 @@ fn sync_control_flow(seed: i32) i32 {
         }
         {
             const add: i32 = k as i32;
-            total = total + add;
+            total = total +| add;
         }
     }
 
     if total > 20 {
-        return total + 7;
+        return total +| 7;
     }
-    return total - 3;
+    return total -| 3;
 }
 
 @async_fn
 fn async_control_flow(seed: i32) Future<!i32> {
     if seed < 0 {
-        return 100 - seed;
+        return 100 -% seed;
     }
 
     var total: i32 = 0;
@@ -63,7 +63,7 @@ fn async_control_flow(seed: i32) Future<!i32> {
             break;
         }
         {
-            const bump: i32 = seed + i;
+            const bump: i32 = seed +% i;
             total = total + bump;
         }
     }
@@ -77,14 +77,14 @@ fn async_control_flow(seed: i32) Future<!i32> {
         }
         {
             const add: i32 = k as i32;
-            total = total + add;
+            total = total +| add;
         }
     }
 
     if total > 20 {
-        return total + 7;
+        return total +| 7;
     }
-    return total - 3;
+    return total -| 3;
 }
 
 test "async_control_flow_matches_sync_success" {

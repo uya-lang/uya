@@ -21,7 +21,7 @@ test "memcpy_basic" {
     var result: *byte = memcpy(
         @ptr_from_usize(@usize_from_ptr(&dest)) as *byte,
         @ptr_from_usize(@usize_from_ptr(&src)) as *const byte,
-        5 * @size_of(i32)
+        5 *| @size_of(i32)
     );
     
     // 验证返回值是 dest
@@ -93,7 +93,7 @@ test "memmove_no_overlap" {
     var result: *byte = memmove(
         @ptr_from_usize(@usize_from_ptr(&dest)) as *byte,
         @ptr_from_usize(@usize_from_ptr(&src)) as *const byte,
-        4 * @size_of(i32)
+        4 *| @size_of(i32)
     );
     
     try expect(dest[0] == 10);
@@ -110,7 +110,7 @@ test "memmove_with_overlap_forward" {
     var result: *byte = memmove(
         @ptr_from_usize(@usize_from_ptr(&buf)) as *byte,
         @ptr_from_usize(@usize_from_ptr(&buf) + 2 * @size_of(i32)) as *const byte,
-        3 * @size_of(i32)
+        3 *| @size_of(i32)
     );
     
     try expect(buf[0] == 3);
@@ -126,7 +126,7 @@ test "memmove_with_overlap_backward" {
     var result: *byte = memmove(
         @ptr_from_usize(@usize_from_ptr(&buf) + 2 * @size_of(i32)) as *byte,
         @ptr_from_usize(@usize_from_ptr(&buf)) as *const byte,
-        3 * @size_of(i32)
+        3 *| @size_of(i32)
     );
     
     try expect(buf[2] == 1);

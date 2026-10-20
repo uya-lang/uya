@@ -8,13 +8,13 @@ const MAXV: i32 = @max;
 const MINV: i32 = @min;
 
 fn add_checked(a: i32, b: i32) !i32 {
-    if a > 0 && b > 0 && a > MAXV - b {
+    if a > 0 && b > 0 && a > MAXV -| b {
         return error.Overflow;
     }
-    if a < 0 && b < 0 && a < MINV - b {
+    if a < 0 && b < 0 && a < MINV -| b {
         return error.Overflow;
     }
-    return a + b;
+    return a +| b;
 }
 
 // 在 catch 里处理错误，返回默认值

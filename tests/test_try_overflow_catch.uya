@@ -19,7 +19,7 @@ fn add_or_default(a: i32, b: i32, fallback: i32) i32 {
 
 fn add_or_default_bound(a: i32, b: i32, fallback: i32) i32 {
     // 带 |e| 绑定：拿到错误值后分流
-    var result: i32 = fallback - 1;
+    var result: i32 = fallback -| 1;
     _ = (a + b) catch |e| {
         if e == error.Overflow {
             result = fallback;

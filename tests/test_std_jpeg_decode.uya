@@ -44,9 +44,9 @@ fn blank_image() Image {
 
 // 对照块均值：img 的每个 4x4 块均值与 ref（每块 3 项 R,G,B）比，容差 tol。
 fn blocks_match(img: &const Image, ref: &const i32, tol: i32) bool {
-    const bw: i32 = (img.width + 3) / 4;
+    const bw: i32 = (img.width +| 3) / 4;
     var by: i32 = 0;
-    while by < (img.height + 3) / 4 {
+    while by < (img.height +| 3) / 4 {
         var bx: i32 = 0;
         while bx < bw {
             var sr: i32 = 0;
@@ -68,18 +68,18 @@ fn blocks_match(img: &const Image, ref: &const i32, tol: i32) bool {
                 y = y + 1;
             }
             const idx: usize = (((by * bw + bx) as usize) * 3 as usize);
-            var er: i32 = sr / n - ref[idx];
-            var eg: i32 = sg / n - ref[idx + 1];
-            var eb: i32 = sb / n - ref[idx + 2];
-            if er < 0 { er = 0 - er; }
-            if eg < 0 { eg = 0 - eg; }
-            if eb < 0 { eb = 0 - eb; }
+            var er: i32 = sr / n -| ref[idx];
+            var eg: i32 = sg / n -| ref[idx + 1];
+            var eb: i32 = sb / n -| ref[idx + 2];
+            if er < 0 { er = 0 -| er; }
+            if eg < 0 { eg = 0 -| eg; }
+            if eb < 0 { eb = 0 -| eb; }
             if er > tol || eg > tol || eb > tol {
                 return false;
             }
-            bx = bx + 1;
+            bx = bx +| 1;
         }
-        by = by + 1;
+        by = by +| 1;
     }
     return true;
 }
@@ -104,8 +104,8 @@ fn gray_blocks_match(img: &const Image, ref: &const i32, tol: i32) bool {
             }
             const bi: i32 = by * 4 + bx;
             const bref: i32 = ref[bi as usize];
-            var d: i32 = s / 16 - bref;
-            if d < 0 { d = 0 - d; }
+            var d: i32 = s / 16 -| bref;
+            if d < 0 { d = 0 -| d; }
             if d > tol {
                 return false;
             }

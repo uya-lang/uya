@@ -53,12 +53,12 @@ fn match_after_await(seed: i32) Future<!i32> {
     const op: Op = make_op(op_seed);
     const bonus: i32 = match op {
         .add(n) => n,
-        .sub(n) => n + 10,
-        .mul(n) => op_seed * n,
+        .sub(n) => n +| 10,
+        .mul(n) => op_seed *% n,
         .nop(_) => 7,
     };
-    const base: i32 = try @await flip_i32(seed + 1);
-    return base + bonus;
+    const base: i32 = try @await flip_i32(seed +% 1);
+    return base +| bonus;
 }
 
 // match 在 @await 之前，保证 match 不影响 lowering
@@ -67,12 +67,12 @@ fn match_before_await(seed: i32) Future<!i32> {
     const op: Op = make_op(seed);
     const bonus: i32 = match op {
         .add(n) => n,
-        .sub(n) => n + 10,
-        .mul(n) => seed * n,
+        .sub(n) => n +| 10,
+        .mul(n) => seed *% n,
         .nop(_) => 7,
     };
-    const base: i32 = try @await flip_i32(seed + 1);
-    return base + bonus;
+    const base: i32 = try @await flip_i32(seed +% 1);
+    return base +| bonus;
 }
 
 // 多个 match，与 @await 交错
@@ -84,20 +84,20 @@ fn match_multi_await(seed: i32) Future<!i32> {
     total = total + a;
 
     const op1: Op = make_op(seed);
-    total = total + match op1 {
+    total = total +| match op1 {
         .add(n) => n,
-        .sub(n) => 0 - n,
+        .sub(n) => 0 -| n,
         .mul(n) => n,
         .nop(_) => 1,
     };
 
-    const b: i32 = try @await flip_i32(seed + 5);
-    total = total + b;
+    const b: i32 = try @await flip_i32(seed +% 5);
+    total = total +| b;
 
-    const op2: Op = make_op(seed + 1);
-    total = total + match op2 {
+    const op2: Op = make_op(seed +% 1);
+    total = total +| match op2 {
         .add(n) => n,
-        .sub(n) => 0 - n,
+        .sub(n) => 0 -| n,
         .mul(n) => n,
         .nop(_) => 1,
     };
@@ -108,9 +108,9 @@ fn match_multi_await(seed: i32) Future<!i32> {
 fn no_await_pure_match(seed: i32) Future<!i32> {
     const op: Op = make_op(seed);
     return match op {
-        .add(n) => n + 100,
-        .sub(n) => n + 200,
-        .mul(n) => n + 300,
+        .add(n) => n +| 100,
+        .sub(n) => n +| 200,
+        .mul(n) => n +| 300,
         .nop(_) => 400,
     };
 }

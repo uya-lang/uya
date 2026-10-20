@@ -10,7 +10,7 @@ export mc add(a: expr, b: expr) expr {
     @mc_code(@mc_ast({
         const left: i32 = ${a};
         const right: i32 = ${b};
-        left + right;
+        left +| right;
     }));
 }
 

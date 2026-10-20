@@ -59,7 +59,7 @@ fn test_break_in_for_ref() !void {
         if *item == 3 {
             break;
         }
-        *item = *item * 2;
+        *item = *item *| 2;
     }
     try expect(arr5[0] == 2 && arr5[1] == 4 && arr5[2] == 3);
 }
@@ -70,7 +70,7 @@ fn test_continue_in_for_ref() !void {
         if *item == 3 {
             continue;
         }
-        *item = *item * 2;
+        *item = *item *| 2;
     }
     try expect(arr6[0] == 2 && arr6[1] == 4 && arr6[2] == 3 && arr6[3] == 8 && arr6[4] == 10);
 }

@@ -35,8 +35,8 @@ test "test_ptr_sizes_equal" {
 }
 
 test "test_size_in_expression" {
-    try assert_eq_i32(@size_of(byte) * 10, 10);
-    try assert_eq_i32(@size_of(*byte) * 5, 40);
+    try assert_eq_i32(@size_of(byte) *| 10, 10);
+    try assert_eq_i32(@size_of(*byte) *| 5, 40);
 }
 
 test "test_slice_ne_array" {

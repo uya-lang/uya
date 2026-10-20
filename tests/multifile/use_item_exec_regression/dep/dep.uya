@@ -1,4 +1,4 @@
 // 导出函数，供 main.uya 通过 `use dep.exported_sum;` 导入。
 export fn exported_sum(x: i32, y: i32) i32 {
-    return x + y;
+    return x +| y;
 }

@@ -11,7 +11,7 @@ fn identity<T>(x: T) T {
 }
 
 fn double_i32(x: i32) i32 {
-    return x * 2;
+    return x *| 2;
 }
 
 fn test_nested_generic_call() !void {

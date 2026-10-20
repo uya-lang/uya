@@ -6,17 +6,17 @@ extern "libc" fn printf(fmt: *byte, ...) i32;
 
 // 加法
 fn asm_add(a: i32, b: i32) i32 {
-    return a + b;
+    return a +| b;
 }
 
 // 减法
 fn asm_sub(a: i32, b: i32) i32 {
-    return a - b;
+    return a -| b;
 }
 
 // 乘法
 fn asm_mul(a: i32, b: i32) i32 {
-    return a * b;
+    return a *| b;
 }
 
 // 除法
@@ -69,9 +69,9 @@ fn asm_pow(base: i32, exp: i32) i32 {
     
     while e > 0 {
         if (e & 1) != 0 {
-            result = result * b;
+            result = result *| b;
         }
-        b = b * b;
+        b = b *| b;
         e = e >> 1;
     }
     
@@ -95,7 +95,7 @@ fn asm_gcd(a: i32, b: i32) i32 {
 // 绝对值
 fn asm_abs(a: i32) i32 {
     if a < 0 {
-        return 0 - a;
+        return 0 -| a;
     }
     return a;
 }

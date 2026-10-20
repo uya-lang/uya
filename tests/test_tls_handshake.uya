@@ -751,55 +751,55 @@ export fn main() i32 {
     }
     const ar: i32 = test_parse_realistic_tls_client_hello_record();
     if ar != 0 {
-        return 50 + ar;
+        return 50 +| ar;
     }
     const arf: i32 = test_record_framed_handshake_roundtrip();
     if arf != 0 {
-        return 80 + arf;
+        return 80 +| arf;
     }
     const arm: i32 = test_record_framed_multi_record_second_flight();
     if arm != 0 {
-        return 90 + arm;
+        return 90 +| arm;
     }
     const arc: i32 = test_server_flight_embeds_certificate_der();
     if arc != 0 {
-        return 120 + arc;
+        return 120 +| arc;
     }
     const b: i32 = test_context_handshake_and_write_read();
     if b != 0 {
-        return 100 + b;
+        return 100 +| b;
     }
     const c: i32 = test_context13_handshake_and_write_read();
     if c != 0 {
-        return 200 + c;
+        return 200 +| c;
     }
     const d: i32 = test_hostname_mismatch_fails_handshake_completion();
     if d != 0 {
-        return 300 + d;
+        return 300 +| d;
     }
     const e: i32 = test_untrusted_peer_chain_fails_handshake_completion();
     if e != 0 {
-        return 400 + e;
+        return 400 +| e;
     }
     const f: i32 = test_server_sni_selects_identity();
     if f != 0 {
-        return 500 + f;
+        return 500 +| f;
     }
     const g: i32 = test_server_identity_requires_rsa_credentials();
     if g != 0 {
-        return 600 + g;
+        return 600 +| g;
     }
     const h: i32 = test_server_identity_requires_rsa_credentials_tls13();
     if h != 0 {
-        return 700 + h;
+        return 700 +| h;
     }
     const i: i32 = test_tls12_server_rejects_malformed_client_hello();
     if i != 0 {
-        return 800 + i;
+        return 800 +| i;
     }
     const j: i32 = test_tls13_client_rejects_corrupted_server_flight();
     if j != 0 {
-        return 900 + j;
+        return 900 +| j;
     }
     return 0;
 }

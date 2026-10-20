@@ -14,7 +14,7 @@ fn delayed_add_one_i32(v: i32) i32 {
     const req: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 50 * 1000 * 1000 };
     var rem: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
     _ = sys_nanosleep(&req, &rem) catch {};
-    return v + 1;
+    return v +| 1;
 }
 
 fn sleep_wait_poll() void {

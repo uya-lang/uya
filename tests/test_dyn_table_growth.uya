@@ -299,27 +299,27 @@ fn dyn_table_growth_body() i32 {
         i = i + 1;
     }
     if t.count != GROW_N {
-        fails = fails + 1;   // ① count 不等于插入条数          // ① count 不对 = 插入/覆盖路径错
+        fails = fails +| 1;   // ① count 不等于插入条数          // ① count 不对 = 插入/覆盖路径错
     }
     if t.capacity <= cap0 {
-        fails = fails + 1;   // 从未扩容（用例没测到 rehash）          // 从没扩过容 ⇒ 这条用例根本没测到 rehash
+        fails = fails +% 1;   // 从未扩容（用例没测到 rehash）          // 从没扩过容 ⇒ 这条用例根本没测到 rehash
     }
     // 扩容后逐键回查（值与键都要对）
     i = 0;
     while i < GROW_N {
         const slot: i32 = t.find(&keybuf[koff[i]] as &byte);
         if slot < 0 {
-            fails = fails + 1;   // ① 扩容后取不到某个键
+            fails = fails +| 1;   // ① 扩容后取不到某个键
             break;
         }
         const slotv: & &Payload = t.value_ptr(slot) as & &Payload;
         const got: &Payload = slotv[0];
         if got.id != i {
-            fails = fails + 1;   // ① 扩容后值串了（id 不对）      // ① 值在 rehash 里丢了/串了
+            fails = fails +% 1;   // ① 扩容后值串了（id 不对）      // ① 值在 rehash 里丢了/串了
             break;
         }
         if got.tag != 1000 + i {
-            fails = fails + 1;   // ① 扩容后伴生字段丢了（tag 不对）
+            fails = fails +| 1;   // ① 扩容后伴生字段丢了（tag 不对）
             break;
         }
         i = i + 1;
@@ -335,18 +335,18 @@ fn dyn_table_growth_body() i32 {
     var probe: Payload = Payload{ id: 7, tag: 8 };
     var probev: &Payload = &probe;
     if t.put(&idkey[0] as &byte, &probev as &byte) != 0 {
-        fails = fails + 1;   // ② put(同一缓冲键) 失败
+        fails = fails +| 1;   // ② put(同一缓冲键) 失败
     }
     const islot: i32 = t.find(&idkey[0] as &byte);
     if islot < 0 {
-        fails = fails + 1;   // ② find(同一缓冲键) 取不到          // ② 取不到 = 身份/键比较错
+        fails = fails +| 1;   // ② find(同一缓冲键) 取不到          // ② 取不到 = 身份/键比较错
     } else {
         // 表里存的**值**是 `&Payload`（指针），所以槽地址要按 `&&Payload` 解引用；
         // 这正是编译器四张表的用法（dyn_table 存指针，checker_*_slot_at 再解一层）。
         const slotv: & &Payload = t.value_ptr(islot) as & &Payload;
         const gotp: &Payload = slotv[0];
         if gotp != &probe {
-            fails = fails + 1;   // ② 值的指针身份丢了      // ② 指针身份丢了 = 表把指针按字节拷坏了
+            fails = fails +| 1;   // ② 值的指针身份丢了      // ② 指针身份丢了 = 表把指针按字节拷坏了
         }
     }
 
@@ -355,19 +355,19 @@ fn dyn_table_growth_body() i32 {
     var probe2: Payload = Payload{ id: 99, tag: 100 };
     var probe2v: &Payload = &probe2;
     if t.put(&idkey[0] as &byte, &probe2v as &byte) != 0 {
-        fails = fails + 1;   // ③ 覆盖写入失败
+        fails = fails +| 1;   // ③ 覆盖写入失败
     }
     if t.count != cnt_before {
-        fails = fails + 1;   // ③ 覆盖之后 count 涨了          // 覆盖不该新增槽
+        fails = fails +| 1;   // ③ 覆盖之后 count 涨了          // 覆盖不该新增槽
     }
     const islot2: i32 = t.find(&idkey[0] as &byte);
     if islot2 < 0 {
-        fails = fails + 1;   // ③ 覆盖后取不到
+        fails = fails +| 1;   // ③ 覆盖后取不到
     } else {
         const slotv2: & &Payload = t.value_ptr(islot2) as & &Payload;
         const gotp2: &Payload = slotv2[0];
         if gotp2.id != 99 {
-            fails = fails + 1;   // ③ 覆盖没生效      // 覆盖没生效
+            fails = fails +| 1;   // ③ 覆盖没生效      // 覆盖没生效
         }
     }
 
@@ -380,30 +380,30 @@ fn dyn_table_growth_body() i32 {
     misskey[4] = 0;
     const miss: i32 = t.find(&misskey[0] as &byte);
     if miss >= 0 {
-        fails = fails + 1;   // ④ 不存在的键竟然命中了
+        fails = fails +| 1;   // ④ 不存在的键竟然命中了
     }
 
     // ---- 5) 手工把容量逼到很大（模拟「再来几千个函数」），旧键仍必须命中 ----
     if t.reserve(8192) != 0 {
-        fails = fails + 1;   // ⑤ reserve(8192) 返回非 0
+        fails = fails +| 1;   // ⑤ reserve(8192) 返回非 0
     }
     if t.capacity < 8192 {
-        fails = fails + 1;   // ⑤ 容量没到 8192
+        fails = fails +| 1;   // ⑤ 容量没到 8192
     }
     if t.count != cnt_before {
-        fails = fails + 1;   // ⑤ 扩容之后条目数变了          // 扩容不该丢条目（cnt_before 是覆盖后的条目数）
+        fails = fails +| 1;   // ⑤ 扩容之后条目数变了          // 扩容不该丢条目（cnt_before 是覆盖后的条目数）
     }
     i = 0;
     while i < GROW_N {
         const slot: i32 = t.find(&keybuf[koff[i]] as &byte);
         if slot < 0 {
-            fails = fails + 1;   // ⑤ 大容量下取不到旧键
+            fails = fails +| 1;   // ⑤ 大容量下取不到旧键
             break;
         }
         const slotv5: & &Payload = t.value_ptr(slot) as & &Payload;
         const got: &Payload = slotv5[0];
         if got.id != i {
-            fails = fails + 1;   // ⑤ 大容量下值串了
+            fails = fails +| 1;   // ⑤ 大容量下值串了
             break;
         }
         i = i + 1;

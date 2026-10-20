@@ -2,5 +2,5 @@ use std.runtime.entry;
 use std.testing.assert_eq_i32;
 
 export fn exported_sum(x: i32, y: i32) i32 {
-    return x + y;
+    return x +| y;
 }

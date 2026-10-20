@@ -89,7 +89,8 @@ test "combined_conditions" {
     // 编译器可以证明 a >= 0 && a < 10 && b >= 0 && b < 10
     // 优化：移除所有边界检查
     if a >= 0 && a < 10 && b >= 0 && b < 10 {
-        const sum: i32 = arr[a] + arr[b];
+        // 数组元素的值是运行期数据，静态不可证；用 catch 显式声明"溢出则兜底"
+        const sum: i32 = (arr[a] + arr[b]) catch { 0; };
         try assert_eq_i32(sum, 0);
     }
 }

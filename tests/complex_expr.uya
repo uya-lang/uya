@@ -5,7 +5,7 @@ use std.testing.expect;
 use std.testing.assert_eq_i32;
 
 fn double(x: i32) i32 {
-    return x * 2;
+    return x *| 2;
 }
 
 test "test_nested_expr" {
@@ -13,7 +13,7 @@ test "test_nested_expr" {
     const b: i32 = 10;
     
     // 测试复杂的嵌套表达式
-    const result1: i32 = (a + b) * 2 - double(a);
+    const result1: i32 = (a + b) * 2 -| double(a);
     // (5 + 10) * 2 - 10 = 30 - 10 = 20
     try assert_eq_i32(result1, 20);
 }
@@ -23,7 +23,7 @@ test "test_func_arithmetic" {
     const b: i32 = 10;
     
     // 测试函数调用和算术运算组合
-    const result2: i32 = double(a) + double(b) * 2;
+    const result2: i32 = double(a) +| double(b) *| 2;
     // 10 + 20 * 2 = 10 + 40 = 50
     try assert_eq_i32(result2, 50);
 }

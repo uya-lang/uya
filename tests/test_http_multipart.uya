@@ -103,7 +103,7 @@ test "parse_multipart_too_many_parts" {
         if pi < 10 {
             nc = (48 + pi) as byte;
         } else {
-            nc = (97 + (pi - 10)) as byte;
+            nc = (97 +| (pi -| 10)) as byte;
         }
         raw[r] = nc;
         r = r + 1;

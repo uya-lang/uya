@@ -99,7 +99,7 @@ var signal_handler_count: i32 = 0;
 var signal_handler_last: i32 = 0;
 
 fn test_usr1_handler(signum: i32) void {
-    signal_handler_count = signal_handler_count + 1;
+    signal_handler_count = signal_handler_count +| 1;
     signal_handler_last = signum;
 }
 

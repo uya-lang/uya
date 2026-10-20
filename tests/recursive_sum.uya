@@ -11,7 +11,7 @@ fn sum_recursive(n: i32) i32 {
     if n <= 0 {
         return 0;
     } else {
-        return n + sum_recursive(n - 1);
+        return n +| sum_recursive(n - 1);
     }
 }
 

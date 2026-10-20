@@ -31,7 +31,7 @@ fn may_fail(should_fail: bool) Future<!i32> {
 fn nested_async() Future<!i32> {
     const left: i32 = try @await async_operation();
     const right: i32 = try @await may_fail(false);
-    return left + right;
+    return left +| right;
 }
 
 struct User {

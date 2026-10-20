@@ -13,11 +13,11 @@ struct Point {
 }
 
 fn add(a: i32, b: i32) i32 {
-    return a + b;
+    return a +| b;
 }
 
 fn multiply(a: i32, b: i32) i32 {
-    return a * b;
+    return a *| b;
 }
 
 fn get_sum(p: Point) i32 {

@@ -28,25 +28,25 @@
 // 两个形参相加：端点相加回绕成 [0, -2]
 fn write_add(w: i32, h: i32) i32 {
     var a: [i32: 5] = [11, 22, 33, 44, 55];
-    a[w + h] = 99;
+    a[w +| h] = 99;
     return a[0];
 }
 
 // 两个形参相减：端点相减同样会回绕
 fn write_sub(w: i32, h: i32) i32 {
     var a: [i32: 5] = [11, 22, 33, 44, 55];
-    a[w - h] = 99;
+    a[w -| h] = 99;
     return a[0];
 }
 
 // 同一形参自加：回绕成 [o + o] 型反转区间
 fn write_self_add(w: i32) i32 {
     var a: [i32: 5] = [11, 22, 33, 44, 55];
-    a[w + w] = 99;
+    a[w +| w] = 99;
     return a[0];
 }
 
 export fn main() i32 {
     // 运行期下标远超 5，修复前会越界写
-    return write_add(100000000, 100000000) + write_sub(1, 2) + write_self_add(2);
+    return write_add(100000000, 100000000) +| write_sub(1, 2) +| write_self_add(2);
 }

@@ -5,12 +5,12 @@ use std.testing.assert_eq_i32;
 
 // 简单函数：单条 return 语句
 fn square(x: i32) i32 {
-    return x * x;
+    return x *| x;
 }
 
 // 简单函数：多条语句但很小
 fn add_one(x: i32) i32 {
-    const result: i32 = x + 1;
+    const result: i32 = x +| 1;
     return result;
 }
 

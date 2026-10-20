@@ -11,14 +11,14 @@ const DYNAMIC_QUEUE_PRESSURE_TARGET: i32 = THREAD_POOL_MAX_TASK_SLOTS + 1;
 const DYNAMIC_WAIT_RETRIES: i32 = 2000;
 
 fn add_one_i32(v: i32) i32 {
-    return v + 1;
+    return v +| 1;
 }
 
 fn delayed_add_one_i32(v: i32) i32 {
     const req: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 50 * 1000 * 1000 };
     var rem: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
     _ = sys_nanosleep(&req, &rem) catch {};
-    return v + 1;
+    return v +| 1;
 }
 
 fn sleep_wait_poll() void {

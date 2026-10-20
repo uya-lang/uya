@@ -15,7 +15,7 @@ fn create_rectangle(x: i32, y: i32, width: i32, height: i32) Rectangle {
 
 // 定义函数，参数使用文件A的结构体 Point
 fn calculate_rectangle_area(r: Rectangle) i32 {
-    return r.width * r.height;
+    return r.width *| r.height;
 }
 
 // 定义函数，调用文件A的函数

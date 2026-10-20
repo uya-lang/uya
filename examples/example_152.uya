@@ -24,7 +24,7 @@ struct AsyncTask : Future<!i32> {
 @async_fn
 fn fetch_and_process() Future<!i32> {
     const base: i32 = try @await step1();
-    return base + 99;
+    return base +| 99;
 }
 
 @async_fn
@@ -34,12 +34,12 @@ fn step1() Future<!i32> {
 
 @async_fn
 fn step2(input: i32) Future<!i32> {
-    return input * 2;
+    return input *| 2;
 }
 
 @async_fn
 fn step3(input: i32) Future<!i32> {
-    return input + 10;
+    return input +| 10;
 }
 
 @async_fn
@@ -61,7 +61,7 @@ fn may_fail_step1(should_fail: bool) Future<!i32> {
 @async_fn
 fn may_fail_step2(should_fail: bool) Future<!i32> {
     const value: i32 = try @await may_fail_step1(should_fail);
-    return value * 2;
+    return value *| 2;
 }
 
 @async_fn

@@ -47,7 +47,7 @@ fn sum_three_awaits_in_for() Future<!i32> {
     var t: i32 = 0;
     for 0..3 |k| {
         const x: i32 = try @await ready_7();
-        t = t + x + (k as i32);
+        t = t + x +| (k as i32);
     }
     return t;
 }
@@ -66,7 +66,7 @@ fn sum_array_for_with_await() Future<!i32> {
     var t: i32 = 0;
     for a |e| {
         const x: i32 = try @await ready_7();
-        t = t + e + x;
+        t = t + e +| x;
     }
     return t;
 }
@@ -85,10 +85,10 @@ fn mutate_array_for_ref_with_await() Future<!i32> {
     var t: i32 = 0;
     for a |&item| {
         const x: i32 = try @await ready_7();
-        *item = *item + x;
-        t = t + *item;
+        *item = *item +| x;
+        t = t +| *item;
     }
-    return t + a[0] + a[1] + a[2];
+    return t +| a[0] +| a[1] +| a[2];
 }
 
 test "async_for_array_ref_with_await" {
@@ -105,7 +105,7 @@ fn sum_iterator_for_with_await() Future<!i32> {
     var t: i32 = 0;
     for iter |v| {
         const x: i32 = try @await ready_7();
-        t = t + v + x;
+        t = t + v +| x;
     }
     return t;
 }

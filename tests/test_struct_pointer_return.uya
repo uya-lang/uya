@@ -65,7 +65,7 @@ fn get_point_x_pointer(p: &Point) &i32 { return &p.x; }
 fn get_point_y_pointer(p: &Point) &i32 { return &p.y; }
 fn get_point_from_node(n: &Node) &Point {
     global_point.x = n.value;
-    global_point.y = n.value * 2;
+    global_point.y = n.value *| 2;
     return &global_point;
 }
 fn get_array_first_element() &i32 { return &global_array[0]; }

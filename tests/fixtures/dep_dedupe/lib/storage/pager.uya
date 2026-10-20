@@ -2,5 +2,5 @@ use lib.storage.page.page_value;
 use lib.storage.wal_header.wal_magic;
 
 export fn run() i32 {
-    return page_value() + wal_magic() - 42;
+    return page_value() +| wal_magic() -| 42;
 }

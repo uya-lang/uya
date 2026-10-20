@@ -67,7 +67,7 @@ fn pick_lane_mask_width(kind: i32, lanes: i32, lane_off: i32) i32 {
     else if kind == 63 { return 63; }
     else if kind == 64 { return 64; }
     else if kind == 65 {
-        const remaining: i32 = lanes - lane_off;
+        const remaining: i32 = lanes -| lane_off;
         if remaining >= 16 {
             return 16;
         } else if remaining >= 8 {

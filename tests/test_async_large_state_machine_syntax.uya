@@ -28,25 +28,25 @@ fn flip(v: i32) Future<!i32> { return FlipI32{ value: v, polled: 0 }; }
 @async_fn
 fn seq_20_awaits(seed: i32) Future<!i32> {
     var total: i32 = try @await flip(seed);
-    total = total + try @await flip(1);
-    total = total + try @await flip(2);
-    total = total + try @await flip(3);
-    total = total + try @await flip(4);
-    total = total + try @await flip(5);
-    total = total + try @await flip(6);
-    total = total + try @await flip(7);
-    total = total + try @await flip(8);
-    total = total + try @await flip(9);
-    total = total + try @await flip(10);
-    total = total + try @await flip(11);
-    total = total + try @await flip(12);
-    total = total + try @await flip(13);
-    total = total + try @await flip(14);
-    total = total + try @await flip(15);
-    total = total + try @await flip(16);
-    total = total + try @await flip(17);
-    total = total + try @await flip(18);
-    total = total + try @await flip(19);
+    total = total +| try @await flip(1);
+    total = total +| try @await flip(2);
+    total = total +| try @await flip(3);
+    total = total +| try @await flip(4);
+    total = total +| try @await flip(5);
+    total = total +| try @await flip(6);
+    total = total +| try @await flip(7);
+    total = total +| try @await flip(8);
+    total = total +| try @await flip(9);
+    total = total +| try @await flip(10);
+    total = total +| try @await flip(11);
+    total = total +| try @await flip(12);
+    total = total +| try @await flip(13);
+    total = total +| try @await flip(14);
+    total = total +| try @await flip(15);
+    total = total +| try @await flip(16);
+    total = total +| try @await flip(17);
+    total = total +| try @await flip(18);
+    total = total +| try @await flip(19);
     return total;
 }
 
@@ -57,7 +57,7 @@ fn while_multi_await(start: i32, steps: i32) Future<!i32> {
     var total: i32 = start;
     var i: i32 = 0;
     while i < steps {
-        total = total + try @await flip(i + 1);
+        total = total +| try @await flip(i + 1);
         i = i + 1;
     }
     return total;
@@ -69,7 +69,7 @@ fn while_multi_await(start: i32, steps: i32) Future<!i32> {
 fn for_range_with_await(n: i32) Future<!i32> {
     var total: i32 = 0;
     for 0..n |k| {
-        const v: i32 = try @await flip(k as i32 + 1);
+        const v: i32 = try @await flip(k as i32 +| 1);
         total = total + v;
     }
     return total;
@@ -92,12 +92,12 @@ fn vars_across_segments() Future<!i32> {
 @async_fn
 fn side_effects_across_awaits(seed: i32) Future<!i32> {
     g_side = seed;
-    const a: i32 = try @await flip(g_side + 1);
-    g_side = a + 2;
-    const b: i32 = try @await flip(g_side + 3);
-    g_side = b + 4;
-    const c: i32 = try @await flip(g_side + 5);
-    g_side = c + 6;
+    const a: i32 = try @await flip(g_side +| 1);
+    g_side = a +| 2;
+    const b: i32 = try @await flip(g_side +| 3);
+    g_side = b +| 4;
+    const c: i32 = try @await flip(g_side +| 5);
+    g_side = c +| 6;
     return g_side;
 }
 
@@ -106,10 +106,10 @@ fn side_effects_across_awaits(seed: i32) Future<!i32> {
 @async_fn
 fn expr_pipeline_with_await(base: i32) Future<!i32> {
     const a: i32 = try @await flip(base);
-    const b: i32 = try @await flip(a * 2 + 1);
-    const c: i32 = try @await flip(b - 5);
-    const d: i32 = try @await flip(c + c);
-    return d + try @await flip(1);
+    const b: i32 = try @await flip(a *| 2 +| 1);
+    const c: i32 = try @await flip(b -| 5);
+    const d: i32 = try @await flip(c +| c);
+    return d +| try @await flip(1);
 }
 
 // ── while + @await，使用 ready future（无 Pending 延迟，减少轮次）──
@@ -129,7 +129,7 @@ fn while_ready_await(start: i32, steps: i32) Future<!i32> {
     var total: i32 = start;
     var i: i32 = 0;
     while i < steps {
-        total = total + try @await ready(i + 1);
+        total = total +| try @await ready(i + 1);
         i = i + 1;
     }
     return total;

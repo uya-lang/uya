@@ -56,5 +56,5 @@ export fn main() i32 {
     const read_out: i32 = read_at(&buf[0:4], OOB_INDEX);
     const write_out: i32 = write_at(wide, OOB_INDEX);
 
-    return read_out + write_out;
+    return read_out +| write_out;
 }

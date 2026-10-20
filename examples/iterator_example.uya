@@ -64,7 +64,7 @@ fn main() i32 {
     var arr2: [i32: 5] = [10, 20, 30, 40, 50];
     printf("\nMutable iteration:\n");
     for arr2 |&item| {
-        *item = *item * 2;  // 修改每个元素，乘以2
+        *item = *item *| 2;  // 修改每个元素，乘以2
         printf("  value: %d\n", *item);
     }
     

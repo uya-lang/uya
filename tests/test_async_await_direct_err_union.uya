@@ -13,7 +13,7 @@ fn ready_i32_direct(v: i32) Future<!i32> {
 fn bind_direct_err_union() Future<!i32> {
     const r: !i32 = @await ready_i32_direct(7);
     const v: i32 = r catch { 0 - 10; };
-    return v + 5;
+    return v +| 5;
 }
 
 test "async_bind_direct_err_union_await" {

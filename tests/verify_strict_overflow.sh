@@ -123,12 +123,13 @@ EOF
 
 # ---------- 用例 ----------
 
-log "1/6 默认关闭：无守卫算术照常编译"
+log "1/6 默认开启：无守卫算术被拦下"
+# 闸门已翻为默认开：src/ 与 lib/ 的存量代码全部按语义处理完毕。
+# 需要关闭时显式使用 --no-strict-overflow（见下面的用例 6）。
 if "$COMPILER" check "$TMP_DIR/unguarded.uya" > "$TMP_DIR/out1.log" 2>&1; then
-    log "  ✓ 默认不拦（兼容性保持）"
+    fail "默认状态下无守卫算术竟未被拦下，闸门可能未默认开启"
 else
-    fail "默认状态下无守卫算术被拦下，应只在 --strict-overflow 下生效"
-    cat "$TMP_DIR/out1.log" >&2
+    log "  ✓ 默认即拦（闸门默认开启）"
 fi
 
 log "2/6 闸门开启：无守卫的加/减/乘报溢出无法证明"

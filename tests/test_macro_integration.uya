@@ -83,7 +83,7 @@ fn test_struct_init() !void {
 
 // 测试宏用于函数参数
 fn add(a: i32, b: i32) i32 {
-    return a + b;
+    return a +| b;
 }
 
 fn test_function_call() !void {

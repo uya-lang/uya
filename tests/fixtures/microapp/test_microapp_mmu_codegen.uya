@@ -14,13 +14,13 @@ struct Holder {
 
 fn touch(h: &Holder) i32 {
     var sum: i32 = 0;
-    sum = sum + h.point.x;
-    h.point.y = h.point.y + 1;
-    sum = sum + h.values[1];
-    sum = sum + (*h.ptr).x;
+    sum = sum +| h.point.x;
+    h.point.y = h.point.y +| 1;
+    sum = sum +| h.values[1];
+    sum = sum +| (*h.ptr).x;
     const msg: &[byte] = &"abcd"[0: 4];
-    sum = sum + msg[1] as i32;
-    sum = sum + h.bytes[1] as i32;
+    sum = sum +| msg[1] as i32;
+    sum = sum +| h.bytes[1] as i32;
     return sum;
 }
 

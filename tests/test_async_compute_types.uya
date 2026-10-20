@@ -12,19 +12,19 @@ fn thread_test_epoll() !LinuxEpoll {
 }
 
 fn double_i64(v: i64) i64 {
-    return v * (2 as i64);
+    return v *| (2 as i64);
 }
 fn double_u64(v: u64) u64 {
     return v * (2 as u64);
 }
 fn double_i16(v: i16) i16 {
-    return v * (2 as i16);
+    return v *| (2 as i16);
 }
 fn double_u16(v: u16) u16 {
     return v * (2 as u16);
 }
 fn double_i8(v: i8) i8 {
-    return v * (2 as i8);
+    return v *| (2 as i8);
 }
 fn double_u8(v: u8) u8 {
     return v * (2 as u8);

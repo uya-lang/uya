@@ -268,7 +268,7 @@ fn test_rsa_verify_known_vector() i32 {
 export fn main() i32 {
     const ec_ret: i32 = test_ec_public_from_private_p256_vector();
     if ec_ret != 0 {
-        return 50 + ec_ret;
+        return 50 +| ec_ret;
     }
     if test_rsa_verify_known_vector() != 0 {
         return 4;

@@ -7,10 +7,10 @@ mc call_func(FuncName: ident, Arg: expr) expr {
 }
 
 fn add_one(x: i32) i32 {
-    return x + 1;
+    return x +| 1;
 }
 
 export fn main() i32 {
     const a: i32 = call_func(add_one, 5);
-    return a - 6;  // 应该返回 0
+    return a -| 6;  // 应该返回 0
 }

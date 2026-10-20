@@ -26,8 +26,8 @@ fn ready_i32(value: i32) Future<!i32> {
 }
 
 fn sync_cleanup_body(fail: i32) !i32 {
-    defer { g_sync_trace = g_sync_trace * 10 + 1; }
-    errdefer { g_sync_trace = g_sync_trace * 10 + 2; }
+    defer { g_sync_trace = g_sync_trace *| 10 +| 1; }
+    errdefer { g_sync_trace = g_sync_trace *| 10 +| 2; }
     defer { g_sync_trace = g_sync_trace * 10 + 3; }
 
     if fail != 0 {
@@ -38,8 +38,8 @@ fn sync_cleanup_body(fail: i32) !i32 {
 
 @async_fn
 fn async_cleanup_body(fail: i32) Future<!i32> {
-    defer { g_async_trace = g_async_trace * 10 + 1; }
-    errdefer { g_async_trace = g_async_trace * 10 + 2; }
+    defer { g_async_trace = g_async_trace *| 10 +| 1; }
+    errdefer { g_async_trace = g_async_trace *| 10 +| 2; }
     defer { g_async_trace = g_async_trace * 10 + 3; }
 
     const base: i32 = try @await ready_i32(7);

@@ -69,11 +69,11 @@ fn grow_vector_buffer(data: &usize, cap: &usize, realloc_growths: &i32, inplace_
         return error.AllocOutOfMemory;
     }
 
-    realloc_growths[0] = realloc_growths[0] + 1;
+    realloc_growths[0] = realloc_growths[0] +| 1;
     if grown_ptr == (old_ptr as &void) {
-        inplace_growths[0] = inplace_growths[0] + 1;
+        inplace_growths[0] = inplace_growths[0] +| 1;
     } else {
-        moved_growths[0] = moved_growths[0] + 1;
+        moved_growths[0] = moved_growths[0] +| 1;
         copied_bytes[0] = copied_bytes[0] + (old_bytes as u64);
     }
     cap[0] = new_cap;

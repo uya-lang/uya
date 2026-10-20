@@ -18,7 +18,7 @@ struct DropB {
 
 fn drop_scope_case() void {
     {
-        defer { drop_seq = drop_seq * 10 + 9; }
+        defer { drop_seq = drop_seq *| 10 +| 9; }
         const a: DropA = DropA{ digit: 1 };
         const b: DropB = DropB{ digit: 2 };
     }

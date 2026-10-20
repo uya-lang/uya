@@ -17,8 +17,8 @@ fn ready(v: i32) Future<!i32> {
 @async_fn
 fn two_awaits_second_depends_on_first() Future<!i32> {
     const a: i32 = try @await ready(1);
-    const b: i32 = try @await ready(a + 1);
-    return a + b;
+    const b: i32 = try @await ready(a +| 1);
+    return a +| b;
 }
 
 test "async_multi_segment_second_await_uses_first_bind" {

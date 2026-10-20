@@ -41,8 +41,8 @@ fn test_union_nested_deps() !void {
     var nd: NodeData = NodeData.program(pd);
     
     const result: i32 = match nd {
-        .program(p) => p.location.line + p.location.column + p.decl_count,
-        .binary_expr(b) => b.location.line + b.op,
+        .program(p) => p.location.line +| p.location.column +| p.decl_count,
+        .binary_expr(b) => b.location.line +| b.op,
     };
     try assert_eq_i32(result, 35);  // 10 + 20 + 5
 }

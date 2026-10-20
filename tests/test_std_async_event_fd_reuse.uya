@@ -27,7 +27,7 @@ fn test_sys_write(fd: i32, buf: &const byte, count: usize) !isize {
 fn test_fd_bucket(fd: i32, capacity: i32) i32 {
     var bucket: i32 = fd;
     if bucket < 0 {
-        bucket = 0 - bucket;
+        bucket = 0 -% bucket;
     }
     return bucket % capacity;
 }

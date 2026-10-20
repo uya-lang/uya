@@ -15,7 +15,7 @@ fn descriptor_child() Future<!i32> {
 fn descriptor_parent() Future<!i32> {
     const a: i32 = try @await descriptor_ready(3);
     const b: i32 = try @await descriptor_child();
-    return a + b;
+    return a +| b;
 }
 
 test "c99 async frame descriptors compile and poll" {

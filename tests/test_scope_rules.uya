@@ -124,7 +124,7 @@ test "for block scope" {
     var sum: i32 = 0;
     
     for arr |item| {
-        const loop_const: i32 = item * 2;
+        const loop_const: i32 = item *| 2;
         sum = sum + loop_const;
     }
     

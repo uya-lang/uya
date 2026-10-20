@@ -29,7 +29,7 @@ fn sync_error_body_matrix(mode: i32) !i32 {
     }
     var total: i32 = 1;
     const a: i32 = try sync_matrix_value(10, fail_try);
-    total = total + a;
+    total = total +| a;
 
     var fail_catch: i32 = 0;
     if mode == 2 {
@@ -38,10 +38,10 @@ fn sync_error_body_matrix(mode: i32) !i32 {
     const raw: !i32 = sync_matrix_value(20, fail_catch);
     const b: i32 = raw catch |err| {
         _ = err;
-        total = total + 100;
+        total = total +| 100;
         5;
     };
-    total = total + b;
+    total = total +| b;
 
     if mode == 3 {
         return error.AsyncBodyMatrixBoom;
@@ -60,7 +60,7 @@ fn async_error_body_matrix(mode: i32) Future<!i32> {
     }
     var total: i32 = 1;
     const a: i32 = try @await ready_matrix(10, fail_try);
-    total = total + a;
+    total = total +| a;
 
     var fail_catch: i32 = 0;
     if mode == 2 {
@@ -69,10 +69,10 @@ fn async_error_body_matrix(mode: i32) Future<!i32> {
     const raw: !i32 = @await ready_matrix(20, fail_catch);
     const b: i32 = raw catch |err| {
         _ = err;
-        total = total + 100;
+        total = total +| 100;
         5;
     };
-    total = total + b;
+    total = total +| b;
 
     if mode == 3 {
         return error.AsyncBodyMatrixBoom;

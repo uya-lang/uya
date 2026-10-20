@@ -22,7 +22,7 @@ test "option struct return and local" {
     const some: Option<Event> = maybe_event(7);
     var sum: i32 = -1;
     match some {
-        .Some(evt) => { sum = evt.kind + evt.value; },
+        .Some(evt) => { sum = evt.kind +| evt.value; },
         .None(_) => { sum = -1; },
     };
     try assert_eq_i32(sum, 24);

@@ -144,9 +144,9 @@ test "router_add_router_full" {
             buf[plen] = (48 + n) as byte;
             plen = plen + 1;
         } else {
-            buf[plen] = (48 + (n / 10)) as byte;
+            buf[plen] = (48 +| (n / 10)) as byte;
             plen = plen + 1;
-            buf[plen] = (48 + (n % 10)) as byte;
+            buf[plen] = (48 +| (n % 10)) as byte;
             plen = plen + 1;
         }
         const pb: &byte = &buf[0] as &byte;

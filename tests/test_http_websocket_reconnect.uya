@@ -128,10 +128,10 @@ ServerRoleConnector {
 LoopbackConnector {
     @async_fn
     fn connect(self: &Self, options: &WebSocketAcceptOptions) Future<!WebSocketConn> {
-        self.connect_calls_ptr[0] = self.connect_calls_ptr[0] + 1;
+        self.connect_calls_ptr[0] = self.connect_calls_ptr[0] +| 1;
         self.seen_subprotocol_count_ptr[0] = options.subprotocol_count;
         if self.fail_remaining_ptr[0] > 0 {
-            self.fail_remaining_ptr[0] = self.fail_remaining_ptr[0] - 1;
+            self.fail_remaining_ptr[0] = self.fail_remaining_ptr[0] -| 1;
             return error.WebSocketConnectionClosed;
         }
 

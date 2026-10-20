@@ -48,12 +48,12 @@ const RFC_SHARED_EXPECTED: [byte: 32] = [
 // 验证纯 Uya X25519 实现输出与 RFC 7748 期望向量一致
 fn check_x25519_vector(scalar: &const byte, point: &const byte, expected: &const byte, base_code: i32) i32 {
     var out: [byte: 32] = [0:32];
-    x25519_pure_mpi(&out[0], scalar, point) catch { return base_code + 1; };
+    x25519_pure_mpi(&out[0], scalar, point) catch { return base_code +| 1; };
 
     var i: usize = 0;
     while i < 32 {
         if out[i] != expected[i] {
-            return base_code + 10 + (i as i32);
+            return base_code +| 10 +| (i as i32);
         }
         i = i + 1;
     }
@@ -70,7 +70,7 @@ fn check_x25519_fast_vector(scalar: &const byte, point: &const byte, expected: &
     var i: usize = 0;
     while i < 32 {
         if out[i] != expected[i] {
-            return base_code + 10 + (i as i32);
+            return base_code +| 10 +| (i as i32);
         }
         i = i + 1;
     }

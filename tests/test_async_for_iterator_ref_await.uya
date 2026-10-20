@@ -45,7 +45,7 @@ fn iterator_ref_with_await() Future<!i32> {
     var total: i32 = 0;
     for iter |&item| {
         const x: i32 = try @await ready_1();
-        total = total + *item + x;
+        total = total +| *item +| x;
     }
     return total;
 }

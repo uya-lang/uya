@@ -16,10 +16,10 @@ use std.testing.assert_eq_i32;
     var result: i32 = 0;
     if choose_a != 0 {
         const x: i32 = try @await helper_10();
-        result = x + 100;
+        result = x +| 100;
     } else {
         const y: i32 = try @await helper_20();
-        result = y + 200;
+        result = y +| 200;
     }
     return result;
 }

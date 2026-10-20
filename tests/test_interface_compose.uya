@@ -38,7 +38,7 @@ fn test_read_writer(rw: IReadWriter) i32 {
     const val: i32 = rw.read();
     rw.write(100);
     const f: i32 = rw.flush();
-    return val + f;
+    return val +| f;
 }
 
 test "interface compose" {

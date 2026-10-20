@@ -10,7 +10,7 @@ struct ExprPoint {
 }
 
 fn expr_add(a: i32, b: i32) i32 {
-    return a + b;
+    return a +| b;
 }
 
 fn sync_decl_expr_body(seed: i32) i32 {
@@ -19,20 +19,20 @@ fn sync_decl_expr_body(seed: i32) i32 {
     var arr: [i32: 4] = [base, base + 1, base + 2, base + 3];
     const start: usize = 1;
     const view: &[i32] = arr[start:2];
-    var total: i32 = p.x + p.y;
+    var total: i32 = p.x +| p.y;
 
-    total = total + arr[2];
-    total = total + view[0] + view[1];
-    arr[0] = total - base;
+    total = total +| arr[2];
+    total = total +| view[0] +| view[1];
+    arr[0] = total -| base;
     p.y = arr[0] / 2;
 
-    const arithmetic: i32 = (total * 2) - (p.y % 5);
+    const arithmetic: i32 = (total *| 2) -| (p.y % 5);
     const compared: bool = arithmetic > total && p.x == base;
     const logical: bool = compared || arr[3] < 0;
     if logical {
-        total = arithmetic + p.y;
+        total = arithmetic +| p.y;
     } else {
-        total = 0 - arithmetic;
+        total = 0 -| arithmetic;
     }
 
     return total;
@@ -45,20 +45,20 @@ fn async_decl_expr_body(seed: i32) Future<!i32> {
     var arr: [i32: 4] = [base, base + 1, base + 2, base + 3];
     const start: usize = 1;
     const view: &[i32] = arr[start:2];
-    var total: i32 = p.x + p.y;
+    var total: i32 = p.x +| p.y;
 
-    total = total + arr[2];
-    total = total + view[0] + view[1];
-    arr[0] = total - base;
+    total = total +| arr[2];
+    total = total +| view[0] +| view[1];
+    arr[0] = total -| base;
     p.y = arr[0] / 2;
 
-    const arithmetic: i32 = (total * 2) - (p.y % 5);
+    const arithmetic: i32 = (total *| 2) -| (p.y % 5);
     const compared: bool = arithmetic > total && p.x == base;
     const logical: bool = compared || arr[3] < 0;
     if logical {
-        total = arithmetic + p.y;
+        total = arithmetic +| p.y;
     } else {
-        total = 0 - arithmetic;
+        total = 0 -| arithmetic;
     }
 
     return total;

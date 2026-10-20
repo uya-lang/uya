@@ -94,10 +94,10 @@ fn test_pointer_variable() !void {
 }
 
 fn test_sizeof_in_expr() !void {
-    try assert_eq_i32(@size_of(i32) * 10, 40);
+    try assert_eq_i32(@size_of(i32) *| 10, 40);
     
     const platform_word_size: i32 = @size_of(&i32);
-    try assert_eq_i32(@size_of(&Point) * 5, platform_word_size * 5);
+    try assert_eq_i32(@size_of(&Point) *| 5, platform_word_size * 5);
 }
 
 export fn main() i32 {

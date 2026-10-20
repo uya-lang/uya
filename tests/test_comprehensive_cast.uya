@@ -34,7 +34,7 @@ export fn main() i32 {
     const print_result: i32 = pt("Testing pointer conversions!");
 
     // 计算最终结果
-    const final_result: i32 = visit_result + direct_visit + print_result + back_to_num;
+    const final_result: i32 = visit_result +| direct_visit +| print_result +| back_to_num;
 
     if final_result != 4 {
         return 1;

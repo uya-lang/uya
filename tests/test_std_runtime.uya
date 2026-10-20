@@ -23,14 +23,14 @@ export fn main() i32 {
     const ptr1: &i32 = &arr[0];
     const ptr2: &i32 = &arr[5];
     const diff: i32 = ptr_diff(ptr1 as &byte, ptr2 as &byte);
-    const expected_diff: i32 = 0 - ((@size_of(i32) * 5) as i32);  // 负数，因为 ptr1 < ptr2
+    const expected_diff: i32 = 0 -| ((@size_of(i32) * 5) as i32);  // 负数，因为 ptr1 < ptr2
     if diff != expected_diff {
         return 3;  // 指针差计算错误
     }
     
     // 测试 4: 指针差为正数的情况
     const diff2: i32 = ptr_diff(ptr2 as &byte, ptr1 as &byte);
-    const expected_diff2: i32 = @size_of(i32) * 5;
+    const expected_diff2: i32 = @size_of(i32) *| 5;
     if diff2 != expected_diff2 {
         return 4;  // 指针差计算错误
     }

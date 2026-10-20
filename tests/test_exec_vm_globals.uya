@@ -6,7 +6,7 @@ fn init_dep() i32 {
 var dep_counter: i32 = init_dep();
 
 fn inc_dep() i32 {
-    dep_counter = dep_counter + 1;
+    dep_counter = dep_counter +| 1;
     return dep_counter;
 }
 
@@ -16,13 +16,13 @@ fn read_dep() i32 {
 
 fn init_main() i32 {
     @print("B");
-    return dep_counter + 5;
+    return dep_counter +| 5;
 }
 
 var main_counter: i32 = init_main();
 
 fn inc_main() i32 {
-    main_counter = main_counter + 3;
+    main_counter = main_counter +| 3;
     return main_counter;
 }
 

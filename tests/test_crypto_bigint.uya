@@ -46,7 +46,7 @@ fn check_hex(l: &const u64, hex: &[byte], nbytes: usize) !void {
     var want: [byte: 512] = [];
     bigint_to_be(&got[0], l, BIGINT_LIMBS);
     hex_to_bytes(hex, &want[0], nbytes);
-    const skip: usize = 512 - nbytes;
+    const skip: usize = 512 -| nbytes;
     var z: usize = 0;
     while z < skip {
         try assert_eq_i32(got[z] as i32, 0);

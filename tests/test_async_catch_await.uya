@@ -47,7 +47,7 @@ fn success_catch_await_not_polled() Future<!i32> {
         const fallback: i32 = try @await maybe_fail(100, 0);
         fallback;
     };
-    return v + 1;
+    return v +| 1;
 }
 
 @async_fn
@@ -57,14 +57,14 @@ fn direct_call_success_catch_await_not_polled() Future<!i32> {
         const fallback: i32 = try @await maybe_fail(200, 0);
         fallback;
     };
-    return v + 1;
+    return v +| 1;
 }
 
 // try @await 成功路径：直接取正常值
 @async_fn
 fn catch_success_path(fail: i32) Future<!i32> {
     const v: i32 = try @await maybe_fail(42, fail);
-    return v + 1;
+    return v +| 1;
 }
 
 // 同步 catch 在 async 体内：对 sync 函数结果做 catch 恢复（验证与 test_async_sync_body_matrix 一致）
@@ -75,10 +75,10 @@ fn sync_catch_in_async(fail: i32) Future<!i32> {
     total = total + base;
     const bonus: i32 = maybe_fail_sync(fail) catch |err| {
         _ = err;
-        total = total + 50;
+        total = total +| 50;
         total;
     };
-    return total + bonus;
+    return total +| bonus;
 }
 
 // try @await 多段成功组合
@@ -86,7 +86,7 @@ fn sync_catch_in_async(fail: i32) Future<!i32> {
 fn multi_try_await_success(a: i32, b: i32) Future<!i32> {
     const va: i32 = try @await maybe_fail(a, 0);
     const vb: i32 = try @await maybe_fail(b, 0);
-    return va + vb;
+    return va +| vb;
 }
 
 // @await 后对 !i32 做 match（不含 catch，验证 match 路径）
@@ -141,7 +141,7 @@ fn multi_catch_after_await_error(fail_a: i32, fail_b: i32) Future<!i32> {
         _ = err;
         200;
     };
-    return a + b;
+    return a +| b;
 }
 
 @async_fn
@@ -152,7 +152,7 @@ fn catch_early_return_with_await(fail: i32) Future<!i32> {
         const rescue: i32 = try @await maybe_fail(777, 0);
         return rescue;
     };
-    return x + 1000;
+    return x +| 1000;
 }
 
 @async_fn

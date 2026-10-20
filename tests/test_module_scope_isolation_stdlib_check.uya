@@ -18,7 +18,7 @@ use std.testing.assert_eq_i32;
 use std.testing.run_test;
 
 fn check(value: i32) i32 {
-    return value + 7;
+    return value +| 7;
 }
 
 fn test_module_scope_isolation_stdlib_check() !void {

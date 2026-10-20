@@ -20,7 +20,7 @@ fn many_params_past_old_limit(
     a64: i32
 ) Future<!i32> {
     const got: i32 = try @await ready(a64);
-    return got + a00 + a32;
+    return got +| a00 +| a32;
 }
 
 test "async_param_capacity_grows_past_64" {

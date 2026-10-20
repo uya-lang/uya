@@ -32,8 +32,8 @@ fn test_macro_named_globals_evaluate() !void {
 
 fn test_macro_named_globals_in_expressions() !void {
     var total: i32 = ETIMEDOUT + EAGAIN;
-    EINVAL = EINVAL + 1;
-    total = total + EINVAL;
+    EINVAL = EINVAL +| 1;
+    total = total +| EINVAL;
     try expect(total > 0);
     try assert_eq_i32(total, 144);
 }

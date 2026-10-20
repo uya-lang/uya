@@ -27,7 +27,7 @@ fn get_point_x(p: Point) i32 {
 }
 
 fn get_rect_width(r: Rect) i32 {
-    return r.bottom_right.x - r.top_left.x;
+    return r.bottom_right.x -| r.top_left.x;
 }
 
 fn test_nested_access() !void {
@@ -39,7 +39,7 @@ fn test_nested_access() !void {
     try assert_eq_i32(box.rect.top_left.x, 10);
     try assert_eq_i32(box.rect.bottom_right.y, 60);
     
-    const width: i32 = box.rect.bottom_right.x - box.rect.top_left.x;
+    const width: i32 = box.rect.bottom_right.x -| box.rect.top_left.x;
     try assert_eq_i32(width, 40);
 }
 

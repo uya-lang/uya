@@ -12,7 +12,7 @@ var _once_init_called: i32 = 0;
 
 fn init_routine(arg: &void) &void {
     _ = arg;
-    _once_init_called = _once_init_called + 1;
+    _once_init_called = _once_init_called +| 1;
     return null;
 }
 

@@ -5,7 +5,7 @@ error CatchPrefixError;
 var g_catch_prefix_counter: i32 = 0;
 
 fn bump_catch_prefix(delta: i32) i32 {
-    g_catch_prefix_counter = g_catch_prefix_counter + delta;
+    g_catch_prefix_counter = g_catch_prefix_counter +| delta;
     return g_catch_prefix_counter;
 }
 

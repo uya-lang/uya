@@ -57,7 +57,7 @@ test "mktime_roundtrip" {
     const tm_val: &tm = gmtime(&original);
     const back: time_t = mktime(tm_val);
     // 允许一定误差（因为时区等）
-    const diff: i64 = (original - back) as i64;
+    const diff: i64 = (original -| back) as i64;
     try expect(diff >= 0 - 1 && diff <= 1);
 }
 

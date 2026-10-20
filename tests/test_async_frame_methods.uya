@@ -4,7 +4,7 @@ use std.testing.run_test;
 
 @async_fn
 fn frame_method_child(n: i32) Future<!i32> {
-    return n + 1;
+    return n +| 1;
 }
 
 fn poll_ready_i32(p: Poll<!i32>) i32 {

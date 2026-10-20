@@ -48,7 +48,7 @@ test "bench atomic increment" {
         i = i + 1;
     }
     const end_asm: i64 = clock();
-    const time_asm: i64 = end_asm - start_asm;
+    const time_asm: i64 = end_asm -| start_asm;
     
     // 使用 atomic 类型
     const start_std: i64 = clock();
@@ -58,7 +58,7 @@ test "bench atomic increment" {
         i = i + 1;
     }
     const end_std: i64 = clock();
-    const time_std: i64 = end_std - start_std;
+    const time_std: i64 = end_std -| start_std;
     
     printf("原子递增 (%d 次): asm=%ld ticks, std=%ld ticks\n", iterations, time_asm, time_std);
 }
@@ -78,7 +78,7 @@ test "bench atomic decrement" {
         i = i + 1;
     }
     const end_asm: i64 = clock();
-    const time_asm: i64 = end_asm - start_asm;
+    const time_asm: i64 = end_asm -| start_asm;
     
     // 使用 atomic 类型
     const start_std: i64 = clock();
@@ -88,7 +88,7 @@ test "bench atomic decrement" {
         i = i + 1;
     }
     const end_std: i64 = clock();
-    const time_std: i64 = end_std - start_std;
+    const time_std: i64 = end_std -| start_std;
     
     printf("原子递减 (%d 次): asm=%ld ticks, std=%ld ticks\n", iterations, time_asm, time_std);
 }
@@ -109,7 +109,7 @@ test "bench atomic add" {
         i = i + 1;
     }
     const end_asm: i64 = clock();
-    const time_asm: i64 = end_asm - start_asm;
+    const time_asm: i64 = end_asm -| start_asm;
     
     // 使用 atomic 类型
     const start_std: i64 = clock();
@@ -119,7 +119,7 @@ test "bench atomic add" {
         i = i + 1;
     }
     const end_std: i64 = clock();
-    const time_std: i64 = end_std - start_std;
+    const time_std: i64 = end_std -| start_std;
     
     printf("原子加法 (%d 次, +10): asm=%ld ticks, std=%ld ticks\n", iterations, time_asm, time_std);
 }
@@ -142,7 +142,7 @@ test "bench atomic mixed operations" {
         i = i + 1;
     }
     const end: i64 = clock();
-    const time: i64 = end - start;
+    const time: i64 = end -| start;
     
     printf("混合原子操作 (%d 次): %ld ticks\n", iterations, time);
 }
@@ -168,7 +168,7 @@ test "bench atomic batch operations" {
     }
     
     const end: i64 = clock();
-    const time: i64 = end - start;
+    const time: i64 = end -| start;
     
     printf("批量原子操作 (1个计数器 x 10000次): %ld ticks\n", time);
 }

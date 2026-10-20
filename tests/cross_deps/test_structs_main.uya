@@ -4,13 +4,13 @@ fn main() i32 {
     // 测试文件A的函数（使用文件B的结构体）
     const result1: i32 = test_cross_file_call();
     if result1 != 0 {
-        return 10 + result1;
+        return 10 +| result1;
     }
     
     // 测试文件B的函数（使用文件A的结构体）
     const result2: i32 = test_cross_file_call_b();
     if result2 != 0 {
-        return 20 + result2;
+        return 20 +| result2;
     }
     
     // 直接测试结构体和函数的组合使用

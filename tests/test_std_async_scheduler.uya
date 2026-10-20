@@ -36,7 +36,7 @@ fn delayed_metric_add_one_i32(v: i32) i32 {
     const req: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 50 * 1000 * 1000 };
     var rem: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
     _ = sys_nanosleep(&req, &rem) catch {};
-    return v + 1;
+    return v +| 1;
 }
 
 fn scheduler_metrics_sleep_wait_poll() void {
@@ -120,7 +120,7 @@ fn scheduler_expected_default_inline_repoll_limit() i32 {
 fn add_async() Future<!i32> {
     const a: i32 = try @await ready(10);
     const b: i32 = try @await ready(20);
-    return a + b;
+    return a +| b;
 }
 
 test "scheduler_run" {

@@ -40,5 +40,5 @@ export fn main() i32 {
     const a: i32 = read_through(null);
     const b: i32 = write_through(null);
     const c: i32 = member_through(null);
-    return a + b + c;
+    return a +| b +| c;
 }

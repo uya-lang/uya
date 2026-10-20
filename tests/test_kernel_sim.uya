@@ -122,7 +122,7 @@ fn r32(buf: &byte) u32 {
 }
 
 fn build_sim_image(buf: &[byte], ro_len: u32) u32 {
-    const total: u32 = IMAGE_HEADER_SIZE + 4u32 + ro_len;
+    const total: u32 = IMAGE_HEADER_SIZE + 4u32 +| ro_len;
     var i: u32 = 0;
     while i < total {
         buf.ptr[i as usize] = 0 as byte;
@@ -141,8 +141,8 @@ fn build_sim_image(buf: &[byte], ro_len: u32) u32 {
     w32(buf, 104, 0);
     w32(buf, 108, IMAGE_HEADER_SIZE);
     w32(buf, 112, IMAGE_HEADER_SIZE + 4u32);
-    w32(buf, 116, IMAGE_HEADER_SIZE + 4u32 + ro_len);
-    w32(buf, 120, IMAGE_HEADER_SIZE + 4u32 + ro_len);
+    w32(buf, 116, IMAGE_HEADER_SIZE + 4u32 +| ro_len);
+    w32(buf, 120, IMAGE_HEADER_SIZE + 4u32 +| ro_len);
     w32(buf, 124, 0);
     w32(buf, 128, 0);
     w32(buf, 60, 0);
@@ -152,7 +152,7 @@ fn build_sim_image(buf: &[byte], ro_len: u32) u32 {
     w32(buf, 136, IMAGE_HEADER_SIZE);
     w32(buf, 140, IMAGE_HEADER_SIZE);
     w32(buf, 144, IMAGE_HEADER_SIZE + 4u32);
-    w32(buf, 148, IMAGE_HEADER_SIZE + 4u32 + ro_len);
+    w32(buf, 148, IMAGE_HEADER_SIZE + 4u32 +| ro_len);
     w32(buf, IMAGE_HEADER_SIZE as usize, 115u32);
     var digest: [byte: 32] = [];
     sha256_digest(buf[0: total as usize], digest[0: 32]);
@@ -165,7 +165,7 @@ fn build_sim_image(buf: &[byte], ro_len: u32) u32 {
 }
 
 fn build_sim_image_with_data(buf: &[byte], ro_len: u32, data_len: u32) u32 {
-    const total: u32 = IMAGE_HEADER_SIZE + 4u32 + ro_len + data_len;
+    const total: u32 = IMAGE_HEADER_SIZE + 4u32 +| ro_len +| data_len;
     var i: u32 = 0;
     while i < total {
         buf.ptr[i as usize] = 0 as byte;
@@ -184,14 +184,14 @@ fn build_sim_image_with_data(buf: &[byte], ro_len: u32, data_len: u32) u32 {
     w32(buf, 104, 0u32);
     w32(buf, 108, IMAGE_HEADER_SIZE);
     w32(buf, 112, IMAGE_HEADER_SIZE + 4u32);
-    w32(buf, 116, IMAGE_HEADER_SIZE + 4u32 + ro_len);
-    w32(buf, 120, IMAGE_HEADER_SIZE + 4u32 + ro_len + data_len);
+    w32(buf, 116, IMAGE_HEADER_SIZE + 4u32 +| ro_len);
+    w32(buf, 120, IMAGE_HEADER_SIZE + 4u32 +| ro_len +| data_len);
     w32(buf, 124, 0u32);
     w32(buf, 128, 0u32);
     w32(buf, 136, IMAGE_HEADER_SIZE);
     w32(buf, 140, IMAGE_HEADER_SIZE);
     w32(buf, 144, IMAGE_HEADER_SIZE + 4u32);
-    w32(buf, 148, IMAGE_HEADER_SIZE + 4u32 + ro_len);
+    w32(buf, 148, IMAGE_HEADER_SIZE + 4u32 +| ro_len);
     w32(buf, 60, 0u32);
     buf.ptr[64] = BUILD_MODE_CONTAINER;
     buf.ptr[65] = image_target_arch_to_byte(ImageTargetArch.ita_rv32);
@@ -208,7 +208,7 @@ fn build_sim_image_with_data(buf: &[byte], ro_len: u32, data_len: u32) u32 {
 }
 
 fn build_sim_image_with_bss(buf: &[byte], ro_len: u32, bss_len: u32) u32 {
-    const total: u32 = IMAGE_HEADER_SIZE + 4u32 + ro_len;
+    const total: u32 = IMAGE_HEADER_SIZE + 4u32 +| ro_len;
     var i: u32 = 0u32;
     while i < total {
         buf.ptr[i as usize] = 0 as byte;
@@ -227,14 +227,14 @@ fn build_sim_image_with_bss(buf: &[byte], ro_len: u32, bss_len: u32) u32 {
     w32(buf, 104, 0u32);
     w32(buf, 108, IMAGE_HEADER_SIZE);
     w32(buf, 112, IMAGE_HEADER_SIZE + 4u32);
-    w32(buf, 116, IMAGE_HEADER_SIZE + 4u32 + ro_len);
-    w32(buf, 120, IMAGE_HEADER_SIZE + 4u32 + ro_len);
+    w32(buf, 116, IMAGE_HEADER_SIZE + 4u32 +| ro_len);
+    w32(buf, 120, IMAGE_HEADER_SIZE + 4u32 +| ro_len);
     w32(buf, 124, 0u32);
     w32(buf, 128, 0u32);
     w32(buf, 136, IMAGE_HEADER_SIZE);
     w32(buf, 140, IMAGE_HEADER_SIZE);
     w32(buf, 144, IMAGE_HEADER_SIZE + 4u32);
-    w32(buf, 148, IMAGE_HEADER_SIZE + 4u32 + ro_len);
+    w32(buf, 148, IMAGE_HEADER_SIZE + 4u32 +| ro_len);
     w32(buf, 60, 0u32);
     buf.ptr[64] = BUILD_MODE_CONTAINER;
     buf.ptr[65] = image_target_arch_to_byte(ImageTargetArch.ita_rv32);
@@ -251,7 +251,7 @@ fn build_sim_image_with_bss(buf: &[byte], ro_len: u32, bss_len: u32) u32 {
 }
 
 fn build_sim_image_with_stack(buf: &[byte], ro_len: u32, stack_hint: u32) u32 {
-    const total: u32 = IMAGE_HEADER_SIZE + 4u32 + ro_len;
+    const total: u32 = IMAGE_HEADER_SIZE + 4u32 +| ro_len;
     var i: u32 = 0u32;
     while i < total {
         buf.ptr[i as usize] = 0 as byte;
@@ -270,14 +270,14 @@ fn build_sim_image_with_stack(buf: &[byte], ro_len: u32, stack_hint: u32) u32 {
     w32(buf, 104, stack_hint);
     w32(buf, 108, IMAGE_HEADER_SIZE);
     w32(buf, 112, IMAGE_HEADER_SIZE + 4u32);
-    w32(buf, 116, IMAGE_HEADER_SIZE + 4u32 + ro_len);
-    w32(buf, 120, IMAGE_HEADER_SIZE + 4u32 + ro_len);
+    w32(buf, 116, IMAGE_HEADER_SIZE + 4u32 +| ro_len);
+    w32(buf, 120, IMAGE_HEADER_SIZE + 4u32 +| ro_len);
     w32(buf, 124, 0u32);
     w32(buf, 128, 0u32);
     w32(buf, 136, IMAGE_HEADER_SIZE);
     w32(buf, 140, IMAGE_HEADER_SIZE);
     w32(buf, 144, IMAGE_HEADER_SIZE + 4u32);
-    w32(buf, 148, IMAGE_HEADER_SIZE + 4u32 + ro_len);
+    w32(buf, 148, IMAGE_HEADER_SIZE + 4u32 +| ro_len);
     w32(buf, 60, 0u32);
     buf.ptr[64] = BUILD_MODE_CONTAINER;
     buf.ptr[65] = image_target_arch_to_byte(ImageTargetArch.ita_rv32);
@@ -295,7 +295,7 @@ fn build_sim_image_with_stack(buf: &[byte], ro_len: u32, stack_hint: u32) u32 {
 
 fn build_sim_rv32_trap_print_yield_exit_image(buf: &[byte], text: &[byte]) u32 {
     const code_len: u32 = 9u32 * 4u32;
-    const total: u32 = IMAGE_HEADER_SIZE + code_len + text.len as u32;
+    const total: u32 = IMAGE_HEADER_SIZE + code_len +| text.len as u32;
     var i: u32 = 0u32;
     while i < total {
         buf.ptr[i as usize] = 0 as byte;
@@ -314,8 +314,8 @@ fn build_sim_rv32_trap_print_yield_exit_image(buf: &[byte], text: &[byte]) u32 {
     w32(buf, 104, 0u32);
     w32(buf, 108, IMAGE_HEADER_SIZE);
     w32(buf, 112, IMAGE_HEADER_SIZE + code_len);
-    w32(buf, 116, IMAGE_HEADER_SIZE + code_len + text.len as u32);
-    w32(buf, 120, IMAGE_HEADER_SIZE + code_len + text.len as u32);
+    w32(buf, 116, IMAGE_HEADER_SIZE + code_len +| text.len as u32);
+    w32(buf, 120, IMAGE_HEADER_SIZE + code_len +| text.len as u32);
     w32(buf, 124, 3u32);
     w32(buf, 128, 0u32);
     w32(buf, 60, 0u32);
@@ -325,7 +325,7 @@ fn build_sim_rv32_trap_print_yield_exit_image(buf: &[byte], text: &[byte]) u32 {
     w32(buf, 136, IMAGE_HEADER_SIZE);
     w32(buf, 140, IMAGE_HEADER_SIZE);
     w32(buf, 144, IMAGE_HEADER_SIZE + code_len);
-    w32(buf, 148, IMAGE_HEADER_SIZE + code_len + text.len as u32);
+    w32(buf, 148, IMAGE_HEADER_SIZE + code_len +| text.len as u32);
     w32(buf, IMAGE_HEADER_SIZE as usize, rv32_addi(10u32, 0u32, IMAGE_HEADER_SIZE + code_len));
     w32(buf, IMAGE_HEADER_SIZE as usize + 4usize, rv32_addi(11u32, 0u32, text.len as u32));
     w32(buf, IMAGE_HEADER_SIZE as usize + 8usize, rv32_addi(17u32, 0u32, SYS_PRINT));

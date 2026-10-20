@@ -6,7 +6,7 @@ var g_catch_void_count: i32 = 0;
 var g_catch_void_flag: bool = false;
 
 fn mark_void_tail() void {
-    g_catch_void_count = g_catch_void_count + 1;
+    g_catch_void_count = g_catch_void_count +| 1;
 }
 
 fn fail_void_tail(flag: bool) !void {

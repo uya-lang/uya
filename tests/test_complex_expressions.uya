@@ -19,11 +19,11 @@ struct Data {
 }
 
 fn add(a: i32, b: i32) i32 {
-    return a + b;
+    return a +| b;
 }
 
 fn multiply(a: i32, b: i32) i32 {
-    return a * b;
+    return a *| b;
 }
 
 fn get_value(d: Data) i32 {
@@ -43,7 +43,7 @@ fn get_index(arr: [i32: 3], index: i32) i32 {
 }
 
 fn test_complex_arithmetic() !void {
-    var result1: i32 = 2 * 3 + 4 * 5 - 6 / 2;
+    var result1: i32 = 2 * 3 + 4 * 5 -| 6 / 2;
     try assert_eq_i32(result1, 23);
     
     var result2: i32 = (2 + 3) * (4 + 5);
@@ -141,7 +141,7 @@ fn test_assignment_combo() !void {
 }
 
 fn test_sizeof_alignof_in_expr() !void {
-    var size1: i32 = @size_of(Point) * 2;
+    var size1: i32 = @size_of(Point) *| 2;
     try assert_eq_i32(size1, 16);
     
     var align1: i32 = @align_of(Point);
@@ -153,7 +153,7 @@ fn test_len_in_loop() !void {
     var sum: i32 = 0;
     var i: i32 = 0;
     while i < @len(arr2) {
-        sum = sum + arr2[i];
+        sum = sum +| arr2[i];
         i = i + 1;
     }
     try assert_eq_i32(sum, 15);

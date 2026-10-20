@@ -45,13 +45,13 @@ test "bench memcpy small (32 bytes)" {
     const start_asm: i64 = clock();
     asm_memcpy_byte(&dest[0], &src[0] as &const byte, size);
     const end_asm: i64 = clock();
-    const time_asm: i64 = end_asm - start_asm;
+    const time_asm: i64 = end_asm -| start_asm;
     
     // 使用标准 memcpy
     const start_std: i64 = clock();
     memcpy(&dest[0] as *void, &src[0] as *const void, size);
     const end_std: i64 = clock();
-    const time_std: i64 = end_std - start_std;
+    const time_std: i64 = end_std -| start_std;
     
     printf("小数据量 (32B): asm=%ld ticks, std=%ld ticks\n", time_asm, time_std);
 }
@@ -73,13 +73,13 @@ test "bench memcpy medium (1KB)" {
     const start_asm: i64 = clock();
     asm_memcpy_byte(&dest[0], &src[0] as &const byte, size);
     const end_asm: i64 = clock();
-    const time_asm: i64 = end_asm - start_asm;
+    const time_asm: i64 = end_asm -| start_asm;
     
     // 使用标准 memcpy
     const start_std: i64 = clock();
     memcpy(&dest[0] as *void, &src[0] as *const void, size);
     const end_std: i64 = clock();
-    const time_std: i64 = end_std - start_std;
+    const time_std: i64 = end_std -| start_std;
     
     printf("中等数据量 (1KB): asm=%ld ticks, std=%ld ticks\n", time_asm, time_std);
 }
@@ -102,13 +102,13 @@ test "bench memcpy large (64KB)" {
     const start_asm: i64 = clock();
     asm_memcpy_byte(dest_ptr as &byte, src_ptr as &const byte, size);
     const end_asm: i64 = clock();
-    const time_asm: i64 = end_asm - start_asm;
+    const time_asm: i64 = end_asm -| start_asm;
     
     // 使用标准 memcpy
     const start_std: i64 = clock();
     memcpy(dest_ptr, src_ptr, size);
     const end_std: i64 = clock();
-    const time_std: i64 = end_std - start_std;
+    const time_std: i64 = end_std -| start_std;
     
     printf("大数据量 (64KB): asm=%ld ticks, std=%ld ticks\n", time_asm, time_std);
     
@@ -134,13 +134,13 @@ test "bench memcpy u64 batch" {
     const start_asm: i64 = clock();
     asm_memcpy_u64(&dest[0], &src[0] as &const u64, count);
     const end_asm: i64 = clock();
-    const time_asm: i64 = end_asm - start_asm;
+    const time_asm: i64 = end_asm -| start_asm;
     
     // 使用标准 memcpy
     const start_std: i64 = clock();
     memcpy(&dest[0] as *void, &src[0] as *const void, count * 8);
     const end_std: i64 = clock();
-    const time_std: i64 = end_std - start_std;
+    const time_std: i64 = end_std -| start_std;
     
     printf("u64 批量复制 (8KB): asm=%ld ticks, std=%ld ticks\n", time_asm, time_std);
 }
@@ -169,13 +169,13 @@ test "bench memcpy repeated runs" {
         const start_asm: i64 = clock();
         asm_memcpy_byte(&dest[0], &src[0] as &const byte, size);
         const end_asm: i64 = clock();
-        total_asm = total_asm + (end_asm - start_asm);
+        total_asm = total_asm +| (end_asm -| start_asm);
         
         // 标准复制
         const start_std: i64 = clock();
         memcpy(&dest[0] as *void, &src[0] as *const void, size);
         const end_std: i64 = clock();
-        total_std = total_std + (end_std - start_std);
+        total_std = total_std +| (end_std -| start_std);
         
         run = run + 1;
     }

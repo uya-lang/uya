@@ -7,7 +7,7 @@ use std.testing.assert_eq_i32;
 var g_macro_preawait_eval_count: i32 = 0;
 
 fn seed_once(v: i32) i32 {
-    g_macro_preawait_eval_count = g_macro_preawait_eval_count + 1;
+    g_macro_preawait_eval_count = g_macro_preawait_eval_count +| 1;
     return v;
 }
 
@@ -35,7 +35,7 @@ fn pending_once() Future<!i32> {
 mc add_with_local(base: expr) expr {
     @mc_code(@mc_ast({
         const seeded: i32 = seed_once(${base});
-        seeded + 1;
+        seeded +% 1;
     }));
 }
 
@@ -43,7 +43,7 @@ mc add_with_local(base: expr) expr {
 fn async_macro_block_expr() Future<!i32> {
     const sum: i32 = add_with_local(39);
     const delta: i32 = try @await pending_once();
-    return sum + delta;
+    return sum +| delta;
 }
 
 test "async_expr_macro_block_keeps_preawait_eval_once" {

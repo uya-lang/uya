@@ -18,7 +18,7 @@ export fn worker_pool_async_compute<T>(pool: &WorkerPool, compute_fn: &void, arg
 }
 
 fn double_i32(value: i32) i32 {
-    return value * 2;
+    return value *| 2;
 }
 
 export fn main() i32 {

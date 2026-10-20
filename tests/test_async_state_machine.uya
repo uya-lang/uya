@@ -62,7 +62,7 @@ fn await_three() Future<!i32> {
     const a: i32 = try @await flip_pending();
     const b: i32 = try @await flip_pending();
     const c: i32 = try @await flip_pending();
-    return a + b + c;
+    return a +| b +| c;
 }
 
 test "async_state_machine_multiple_awaits" {
@@ -104,7 +104,7 @@ test "async_state_machine_multiple_awaits" {
 fn await_with_params(x: i32, y: i32) Future<!i32> {
     const a: i32 = try @await flip_pending();
     const b: i32 = try @await flip_pending();
-    return a + b;
+    return a +| b;
 }
 
 test "async_state_machine_with_params" {

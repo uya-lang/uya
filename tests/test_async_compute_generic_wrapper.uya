@@ -24,7 +24,7 @@ export fn worker_pool_async_compute_module<T>(pool: &WorkerPool, compute_fn: &vo
 }
 
 fn double_i32(value: i32) i32 {
-    return value * 2;
+    return value *| 2;
 }
 
 fn thread_test_epoll() !LinuxEpoll {

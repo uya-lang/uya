@@ -6,7 +6,7 @@ use std.testing.assert_true;
 
 fn add_two(a: i32, b: i32) i32 {
     const p: (i32, i32) = @params;
-    return p.0 + p.1;
+    return p.0 +| p.1;
 }
 
 test "test_params_tuple" {

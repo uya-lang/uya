@@ -64,7 +64,7 @@ fn maybe_record_region(region_bases: &usize, region_count: &i32, ptr: &void) voi
         i = i + 1;
     }
     region_bases[region_count[0] as usize] = base;
-    region_count[0] = region_count[0] + 1;
+    region_count[0] = region_count[0] +| 1;
 }
 
 fn infer_copy_bytes(old_ptr: &void) usize {
@@ -118,12 +118,12 @@ fn run_fragmentation_bench(completed_rounds: &i32, unique_regions: &i32, budget_
             first_big_page = big_page;
         }
         if big_page == first_big_page {
-            big_reuse_hits[0] = big_reuse_hits[0] + 1;
+            big_reuse_hits[0] = big_reuse_hits[0] +| 1;
         }
 
         free(big);
 
-        completed_rounds[0] = completed_rounds[0] + 1;
+        completed_rounds[0] = completed_rounds[0] +| 1;
         if unique_regions[0] <= FRAG_REGION_BUDGET {
             budget_rounds[0] = completed_rounds[0];
         }
@@ -154,13 +154,13 @@ fn run_realloc_bench(iterations_done: &i32, inplace_hits: &i32, copied_bytes: &i
         if grown == null { return 3; }
 
         if grown == head {
-            inplace_hits[0] = inplace_hits[0] + 1;
+            inplace_hits[0] = inplace_hits[0] +| 1;
         } else {
-            copied_bytes[0] = copied_bytes[0] + (moved_copy_bytes as i64);
+            copied_bytes[0] = copied_bytes[0] +| (moved_copy_bytes as i64);
         }
 
         free(grown);
-        iterations_done[0] = iterations_done[0] + 1;
+        iterations_done[0] = iterations_done[0] +| 1;
         i = i + 1;
     }
     return 0;

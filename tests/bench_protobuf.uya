@@ -39,7 +39,7 @@ fn bench_usec_now() i64 {
     var tv: BenchTv = BenchTv{ tv_sec: 0, tv_usec: 0 };
     const gr: !i64 = @syscall(SYS_GETTIMEOFDAY, (&tv) as i64, 0);
     _ = gr catch { return 0; };
-    return tv.tv_sec * USEC_PER_SEC + tv.tv_usec;
+    return tv.tv_sec *| USEC_PER_SEC +| tv.tv_usec;
 }
 
 const MB_F: f64 = 1048576.0;
@@ -80,7 +80,7 @@ export fn main() i32 {
         wi = wi + 1;
     }
     var end: i64 = bench_usec_now();
-    const wire_ticks: i64 = end - start;
+    const wire_ticks: i64 = end -| start;
     const wire_total: i64 = (TAG_SCAN_CAP as i64) * (WIRE_SCAN_ITER as i64);
     var wire_sec: f64 = 1.0;
     if wire_ticks > 0 {
@@ -120,8 +120,8 @@ export fn main() i32 {
         ui = ui + 1;
     }
     end = bench_usec_now();
-    const udec_ticks: i64 = end - start;
-    const udec_total: i64 = (user_enc as i64) * (USER_DEC_ITER as i64);
+    const udec_ticks: i64 = end -| start;
+    const udec_total: i64 = (user_enc as i64) *| (USER_DEC_ITER as i64);
     var udec_sec: f64 = 1.0;
     if udec_ticks > 0 {
         udec_sec = (udec_ticks as f64) / (USEC_PER_SEC as f64);
@@ -140,8 +140,8 @@ export fn main() i32 {
         ui = ui + 1;
     }
     end = bench_usec_now();
-    const uenc_ticks: i64 = end - start;
-    const uenc_total: i64 = (user_enc as i64) * (USER_ENC_ITER as i64);
+    const uenc_ticks: i64 = end -| start;
+    const uenc_total: i64 = (user_enc as i64) *| (USER_ENC_ITER as i64);
     var uenc_sec: f64 = 1.0;
     if uenc_ticks > 0 {
         uenc_sec = (uenc_ticks as f64) / (USEC_PER_SEC as f64);
@@ -177,8 +177,8 @@ export fn main() i32 {
         pi = pi + 1;
     }
     end = bench_usec_now();
-    const pdec_ticks: i64 = end - start;
-    const pdec_total: i64 = (plen as i64) * (PACK_DEC_ITER as i64);
+    const pdec_ticks: i64 = end -| start;
+    const pdec_total: i64 = (plen as i64) *| (PACK_DEC_ITER as i64);
     var pdec_sec: f64 = 1.0;
     if pdec_ticks > 0 {
         pdec_sec = (pdec_ticks as f64) / (USEC_PER_SEC as f64);
@@ -197,8 +197,8 @@ export fn main() i32 {
         pi = pi + 1;
     }
     end = bench_usec_now();
-    const penc_ticks: i64 = end - start;
-    const penc_total: i64 = (plen as i64) * (PACK_ENC_ITER as i64);
+    const penc_ticks: i64 = end -| start;
+    const penc_total: i64 = (plen as i64) *| (PACK_ENC_ITER as i64);
     var penc_sec: f64 = 1.0;
     if penc_ticks > 0 {
         penc_sec = (penc_ticks as f64) / (USEC_PER_SEC as f64);

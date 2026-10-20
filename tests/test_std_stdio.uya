@@ -111,12 +111,12 @@ export fn main() i32 {
 
     result = test_put_char();
     if result != 0 {
-        return result + 20;  // put_char 测试失败
+        return result +| 20;  // put_char 测试失败
     }
 
     result = test_write_bytes();
     if result != 0 {
-        return result + 30;  // write_bytes 测试失败
+        return result +| 30;  // write_bytes 测试失败
     }
 
     return 0;

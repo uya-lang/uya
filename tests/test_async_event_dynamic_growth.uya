@@ -130,7 +130,7 @@ fn close_pipe_pairs(read_fds: &i32, write_fds: &i32, count: i32) void {
 }
 
 fn run_linux_epoll_growth_case(ep: &LinuxEpoll, initial_slot_capacity: i32) !void {
-    const target_registered_fds: i32 = initial_slot_capacity + 1;
+    const target_registered_fds: i32 = initial_slot_capacity +| 1;
     const read_fds: &i32 = try alloc_i32_buffer(target_registered_fds, 0 - 1);
     const write_fds: &i32 = alloc_i32_buffer(target_registered_fds, 0 - 1) catch {
         free(read_fds as &void);

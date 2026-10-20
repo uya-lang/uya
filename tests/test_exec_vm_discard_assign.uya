@@ -5,12 +5,12 @@ error ExecDiscardError;
 var g_discard_counter: i32 = 0;
 
 fn bump_discard_counter() i32 {
-    g_discard_counter = g_discard_counter + 1;
+    g_discard_counter = g_discard_counter +| 1;
     return g_discard_counter;
 }
 
 fn add_discard_counter(delta: i32) i32 {
-    g_discard_counter = g_discard_counter + delta;
+    g_discard_counter = g_discard_counter +| delta;
     return g_discard_counter;
 }
 

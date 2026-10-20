@@ -8,11 +8,11 @@ use std.testing.test_suite_end;
 use std.testing.run_test;
 
 fn add(a: i32, b: i32) i32 {
-    return a + b;
+    return a +| b;
 }
 
 fn multiply(a: i32, b: i32) i32 {
-    return a * b;
+    return a *| b;
 }
 
 fn square(n: i32) i32 {

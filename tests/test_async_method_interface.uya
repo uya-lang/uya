@@ -33,7 +33,7 @@ struct AsyncCounterInner {
     @async_fn
     fn add(self: &Self, delta: i32) Future<!i32> {
         const inc: i32 = try @await flip_pending();
-        self.value = self.value + delta + inc;
+        self.value = self.value +| delta +| inc;
         return self.value;
     }
 }
@@ -46,7 +46,7 @@ AsyncCounterBlock {
     @async_fn
     fn add(self: &Self, delta: i32) Future<!i32> {
         const inc: i32 = try @await flip_pending();
-        self.value = self.value + delta + inc;
+        self.value = self.value +| delta +| inc;
         return self.value;
     }
 }

@@ -121,7 +121,7 @@ fn run_concurrency_case(worker_count: usize) i32 {
             return 20 + (joined as i32);
         }
         if states[joined].status != 0 {
-            return 40 + states[joined].status;
+            return 40 +| states[joined].status;
         }
         joined = joined + 1usize;
     }

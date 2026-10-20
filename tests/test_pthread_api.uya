@@ -12,7 +12,7 @@ var _once_hits: i32 = 0;
 
 fn api_once_init(arg: &void) &void {
     _ = arg;
-    _once_hits = _once_hits + 1;
+    _once_hits = _once_hits +| 1;
     return null;
 }
 

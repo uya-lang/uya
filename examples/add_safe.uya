@@ -16,13 +16,13 @@ const X: i32 = 100 + 200;
 
 // 显式检查：返回 !i32，溢出时返回 error.Overflow
 fn add_safe(a: i32, b: i32) !i32 {
-    if a > 0 && b > 0 && a > MAXV - b {
+    if a > 0 && b > 0 && a > MAXV -| b {
         return error.Overflow;
     }
-    if a < 0 && b < 0 && a < MINV - b {
+    if a < 0 && b < 0 && a < MINV -| b {
         return error.Overflow;
     }
-    return a + b;
+    return a +| b;
 }
 
 fn main() i32 {

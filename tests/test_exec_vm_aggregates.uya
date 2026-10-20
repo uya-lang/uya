@@ -11,7 +11,7 @@ struct View {
 }
 
 fn sum_first_two(items: &[i32]) i32 {
-    return items[0] + items[1];
+    return items[0] +| items[1];
 }
 
 fn make_point(x: i32, y: i32) Point {
@@ -61,7 +61,7 @@ export fn main() i32 {
     var idx: i32 = 0;
     var total: i32 = 0;
     while idx < 4 {
-        total = total + arr[idx];
+        total = total +| arr[idx];
         idx = idx + 1;
     }
     if total != 16 {

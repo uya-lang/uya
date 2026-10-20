@@ -20,7 +20,7 @@ mc count_fields(T: type) stmt {
 }
 
 fn increment_counter() void {
-    counter = counter + 1;
+    counter = counter +| 1;
 }
 
 var counter: i32 = 0;

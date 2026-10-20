@@ -85,7 +85,7 @@ fn run_case(thread_count: i32) i32 {
             return 20 + (joined as i32);
         }
         if states[joined].status != 0 {
-            return 40 + states[joined].status;
+            return 40 +| states[joined].status;
         }
         joined = joined + 1usize;
     }
@@ -95,7 +95,7 @@ fn run_case(thread_count: i32) i32 {
         var j: usize = i + 1usize;
         while j < created {
             if states[i].first_cache_addr == states[j].first_cache_addr {
-                return 80 + (i as i32) + (j as i32);
+                return 80 + (i as i32) +| (j as i32);
             }
             j = j + 1usize;
         }
@@ -110,7 +110,7 @@ export fn main() i32 {
     while i < CASE_COUNT {
         const rc: i32 = run_case(THREAD_COUNTS[i]);
         if rc != 0 {
-            return 100 + rc;
+            return 100 +| rc;
         }
         i = i + 1usize;
     }

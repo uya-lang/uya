@@ -34,16 +34,16 @@ fn test_struct_capacity() !void {
     var s2: Struct2 = Struct2 { x: 2 };
     var s3: Struct3 = Struct3 { x: 3 };
     
-    try assert_eq_i32(s1.x + s2.x + s3.x, 6);
+    try assert_eq_i32(s1.x +| s2.x +| s3.x, 6);
 }
 
 fn test_function_capacity() !void {
     var sum: i32 = 0;
-    sum = sum + func1();
-    sum = sum + func2();
-    sum = sum + func3();
-    sum = sum + func4();
-    sum = sum + func5();
+    sum = sum +| func1();
+    sum = sum +| func2();
+    sum = sum +| func3();
+    sum = sum +| func4();
+    sum = sum +| func5();
     
     try assert_eq_i32(sum, 15);
 }

@@ -29,7 +29,7 @@ fn test_for_ref_bounds() !void {
     
     // 测试：for ref 循环
     for arr |&item| {
-        sum = sum + *item;
+        sum = sum +| *item;
     }
     
     try assert_eq_i32(sum, 150);
@@ -42,7 +42,7 @@ fn test_nested_for_bounds() !void {
     // 测试：嵌套 for 循环
     for 0..2 |i| {
         for 0..3 |j| {
-            total = total + matrix[i][j];
+            total = total +| matrix[i][j];
         }
     }
     

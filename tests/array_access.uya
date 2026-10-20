@@ -6,7 +6,7 @@ test "test_array_access" {
     const arr: [i32: 5] = [1, 2, 3, 4, 5];
     const x: i32 = arr[0];
     const y: i32 = arr[1];
-    const sum: i32 = x + y;
+    const sum: i32 = x +| y;
     try assert_eq_i32(sum, 3);
 }
 

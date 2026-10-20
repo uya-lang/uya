@@ -31,7 +31,7 @@ fn process_array_field(d: Data) i32 {
     var total: i32 = 0;
     var i2: i32 = 0;
     while i2 < @len(d.values) {
-        total = total + d.values[i2];
+        total = total +| d.values[i2];
         i2 = i2 + 1;
     }
     return total;
@@ -73,7 +73,7 @@ fn test_array_field_in_loop() !void {
     var sum: i32 = 0;
     var i: i32 = 0;
     while i < @len(data.values) {
-        sum = sum + data.values[i];
+        sum = sum +| data.values[i];
         i = i + 1;
     }
     try assert_eq_i32(sum, 240);

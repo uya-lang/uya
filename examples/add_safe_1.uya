@@ -7,13 +7,13 @@ const MINV: i32 = @min;
 
 // 返回错误：显式检查上溢/下溢
 fn add_safe(a: i32, b: i32) !i32 {
-    if a > 0 && b > 0 && a > MAXV - b {
+    if a > 0 && b > 0 && a > MAXV -| b {
         return error.Overflow;
     }
-    if a < 0 && b < 0 && a < MINV - b {
+    if a < 0 && b < 0 && a < MINV -| b {
         return error.Overflow;
     }
-    return a + b;
+    return a +| b;
 }
 
 // 返回饱和值：溢出时钳到类型极值

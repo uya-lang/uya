@@ -35,7 +35,7 @@ fn fill_out_of_bounds() i32 {
     var k: i32 = 0;
     var sum: i32 = 0;
     while k < 5 {
-        sum = sum + a[k];
+        sum = sum +| a[k];
         k = k + 1;
     }
     return sum;

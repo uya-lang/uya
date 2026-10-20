@@ -16,7 +16,7 @@ fn pair_add<T, U>(lhs: &T, rhs: &U, bias: i32) Future<!i32> {
     _ = lhs;
     _ = rhs;
     const a: i32 = try @await ready(bias);
-    return a + 1;
+    return a +| 1;
 }
 
 @async_fn
@@ -24,7 +24,7 @@ fn pair_sub<T, U>(lhs: &T, rhs: &U, bias: i32) Future<!i32> {
     _ = lhs;
     _ = rhs;
     const a: i32 = try @await ready(bias);
-    return a - 1;
+    return a -| 1;
 }
 
 @async_fn

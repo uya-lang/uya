@@ -29,7 +29,7 @@ fn sync_builtin_score(a: i32, b: i32) !i32 {
         return error.AsyncBuiltinMismatch;
     }
 
-    return @params.0 + @params.1 + (err_id as i32);
+    return @params.0 +| @params.1 +| (err_id as i32);
 }
 
 @async_fn
@@ -55,7 +55,7 @@ fn async_builtin_score(a: i32, b: i32) Future<!i32> {
         return error.AsyncBuiltinMismatch;
     }
 
-    return @params.0 + @params.1 + (err_id as i32);
+    return @params.0 +| @params.1 +| (err_id as i32);
 }
 
 test "async builtin body expressions match sync semantics" {

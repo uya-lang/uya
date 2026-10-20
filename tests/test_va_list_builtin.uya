@@ -87,7 +87,7 @@ fn _test_va_arg_receiver_wrapper(first: i32, ...) i32 {
 fn _sum_two_ints(ap: va_list) i32 {
     const a: i32 = @va_arg(ap, i32);
     const b: i32 = @va_arg(ap, i32);
-    return a + b;
+    return a +| b;
 }
 
 // ============================================================
@@ -148,7 +148,7 @@ fn _test_va_copy_independent(first: i32, ...) i32 {
     // 验证 ap2 从复制时的当前位置继续读取
     _ = expect(v1_copy == v2) catch { return 0 - 1; };
     
-    return v1 + v2 + v3;
+    return v1 +| v2 +| v3;
 }
 
 // ============================================================
@@ -165,7 +165,7 @@ fn _simple_vdprintf(format: &const byte, ap: va_list) i32 {
             i = i + 1;
             if format[i] == 100 {  // 'd'
                 const val: i32 = @va_arg(ap, i32);
-                count = count + _print_i32(val);
+                count = count +| _print_i32(val);
             }
         } else {
             count = count + 1;

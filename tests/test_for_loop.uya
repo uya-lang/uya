@@ -18,7 +18,7 @@ test "for ref iter" {
     var arr2: [i32: 5] = [1, 2, 3, 4, 5];
     
     for arr2 |&item| {
-        *item = *item * 2;
+        *item = *item *| 2;
     }
     
     try expect(arr2[0] == 2 && arr2[1] == 4 && arr2[2] == 6 && arr2[3] == 8 && arr2[4] == 10);

@@ -62,7 +62,7 @@ fn test_slice_field_align() !void {
 }
 
 fn test_fat_pointer() !void {
-    try expect(@size_of(&[i32]) == @size_of(usize) * 2);
+    try expect(@size_of(&[i32]) == @size_of(usize) *| 2);
     try expect(@align_of(&[i32]) == @align_of(usize));
 }
 

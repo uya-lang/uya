@@ -52,14 +52,14 @@ fn make_rgb(w: i32, h: i32, alc: IAllocator) !Image {
         while x < w {
             // 除数先落临时量：直接写 `/(w + h - 2)` 会让**编译器**SIGFPE
             // （见 buglist.md「除数是形参加减表达式时编译器自己 SIGFPE」）
-            const dw: i32 = w - 1;
-            const dh: i32 = h - 1;
-            const dwh: i32 = w + h - 2;
+            const dw: i32 = w -| 1;
+            const dh: i32 = h -| 1;
+            const dwh: i32 = w +| h -| 2;
             const rv: i32 = (x * 255) / dw;
             const gv: i32 = (y * 255) / dh;
             var bv: i32 = ((x + y) * 255) / dwh;
             if ((x / 2 + y / 2) % 2) == 0 {
-                bv = bv + 24;
+                bv = bv +| 24;
             }
             const r8: u8 = (rv as! u8).value;
             const g8: u8 = (gv as! u8).value;
@@ -81,10 +81,10 @@ fn make_gray(w: i32, h: i32, alc: IAllocator) !Image {
     while y < h {
         var x: i32 = 0;
         while x < w {
-            const dw: i32 = w - 1;
+            const dw: i32 = w -| 1;
             var v: i32 = (x * 255) / dw;
             if ((x / 4 + y / 4) % 2) == 0 {
-                v = 255 - v;
+                v = 255 -| v;
             }
             const v8: u8 = (v as! u8).value;
             try image_set(&im, x, y, 0, v8);
@@ -107,9 +107,9 @@ fn mean_abs_err(a: &const Image, b: &const Image) i32 {
     var sum: i64 = 0;
     var i: usize = 0;
     while i < n {
-        var d: i32 = (a.pixels[i] as i32) - (b.pixels[i] as i32);
+        var d: i32 = (a.pixels[i] as i32) -| (b.pixels[i] as i32);
         if d < 0 {
-            d = 0 - d;
+            d = 0 -| d;
         }
         sum = sum + (d as i64);
         i = i + 1;

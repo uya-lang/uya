@@ -73,7 +73,7 @@ test "bench strlen short string" {
         i = i + 1;
     }
     const end_asm: i64 = clock();
-    const time_asm: i64 = end_asm - start_asm;
+    const time_asm: i64 = end_asm -| start_asm;
     
     // 使用标准库
     const start_std: i64 = clock();
@@ -83,7 +83,7 @@ test "bench strlen short string" {
         i = i + 1;
     }
     const end_std: i64 = clock();
-    const time_std: i64 = end_std - start_std;
+    const time_std: i64 = end_std -| start_std;
     
     printf("短字符串长度 (13字符, %d 次): asm=%ld ticks, std=%ld ticks\n", 
            iterations, time_asm, time_std);
@@ -102,7 +102,7 @@ test "bench strlen medium string" {
         i = i + 1;
     }
     const end_asm: i64 = clock();
-    const time_asm: i64 = end_asm - start_asm;
+    const time_asm: i64 = end_asm -| start_asm;
     
     // 使用标准库
     const start_std: i64 = clock();
@@ -112,7 +112,7 @@ test "bench strlen medium string" {
         i = i + 1;
     }
     const end_std: i64 = clock();
-    const time_std: i64 = end_std - start_std;
+    const time_std: i64 = end_std -| start_std;
     
     printf("中等字符串长度 (84字符, %d 次): asm=%ld ticks, std=%ld ticks\n", 
            iterations, time_asm, time_std);
@@ -133,7 +133,7 @@ test "bench strcmp" {
         i = i + 1;
     }
     const end_asm_eq: i64 = clock();
-    const time_asm_eq: i64 = end_asm_eq - start_asm_eq;
+    const time_asm_eq: i64 = end_asm_eq -| start_asm_eq;
     
     // 使用 @asm 实现 - 不同字符串
     const start_asm_ne: i64 = clock();
@@ -143,7 +143,7 @@ test "bench strcmp" {
         i = i + 1;
     }
     const end_asm_ne: i64 = clock();
-    const time_asm_ne: i64 = end_asm_ne - start_asm_ne;
+    const time_asm_ne: i64 = end_asm_ne -| start_asm_ne;
     
     printf("字符串比较 (%d 次): 相同=%ld ticks, 不同=%ld ticks\n", 
            iterations, time_asm_eq, time_asm_ne);
@@ -163,7 +163,7 @@ test "bench strcpy" {
         i = i + 1;
     }
     const end_asm: i64 = clock();
-    const time_asm: i64 = end_asm - start_asm;
+    const time_asm: i64 = end_asm -| start_asm;
     
     printf("字符串复制 (59字符, %d 次): asm=%ld ticks\n", iterations, time_asm);
 }

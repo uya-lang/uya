@@ -24,7 +24,7 @@ fn preawait_init(ctx: &PreAwaitCtx, value: i32) void {
 @async_fn
 fn await_side_effect_gap() Future<!i32> {
     const a0: i32 = try @await ready(1);
-    g_gap_side_effect = a0 + 2;
+    g_gap_side_effect = a0 +| 2;
     const a1: i32 = try @await ready(g_gap_side_effect);
     return a1;
 }
@@ -300,7 +300,7 @@ fn preawait_init_kept() Future<!i32> {
     preawait_init(&ctx, 42);
     const got: i32 = try @await ready(7);
     if ctx.value != 42 {
-        return 1000 + ctx.value;
+        return 1000 +| ctx.value;
     }
     return got;
 }
@@ -340,7 +340,7 @@ fn locals_near_old_limit_kept() Future<!i32> {
     const l30: i32 = 30;
     const l31: i32 = 31;
     const got: i32 = try @await ready(5);
-    return l00 + l15 + l31 + got;
+    return l00 + l15 + l31 +| got;
 }
 
 test "async_gap_side_effect_kept_between_awaits" {

@@ -32,7 +32,7 @@ fn call_arg_ok() i32 {
 
 fn binary_ok() i32 {
     const a: [i32: 3] = [10, 20, 30];
-    return a[0] + a[2];
+    return a[0] +| a[2];
 }
 
 fn nested_call_ok() i32 {

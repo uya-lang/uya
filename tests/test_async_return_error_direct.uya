@@ -23,7 +23,7 @@ fn async_direct_error_after_await(flag: i32) Future<!i32> {
     if flag != 0 {
         return error.DirectAsyncFailure;
     }
-    return base + 4;
+    return base +| 4;
 }
 
 test "async_direct_return_error_no_await" {

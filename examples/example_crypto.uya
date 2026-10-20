@@ -76,12 +76,12 @@ fn simple_checksum(data: &const byte, len: usize) u32 {
 
 // 左旋转
 fn rotate_left(value: u32, n: i32) u32 {
-    return (value << n) | (value >> (32 - n));
+    return (value << n) | (value >> (32 -| n));
 }
 
 // 右旋转
 fn rotate_right(value: u32, n: i32) u32 {
-    return (value >> n) | (value << (32 - n));
+    return (value >> n) | (value << (32 -| n));
 }
 
 // ===== 主函数 =====

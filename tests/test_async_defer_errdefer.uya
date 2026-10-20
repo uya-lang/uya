@@ -70,20 +70,20 @@ fn sync_maybe_err(fail: i32) !i32 {
 
 @async_fn
 fn defer_across_awaits(x: i32) Future<!i32> {
-    defer { g_trace = g_trace * 10 + 1; }
-    defer { g_trace = g_trace * 10 + 2; }
+    defer { g_trace = g_trace *| 10 +| 1; }
+    defer { g_trace = g_trace *| 10 +| 2; }
 
     const a: i32 = try @await flip_i32(x);
-    const b: i32 = try @await flip_i32(x + 10);
-    return a + b;
+    const b: i32 = try @await flip_i32(x +| 10);
+    return a +| b;
 }
 
 // ── errdefer + defer 共同出现，错误来自同步 return（验证与矩阵测试一致）──
 
 @async_fn
 fn errdefer_with_sync_error(fail: i32) Future<!i32> {
-    errdefer { g_trace2 = g_trace2 * 10 + 5; }
-    defer { g_trace2 = g_trace2 * 10 + 3; }
+    errdefer { g_trace2 = g_trace2 *| 10 +| 5; }
+    defer { g_trace2 = g_trace2 *| 10 +| 3; }
 
     const v: i32 = try @await flip_i32(7);
     if fail != 0 {
@@ -96,26 +96,26 @@ fn errdefer_with_sync_error(fail: i32) Future<!i32> {
 
 @async_fn
 fn defer_between_awaits(a: i32, b: i32, c: i32) Future<!i32> {
-    defer { g_trace2 = g_trace2 * 10 + 9; }
+    defer { g_trace2 = g_trace2 *| 10 +| 9; }
 
     const va: i32 = try @await flip_i32(a);
-    defer { g_trace2 = g_trace2 * 10 + 8; }
+    defer { g_trace2 = g_trace2 *| 10 +| 8; }
 
     const vb: i32 = try @await flip_i32(b);
     defer { g_trace2 = g_trace2 * 10 + 7; }
 
     const vc: i32 = try @await flip_i32(c);
-    return va + vb + vc;
+    return va +| vb +| vc;
 }
 
 // ── 嵌套 block + await：内层 cleanup scope 也必须生效 ──
 
 @async_fn
 fn nested_block_defer_after_await() Future<!i32> {
-    defer { g_trace = g_trace * 10 + 2; }
+    defer { g_trace = g_trace *| 10 +| 2; }
 
     {
-        defer { g_trace = g_trace * 10 + 1; }
+        defer { g_trace = g_trace *| 10 +| 1; }
         const v: i32 = try @await flip_i32(4);
         _ = v;
     }
@@ -127,12 +127,12 @@ fn nested_block_defer_after_await() Future<!i32> {
 
 @async_fn
 fn nested_block_return_after_await() Future<!i32> {
-    defer { g_trace = g_trace * 10 + 2; }
+    defer { g_trace = g_trace *| 10 +| 2; }
 
     {
-        defer { g_trace = g_trace * 10 + 1; }
+        defer { g_trace = g_trace *| 10 +| 1; }
         const v: i32 = try @await flip_i32(4);
-        return v + 30;
+        return v +| 30;
     }
 
     g_trace = g_trace * 10 + 9;
@@ -144,25 +144,25 @@ fn nested_block_return_after_await() Future<!i32> {
 @async_fn
 fn sync_catch_defer_in_async(fail: i32) Future<!i32> {
     var total: i32 = 0;
-    defer { g_trace = g_trace * 10 + 1; }
+    defer { g_trace = g_trace *| 10 +| 1; }
 
     const base: i32 = try @await flip_i32(10);
     total = total + base;
 
     const bonus: i32 = sync_maybe_err(fail) catch |err| {
         _ = err;
-        total = total + 50;
+        total = total +| 50;
         total;
     };
-    return total + bonus;
+    return total +| bonus;
 }
 
 // ── errdefer + defer，错误来自 try @await 传播 ──
 
 @async_fn
 fn errdefer_with_await_error(fail: i32) Future<!i32> {
-    errdefer { g_trace3 = g_trace3 * 10 + 5; }
-    defer { g_trace3 = g_trace3 * 10 + 3; }
+    errdefer { g_trace3 = g_trace3 *| 10 +| 5; }
+    defer { g_trace3 = g_trace3 *| 10 +| 3; }
 
     const v: i32 = try @await flip_err(42, fail);
     return v;

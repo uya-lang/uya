@@ -43,9 +43,9 @@ fn test_struct_in_nested_if() !void {
     
     if p1.value < p2.value {
         if p1.step < p2.step {
-            result = p1.value + p2.value;
+            result = p1.value +| p2.value;
         } else {
-            result = p1.value - p2.value;
+            result = p1.value -| p2.value;
         }
     } else {
         result = 0;

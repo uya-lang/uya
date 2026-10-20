@@ -24,10 +24,10 @@ test "mul/div/mod priority" {
     var result1: i32 = 2 + 3 * 4;
     try assert_eq_i32(result1, 14);
     
-    var result2: i32 = 10 - 8 / 2;
+    var result2: i32 = 10 -| 8 / 2;
     try assert_eq_i32(result2, 6);
     
-    var result3: i32 = 10 + 15 % 4;
+    var result3: i32 = 10 +| 15 % 4;
     try assert_eq_i32(result3, 13);
 }
 

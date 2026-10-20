@@ -13,9 +13,9 @@ fn ready_i32(v: i32) Future<!i32> {
 fn nested_block_capture(flag: i32) Future<!i32> {
     if flag != 0 {
         {
-            var base: i32 = flag + 10;
+            var base: i32 = flag +| 10;
             const a: i32 = try @await ready_i32(7);
-            g_bug_d_nested_value = base + a;
+            g_bug_d_nested_value = base +| a;
         }
     }
     return 0;
@@ -55,7 +55,7 @@ fn slice_after_await_uses_correct_type() Future<!i32> {
     var arr: [i32: 4] = [3, 5, 7, 11];
     const start: i32 = try @await ready_i32(1);
     const s: &[i32] = arr[start:2];
-    return s[0] + s[1];
+    return s[0] +| s[1];
 }
 
 test "bug_d_break_continue_and_slice_after_await" {

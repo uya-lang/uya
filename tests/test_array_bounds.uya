@@ -13,7 +13,7 @@ fn get_index() i32 {
 }
 
 fn process_element(val: i32) i32 {
-    return val * 2;
+    return val *| 2;
 }
 
 test "basic bounds" {
@@ -42,7 +42,7 @@ test "loop access" {
     var i: i32 = 0;
     
     while i < @len(arr2) {
-        sum = sum + arr2[i];
+        sum = sum +| arr2[i];
         i = i + 1;
     }
     try assert_eq_i32(sum, 15);
@@ -155,7 +155,7 @@ test "len check" {
 
 test "complex expr" {
     const arr16: [i32: 4] = [1, 2, 3, 4];
-    const sum: i32 = arr16[0] + arr16[1] + arr16[2] + arr16[3];
+    const sum: i32 = arr16[0] +| arr16[1] +| arr16[2] +| arr16[3];
     try assert_eq_i32(sum, 10);
     try expect(arr16[0] < arr16[1] && arr16[1] < arr16[2] && arr16[2] < arr16[3]);
 }

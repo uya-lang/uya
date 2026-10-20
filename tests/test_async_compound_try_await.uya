@@ -28,13 +28,13 @@ fn flip_pending() Future<!i32> {
 @async_fn
 fn compound_assign_then_return() Future<!i32> {
     var total: i32 = 1;
-    total = total + (try @await flip_pending());
+    total = total +| (try @await flip_pending());
     return total;
 }
 
 @async_fn
 fn compound_return_expr() Future<!i32> {
-    return 1 + (try @await flip_pending());
+    return 1 +| (try @await flip_pending());
 }
 
 fn assert_pending_then_ready_three(f: Future<!i32>) !void {

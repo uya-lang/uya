@@ -17,7 +17,7 @@ fn process_array(arr: [i32: 3]) i32 {
     var sum: i32 = 0;
     var i: i32 = 0;
     while i < @len(arr) {
-        sum = sum + arr[i];
+        sum = sum +| arr[i];
         i = i + 1;
     }
     arr[0] = 999;  // 修改数组元素（不影响原数组）

@@ -48,17 +48,17 @@ struct ImmediateReady : Future<!i32> {
 
 fn call_iface(counter: FallibleCounter) !i32 {
     const value: i32 = try counter.next();
-    return value + 1;
+    return value +| 1;
 }
 
 fn call_iface_generic<T: FallibleCounter>(counter: &T) !i32 {
     const value: i32 = try counter.next();
-    return value + 2;
+    return value +| 2;
 }
 
 fn call_event_loop_generic<T: EventLoop>(loop: &T, timeout_ms: i32) !i32 {
     const polled: i32 = try loop.poll(timeout_ms);
-    return polled + 3;
+    return polled +| 3;
 }
 
 fn call_event_loop_direct(loop: EventLoop) !i32 {

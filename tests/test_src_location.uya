@@ -30,7 +30,7 @@ test "test_func_name" {
 fn helper_src_location() i32 {
     const line1: i32 = @src_line;
     const line2: i32 = @src_line;
-    return line2 - line1;
+    return line2 -| line1;
 }
 
 test "test_line_increment" {

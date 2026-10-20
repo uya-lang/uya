@@ -84,7 +84,7 @@ fn run_random_alloc_free_bench(elapsed_ns: &u64, alloc_count: &i32, free_count: 
             bytes[0] = ((size + slot) % 251usize) as byte;
             ptrs[slot] = ptr;
             sizes[slot] = size;
-            alloc_count[0] = alloc_count[0] + 1;
+            alloc_count[0] = alloc_count[0] +| 1;
             active = active + 1;
             if active > peak_active[0] {
                 peak_active[0] = active;
@@ -95,7 +95,7 @@ fn run_random_alloc_free_bench(elapsed_ns: &u64, alloc_count: &i32, free_count: 
             free(ptrs[slot]);
             ptrs[slot] = null;
             sizes[slot] = 0usize;
-            free_count[0] = free_count[0] + 1;
+            free_count[0] = free_count[0] +| 1;
             active = active - 1;
         }
         op = op + 1;

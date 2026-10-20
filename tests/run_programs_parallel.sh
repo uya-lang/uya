@@ -629,7 +629,11 @@ run_compiled_test_args() {
     done
 
     local compile_timeout="${UYA_COMPILE_TIMEOUT:-300}"
-    local -a backend_args=(--c99 "$safety_proof_arg")
+    # tests/ 是对抗性语料库：负例（error_*）故意写出溢出/越界，
+    # 正例也刻意包含各种边界算术。--strict-overflow 默认开启后，
+    # 这些语料会因为"算术无法静态证明"而被挡住——那不是被测缺陷。
+    # 闸门管的是 src/ 与 lib/ 的真实代码，测试语料在这里显式关闭它。
+    local -a backend_args=(--c99 "$safety_proof_arg" --no-strict-overflow)
     if [ "$use_nostdlib" = true ]; then
         backend_args+=(--nostdlib)
     fi

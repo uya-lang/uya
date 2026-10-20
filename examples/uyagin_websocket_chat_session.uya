@@ -57,7 +57,7 @@ fn sync_ws_write_message(ws: &WebSocketConn, opcode: WebSocketOpcode, payload: &
 fn build_room_reply(room_name: &const byte, room_name_len: usize, msg: &byte, msg_len: usize, out: &byte, out_cap: usize) !usize {
     const prefix: &[byte] = &"room["[0: 5];
     const middle: &[byte] = &"] "[0: 2];
-    const total_len: usize = prefix.len + room_name_len + middle.len + msg_len;
+    const total_len: usize = prefix.len + room_name_len + middle.len +| msg_len;
     if total_len > out_cap {
         return error.WebSocketMessageTooLarge;
     }

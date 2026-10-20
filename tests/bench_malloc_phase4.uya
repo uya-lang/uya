@@ -204,7 +204,7 @@ fn run_thread_case(thread_count: i32, result: &BenchRunResult) i32 {
             return 12;
         }
         if states[joined].status != 0 {
-            return 100 + states[joined].status;
+            return 100 +| states[joined].status;
         }
         checksum = checksum + states[joined].checksum + states[joined].alloc_count + states[joined].free_count;
         tcache_hits = tcache_hits + states[joined].tcache_hits;

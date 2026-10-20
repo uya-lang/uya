@@ -129,8 +129,11 @@ var g_split_c_lock_active: i32 = 0;
 // --verbose：默认静默普通编译进度、统计和成功提示；错误诊断仍始终输出。
 var g_verbose_output: i32 = 0;
 // --strict-overflow：普通上下文的整数算术必须能证明无溢出，否则报编译错误。
-// 默认关闭（存量代码尚未完成迁移，见 buglist.md）。
-var g_strict_overflow: i32 = 0;
+// **默认开启**：`src/` 与 `lib/` 的存量代码已全部按语义处理完毕
+// （`check --strict-overflow` 告警归零），未证明的整数算术现在默认是编译错误。
+// 需要显式溢出语义时写 `+|`/`+%`（饱和/回绕）或 `try`/`catch`（运行期检查）。
+// 测试语料的豁免见 tests/run_programs_parallel.sh 与 AGENTS.md「负例测试规则」。
+var g_strict_overflow: i32 = 1;
 
 // --async-frame-heap=on：async frame pool 满时回退到调试 heap
 var g_async_frame_heap_fallback: i32 = 0;
@@ -1108,7 +1111,7 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "  -O0, -O1, -O2, -O3   优化级别（简写形式）\n" as *byte);
     fprintf(libc.stderr, "  --safety-proof       启用内存安全证明（默认已启用）\n" as *byte);
     fprintf(libc.stderr, "  --no-safety-proof    禁用内存安全证明\n" as *byte);
-    fprintf(libc.stderr, "  --strict-overflow    整数算术必须能证明无溢出，否则报编译错误（默认关）\n" as *byte);
+    fprintf(libc.stderr, "  --no-strict-overflow 关闭溢出闸门（默认开：整数算术须能证明无溢出）\n" as *byte);
     fprintf(libc.stderr, "  --no-strict-overflow 关闭溢出闸门（默认）\n" as *byte);
     fprintf(libc.stderr, "  --nostdlib           完全独立模式：无标准库依赖，使用 syscall\n" as *byte);
     fprintf(libc.stderr, "  --async-frame-heap=on  async frame pool 满时回退到调试 heap（默认关闭）\n" as *byte);

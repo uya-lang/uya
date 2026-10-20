@@ -17,7 +17,7 @@ test "len in loop" {
     var sum: i32 = 0;
     var i: i32 = 0;
     while i < @len(arr) {
-        sum = sum + arr[i];
+        sum = sum +| arr[i];
         i = i + 1;
     }
     try assert_eq_i32(sum, 15);

@@ -34,7 +34,7 @@ fn test_usize_loop_index() !void {
     // for 循环中 usize 索引
     for 0..5 |idx| {
         arr[idx] = (idx as i32) + 1;
-        sum = sum + arr[idx];
+        sum = sum +| arr[idx];
     }
     
     try assert_eq_i32(sum, 15);  // 1+2+3+4+5 = 15

@@ -28,7 +28,7 @@ export fn main() i32 {
     const direct_result: i32 = process_data(&another_d as *Data);
     
     // 测试一些基本操作
-    const total: i32 = result + direct_result + print_int(200);
+    const total: i32 = result +| direct_result +| print_int(200);
 
     if total != 206 {
         return 1;

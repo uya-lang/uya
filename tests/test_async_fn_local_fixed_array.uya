@@ -12,8 +12,8 @@ fn await_with_fixed_array_local() Future<!i32> {
     // 仅用字面量初始化，避免依赖 await 前「逐元素赋值」在状态机中的顺序（与 memcpy 字段修复无关）。
     var buf: [u8: 4] = [9u8, 5u8, 0u8, 0u8];
     const step: i32 = try @await ready(1);
-    const sum: i32 = (buf[0] as i32) + (buf[1] as i32);
-    return sum + step;
+    const sum: i32 = (buf[0] as i32) +| (buf[1] as i32);
+    return sum +| step;
 }
 
 test "async_fn_state_struct_fixed_array_field_compiles" {

@@ -14,7 +14,7 @@ export extern fn kept_c_api() i32 {
 }
 
 fn live_helper() i32 {
-    return kept_c_api() - 123;
+    return kept_c_api() -| 123;  // extern 返回值不可静态证明，饱和即可
 }
 
 export fn main() i32 {

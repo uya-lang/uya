@@ -50,10 +50,10 @@ fn cmp_with_brace(p: Pt, upper: i32) i32 {
 // 比较两侧都是复杂表达式
 fn cmp_complex(x: i32, y: i32) i32 {
     var hits: i32 = 0;
-    if x < (y - 1) {
+    if x < (y -| 1) {
         hits = hits + 1;
     }
-    if (x + 1) < y {
+    if (x +| 1) < y {
         hits = hits + 1;
     }
     if (x >> 1) < y {

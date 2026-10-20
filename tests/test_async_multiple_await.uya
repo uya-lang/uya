@@ -13,7 +13,7 @@ fn ready(v: i32) Future<!i32> {
 fn two_awaits() Future<!i32> {
     const a: i32 = try @await ready(1);
     const b: i32 = try @await ready(2);
-    return a + b;
+    return a +| b;
 }
 
 test "two_awaits_returns_sum" {

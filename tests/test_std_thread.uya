@@ -22,7 +22,7 @@ struct PointerResult {
 }
 
 fn double_i32(v: i32) i32 {
-    return v * 2;
+    return v *| 2;
 }
 
 fn sleep_briefly() void {
@@ -39,12 +39,12 @@ fn sleep_wait_poll() void {
 
 fn delayed_double_i32(v: i32) i32 {
     sleep_briefly();
-    return v * 2;
+    return v *| 2;
 }
 
 fn delayed_triple_i32(v: i32) i32 {
     sleep_briefly();
-    return v * 3;
+    return v *| 3;
 }
 
 fn double_usize(v: usize) usize {

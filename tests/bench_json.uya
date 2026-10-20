@@ -29,7 +29,7 @@ fn bench_usec_now() i64 {
     var tv: BenchTv = BenchTv{ tv_sec: 0, tv_usec: 0 };
     const gr: !i64 = @syscall(SYS_GETTIMEOFDAY, (&tv) as i64, 0);
     _ = gr catch { return 0; };
-    return tv.tv_sec * USEC_PER_SEC + tv.tv_usec;
+    return tv.tv_sec *| USEC_PER_SEC +| tv.tv_usec;
 }
 
 // 可变缓冲区：parse 签名为 &byte，避免 C 侧 const uint8_t* 传入 uint8_t* 的 -Wdiscarded-qualifiers
@@ -73,7 +73,7 @@ export fn main() i32 {
         i = i + 1;
     }
     var end: i64 = bench_usec_now();
-    const parse_ticks: i64 = end - start;
+    const parse_ticks: i64 = end -| start;
     const parse_total_bytes: i64 = (PAYLOAD_LEN as i64) * (PARSE_ITERATIONS as i64);
     var parse_sec: f64 = 1.0;
     if parse_ticks > 0 {
@@ -89,8 +89,8 @@ export fn main() i32 {
         i = i + 1;
     }
     end = bench_usec_now();
-    const encode_ticks: i64 = end - start;
-    const enc_total_bytes: i64 = (enc_out as i64) * (ENCODE_ITERATIONS as i64);
+    const encode_ticks: i64 = end -| start;
+    const enc_total_bytes: i64 = (enc_out as i64) *| (ENCODE_ITERATIONS as i64);
     var enc_sec: f64 = 1.0;
     if encode_ticks > 0 {
         enc_sec = (encode_ticks as f64) / (USEC_PER_SEC as f64);
@@ -126,7 +126,7 @@ export fn main() i32 {
         i = i + 1;
     }
     end = bench_usec_now();
-    const ws_ticks: i64 = end - start;
+    const ws_ticks: i64 = end -| start;
     const ws_total_bytes: i64 = (ws_len as i64) * (PARSE_WS_ITER as i64);
     var ws_sec: f64 = 1.0;
     if ws_ticks > 0 {
@@ -164,7 +164,7 @@ export fn main() i32 {
         i = i + 1;
     }
     end = bench_usec_now();
-    const str_ticks: i64 = end - start;
+    const str_ticks: i64 = end -| start;
     const str_total_bytes: i64 = (str_len as i64) * (PARSE_STR_ITER as i64);
     var str_sec: f64 = 1.0;
     if str_ticks > 0 {
@@ -184,8 +184,8 @@ export fn main() i32 {
         i = i + 1;
     }
     end = bench_usec_now();
-    const enc_str_ticks: i64 = end - start;
-    const enc_str_total: i64 = (enc_str_len as i64) * (ENCODE_STR_ITER as i64);
+    const enc_str_ticks: i64 = end -| start;
+    const enc_str_total: i64 = (enc_str_len as i64) *| (ENCODE_STR_ITER as i64);
     var enc_str_sec: f64 = 1.0;
     if enc_str_ticks > 0 {
         enc_str_sec = (enc_str_ticks as f64) / (USEC_PER_SEC as f64);

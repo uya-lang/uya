@@ -90,14 +90,14 @@ fn maybe_bonus(flag: i32, value: i32) !i32 {
     if flag != 0 {
         return error.MatrixFail;
     }
-    return value + 4;
+    return value +| 4;
 }
 
 fn sync_body_matrix(seed: i32, catch_flag: i32) i32 {
-    defer { g_sync_body_trace = g_sync_body_trace * 10 + 1; }
+    defer { g_sync_body_trace = g_sync_body_trace *| 10 +| 1; }
 
     if seed < 0 {
-        return 100 - seed;
+        return 100 -% seed;
     }
 
     var total: i32 = 0;
@@ -119,49 +119,49 @@ fn sync_body_matrix(seed: i32, catch_flag: i32) i32 {
 
     for 0..2 |k| {
         const bump: i32 = direct_i32(k as i32);
-        total = total + bump;
+        total = total +| bump;
     }
 
     for arr |value| {
         const add: i32 = direct_i32(value);
-        total = total + add;
+        total = total +| add;
     }
 
     for arr |&item| {
         const bump_ref: i32 = direct_i32(1);
-        *item = *item + bump_ref;
-        total = total + *item;
+        *item = *item +| bump_ref;
+        total = total +| *item;
     }
 
     for iter |v| {
         const add_iter: i32 = direct_i32(v);
-        total = total + add_iter;
+        total = total +| add_iter;
     }
 
     const op_seed: i32 = direct_i32(seed);
     const op_bonus: i32 = match choose_matrix_op(op_seed) {
         .add(n) => n,
-        .mul(n) => op_seed * n,
+        .mul(n) => op_seed *% n,
         .skip(_) => 5,
     };
-    total = total + op_bonus;
+    total = total +| op_bonus;
 
     const ready_total: i32 = direct_i32(total);
     const bonus: i32 = maybe_bonus(catch_flag, ready_total) catch |err| {
         _ = err;
-        total = total + 50;
+        total = total +| 50;
         total;
     };
-    total = (bonus * 2) - seed;
+    total = (bonus *% 2) -% seed;
     return total;
 }
 
 @async_fn
 fn async_body_matrix(seed: i32, catch_flag: i32) Future<!i32> {
-    defer { g_async_body_trace = g_async_body_trace * 10 + 1; }
+    defer { g_async_body_trace = g_async_body_trace *| 10 +| 1; }
 
     if seed < 0 {
-        return 100 - seed;
+        return 100 -% seed;
     }
 
     var total: i32 = 0;
@@ -183,46 +183,46 @@ fn async_body_matrix(seed: i32, catch_flag: i32) Future<!i32> {
 
     for 0..2 |k| {
         const bump: i32 = try @await flip_pending_i32(k as i32);
-        total = total + bump;
+        total = total +| bump;
     }
 
     for arr |value| {
         const add: i32 = try @await flip_pending_i32(value);
-        total = total + add;
+        total = total +| add;
     }
 
     for arr |&item| {
         const bump_ref: i32 = try @await flip_pending_i32(1);
-        *item = *item + bump_ref;
-        total = total + *item;
+        *item = *item +| bump_ref;
+        total = total +| *item;
     }
 
     for iter |v| {
         const add_iter: i32 = try @await flip_pending_i32(v);
-        total = total + add_iter;
+        total = total +| add_iter;
     }
 
     const op_seed: i32 = try @await flip_pending_i32(seed);
     const op_bonus: i32 = match choose_matrix_op(op_seed) {
         .add(n) => n,
-        .mul(n) => op_seed * n,
+        .mul(n) => op_seed *% n,
         .skip(_) => 5,
     };
-    total = total + op_bonus;
+    total = total +| op_bonus;
 
     const ready_total: i32 = try @await flip_pending_i32(total);
     const bonus: i32 = maybe_bonus(catch_flag, ready_total) catch |err| {
         _ = err;
-        total = total + 50;
+        total = total +| 50;
         total;
     };
-    total = (bonus * 2) - seed;
+    total = (bonus *% 2) -% seed;
     return total;
 }
 
 fn sync_cleanup_matrix(fail: i32) !i32 {
-    errdefer { g_sync_cleanup_trace = g_sync_cleanup_trace * 10 + 2; }
-    defer { g_sync_cleanup_trace = g_sync_cleanup_trace * 10 + 3; }
+    errdefer { g_sync_cleanup_trace = g_sync_cleanup_trace *| 10 +| 2; }
+    defer { g_sync_cleanup_trace = g_sync_cleanup_trace *| 10 +| 3; }
 
     const gate: i32 = direct_i32(7);
     if fail != 0 {
@@ -233,8 +233,8 @@ fn sync_cleanup_matrix(fail: i32) !i32 {
 
 @async_fn
 fn async_cleanup_matrix(fail: i32) Future<!i32> {
-    errdefer { g_async_cleanup_trace = g_async_cleanup_trace * 10 + 2; }
-    defer { g_async_cleanup_trace = g_async_cleanup_trace * 10 + 3; }
+    errdefer { g_async_cleanup_trace = g_async_cleanup_trace *| 10 +| 2; }
+    defer { g_async_cleanup_trace = g_async_cleanup_trace *| 10 +| 3; }
 
     const gate: i32 = try @await flip_pending_i32(7);
     if fail != 0 {

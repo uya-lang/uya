@@ -69,16 +69,16 @@ fn sync_match_body(seed: i32) i32 {
     total = total + color_score;
 
     match pick_async_match_value(seed) {
-        .num(n) => { total = total + n; },
+        .num(n) => { total = total +| n; },
         .color(c) => {
             const nested: i32 = match c {
                 AsyncMatchColor.Red => 1,
                 AsyncMatchColor.Green => 2,
                 else => 3,
             };
-            total = total + nested;
+            total = total +| nested;
         },
-        else => { total = total + 40; },
+        else => { total = total +| 40; },
     };
 
     const number_score: i32 = match seed {
@@ -86,7 +86,7 @@ fn sync_match_body(seed: i32) i32 {
         1 => 200,
         else => 300,
     };
-    return total + number_score;
+    return total +| number_score;
 }
 
 @async_fn
@@ -103,16 +103,16 @@ fn async_match_body(seed: i32) Future<!i32> {
     total = total + color_score;
 
     match pick_async_match_value(awaited_seed) {
-        .num(n) => { total = total + n; },
+        .num(n) => { total = total +| n; },
         .color(c) => {
             const nested: i32 = match c {
                 AsyncMatchColor.Red => 1,
                 AsyncMatchColor.Green => 2,
                 else => 3,
             };
-            total = total + nested;
+            total = total +| nested;
         },
-        else => { total = total + 40; },
+        else => { total = total +| 40; },
     };
 
     const number_score: i32 = match awaited_seed {
@@ -120,7 +120,7 @@ fn async_match_body(seed: i32) Future<!i32> {
         1 => 200,
         else => 300,
     };
-    return total + number_score;
+    return total +| number_score;
 }
 
 fn assert_async_match_body(seed: i32) !void {

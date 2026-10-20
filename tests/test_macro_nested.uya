@@ -40,7 +40,7 @@ fn use_macro_as_index() i32 {
     arr[10] = 100;
     arr[20] = 200;
     arr[30] = 300;
-    return arr[get_10()] + arr[get_20()] + arr[get_30()];
+    return arr[get_10()] +| arr[get_20()] +| arr[get_30()];
 }
 
 // 宏结果用于循环边界

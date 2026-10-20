@@ -38,8 +38,8 @@ union MultiVariant {
 fn test_match_ref_multi(u: &MultiVariant) i32 {
     return match u {
         .a(v) => v,
-        .b(v) => v * 2,
-        .c(v) => v * 3,
+        .b(v) => v *| 2,
+        .c(v) => v *| 3,
         else => -1,
     };
 }

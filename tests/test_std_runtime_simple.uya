@@ -10,7 +10,7 @@ export fn main() i32 {
     const ptr1: &i32 = &arr[0];
     const ptr2: &i32 = &arr[5];
     const diff: i32 = ptr_diff(ptr1 as &byte, ptr2 as &byte);
-    const expected_diff: i32 = 0 - ((@size_of(i32) * 5) as i32);  // 负数，因为 ptr1 < ptr2
+    const expected_diff: i32 = 0 -| ((@size_of(i32) * 5) as i32);  // 负数，因为 ptr1 < ptr2
     if diff != expected_diff {
         return 1;  // 指针差计算错误
     }

@@ -12,7 +12,7 @@ use std.testing.run_test;
 
 @async_fn
 fn child_async(n: i32) Future<!i32> {
-    return n + 1;
+    return n +| 1;
 }
 
 @async_fn

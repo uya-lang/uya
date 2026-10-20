@@ -161,13 +161,13 @@ fn test_div_zero_error_path() !void {
 
 fn safe_add(a: i32, b: i32) i32 {
     // 规范 §14.4 给出的上下溢检查模式
-    if a > 0 && b > 0 && a > MAX_I32 - b {
+    if a > 0 && b > 0 && a > MAX_I32 -| b {
         return MAX_I32;
     }
-    if a < 0 && b < 0 && a < MIN_I32 - b {
+    if a < 0 && b < 0 && a < MIN_I32 -| b {
         return MIN_I32;
     }
-    return a + b;
+    return a +| b;
 }
 
 const MAX_I32: i32 = @max;

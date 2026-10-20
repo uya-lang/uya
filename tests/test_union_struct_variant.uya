@@ -28,8 +28,8 @@ union Shape {
 fn test_union_struct_variant() !void {
     var s: Shape = Shape.point(Point{ x: 10, y: 20 });
     const result: i32 = match s {
-        .point(p) => p.x + p.y,
-        .size(sz) => sz.width + sz.height,
+        .point(p) => p.x +| p.y,
+        .size(sz) => sz.width +| sz.height,
     };
     try assert_eq_i32(result, 30);
 }
@@ -37,8 +37,8 @@ fn test_union_struct_variant() !void {
 fn test_union_struct_variant_size() !void {
     var s: Shape = Shape.size(Size{ width: 100, height: 50 });
     const result: i32 = match s {
-        .point(p) => p.x + p.y,
-        .size(sz) => sz.width * sz.height,
+        .point(p) => p.x +| p.y,
+        .size(sz) => sz.width *| sz.height,
     };
     try assert_eq_i32(result, 5000);
 }
