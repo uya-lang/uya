@@ -1,0 +1,12 @@
+version = 2
+
+[[package]]
+alias = "hello"
+name = "example_path_dep_hello"
+source_kind = "path"
+path = "../hello_pkg"
+package_root = "/media/winger/_dde_data/winger/uya/uya/examples/package_example/path_dep/hello_pkg/"
+source_root = "/media/winger/_dde_data/winger/uya/uya/examples/package_example/path_dep/hello_pkg/src/"
+resolved_version = "0.1.0"
+content_hash = "6e9984f69d62b6c7"
+
