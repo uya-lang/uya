@@ -2655,7 +2655,7 @@ fn c99_async_frame_helper_name(codegen: &C99CodeGenerator, async_struct_name: &b
     } else {
         return null;
     }
-    const total_len: usize = strlen(base_name as *byte) + strlen(suffix as *byte) + 1;
+    const total_len: usize = strlen(base_name as *byte) + strlen(suffix as *byte) +| 1;
     const result: &byte = compiler_arena_alloc(codegen.arena, total_len) as &byte;
     if result == null {
         return null;

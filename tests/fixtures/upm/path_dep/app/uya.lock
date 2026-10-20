@@ -1,13 +1,12 @@
-version = 1
-
-root_name = "path_dep_app"
-root_source_dir = "src"
+version = 2
 
 [[package]]
 alias = "hello"
 name = "hello_pkg"
 source_kind = "path"
 path = "../hello_pkg"
-package_root = "/media/winger/_dde_home/winger/uya/uya/tests/fixtures/upm/path_dep/hello_pkg/"
-source_root = "/media/winger/_dde_home/winger/uya/uya/tests/fixtures/upm/path_dep/hello_pkg/src/"
+package_root = "/media/winger/_dde_data/winger/uya/uya/tests/fixtures/upm/path_dep/hello_pkg/"
+source_root = "/media/winger/_dde_data/winger/uya/uya/tests/fixtures/upm/path_dep/hello_pkg/src/"
+resolved_version = "0.1.0"
+content_hash = "7f71fe86ee9812bf"
 

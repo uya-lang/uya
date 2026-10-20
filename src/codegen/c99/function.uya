@@ -2923,7 +2923,7 @@ fn c99_async_await_operand_is_inlineable(codegen: &C99CodeGenerator, operand: &A
         return 0;
     }
     const prefix: &byte = "uya_async_";
-    const total_len: usize = strlen(prefix as *byte) + strlen(func_c_name as *byte) + 1;
+    const total_len: usize = strlen(prefix as *byte) + strlen(func_c_name as *byte) +| 1;
     const result: &byte = compiler_arena_alloc(codegen.arena, total_len) as &byte;
     if result == null {
         return 0;
@@ -4590,7 +4590,7 @@ fn c99_async_push_cleanup_region(codegen: &C99CodeGenerator, region_idx: i32) i3
 
     var i: i32 = 0;
     while i < region.defer_count && i < C99_MAX_DEFERS_PER_BLOCK && region.defer_stmts != null {
-        const defer_slot: i32 = slot * C99_MAX_DEFERS_PER_BLOCK + i;
+        const defer_slot: i32 = slot * C99_MAX_DEFERS_PER_BLOCK +| i;
         if defer_slot >= 0 && defer_slot < C99_MAX_DEFER_STACK * C99_MAX_DEFERS_PER_BLOCK {
             codegen.defer_stack[defer_slot] = region.defer_stmts[i];
         }
@@ -4600,7 +4600,7 @@ fn c99_async_push_cleanup_region(codegen: &C99CodeGenerator, region_idx: i32) i3
 
     i = 0;
     while i < region.errdefer_count && i < C99_MAX_DEFERS_PER_BLOCK && region.errdefer_stmts != null {
-        const errdefer_slot: i32 = slot * C99_MAX_DEFERS_PER_BLOCK + i;
+        const errdefer_slot: i32 = slot * C99_MAX_DEFERS_PER_BLOCK +| i;
         if errdefer_slot >= 0 && errdefer_slot < C99_MAX_DEFER_STACK * C99_MAX_DEFERS_PER_BLOCK {
             codegen.errdefer_stack[errdefer_slot] = region.errdefer_stmts[i];
         }

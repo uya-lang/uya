@@ -201,10 +201,10 @@ fn upm_parse_manifest_flag_and_input(start_index: i32, manifest_out: &byte, inpu
             return 1;
         }
         if strcmp(arg as *byte, "--manifest-path" as *byte) == 0 {
-            if manifest_out == null || i + 1 >= get_argc() {
+            if manifest_out == null || i +| 1 >= get_argc() {
                 return 1;
             }
-            i = i + 1;
+            i = i +| 1;
             const value: &byte = get_argv(i);
             if value == null || upm_string_copy(manifest_out, UPM_PATH_MAX, value) != 0 {
                 return 1;
@@ -216,7 +216,7 @@ fn upm_parse_manifest_flag_and_input(start_index: i32, manifest_out: &byte, inpu
         } else {
             return 1;
         }
-        i = i + 1;
+        i = i +| 1;
     }
     if input_out[0] == 0 as byte {
         return upm_string_copy(input_out, input_cap, "." as &byte);
@@ -277,19 +277,19 @@ fn upm_parse_add_args(start_index: i32, args_out: &UPMAddArgs) i32 {
             return 1;
         }
         if strcmp(arg as *byte, "--manifest-path" as *byte) == 0 {
-            if i + 1 >= get_argc() {
+            if i +| 1 >= get_argc() {
                 return 1;
             }
-            i = i + 1;
+            i = i +| 1;
             const value: &byte = get_argv(i);
             if value == null || upm_string_copy(&args_out.manifest_path[0] as &byte, UPM_PATH_MAX, value) != 0 {
                 return 1;
             }
         } else if strcmp(arg as *byte, "--git" as *byte) == 0 {
-            if saw_source != 0 || i + 1 >= get_argc() {
+            if saw_source != 0 || i +| 1 >= get_argc() {
                 return 1;
             }
-            i = i + 1;
+            i = i +| 1;
             const value: &byte = get_argv(i);
             if value == null || upm_string_copy(&args_out.dep.git_url[0] as &byte, UPM_PATH_MAX, value) != 0 {
                 return 1;
@@ -297,10 +297,10 @@ fn upm_parse_add_args(start_index: i32, args_out: &UPMAddArgs) i32 {
             args_out.dep.kind = UPMDependencyKind.UPM_DEP_GIT;
             saw_source = 1;
         } else if strcmp(arg as *byte, "--path" as *byte) == 0 {
-            if saw_source != 0 || i + 1 >= get_argc() {
+            if saw_source != 0 || i +| 1 >= get_argc() {
                 return 1;
             }
-            i = i + 1;
+            i = i +| 1;
             const value: &byte = get_argv(i);
             if value == null || upm_string_copy(&args_out.dep.path_value[0] as &byte, UPM_PATH_MAX, value) != 0 {
                 return 1;
@@ -308,10 +308,10 @@ fn upm_parse_add_args(start_index: i32, args_out: &UPMAddArgs) i32 {
             args_out.dep.kind = UPMDependencyKind.UPM_DEP_PATH;
             saw_source = 1;
         } else if strcmp(arg as *byte, "--branch" as *byte) == 0 {
-            if saw_ref != 0 || i + 1 >= get_argc() {
+            if saw_ref != 0 || i +| 1 >= get_argc() {
                 return 1;
             }
-            i = i + 1;
+            i = i +| 1;
             const value: &byte = get_argv(i);
             if value == null || upm_string_copy(&args_out.dep.ref_value[0] as &byte, UPM_MAX_REF_LEN, value) != 0 {
                 return 1;
@@ -319,10 +319,10 @@ fn upm_parse_add_args(start_index: i32, args_out: &UPMAddArgs) i32 {
             args_out.dep.ref_kind = UPMGitRefKind.UPM_GIT_REF_BRANCH;
             saw_ref = 1;
         } else if strcmp(arg as *byte, "--tag" as *byte) == 0 {
-            if saw_ref != 0 || i + 1 >= get_argc() {
+            if saw_ref != 0 || i +| 1 >= get_argc() {
                 return 1;
             }
-            i = i + 1;
+            i = i +| 1;
             const value: &byte = get_argv(i);
             if value == null || upm_string_copy(&args_out.dep.ref_value[0] as &byte, UPM_MAX_REF_LEN, value) != 0 {
                 return 1;
@@ -330,10 +330,10 @@ fn upm_parse_add_args(start_index: i32, args_out: &UPMAddArgs) i32 {
             args_out.dep.ref_kind = UPMGitRefKind.UPM_GIT_REF_TAG;
             saw_ref = 1;
         } else if strcmp(arg as *byte, "--commit" as *byte) == 0 {
-            if saw_ref != 0 || i + 1 >= get_argc() {
+            if saw_ref != 0 || i +| 1 >= get_argc() {
                 return 1;
             }
-            i = i + 1;
+            i = i +| 1;
             const value: &byte = get_argv(i);
             if value == null || upm_string_copy(&args_out.dep.ref_value[0] as &byte, UPM_MAX_REF_LEN, value) != 0 {
                 return 1;
@@ -361,7 +361,7 @@ fn upm_parse_add_args(start_index: i32, args_out: &UPMAddArgs) i32 {
         } else {
             return 1;
         }
-        i = i + 1;
+        i = i +| 1;
     }
 
     if args_out.alias[0] == 0 as byte {
@@ -516,10 +516,10 @@ fn upm_parse_remove_args(start_index: i32, args_out: &UPMRemoveArgs) i32 {
             return 1;
         }
         if strcmp(arg as *byte, "--manifest-path" as *byte) == 0 {
-            if i + 1 >= get_argc() {
+            if i +| 1 >= get_argc() {
                 return 1;
             }
-            i = i + 1;
+            i = i +| 1;
             const value: &byte = get_argv(i);
             if value == null || upm_string_copy(&args_out.manifest_path[0] as &byte, UPM_PATH_MAX, value) != 0 {
                 return 1;
@@ -547,7 +547,7 @@ fn upm_parse_remove_args(start_index: i32, args_out: &UPMRemoveArgs) i32 {
         } else {
             return 1;
         }
-        i = i + 1;
+        i = i +| 1;
     }
     if args_out.alias[0] == 0 as byte {
         return 1;
@@ -797,10 +797,10 @@ fn upm_build_extract_input_and_manifest(start_index: i32, manifest_out: &byte, i
             return 1;
         }
         if strcmp(arg as *byte, "--manifest-path" as *byte) == 0 {
-            if i + 1 >= get_argc() {
+            if i +| 1 >= get_argc() {
                 return 1;
             }
-            i = i + 1;
+            i = i +| 1;
             const value: &byte = get_argv(i);
             if value == null || upm_string_copy(manifest_out, UPM_PATH_MAX, value) != 0 {
                 return 1;
@@ -808,13 +808,13 @@ fn upm_build_extract_input_and_manifest(start_index: i32, manifest_out: &byte, i
         } else {
             const value_mode: UPMBuildArgValueMode = upm_build_arg_value_mode(arg);
             if value_mode == UPMBuildArgValueMode.UPM_BUILD_ARG_VALUE_REQUIRED {
-                if i + 1 >= get_argc() {
+                if i +| 1 >= get_argc() {
                     return 1;
                 }
-                i = i + 1;
+                i = i +| 1;
             } else if value_mode == UPMBuildArgValueMode.UPM_BUILD_ARG_VALUE_OPTIONAL {
-                if i + 1 < get_argc() {
-                    i = i + 1;
+                if i +| 1 < get_argc() {
+                    i = i +| 1;
                 }
             } else if arg[0] != 45 as byte && input_out[0] == 0 as byte {
                 if upm_string_copy(input_out, input_cap, arg) != 0 {
@@ -822,7 +822,7 @@ fn upm_build_extract_input_and_manifest(start_index: i32, manifest_out: &byte, i
                 }
             }
         }
-        i = i + 1;
+        i = i +| 1;
     }
     if input_out[0] == 0 as byte {
         return upm_string_copy(input_out, input_cap, "." as &byte);
@@ -939,7 +939,7 @@ fn upm_forward_build(start_index: i32) i32 {
             if upm_shell_append_quoted(&cmd[0] as &byte, UPM_CMD_MAX as usize, &cmd_len, arg) != 0 {
                 return 1;
             }
-            arg_index = arg_index + 1;
+            arg_index = arg_index +| 1;
         }
     }
     const status: i32 = system(&cmd[0] as *byte);
