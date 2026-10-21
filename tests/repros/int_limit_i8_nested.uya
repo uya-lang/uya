@@ -1,0 +1,19 @@
+// int_limit_i8_nested.uya - 最小复现：@max/@min 小整型与嵌套实参发射成 0（修复用）
+//
+// 见 buglist「编译器 bug」P2 条与 tests/test_int_limit_i8_nested.uya 头注释。
+// 修复前（v0.10.4，2026-10-19 实测）：
+//   ① `const a8: i8 = @max;` → 生成 C 是 `const int8_t a8 = 0;`，运行输出 0；
+//   ② `id_int(id_int(@max))` → 内层 @max 发射成 0，运行输出 0。
+// （直接实参 `id_int(@max)` 在 0.10.4 已正常 —— strict-overflow 门修它时顺带
+//  解决；嵌套与小整型是漏网的两条。）
+// 修复后：两个都输出正确极值（127 / 2147483647）。
+
+fn id_int(a: i32) i32 { return a; }
+
+fn main() i32 {
+    const a8: i8 = @max;
+    const d: i32 = id_int(id_int(@max));
+    @println(a8 as i32);
+    @println(d);
+    return 0;
+}

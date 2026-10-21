@@ -1,0 +1,24 @@
+// test_asm_memory_clobber_flag.uya - @asm 的 clobbers=["memory"] 必须被 checker 认可
+//
+// parser 把 "memory" 记进 asm_clobbers_memory 标志（src/parser/primary.uya），
+// codegen 也读它（src/codegen/c99/expr.uya），但 checker 只在 asm_clobbers[]
+// 列表里搜 "memory"（src/checker/check_expr.uya），has_memory_clobber 永远为 0
+// —— 含 mfence/lfence/sfence 的块即使写了 clobbers = ["memory"] 仍报
+// 「内存屏障指令需要声明 clobbers = ["memory"]」（buglist P2，2026-10-19 核对）。
+//
+// 修复：checker 同时读取 asm_clobbers_memory 标志（双侧口径一致）。
+//
+// 预期：编译成功、可运行，返回 0。
+// 同族负例（对应 buglist「内存屏障必报错」的旧行为）见
+// tests/repros/asm_memory_clobber_flag.uya —— 修复前的编译器在它上面报错。
+
+fn main() i32 {
+    var x: i32 = 0;
+    @asm {
+        "mfence" (-> x);
+    } clobbers = ["memory"];
+    if x == 0 {
+        return 0;
+    }
+    return 1;
+}

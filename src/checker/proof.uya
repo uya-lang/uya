@@ -1159,16 +1159,15 @@ export fn check_slice_bounds(checker: &TypeChecker, array_expr: &ASTNode, start_
     
     // 检查起始位置
     // 同下：必须用成功标志判常量，否则变量 start 会被读成常量 -1。
+    // 负 start 必须报错：checker / codegen 从未实现「负索引从末尾回数」的换算，
+    // 文档（docs/uya.md §1.4 / readme.md / docs/comparison.md）已按「没有负索引」
+    // 回填 —— 旧代码对负值做 `array_size + start` 的「换算放行」，codegen 却
+    // 原样发射 `arr + (-3)` 生成越界指针（buglist P1，
+    // tests/error_slice_negative_start.uya）。正 start 保持原值参与越界判定。
     var start_pos_is_const: i32 = 0;
     const start_pos_value: i32 = checker_eval_const_expr_ex(checker, start_expr, &start_pos_is_const);
     if start_expr != null && start_pos_is_const != 0 {
-        // 处理负数索引
-        var actual_start: i32 = start_pos_value;
-        if start_pos_value < 0 {
-            actual_start = result.array_size +| start_pos_value;
-        }
-        
-        if actual_start < 0 || actual_start > result.array_size {
+        if start_pos_value < 0 || start_pos_value > result.array_size {
             result.risk = BoundsCheckRisk.BOUNDS_ERROR as i32;
             result.message = "切片起始位置越界" as &byte;
             return result;
@@ -1195,12 +1194,9 @@ export fn check_slice_bounds(checker: &TypeChecker, array_expr: &ASTNode, start_
         var start_is_const: i32 = 0;
         const start_value: i32 = checker_eval_const_expr_ex(checker, start_expr, &start_is_const);
         if start_expr != null && start_is_const != 0 {
-            var actual_start: i32 = start_value;
-            if start_value < 0 {
-                actual_start = result.array_size +| start_value;
-            }
-            
-            if (actual_start +| len_value) > result.array_size {
+            // 与上方同一口径：负 start 已在「检查起始位置」被拒；
+            // 这里 start 保持原值，`start + len` 超过底层长度才报结束越界。
+            if (start_value +| len_value) > result.array_size {
                 result.risk = BoundsCheckRisk.BOUNDS_ERROR as i32;
                 result.message = "切片结束位置越界" as &byte;
                 return result;

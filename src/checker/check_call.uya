@@ -2622,6 +2622,14 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
     var i: i32 = 0;
     while i < check_count {
         const arg: &ASTNode = node.call_expr_args[i];
+        // @max/@min 实参按形参类型解析（纯类型下推，无副作用）。
+        // 三层以上嵌套（f(g(h(@max)))）的最内层只有走这里才够得着：
+        // checker_check_expr_type 的入口在顶层调用，中间层实参到不了。
+        if arg != null && arg.type == ASTNodeType.AST_INT_LIMIT {
+            resolve_int_limit_node(arg, copy_type(sig.param_types + i));
+        } else if arg != null && arg.type == ASTNodeType.AST_CALL_EXPR {
+            checker_resolve_int_limit_args(checker, arg);
+        }
         if arg != null && checker_check_expr_type(checker, arg, copy_type(sig.param_types + i)) == 0 {
             checker_report_param_mismatch_by_index(checker, arg, "函数调用" as *byte, i + 1, copy_type(sig.param_types + i));
             return result;

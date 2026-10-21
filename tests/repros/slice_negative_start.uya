@@ -1,0 +1,18 @@
+// slice_negative_start.uya - 最小复现：负 start 切片静默越界（修复用）
+//
+// 见 buglist「编译器 bug」P1 条。修复前（v0.10.4，2026-10-19 实测）：
+//   ① 编译通过 —— check_slice_bounds 只校验 start + len <= 底层长度，
+//     把「array_size + start」当白名单换算，没有校验 start >= 0；
+//   ② codegen 按字面发射 `arr + (-3)`，切出的内容是数组前面的越界内存，
+//     实测 tail[0] == 0（不是 arr[7] == 7）、tail[1]/tail[2] 是栈垃圾。
+// 修复后：编译失败，报告「切片起始位置越界」（正例见
+// tests/error_slice_negative_start.uya）。
+
+fn main() i32 {
+    var arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const tail: &[i32] = &arr[-3:3];
+    @println(tail[0]);
+    @println(tail[1]);
+    @println(tail[2]);
+    return 0;
+}

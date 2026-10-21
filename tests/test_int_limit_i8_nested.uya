@@ -1,0 +1,53 @@
+// test_int_limit_i8_nested.uya - @max/@min 的极值必须按解析类型发射
+//
+// buglist「编译器 bug」P2 的残留两形态（2026-10-19 首报 P2，随后
+// strict-overflow 门把它收紧成这两个形态）：
+//   ① 小整数类型：`const a8: i8 = @max;` → codegen 发射 `const int8_t a8 = 0;`
+//      根因：解析标志 int_limit_resolved_kind 用 0 当「未解析」哨兵，
+//      而 TypeKind.TYPE_I8 的枚举值恰好是 0 —— 解析结果与「从未解析」无法
+//      区分，checker 推断回退 TYPE_INT_LIMIT、codegen 直接发射 "0"。
+//   ② 嵌套实参：`id_int(id_int(@max))` → 里层实参解析缺位，发射成字面 0。
+//      根因同一族：实参类型检查走 type_equals 路径（INT_LIMIT 与具体整数
+//      类型不相等），没有把期望 kind 写回节点。
+// 修复（src/checker/type_utils.uya）：解析值统一 +1 编码（编码值 = kind + 1，
+// 0 仍表示「未解析」），并给 type_equals 放行「INT_LIMIT ↔ 任意整数类型」，
+// 使调用实参路径也把期望 kind 写回节点。读取方（checker 推断、codegen、
+// exec lower）统一 -| 1 解码。
+//
+// 已知边界：再深一层（`id_int(id_int(id_int(@max)))`＝三层嵌套）仍会发射成 0
+// —— 下推入口只在顶层调用，中间层实参到不了最内层。这不在 buglist 记录的
+// 两种形态里，暂不扩改动面（要修需让下推跟着 checker_check_call_expr 逐层递归）。
+//
+// 预期：编译成功、运行返回 0（正例；修复前两个 @println 都输出 0 ——
+// 历史形态见 tests/repros/int_limit_i8_nested.uya）。
+
+fn id_int(a: i32) i32 { return a; }
+
+fn main() i32 {
+    // 形态 ①：i8 极值常量（c99 输出曾是 const int8_t a8 = 0;）
+    const a8: i8 = @max;
+    const a8_expect: i8 = 127;
+    if a8 != a8_expect {
+        return 1;
+    }
+
+    // 形态 ②：@max 作为调用实参嵌在内层调用里（曾发射成 0）
+    const d: i32 = id_int(id_int(@max));
+    if d != 2147483647 {
+        return 2;
+    }
+
+    // 直接实参（此前 0.10.x 已修，钉住不回退）
+    const e: i32 = id_int(@max);
+    if e != 2147483647 {
+        return 3;
+    }
+
+    // @min 同表（i8 曾发射成 0）
+    const m8: i8 = @min;
+    const m8_expect: i8 = -128;
+    if m8 != m8_expect {
+        return 4;
+    }
+    return 0;
+}

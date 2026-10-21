@@ -1842,8 +1842,10 @@ fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type:
         (expected_type.kind == TypeKind.TYPE_ARRAY || expected_type.kind == TypeKind.TYPE_SLICE) {
         return exec_lower_make_zero_expr(ctx, expr, expected_type);
     }
+    // 存储是编码值 = TypeKind + 1（resolve_int_limit_node）：解析、求值
+    // 与 exec_lower_eval_int_limit 的解码保持同一口径。
     if expected_type != null && expr.type == ASTNodeType.AST_INT_LIMIT && is_integer_type(expected_type.kind) != 0 {
-        expr.int_limit_resolved_kind = expected_type.kind;
+        expr.int_limit_resolved_kind = (expected_type.kind as i32) +| 1;
         var int_limit_ok: i32 = 0;
         const int_limit_value: i64 = exec_lower_eval_int_limit(expr, expected_type.kind, &int_limit_ok);
         if int_limit_ok != 0 {
@@ -2790,8 +2792,11 @@ fn exec_lower_eval_int_limit(expr: &ASTNode, fallback_kind: TypeKind, out_ok: &i
         return 0;
     }
     var kind: TypeKind = fallback_kind;
+    // 存储是编码值 = TypeKind + 1（resolve_int_limit_node），这里 -| 1 解码；
+    // 编码前 TYPE_I8 === 0 与「未解析」的 0 哨兵撞车（下方旧注释
+    // 「TYPE_I8 的枚举值为 0，不能用 0 当哨兵」正是这条坑的 exec 侧记录）。
     if expr.int_limit_resolved_kind != 0 {
-        const kind_tmp: !TypeKind = expr.int_limit_resolved_kind as! TypeKind;
+        const kind_tmp: !TypeKind = (expr.int_limit_resolved_kind -| 1) as! TypeKind;
         kind = kind_tmp.value;
     }
     if is_integer_type(kind) == 0 {

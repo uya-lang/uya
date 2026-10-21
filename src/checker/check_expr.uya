@@ -1491,9 +1491,11 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         return make_bool_type();
     } else if expr.type == ASTNodeType.AST_INT_LIMIT {
         // max/min：若已从上下文解析则返回该整数类型，否则返回 TypeKind.TYPE_INT_LIMIT
+        // 存储是编码值 = TypeKind + 1（resolve_int_limit_node），这里 -| 1 解码；
+        // 编码前 TYPE_I8 === 0 曾被当成「未解析」，i8 极值在发射期掉成 0。
         const r: i32 = expr.int_limit_resolved_kind;
-        if r != 0 && is_integer_type(r as TypeKind) != 0 {
-            result.kind = r as TypeKind;
+        if r != 0 && is_integer_type((r -| 1) as TypeKind) != 0 {
+            result.kind = (r -| 1) as TypeKind;
             return result;
         }
         result.kind = TypeKind.TYPE_INT_LIMIT;
@@ -2735,6 +2737,20 @@ fn checker_check_expr_type(checker: &TypeChecker, expr: &ASTNode, expected_type:
         }
         return 1;
     }
+    // 嵌套调用实参的期望类型解析：`id_int(id_int(@max))` 里的内层 @max
+    // 从来没人按内层形参类型解析过 —— 外层只对「整个内层调用表达式」做了
+    // 一次类型比较（返回 i32 vs 期望 i32，直接 type_equals 通过），内层实参
+    // 因此保持未解析，codegen 读到编码值 0 就发射字面 0
+    // （buglist P2 残留形态②）。
+    //
+    // 这里**只能做纯类型下推**（checker_resolve_int_limit_args），不能复用
+    // checker_check_expr_type：后者对结构体实参会走移动判定，而
+    // checker_mark_moved 是累加的（非幂等），同一次调用被检查两遍就报
+    // 「变量已被移动，不能再次使用」（实测 lib/std/thread.uya 等 24 处）。
+    if expr.type == ASTNodeType.AST_CALL_EXPR {
+        checker_resolve_int_limit_args(checker, expr);
+    }
+
     const actual_type: Type = checker_infer_type(checker, expr);
     if actual_type.kind == TypeKind.TYPE_ERROR && expected_copy.kind == TypeKind.TYPE_ERROR_UNION {
         return 1;
@@ -2745,6 +2761,13 @@ fn checker_check_expr_type(checker: &TypeChecker, expr: &ASTNode, expected_type:
         return 0;
     }
     if type_equals(copy_type(&actual_type), copy_type(&expected_copy)) != 0 {
+        // type_equals 放行了「INT_LIMIT ↔ 整数」的占位匹配，所以这里必须先把
+        // 期望宽度写回节点再返回。否则 `const a8: i8 = @max;` 会停在这个提前
+        // return 上、永远走不到下面「特殊情况：max/min 从期望类型解析」——
+        // 节点保持未解析，codegen 发射字面 0（buglist P2 残留形态①）。
+        if actual_type.kind == TypeKind.TYPE_INT_LIMIT && is_integer_type(expected_copy.kind) != 0 {
+            resolve_int_limit_node(expr, copy_type(&expected_copy));
+        }
         return 1;
     }
     // &[const byte] / &[const byte:N] <- 字符串子切片 &"..."[a:b]（推断为 &[byte]，此处放宽）
@@ -3978,6 +4001,14 @@ fn infer_asm_block(checker: &TypeChecker, expr: &ASTNode) Type {
             has_memory_clobber = 1;
         }
         clobber_idx = clobber_idx + 1;
+    }
+
+    // parser 把 clobbers 列表里的 "memory" 同时记进 asm_clobbers_memory 标志
+    // （src/parser/primary.uya），codegen 也按该标志发射（src/codegen/c99/expr.uya）。
+    // checker 只搜列表的话永远判 0 —— 含 mfence/lfence/sfence 的块即使写了
+    // clobbers = ["memory"] 仍报「内存屏障指令需要声明 clobbers」（buglist P2）。
+    if expr.asm_clobbers_memory != 0 {
+        has_memory_clobber = 1;
     }
 
     // 并发安全：内存屏障指令需要 memory clobber

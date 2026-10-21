@@ -1,6 +1,11 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-19（新增 overflow/try 限制登记：普通上下文算术溢出仍是 UB；再新增 **P1：负 `start` 切片 `&arr[-3:3]` 静默切出越界内容**；**P2：`@max`/`@min` 极值常量发射不可靠**、`@print` 负值与浮点插值、`@asm` memory clobber 检查失效；**P3：命名空间 + `&receiver` 方法调用生成坏 C**。最小复现与规避写法见「编译器 bug」前五条。）
+**最后更新：** 2026-10-21（**本轮修掉 3 条**：① P1 负 `start` 切片 —— `check_slice_bounds`
+不再对负 start 做「从末尾回数」的换算放行，改保守拒绝；② P2 `@max`/`@min` 极值常量 ——
+解析标志改用 `TypeKind + 1` 编码（`TYPE_I8 === 0` 与「未解析」哨兵撞车是根因），
+并补上调用实参（含嵌套）的类型下推；③ P2 `@asm` 的 `clobbers = ["memory"]` ——
+checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros/` 最小复现。
+`@max` 三层嵌套实参仍会掉成 0，已记为该条的已知边界。此前：2026-10-19（新增 overflow/try 限制登记：普通上下文算术溢出仍是 UB；再新增 **P1：负 `start` 切片 `&arr[-3:3]` 静默切出越界内容**；**P2：`@max`/`@min` 极值常量发射不可靠**、`@print` 负值与浮点插值、`@asm` memory clobber 检查失效；**P3：命名空间 + `&receiver` 方法调用生成坏 C**。最小复现与规避写法见「编译器 bug」前五条。）
 此前：2026-10-12（**UB 漏检批次 7 条收口 ①②④⑦ + ⑤ 的缺口 2，余 ③、⑤ 的缺口 1、⑥ 未修复**：
 ① 常量 -1 下标（`checker_eval_const_expr` 拿 -1 兼作「非常量」哨兵）、② 嵌套字段移动后
 同一块堆内存被 free 两次（实测真 double free）、④ `return` 里的 cast/实参位置跳过越界检查、
@@ -316,8 +321,8 @@
 
 ## 编译器 bug
 
-- [ ] **P1 / 高：负 `start` 的切片静默通过并切出越界内容（`&arr[-3:3]`）**
-  - 状态：**未修复**（2026-10-19 文档同步时实测发现）
+- [x] **P1 / 高：负 `start` 的切片静默通过并切出越界内容（`&arr[-3:3]`）**
+  - 状态：**已修复**（2026-10-21）
   - 现象：
     ```uya
     var arr: [i32: 10] = [0,1,2,3,4,5,6,7,8,9];
@@ -330,9 +335,19 @@
   - 归属：`src/checker/proof.uya` 的 `check_slice_bounds`（补 `start >= 0` 常量判定）；
     `docs/uya.md` §1.4、`readme.md`、`docs/comparison.md` 已按「没有负索引」回填。
   - 验证：`./bin/uya run` 上面的 5 行程序即可复现（本轮实测）；修复后应报「切片起始位置越界」。
+  - 修复内容（2026-10-21）：`check_slice_bounds` 的两处常量 start 判定都去掉
+    「负值按 `array_size + start` 换算」的白名单（`src/checker/proof.uya`）：
+    起始位置判定改为 `start < 0 || start > array_size`，结束位置判定用原值
+    `start + len > array_size`。取向是**保守拒绝** —— codegen 从未实现负索引
+    换算，放行就必然生成越界指针。正例回归 `tests/test_slice_range_bounds.uya`
+    里的合法切片（`[0:4]` / `[2:2]` / `[4:0]` / `[3:1]` / 字符串切片 / 变量范围）
+    全部照旧通过，钉住「没有收紧过头」。
+  - 负例：`tests/error_slice_negative_start.uya`（预期编译失败）；
+    最小复现留档 `tests/repros/slice_negative_start.uya`（修复前输出 `0` 与栈垃圾，
+    修复后 `check` 报「切片起始位置越界」、exec 后端直接报 `exec: slice 越界`）。
 
-- [ ] **P2 / 中：`@max` / `@min` 作为调用实参出现在复合表达式里时被发射成 `0`**
-  - 状态：**未修复**（2026-10-19 文档同步时实测发现）
+- [x] **P2 / 中：`@max` / `@min` 作为调用实参出现在复合表达式里时被发射成 `0`**
+  - 状态：**已修复**（2026-10-21；本轮修掉残留的两种形态，见下方「修复内容」）
   - 现象：`@max` 只有作为「带类型注解声明的直接初始化器」时才取到正确极值；一旦作为调用实参嵌进更大的表达式，就发射成 `0`：
     ```uya
     const MAXV: i32 = @max;
@@ -353,6 +368,33 @@
   - 归属：`src/checker/`（`@max` / `@min` 的类型推断依赖上下文）与 `src/codegen/c99/expr.uya`（内置极值的常量发射）。
   - 备注：`examples/add_safe*.uya` 与 `examples/add_saturating.uya` 已改为 `const MAXV: i32 = @max;` 写法以保持可运行。
   - 同类：`const a8: i8 = @max;` 也会发射成 `0`（`--c99` 输出 `const int8_t a8 = 0;`），即小整数类型的极值常量发射同样不可靠。
+  - 修复内容（2026-10-21）：`@max`/`@min` 的解析标志 `int_limit_resolved_kind`
+    **改用编码值 = TypeKind + 1**（0 仍表示「未解析」）。根因是 `TYPE_I8` 的枚举值
+    恰好是 0，与「未解析」的哨兵撞车 —— 解析成功与从未解析无法区分，codegen 就
+    发射字面 `0`。改动点（六处，读写口径统一）：
+    * `src/checker/type_utils.uya` `resolve_int_limit_node` 写 `(kind as i32) +| 1`；
+      `type_equals` 放行「`INT_LIMIT` ↔ 任意整数」的占位匹配；
+      新增 `checker_resolve_int_limit_args`：按形参类型把调用实参里的 `@max/@min`
+      往下解析（纯类型下推，**不**复用 `checker_check_expr_type` —— 那个对结构体
+      实参会走移动判定，而 `checker_mark_moved` 是累加的，同一实参检查两遍就误报
+      「变量已被移动」，实测在 `lib/std/thread.uya` 等炸出 24 处）。
+    * `src/checker/check_expr.uya` `checker_infer_type` 解码；`checker_check_expr_type`
+      的 `type_equals` 提前 `return 1` 分支在**返回前**把期望 kind 写回节点
+      （放行之后那条「特殊情况：max/min 从期望类型解析」永远走不到，这正是
+      `const a8: i8 = @max;` 掉成 0 的直接原因）；
+    * `src/checker/check_call.uya` 的形参循环里对 `@max/@min` 实参与嵌套调用实参
+      各补一次下推（三层以上嵌套要靠这里才够得着）；
+    * `src/codegen/c99/expr.uya` `gen_int_limit_literal` 的参数语义改成编码值、
+      函数内 `-| 1` 解码（**原来函数内部 `resolved_kind == 0` 就发 "0"，而
+      `TYPE_I8` 也是 0，所以哪怕上层解码对了也会再掉一次**）；
+    * `src/exec/lower.uya` 的写入与 `exec_lower_eval_int_limit` 的解码同步改。
+  - 验证（2026-10-21，修复后实测）：`const a8: i8 = @max;` → `const int8_t a8 = 127;`、
+    `const m8: i8 = @min;` → `(-128)`、`id_int(id_int(@max))` → `id_int(id_int(2147483647LL))`；
+    正例 `tests/test_int_limit_i8_nested.uya`（4 条断言全绿），
+    最小复现留档 `tests/repros/int_limit_i8_nested.uya`。
+  - **仍存在的边界**（本轮未修，不在本条的两种形态里）：三层嵌套
+    `id_int(id_int(id_int(@max)))` 的最内层仍发射成 `0` —— 下推入口在顶层调用，
+    中间层实参到不了最内层。要修需让下推跟着 `checker_check_call_expr` 逐层递归。
 
 - [ ] **P2 / 中：`@print` / `@println` 直打负 `i32` 输出零扩展值；浮点插值裸 `${f}` 输出错值**
   - 状态：**未修复**（2026-10-19 实测）
@@ -362,13 +404,21 @@
   - 归属：`src/codegen/c99/expr.uya` 的 `@print` / 插值格式串生成。
   - 规避：打印负数用插值 `${x}`；浮点必须写 `${x:g}` / `${x:.2f}` 等格式说明符。
 
-- [ ] **P2 / 中：`@asm` 的 `clobbers = ["memory"]` 检查失效，内存屏障指令必报错**
-  - 状态：**未修复**（2026-10-19 核对）
+- [x] **P2 / 中：`@asm` 的 `clobbers = ["memory"]` 检查失效，内存屏障指令必报错**
+  - 状态：**已修复**（2026-10-21）
   - 现象：parser 把 `"memory"` 记进 `asm_clobbers_memory` 标志（`src/parser/primary.uya:1331-1332`），
     但 checker 只在 `asm_clobbers[]` 列表里搜 `"memory"`（`src/checker/check_expr.uya:4007-4024`），
     于是 `has_memory_clobber` 永远为 0；含 `mfence`/`lfence`/`sfence` 的块即使写了
     `clobbers = ["memory"]` 仍报「内存屏障指令需要声明 clobbers = ["memory"]」。
   - 归属：`src/checker/check_expr.uya` 应同时读取 `asm_clobbers_memory` 标志。
+  - 修复内容（2026-10-21）：`infer_asm_block` 在扫完 `asm_clobbers[]` 之后补一条
+    `if expr.asm_clobbers_memory != 0 { has_memory_clobber = 1; }` —— 与 parser 的
+    记录口径、codegen 的发射口径（`src/codegen/c99/expr.uya` 本来就按标志发内存
+    屏障）三方对齐。列表搜索保留：`["rax", "memory"]` 这类混合写法两条路都能命中。
+  - 验证：修复前 `./bin/uya run` 任何含 `mfence` + `clobbers = ["memory"]` 的程序
+    必报「内存屏障指令需要声明 clobbers = ["memory"]」；修复后编译通过并运行返回 0。
+    正例 `tests/test_asm_memory_clobber_flag.uya`，最小复现留档
+    `tests/repros/asm_memory_clobber_flag.uya`。
 
 - [ ] **P3 / 低：显式命名空间 + 引用 receiver 的方法调用生成坏 C（`Counter.get(&c)`）**
   - 状态：**未修复**（2026-10-19 实测）

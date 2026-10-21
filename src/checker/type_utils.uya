@@ -385,6 +385,12 @@ fn check_type_param_constraints(checker: &TypeChecker, type: Type,
 // ===== 类型解析 =====
 
 // 将 max/min 节点解析为指定整数类型
+//
+// 存储**编码值 = TypeKind + 1**：解析标志以 0 表示「未解析」，而
+// TypeKind.TYPE_I8 的枚举值恰好是 0 —— 直接存 kind 的话，
+// `const a8: i8 = @max;` 的解析结果与「从未解析」无法区分，checker
+// 推断回退 TYPE_INT_LIMIT、codegen 直接发射 "0"（buglist P2 残留形态①）。
+// 读取方（infer_type、codegen c99、exec lower）一律 `-| 1` 解码。
 fn resolve_int_limit_node(node: &ASTNode, type: Type) void {
     if node == null || node.type != ASTNodeType.AST_INT_LIMIT {
         return;
@@ -392,13 +398,69 @@ fn resolve_int_limit_node(node: &ASTNode, type: Type) void {
     if is_integer_type(type.kind) == 0 {
         return;
     }
-    node.int_limit_resolved_kind = type.kind;
+    node.int_limit_resolved_kind = (type.kind as i32) +| 1;
+}
+
+// 把调用实参里的 @max/@min 按对应形参类型解析（纯类型下推）
+//
+// `id_int(id_int(@max))` 的内层 @max 在外层只被「整体类型比较」看到一次：
+// 内层调用返回 i32、和期望 i32 直接 type_equals 相等，于是内层实参从未按
+// 形参类型解析，codegen 读到编码值 0 就发射字面 0（buglist P2 残留形态②）。
+//
+// 这里只做「形参类型 → 实参」的**纯类型**下推：
+//   * 不调用 checker_check_expr_type —— 它对结构体实参会走移动判定，而
+//     checker_mark_moved 是累加的（非幂等），同一实参被检查两遍就误报
+//     「变量已被移动，不能再次使用」（实测 lib/std/thread.uya 等 24 处）；
+//   * 只处理 @max/@min 这一种形态（含嵌套调用里的再一层），其余实参不动；
+//   * 没有副作用，重复调用安全。
+fn checker_resolve_int_limit_args(checker: &TypeChecker, call_node: &ASTNode) void {
+    if checker == null || call_node == null || call_node.type != ASTNodeType.AST_CALL_EXPR {
+        return;
+    }
+    if call_node.call_expr_callee == null || call_node.call_expr_callee.identifier_name == null {
+        return;
+    }
+    if call_node.call_expr_args == null {
+        return;
+    }
+    // 先处理被调函数自己的实参（`f(g(@max))` 里 g 的 @max），再往下钻。
+    // 三层以上（f(g(h(@max)))）靠这条递归走到最内层：入口不一定每层都有，
+    // 只有顶层调用会经过 checker_check_expr_type。
+    const sig: &FunctionSignature = function_table_lookup(checker, call_node.call_expr_callee.identifier_name);
+    if sig == null || sig.param_types == null {
+        return;
+    }
+    var i: i32 = 0;
+    while i < call_node.call_expr_arg_count && i < sig.param_count {
+        const arg: &ASTNode = call_node.call_expr_args[i];
+        if arg != null {
+            // 循环体内不按值绑定结构体（Type 是结构体，按值 = 移动），
+            // 直接把拷贝结果喂给调用
+            if arg.type == ASTNodeType.AST_INT_LIMIT {
+                resolve_int_limit_node(arg, copy_type(sig.param_types + i));
+            } else if arg.type == ASTNodeType.AST_CALL_EXPR {
+                // 再往里一层（id_int(id_int(id_int(@max)))）同样下推
+                checker_resolve_int_limit_args(checker, arg);
+            }
+        }
+        i = i + 1;
+    }
 }
 
 // ===== 类型比较 =====
 
 // 类型比较函数
 fn type_equals(t1: Type, t2: Type) i32 {
+    // @max/@min（TYPE_INT_LIMIT）可与任意整数类型匹配。INT_LIMIT 是类型
+    // 推断的占位（还没从上下文解析出具体宽度），不是具体类型，所以只允许
+    // 「一侧正好是 INT_LIMIT、另一侧是整数」的单向放行。真正的类型解析在
+    // resolve_int_limit_node / checker_resolve_int_limit_args 里做。
+    if t1.kind == TypeKind.TYPE_INT_LIMIT && is_integer_type(t2.kind) != 0 {
+        return 1;
+    }
+    if t2.kind == TypeKind.TYPE_INT_LIMIT && is_integer_type(t1.kind) != 0 {
+        return 1;
+    }
     // 兼容：泛型参数在某些上下文会被推断为同名结构体（如 T）
     if t1.kind == TypeKind.TYPE_GENERIC_PARAM && t1.generic_param_name != null &&
         t2.kind == TypeKind.TYPE_STRUCT && t2.struct_name != null &&

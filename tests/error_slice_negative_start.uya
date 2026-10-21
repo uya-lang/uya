@@ -1,0 +1,26 @@
+// error_slice_negative_start.uya - 负 start 的切片必须报错
+//
+// 规范 §14.2 的保守取向：checker / codegen 都没有实现「负索引自动换算成
+// len - n」，文档（docs/uya.md §1.4、readme.md、docs/comparison.md）已按
+// 「没有负索引」回填。check_slice_bounds（src/checker/proof.uya）此前只在
+// start + len > 底层长度时报错，没有校验 start >= 0，于是 `&arr[-3:3]`
+// 以「-3 + 3 == 0 <= 10」静默通过；而 codegen 按原样发射 `-3`，生成
+// `arr + (-3)` —— 切出的指针在数组之前，读回的是越界内存。
+// 实测（修复前）：`tail[0] == 0`（不是 arr[7] == 7）、tail[1]/tail[2] 是栈垃圾。
+// 见 buglist「编译器 bug」P1 条与 tests/repros/slice_negative_start.uya。
+//
+// 修复：check_slice_bounds 的起始位置判定改为 `start < 0 || start > array_size`，
+// 结束位置判定用原值 `start + len` —— 不再对负值做任何换算放行。
+//
+// 预期：编译失败，报告「切片起始位置越界」
+
+fn negative_start_slice() i32 {
+    var arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    // 负 start：checker 此前按「从末尾回数」白名单判定，codegen 却原样发射 -3
+    const tail: &[i32] = &arr[-3:3];
+    return tail.len;
+}
+
+export fn main() i32 {
+    return negative_start_slice();
+}

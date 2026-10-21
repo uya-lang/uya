@@ -1,0 +1,20 @@
+// asm_memory_clobber_flag.uya - 最小复现：clobbers=["memory"] 判定失效（修复用）
+//
+// 见 buglist「编译器 bug」P2 条（@asm 的 clobbers=["memory"] 检查失效）。
+// 修复前（v0.10.4，2026-10-19 实测）：
+//   ./bin/uya run 本文件 → 报「内存屏障指令需要声明 clobbers = ["memory"]」，
+//   尽管块明确写了 clobbers = ["memory"]（parser 把它记进 asm_clobbers_memory
+//   标志，checker 却只在 asm_clobbers[] 列表里搜 "memory"）。
+// 修复后：编译通过、运行返回 0（正例 tests/test_asm_memory_clobber_flag.uya
+// 同口径回归到 make check）。
+
+fn main() i32 {
+    var x: i32 = 0;
+    @asm {
+        "mfence" (-> x);
+    } clobbers = ["memory"];
+    if x == 0 {
+        return 0;
+    }
+    return 1;
+}

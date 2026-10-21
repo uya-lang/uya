@@ -304,13 +304,18 @@ fn gen_saturate_limit_from_type_c(codegen: &C99CodeGenerator, type_c: &byte, is_
     if is_max != 0 { fputs("2147483647LL" as *byte, codegen.emit_stream as *void); } else { fputs("(-2147483647LL-1LL)" as *byte, codegen.emit_stream as *void); }
 }
 
-// 根据整数类型与 max/min 生成 C 极值字面量（resolved_kind 为 TypeKind 值）
-fn gen_int_limit_literal(codegen: &C99CodeGenerator, is_max: i32, resolved_kind: i32) void {
-    if resolved_kind == 0 {
+// 根据整数类型与 max/min 生成 C 极值字面量
+//
+// `coded_kind` 是**编码值 = TypeKind + 1**（见 checker 的 resolve_int_limit_node），
+// 0 表示「未解析」。不能用裸 TypeKind 当参数：「未解析」的哨兵是 0，而
+// TypeKind.TYPE_I8 的枚举值恰好也是 0 —— 那正是 `const a8: i8 = @max;`
+// 发射成 `const int8_t a8 = 0;` 的根因（buglist P2 残留形态①）。
+fn gen_int_limit_literal(codegen: &C99CodeGenerator, is_max: i32, coded_kind: i32) void {
+    if coded_kind == 0 {
         fputs("0" as *byte, codegen.emit_stream as *void);
         return;
     }
-    const k_tmp: !TypeKind = resolved_kind as! TypeKind;
+    const k_tmp: !TypeKind = (coded_kind -| 1) as! TypeKind;
     const k: TypeKind = k_tmp.value;
     if k == TypeKind.TYPE_I8 {
         if is_max != 0 { fputs("127" as *byte, codegen.emit_stream as *void); } else { fputs("(-128)" as *byte, codegen.emit_stream as *void); }
@@ -466,7 +471,7 @@ fn c99_emit_checked_arith_into(codegen: &C99CodeGenerator, node: &ASTNode, resul
                 tmp_r as *byte, err_var as *byte, div_zero_id);
             if is_unsigned == 0 {
                 fprintf(codegen.emit_stream as *void, "if (%s == (" as *byte, tmp_l as *byte);
-                gen_int_limit_literal(codegen, 0, kind);
+                gen_int_limit_literal(codegen, 0, kind +| 1);
                 fprintf(codegen.emit_stream as *void, ") && %s == -1) { %s = %uU; } else " as *byte,
                     tmp_r as *byte, err_var as *byte, overflow_id);
             }
@@ -492,7 +497,7 @@ fn c99_emit_checked_arith_into(codegen: &C99CodeGenerator, node: &ASTNode, resul
         fprintf(codegen.emit_stream as *void, "if (%s == 0) { " as *byte, err_var as *byte);
         if is_unsigned == 0 {
             fprintf(codegen.emit_stream as *void, "if (%s == (" as *byte, tmp_u as *byte);
-            gen_int_limit_literal(codegen, 0, kind);
+            gen_int_limit_literal(codegen, 0, kind +| 1);
             fprintf(codegen.emit_stream as *void, ")) { %s = %uU; } else " as *byte,
                 err_var as *byte, overflow_id);
         }
@@ -1104,6 +1109,9 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     } else if expr.type == ASTNodeType.AST_CHAR {
         fprintf(codegen.emit_stream as *void, "%d" as *byte, expr.char_literal_value);
     } else if expr.type == ASTNodeType.AST_INT_LIMIT {
+        // 存储是编码值 = TypeKind + 1（resolve_int_limit_node），这里 -| 1 解码。
+        // 编码前 TYPE_I8 === 0 与「未解析」的 0 哨兵撞车，i8 极值掉成字面 0
+        // （buglist P2 残留形态①）。
         gen_int_limit_literal(codegen, expr.int_limit_is_max, expr.int_limit_resolved_kind);
     } else if expr.type == ASTNodeType.AST_SRC_NAME {
         // @src_name - 提取文件名
