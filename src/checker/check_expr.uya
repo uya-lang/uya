@@ -3461,6 +3461,10 @@ fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
     
     const sig: &FunctionSignature = function_table_lookup(checker, callee.identifier_name);
     if sig != null {
+        // 推断路径同样要把实参里的 @max/@min 按形参类型解析：`if f(@max) != x`
+        // 这类上下文只走 checker_infer_type，不经过 checker_check_call_expr，
+        // 未解析的节点会让 codegen 发射字面 0。
+        checker_resolve_int_limit_args(checker, expr);
         return sig.return_type;
     }
     

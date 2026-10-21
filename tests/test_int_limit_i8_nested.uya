@@ -14,9 +14,12 @@
 // 使调用实参路径也把期望 kind 写回节点。读取方（checker 推断、codegen、
 // exec lower）统一 -| 1 解码。
 //
-// 已知边界：再深一层（`id_int(id_int(id_int(@max)))`＝三层嵌套）仍会发射成 0
-// —— 下推入口只在顶层调用，中间层实参到不了最内层。这不在 buglist 记录的
-// 两种形态里，暂不扩改动面（要修需让下推跟着 checker_check_call_expr 逐层递归）。
+// 第三形态（随后补修）：`if f(@max) != x` 里连一层嵌套都发射成 0。根因不在
+// 递归深度：下推只在 checker_check_expr_type 与 checker_check_call_expr 两处
+// 入口，而 if 条件 / 二元比较的操作数只走 checker_infer_type → infer_call_expr，
+// 那条路径从不解析实参。修法（src/checker/check_expr.uya）：infer_call_expr
+// 查到签名后同样调一次 checker_resolve_int_limit_args（纯类型下推、可重入、
+// 无副作用），于是任意深度、任意上下文都覆盖到。
 //
 // 预期：编译成功、运行返回 0（正例；修复前两个 @println 都输出 0 ——
 // 历史形态见 tests/repros/int_limit_i8_nested.uya）。
@@ -48,6 +51,29 @@ fn main() i32 {
     const m8_expect: i8 = -128;
     if m8 != m8_expect {
         return 4;
+    }
+
+    // 三层嵌套（曾发射成 id_int(id_int(id_int(0)))）
+    const t3: i32 = id_int(id_int(id_int(@max)));
+    if t3 != 2147483647 {
+        return 5;
+    }
+
+    // 四层嵌套（同族推广，递归本身已通用，钉住不再退化）
+    const t4: i32 = id_int(id_int(id_int(id_int(@max))));
+    if t4 != 2147483647 {
+        return 6;
+    }
+
+    // 推断路径：`if f(...) != x` 只走 checker_infer_type，曾连一层都解析不到
+    if id_int(@max) != 2147483647 {
+        return 7;
+    }
+    if id_int(id_int(id_int(@max))) != 2147483647 {
+        return 8;
+    }
+    if id_int(id_int(id_int(@min))) != -2147483648 {
+        return 9;
     }
     return 0;
 }
