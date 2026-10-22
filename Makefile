@@ -780,6 +780,18 @@ check: uya
 		echo "✗ split-C 重名顶层常量验证失败"; \
 		exit 1; \
 	fi; \
+	echo "验证弱 worker 入口不接管普通用户程序..."; \
+	if bash ./tests/verify_pipeline_worker_entry_guard.sh > /tmp/verify_out.txt 2>&1; then \
+		grep -E "ok$$|✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=0; \
+	else \
+		cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=1; \
+	fi; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ 弱 worker 入口接管验证失败"; \
+		exit 1; \
+	fi; \
 	echo ""; \
 	echo "验证 split-C stale lock 自动回收..."; \
 	if bash ./tests/verify_split_c_cache_stale_lock.sh > /tmp/verify_out.txt 2>&1; then \
