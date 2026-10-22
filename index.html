@@ -1,291 +1,1217 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Uya 语言 — 规范 0.49.55 · 编译器 v0.10.4</title>
-<link rel="icon" type="image/png" href="uya.png">
-<style>
-  :root {
-    --fg: #1f2328;
-    --muted: #59636e;
-    --line: #d1d9e0;
-    --bg: #ffffff;
-    --bg-soft: #f6f8fa;
-    --accent: #0969da;
-    --warn: #9a6700;
-    --warn-bg: #fff8c5;
-    --code-fg: #e6edf3;
-    --code-bg: #161b22;
-    --ok: #1a7f37;
-    --err: #cf222e;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--fg);
-    font: 15px/1.65 -apple-system, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-  }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code, pre {
-    font-family: "JetBrains Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
-    font-size: 13px;
-  }
-  code {
-    background: var(--bg-soft);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 1px 5px;
-  }
-  pre {
-    background: var(--code-bg);
-    color: var(--code-fg);
-    border-radius: 6px;
-    padding: 14px 16px;
-    overflow-x: auto;
-    margin: 12px 0;
-    line-height: 1.5;
-  }
-  pre code {
-    background: none;
-    border: 0;
-    padding: 0;
-    color: inherit;
-    font-size: 13px;
-  }
-  .wrap { max-width: 940px; margin: 0 auto; padding: 0 20px; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uya 语言 - AI友好 · 默认高级安全 · 零 GC · 零 lifetime 符号 · 编译期证明 · 单页纸可读完</title>
+    <link rel="icon" type="image/png" href="uya.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-  header { border-bottom: 1px solid var(--line); padding: 36px 0 24px; }
-  header h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.4px; }
-  header .sub { color: var(--muted); margin: 0 0 14px; }
-  .meta { color: var(--muted); font-size: 13px; }
-  .meta span { margin-right: 16px; }
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary: #7c3aed;
+            --accent: #10b981;
+            --dark: #1e293b;
+            --light: #f8fafc;
+            --gray: #64748b;
+            --light-gray: #e2e8f0;
+            --border: #cbd5e1;
+            --code-bg: #0f172a;
+            --error: #ef4444;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --ai: #8b5cf6;
+        }
 
-  nav {
-    position: sticky; top: 0; z-index: 10;
-    background: rgba(255,255,255,0.94);
-    backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--line);
-  }
-  nav .wrap {
-    display: flex; flex-wrap: wrap; gap: 4px 18px;
-    padding-top: 10px; padding-bottom: 10px; font-size: 14px;
-  }
-  nav a { color: var(--muted); }
-  nav a:hover { color: var(--accent); }
+        body {
+            font-family: 'Inter', sans-serif;
+            line-height: 1.6;
+            color: var(--dark);
+            background-color: var(--light);
+            scroll-behavior: smooth;
+        }
 
-  main { padding: 8px 0 60px; }
-  section { padding: 30px 0 6px; border-bottom: 1px solid var(--line); }
-  section:last-child { border-bottom: 0; }
-  h2 { font-size: 21px; margin: 0 0 4px; letter-spacing: -0.2px; }
-  h3 { font-size: 16px; margin: 24px 0 6px; }
-  h4 { font-size: 14px; margin: 18px 0 4px; color: var(--muted); font-weight: 600; }
-  p { margin: 8px 0; }
-  ul, ol { margin: 8px 0; padding-left: 22px; }
-  li { margin: 3px 0; }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
 
-  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
-  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
-  th { background: var(--bg-soft); font-weight: 600; }
-  td code { white-space: nowrap; }
+        /* 头部样式 */
+        header {
+            background: linear-gradient(135deg, var(--dark), #0f172a);
+            color: white;
+            padding: 4rem 0 2rem;
+            position: relative;
+            overflow: hidden;
+        }
 
-  .lede { color: var(--muted); margin-top: 0; }
-  .note {
-    border-left: 3px solid var(--accent);
-    background: var(--bg-soft);
-    padding: 10px 14px; margin: 14px 0; border-radius: 0 4px 4px 0;
-  }
-  .warn {
-    border-left: 3px solid var(--warn);
-    background: var(--warn-bg);
-    padding: 10px 14px; margin: 14px 0; border-radius: 0 4px 4px 0;
-  }
-  .note p, .warn p { margin: 4px 0; }
-  .ok { color: var(--ok); }
-  .bad { color: var(--err); }
-  .grid {
-    display: grid; gap: 14px;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    margin: 14px 0;
-  }
-  .card { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
-  .card h4 { margin: 0 0 6px; color: var(--fg); font-size: 14px; }
-  .card p { margin: 0; font-size: 14px; color: var(--muted); }
-  .num { font-variant-numeric: tabular-nums; }
+        .header-content {
+            position: relative;
+            z-index: 2;
+        }
 
-  footer {
-    border-top: 1px solid var(--line);
-    background: var(--bg-soft);
-    padding: 24px 0 40px;
-    color: var(--muted); font-size: 13px;
-  }
-  footer ul { list-style: none; padding: 0; margin: 6px 0; }
-  footer li { margin: 3px 0; }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 1.5rem;
+        }
 
-  @media (max-width: 640px) {
-    header h1 { font-size: 24px; }
-    table { font-size: 13px; }
-    th, td { padding: 6px 8px; }
-  }
-</style>
+        .logo-icon {
+            font-size: 2.5rem;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo-icon img {
+            display: block;
+        }
+
+        .logo h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, var(--accent), var(--primary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .tagline {
+            font-size: 1.2rem;
+            margin-bottom: 1.5rem;
+            color: #cbd5e1;
+        }
+
+        .version {
+            display: inline-block;
+            background-color: rgba(16, 185, 129, 0.2);
+            color: var(--accent);
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin-bottom: 2rem;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .core-features {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .feature-tag {
+            background-color: rgba(37, 99, 235, 0.15);
+            color: #93c5fd;
+            padding: 0.5rem 1rem;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            border-left: 3px solid var(--primary);
+        }
+
+        .feature-tag.zero-gc {
+            background-color: rgba(16, 185, 129, 0.15);
+            color: var(--accent);
+            border-left-color: var(--accent);
+        }
+
+        .feature-tag.safe {
+            background-color: rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+            border-left-color: var(--error);
+        }
+
+        .feature-tag.ai-friendly {
+            background-color: rgba(139, 92, 246, 0.15);
+            color: #c4b5fd;
+            border-left-color: var(--ai);
+        }
+
+        .feature-tag.zero-lifetime {
+            background-color: rgba(245, 158, 11, 0.15);
+            color: #fcd34d;
+            border-left-color: var(--warning);
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        .btn {
+            padding: 0.8rem 1.5rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(37, 99, 235, 0.2);
+        }
+
+        .btn-secondary {
+            background-color: transparent;
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .btn-secondary:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* 导航样式 */
+        .nav-container {
+            background-color: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 0;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .nav-links a {
+            color: #cbd5e1;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s;
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: white;
+        }
+
+        .nav-links a.active {
+            color: white;
+        }
+
+        .nav-links a.active::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background-color: var(--accent);
+        }
+
+        .mobile-toggle {
+            display: none;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        /* 主要内容样式 */
+        main {
+            padding: 3rem 0;
+        }
+
+        .content-wrapper {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 3rem;
+        }
+
+        /* 侧边栏目录 */
+        .sidebar {
+            position: sticky;
+            top: 100px;
+            align-self: start;
+            max-height: calc(100vh - 120px);
+            overflow-y: auto;
+            padding-right: 1rem;
+        }
+
+        .toc-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--dark);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toc-list {
+            list-style: none;
+        }
+
+        .toc-list li {
+            margin-bottom: 0.5rem;
+        }
+
+        .toc-list a {
+            color: var(--gray);
+            text-decoration: none;
+            font-size: 0.95rem;
+            display: block;
+            padding: 0.4rem 0.8rem;
+            border-radius: 5px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .toc-list a:hover {
+            color: var(--primary);
+            background-color: rgba(37, 99, 235, 0.05);
+        }
+
+        .toc-list a.active {
+            color: var(--primary);
+            background-color: rgba(37, 99, 235, 0.08);
+            border-left-color: var(--primary);
+            font-weight: 500;
+        }
+
+        .toc-list .toc-sub {
+            margin-left: 1rem;
+            margin-top: 0.3rem;
+            font-size: 0.9rem;
+        }
+
+        /* 内容区域 */
+        .content {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            padding: 2.5rem;
+        }
+
+        .content-section {
+            margin-bottom: 3rem;
+            scroll-margin-top: 100px;
+        }
+
+        .content-section h2 {
+            font-size: 1.8rem;
+            color: var(--dark);
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--light-gray);
+        }
+
+        .content-section h3 {
+            font-size: 1.4rem;
+            color: var(--dark);
+            margin: 1.5rem 0 1rem;
+        }
+
+        .content-section h4 {
+            font-size: 1.1rem;
+            color: var(--dark);
+            margin: 1.2rem 0 0.8rem;
+        }
+
+        .content-section p {
+            margin-bottom: 1rem;
+            color: var(--dark);
+        }
+
+        .content-section ul, .content-section ol {
+            margin-left: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .content-section li {
+            margin-bottom: 0.5rem;
+        }
+
+        /* 代码块样式 */
+        .code-block {
+            background-color: var(--code-bg);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            overflow-x: auto;
+            position: relative;
+        }
+
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+
+        .code-copy {
+            background: none;
+            border: 1px solid #334155;
+            color: #94a3b8;
+            padding: 0.3rem 0.7rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+
+        .code-copy:hover {
+            background-color: #1e293b;
+            color: white;
+        }
+
+        .code-copy.copied {
+            background-color: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        pre {
+            margin: 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        .inline-code {
+            background-color: #f1f5f9;
+            color: var(--dark);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        /* 表格样式 */
+        .table-container {
+            overflow-x: auto;
+            margin: 1.5rem 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+        }
+
+        th, td {
+            padding: 0.8rem 1rem;
+            text-align: left;
+            border: 1px solid var(--border);
+        }
+
+        th {
+            background-color: #f8fafc;
+            font-weight: 600;
+            color: var(--dark);
+        }
+
+        tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+
+        /* 设计哲学卡片 */
+        .philosophy-card {
+            background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+            border-left: 4px solid var(--primary);
+            padding: 1.5rem;
+            border-radius: 0 8px 8px 0;
+            margin: 2rem 0;
+        }
+
+        .philosophy-card h3 {
+            color: var(--primary);
+            margin-top: 0;
+        }
+
+        .comparison-table {
+            margin: 2rem 0;
+        }
+
+        .comparison-table th {
+            background-color: var(--primary);
+            color: white;
+        }
+
+        /* 特性卡片 */
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .feature-card {
+            background-color: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            border-top: 4px solid var(--primary);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .feature-card.atomic {
+            border-top-color: var(--accent);
+        }
+
+        .feature-card.memory-safe {
+            border-top-color: var(--success);
+        }
+
+        .feature-card.concurrent-safe {
+            border-top-color: var(--warning);
+        }
+
+        .feature-card.ai-friendly {
+            border-top-color: var(--ai);
+        }
+
+        .feature-icon {
+            font-size: 2rem;
+            color: var(--primary);
+            margin-bottom: 1rem;
+        }
+
+        .feature-card.atomic .feature-icon {
+            color: var(--accent);
+        }
+
+        .feature-card.memory-safe .feature-icon {
+            color: var(--success);
+        }
+
+        .feature-card.concurrent-safe .feature-icon {
+            color: var(--warning);
+        }
+
+        .feature-card.ai-friendly .feature-icon {
+            color: var(--ai);
+        }
+
+        .feature-card h3 {
+            margin-top: 0;
+            font-size: 1.2rem;
+        }
+
+        /* 页脚样式 */
+        footer {
+            background-color: var(--dark);
+            color: #cbd5e1;
+            padding: 3rem 0;
+            margin-top: 3rem;
+        }
+
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+        }
+
+        .footer-section h3 {
+            color: white;
+            margin-bottom: 1.2rem;
+            font-size: 1.2rem;
+        }
+
+        .footer-links {
+            list-style: none;
+        }
+
+        .footer-links li {
+            margin-bottom: 0.7rem;
+        }
+
+        .footer-links a {
+            color: #94a3b8;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        .footer-links a:hover {
+            color: white;
+        }
+
+        .copyright {
+            text-align: center;
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 1px solid #334155;
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 992px) {
+            .content-wrapper {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                display: none;
+            }
+
+            .nav-links {
+                display: none;
+            }
+
+            .mobile-toggle {
+                display: block;
+            }
+
+            .mobile-nav {
+                display: none;
+                position: absolute;
+                top: 100%;
+                left: 0;
+                width: 100%;
+                background-color: var(--dark);
+                padding: 1rem;
+                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            }
+
+            .mobile-nav.active {
+                display: block;
+            }
+
+            .mobile-nav .nav-links {
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header-content h1 {
+                font-size: 2rem;
+            }
+
+            .cta-buttons {
+                flex-direction: column;
+            }
+
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .content {
+                padding: 1.5rem;
+            }
+        }
+
+        /* 辅助类 */
+        .highlight {
+            background-color: rgba(16, 185, 129, 0.1);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            color: var(--accent);
+        }
+
+        .note {
+            background-color: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 1rem;
+            margin: 1.5rem 0;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .note p {
+            margin: 0;
+        }
+
+        .quote {
+            font-style: italic;
+            border-left: 4px solid var(--primary);
+            padding-left: 1.5rem;
+            margin: 1.5rem 0;
+            color: var(--gray);
+        }
+
+        .language-uya {
+            color: #cbd5e1;
+        }
+
+        .token.keyword {
+            color: #c678dd;
+        }
+
+        .token.function {
+            color: #61afef;
+        }
+
+        .token.string {
+            color: #98c379;
+        }
+
+        .token.comment {
+            color: #5c6370;
+        }
+
+        .token.number {
+            color: #d19a66;
+        }
+
+        .token.operator {
+            color: #56b6c2;
+        }
+    </style>
 </head>
 <body>
+    <!-- 头部 -->
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <img src="uya.png" alt="Uya Logo" style="width: 60px; height: 60px; object-fit: contain;">
+                    </div>
+                    <h1>Uya 语言</h1>
+                </div>
+                <div class="version">语言规范 0.49.55 · 编译器 v0.10.4</div>
+                <p class="tagline">编译期证明内存安全 · 零 GC · 零 lifetime 符号 · C99 后端自举</p>
 
-<header>
-  <div class="wrap">
-    <h1>Uya 语言</h1>
-    <p class="sub">编译期证明内存安全，零 GC，零 lifetime 符号，C99 后端自举。</p>
-    <p class="meta">
-      <span>语言规范 0.49.55</span>
-      <span>编译器 v0.10.4</span>
-      <span>MIT</span>
-    </p>
-  </div>
-</header>
+                <div class="core-features">
+                    <div class="feature-tag"><i class="fas fa-shield-alt"></i> 编译期证明</div>
+                    <div class="feature-tag zero-gc"><i class="fas fa-recycle"></i> 零 GC</div>
+                    <div class="feature-tag zero-lifetime"><i class="fas fa-times-circle"></i> 零 lifetime 符号</div>
+                    <div class="feature-tag"><i class="fas fa-atom"></i> atomic T 单关键字</div>
+                    <div class="feature-tag"><i class="fas fa-file-code"></i> C99 后端</div>
+                    <div class="feature-tag ai-friendly"><i class="fas fa-code-branch"></i> 源码自举</div>
+                </div>
 
-<nav>
-  <div class="wrap">
-    <a href="#overview">概览</a>
-    <a href="#numbers">规模数据</a>
-    <a href="#safety">安全模型</a>
-    <a href="#types">类型</a>
-    <a href="#examples">代码</a>
-    <a href="#toolchain">工具链</a>
-    <a href="#stdlib">标准库</a>
-    <a href="#limits">已知边界</a>
-    <a href="#docs">文档</a>
-  </div>
-</nav>
+                <div class="cta-buttons">
+                    <a href="#core-features" class="btn btn-primary"><i class="fas fa-play-circle"></i> 核心特性</a>
+                    <a href="#design-philosophy" class="btn btn-secondary"><i class="fas fa-book"></i> 安全模型</a>
+                    <a href="#examples" class="btn btn-secondary"><i class="fas fa-code"></i> 完整示例</a>
+                </div>
+            </div>
+        </div>
+    </header>
 
-<main class="wrap">
+    <!-- 导航栏 -->
+    <div class="nav-container">
+        <div class="container">
+            <nav>
+                <div class="logo">
+                    <div class="logo-icon" style="font-size: 1.5rem;">
+                        <img src="uya.png" alt="Uya Logo" style="width: 24px; height: 24px; object-fit: contain;">
+                    </div>
+                    <h1 style="font-size: 1.5rem;">Uya 语言</h1>
+                </div>
 
-<section id="overview">
-  <h2>概览</h2>
-  <p class="lede">Uya 是一个系统编程语言。数组越界、整数溢出、除零、读未初始化内存、空指针解引用这五类未定义行为，必须在编译期被证明为安全，否则编译失败。</p>
+                <button class="mobile-toggle" id="mobileToggle">
+                    <i class="fas fa-bars"></i>
+                </button>
 
-  <table>
-    <tr><th style="width:34%">项目</th><th>当前状态</th></tr>
-    <tr><td>实现语言</td><td>Uya 自举（源码仅维护 <code>src/</code>，82 个 <code>.uya</code>，约 12.9 万行）</td></tr>
-    <tr><td>后端</td><td>C99。默认多文件输出到 <code>.uyacache</code>，<code>--no-split-c</code> 时输出单文件</td></tr>
-    <tr><td>运行时</td><td>零 GC。栈数组 + 显式 <code>IAllocator</code>；结构体离开作用域调用 <code>drop</code></td></tr>
-    <tr><td>并发</td><td><code>atomic T</code> 单一关键字，读写与复合赋值编译为原子指令，不加锁</td></tr>
-    <tr><td>关键字</td><td>32 个（<code>src/lexer.uya</code> 的 <code>is_keyword</code> 全表）</td></tr>
-    <tr><td>内置函数</td><td>36 个，全部以 <code>@</code> 开头，无需导入</td></tr>
-    <tr><td>测试</td><td>1180 个 <code>.uya</code> 测试文件，其中 204 个是 <code>error_*</code> 负例；另有 186 个 shell 校验脚本</td></tr>
-    <tr><td>最近一次全量验证</td><td>1153/1153 通过（v0.10.4 发布记录）</td></tr>
-  </table>
-</section>
+                <div class="nav-links">
+                    <a href="#core-features" class="active">核心特性</a>
+                    <a href="#design-philosophy">安全模型</a>
+                    <a href="#toolchain">工具链</a>
+                    <a href="#type-system">类型系统</a>
+                    <a href="#examples">示例</a>
+                    <a href="#standard-library">标准库</a>
+                    <a href="#limits">已知边界</a>
+                </div>
+            </nav>
 
-<section id="numbers">
-  <h2>规模数据</h2>
-  <p>以下数字直接从仓库统计，不含估算。</p>
+            <!-- 移动端导航 -->
+            <div class="mobile-nav" id="mobileNav">
+                <div class="nav-links">
+                    <a href="#core-features" class="active">核心特性</a>
+                    <a href="#design-philosophy">安全模型</a>
+                    <a href="#toolchain">工具链</a>
+                    <a href="#type-system">类型系统</a>
+                    <a href="#examples">示例</a>
+                    <a href="#standard-library">标准库</a>
+                    <a href="#limits">已知边界</a>
+                </div>
+            </div>
+        </div>
+    </div>
 
-  <h3>代码与测试</h3>
-  <table>
-    <tr><th>项</th><th>数量</th><th>说明</th></tr>
-    <tr><td>编译器源码</td><td class="num">82 个文件 / 129,234 行</td><td><code>src/**/*.uya</code></td></tr>
-    <tr><td>标准库与运行时</td><td class="num">215 个文件 / 79,264 行</td><td><code>lib/**/*.uya</code></td></tr>
-    <tr><td>标准库模块</td><td class="num">21 个目录 + 13 个顶层文件</td><td><code>lib/std/</code></td></tr>
-    <tr><td>测试文件</td><td class="num">904 正例 + 204 负例 + 72 其他</td><td><code>tests/*.uya</code></td></tr>
-    <tr><td>校验脚本</td><td class="num">186 个，其中 169 个是 <code>verify_*</code></td><td><code>tests/*.sh</code></td></tr>
-    <tr><td>文档</td><td class="num">232 篇</td><td>顶层 155 / 发行说明 58 / 其他 19（<code>docs/**/*.md</code>）</td></tr>
-  </table>
+    <!-- 主要内容 -->
+    <main class="container">
+        <div class="content-wrapper">
+            <!-- 侧边栏目录 -->
+            <aside class="sidebar" id="sidebar">
+                <h3 class="toc-title"><i class="fas fa-list"></i> 目录</h3>
+                <ul class="toc-list" id="tocList">
+                    <!-- 目录将通过JavaScript动态生成 -->
+                </ul>
+            </aside>
 
-  <h3>构建时间</h3>
-  <p>实测环境：44 线程 / gcc 12.3 / Intel。数据来自 <a href="docs/build_speed.md">docs/build_speed.md</a>。</p>
-  <table>
-    <tr><th>场景</th><th>提速前</th><th>当前</th></tr>
-    <tr><td><code>make uya</code> 全量</td><td class="num">22.0 s</td><td class="num">14.0 s</td></tr>
-    <tr><td><code>make uya</code> 无改动</td><td class="num">22.4 s</td><td class="num">0.4 s</td></tr>
-    <tr><td><code>make b</code> 自举验证</td><td class="num">43.1 s</td><td class="num">26.6 s</td></tr>
-    <tr><td>前端 parse</td><td class="num">2.25 s</td><td class="num">0.54 s</td></tr>
-    <tr><td>前端 codegen</td><td class="num">6.70 s</td><td class="num">2.62 s</td></tr>
-  </table>
-  <p>提速来自两处：前端按文件 fork 子进程并行（<code>--jobs/-j</code>，默认 CPU 数，上限 32），C 阶段走 <code>make -j</code> 加增量指纹。</p>
-</section>
+            <!-- 内容区域 -->
+            <div class="content">
+                <!-- 核心特性部分 -->
+                <section id="core-features" class="content-section">
+                    <h2>核心特性</h2>
 
-<section id="safety">
-  <h2>安全模型</h2>
-  <p>编译器在<strong>当前函数内</strong>验证安全性。证明失败就是编译错误，不降级为运行时检查。</p>
+                    <div class="feature-grid">
+                        <div class="feature-card memory-safe">
+                            <div class="feature-icon">
+                                <i class="fas fa-shield-alt"></i>
+                            </div>
+                            <h3>编译期证明</h3>
+                            <p>五类未定义行为（越界 / 溢出 / 除零 / 读未初始化 / 空指针）必须在当前函数内被证明安全，失败即编译错误。</p>
+                        </div>
 
-  <table>
-    <tr><th>未定义行为</th><th>编译器要求</th></tr>
-    <tr><td>数组越界</td><td>常量索引越界 → 编译错误；变量索引 → 必须证明 <code>i &gt;= 0 &amp;&amp; i &lt; N</code></td></tr>
-    <tr><td>整数溢出</td><td>默认开启（<code>--strict-overflow</code>）：有符号 <code>+ - *</code> 必须可证明不溢出，<code>--no-strict-overflow</code> 可关闭</td></tr>
-    <tr><td>除零</td><td>常量除零 → 编译错误；变量 → 必须证明除数非零</td></tr>
-    <tr><td>读未初始化内存</td><td>必须证明首次使用前已赋值</td></tr>
-    <tr><td>空指针解引用</td><td>必须证明指针非空，或前序已有判空</td></tr>
-  </table>
+                        <div class="feature-card atomic">
+                            <div class="feature-icon">
+                                <i class="fas fa-atom"></i>
+                            </div>
+                            <h3>原子类型</h3>
+                            <p><code class="inline-code">atomic T</code> 是并发部分唯一的新关键字，读写与复合赋值编译为原子指令，不加锁。</p>
+                        </div>
 
-  <p>证明失败时的实际诊断（<code>uya check</code> 输出）：</p>
-<pre><code>n1.uya:(2:16): 错误: 数组索引安全证明失败
+                        <div class="feature-card">
+                            <div class="feature-icon">
+                                <i class="fas fa-recycle"></i>
+                            </div>
+                            <h3>零 GC</h3>
+                            <p>栈数组加显式 <code class="inline-code">IAllocator</code>；结构体离开作用域自动执行 <code class="inline-code">drop</code>，没有回收器线程。</p>
+                        </div>
+
+                        <div class="feature-card ai-friendly">
+                            <div class="feature-icon">
+                                <i class="fas fa-code"></i>
+                            </div>
+                            <h3>32 个关键字</h3>
+                            <p><code class="inline-code">src/lexer.uya</code> 的 <code class="inline-code">is_keyword</code> 全表共 32 个保留字，全部可在规范里一次读完。</p>
+                        </div>
+
+                        <div class="feature-card">
+                            <div class="feature-icon">
+                                <i class="fas fa-cube"></i>
+                            </div>
+                            <h3>统一结构体布局</h3>
+                            <p>Uya <code class="inline-code">struct</code> 一律是 C 内存布局，可直接传给 C；同时可以有方法、<code class="inline-code">drop</code>、实现接口。没有 <code class="inline-code">extern struct</code> 语法。</p>
+                        </div>
+
+                        <div class="feature-card concurrent-safe">
+                            <div class="feature-icon">
+                                <i class="fas fa-file-code"></i>
+                            </div>
+                            <h3>C99 后端自举</h3>
+                            <p>编译器由 Uya 自身实现，输出 C99。默认多文件到 <code class="inline-code">.uyacache</code>，<code class="inline-code">--no-split-c</code> 时输出单文件。</p>
+                        </div>
+                    </div>
+
+                    <div class="note" style="margin-top: 2rem;">
+                        <h3>代码量与验证规模</h3>
+                        <p>下列数字取自仓库当前提交，不含估算。</p>
+
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr><th>项</th><th>数量</th><th>位置</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td>编译器源码</td><td>82 个文件 / 129,234 行</td><td><code>src/**/*.uya</code></td></tr>
+                                    <tr><td>标准库与运行时</td><td>215 个文件 / 79,264 行</td><td><code>lib/**/*.uya</code></td></tr>
+                                    <tr><td>标准库模块</td><td>21 个目录 + 13 个顶层模块</td><td><code>lib/std/</code></td></tr>
+                                    <tr><td>测试文件</td><td>904 正例 + 204 负例 + 72 其他</td><td><code>tests/*.uya</code></td></tr>
+                                    <tr><td>校验脚本</td><td>186 个，其中 169 个 <code>verify_*</code></td><td><code>tests/*.sh</code></td></tr>
+                                    <tr><td>文档</td><td>232 篇</td><td><code>docs/**/*.md</code></td></tr>
+                                    <tr><td>最近一次全量验证</td><td>1153/1153 通过</td><td>v0.10.4 发布记录</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="note" style="margin-top: 2rem;">
+                        <h3>构建时间</h3>
+                        <p>实测环境：44 线程 / gcc 12.3 / Intel，数据见 <code class="inline-code">docs/build_speed.md</code>。</p>
+
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr><th>场景</th><th>提速前</th><th>当前</th></tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td><code>make uya</code> 全量</td><td>22.0 s</td><td>14.0 s</td></tr>
+                                    <tr><td><code>make uya</code> 无改动</td><td>22.4 s</td><td>0.4 s</td></tr>
+                                    <tr><td><code>make b</code> 自举验证</td><td>43.1 s</td><td>26.6 s</td></tr>
+                                    <tr><td>前端 parse</td><td>2.25 s</td><td>0.54 s</td></tr>
+                                    <tr><td>前端 codegen</td><td>6.70 s</td><td>2.62 s</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p>提速来自前端按文件 fork 子进程并行（<code class="inline-code">--jobs/-j</code>，默认 CPU 数，上限 32）与 C 阶段 <code class="inline-code">make -j</code> 加增量指纹。</p>
+                    </div>
+                </section>
+
+                <!-- 安全模型部分 -->
+                <section id="design-philosophy" class="content-section">
+                    <h2>安全模型</h2>
+
+                    <div class="philosophy-card">
+                        <h3>编译器在当前函数内验证，证明失败就是编译错误</h3>
+                        <p>Uya 不把未定义行为推迟到运行时。越界、溢出、除零、读未初始化内存、空指针解引用，每一项都必须在编译期给出证明；给不出就报错，不降级为运行时检查，也不插入运行时锁。</p>
+                    </div>
+
+                    <h3>五类未定义行为的要求</h3>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>未定义行为</th>
+                                    <th>编译器要求</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>数组越界</td>
+                                    <td>常量索引越界 → 编译错误；变量索引 → 必须证明 <code class="inline-code">i &gt;= 0 &amp;&amp; i &lt; N</code></td>
+                                </tr>
+                                <tr>
+                                    <td>整数溢出</td>
+                                    <td>默认开启（<code class="inline-code">--strict-overflow</code>）：有符号 <code class="inline-code">+ - *</code> 必须可证明不溢出</td>
+                                </tr>
+                                <tr>
+                                    <td>除零</td>
+                                    <td>常量除零 → 编译错误；变量 → 必须证明除数非零</td>
+                                </tr>
+                                <tr>
+                                    <td>读未初始化内存</td>
+                                    <td>必须证明首次使用前已赋值</td>
+                                </tr>
+                                <tr>
+                                    <td>空指针解引用</td>
+                                    <td>必须证明指针非空，或前序已有判空</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <h3>证明失败时的实际诊断</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>uya check 输出</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">n1.uya:(2:16): 错误: 数组索引安全证明失败
   变量: i, 数组大小: 10
   建议: 添加边界检查 (如 if i >= 0 &amp;&amp; i &lt; 10)
 
 so.uya:(1:39): 错误: i32 溢出无法证明（--strict-overflow）：
   改用 try a + b、(a + b) catch、加区间守卫，或用饱和/包装运算符</code></pre>
+                    </div>
 
-  <p>溢出有三种显式写法，由调用方选择语义：</p>
-  <table>
-    <tr><th>写法</th><th>溢出时</th></tr>
-    <tr><td><code>a + b</code></td><td>必须能证明不溢出，否则编译错误</td></tr>
-    <tr><td><code>a +| b</code></td><td>饱和到 <code>@max</code> / <code>@min</code>（<code>-|</code> <code>*|</code> 同理）</td></tr>
-    <tr><td><code>a +% b</code></td><td>回绕（<code>-%</code> <code>*%</code> 同理）</td></tr>
-    <tr><td><code>try a + b</code></td><td>越界返回 <code>error.Overflow</code>，除零返回 <code>error.DivisionByZero</code>，结果为 <code>!i32</code></td></tr>
-  </table>
-  <div class="note">
-    <p>未证明的溢出不会落入 C 未定义行为：构建脚本与默认 <code>CFLAGS</code> 统一带 <code>-fwrapv -fno-strict-overflow</code>，退化为定义良好的回绕。</p>
-  </div>
-</section>
+                    <h3>溢出由调用方选语义</h3>
+                    <div class="table-container">
+                        <table class="comparison-table">
+                            <thead>
+                                <tr>
+                                    <th>写法</th>
+                                    <th>溢出时</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><code>a + b</code></td>
+                                    <td>必须能证明不溢出，否则编译错误</td>
+                                </tr>
+                                <tr>
+                                    <td><code>a +| b</code></td>
+                                    <td>饱和到 <code class="inline-code">@max</code> / <code class="inline-code">@min</code>（<code class="inline-code">-|</code> <code class="inline-code">*|</code> 同理）</td>
+                                </tr>
+                                <tr>
+                                    <td><code>a +% b</code></td>
+                                    <td>回绕（<code class="inline-code">-%</code> <code class="inline-code">*%</code> 同理）</td>
+                                </tr>
+                                <tr>
+                                    <td><code>try a + b</code></td>
+                                    <td>越界返回 <code class="inline-code">error.Overflow</code>，除零返回 <code class="inline-code">error.DivisionByZero</code>，结果为 <code class="inline-code">!i32</code></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
 
-<section id="types">
-  <h2>类型</h2>
-  <p>无隐式转换。指针与 FFI 指针分离：<code>&amp;T</code> 用于 Uya 内部，<code>*T</code> 仅用于 C 互操作，转换写 <code>&amp;T as *T</code>。</p>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>checked 算术：两个分支都实跑过</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">fn add_checked(a: i32, b: i32) !i32 {
+    return try a + b;      // 越界 -> error.Overflow
+}
 
-  <table>
-    <tr><th>类型</th><th>x86_64 大小</th><th>说明</th></tr>
-    <tr><td><code>i8 i16 i32 i64</code></td><td class="num">1 2 4 8 B</td><td>对齐 = 类型大小；<code>@max</code> / <code>@min</code> 取极值</td></tr>
-    <tr><td><code>u8 u16 u32 u64</code></td><td class="num">1 2 4 8 B</td><td>无符号；溢出是良定义模运算</td></tr>
-    <tr><td><code>usize isize</code></td><td class="num">8 B</td><td>指针宽度；<code>isize</code> 当前归一为 <code>i64</code></td></tr>
-    <tr><td><code>f32 f64</code></td><td class="num">4 / 8 B</td><td></td></tr>
-    <tr><td><code>bool byte</code></td><td class="num">1 B</td><td><code>byte</code> 与 C <code>char</code> 兼容</td></tr>
-    <tr><td><code>void</code></td><td class="num">0 B</td><td>仅作返回类型</td></tr>
-    <tr><td><code>&amp;T</code> / <code>*T</code></td><td class="num">8 B</td><td>普通指针 / FFI 指针</td></tr>
-    <tr><td><code>&amp;[T]</code> / <code>&amp;[T: N]</code></td><td class="num">16 B</td><td>切片（动态长度 / 编译期已知长度），指针 + 长度</td></tr>
-    <tr><td><code>[T: N]</code></td><td class="num">N·sizeof(T)</td><td>定长数组，<code>N</code> 为编译期正整数</td></tr>
-    <tr><td><code>atomic T</code></td><td class="num">sizeof(T)</td><td>读写与复合赋值编译为原子指令</td></tr>
-    <tr><td><code>struct S { }</code></td><td class="num">字段顺序布局</td><td>统一 C 内存布局，可直接传给 C；也可有方法、<code>drop</code>、实现接口</td></tr>
-    <tr><td><code>interface I { }</code></td><td class="num">16 B</td><td>生成 C 结构 <code>{ void *vtable; void *data; }</code>；鸭子类型，零注册</td></tr>
-    <tr><td><code>enum E { }</code></td><td class="num">sizeof(底层类型)</td><td>默认底层 <code>i32</code></td></tr>
-    <tr><td><code>(T1, T2)</code></td><td class="num">字段顺序布局</td><td>元组</td></tr>
-    <tr><td><code>!T</code></td><td class="num">4 + align + sizeof(T)</td><td>生成 C 结构 <code>{ uint32_t error_id; T value; }</code>，<code>!i64</code> 实测 16 B</td></tr>
-    <tr><td><code>@vector(T, N)</code></td><td class="num">N·sizeof(T)</td><td>SIMD 向量；<code>@mask(N)</code> 为比较结果类型</td></tr>
-  </table>
+fn main() i32 {
+    const p: i32 = add_checked(1, 2) catch |e| { return 1; };
+    printf("in range: %d\n", p);
 
-  <div class="warn">
-    <p><strong><code>@align_of</code> 对 <code>i8</code> <code>i16</code> <code>i64</code> <code>u16</code> 返回 <code>1</code></strong>（应为 1/2/8/2），<code>i32</code>、<code>f64</code> 与指针正确。已实测，见<a href="buglist.md">buglist.md</a>。</p>
-    <p><strong><code>@size_of</code> 对错误联合与接口不可用</strong>：<code>@size_of(!i64)</code> 返回 <code>1</code>（实际 16），<code>@size_of(IFoo)</code> 会生成无法编译的 <code>sizeof(IFoo)</code>。上表这两行的大小取自生成的 C 结构，不是 <code>@size_of</code> 的结果。</p>
-  </div>
-</section>
+    const q: i32 = add_checked(2000000000, 2000000000) catch |e| {
+        printf("overflow: caught\n");
+        return 0;
+    };
+    printf("unreachable %d\n", q);
+    return 0;
+}
 
-<section id="examples">
-  <h2>代码</h2>
-  <p>以下每段都用 <code>bin/uya run</code> 实跑通过，输出即注释所示。</p>
+// 输出：
+// in range: 3
+// overflow: caught</code></pre>
+                    </div>
 
-  <h3>Hello, world</h3>
-<pre><code>extern "libc" fn printf(fmt: *byte, ...) i32;
+                    <div class="note">
+                        <p><strong>未证明的溢出不会落入 C 未定义行为</strong>：构建脚本与默认 <code class="inline-code">CFLAGS</code> 统一带 <code class="inline-code">-fwrapv -fno-strict-overflow</code>，退化为定义良好的回绕。</p>
+                    </div>
+
+                    <div class="quote">
+                        <p><strong>一句话：</strong>程序员给出检查，编译器在当前函数内验证，验证通过才生成代码；验证不通过就是编译错误。</p>
+                    </div>
+                </section>
+
+                <!-- 类型系统部分 -->
+                <!-- 工具链部分 -->
+                <section id="toolchain" class="content-section">
+                    <h2>工具链</h2>
+
+                    <h3>命令</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>uya 子命令</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">uya build &lt;file&gt; [-o out] [--c99]   编译为可执行文件或 C 代码
+uya check &lt;file&gt;                   只做词法 / 语法 / 类型检查
+uya run &lt;file&gt; [-- args...]        编译并运行
+uya test &lt;file&gt;                    运行 test 块
+uya fmt &lt;file&gt;                     格式化
+uya upm &lt;sub&gt;                      包管理</code></pre>
+                    </div>
+
+                    <h3>常用选项</h3>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr><th>选项</th><th>作用</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td><code>--c99</code></td><td>使用 C99 后端生成 C 代码</td></tr>
+                                <tr><td><code>--no-strict-overflow</code></td><td>关闭溢出闸门（默认开）</td></tr>
+                                <tr><td><code>--jobs N</code> / <code>-jN</code></td><td>前端进程级并行度，默认 CPU 数，上限 32</td></tr>
+                                <tr><td><code>--split-c-dir [dir]</code></td><td>多文件 C 输出目录，默认 <code>.uyacache</code></td></tr>
+                                <tr><td><code>--no-split-c</code></td><td>关闭多文件 C，输出单文件</td></tr>
+                                <tr><td><code>--opt=0..3</code> / <code>-O0..-O3</code></td><td>优化级别，默认 1</td></tr>
+                                <tr><td><code>--nostdlib</code></td><td>完全独立模式，走 syscall</td></tr>
+                                <tr><td><code>--stack-size KB</code></td><td>栈大小，默认 65536（64 MB）</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <h3>构建与验证</h3>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr><th>命令</th><th>作用</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td><code>make from-c</code> / <code>make from-c-native</code></td><td>冷启动（Linux / macOS），从 <code>backup/</code> 的 C99 种子构建</td></tr>
+                                <tr><td><code>make uya</code> / <code>make uya-hosted</code></td><td>构建自举编译器（nostdlib / hosted）</td></tr>
+                                <tr><td><code>make b</code> / <code>make b-hosted</code></td><td>自举验证：编译器编译自身，比对输出</td></tr>
+                                <tr><td><code>make tests</code> / <code>make tests-uya</code></td><td>回归套件</td></tr>
+                                <tr><td><code>make check</code></td><td>全量验证（自举 + 测试 + 各闸门）</td></tr>
+                                <tr><td><code>make microapp-check</code></td><td>microapp 聚合回归</td></tr>
+                                <tr><td><code>make fmt</code> / <code>make check-fmt</code></td><td>格式化 / 格式检查</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <h3>环境变量</h3>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr><th>变量</th><th>作用</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td><code>UYA_ROOT</code></td><td>标准库位置，未设置时取编译器所在目录上一级的 <code>lib</code></td></tr>
+                                <tr><td><code>UYA_JOBS</code></td><td>并行度（<code>--jobs</code> 优先）</td></tr>
+                                <tr><td><code>UYA_GCC_JOBS</code></td><td>C 阶段 <code>make -j</code> 并行度</td></tr>
+                                <tr><td><code>UYA_FORCE_BUILD=1</code></td><td>跳过增量指纹，强制重建</td></tr>
+                                <tr><td><code>TARGET_OS</code> / <code>TARGET_ARCH</code></td><td>交叉目标：linux / macos / windows，x86_64 / arm64 / riscv64</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="type-system" class="content-section">
+                    <h2>类型系统</h2>
+
+                    <p>无隐式转换。指针与 FFI 指针分离：<code class="inline-code">&amp;T</code> 用于 Uya 内部，<code class="inline-code">*T</code> 仅用于 C 互操作，转换写 <code class="inline-code">&amp;T as *T</code>。</p>
+
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>类型</th>
+                                    <th>x86_64 大小</th>
+                                    <th>说明</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><code>i8</code> <code>i16</code> <code>i32</code> <code>i64</code></td>
+                                    <td>1 / 2 / 4 / 8 B</td>
+                                    <td>对齐 = 类型大小；<code>@max</code> / <code>@min</code> 取极值</td>
+                                </tr>
+                                <tr>
+                                    <td><code>u8</code> <code>u16</code> <code>u32</code> <code>u64</code></td>
+                                    <td>1 / 2 / 4 / 8 B</td>
+                                    <td>无符号；溢出是良定义模运算</td>
+                                </tr>
+                                <tr>
+                                    <td><code>usize</code> <code>isize</code></td>
+                                    <td>8 B</td>
+                                    <td>指针宽度；<code>isize</code> 当前归一为 <code>i64</code></td>
+                                </tr>
+                                <tr>
+                                    <td><code>f32</code> <code>f64</code></td>
+                                    <td>4 / 8 B</td>
+                                    <td>对齐 = 类型大小</td>
+                                </tr>
+                                <tr>
+                                    <td><code>bool</code> <code>byte</code></td>
+                                    <td>1 B</td>
+                                    <td><code>byte</code> 与 C <code>char</code> 兼容</td>
+                                </tr>
+                                <tr>
+                                    <td><code>void</code></td>
+                                    <td>0 B</td>
+                                    <td>仅作返回类型</td>
+                                </tr>
+                                <tr>
+                                    <td><code>&amp;T</code> / <code>*T</code></td>
+                                    <td>8 B</td>
+                                    <td>普通指针 / FFI 指针</td>
+                                </tr>
+                                <tr>
+                                    <td><code>&amp;[T]</code> / <code>&amp;[T: N]</code></td>
+                                    <td>16 B</td>
+                                    <td>切片（动态长度 / 编译期已知长度），指针 + 长度</td>
+                                </tr>
+                                <tr>
+                                    <td><code>[T: N]</code></td>
+                                    <td>N·sizeof(T)</td>
+                                    <td>定长数组，<code>N</code> 为编译期正整数</td>
+                                </tr>
+                                <tr>
+                                    <td><code>atomic T</code></td>
+                                    <td>sizeof(T)</td>
+                                    <td>读写与复合赋值编译为原子指令</td>
+                                </tr>
+                                <tr>
+                                    <td><code>struct S { }</code></td>
+                                    <td>字段顺序布局</td>
+                                    <td>统一 C 内存布局，可直接传给 C；也可有方法、<code>drop</code>、实现接口</td>
+                                </tr>
+                                <tr>
+                                    <td><code>interface I { }</code></td>
+                                    <td>16 B</td>
+                                    <td>生成 C 结构 <code>{ void *vtable; void *data; }</code>；鸭子类型，零注册</td>
+                                </tr>
+                                <tr>
+                                    <td><code>enum E { }</code></td>
+                                    <td>sizeof(底层类型)</td>
+                                    <td>默认底层 <code>i32</code></td>
+                                </tr>
+                                <tr>
+                                    <td><code>(T1, T2)</code></td>
+                                    <td>字段顺序布局</td>
+                                    <td>元组</td>
+                                </tr>
+                                <tr>
+                                    <td><code>!T</code></td>
+                                    <td>4 + 对齐 + sizeof(T)</td>
+                                    <td>生成 C 结构 <code>{ uint32_t error_id; T value; }</code>，<code>!i64</code> 实测 16 B</td>
+                                </tr>
+                                <tr>
+                                    <td><code>@vector(T, N)</code></td>
+                                    <td>N·sizeof(T)</td>
+                                    <td>SIMD 向量；<code>@mask(N)</code> 为比较结果类型</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="note">
+                        <p><strong>上表大小取自生成的 C 结构，不是 <code class="inline-code">@size_of</code> 的输出</strong>，因为这两个内置函数在这几类类型上当前不可靠：</p>
+                        <ul>
+                            <li><code class="inline-code">@size_of(!T)</code>：作为顶层常量时返回 <code class="inline-code">1</code>（<code class="inline-code">!i64</code> 实际 16 B）；写成内联表达式时生成 <code class="inline-code">sizeof((!i64))</code>，C 层无法编译。</li>
+                            <li><code class="inline-code">@size_of(IFoo)</code>：生成 <code class="inline-code">sizeof(IFoo)</code>，C 层报 <code class="inline-code">IFoo undeclared</code>。</li>
+                            <li><code class="inline-code">@align_of</code>：<code class="inline-code">i8</code> <code class="inline-code">i16</code> <code class="inline-code">i64</code> <code class="inline-code">u16</code> 返回 <code class="inline-code">1</code>（应为 1/2/8/2）；<code class="inline-code">i32</code> / <code class="inline-code">f64</code> / 指针正确。</li>
+                        </ul>
+                        <p>以上均已实测，登记在 <a href="buglist.md">buglist.md</a>。</p>
+                    </div>
+                </section>
+
+                <section id="examples" class="content-section">
+                    <h2>完整示例</h2>
+
+                    <p>以下每段都用 <code class="inline-code">bin/uya run</code> 实跑通过，输出即注释所示。</p>
+
+                    <h3>Hello, world</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>hello.uya</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">extern "libc" fn printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
     printf("hello, uya\n");
     return 0;
-}</code></pre>
-<pre><code>$ uya run hello.uya
-hello, uya</code></pre>
+}
 
-  <h3>边界检查 → 编译期证明</h3>
-<pre><code>extern "libc" fn printf(fmt: *byte, ...) i32;
+// 输出：hello, uya</code></pre>
+                    </div>
+
+                    <h3>边界检查 → 编译期证明</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>bounds.uya</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">extern "libc" fn printf(fmt: *byte, ...) i32;
 
 fn safe_get(arr: &amp;[i32: 10], i: i32) !i32 {
     if i &lt; 0 || i &gt;= 10 {
@@ -302,32 +1228,18 @@ fn main() i32 {
     };
     printf("v = %d\n", v);
     return 0;
-}</code></pre>
-<pre><code>$ uya run bounds.uya
-v = 3</code></pre>
-
-  <h3>checked 算术</h3>
-<pre><code>fn add_checked(a: i32, b: i32) !i32 {
-    return try a + b;      // 越界 -> error.Overflow
 }
 
-fn main() i32 {
-    const p: i32 = add_checked(1, 2) catch |e| { return 1; };
-    printf("in range: %d\n", p);
+// 输出：v = 3</code></pre>
+                    </div>
 
-    const q: i32 = add_checked(2000000000, 2000000000) catch |e| {
-        printf("overflow: caught\n");
-        return 0;
-    };
-    printf("unreachable %d\n", q);
-    return 0;
-}</code></pre>
-<pre><code>$ uya run checked.uya
-in range: 3
-overflow: caught</code></pre>
-
-  <h3>结构体默认值</h3>
-<pre><code>struct Conf {
+                    <h3>结构体默认值</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>conf.uya</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">struct Conf {
     port: i32 = 8080,
     debug: bool = false
 }
@@ -337,19 +1249,25 @@ fn main() i32 {
     const custom: Conf = Conf{ port: 9000 };
     printf("def.port = %d, custom.port = %d\n", def.port, custom.port);
     return 0;
-}</code></pre>
-<pre><code>$ uya run conf.uya
-def.port = 8080, custom.port = 9000</code></pre>
+}
 
-  <h3>原子类型</h3>
-<pre><code>struct Counter {
+// 输出：def.port = 8080, custom.port = 9000</code></pre>
+                    </div>
+
+                    <h3>原子类型</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>counter.uya</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">struct Counter {
     value: atomic i32
 }
 
 Counter {
     fn bump(self: &amp;Self) i32 {
-        self.value += 1;         // 编译为原子 fetch_add
-        const v: i32 = self.value;   // 原子 load
+        self.value += 1;             // 编译为原子 fetch_add
+        const v: i32 = self.value;    // 原子 load
         return v;
     }
 }
@@ -360,12 +1278,18 @@ fn main() i32 {
     const v: i32 = c.bump();
     printf("counter = %d\n", v);
     return 0;
-}</code></pre>
-<pre><code>$ uya run counter.uya
-counter = 2</code></pre>
+}
 
-  <h3>接口与 RAII</h3>
-<pre><code>interface IShape {
+// 输出：counter = 2</code></pre>
+                    </div>
+
+                    <h3>接口与 RAII</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>shape.uya</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">interface IShape {
     fn area(self: &amp;Self) i32;
 }
 
@@ -387,13 +1311,18 @@ fn main() i32 {
     printf("%d\n", total(r));    // 经接口调用
     printf("%d\n", r.area());    // 直接调用
     return 0;
-}</code></pre>
-<pre><code>$ uya run shape.uya
-12
-12</code></pre>
+}
 
-  <h3>切片与循环</h3>
-<pre><code>fn main() i32 {
+// 输出：12 / 12</code></pre>
+                    </div>
+
+                    <h3>切片与循环</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>slice.uya</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">fn main() i32 {
     var arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     const s: &amp;[i32] = &amp;arr[2:5];      // 从下标 2 起取 5 个元素
 
@@ -408,14 +1337,21 @@ fn main() i32 {
     }
     printf("arr[0] = %d\n", arr[0]);
     return 0;
-}</code></pre>
-<pre><code>$ uya run slice.uya
-len = 5
-2 3 4 5 6
-arr[0] = 0</code></pre>
+}
 
-  <h3>错误处理与 drop</h3>
-<pre><code>extern "libc" fn malloc(n: usize) *void;
+// 输出：
+// len = 5
+// 2 3 4 5 6
+// arr[0] = 0</code></pre>
+                    </div>
+
+                    <h3>错误处理与 drop</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>buffer.uya</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">extern "libc" fn malloc(n: usize) *void;
 extern "libc" fn free(p: *void) void;
 
 struct Buffer {
@@ -443,154 +1379,480 @@ fn main() i32 {
     };
     printf("allocated\n");
     return 0;    // b 离开作用域，drop 自动 free
-}</code></pre>
-<pre><code>$ uya run buffer.uya
-allocated</code></pre>
-  <div class="note">
-    <p><code>drop</code> 只能由编译器在离开作用域时插入，不能手写 <code>drop(x)</code> 或 <code>x.drop()</code>；<code>self</code> 必须按值接收。</p>
-  </div>
-</section>
+}
 
-<section id="toolchain">
-  <h2>工具链</h2>
+// 输出：allocated</code></pre>
+                    </div>
 
-  <h3>命令</h3>
-<pre><code>uya build &lt;file&gt; [-o out] [--c99]   编译为可执行文件或 C 代码
-uya check &lt;file&gt;                   只做词法 / 语法 / 类型检查
-uya run &lt;file&gt; [-- args...]        编译并运行
-uya test &lt;file&gt;                    运行 test 块
-uya fmt &lt;file&gt;                     格式化
-uya upm &lt;sub&gt;                      包管理</code></pre>
+                    <div class="note">
+                        <p><strong><code class="inline-code">drop</code> 的约束</strong>：只能由编译器在离开作用域时插入，手写 <code class="inline-code">drop(x)</code> 或 <code class="inline-code">x.drop()</code> 在类型检查阶段报错；<code class="inline-code">self</code> 必须按值接收，写成 <code class="inline-code">&amp;Self</code> 会报错。</p>
+                    </div>
+                </section>
 
-  <h3>常用选项</h3>
-  <table>
-    <tr><th>选项</th><th>作用</th></tr>
-    <tr><td><code>--c99</code></td><td>使用 C99 后端生成 C 代码</td></tr>
-    <tr><td><code>--no-strict-overflow</code></td><td>关闭溢出闸门（默认开）</td></tr>
-    <tr><td><code>--jobs N</code> / <code>-jN</code></td><td>前端进程级并行度，默认 CPU 数，上限 32</td></tr>
-    <tr><td><code>--split-c-dir [dir]</code></td><td>多文件 C 输出目录，默认 <code>.uyacache</code></td></tr>
-    <tr><td><code>--no-split-c</code></td><td>关闭多文件 C，输出单文件</td></tr>
-    <tr><td><code>--opt=0..3</code> / <code>-O0..-O3</code></td><td>优化级别，默认 1</td></tr>
-    <tr><td><code>--nostdlib</code></td><td>完全独立模式，走 syscall</td></tr>
-    <tr><td><code>--stack-size KB</code></td><td>栈大小，默认 65536（64 MB）</td></tr>
-  </table>
+                <section id="standard-library" class="content-section">
+                    <h2>标准库</h2>
 
-  <h3>构建与验证</h3>
-  <table>
-    <tr><th>命令</th><th>作用</th></tr>
-    <tr><td><code>make from-c</code> / <code>make from-c-native</code></td><td>冷启动（Linux / macOS），从 <code>backup/</code> 的 C99 种子构建</td></tr>
-    <tr><td><code>make uya</code> / <code>make uya-hosted</code></td><td>构建自举编译器（nostdlib / hosted）</td></tr>
-    <tr><td><code>make b</code> / <code>make b-hosted</code></td><td>自举验证：编译器编译自身，比对输出</td></tr>
-    <tr><td><code>make tests</code> / <code>make tests-uya</code></td><td>回归套件</td></tr>
-    <tr><td><code>make check</code></td><td>全量验证（自举 + 测试 + 各闸门）</td></tr>
-    <tr><td><code>make microapp-check</code></td><td>microapp 聚合回归</td></tr>
-    <tr><td><code>make fmt</code> / <code>make check-fmt</code></td><td>格式化 / 格式检查</td></tr>
-  </table>
+                    <p>入口在 <code class="inline-code">lib/std/</code>（21 个目录 + 13 个顶层模块），<code class="inline-code">lib/</code> 顶层另有 <code class="inline-code">libc</code> <code class="inline-code">syscall</code> <code class="inline-code">osal</code> <code class="inline-code">mem</code> <code class="inline-code">kernel</code> <code class="inline-code">tls</code> <code class="inline-code">tflm</code>。</p>
 
-  <h3>环境变量</h3>
-  <table>
-    <tr><th>变量</th><th>作用</th></tr>
-    <tr><td><code>UYA_ROOT</code></td><td>标准库位置，未设置时取编译器所在目录上一级的 <code>lib</code></td></tr>
-    <tr><td><code>UYA_JOBS</code></td><td>并行度（<code>--jobs</code> 优先）</td></tr>
-    <tr><td><code>UYA_GCC_JOBS</code></td><td>C 阶段 <code>make -j</code> 并行度</td></tr>
-    <tr><td><code>UYA_FORCE_BUILD=1</code></td><td>跳过增量指纹，强制重建</td></tr>
-    <tr><td><code>TARGET_OS</code> / <code>TARGET_ARCH</code></td><td>交叉目标：linux / macos / windows，x86_64 / arm64 / riscv64</td></tr>
-  </table>
-</section>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>模块</th>
+                                    <th>主要内容</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><code>std.collections</code></td>
+                                    <td><code>Vec&lt;T&gt;</code> / <code>HashMap</code> / <code>RingQueue</code> / <code>StringBuf</code>，创建时传入 <code>IAllocator</code>，<code>drop</code> 释放缓冲区</td>
+                                </tr>
+                                <tr>
+                                    <td><code>std.mem</code></td>
+                                    <td><code>IAllocator</code>、arena bump 分配、基于 osal mmap 的堆分配器，不依赖 malloc</td>
+                                </tr>
+                                <tr>
+                                    <td><code>std.crypto</code></td>
+                                    <td>纯 Uya 实现：MD5、SHA-1、SHA-256、SHA-512、BLAKE2b/2s、BLAKE3、HMAC、CRC32、4096 位 bigint + Montgomery、X25519、Ed25519</td>
+                                </tr>
+                                <tr>
+                                    <td><code>std.image</code></td>
+                                    <td>内存位图与基线 JPEG 编解码（Huffman + 8×8 整数 DCT），零 libm、零 C 依赖</td>
+                                </tr>
+                                <tr>
+                                    <td><code>std.http</code></td>
+                                    <td>解析 / 路由 / 服务端原语、HTTP/1.1 chunked、HTTP/2 帧与流、HPACK、WebSocket、JWT，以及异步框架 <code>uyagin</code></td>
+                                </tr>
+                                <tr>
+                                    <td><code>std.async*</code></td>
+                                    <td><code>Waker</code> / <code>Future&lt;T&gt;</code> / <code>Poll&lt;T&gt;</code> / <code>Task&lt;T&gt;</code>、帧池、调度器、epoll 事件循环、通道</td>
+                                </tr>
+                                <tr>
+                                    <td><code>std.process</code></td>
+                                    <td><code>Pipeline</code> 与类型化管道 <code>|&gt;</code>：<code>cmd_argv</code> / <code>cwd</code> / <code>env</code> / <code>capture_into</code></td>
+                                </tr>
+                                <tr>
+                                    <td>序列化</td>
+                                    <td><code>json</code> / <code>yaml</code> / <code>protobuf</code> / <code>mqtt</code> / <code>sql</code>（通用抽象层，尚无 SQLite / MySQL 驱动）</td>
+                                </tr>
+                                <tr>
+                                    <td>IO 与网络</td>
+                                    <td><code>io.file</code> / <code>io.stream</code> / <code>reader</code> / <code>writer</code>；<code>net.addr</code> / <code>net.socket</code> / <code>net.dns</code></td>
+                                </tr>
+                                <tr>
+                                    <td>工具</td>
+                                    <td><code>fmt</code>（<code>uya fmt</code> 后端）、<code>testing</code>、<code>path</code> / <code>env</code> / <code>time</code> / <code>thread</code> / <code>platform</code>、<code>encoding.base64</code></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
 
-<section id="stdlib">
-  <h2>标准库</h2>
-  <p>入口在 <code>lib/std/</code>（21 个目录 + 13 个顶层模块），<code>lib/</code> 顶层另有 <code>libc</code> <code>syscall</code> <code>osal</code> <code>mem</code> <code>kernel</code> <code>tls</code> <code>tflm</code>。</p>
+                    <h3>内置函数</h3>
+                    <p>规范第 16 章列出 36 个，全部以 <code class="inline-code">@</code> 开头，无需导入。常用的几个：</p>
 
-  <div class="grid">
-    <div class="card">
-      <h4>collections</h4>
-      <p><code>Vec&lt;T&gt;</code> <code>HashMap</code> <code>RingQueue</code> <code>StringBuf</code>，创建时传入 <code>IAllocator</code>，<code>drop</code> 释放缓冲区。</p>
-    </div>
-    <div class="card">
-      <h4>mem</h4>
-      <p><code>IAllocator</code> / arena bump 分配 / 基于 osal mmap 的堆分配器，不依赖 malloc。</p>
-    </div>
-    <div class="card">
-      <h4>crypto</h4>
-      <p>纯 Uya 实现：MD5、SHA-1、SHA-256、SHA-512、BLAKE2b/2s、BLAKE3、HMAC、CRC32、4096 位 bigint + Montgomery、X25519、Ed25519。</p>
-    </div>
-    <div class="card">
-      <h4>image</h4>
-      <p>内存位图与基线 JPEG 编解码（Huffman + 8×8 整数 DCT），零 libm、零 C 依赖。</p>
-    </div>
-    <div class="card">
-      <h4>http</h4>
-      <p>解析 / 路由 / 服务端原语、HTTP/1.1 chunked、HTTP/2 帧与流、HPACK、WebSocket、JWT，以及异步框架 <code>uyagin</code>。</p>
-    </div>
-    <div class="card">
-      <h4>async</h4>
-      <p><code>Waker</code> / <code>Future&lt;T&gt;</code> / <code>Poll&lt;T&gt;</code> / <code>Task&lt;T&gt;</code>、帧池、调度器、epoll 事件循环、通道。</p>
-    </div>
-    <div class="card">
-      <h4>process</h4>
-      <p><code>Pipeline</code> 与类型化管道 <code>|&gt;</code>：<code>cmd_argv</code> / <code>cwd</code> / <code>env</code> / <code>capture_into</code>。</p>
-    </div>
-    <div class="card">
-      <h4>序列化</h4>
-      <p><code>json</code> <code>yaml</code> <code>protobuf</code> <code>mqtt</code> <code>sql</code>（通用抽象层，尚无 SQLite/MySQL 驱动）。</p>
-    </div>
-    <div class="card">
-      <h4>IO 与网络</h4>
-      <p><code>io.file</code> <code>io.stream</code> <code>reader</code> <code>writer</code>；<code>net.addr</code> <code>net.socket</code> <code>net.dns</code>。</p>
-    </div>
-    <div class="card">
-      <h4>工具</h4>
-      <p><code>fmt</code>（<code>uya fmt</code> 后端）、<code>testing</code>、<code>path</code> <code>env</code> <code>time</code> <code>thread</code> <code>platform</code>、<code>encoding.base64</code>。</p>
-    </div>
-  </div>
-</section>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>函数</th>
+                                    <th>签名 / 语法</th>
+                                    <th>说明</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><code>@len</code></td>
+                                    <td><code>fn @len(a: [T: N]) i32</code></td>
+                                    <td>返回数组元素个数 <code>N</code>（编译期常量）；对空数组字面量 <code>[]</code> 返回声明时的大小而非 0</td>
+                                </tr>
+                                <tr>
+                                    <td><code>@size_of</code></td>
+                                    <td><code>fn @size_of(T) i32</code></td>
+                                    <td>类型字节大小（编译期常量）；错误联合与接口上结果不正确或无法编译，见类型系统一节的说明</td>
+                                </tr>
+                                <tr>
+                                    <td><code>@align_of</code></td>
+                                    <td><code>fn @align_of(T) i32</code></td>
+                                    <td>类型对齐字节数（编译期常量）；<code>i8</code>/<code>i16</code>/<code>i64</code>/<code>u16</code> 目前返回 1</td>
+                                </tr>
+                                <tr>
+                                    <td><code>@max</code> / <code>@min</code></td>
+                                    <td>类型由上下文推断</td>
+                                    <td>整数极值常量，如 <code>const n: u32 = @max;</code> → 4294967295</td>
+                                </tr>
+                                <tr>
+                                    <td><code>@error_id</code> / <code>@error_name</code></td>
+                                    <td><code>fn @error_id(err: error) u32</code></td>
+                                    <td>取错误的数值 ID / 语言级名字；<code>error_id = hash(error_name)</code>，同一名字在任意编译中稳定</td>
+                                </tr>
+                                <tr>
+                                    <td><code>@embed</code> / <code>@embed_dir</code></td>
+                                    <td><code>fn @embed("path") &amp;[const byte]</code></td>
+                                    <td>编译期嵌入单文件 / 递归嵌入目录</td>
+                                </tr>
+                                <tr>
+                                    <td><code>@print</code> / <code>@println</code></td>
+                                    <td><code>fn @print(expr) i32</code></td>
+                                    <td>按实参 AST 形态选格式串展开为 <code>printf</code>；注意 <code>i32</code> 负值直打有已知缺陷，改用字符串插值</td>
+                                </tr>
+                                <tr>
+                                    <td><code>@vector</code> / <code>@mask</code></td>
+                                    <td><code>@vector(T, N)</code> / <code>@mask(N)</code></td>
+                                    <td>SIMD 向量与掩码类型，配套 <code>@vector.splat/load/store/select/reduce_*</code></td>
+                                </tr>
+                                <tr>
+                                    <td>声明属性</td>
+                                    <td><code>@async_fn</code> / <code>@naked_fn</code> / <code>@align(N)</code></td>
+                                    <td>写在 <code>fn</code> 声明前的属性，不是可调用的函数表达式</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
 
-<section id="limits">
-  <h2>已知边界</h2>
-  <p>以下是当前实现的实际限制，均已复现确认，不是推测。</p>
-  <table>
-    <tr><th>项</th><th>当前行为</th></tr>
-    <tr><td>负索引切片</td><td><code>&amp;arr[-3:3]</code> 不做 <code>len + start</code> 换算，直接报「切片起始位置越界」</td></tr>
-    <tr><td>切片 for 迭代</td><td>切片不能作为 for 受体，需用 <code>for 0..@len(s) |i| { s[i] }</code></td></tr>
-    <tr><td>函数指针类型</td><td><code>type Op = fn(i32) i32;</code> 与 <code>fn(...)</code> 作参数类型均解析失败</td></tr>
-    <tr><td>泛型方法块</td><td><code>Pair&lt;T&gt; { ... }</code> 独立方法块不被接受，方法需写在结构体体内</td></tr>
-    <tr><td>指针算术返回</td><td><code>return p + n;</code>（函数返回 <code>&amp;i32</code>）报类型不匹配，需先赋局部变量</td></tr>
-    <tr><td><code>@align_of</code></td><td><code>i8</code> <code>i16</code> <code>i64</code> <code>u16</code> 返回 <code>1</code></td></tr>
-    <tr><td><code>@size_of</code></td><td>错误联合（返回 <code>1</code>）与接口（生成无法编译的 <code>sizeof(IFoo)</code>）不可用</td></tr>
-    <tr><td>带 <code>*byte</code> 形参的普通函数</td><td>「普通函数不能使用 FFI 指针类型作为参数」，改 <code>&amp;byte</code> 并在调用处 <code>as *byte</code></td></tr>
-    <tr><td>枚举 match</td><td>必须带 <code>else</code> 或通配符分支</td></tr>
-    <tr><td><code>printf</code> 声明</td><td>写 <code>extern "libc" fn printf(fmt: *byte, ...) i32;</code>；省略 <code>"libc"</code> 会在 C 层与 <code>stdio.h</code> 冲突</td></tr>
-    <tr><td>引用迭代</td><td><code>for arr |&amp;v|</code> 只能用于 <code>var</code> 数组，<code>const</code> 数组报错</td></tr>
-  </table>
-</section>
+                    <div class="note">
+                        <p><strong>完整清单与逐条说明</strong>见 <a href="docs/builtin_functions.md">docs/builtin_functions.md</a>；语法层面见 <a href="docs/grammar_quick.md">docs/grammar_quick.md</a>。</p>
+                    </div>
+                </section>
 
-<section id="docs">
-  <h2>文档</h2>
-  <table>
-    <tr><th>文档</th><th>内容</th></tr>
-    <tr><td><a href="docs/uya.md">docs/uya.md</a></td><td>完整语言规范 0.49.55，含每版变更说明</td></tr>
-    <tr><td><a href="docs/grammar_formal.md">docs/grammar_formal.md</a></td><td>完整 BNF 语法</td></tr>
-    <tr><td><a href="docs/grammar_quick.md">docs/grammar_quick.md</a></td><td>语法速查</td></tr>
-    <tr><td><a href="docs/builtin_functions.md">docs/builtin_functions.md</a></td><td>36 个 <code>@</code> 内置函数逐条说明</td></tr>
-    <tr><td><a href="docs/usage_guide.md">docs/usage_guide.md</a></td><td>编译器使用指南</td></tr>
-    <tr><td><a href="docs/build_speed.md">docs/build_speed.md</a></td><td>并行与增量构建的实测数据、全部开关</td></tr>
-    <tr><td><a href="docs/DEVELOPMENT.md">docs/DEVELOPMENT.md</a></td><td>开发说明</td></tr>
-    <tr><td><a href="docs/TESTING.md">docs/TESTING.md</a></td><td>回归测试说明</td></tr>
-    <tr><td><a href="buglist.md">buglist.md</a></td><td>已知问题与优先级</td></tr>
-    <tr><td><a href="CHANGELOG.md">CHANGELOG.md</a></td><td>编译器 changelog</td></tr>
-    <tr><td><a href="readme.md">readme.md</a></td><td>项目说明与标准库模块一览</td></tr>
-  </table>
-</section>
+                <section id="limits" class="content-section">
+                    <h2>已知边界</h2>
 
-</main>
+                    <p>以下都是当前实现的实测行为，不是推测。每条都在本仓库对应的最小文件上复现过。</p>
 
-<footer>
-  <div class="wrap">
-    <p><strong>Uya</strong> · 语言规范 0.49.55 · 编译器 v0.10.4 · MIT 许可证 · Copyright (c) 2025-2026 Uya 语言项目</p>
-    <p>本页所有代码均以 <code>bin/uya run</code> 实跑验证，统计数据取自仓库当前提交。</p>
-  </div>
-</footer>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>项</th>
+                                    <th>当前行为</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>负索引切片</td>
+                                    <td><code>&amp;arr[-3:3]</code> 不做 <code>len + start</code> 换算，报「切片起始位置越界」</td>
+                                </tr>
+                                <tr>
+                                    <td>切片的 for 迭代</td>
+                                    <td>切片不能作为 for 受体，需写 <code>for 0..@len(s) |i| { s[i] }</code></td>
+                                </tr>
+                                <tr>
+                                    <td>函数指针类型</td>
+                                    <td><code>type Op = fn(i32) i32;</code> 与 <code>fn(...)</code> 作参数类型都解析失败</td>
+                                </tr>
+                                <tr>
+                                    <td>泛型方法块</td>
+                                    <td><code>Pair&lt;T&gt; { ... }</code> 独立方法块不被接受，方法需写在结构体体内</td>
+                                </tr>
+                                <tr>
+                                    <td>指针算术直接返回</td>
+                                    <td><code>return p + n;</code>（函数返回 <code>&amp;i32</code>）报类型不匹配，需先赋给局部变量</td>
+                                </tr>
+                                <tr>
+                                    <td><code>@align_of</code></td>
+                                    <td><code>i8</code> <code>i16</code> <code>i64</code> <code>u16</code> 返回 <code>1</code></td>
+                                </tr>
+                                <tr>
+                                    <td><code>@size_of</code></td>
+                                    <td>错误联合在顶层常量下返回 <code>1</code>（<code>!i64</code> 实际 16 B），内联时生成无法编译的 <code>sizeof((!i64))</code>；接口生成无法编译的 <code>sizeof(IFoo)</code></td>
+                                </tr>
+                                <tr>
+                                    <td>带 <code>*byte</code> 形参的普通函数</td>
+                                    <td>报「普通函数不能使用 FFI 指针类型作为参数」，改用 <code>&amp;byte</code> 并在调用处 <code>as *byte</code></td>
+                                </tr>
+                                <tr>
+                                    <td>枚举 match</td>
+                                    <td>必须带 <code>else</code> 或通配符分支</td>
+                                </tr>
+                                <tr>
+                                    <td><code>printf</code> 声明</td>
+                                    <td>写 <code>extern "libc" fn printf(fmt: *byte, ...) i32;</code>；省略 <code>"libc"</code> 会在 C 层与 <code>stdio.h</code> 冲突</td>
+                                </tr>
+                                <tr>
+                                    <td>引用迭代</td>
+                                    <td><code>for arr |&amp;v|</code> 只能用于 <code>var</code> 数组，<code>const</code> 数组报错</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
 
+                    <div class="note">
+                        <p>完整的问题清单、优先级与修复状态见 <a href="buglist.md">buglist.md</a>。</p>
+                    </div>
+                </section>
+
+                <section id="docs" class="content-section">
+                    <h2>文档</h2>
+
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>文档</th>
+                                    <th>内容</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td><a href="docs/uya.md">docs/uya.md</a></td><td>完整语言规范 0.49.55，含每版变更说明</td></tr>
+                                <tr><td><a href="docs/grammar_formal.md">docs/grammar_formal.md</a></td><td>完整 BNF 语法</td></tr>
+                                <tr><td><a href="docs/grammar_quick.md">docs/grammar_quick.md</a></td><td>语法速查</td></tr>
+                                <tr><td><a href="docs/builtin_functions.md">docs/builtin_functions.md</a></td><td>36 个 <code>@</code> 内置函数逐条说明</td></tr>
+                                <tr><td><a href="docs/usage_guide.md">docs/usage_guide.md</a></td><td>编译器使用指南</td></tr>
+                                <tr><td><a href="docs/build_speed.md">docs/build_speed.md</a></td><td>并行与增量构建的实测数据、全部开关</td></tr>
+                                <tr><td><a href="docs/DEVELOPMENT.md">docs/DEVELOPMENT.md</a></td><td>开发说明</td></tr>
+                                <tr><td><a href="docs/TESTING.md">docs/TESTING.md</a></td><td>回归测试说明</td></tr>
+                                <tr><td><a href="buglist.md">buglist.md</a></td><td>已知问题与优先级</td></tr>
+                                <tr><td><a href="CHANGELOG.md">CHANGELOG.md</a></td><td>编译器 changelog</td></tr>
+                                <tr><td><a href="readme.md">readme.md</a></td><td>项目说明与标准库模块一览</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <!-- 页脚 -->
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>Uya 语言</h3>
+                    <p>AI友好 · 默认高级安全 · 零 GC · 零 lifetime 符号 · 编译期证明 · 单页纸可读完</p>
+                </div>
+
+                <div class="footer-section">
+                    <h3>资源</h3>
+                    <ul class="footer-links">
+                        <li><a href="#core-features">核心特性</a></li>
+                        <li><a href="#design-philosophy">安全模型</a></li>
+                        <li><a href="#toolchain">工具链</a></li>
+                        <li><a href="#type-system">类型系统</a></li>
+                        <li><a href="#examples">完整示例</a></li>
+                        <li><a href="#limits">已知边界</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-section">
+                    <h3>开发</h3>
+                    <ul class="footer-links">
+                        <li><a href="#standard-library">标准库</a></li>
+                        <li><a href="docs/uya.md">语言规范 0.49.55</a></li>
+                        <li><a href="docs/releases/RELEASE_v0.10.4.md">v0.10.4 版本说明</a></li>
+                        <li><a href="CHANGELOG.md">CHANGELOG</a></li>
+                        <li><a href="buglist.md">已知问题</a></li>
+                        <li><a href="https://github.com/uya-lang/uya">GitHub 仓库</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-section">
+                    <h3>社区</h3>
+                    <ul class="footer-links">
+                        <li><a href="readme.md">项目说明</a></li>
+                        <li><a href="docs/TESTING.md">测试说明</a></li>
+                        <li><a href="docs/DEVELOPMENT.md">开发说明</a></li>
+                        <li><a href="docs/build_speed.md">构建提速</a></li>
+                    </ul>
+                </div>
+            </div>
+
+                <div class="copyright">
+                <p>Uya 语言规范 0.49.55 · 编译器 v0.10.4 · MIT 许可证</p>
+                <p>页面代码均以 <code>bin/uya run</code> 实跑验证；统计数据取自仓库当前提交。</p>
+                <p>© 2025-2026 Uya 语言项目。</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-c.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-rust.min.js"></script>
+    <script>
+        // 添加自定义Uya语言高亮
+        Prism.languages.uya = Prism.languages.extend('c', {
+            'keyword': /\b(enum|interface|struct|union|atomic|const|var|fn|extern|return|if|else|while|for|break|continue|true|false|null|try|catch|error|defer|errdefer|use|export|as|match|test|mc|type|opaque)\b/,
+            'builtin-fn': /@(?:size_of|align_of|len|max|min|error_id|error_name|embed|embed_dir|print|println|syscall|vector|mask)\b/,
+            'operator': /=>|\.\.|\+=|\-=|\*=|\/=|%=|&=|\|=|\^=|<<=|>>=|&&|\|\||<<|>>|<=|>=|==|!=|\.\.\.?|\+\||\-\||\*\||\+%|\-%|\*%/,
+            'builtin': /\b(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|byte|void|Self)\b/,
+            'error': /\berror\.[A-Z][A-Za-z0-9]*\b/,  // 高亮错误类型，如 error.FileNotFound
+        });
+
+        // 动态生成目录
+        document.addEventListener('DOMContentLoaded', function() {
+            const sections = document.querySelectorAll('.content-section');
+            const tocList = document.getElementById('tocList');
+            const navLinks = document.querySelectorAll('.nav-links a');
+            const mobileNav = document.getElementById('mobileNav');
+            const mobileToggle = document.getElementById('mobileToggle');
+
+            // 生成目录
+            sections.forEach(section => {
+                const heading = section.querySelector('h2');
+                if (heading) {
+                    const listItem = document.createElement('li');
+                    const link = document.createElement('a');
+                    link.href = `#${section.id}`;
+                    link.textContent = heading.textContent;
+
+                    // 添加点击事件
+                    link.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        document.querySelector(this.getAttribute('href')).scrollIntoView({
+                            behavior: 'smooth'
+                        });
+
+                        // 更新活动状态
+                        document.querySelectorAll('.toc-list a').forEach(a => a.classList.remove('active'));
+                        this.classList.add('active');
+
+                        // 在移动端关闭菜单
+                        if (window.innerWidth <= 992) {
+                            mobileNav.classList.remove('active');
+                        }
+                    });
+
+                    listItem.appendChild(link);
+
+                    // 查找子标题（h3）
+                    const subHeadings = section.querySelectorAll('h3');
+                    if (subHeadings.length > 0) {
+                        const subList = document.createElement('ul');
+                        subList.className = 'toc-sub';
+
+                        subHeadings.forEach(subHeading => {
+                            const subListItem = document.createElement('li');
+                            const subLink = document.createElement('a');
+                            subLink.href = `#${section.id}`;
+                            subLink.textContent = subHeading.textContent;
+
+                            subLink.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                subHeading.scrollIntoView({
+                                    behavior: 'smooth'
+                                });
+
+                                // 更新活动状态
+                                document.querySelectorAll('.toc-list a').forEach(a => a.classList.remove('active'));
+                                this.classList.add('active');
+
+                                // 在移动端关闭菜单
+                                if (window.innerWidth <= 992) {
+                                    mobileNav.classList.remove('active');
+                                }
+                            });
+
+                            subListItem.appendChild(subLink);
+                            subList.appendChild(subListItem);
+                        });
+
+                        listItem.appendChild(subList);
+                    }
+
+                    tocList.appendChild(listItem);
+                }
+            });
+
+            // 导航链接点击事件
+            navLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    if (this.getAttribute('href').startsWith('#')) {
+                        e.preventDefault();
+                        const targetId = this.getAttribute('href');
+                        const targetSection = document.querySelector(targetId);
+
+                        if (targetSection) {
+                            targetSection.scrollIntoView({
+                                behavior: 'smooth'
+                            });
+
+                            // 更新活动状态
+                            navLinks.forEach(a => a.classList.remove('active'));
+                            this.classList.add('active');
+                        }
+                    }
+                });
+            });
+
+            // 移动端菜单切换
+            mobileToggle.addEventListener('click', function() {
+                mobileNav.classList.toggle('active');
+                this.innerHTML = mobileNav.classList.contains('active') ?
+                    '<i class="fas fa-times"></i>' :
+                    '<i class="fas fa-bars"></i>';
+            });
+
+            // 滚动时更新活动状态
+            function updateActiveSection() {
+                const scrollPos = window.scrollY + 100;
+
+                // 更新导航栏活动状态
+                let currentActive = null;
+                sections.forEach(section => {
+                    const sectionTop = section.offsetTop;
+                    const sectionHeight = section.offsetHeight;
+
+                    if (scrollPos >= sectionTop && scrollPos < sectionTop + sectionHeight) {
+                        currentActive = section.id;
+                    }
+                });
+
+                if (currentActive) {
+                    // 更新导航栏链接
+                    navLinks.forEach(link => {
+                        link.classList.remove('active');
+                        if (link.getAttribute('href') === `#${currentActive}`) {
+                            link.classList.add('active');
+                        }
+                    });
+
+                    // 更新目录链接
+                    document.querySelectorAll('.toc-list a').forEach(link => {
+                        link.classList.remove('active');
+                        if (link.getAttribute('href') === `#${currentActive}`) {
+                            link.classList.add('active');
+                        }
+                    });
+                }
+            }
+
+            // 初始更新
+            updateActiveSection();
+
+            // 监听滚动事件
+            window.addEventListener('scroll', updateActiveSection);
+
+            // 复制代码功能
+            document.querySelectorAll('.code-copy').forEach(button => {
+                button.addEventListener('click', function() {
+                    const codeBlock = this.closest('.code-block');
+                    const code = codeBlock.querySelector('code').textContent;
+
+                    navigator.clipboard.writeText(code).then(() => {
+                        // 显示复制成功反馈
+                        const originalText = this.textContent;
+                        this.textContent = '已复制!';
+                        this.classList.add('copied');
+
+                        setTimeout(() => {
+                            this.textContent = originalText;
+                            this.classList.remove('copied');
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('复制失败: ', err);
+                    });
+                });
+            });
+
+            // 代码块添加语言类
+            document.querySelectorAll('pre code').forEach(code => {
+                if (!code.className) {
+                    code.className = 'language-uya';
+                }
+            });
+
+            // 重新高亮所有代码块
+            Prism.highlightAll();
+        });
+    </script>
 </body>
 </html>
