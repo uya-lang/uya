@@ -31,6 +31,7 @@
 - [6. 接口（interface）](#6-接口interface)
 - [7. 栈式数组（零 GC）](#7-栈式数组零-gc)
 - [8. 控制流](#8-控制流)
+  - [8.1. 错误处理：try / catch](#81-错误处理try--catch)
 - [9. defer 和 errdefer](#9-defer-和-errdefer)
 - [10. 运算符与优先级](#10-运算符与优先级)
   - [10.1. 类型化管道（`|>`）](#101-类型化管道)
@@ -64,7 +65,7 @@
   整棵算术树共享一次检查（内层子表达式不单独成为 `!T`），每棵子树只求值一次。
   `try`/`catch` 原有规则不变：操作数必须提供 `!T`，`try` 传播、`catch` 就地处理。
   覆盖类型 `i8`/`i16`/`i32`/`i64`/`u8`/`u16`/`u32`/`u64`/`usize`/`byte`。
-  见 [§8 `try`/`catch`](#8-控制流)、[§14 内存安全](#14-内存安全)。
+  见 [§8.1 `try`/`catch`](#81-错误处理try--catch)、[§14 内存安全](#14-内存安全)。
 - **括号规则**：`try` 的操作数走相对表达式，`try a + b` 即 `try (a + b)`，**无需**加括号；
   `catch` 是 cast 级后缀，就地处理整条算术**必须**写 `(a + b) catch |e| { … }`，写 `a + b catch {}`
   只绑定 `b`（该形态仍报错）。
@@ -74,11 +75,13 @@
   `uya_main_result()`，由编译器发射的 `int32_t main_main(void)` 桥接解包——成功值作为进程退出码，
   未捕获错误打印 `未捕获的错误: <name>` 并返回退出码 1。此前该形态能通过类型检查但链接失败。
 - **错误名免声明**：`error.Overflow` / `error.DivisionByZero` 由编译器按需注册，无需 `error X;` 声明。
-- **`--strict-overflow` 静态闸门（可选，默认关）**：开启后整数 `+` `-` `*` 必须能证明不溢出，
+- **`--strict-overflow` 静态闸门（**默认开启**）**：整数 `+` `-` `*` 必须能证明不溢出，
   否则编译错误。证明器：`checker_prove_no_overflow`（`src/checker/proof.uya`）+ i64 宽化区间
   （`wide_*`，`src/checker/interval.uya`）。判定只采纳**可信约束**（用户守卫、无回绕的 `i = i + c`），
   由抽象区间计算出的区间（内部用 u32 位模式回绕）一律视为不可信，避免把真实溢出判成安全。
-  默认关闭：仓库自身开启后报约 2052 处，翻默认需先完成存量迁移（见 `buglist.md`）。
+  实现默认开（`src/main.uya` 的 `g_strict_overflow = 1`）；`src/` 与 `lib/` 存量已按语义迁移完毕
+  （饱和 `+|` / 回绕 `+%` / `catch`），`tests/` 作为对抗性语料由
+  `tests/run_programs_parallel.sh` 显式传 `--no-strict-overflow` 豁免。
   CLI：`--strict-overflow` / `--no-strict-overflow`；回归 `tests/verify_strict_overflow.sh`。
 
 ### 0.49.54（2026-10-19）
@@ -88,9 +91,9 @@
 - **§16 标准库清单与 `lib/std/` 对齐**：补入 `std.process` / `std.script` / `std.env` / `std.path` / `std.platform` / `std.time` / `std.thread` / `std.testing` / `std.core.*` / `std.collections.*` / `std.mem.*` / `std.io.*` / `std.json` / `std.yaml` / `std.protobuf` / `std.sql` / `std.mqtt.async` / `std.net.*` / `std.async*` / `std.fmt` / `std.macro_typeinfo` / `std.runtime` / `std.microapp` / `std.crypto.*` / `std.http.*` / `std.image.*` 与 `libc.*` / `syscall.*` / `osal.*` / `mem.*` / `kernel.*` / `tls.*` / `tflm.*`；修正 `std.mem` 条目为实际入口 `mem_copy` / `mem_set` / `mem_move` / `mem_cmp` / `mem_chr`。
 - **其余事实修正**：§1 关键字表补齐 `src/lexer.uya` 实际保留字（`enum` / `interface` / `else` / `for` / `as` / `match` / `test` / `mc` / `type` / `opaque` 等）并注明 `as!` 为独立单 token；§2 类型表补 `isize`（当前映射为 `i64`）；§16 内置函数表补齐 `@params`、`@src_name`、`@src_path`、`@src_line`、`@src_col`、`@func_name`、`@print`、`@println`、`@syscall`、`@asm_target`、`@ptr_from_usize`、`@usize_from_ptr` 与 `@align(N)` 声明属性。
 - **语义口径纠正（按当前实现）**：
-  - `try` **传播 `!T` 错误**；`!T` 可由两类操作数提供：本身是错误联合类型，或是**整数算术表达式**（按 checked 求值，溢出 → `error.Overflow`，除零 → `error.DivisionByZero`）。`try a + b` 即 `try (a + b)`，无需加括号；就地处理写 `(a + b) catch |e| { … }`（§8、§10、§14）。
+  - `try` **传播 `!T` 错误**；`!T` 可由两类操作数提供：本身是错误联合类型，或是**整数算术表达式**（按 checked 求值，溢出 → `error.Overflow`，除零 → `error.DivisionByZero`）。`try a + b` 即 `try (a + b)`，无需加括号；就地处理写 `(a + b) catch |e| { … }`（§8.1、§10、§14）。
   - `for` 的受体是**定长数组 / 迭代器接口 / 整数范围**；**切片不能直接 for 迭代**；没有索引迭代形式，`for obj |i|` 只是值绑定；数组也不支持省略绑定的 `for obj {}`（§8）。
-  - **没有负数索引**：`&arr[-3:3]` 不做 `len + start` 换算，会切出越界内容（§1.4；缺口登记在 `buglist.md`）。
+  - **没有负数索引**：`&arr[-3:3]` 不做 `len + start` 换算；常量负 `start` 现在直接报编译错误（`切片起始位置越界`，负例 `tests/error_slice_negative_start.uya`），不要依赖负下标（§1.4）。
   - **没有 `extern struct` 声明语法**：`extern` 只支持 `extern fn` / `extern union` / `extern const|var`；Uya `struct` 统一 C 布局（§5.2、§5.3）。
   - `+=` `-=` `*=` `/=` `%=` 是支持的复合赋值；只有 `&= ` `|=` `^=` `<<=` `>>=` 与 `++`/`--` 不支持（§10）。
 
@@ -1351,8 +1354,8 @@ match result {
 - **切片语法**：支持切片语法 `&arr[start:len]`
   - **字符串字面量**（**0.49.41**）：**`"text"[start:len]`** 合法，语义等价于对「长度为 **可见字符数+1**（含 **`\\0`**）的只读字节序列」切片；**`&"text"[start:len]`** 与对同长度 **`[byte:N]`** 缓冲区的 **`&buf[start:len]`** 一致，得到 **`&[byte]`**。
   - **操作符语法**：`&arr[start:len]` 返回从索引 `start` 开始，长度为 `len` 的切片视图（引用）
-  - **没有负数索引**：`&arr[-3:3]` **不会**从末尾倒数，编译器不做 `len + start` 换算；负 `start` 会切出越界内容（实测 `&arr[-3:3]` 对 10 元素数组返回的第一个元素不是 `arr[7]`）。要从末尾取切片，请自行算出非负下标
-  - **切片边界检查**：对「底层是数组/字符串字面量且 start/len 都是常量」的保守子集，编译器校验 `start >= 0 && start < len(arr) && len >= 0 && start + len <= len(arr)`（负 `start` 仍属未收口缺口，见 `buglist.md`）
+  - **没有负数索引**：`&arr[-3:3]` **不会**从末尾倒数，编译器不做 `len + start` 换算。常量负 `start` 由 checker 直接判为编译错误（`切片起始位置越界`，负例 `tests/error_slice_negative_start.uya`；exec 后端报 `exec: slice 越界`）。要从末尾取切片，请自行算出非负下标
+  - **切片边界检查**：对「底层是数组/字符串字面量且 start/len 都是常量」的保守子集，编译器校验 `start >= 0 && start < len(arr) && len >= 0 && start + len <= len(arr)`
   - **切片结果类型**：
     - 动态长度切片：`&arr[start:len]` 返回 `&[T]`（切片引用，动态长度）
     - 已知长度切片：如果 `len` 是编译期常量，可以显式指定为 `&[T: N]`（已知长度切片引用）
@@ -2908,85 +2911,6 @@ bin/uya --c99 app.uya …   # 推荐：由驱动自动加入 entry.uya
   - **示例**：
 [examples/process.uya](./examples/process.uya)
 
-- **`try` 关键字**：
-  - `try expr` 用于**传播错误联合类型 `!T` 的错误**；`expr` 必须**提供** `!T`
-  - **错误传播**：如果 `expr` 返回错误，当前函数立即返回该错误；否则取成功载荷继续执行
-  - **提供 `!T` 的两种形式**：
-    1. `expr` 本身就是错误联合类型（`!T` 函数调用、`as!` 强转、`!T` 标识符/块、`try @await`）
-    2. `expr` 是**整数算术表达式**（根为 `+` `-` `*` `/` `%` 或一元 `-`）：按 **checked 算术**求值，
-       溢出产出 `error.Overflow`，除零产出 `error.DivisionByZero`
-  - **算术操作数按相对表达式解析**：`try a + b` 即 `try (a + b)`，整棵算术树共享一次 checked 求值，
-    内层子表达式不单独成为 `!T`；**不需要**额外加括号
-  - **checked 算术的错误映射**：`+` `-` `*` 与一元 `-` 越界 → `error.Overflow`；
-    `/` `%` 除数为 0 → `error.DivisionByZero`；有符号 `MIN / -1`、`MIN % -1` → `error.Overflow`
-  - **不用声明错误名**：`error.Overflow` / `error.DivisionByZero` 由编译器按需注册，无需写 `error Overflow;`
-  - **`try` 与 `catch` 互斥**：`try (x catch { ... })` 仍报错
-  - **只在 `try`/`catch` 上下文激活**：普通上下文里的 `a + b` 仍是普通整数算术，不做 checked 求值
-  - **只能在返回错误联合类型的函数中使用**（`@async_fn` 返回 `Future<!T>` 亦允许）
-  - **错误传播示例**：`const result: i32 = try divide(10, 2);`（`divide` 必须返回 `!i32`，可能抛出 `error.DivisionByZero` 等）
-  - **checked 算术示例**：`fn add(a: i32, b: i32) !i32 { return try a + b; }`（溢出时返回 `error.Overflow`）
-
-- **`catch` 语法**：
-  - `expr catch |err| { statements }` 用于捕获并处理错误
-  - `expr catch { statements }` 用于捕获所有错误（不绑定错误变量）
-  - 如果 `expr` 返回错误，执行 catch 块
-  - 如果 `expr` 返回值，跳过 catch 块
-  - **`catch` 是 cast 级后缀**：`a + b catch { ... }` 解析为 `a + (b catch { ... })`。
-    就地处理整条算术时**必须加括号**：`(a + b) catch |e| { ... }`
-  - **不要求所在函数返回错误联合类型**：`catch` 就地消费错误，可在任意函数（含 `fn main() i32`）中使用
-  - **类型规则**：`catch` 表达式的类型是 `expr` 成功时的值类型（不是错误联合类型）
-    - `expr catch { default_value }` 的类型 = `expr` 的值类型
-    - `catch` 块必须返回与 `expr` 成功值类型相同的值
-    - **重要限制**：`catch` 块**不能返回错误联合类型**，只能返回值类型或使用 `return` 提前返回函数
-  - **catch 块的返回方式**（两种方式，语义不同）：
-    
-    **方式 1：表达式返回值**（catch 块返回一个值给 catch 表达式）
-    - catch 块的**最后一条表达式语句**（必须以 `;` 结尾）的值作为返回值；不需要 `return` 关键字
-    - 这个值会成为整个 `catch` 表达式的值
-    - 例：`const p: &byte = pb catch { null as &byte; };`（真实用法见 `lib/std/async_channel.uya`）
-    - 示例：
-[examples/example_018.uya](./examples/example_018.uya)
-    
-    **方式 2：使用 `return` 提前返回函数**（catch 块直接退出函数）
-    - catch 块中使用 `return` 会**立即返回函数**（不是返回 catch 块的值）
-    - 跳过后续所有 defer 和 drop
-    - 示例：
-[examples/main.uya](./examples/main.uya)
-    
-    **重要区别**：
-    - 表达式返回值：catch 块返回一个值，程序继续执行
-    - `return` 语句：catch 块直接退出函数，程序不继续执行
-- **错误处理**：
-  - 支持**错误联合类型** `!T` 和 **try/catch** 语法，用于函数错误返回
-  - 函数可以返回错误联合类型：`fn foo() !i32` 表示返回 `i32` 或 `Error`
-  - 使用 `try` 关键字传播错误：`const result: i32 = try divide(10, 2);`
-  - 使用 `catch` 语法捕获错误：`const result: i32 = divide(10, 0) catch |err| { ... };`
-  - **无运行时 panic 路径**：所有 UB 必须被编译期证明为安全，失败即编译错误
-  - **灵活错误定义**：支持预定义错误（`error ErrorName;`）和运行时错误（`error.ErrorName`），无需预先声明
-- **错误类型的操作**：
-  - 错误类型支持直接使用 `==` / `!=` 比较
-  - 兼容旧写法：`if err == error.FileNotFound { ... }`
-  - 运行时错误同样如此：`if err == error.SomeRuntimeError { ... }`
-  - catch 块中可以判断错误类型并做不同处理
-  - 错误值本身不能直接按 `error` 类型打印；若需要名字字符串，可用 `@error_name(err)` 获取不带 `error.` 前缀的名称
-  - 也可显式比较错误 ID：`if @error_id(err) == @error_id(error.PredefinedError) || @error_id(err) == @error_id(error.RuntimeError) { ... }`
-  - 可通过 `@error_id(err)` 读取错误值的数值 ID；对 `@syscall` 失败路径，该 ID 等于底层 errno 值
-  - `@error_name(err)` 仅保证语言级命名错误返回稳定名称；未知或 `@syscall` 错误统一回退为 `"UnknownError"`
-  
-**错误处理设计哲学**：
-- **编译期检查**：错误处理是编译期检查，编译器在当前函数内验证错误处理
-- **显式错误**：错误是类型系统的一部分，必须显式处理
-- **编译期检查**：编译器确保所有错误都被处理
-- **无 panic、无断言**：所有 UB 必须被编译期证明为安全，失败即编译错误
-
-**错误处理与内存安全的关系**：
-- **`try`/`catch` 只用于函数错误返回**，不用于捕获 UB
-- **所有 UB 必须被编译期证明为安全**，失败即编译错误，不生成代码
-- 错误处理用于处理可预测的、显式的错误情况（如文件不存在、网络错误等）
-
-**示例：错误处理**：
-[examples/safe_divide.uya](./examples/safe_divide.uya)
-
 ### 5.2 外部 C 函数（FFI）
 
 **步骤 1：顶层声明**  
@@ -3897,7 +3821,86 @@ fn log_printf(fmt: *byte, ...) i32 {
   - **示例**：
 [examples/example_056.uya](./examples/example_056.uya)
 
----
+### 8.1 错误处理：`try` / `catch`
+
+- **`try` 关键字**：
+  - `try expr` 用于**传播错误联合类型 `!T` 的错误**；`expr` 必须**提供** `!T`
+  - **错误传播**：如果 `expr` 返回错误，当前函数立即返回该错误；否则取成功载荷继续执行
+  - **提供 `!T` 的两种形式**：
+    1. `expr` 本身就是错误联合类型（`!T` 函数调用、`as!` 强转、`!T` 标识符/块、`try @await`）
+    2. `expr` 是**整数算术表达式**（根为 `+` `-` `*` `/` `%` 或一元 `-`）：按 **checked 算术**求值，
+       溢出产出 `error.Overflow`，除零产出 `error.DivisionByZero`
+  - **算术操作数按相对表达式解析**：`try a + b` 即 `try (a + b)`，整棵算术树共享一次 checked 求值，
+    内层子表达式不单独成为 `!T`；**不需要**额外加括号
+  - **checked 算术的错误映射**：`+` `-` `*` 与一元 `-` 越界 → `error.Overflow`；
+    `/` `%` 除数为 0 → `error.DivisionByZero`；有符号 `MIN / -1`、`MIN % -1` → `error.Overflow`
+  - **不用声明错误名**：`error.Overflow` / `error.DivisionByZero` 由编译器按需注册，无需写 `error Overflow;`
+  - **`try` 与 `catch` 互斥**：`try (x catch { ... })` 仍报错
+  - **只在 `try`/`catch` 上下文激活**：普通上下文里的 `a + b` 仍是普通整数算术，不做 checked 求值
+  - **只能在返回错误联合类型的函数中使用**（`@async_fn` 返回 `Future<!T>` 亦允许）
+  - **错误传播示例**：`const result: i32 = try divide(10, 2);`（`divide` 必须返回 `!i32`，可能抛出 `error.DivisionByZero` 等）
+  - **checked 算术示例**：`fn add(a: i32, b: i32) !i32 { return try a + b; }`（溢出时返回 `error.Overflow`）
+
+- **`catch` 语法**：
+  - `expr catch |err| { statements }` 用于捕获并处理错误
+  - `expr catch { statements }` 用于捕获所有错误（不绑定错误变量）
+  - 如果 `expr` 返回错误，执行 catch 块
+  - 如果 `expr` 返回值，跳过 catch 块
+  - **`catch` 是 cast 级后缀**：`a + b catch { ... }` 解析为 `a + (b catch { ... })`。
+    就地处理整条算术时**必须加括号**：`(a + b) catch |e| { ... }`
+  - **不要求所在函数返回错误联合类型**：`catch` 就地消费错误，可在任意函数（含 `fn main() i32`）中使用
+  - **类型规则**：`catch` 表达式的类型是 `expr` 成功时的值类型（不是错误联合类型）
+    - `expr catch { default_value }` 的类型 = `expr` 的值类型
+    - `catch` 块必须返回与 `expr` 成功值类型相同的值
+    - **重要限制**：`catch` 块**不能返回错误联合类型**，只能返回值类型或使用 `return` 提前返回函数
+  - **catch 块的返回方式**（两种方式，语义不同）：
+
+    **方式 1：表达式返回值**（catch 块返回一个值给 catch 表达式）
+    - catch 块的**最后一条表达式语句**（必须以 `;` 结尾）的值作为返回值；不需要 `return` 关键字
+    - 这个值会成为整个 `catch` 表达式的值
+    - 例：`const p: &byte = pb catch { null as &byte; };`（真实用法见 `lib/std/async_channel.uya`）
+    - 示例：
+[examples/example_018.uya](./examples/example_018.uya)
+
+    **方式 2：使用 `return` 提前返回函数**（catch 块直接退出函数）
+    - catch 块中使用 `return` 会**立即返回函数**（不是返回 catch 块的值）
+    - 跳过后续所有 defer 和 drop
+    - 示例：
+[examples/main.uya](./examples/main.uya)
+
+    **重要区别**：
+    - 表达式返回值：catch 块返回一个值，程序继续执行
+    - `return` 语句：catch 块直接退出函数，程序不继续执行
+- **错误处理**：
+  - 支持**错误联合类型** `!T` 和 **try/catch** 语法，用于函数错误返回
+  - 函数可以返回错误联合类型：`fn foo() !i32` 表示返回 `i32` 或 `Error`
+  - 使用 `try` 关键字传播错误：`const result: i32 = try divide(10, 2);`
+  - 使用 `catch` 语法捕获错误：`const result: i32 = divide(10, 0) catch |err| { ... };`
+  - **无运行时 panic 路径**：所有 UB 必须被编译期证明为安全，失败即编译错误
+  - **灵活错误定义**：支持预定义错误（`error ErrorName;`）和运行时错误（`error.ErrorName`），无需预先声明
+- **错误类型的操作**：
+  - 错误类型支持直接使用 `==` / `!=` 比较
+  - 兼容旧写法：`if err == error.FileNotFound { ... }`
+  - 运行时错误同样如此：`if err == error.SomeRuntimeError { ... }`
+  - catch 块中可以判断错误类型并做不同处理
+  - 错误值本身不能直接按 `error` 类型打印；若需要名字字符串，可用 `@error_name(err)` 获取不带 `error.` 前缀的名称
+  - 也可显式比较错误 ID：`if @error_id(err) == @error_id(error.PredefinedError) || @error_id(err) == @error_id(error.RuntimeError) { ... }`
+  - 可通过 `@error_id(err)` 读取错误值的数值 ID；对 `@syscall` 失败路径，该 ID 等于底层 errno 值
+  - `@error_name(err)` 仅保证语言级命名错误返回稳定名称；未知或 `@syscall` 错误统一回退为 `"UnknownError"`
+
+**错误处理设计哲学**：
+- **编译期检查**：错误处理是编译期检查，编译器在当前函数内验证错误处理
+- **显式错误**：错误是类型系统的一部分，必须显式处理
+- **编译期检查**：编译器确保所有错误都被处理
+- **无 panic、无断言**：所有 UB 必须被编译期证明为安全，失败即编译错误
+
+**错误处理与内存安全的关系**：
+- **`try`/`catch` 只用于函数错误返回**，不用于捕获 UB
+- **所有 UB 必须被编译期证明为安全**，失败即编译错误，不生成代码
+- 错误处理用于处理可预测的、显式的错误情况（如文件不存在、网络错误等）
+
+**示例：错误处理**：
+[examples/safe_divide.uya](./examples/safe_divide.uya)
 
 ## 9 defer 和 errdefer
 
@@ -4045,8 +4048,8 @@ fn log_printf(fmt: *byte, ...) i32 {
   - 基础类型（整数、浮点、布尔）支持 `==` 和 `!=` 比较
   - 浮点数比较使用 IEEE 754 标准，进行精确比较（可能受浮点精度影响）
   - 错误类型支持 `==` 和 `!=` 比较
-  - 不支持结构体的 `==` 和 `!=` 比较（未来支持）
-  - 不支持数组的 `==` 和 `!=` 比较（未来支持）
+  - **结构体支持 `==` 和 `!=`**：按**字段逐个比较**（嵌套结构体递归展开，结构体里的数组字段按 `memcmp` 比较），空结构体恒等。见 `tests/struct_comparison.uya`
+  - **数组 / 切片不支持 `==` / `!=`**：数组是左值对象，直接比较会退化成首元素指针比较（`[1,2,3] == [1,2,3]` 运行期是 `false`）；切片是胖指针 struct，比较会发射非法的 `struct == struct`。两者都不表示「逐元素相等」，此形态是**编译错误**，不是「未来支持」占位；要比较内容请用 `std.mem.mem_cmp`（或自己写逐元素循环）。负例 `tests/error_array_eq_compare.uya`
 - **表达式求值顺序**：从左到右（left-to-right）
   - 函数参数求值顺序：从左到右
   - 数组字面量元素表达式求值顺序：从左到右
@@ -4647,7 +4650,7 @@ Uya 语言的编译期证明机制采用**分层验证策略**，**证明范围�
    - 示例：
 [examples/add_safe_2.uya](./examples/add_safe_2.uya)
    - **注意**：`try a + b` 是 **checked 算术**——溢出产出 `error.Overflow`，除零产出
-     `error.DivisionByZero`；就地处理写 `(a + b) catch |e| { … }`（详见 §8 的 `try`/`catch` 说明）
+     `error.DivisionByZero`；就地处理写 `(a + b) catch |e| { … }`（详见 §8.1 的 `try`/`catch` 说明）
    - **饱和运算符**：
      - `a +| b`（饱和加法）
      - `a -| b`（饱和减法）
@@ -4679,16 +4682,18 @@ Uya 语言的编译期证明机制采用**分层验证策略**，**证明范围�
 4. **变量运算**：
    - **默认行为（不强制）**：变量算术不做溢出检查，直接按目标类型求值。需要检查时显式选用
      下列任一写法（见下一条）。
-   - **`--strict-overflow` 闸门（可选，默认关）**：开启后**有符号**整数 `+` `-` `*` 必须能证明不溢出，
+   - **`--strict-overflow` 闸门（**默认开启**）**：**有符号**整数 `+` `-` `*` 必须能证明不溢出，
      否则报编译错误并给出三条修法（checked 算术 / 区间守卫 / 饱和或包装运算符）。
      **无符号不参与**：C99 里无符号算术天然是模运算（良定义，不是 UB），
      强制证明只会禁掉 `(0 as u64) - (v as u64)` 这类二补数取负与散列里的有意回绕。
      证明器只覆盖「常量、受守卫收窄的变量、以及它们的加减乘」；函数调用、成员访问、
      下标、类型转换一律视为无界（不可证明）。
-   - **存量成本**：仓库自身（`src/` + `lib/`）开启该闸门会报约 447 处（仅计有符号；`i8`/`i16` 已全绿），
-     故默认不开启，也暂不建议在工程中直接打开。
-   - **未证明时的行为**：普通上下文的 `a + b` 原样发射 C 运算符，构建统一带
-     `-fwrapv -fno-strict-overflow`，因此溢出是**定义良好的回绕**而不是未定义行为。
+   - **存量状态**：`src/` 与 `lib/` 已全部按语义迁移完毕（饱和 `+|` / 回绕 `+%` / `catch` 精确检测），
+     开启该闸门后告警归零，因此实现里默认开启（`src/main.uya` 的 `g_strict_overflow = 1`）。
+     `tests/` 是对抗性语料，由 `tests/run_programs_parallel.sh` 显式传 `--no-strict-overflow` 豁免。
+   - **未证明时的行为**：闸门开启时未证明的有符号溢出是**编译错误**；显式写 `--no-strict-overflow`
+     关闭后，普通上下文的 `a + b` 原样发射 C 运算符，构建统一带
+     `-fwrapv -fno-strict-overflow`，此时溢出是**定义良好的回绕**而不是未定义行为。
    - **显式检查后**，编译器可以证明后续运算安全
    - **溢出处理方式**：
      - **返回错误**：使用错误联合类型 `!T`，溢出时返回 `error.Overflow`
@@ -4724,7 +4729,7 @@ Uya 语言的编译期证明机制采用**分层验证策略**，**证明范围�
 | 变量数组索引 | `i >= 0 && i < len` | `if i < @len(arr) { arr[i] }` |
 | 指针解引用 | `ptr != null` | `if ptr != null { *ptr }` |
 | 变量除法 | `divisor != 0` | `if d != 0 { n / d }` |
-| 变量运算溢出 | 无溢出条件（仅 `--strict-overflow` 下强制） | `if a <= @max - b { a + b }` |
+| 变量运算溢出 | 无溢出条件（`--strict-overflow` 默认开启，故默认必需） | `if a <= @max - b { a + b }` |
 
 **证明失败处理**：
 - 如果开发者没有编写必要的 `if` 检查，编译器报编译错误并给出修改建议
@@ -5908,95 +5913,90 @@ fn unsafe_fetch_add(ptr: &i32, value: i32) i32 {
 
 #### 19.6.1 平台检测
 
-```uya
-// 目标平台枚举
-enum @asm_target {
-    x86_64_linux,
-    x86_64_macos,
-    x86_64_windows,
-    arm64_linux,
-    arm64_macos,
-    arm64_windows,
-}
+`@asm_target` 是**内置名字**，不是可以用 `enum` 声明的普通枚举，也没有 `.x86_64_linux` 这类省略枚举名的变体写法。它的平台号在编译期折叠为整数：
 
-// 获取当前平台
-const target: @asm_target = @asm_target();
 ```
+x86_64_linux = 0, x86_64_macos = 1, x86_64_windows = 2,
+arm64_linux  = 3, arm64_macos  = 4, arm64_windows  = 5, riscv64_linux = 6
+```
+
+```uya
+// 获取当前平台：checker 推断为名为 @asm_target 的枚举类型，
+// 但该枚举没有声明，因此比较前必须先落成 i32
+const target: i32 = @asm_target();
+
+if target == 0 {
+    // x86-64 Linux
+} else if target == 3 {
+    // ARM64 Linux
+}
+```
+
+> **实现核对**：`if @asm_target() == .x86_64_linux` 会报语法错误（意外的 token `.`），`if @asm_target() == 0` 会报类型不匹配；可行写法只有 `if @asm_target() as i32 == 0` 或先赋给 `i32` 变量。见 `tests/test_asm_target.uya`。
 
 #### 19.6.2 条件编译示例
 
 ```uya
-fn syscall_write(fd: i32, buf: &const byte, count: i32) !i32 {
-    var result: i64;  // 显式声明输出变量
-
-    if @asm_target() == .x86_64_linux {
-        @asm {
-            "mov rax, 1" (-> rax);
-            "mov rdi, {fd}" (fd, -> rdi);
-            "mov rsi, {buf}" (buf, -> rsi);
-            "mov rdx, {count}" (count, -> rdx);
-            "syscall" (rax, rdi, rsi, rdx, -> result);
-        } clobbers = ["rcx", "r11"];
-    } else if @asm_target() == .arm64_linux {
-        @asm {
-            "mov x8, #64" (-> x8);
-            "mov x0, {fd}" (fd, -> x0);
-            "mov x1, {buf}" (buf, -> x1);
-            "mov x2, {count}" (count, -> x2);
-            "svc #0" (x8, x0, x1, x2, -> result);
-        } clobbers = ["x16", "x17"];
-    }
-
-    if result < 0 {
-        return error.SyscallFailed;
-    }
-
-    return result as! i32;  // 使用 as! 处理可能溢出的转换
+// 操作数用 GCC 位置编号 %0/%1…（输出在前、输入在后）；多行指令拼进同一个字符串。
+fn syscall_write(fd: i64, buf: &const byte, count: i64) i64 {
+    var ret: i64 = 0;
+    @asm {
+        "movq %1, %%rax\n\tmovq %2, %%rdi\n\tmovq %3, %%rsi\n\tmovq %4, %%rdx\n\tsyscall\n\tmovq %%rax, %0"
+        (1, fd, buf, count, -> ret);
+    } clobbers = ["rax", "rcx", "rdx", "rsi", "rdi", "r11", "memory"];
+    return ret;
 }
 ```
 
+> 普通代码里优先用语言级 `@syscall(nr, ...)`（返回 `!i64`，失败载荷是 errno），它已经把平台差异和错误约定处理好了；`@asm` 只在需要精确控制寄存器时使用。
+
+> **操作数写法**：指令字符串按原样发射，操作数用 GCC 位置编号 `%0` / `%1`（**输出在前、输入在后**）与 `%%reg`；`{name}` 占位符**未实现**，写进模板不会替换。指令里的寄存器名（`rax`/`x0` 等）是汇编文本，不是 Uya 变量。
+
 #### 19.6.3 平台特定寄存器
 
-| 平台 | 通用寄存器类型 | 特殊寄存器 |
+`@asm_reg*` / `@asm_mem` 是 checker 侧的**识别表名字**，`src/lexer.uya` 的 `@` 前缀白名单里没有它们，因此当前**无法在源码中书写** `var x: @asm_reg_x64 = 0;`（lexer 直接报 `未知内置 @asm_reg_x64`）；`@asm_mem(expr)` 调用形式同样不存在。
+
+| 平台 | 识别表名字（当前不可书写） | 对应寄存器 |
 |------|---------------|-----------|
 | x86-64 | `@asm_reg_x64` | rax, rbx, rcx, rdx, rsi, rdi, rbp, rsp, r8-r15 |
 | x86 | `@asm_reg_x86` | eax, ebx, ecx, edx, esi, edi, ebp, esp |
 | ARM64 | `@asm_reg_arm64` | x0-x30 |
+
+实际写法：把值直接传给 `@asm` 的输入/输出位置，并在指令模板里写寄存器名。
 
 ### 19.7 使用示例
 
 #### 19.7.1 基本算术运算
 
 ```uya
+// 溢出检测需要读取 x86 的 OF 标志，当前 @asm 不支持 @asm_flag；
+// 需要 checked 算术时用语言级 try / catch（见 §8）。
 fn add_with_overflow(a: i32, b: i32) !(i32, bool) {
-    var result: i32;
-    var overflow: bool;
-    
-    @asm {
-        "add {a}, {b}" (a, b, -> result, @asm_flag("overflow" -> overflow));
-    }
-    
-    return (result, overflow);
+    const sum: i32 = (a + b) catch |_| {
+        return (0, true);
+    };
+    return (sum, false);
 }
 ```
 
 #### 19.7.2 系统调用
 
 ```uya
+// 输出只能是整数左值，不能写 (-> _)；无输出时写 ()。
 fn syscall_exit(code: i32) noreturn {
-    const SYS_exit: i64 = 60;
-    
+    var ret: i64 = 0;
     @asm {
-        "mov rax, {nr}" (SYS_exit, -> rax);
-        "mov rdi, {code}" (code, -> rdi);
-        "syscall" (rax, rdi, -> _);
-    } clobbers = ["rcx", "r11"];
+        "movq %1, %%rax\n\tmovq %2, %%rdi\n\tsyscall\n\tmovq %%rax, %0"
+        (60, code, -> ret);
+    } clobbers = ["rax", "rcx", "rdx", "rsi", "rdi", "r11", "memory"];
 }
 ```
 
 #### 19.7.3 CPU 特性检测
 
 ```uya
+// 输出操作数必须是整数左值，不能是 features.has_sse 这类字段；
+// 先把结果落到局部变量再赋值。
 struct CPUFeatures {
     has_sse: bool,
     has_sse2: bool,
@@ -6004,22 +6004,25 @@ struct CPUFeatures {
     has_avx2: bool,
 }
 
+fn detect_msb(mask: i32) bool {
+    return (mask & (1 << 25)) != 0 || (mask & (1 << 26)) != 0;
+}
+
 fn detect_cpu_features() CPUFeatures {
-    var features: CPUFeatures = {};
-    
+    var eax: i32 = 1;
+    var ebx: i32 = 0;
+    var ecx: i32 = 0;
+    var edx: i32 = 0;
     @asm {
-        // CPUID 指令
-        "mov eax, 1" (-> eax);
-        "cpuid" (eax, -> eax, ebx, ecx, edx);
-        
-        // 提取特性位
-        "test edx, 1<<25" (edx, -> features.has_sse);
-        "test edx, 1<<26" (edx, -> features.has_sse2);
-        "test ecx, 1<<28" (ecx, -> features.has_avx);
-        "test ebx, 1<<5" (ebx, -> features.has_avx2);
-    }
-    
-    return features;
+        "cpuid" (eax, ecx, -> eax, ebx, ecx, edx);
+    } clobbers = ["cc"];
+
+    var f: CPUFeatures = {};
+    f.has_sse = (edx & (1 << 25)) != 0;
+    f.has_sse2 = (edx & (1 << 26)) != 0;
+    f.has_avx = (ecx & (1 << 28)) != 0;
+    f.has_avx2 = (ebx & (1 << 5)) != 0;
+    return f;
 }
 ```
 

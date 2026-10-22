@@ -14,10 +14,12 @@
   `i32 溢出无法证明（--strict-overflow）：改用 try a + b、(a + b) catch、加区间守卫，或用饱和/包装运算符`。
 - **只覆盖有符号整数**：C99 无符号算术是良定义模运算，不是 UB；强制证明只会禁掉二补数取负
   与散列/校验和里的有意回绕，换不来安全性。`try` 仍可用于无符号的运行时检查。
-- **默认关闭**：仓库自身（`src/` + `lib/`）开启后报约 447 处（仅计有符号，`i8`/`i16` 为 0），
-  翻默认需先完成存量迁移或引入参数/返回值区间契约。
-- **消除 C UB**：构建与生成代码统一加 `-fwrapv -fno-strict-overflow`，未证明的有符号溢出
-  退化为定义良好的回绕，不再有 `-O2` 下被任意误编译的风险（实测 `-fsanitize=undefined` 由报错转为干净）。
+- **默认开启**：`src/main.uya` 的 `g_strict_overflow = 1`。`src/` 与 `lib/` 存量已全部按语义迁移完毕
+  （饱和 `+|` / 回绕 `+%` / `catch`），开启后告警归零；`tests/` 作为对抗性语料由
+  `tests/run_programs_parallel.sh` 显式传 `--no-strict-overflow` 豁免。关闭方式 `--no-strict-overflow`。
+  （此前「默认关闭、存量约 447 处待迁移」的口径已过期。）
+- **消除 C UB**：构建与生成代码统一加 `-fwrapv -fno-strict-overflow`，显式关闭闸门后的未证明
+  有符号溢出退化为定义良好的回绕，不再有 `-O2` 下被任意误编译的风险（实测 `-fsanitize=undefined` 由报错转为干净）。
 - **证明器**：`checker_prove_no_overflow`（`src/checker/proof.uya`）基于 i64 宽化区间
   （`wide_*`，`src/checker/interval.uya`）；加法/减法做显式溢出预处理，乘法限制端点 ≤ 2^31。
   只采纳 `constraint_sound = 1` 的约束（用户守卫、无回绕的 `i = i + c`、直接常量初始化），

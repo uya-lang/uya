@@ -1,0 +1,23 @@
+// error_slice_eq_compare.uya
+// 负例：切片不支持 == / != 比较（规范 §10「类型比较规则」）。
+//
+// 理由：切片在 C99 后端是胖指针 struct（`struct uya_slice_* { ptr; len; }`），
+// 直接比较会发射非法的 `struct == struct`，C 编译器报
+// `invalid operands to binary ==`。即使能编译，语义也不是「逐元素相等」。
+// 要比较内容请用 std.mem.mem_cmp 或显式逐元素循环。
+//
+// 判定规则是「编译失败即可」，不校验报错文案。
+
+export fn main() i32 {
+    var a: [i32: 3] = [1, 2, 3];
+    var b: [i32: 3] = [1, 2, 3];
+
+    const s1: &[i32] = &a[0:3];
+    const s2: &[i32] = &b[0:3];
+
+    if s1 == s2 {
+        return 0;
+    }
+
+    return 1;
+}

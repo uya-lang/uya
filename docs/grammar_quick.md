@@ -681,63 +681,57 @@ fn example() !void {
 
 ```uya
 @asm {
-    "add {a}, {b}" (a, b, -> result);   // 输入…, -> 输出…
-    "mov rax, 1" ();                    // 没有操作数的指令写 ()
+    "addl %1, %0" (a, -> result);       // 输入…, -> 输出…；%0/%1 是 GCC 位置编号
+    "nop" ();                           // 没有操作数的指令写 ()
 } clobbers = ["rax", "memory"];         // clobbers 只写在 '}' 之后
 ```
 
 **语法元素**：
-- `instruction template`：汇编指令模板（字符串字面量），使用 `{name}` 占位符
+- `instruction template`：汇编指令模板（字符串字面量），**按原样发射**；操作数用 GCC 位置编号 `%0` / `%1`（**输出在前、输入在后**）与 `%%reg`。`{name}` 占位符**未实现**，写进模板不会被替换
 - `inputs`：输入表达式列表（普通表达式，指向内存时直接传 `&T` / `&const T`）
-- `outputs`：输出表达式列表（`->` 之后）；输出变量必须在块外先声明并初始化
+- `outputs`：输出表达式列表（`->` 之后）；**只能是整数左值**（字段/下标/指针目标会被拒），必须在块外先声明并初始化
 - `clobbers`：被修改的寄存器列表，只在 `@asm { ... }` 块的 `}` **之后**声明（没有逐指令 clobbers 语法）
 - `_` 不能作为输出操作数（`(-> _)` 会报「输出表达式类型无效」）；无输出就只写 `()` 或只写输入
 
 ### 常用指令示例
 
 ```uya
-// 基本算术
+// 基本算术（输出从 %%0 接收，输入从 %1 起）
 fn add_asm(a: i32, b: i32) i32 {
     var result: i32 = 0;
     @asm {
-        "add {a}, {b}" (a, b, -> result);
+        "movl %1, %0\n\taddl %2, %0" (a, b, -> result);
     }
     return result;
 }
 
 // 系统调用（x86-64 Linux）
-fn syscall_write(fd: i32, buf: &const byte, count: i32) !i32 {
+fn syscall_write(fd: i64, buf: &const byte, count: i64) i64 {
     var result: i64 = 0;
     @asm {
-        "mov rax, 1" ();
-        "mov rdi, {fd}" (fd);
-        "mov rsi, {buf}" (buf);
-        "mov rdx, {count}" (count);
-        "syscall" (-> result);
-    } clobbers = ["rcx", "r11", "memory"];
-    
-    if result < 0 { return error.SyscallFailed; }
-    return result as! i32;
+        "movq %1, %%rax\n\tmovq %2, %%rdi\n\tmovq %3, %%rsi\n\tmovq %4, %%rdx\n\tsyscall\n\tmovq %%rax, %0"
+        (1, fd, buf, count, -> result);
+    } clobbers = ["rax", "rcx", "rdx", "rsi", "rdi", "r11", "memory"];
+    return result;
 }
 
 // 内存操作数：直接传指针（没有 @asm_mem(...) 这个内置调用）
-fn store_u32(ptr: &u32, v: u32) u32 {
-    var old: u32 = 0;
+fn load_u32(ptr: &u32) u32 {
+    var value: u32 = 0;
     @asm {
-        "mov {old}, [{ptr}]" (ptr, -> old);
+        "movl (%1), %0" (ptr, -> value);
     }
-    return old;
+    return value;
 }
 
 // CPUID 指令
 fn cpuid(leaf: u32) (u32, u32, u32, u32) {
-    var eax: u32 = 0;
+    var eax: u32 = leaf;
     var ebx: u32 = 0;
     var ecx: u32 = 0;
     var edx: u32 = 0;
     @asm {
-        "mov eax, {leaf}" (leaf, -> eax);
-        "cpuid" (eax, -> eax, ebx, ecx, edx);
+        "cpuid" (eax, ecx, -> eax, ebx, ecx, edx);
     }
     return (eax, ebx, ecx, edx);
 }
@@ -747,7 +741,9 @@ fn cpuid(leaf: u32) (u32, u32, u32, u32) {
 
 #### 寄存器类型
 
-| 类型 | 说明 | 平台 |
+这些是 checker 侧的**识别表名字**；`src/lexer.uya` 的 `@` 前缀白名单里没有它们，因此当前**无法在源码中书写** `var x: @asm_reg_x64 = 0;`（lexer 报 `未知内置 @asm_reg_x64`）。实际写法是把值直接传给 `@asm` 的操作数位置。
+
+| 类型（识别表名字） | 说明 | 平台 |
 |------|------|------|
 | `@asm_reg` | 编译器自动分配的通用寄存器 | 跨平台 |
 | `@asm_reg_x64` | x86-64 通用寄存器 | x86-64 |
@@ -760,18 +756,18 @@ fn cpuid(leaf: u32) (u32, u32, u32, u32) {
 
 `@asm_mem` 是**内置类型名**（C 侧映射为 `void *`），用来说明「这个操作数是内存操作数」；它**没有** `@asm_mem(expr)` 调用形式，也不是可以用 `type` 声明的普通类型（`src/checker/type_from_ast.uya:632-634`、`src/codegen/c99/types.uya:939-941`）。
 
-**使用示例**（内存操作数直接传指针）：
+**使用示例**（内存操作数直接传指针；操作数用 `%0`/`%1` 位置编号，`{name}` 占位符未实现）：
 ```uya
 fn read_u32(ptr: &u32) u32 {
     var value: u32 = 0;
     @asm {
-        "mov {value}, [{ptr}]" (ptr, -> value);
+        "movl (%1), %0" (ptr, -> value);
     }
     return value;
 }
 ```
 
-> **注意**：以 `"lock "` 开头的指令模板会被检查器要求 `clobbers = ["memory"]`，而 `"memory"` 目前只写入 `asm_clobbers_memory`、不进入 clobber 列表（`src/parser/primary.uya:1331`、`src/checker/check_expr.uya:4007-4023`），因此手写 `"lock ..."` 模板暂时无法通过检查；原子读改写请用 `atomic T` 的隐式原子操作（见[十一、原子操作速查](#十一原子操作速查)）。
+> **注意**：以 `"lock "` 开头的指令模板会被检查器要求 `clobbers = ["memory"]`。`"memory"` 会同时写入 `asm_clobbers_memory` 标志与 clobber 列表，因此写 `clobbers = ["memory"]` 即可通过（回归 `tests/test_asm_memory_clobber_flag.uya`）。原子读改写优先用 `atomic T` 的隐式原子操作（见[十一、原子操作速查](#十一原子操作速查)）。
 
 ### 平台差异说明
 
