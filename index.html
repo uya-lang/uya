@@ -1,2159 +1,596 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Uya 语言 - AI友好 · 默认高级安全 · 零 GC · 零 lifetime 符号 · 编译期证明 · 单页纸可读完</title>
-    <link rel="icon" type="image/png" href="uya.png">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        :root {
-            --primary: #2563eb;
-            --primary-dark: #1d4ed8;
-            --secondary: #7c3aed;
-            --accent: #10b981;
-            --dark: #1e293b;
-            --light: #f8fafc;
-            --gray: #64748b;
-            --light-gray: #e2e8f0;
-            --border: #cbd5e1;
-            --code-bg: #0f172a;
-            --error: #ef4444;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --ai: #8b5cf6;
-        }
-        
-        body {
-            font-family: 'Inter', sans-serif;
-            line-height: 1.6;
-            color: var(--dark);
-            background-color: var(--light);
-            scroll-behavior: smooth;
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 20px;
-        }
-        
-        /* 头部样式 */
-        header {
-            background: linear-gradient(135deg, var(--dark), #0f172a);
-            color: white;
-            padding: 4rem 0 2rem;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .header-content {
-            position: relative;
-            z-index: 2;
-        }
-        
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 1.5rem;
-        }
-        
-        .logo-icon {
-            font-size: 2.5rem;
-            color: var(--accent);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .logo-icon img {
-            display: block;
-        }
-        
-        .logo h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            background: linear-gradient(90deg, var(--accent), var(--primary));
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-        }
-        
-        .tagline {
-            font-size: 1.2rem;
-            margin-bottom: 1.5rem;
-            color: #cbd5e1;
-        }
-        
-        .version {
-            display: inline-block;
-            background-color: rgba(16, 185, 129, 0.2);
-            color: var(--accent);
-            padding: 0.3rem 0.8rem;
-            border-radius: 20px;
-            font-size: 0.9rem;
-            margin-bottom: 2rem;
-            border: 1px solid rgba(16, 185, 129, 0.3);
-        }
-        
-        .core-features {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        
-        .feature-tag {
-            background-color: rgba(37, 99, 235, 0.15);
-            color: #93c5fd;
-            padding: 0.5rem 1rem;
-            border-radius: 5px;
-            font-size: 0.9rem;
-            border-left: 3px solid var(--primary);
-        }
-        
-        .feature-tag.zero-gc {
-            background-color: rgba(16, 185, 129, 0.15);
-            color: var(--accent);
-            border-left-color: var(--accent);
-        }
-        
-        .feature-tag.safe {
-            background-color: rgba(239, 68, 68, 0.15);
-            color: #fca5a5;
-            border-left-color: var(--error);
-        }
-        
-        .feature-tag.ai-friendly {
-            background-color: rgba(139, 92, 246, 0.15);
-            color: #c4b5fd;
-            border-left-color: var(--ai);
-        }
-        
-        .feature-tag.zero-lifetime {
-            background-color: rgba(245, 158, 11, 0.15);
-            color: #fcd34d;
-            border-left-color: var(--warning);
-        }
-        
-        .cta-buttons {
-            display: flex;
-            gap: 1rem;
-            margin-top: 2rem;
-        }
-        
-        .btn {
-            padding: 0.8rem 1.5rem;
-            border-radius: 6px;
-            text-decoration: none;
-            font-weight: 600;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.3s ease;
-        }
-        
-        .btn-primary {
-            background-color: var(--primary);
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            background-color: var(--primary-dark);
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(37, 99, 235, 0.2);
-        }
-        
-        .btn-secondary {
-            background-color: transparent;
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-        }
-        
-        .btn-secondary:hover {
-            background-color: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.5);
-        }
-        
-        /* 导航样式 */
-        .nav-container {
-            background-color: rgba(30, 41, 59, 0.95);
-            backdrop-filter: blur(10px);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        nav {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1rem 0;
-        }
-        
-        .nav-links {
-            display: flex;
-            gap: 2rem;
-        }
-        
-        .nav-links a {
-            color: #cbd5e1;
-            text-decoration: none;
-            font-weight: 500;
-            transition: color 0.3s;
-            position: relative;
-        }
-        
-        .nav-links a:hover {
-            color: white;
-        }
-        
-        .nav-links a.active {
-            color: white;
-        }
-        
-        .nav-links a.active::after {
-            content: '';
-            position: absolute;
-            bottom: -5px;
-            left: 0;
-            width: 100%;
-            height: 2px;
-            background-color: var(--accent);
-        }
-        
-        .mobile-toggle {
-            display: none;
-            background: none;
-            border: none;
-            color: white;
-            font-size: 1.5rem;
-            cursor: pointer;
-        }
-        
-        /* 主要内容样式 */
-        main {
-            padding: 3rem 0;
-        }
-        
-        .content-wrapper {
-            display: grid;
-            grid-template-columns: 280px 1fr;
-            gap: 3rem;
-        }
-        
-        /* 侧边栏目录 */
-        .sidebar {
-            position: sticky;
-            top: 100px;
-            align-self: start;
-            max-height: calc(100vh - 120px);
-            overflow-y: auto;
-            padding-right: 1rem;
-        }
-        
-        .toc-title {
-            font-size: 1.1rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            color: var(--dark);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .toc-list {
-            list-style: none;
-        }
-        
-        .toc-list li {
-            margin-bottom: 0.5rem;
-        }
-        
-        .toc-list a {
-            color: var(--gray);
-            text-decoration: none;
-            font-size: 0.95rem;
-            display: block;
-            padding: 0.4rem 0.8rem;
-            border-radius: 5px;
-            transition: all 0.2s;
-            border-left: 3px solid transparent;
-        }
-        
-        .toc-list a:hover {
-            color: var(--primary);
-            background-color: rgba(37, 99, 235, 0.05);
-        }
-        
-        .toc-list a.active {
-            color: var(--primary);
-            background-color: rgba(37, 99, 235, 0.08);
-            border-left-color: var(--primary);
-            font-weight: 500;
-        }
-        
-        .toc-list .toc-sub {
-            margin-left: 1rem;
-            margin-top: 0.3rem;
-            font-size: 0.9rem;
-        }
-        
-        /* 内容区域 */
-        .content {
-            background-color: white;
-            border-radius: 10px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
-            padding: 2.5rem;
-        }
-        
-        .content-section {
-            margin-bottom: 3rem;
-            scroll-margin-top: 100px;
-        }
-        
-        .content-section h2 {
-            font-size: 1.8rem;
-            color: var(--dark);
-            margin-bottom: 1rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 2px solid var(--light-gray);
-        }
-        
-        .content-section h3 {
-            font-size: 1.4rem;
-            color: var(--dark);
-            margin: 1.5rem 0 1rem;
-        }
-        
-        .content-section h4 {
-            font-size: 1.1rem;
-            color: var(--dark);
-            margin: 1.2rem 0 0.8rem;
-        }
-        
-        .content-section p {
-            margin-bottom: 1rem;
-            color: var(--dark);
-        }
-        
-        .content-section ul, .content-section ol {
-            margin-left: 1.5rem;
-            margin-bottom: 1.5rem;
-        }
-        
-        .content-section li {
-            margin-bottom: 0.5rem;
-        }
-        
-        /* 代码块样式 */
-        .code-block {
-            background-color: var(--code-bg);
-            border-radius: 8px;
-            padding: 1.5rem;
-            margin: 1.5rem 0;
-            overflow-x: auto;
-            position: relative;
-        }
-        
-        .code-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-            color: #94a3b8;
-            font-size: 0.9rem;
-        }
-        
-        .code-copy {
-            background: none;
-            border: 1px solid #334155;
-            color: #94a3b8;
-            padding: 0.3rem 0.7rem;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.8rem;
-            transition: all 0.2s;
-        }
-        
-        .code-copy:hover {
-            background-color: #1e293b;
-            color: white;
-        }
-        
-        .code-copy.copied {
-            background-color: var(--accent);
-            color: white;
-            border-color: var(--accent);
-        }
-        
-        pre {
-            margin: 0;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.95rem;
-            line-height: 1.5;
-        }
-        
-        code {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.9rem;
-        }
-        
-        .inline-code {
-            background-color: #f1f5f9;
-            color: var(--dark);
-            padding: 0.2rem 0.4rem;
-            border-radius: 4px;
-            font-size: 0.9rem;
-        }
-        
-        /* 表格样式 */
-        .table-container {
-            overflow-x: auto;
-            margin: 1.5rem 0;
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 1rem;
-        }
-        
-        th, td {
-            padding: 0.8rem 1rem;
-            text-align: left;
-            border: 1px solid var(--border);
-        }
-        
-        th {
-            background-color: #f8fafc;
-            font-weight: 600;
-            color: var(--dark);
-        }
-        
-        tr:nth-child(even) {
-            background-color: #f8fafc;
-        }
-        
-        /* 设计哲学卡片 */
-        .philosophy-card {
-            background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
-            border-left: 4px solid var(--primary);
-            padding: 1.5rem;
-            border-radius: 0 8px 8px 0;
-            margin: 2rem 0;
-        }
-        
-        .philosophy-card h3 {
-            color: var(--primary);
-            margin-top: 0;
-        }
-        
-        .comparison-table {
-            margin: 2rem 0;
-        }
-        
-        .comparison-table th {
-            background-color: var(--primary);
-            color: white;
-        }
-        
-        /* 特性卡片 */
-        .feature-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 1.5rem;
-            margin: 2rem 0;
-        }
-        
-        .feature-card {
-            background-color: white;
-            border-radius: 8px;
-            padding: 1.5rem;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
-            border-top: 4px solid var(--primary);
-            transition: transform 0.3s, box-shadow 0.3s;
-        }
-        
-        .feature-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-        }
-        
-        .feature-card.atomic {
-            border-top-color: var(--accent);
-        }
-        
-        .feature-card.memory-safe {
-            border-top-color: var(--success);
-        }
-        
-        .feature-card.concurrent-safe {
-            border-top-color: var(--warning);
-        }
-        
-        .feature-card.ai-friendly {
-            border-top-color: var(--ai);
-        }
-        
-        .feature-icon {
-            font-size: 2rem;
-            color: var(--primary);
-            margin-bottom: 1rem;
-        }
-        
-        .feature-card.atomic .feature-icon {
-            color: var(--accent);
-        }
-        
-        .feature-card.memory-safe .feature-icon {
-            color: var(--success);
-        }
-        
-        .feature-card.concurrent-safe .feature-icon {
-            color: var(--warning);
-        }
-        
-        .feature-card.ai-friendly .feature-icon {
-            color: var(--ai);
-        }
-        
-        .feature-card h3 {
-            margin-top: 0;
-            font-size: 1.2rem;
-        }
-        
-        /* AI友好特性部分 */
-        .ai-feature {
-            background: linear-gradient(135deg, #f5f3ff, #ede9fe);
-            border-left: 4px solid var(--ai);
-            padding: 1.5rem;
-            border-radius: 0 8px 8px 0;
-            margin: 2rem 0;
-        }
-        
-        .ai-feature h3 {
-            color: var(--ai);
-            margin-top: 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        /* 页脚样式 */
-        footer {
-            background-color: var(--dark);
-            color: #cbd5e1;
-            padding: 3rem 0;
-            margin-top: 3rem;
-        }
-        
-        .footer-content {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 2rem;
-        }
-        
-        .footer-section h3 {
-            color: white;
-            margin-bottom: 1.2rem;
-            font-size: 1.2rem;
-        }
-        
-        .footer-links {
-            list-style: none;
-        }
-        
-        .footer-links li {
-            margin-bottom: 0.7rem;
-        }
-        
-        .footer-links a {
-            color: #94a3b8;
-            text-decoration: none;
-            transition: color 0.3s;
-        }
-        
-        .footer-links a:hover {
-            color: white;
-        }
-        
-        .copyright {
-            text-align: center;
-            margin-top: 3rem;
-            padding-top: 2rem;
-            border-top: 1px solid #334155;
-            color: #94a3b8;
-            font-size: 0.9rem;
-        }
-        
-        /* 响应式设计 */
-        @media (max-width: 992px) {
-            .content-wrapper {
-                grid-template-columns: 1fr;
-            }
-            
-            .sidebar {
-                display: none;
-            }
-            
-            .nav-links {
-                display: none;
-            }
-            
-            .mobile-toggle {
-                display: block;
-            }
-            
-            .mobile-nav {
-                display: none;
-                position: absolute;
-                top: 100%;
-                left: 0;
-                width: 100%;
-                background-color: var(--dark);
-                padding: 1rem;
-                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-            }
-            
-            .mobile-nav.active {
-                display: block;
-            }
-            
-            .mobile-nav .nav-links {
-                display: flex;
-                flex-direction: column;
-                gap: 1rem;
-            }
-        }
-        
-        @media (max-width: 768px) {
-            .header-content h1 {
-                font-size: 2rem;
-            }
-            
-            .cta-buttons {
-                flex-direction: column;
-            }
-            
-            .feature-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .content {
-                padding: 1.5rem;
-            }
-        }
-        
-        /* 辅助类 */
-        .highlight {
-            background-color: rgba(16, 185, 129, 0.1);
-            padding: 0.2rem 0.4rem;
-            border-radius: 4px;
-            color: var(--accent);
-        }
-        
-        .note {
-            background-color: #fef3c7;
-            border-left: 4px solid #f59e0b;
-            padding: 1rem;
-            margin: 1.5rem 0;
-            border-radius: 0 4px 4px 0;
-        }
-        
-        .note p {
-            margin: 0;
-        }
-        
-        .quote {
-            font-style: italic;
-            border-left: 4px solid var(--primary);
-            padding-left: 1.5rem;
-            margin: 1.5rem 0;
-            color: var(--gray);
-        }
-        
-        .language-uya {
-            color: #cbd5e1;
-        }
-        
-        .token.keyword {
-            color: #c678dd;
-        }
-        
-        .token.function {
-            color: #61afef;
-        }
-        
-        .token.string {
-            color: #98c379;
-        }
-        
-        .token.comment {
-            color: #5c6370;
-        }
-        
-        .token.number {
-            color: #d19a66;
-        }
-        
-        .token.operator {
-            color: #56b6c2;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Uya 语言 — 规范 0.49.55 · 编译器 v0.10.4</title>
+<link rel="icon" type="image/png" href="uya.png">
+<style>
+  :root {
+    --fg: #1f2328;
+    --muted: #59636e;
+    --line: #d1d9e0;
+    --bg: #ffffff;
+    --bg-soft: #f6f8fa;
+    --accent: #0969da;
+    --warn: #9a6700;
+    --warn-bg: #fff8c5;
+    --code-fg: #e6edf3;
+    --code-bg: #161b22;
+    --ok: #1a7f37;
+    --err: #cf222e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.65 -apple-system, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre {
+    font-family: "JetBrains Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
+    font-size: 13px;
+  }
+  code {
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    border-radius: 6px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 12px 0;
+    line-height: 1.5;
+  }
+  pre code {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font-size: 13px;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 20px; }
+
+  header { border-bottom: 1px solid var(--line); padding: 36px 0 24px; }
+  header h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.4px; }
+  header .sub { color: var(--muted); margin: 0 0 14px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .meta span { margin-right: 16px; }
+
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(255,255,255,0.94);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  nav .wrap {
+    display: flex; flex-wrap: wrap; gap: 4px 18px;
+    padding-top: 10px; padding-bottom: 10px; font-size: 14px;
+  }
+  nav a { color: var(--muted); }
+  nav a:hover { color: var(--accent); }
+
+  main { padding: 8px 0 60px; }
+  section { padding: 30px 0 6px; border-bottom: 1px solid var(--line); }
+  section:last-child { border-bottom: 0; }
+  h2 { font-size: 21px; margin: 0 0 4px; letter-spacing: -0.2px; }
+  h3 { font-size: 16px; margin: 24px 0 6px; }
+  h4 { font-size: 14px; margin: 18px 0 4px; color: var(--muted); font-weight: 600; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--bg-soft); font-weight: 600; }
+  td code { white-space: nowrap; }
+
+  .lede { color: var(--muted); margin-top: 0; }
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--bg-soft);
+    padding: 10px 14px; margin: 14px 0; border-radius: 0 4px 4px 0;
+  }
+  .warn {
+    border-left: 3px solid var(--warn);
+    background: var(--warn-bg);
+    padding: 10px 14px; margin: 14px 0; border-radius: 0 4px 4px 0;
+  }
+  .note p, .warn p { margin: 4px 0; }
+  .ok { color: var(--ok); }
+  .bad { color: var(--err); }
+  .grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    margin: 14px 0;
+  }
+  .card { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
+  .card h4 { margin: 0 0 6px; color: var(--fg); font-size: 14px; }
+  .card p { margin: 0; font-size: 14px; color: var(--muted); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  footer {
+    border-top: 1px solid var(--line);
+    background: var(--bg-soft);
+    padding: 24px 0 40px;
+    color: var(--muted); font-size: 13px;
+  }
+  footer ul { list-style: none; padding: 0; margin: 6px 0; }
+  footer li { margin: 3px 0; }
+
+  @media (max-width: 640px) {
+    header h1 { font-size: 24px; }
+    table { font-size: 13px; }
+    th, td { padding: 6px 8px; }
+  }
+</style>
 </head>
 <body>
-    <!-- 头部 -->
-    <header>
-        <div class="container">
-            <div class="header-content">
-                <div class="logo">
-                    <div class="logo-icon">
-                        <img src="uya.png" alt="Uya Logo" style="width: 60px; height: 60px; object-fit: contain;">
-                    </div>
-                    <h1>Uya 语言</h1>
-                </div>
-                <div class="version">语言规范 0.47 · 项目 v0.1.0（Uya Mini 编译器已自举）</div>
-                <p class="tagline">AI友好 · 内存安全 · 并发安全 · 零 GC · 简单易学</p>
-                
-                <div class="core-features">
-                    <div class="feature-tag ai-friendly"><i class="fas fa-robot"></i> AI友好</div>
-                    <div class="feature-tag"><i class="fas fa-shield-alt"></i> 高级内存安全</div>
-                    <div class="feature-tag zero-gc"><i class="fas fa-recycle"></i> 零GC</div>
-                    <div class="feature-tag zero-lifetime"><i class="fas fa-times-circle"></i> 零lifetime符号</div>
-                    <div class="feature-tag"><i class="fas fa-bolt"></i> 编译期证明</div>
-                    <div class="feature-tag"><i class="fas fa-file-alt"></i> 单页纸可读完</div>
-                </div>
-                
-                <div class="cta-buttons">
-                    <a href="#get-started" class="btn btn-primary"><i class="fas fa-play-circle"></i> 快速开始</a>
-                    <a href="#design-philosophy" class="btn btn-secondary"><i class="fas fa-book"></i> 设计哲学</a>
-                    <a href="#examples" class="btn btn-secondary"><i class="fas fa-code"></i> 完整示例</a>
-                </div>
-            </div>
-        </div>
-    </header>
-    
-    <!-- 导航栏 -->
-    <div class="nav-container">
-        <div class="container">
-            <nav>
-                <div class="logo">
-                    <div class="logo-icon" style="font-size: 1.5rem;">
-                        <img src="uya.png" alt="Uya Logo" style="width: 24px; height: 24px; object-fit: contain;">
-                    </div>
-                    <h1 style="font-size: 1.5rem;">Uya 语言</h1>
-                </div>
-                
-                <button class="mobile-toggle" id="mobileToggle">
-                    <i class="fas fa-bars"></i>
-                </button>
-                
-                <div class="nav-links">
-                    <a href="#core-features" class="active">核心特性</a>
-                    <a href="#design-philosophy">设计哲学</a>
-                    <a href="#ai-friendly">AI友好</a>
-                    <a href="#type-system">类型系统</a>
-                    <a href="#examples">示例</a>
-                    <a href="#standard-library">标准库</a>
-                </div>
-            </nav>
-            
-            <!-- 移动端导航 -->
-            <div class="mobile-nav" id="mobileNav">
-                <div class="nav-links">
-                    <a href="#core-features" class="active">核心特性</a>
-                    <a href="#design-philosophy">设计哲学</a>
-                    <a href="#ai-friendly">AI友好</a>
-                    <a href="#type-system">类型系统</a>
-                    <a href="#examples">示例</a>
-                    <a href="#standard-library">标准库</a>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- 主要内容 -->
-    <main class="container">
-        <div class="content-wrapper">
-            <!-- 侧边栏目录 -->
-            <aside class="sidebar" id="sidebar">
-                <h3 class="toc-title"><i class="fas fa-list"></i> 目录</h3>
-                <ul class="toc-list" id="tocList">
-                    <!-- 目录将通过JavaScript动态生成 -->
-                </ul>
-            </aside>
-            
-            <!-- 内容区域 -->
-            <div class="content">
-                <!-- 核心特性部分 -->
-                <section id="core-features" class="content-section">
-                    <h2>核心特性</h2>
-                    
-                    <div class="feature-grid">
-                        <div class="feature-card atomic">
-                            <div class="feature-icon">
-                                <i class="fas fa-atom"></i>
-                            </div>
-                            <h3>原子类型</h3>
-                            <p><code class="inline-code">atomic T</code> 关键字，自动原子指令，零运行时锁。</p>
-                        </div>
-                        
-                        <div class="feature-card memory-safe">
-                            <div class="feature-icon">
-                                <i class="fas fa-shield-alt"></i>
-                            </div>
-                            <h3>内存安全强制</h3>
-                            <p>所有 UB 必须被编译期证明为安全，失败即编译错误。</p>
-                        </div>
-                        
-                        <div class="feature-card concurrent-safe">
-                            <div class="feature-icon">
-                                <i class="fas fa-bolt"></i>
-                            </div>
-                            <h3>并发安全强制</h3>
-                            <p>零数据竞争，编译期证明安全。</p>
-                        </div>
-                        
-                        <div class="feature-card ai-friendly">
-                            <div class="feature-icon">
-                                <i class="fas fa-robot"></i>
-                            </div>
-                            <h3>AI友好</h3>
-                            <p>简洁明了的语法，易于AI理解和生成代码。</p>
-                        </div>
-                        
-                        <div class="feature-card">
-                            <div class="feature-icon">
-                                <i class="fas fa-code"></i>
-                            </div>
-                            <h3>泛型语法</h3>
-                            <p>使用尖括号 <code class="inline-code">Vec&lt;T&gt;</code>，约束紧邻参数 <code class="inline-code">&lt;T: Ord&gt;</code>，多约束连接 <code class="inline-code">&lt;T: Ord + Clone + Default&gt;</code>。</p>
-                        </div>
-                        
-                        <div class="feature-card">
-                            <div class="feature-icon">
-                                <i class="fas fa-bridge"></i>
-                            </div>
-                            <h3>extern struct 完全解放</h3>
-                            <p>C 兼容结构体获得 Uya 超能力：可以有方法、drop、实现接口，同时保持 100% C 兼容性。</p>
-                        </div>
-                    </div>
-                    
-                    <div class="note" style="margin-top: 2rem;">
-                        <h3>核心创新</h3>
-                        <h4>1. 泛型语法确定</h4>
-                        <div class="code-block">
-                            <div class="code-header">
-                                <span>泛型语法</span>
-                                <button class="code-copy">复制</button>
-                            </div>
-                            <pre><code class="language-uya">// 泛型函数
-fn max&lt;T: Ord&gt;(a: T, b: T) T { ... }
 
-// 泛型结构体
-struct Vec&lt;T: Default&gt; { ... }
+<header>
+  <div class="wrap">
+    <h1>Uya 语言</h1>
+    <p class="sub">编译期证明内存安全，零 GC，零 lifetime 符号，C99 后端自举。</p>
+    <p class="meta">
+      <span>语言规范 0.49.55</span>
+      <span>编译器 v0.10.4</span>
+      <span>MIT</span>
+    </p>
+  </div>
+</header>
 
-// 泛型接口
-interface Iterator&lt;T&gt; { ... }
+<nav>
+  <div class="wrap">
+    <a href="#overview">概览</a>
+    <a href="#numbers">规模数据</a>
+    <a href="#safety">安全模型</a>
+    <a href="#types">类型</a>
+    <a href="#examples">代码</a>
+    <a href="#toolchain">工具链</a>
+    <a href="#stdlib">标准库</a>
+    <a href="#limits">已知边界</a>
+    <a href="#docs">文档</a>
+  </div>
+</nav>
 
-// 使用尖括号 &lt;T&gt;，约束紧邻参数 &lt;T: Ord&gt;</code></pre>
-                        </div>
-                        
-                        <h4>2. extern struct 完全解放</h4>
-                        <div class="code-block">
-                            <div class="code-header">
-                                <span>extern struct 示例</span>
-                                <button class="code-copy">复制</button>
-                            </div>
-                            <pre><code class="language-uya">interface IReadable {
-    fn read(self: &Self, buf: *byte, len: i32) !i32;
-}
+<main class="wrap">
 
-struct File : IReadable {
-    fd: i32
-}
+<section id="overview">
+  <h2>概览</h2>
+  <p class="lede">Uya 是一个系统编程语言。数组越界、整数溢出、除零、读未初始化内存、空指针解引用这五类未定义行为，必须在编译期被证明为安全，否则编译失败。</p>
 
-File {
-    // ✅ 可以有方法
-    fn read(self: &Self, buf: *byte, len: i32) !i32 {
-        defer { log_read(); }
-        // ...
-    }
-    
-    // ✅ 可以有 drop
-    fn drop(self: &Self) void {
-        close(self.fd);
-    }
-}</code></pre>
-                        </div>
-                        
-                        <p><strong>最酷的部分</strong>：同一个结构体，两面性：</p>
-                        <ul>
-                            <li><strong>C 代码看到</strong>：纯数据，标准布局</li>
-                            <li><strong>Uya 代码看到</strong>：完整对象，有方法、接口、RAII</li>
-                            <li><strong>C 兼容性 100% 保持</strong></li>
-                            <li><strong>Uya 能力 100% 获得</strong></li>
-                        </ul>
-                    </div>
-                    
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <i class="fas fa-quote-right"></i>
-                        </div>
-                        <h3>字符串插值</h3>
-                        <p>支持 <code class="inline-code">"a${x}"</code> 和 <code class="inline-code">"pi=${pi:.2f}"</code> 两种形式，支持定点格式（<code class="inline-code">%f</code>）、科学计数法（<code class="inline-code">%e</code>、<code class="inline-code">%E</code>）等格式说明符。</p>
-                        <div class="code-block">
-                            <div class="code-header">
-                                <span>字符串插值示例</span>
-                                <button class="code-copy">复制</button>
-                            </div>
-                            <pre><code class="language-uya">const x: u32 = 255;
-const pi: f64 = 3.1415926;
-const msg: [i8: 64] = "hex=${x:#06x}, pi=${pi:.2f}\n";</code></pre>
-                        </div>
-                    </div>
-                    
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <i class="fas fa-exchange-alt"></i>
-                        </div>
-                        <h3>移动语义</h3>
-                        <p>结构体赋值时转移所有权，避免不必要的拷贝。</p>
-                    </div>
-                    
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <i class="fas fa-calculator"></i>
-                        </div>
-                        <h3>安全指针算术</h3>
-                        <p>支持 <code class="inline-code">ptr +/- offset</code>，必须通过编译期证明安全。</p>
-                    </div>
-                    
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <i class="fas fa-folder-open"></i>
-                        </div>
-                        <h3>模块系统</h3>
-                        <p>目录级模块、显式导出、路径导入，编译期解析。</p>
-                    </div>
-                    
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <i class="fas fa-sync"></i>
-                        </div>
-                        <h3>简化 for 循环语法</h3>
-                        <p>支持 <code class="inline-code">for obj |v| {}</code>、<code class="inline-code">for 0..10 |v| {}</code>、<code class="inline-code">for obj |&v| {}</code> 等简化语法。</p>
-                    </div>
-                    
-                    <div class="feature-card">
-                        <div class="feature-icon">
-                            <i class="fas fa-plus-circle"></i>
-                        </div>
-                        <h3>运算符简化</h3>
-                        <p><code class="inline-code">try</code> 关键字用于溢出检查，<code class="inline-code">+|</code>/<code class="inline-code">-|</code>/<code class="inline-code">*|</code> 用于饱和运算，<code class="inline-code">+%</code>/<code class="inline-code">-%</code>/<code class="inline-code">*%</code> 用于包装运算。</p>
-                    </div>
-                </section>
-                
-                <!-- 设计哲学部分 -->
-                <section id="design-philosophy" class="content-section">
-                    <h2>设计哲学</h2>
-                    
-                    <div class="philosophy-card">
-                        <h3>核心思想：坚如磐石</h3>
-                        <p>Uya语言的设计哲学是<strong>坚如磐石</strong>（绝对可靠、不可动摇），将所有运行时不确定性转化为编译期的确定性结果：要么证明绝对安全，要么返回显式错误。</p>
-                    </div>
-                    
-                    <h3>核心机制</h3>
-                    <ul>
-                        <li>程序员提供<strong>显式证明</strong>，编译器验证证明的正确性</li>
-                        <li>编译器在编译期完成所有安全验证，证明超时则自动插入运行时检查</li>
-                        <li>每个操作都有明确的<strong>数学证明</strong>，消除任何运行时不确定性</li>
-                        <li>零运行时未定义行为，程序行为完全可预测</li>
-                    </ul>
-                    
-                    <h3>示例对比</h3>
-                    
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>C/C++：程序员负责，编译器不检查</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-c">// C/C++：程序员负责，编译器不检查
-int arr[10];
-int i = get_index();  // 可能越界
-int x = arr[i];       // 运行时可能崩溃，编译器不警告</code></pre>
-                    </div>
-                    
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>Rust：借用检查器帮助，但需要所有权系统</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-rust">// Rust：借用检查器帮助，但需要所有权系统
-let arr = [0; 10];
-let i = get_index();
-if i < arr.len() {
-    let x = arr[i];  // 借用检查器保证安全
-} else {
-    // 需要处理越界情况
-}</code></pre>
-                    </div>
-                    
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>Uya：程序员提供证明，编译器验证证明</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">// Uya：程序员提供证明，编译器验证证明
-const arr: [i32: 10] = [0: 10];
-const i: i32 = get_index();
-if i < 0 || i >= 10 {
-    return error.OutOfBounds;  // 显式检查，返回预定义错误（可选）
-}
-// 或者使用运行时错误（无需预定义）
-if i < 0 || i >= 10 {
-    return error.IndexOutOfBounds;  // 运行时错误，无需预定义
-}
-const x: i32 = arr[i];  // 编译器证明 i >= 0 && i < 10，安全</code></pre>
-                    </div>
-                    
-                    <h3>责任转移的哲学</h3>
-                    <div class="table-container">
-                        <table class="comparison-table">
-                            <thead>
-                                <tr>
-                                    <th>语言</th>
-                                    <th>安全责任</th>
-                                    <th>编译器角色</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td><strong>C/C++</strong></td>
-                                    <td>程序员负责安全</td>
-                                    <td>编译器不帮忙，只生成代码</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Rust</strong></td>
-                                    <td>编译器通过借用检查器帮忙</td>
-                                    <td>编译器主动检查所有权和生命周期</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Uya</strong></td>
-                                    <td>程序员必须提供证明，编译器验证证明</td>
-                                    <td>编译器验证数学证明，失败即编译错误</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <h3>结果与收益</h3>
-                    <p>Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：</p>
-                    <ul>
-                        <li><strong>绝对的安全性</strong>：通过数学证明彻底消除缓冲区溢出、空指针解引用等内存安全漏洞</li>
-                        <li><strong>完全的可预测性</strong>：程序行为在编译期完全确定，无任何运行时未定义行为</li>
-                        <li><strong>最优的性能</strong>：开发者编写显式安全检查，编译器在当前函数内验证其充分性，消除冗余的运行时安全检查，仅保留必要的错误处理逻辑</li>
-                        <li><strong>明确的错误处理</strong>：可能失败的操作返回错误联合类型<code class="inline-code">!T</code>，强制显式错误处理</li>
-                        <li><strong>长期的可维护性</strong>：代码行为清晰可预测，减少调试和维护成本</li>
-                    </ul>
-                    
-                    <h3>性能保证</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>示例：编译期证明安全</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">// Uya：开发者编写显式检查，编译器在当前函数内验证
-fn safe_access(arr: [i32: 10], i: i32) !i32 {
-    if i < 0 || i >= 10 {
-        return error.OutOfBounds;  // 显式错误处理
-    }
-    // 编译器证明：当执行到这里时，i >= 0 && i < 10 必然成立
-    return arr[i];  // 直接访问，无运行时边界检查
-}
-// 生成的代码：
-//   cmp   rdi, 0                 // 运行时错误检查
-//   jl    .error_out_of_bounds
-//   cmp   rdi, 10                // 运行时错误检查
-//   jge   .error_out_of_bounds
-//   mov   eax, [rsi + rdi*4]     // 直接访问，无额外运行时检查
-//   ret
-// .error_out_of_bounds:
-//   mov   rax, error.OutOfBounds
-//   ret</code></pre>
-                    </div>
-                    
-                    <div class="note">
-                        <p><strong>关键说明</strong>：</p>
-                        <ul>
-                            <li>编译器在当前函数内进行证明，证明超时则自动插入运行时检查</li>
-                            <li>错误路径保留显式检查，确保安全</li>
-                            <li>编译器自动消除冗余检查，只保留必要的错误处理逻辑</li>
-                        </ul>
-                    </div>
-                    
-                    <div class="quote">
-                        <p><strong>一句话总结：</strong>Uya 的设计哲学 = 坚如磐石 = 程序员提供证明，编译器验证证明，运行时绝对安全；<br>
-                        <strong>将运行时的不确定性转化为编译期的确定性，证明超时则自动插入运行时检查。</strong></p>
-                    </div>
-                </section>
-                
-                <!-- AI友好部分 -->
-                <section id="ai-friendly" class="content-section">
-                    <h2>AI友好设计</h2>
-                    
-                    <div class="ai-feature">
-                        <h3><i class="fas fa-robot"></i> 为什么 Uya 语言对AI友好？</h3>
-                        <p>Uya 语言从设计之初就考虑了AI代码生成和理解的需求，具有以下特点：</p>
-                    </div>
-                    
-                    <h3>简洁明了的语法</h3>
-                    <ul>
-                        <li><strong>零 lifetime 符号</strong>：无需学习复杂的生命周期标注，降低AI学习成本</li>
-                        <li><strong>无隐式控制</strong>：所有行为都是显式的，易于AI理解和推理</li>
-                        <li><strong>单页纸可读完</strong>：规范简洁，AI可以快速掌握语言全貌</li>
-                        <li><strong>一致的命名和约定</strong>：减少歧义，提高代码生成准确性</li>
-                    </ul>
-                    
-                    <h3>可预测的行为</h3>
-                    <ul>
-                        <li><strong>编译期证明</strong>：所有安全保证在编译期完成，AI生成的代码要么安全，要么无法编译</li>
-                        <li><strong>零运行时意外</strong>：无未定义行为，AI生成的代码行为可预测</li>
-                        <li><strong>清晰的错误信息</strong>：编译错误信息明确，帮助AI理解问题所在</li>
-                    </ul>
-                    
-                    <h3>易于推理的类型系统</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>简单直观的类型系统</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">// 类型清晰，无隐式转换
-const x: i32 = 10;        // 明确类型
-const y: f64 = 3.14;      // 明确类型
-const z: i32 = x + 5;     // 类型必须匹配
+  <table>
+    <tr><th style="width:34%">项目</th><th>当前状态</th></tr>
+    <tr><td>实现语言</td><td>Uya 自举（源码仅维护 <code>src/</code>，82 个 <code>.uya</code>，约 12.9 万行）</td></tr>
+    <tr><td>后端</td><td>C99。默认多文件输出到 <code>.uyacache</code>，<code>--no-split-c</code> 时输出单文件</td></tr>
+    <tr><td>运行时</td><td>零 GC。栈数组 + 显式 <code>IAllocator</code>；结构体离开作用域调用 <code>drop</code></td></tr>
+    <tr><td>并发</td><td><code>atomic T</code> 单一关键字，读写与复合赋值编译为原子指令，不加锁</td></tr>
+    <tr><td>关键字</td><td>32 个（<code>src/lexer.uya</code> 的 <code>is_keyword</code> 全表）</td></tr>
+    <tr><td>内置函数</td><td>36 个，全部以 <code>@</code> 开头，无需导入</td></tr>
+    <tr><td>测试</td><td>1180 个 <code>.uya</code> 测试文件，其中 204 个是 <code>error_*</code> 负例；另有 186 个 shell 校验脚本</td></tr>
+    <tr><td>最近一次全量验证</td><td>1153/1153 通过（v0.10.4 发布记录）</td></tr>
+  </table>
+</section>
 
-// 错误处理明确（支持预定义和运行时错误）
-fn divide(a: i32, b: i32) !i32 {
-    if b == 0 {
-        return error.DivisionByZero;  // 预定义错误（可选）
-    }
-    if a < 0 {
-        return error.NegativeInput;   // 运行时错误，无需预定义
-    }
-    return a / b;  // 正常返回值
-}</code></pre>
-                    </div>
-                    
-                    <h3>完整的工具链支持</h3>
-                    <ul>
-                        <li><strong>丰富的标准库文档</strong>：每个函数都有清晰的文档，帮助AI理解用途</li>
-                        <li><strong>编译器智能提示</strong>：为AI提供上下文信息和补全建议</li>
-                        <li><strong>格式化工具</strong>：统一的代码风格，减少AI输出歧义</li>
-                    </ul>
-                    
-                    <div class="note">
-                        <p><strong>AI友好意味着：</strong>人类程序员和AI都能轻松理解、编写和维护 Uya 语言代码。简洁的语法和明确的语义降低了学习和使用的门槛。</p>
-                    </div>
-                </section>
-                
-                <!-- 类型系统部分 -->
-                <section id="type-system" class="content-section">
-                    <h2>类型系统</h2>
-                    
-                    <div class="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Uya 类型</th>
-                                    <th>C 对应</th>
-                                    <th>大小/对齐</th>
-                                    <th>备注</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td><code>i8</code> <code>i16</code> <code>i32</code> <code>i64</code></td>
-                                    <td>同宽 signed</td>
-                                    <td>1 2 4 8 B</td>
-                                    <td>对齐 = 类型大小；支持 <code>@max</code>/<code>@min</code> 内置函数访问极值</td>
-                                </tr>
-                                <tr>
-                                    <td><code>u8</code> <code>u16</code> <code>u32</code> <code>u64</code></td>
-                                    <td>同宽 unsigned</td>
-                                    <td>1 2 4 8 B</td>
-                                    <td>对齐 = 类型大小；无符号整数类型</td>
-                                </tr>
-                                <tr>
-                                    <td><code>f32</code> <code>f64</code></td>
-                                    <td>float/double</td>
-                                    <td>4/8 B</td>
-                                    <td>对齐 = 类型大小</td>
-                                </tr>
-                                <tr>
-                                    <td><code>bool</code></td>
-                                    <td>uint8_t</td>
-                                    <td>1 B</td>
-                                    <td>0/1，对齐 1 B</td>
-                                </tr>
-                                <tr>
-                                    <td><code>byte</code></td>
-                                    <td>uint8_t</td>
-                                    <td>1 B</td>
-                                    <td>无符号字节，对齐 1 B，用于字节数组</td>
-                                </tr>
-                                <tr>
-                                    <td><code>void</code></td>
-                                    <td>void</td>
-                                    <td>0 B</td>
-                                    <td>仅用于函数返回类型</td>
-                                </tr>
-                                <tr>
-                                    <td><code>*byte</code></td>
-                                    <td>char*</td>
-                                    <td>4/8 B</td>
-                                    <td>FFI 指针类型 <code>*T</code> 的一个实例（T=byte），用于 FFI 函数参数和返回值，指向 C 字符串；FFI 指针类型 <code>*T</code> 支持所有 C 兼容类型</td>
-                                </tr>
-                                <tr>
-                                    <td><code>&T</code></td>
-                                    <td>普通指针</td>
-                                    <td>4/8 B（平台相关）</td>
-                                    <td>无 lifetime 符号；32位平台=4B，64位平台=8B；可通过 <code>as</code> 显式转换为 FFI 指针类型 <code>*T</code>（仅用于 FFI 调用）；<code>&void</code> 是通用指针类型，可转换为任何指针类型</td>
-                                </tr>
-                                <tr>
-                                    <td><code>&void</code></td>
-                                    <td>通用指针</td>
-                                    <td>4/8 B（平台相关）</td>
-                                    <td>通用指针类型，可以转换为任何指针类型（<code>&void</code> → <code>&T</code>），用于实现类型擦除和通用指针操作；32位平台=4B，64位平台=8B</td>
-                                </tr>
-                                <tr>
-                                    <td><code>&atomic T</code></td>
-                                    <td>原子指针</td>
-                                    <td>4/8 B（平台相关）</td>
-                                    <td>关键字驱动；32位平台=4B，64位平台=8B</td>
-                                </tr>
-                                <tr>
-                                    <td><code>atomic T</code></td>
-                                    <td>原子类型</td>
-                                    <td>sizeof(T)</td>
-                                    <td>语言级原子类型</td>
-                                </tr>
-                                <tr>
-                                    <td><code>[T: N]</code></td>
-                                    <td>T[N]</td>
-                                    <td>N·sizeof(T)</td>
-                                    <td>N 为编译期正整数</td>
-                                </tr>
-                                <tr>
-                                    <td><code>struct S { }</code></td>
-                                    <td>struct S</td>
-                                    <td>字段顺序布局</td>
-                                    <td>对齐 = 最大字段对齐</td>
-                                </tr>
-                                <tr>
-                                    <td><code>interface I { }</code></td>
-                                    <td>-</td>
-                                    <td>8/16 B（平台相关）</td>
-                                    <td>vtable 指针(4/8B) + 数据指针(4/8B)；32位平台=8B，64位平台=16B</td>
-                                </tr>
-                                <tr>
-                                    <td><code>enum E { }</code></td>
-                                    <td>enum E</td>
-                                    <td>sizeof(底层类型)</td>
-                                    <td>枚举类型，默认底层类型为 i32</td>
-                                </tr>
-                                <tr>
-                                    <td><code>(T1, T2, ...)</code></td>
-                                    <td>-</td>
-                                    <td>字段顺序布局</td>
-                                    <td>元组类型，对齐 = 最大字段对齐</td>
-                                </tr>
-                                <tr>
-                                    <td><code>!T</code></td>
-                                    <td>错误联合类型</td>
-                                    <td>max(sizeof(T), sizeof(错误标记)) + 对齐填充</td>
-                                    <td><code>T | Error</code></td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <div class="note">
-                        <p><strong>重要特性：</strong>无隐式转换；<strong>指针类型转换</strong>：<code>&T as *T</code>（仅用于 FFI 调用，显式转换）、<code>&void ↔ &T</code>（通用指针转换）；<strong>指针自动解引用</strong>：<code>ptr.field</code> 等价于 <code>(*ptr).field</code>；<strong>字段赋值</strong>：支持 <code>obj.field = value</code> 和 <code>ptr.field = value</code>；无指针算术；<strong>零 lifetime 符号</strong>。</p>
-                    </div>
-                    
-                    <h3>类型相关的极值常量</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>@max/@min 内置函数示例</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">// @max/@min 内置函数访问极值（类型推断）
-const MAX: i32 = @max;  // 2147483647（从类型注解 i32 推断）
-const MIN: i32 = @min;  // -2147483648（从类型注解 i32 推断）
+<section id="numbers">
+  <h2>规模数据</h2>
+  <p>以下数字直接从仓库统计，不含估算。</p>
 
-// 在溢出检查中使用（从变量类型推断）
-const a: i32 = ...;
-const b: i32 = ...;
-if a > 0 && b > 0 && a > @max - b {  // 从 a 和 b 的类型 i32 推断
-    return error.Overflow;  // 运行时错误，无需预定义
-}</code></pre>
-                    </div>
-                </section>
-                
-                <!-- 示例部分 -->
-                <section id="examples" class="content-section">
-                    <h2>完整示例</h2>
-                    
-                    <h3>结构体 + 栈数组 + FFI</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>示例：矩阵操作</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">struct Mat4 {
-  m: [f32: 16]
-}
+  <h3>代码与测试</h3>
+  <table>
+    <tr><th>项</th><th>数量</th><th>说明</th></tr>
+    <tr><td>编译器源码</td><td class="num">82 个文件 / 129,234 行</td><td><code>src/**/*.uya</code></td></tr>
+    <tr><td>标准库与运行时</td><td class="num">215 个文件 / 79,264 行</td><td><code>lib/**/*.uya</code></td></tr>
+    <tr><td>标准库模块</td><td class="num">21 个目录 + 13 个顶层文件</td><td><code>lib/std/</code></td></tr>
+    <tr><td>测试文件</td><td class="num">904 正例 + 204 负例 + 72 其他</td><td><code>tests/*.uya</code></td></tr>
+    <tr><td>校验脚本</td><td class="num">186 个，其中 169 个是 <code>verify_*</code></td><td><code>tests/*.sh</code></td></tr>
+    <tr><td>文档</td><td class="num">232 篇</td><td>顶层 155 / 发行说明 58 / 其他 19（<code>docs/**/*.md</code>）</td></tr>
+  </table>
 
-extern printf(fmt: *byte, ...) i32;
+  <h3>构建时间</h3>
+  <p>实测环境：44 线程 / gcc 12.3 / Intel。数据来自 <a href="docs/build_speed.md">docs/build_speed.md</a>。</p>
+  <table>
+    <tr><th>场景</th><th>提速前</th><th>当前</th></tr>
+    <tr><td><code>make uya</code> 全量</td><td class="num">22.0 s</td><td class="num">14.0 s</td></tr>
+    <tr><td><code>make uya</code> 无改动</td><td class="num">22.4 s</td><td class="num">0.4 s</td></tr>
+    <tr><td><code>make b</code> 自举验证</td><td class="num">43.1 s</td><td class="num">26.6 s</td></tr>
+    <tr><td>前端 parse</td><td class="num">2.25 s</td><td class="num">0.54 s</td></tr>
+    <tr><td>前端 codegen</td><td class="num">6.70 s</td><td class="num">2.62 s</td></tr>
+  </table>
+  <p>提速来自两处：前端按文件 fork 子进程并行（<code>--jobs/-j</code>，默认 CPU 数，上限 32），C 阶段走 <code>make -j</code> 加增量指纹。</p>
+</section>
 
-fn print_mat(mat: Mat4) void {
-  var i: i32 = 0;
-  while i < 16 {
-    printf("%f ", mat.m[i]);
-    i = i + 1;
-    if (i % 4) == 0 { printf("\n"); }
-  }
-}
+<section id="safety">
+  <h2>安全模型</h2>
+  <p>编译器在<strong>当前函数内</strong>验证安全性。证明失败就是编译错误，不降级为运行时检查。</p>
+
+  <table>
+    <tr><th>未定义行为</th><th>编译器要求</th></tr>
+    <tr><td>数组越界</td><td>常量索引越界 → 编译错误；变量索引 → 必须证明 <code>i &gt;= 0 &amp;&amp; i &lt; N</code></td></tr>
+    <tr><td>整数溢出</td><td>默认开启（<code>--strict-overflow</code>）：有符号 <code>+ - *</code> 必须可证明不溢出，<code>--no-strict-overflow</code> 可关闭</td></tr>
+    <tr><td>除零</td><td>常量除零 → 编译错误；变量 → 必须证明除数非零</td></tr>
+    <tr><td>读未初始化内存</td><td>必须证明首次使用前已赋值</td></tr>
+    <tr><td>空指针解引用</td><td>必须证明指针非空，或前序已有判空</td></tr>
+  </table>
+
+  <p>证明失败时的实际诊断（<code>uya check</code> 输出）：</p>
+<pre><code>n1.uya:(2:16): 错误: 数组索引安全证明失败
+  变量: i, 数组大小: 10
+  建议: 添加边界检查 (如 if i >= 0 &amp;&amp; i &lt; 10)
+
+so.uya:(1:39): 错误: i32 溢出无法证明（--strict-overflow）：
+  改用 try a + b、(a + b) catch、加区间守卫，或用饱和/包装运算符</code></pre>
+
+  <p>溢出有三种显式写法，由调用方选择语义：</p>
+  <table>
+    <tr><th>写法</th><th>溢出时</th></tr>
+    <tr><td><code>a + b</code></td><td>必须能证明不溢出，否则编译错误</td></tr>
+    <tr><td><code>a +| b</code></td><td>饱和到 <code>@max</code> / <code>@min</code>（<code>-|</code> <code>*|</code> 同理）</td></tr>
+    <tr><td><code>a +% b</code></td><td>回绕（<code>-%</code> <code>*%</code> 同理）</td></tr>
+    <tr><td><code>try a + b</code></td><td>越界返回 <code>error.Overflow</code>，除零返回 <code>error.DivisionByZero</code>，结果为 <code>!i32</code></td></tr>
+  </table>
+  <div class="note">
+    <p>未证明的溢出不会落入 C 未定义行为：构建脚本与默认 <code>CFLAGS</code> 统一带 <code>-fwrapv -fno-strict-overflow</code>，退化为定义良好的回绕。</p>
+  </div>
+</section>
+
+<section id="types">
+  <h2>类型</h2>
+  <p>无隐式转换。指针与 FFI 指针分离：<code>&amp;T</code> 用于 Uya 内部，<code>*T</code> 仅用于 C 互操作，转换写 <code>&amp;T as *T</code>。</p>
+
+  <table>
+    <tr><th>类型</th><th>x86_64 大小</th><th>说明</th></tr>
+    <tr><td><code>i8 i16 i32 i64</code></td><td class="num">1 2 4 8 B</td><td>对齐 = 类型大小；<code>@max</code> / <code>@min</code> 取极值</td></tr>
+    <tr><td><code>u8 u16 u32 u64</code></td><td class="num">1 2 4 8 B</td><td>无符号；溢出是良定义模运算</td></tr>
+    <tr><td><code>usize isize</code></td><td class="num">8 B</td><td>指针宽度；<code>isize</code> 当前归一为 <code>i64</code></td></tr>
+    <tr><td><code>f32 f64</code></td><td class="num">4 / 8 B</td><td></td></tr>
+    <tr><td><code>bool byte</code></td><td class="num">1 B</td><td><code>byte</code> 与 C <code>char</code> 兼容</td></tr>
+    <tr><td><code>void</code></td><td class="num">0 B</td><td>仅作返回类型</td></tr>
+    <tr><td><code>&amp;T</code> / <code>*T</code></td><td class="num">8 B</td><td>普通指针 / FFI 指针</td></tr>
+    <tr><td><code>&amp;[T]</code> / <code>&amp;[T: N]</code></td><td class="num">16 B</td><td>切片（动态长度 / 编译期已知长度），指针 + 长度</td></tr>
+    <tr><td><code>[T: N]</code></td><td class="num">N·sizeof(T)</td><td>定长数组，<code>N</code> 为编译期正整数</td></tr>
+    <tr><td><code>atomic T</code></td><td class="num">sizeof(T)</td><td>读写与复合赋值编译为原子指令</td></tr>
+    <tr><td><code>struct S { }</code></td><td class="num">字段顺序布局</td><td>统一 C 内存布局，可直接传给 C；也可有方法、<code>drop</code>、实现接口</td></tr>
+    <tr><td><code>interface I { }</code></td><td class="num">16 B</td><td>生成 C 结构 <code>{ void *vtable; void *data; }</code>；鸭子类型，零注册</td></tr>
+    <tr><td><code>enum E { }</code></td><td class="num">sizeof(底层类型)</td><td>默认底层 <code>i32</code></td></tr>
+    <tr><td><code>(T1, T2)</code></td><td class="num">字段顺序布局</td><td>元组</td></tr>
+    <tr><td><code>!T</code></td><td class="num">4 + align + sizeof(T)</td><td>生成 C 结构 <code>{ uint32_t error_id; T value; }</code>，<code>!i64</code> 实测 16 B</td></tr>
+    <tr><td><code>@vector(T, N)</code></td><td class="num">N·sizeof(T)</td><td>SIMD 向量；<code>@mask(N)</code> 为比较结果类型</td></tr>
+  </table>
+
+  <div class="warn">
+    <p><strong><code>@align_of</code> 对 <code>i8</code> <code>i16</code> <code>i64</code> <code>u16</code> 返回 <code>1</code></strong>（应为 1/2/8/2），<code>i32</code>、<code>f64</code> 与指针正确。已实测，见<a href="buglist.md">buglist.md</a>。</p>
+    <p><strong><code>@size_of</code> 对错误联合与接口不可用</strong>：<code>@size_of(!i64)</code> 返回 <code>1</code>（实际 16），<code>@size_of(IFoo)</code> 会生成无法编译的 <code>sizeof(IFoo)</code>。上表这两行的大小取自生成的 C 结构，不是 <code>@size_of</code> 的结果。</p>
+  </div>
+</section>
+
+<section id="examples">
+  <h2>代码</h2>
+  <p>以下每段都用 <code>bin/uya run</code> 实跑通过，输出即注释所示。</p>
+
+  <h3>Hello, world</h3>
+<pre><code>extern "libc" fn printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
-  var m: Mat4 = Mat4{ m: [0.0: 16] };
-  m.m[0]  = 1.0;
-  m.m[5]  = 1.0;
-  m.m[10] = 1.0;
-  m.m[15] = 1.0;
-  print_mat(m);
-  return 0;
-}</code></pre>
-                    </div>
-                    
-                    <h3>Uya 指针传递给 FFI 函数</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>示例：指针类型转换</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">// 声明外部 C 函数
-extern write(fd: i32, buf: *byte, count: i32) i32;
-extern printf(fmt: *byte, ...) i32;
-
-fn main() i32 {
-    var buffer: [byte: 100] = [];
-    
-    // Uya 普通指针通过 as 显式转换为 FFI 指针类型
-    const result: i32 = write(1, &buffer[0] as *byte, 100);
-    
-    if result < 0 {
-        printf("Write failed\n");
-        return 1;
-    }
-    
+    printf("hello, uya\n");
     return 0;
 }</code></pre>
-                    </div>
-                    
-                    <div class="note">
-                        <p><strong>指针转换规则：</strong></p>
-                        <ul>
-                            <li>✅ <code>&T as *T</code>：Uya 普通指针可以显式转换为 FFI 指针类型（安全转换，无精度损失）</li>
-                            <li>✅ <code>&void ↔ &T</code>：通用指针与具体指针类型之间的转换（类型擦除）</li>
-                            <li>仅在 FFI 函数调用时使用，符合"显式控制"设计哲学</li>
-                            <li>编译期检查，无运行时开销</li>
-                        </ul>
-                    </div>
-                    
-                    <h3>错误处理 + defer/errdefer</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>示例：文件操作与错误处理</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">// 错误处理（支持预定义和运行时错误）
-error FileError;  // 预定义错误（可选）
+<pre><code>$ uya run hello.uya
+hello, uya</code></pre>
 
-extern open(path: *byte, flags: i32) i32;
-extern close(fd: i32) i32;
-extern read(fd: i32, buf: *byte, size: i32) i32;
-extern printf(fmt: *byte, ...) i32;
+  <h3>边界检查 → 编译期证明</h3>
+<pre><code>extern "libc" fn printf(fmt: *byte, ...) i32;
 
-struct File {
-    fd: i32
+fn safe_get(arr: &amp;[i32: 10], i: i32) !i32 {
+    if i &lt; 0 || i &gt;= 10 {
+        return error.OutOfBounds;
+    }
+    return arr[i];   // 到这里编译器已知 0 &lt;= i &lt; 10，直接访问
 }
-
-fn open_file(path: *byte) !File {
-    const fd: i32 = open(path, 0);
-    if fd < 0 {
-        return error.FileError;      // 预定义错误
-    }
-    // 或者使用运行时错误
-    if fd == 0 {
-        return error.InvalidHandle;  // 运行时错误，无需预定义
-    }
-    return File{ fd: fd };
-}
-
-File {
-    fn drop(self: File) void {
-        if self.fd >= 0 {
-            close(self.fd);
-        }
-    }
-}
-
-fn read_file(path: *byte) !i32 {
-    const file: File = try open_file(path);
-    defer {
-        printf("File operation completed\n");
-    }
-    errdefer {
-        printf("Error occurred, cleaning up\n");
-    }
-
-    var buf: [byte: 1024] = [];
-    const n: i32 = read(file.fd, &buf[0], 1024);
-    if n < 0 {
-        return error.FileError;      // 预定义错误
-    }
-    // 或者使用运行时错误
-    if n == 0 {
-        return error.EmptyFile;      // 运行时错误，无需预定义
-    }
-
-    return n;
-}</code></pre>
-                    </div>
-                    
-                    <div class="note">
-                        <p><strong>error_id 稳定性：</strong><code>error_id = hash(error_name)</code>，相同错误名在任意编译中映射到相同 <code>error_id</code>；hash 冲突时编译器报错并提示冲突名称。</p>
-                    </div>
-                    
-                    <h3>默认安全并发</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>示例：原子计数器</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">interface IIncrement {
-  fn inc(self: &Self) i32;
-}
-
-struct Counter : IIncrement {
-  value: atomic i32
-}
-
-Counter {
-  fn inc(self: &Self) i32 {
-    self.value += 1;      // 自动原子 fetch_add
-    return self.value;    // 自动原子 load
-  }
-}
-
-fn main() i32 {
-  const counter: Counter = Counter{ value: 0 };
-  // 多线程并发递增，零数据竞争
-  // 所有操作自动原子化，无需锁
-  return 0;
-}</code></pre>
-                    </div>
-                    
-                    <h3>for循环迭代</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>示例：数组迭代</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
-
-fn main() i32 {
-    const arr: [i32: 5] = [10, 20, 30, 40, 50];
-    
-    // 基本迭代（只获取元素值）
-    printf("Basic iteration:\n");
-    for arr |item| {
-        printf("  value: %d\n", item);
-    }
-    
-    // 整数范围迭代
-    printf("\nInteger range iteration:\n");
-    for 0..10 |i| {
-        printf("  i: %d\n", i);  // 输出 0 到 9
-    }
-    
-    // 可修改迭代
-    var arr2: [i32: 5] = [10, 20, 30, 40, 50];
-    printf("\nMutable iteration:\n");
-    for arr2 |&item| {
-        *item = *item * 2;  // 修改每个元素
-        printf("  value: %d\n", *item);
-    }
-    
-    return 0;
-}</code></pre>
-                    </div>
-
-                    <h3>切片语法（类似Python）</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>示例：数组切片操作</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
     var arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-    
-    // 基本切片语法：&arr[start:len] 返回切片视图
-    const slice: &[i32] = &arr[2:5];  // 动态长度切片
-    printf("Values: ");
-    for slice |value| {
-        printf("%d ", value);  // 输出：2 3 4 5 6
-    }
-    printf("\n");
-    
-    // 修改原数组影响切片
-    arr[3] = 99;
-    printf("After modifying arr[3]=99: ");
-    for slice |value| {
-        printf("%d ", value);  // 输出：2 99 4 5 6（切片反映原数组变化）
-    }
-    printf("\n");
-    
-    // 可修改迭代
-    for slice |&ptr| {
-        *ptr = *ptr * 2;  // 修改切片元素，同时影响原数组
-    }
-    printf("After doubling slice elements: ");
-    for slice |value| {
-        printf("%d ", value);  // 输出：4 198 8 10 12
-    }
-    printf("\n");
-    
-    // 已知长度切片
-    const exact_slice: &[i32: 3] = &arr[0:3];
-    printf("Exact slice [0:3]: ");
-    for exact_slice |value| {
-        printf("%d ", value);  // 输出：0 1 2
-    }
-    printf("\n");
-    
-    // 负数索引
-    const tail: &[i32] = &arr[-3:3];  // 等价于 &arr[7:3]
-    printf("Tail slice [-3:3]: ");
-    for tail |value| {
-        printf("%d ", value);  // 输出：7 8 9
-    }
-    printf("\n");
-    
-    // 索引迭代
-    printf("Index iteration: ");
-    for slice |i| {
-        printf("[%d] ", i);  // 输出：[0] [1] [2] [3] [4]
-    }
-    printf("\n");
-    
-    return 0;
-}</code></pre>
-                    </div>
-
-                    <h3>切片作为函数参数</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>示例：使用切片作为函数参数</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
-
-// 使用动态长度切片作为参数
-fn process(p: &[i32]) void {
-    printf("Processing slice with length: ");
-    for p |value| {
-        printf("%d ", value);
-    }
-    printf("\n");
-}
-
-// 使用已知长度切片作为参数
-fn process_exact(p: &[i32: 3]) void {
-    printf("Processing exact slice: ");
-    for p |value| {
-        printf("%d ", value);
-    }
-    printf("\n");
-}
-
-// 多个切片参数示例
-fn process_multiple(a: i32, p1: &[i32], b: i32, p2: &[f32], c: i32) void {
-    printf("a=%d, b=%d, c=%d\n", a, b, c);
-    printf("p1: ");
-    for p1 |v1| {
-        printf("%d ", v1);
-    }
-    printf("\np2: ");
-    for p2 |v2| {
-        printf("%f ", v2);
-    }
-    printf("\n");
-}
-
-fn main() i32 {
-    const arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-    const floats: [f32: 5] = [1.1, 2.2, 3.3, 4.4, 5.5];
-    
-    // 传递动态长度切片
-    process(&arr[2:3]);        // 传递切片 &arr[2:3]
-    
-    // 传递已知长度切片
-    process_exact(&arr[0:3]);  // 传递已知长度切片 &[i32: 3]
-    
-    // 传递多个切片
-    process_multiple(10, &arr[1:4], 20, &floats[0:3], 30);
-    
-    return 0;
-}</code></pre>
-                    </div>
-
-                    <h3>安全指针算术</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>示例：指针算术操作</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
-
-fn main() i32 {
-    const arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-    var ptr: &i32 = &arr[0];  // 指向数组首元素的指针
-
-    // 基本指针算术
-    // 指针向后偏移
-    const offset_ptr: &i32 = ptr + 5;  // 指向第6个元素
-    printf("Value at ptr + 5: %d\n", *offset_ptr);  // 输出 5
-
-    // 指针算术与边界检查
-    if offset_ptr < &arr[10] {       // 边界检查
-        const val: i32 = *offset_ptr;   // 安全解引用
-        printf("Value: %d\n", val);
-    }
-
-    // 循环中的指针算术（使用新的 for 循环语法）
-    for 0..10 |i| {
-        const current_ptr: &i32 = ptr + i;  // 编译器证明 i < 10，安全
-        printf("arr[%d] = %d\n", i, *current_ptr);
-    }
-
-    // 指针间距离计算
-    const ptr1: &i32 = &arr[2];
-    const ptr2: &i32 = &arr[7];
-    const diff: i32 = (ptr2 as i32) - (ptr1 as i32);  // 计算指针间距离
-    printf("Distance between ptr2 and ptr1: %d\n", diff);
-
-    // 安全的指针算术函数
-    const result: &i32 = safe_ptr_arith(arr, 3) catch |err| {
-        if err == error.OutOfBounds {
-            printf("Index out of bounds\n");
-        }
+    const v: i32 = safe_get(&amp;arr[0:10], 3) catch |e| {
+        printf("out of bounds\n");
         return 1;
     };
-    printf("Value at safe index: %d\n", *result);
-
+    printf("v = %d\n", v);
     return 0;
-}
-
-// 安全的指针算术函数
-fn safe_ptr_arith(arr: [i32: 10], offset: i32) !&i32 {
-    if offset < 0 || offset >= 10 {
-        return error.OutOfBounds;
-    }
-    return &arr[0] + offset;  // 编译器证明 offset < 10，安全
 }</code></pre>
-                    </div>
+<pre><code>$ uya run bounds.uya
+v = 3</code></pre>
 
-                    <h3>泛型系统（可选特性）</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>示例：泛型容器库</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">// 泛型接口定义：使用尖括号
-interface Collection&lt;T&gt; {
-    fn add(self: &Self, item: T) !void;
-    fn get(self: &Self, index: i32) !T;
-    fn size(self: &Self) i32;
-}
-
-// 泛型结构体定义：使用尖括号，约束紧邻参数
-struct ArrayList&lt;T: Default&gt; : Collection&lt;T&gt; {
-    items: &[T],
-    capacity: i32,
-    size: i32
-}
-
-// 接口方法作为结构体方法定义
-ArrayList&lt;T: Default&gt; {
-    fn add(self: &Self, item: T) !void {
-        if self.size >= self.capacity {
-            return error.Full;
-        }
-        self.items[self.size] = item;
-        self.size = self.size + 1;
-    }
-    
-    fn get(self: &Self, index: i32) !T {
-        if index < 0 || index >= self.size {
-            return error.OutOfBounds;
-        }
-        return self.items[index];
-    }
-    
-    fn size(self: &Self) i32 {
-        return self.size;
-    }
-}
-
-// 泛型算法函数
-fn find_index&lt;T&gt;(items: &[T], target: T) i32 {
-    for 0..len(items) |i| {
-        if items[i] == target {
-            return i;
-        }
-    }
-    return -1;
+  <h3>checked 算术</h3>
+<pre><code>fn add_checked(a: i32, b: i32) !i32 {
+    return try a + b;      // 越界 -> error.Overflow
 }
 
 fn main() i32 {
-    // 创建具体类型的 ArrayList
-    var buffer: [i32: 100] = [0: 100];
-    const list: ArrayList&lt;i32&gt; = ArrayList&lt;i32&gt;{
-        items: &buffer[0:100],
-        capacity: 100,
-        size: 0
+    const p: i32 = add_checked(1, 2) catch |e| { return 1; };
+    printf("in range: %d\n", p);
+
+    const q: i32 = add_checked(2000000000, 2000000000) catch |e| {
+        printf("overflow: caught\n");
+        return 0;
     };
-    
-    // 使用泛型函数
-    list.add(42);
-    const index = find_index&lt;i32&gt;(&list.items[0:list.size], 42);
-    
+    printf("unreachable %d\n", q);
     return 0;
 }</code></pre>
-                    </div>
+<pre><code>$ uya run checked.uya
+in range: 3
+overflow: caught</code></pre>
 
-                    <h3>溢出处理运算符</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>示例：算术溢出处理</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-                        <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
+  <h3>结构体默认值</h3>
+<pre><code>struct Conf {
+    port: i32 = 8080,
+    debug: bool = false
+}
 
 fn main() i32 {
-    const a: i32 = 2000000000;
-    const b: i32 = 2000000000;
-    
-    // 使用 try 关键字检查溢出（返回 error.Overflow）
-    const result1: !i32 = try a + b;
-    catch |err| {
-        if err == error.Overflow {
-            printf("Overflow detected with try\n");
+    const def: Conf = Conf{};
+    const custom: Conf = Conf{ port: 9000 };
+    printf("def.port = %d, custom.port = %d\n", def.port, custom.port);
+    return 0;
+}</code></pre>
+<pre><code>$ uya run conf.uya
+def.port = 8080, custom.port = 9000</code></pre>
+
+  <h3>原子类型</h3>
+<pre><code>struct Counter {
+    value: atomic i32
+}
+
+Counter {
+    fn bump(self: &amp;Self) i32 {
+        self.value += 1;         // 编译为原子 fetch_add
+        const v: i32 = self.value;   // 原子 load
+        return v;
+    }
+}
+
+fn main() i32 {
+    var c: Counter = Counter{ value: 0 };
+    _ = c.bump();
+    const v: i32 = c.bump();
+    printf("counter = %d\n", v);
+    return 0;
+}</code></pre>
+<pre><code>$ uya run counter.uya
+counter = 2</code></pre>
+
+  <h3>接口与 RAII</h3>
+<pre><code>interface IShape {
+    fn area(self: &amp;Self) i32;
+}
+
+struct Rect : IShape {
+    w: i32,
+    h: i32,
+
+    fn area(self: &amp;Self) i32 {
+        return self.w *| self.h;   // 饱和乘法，不需要证明
+    }
+}
+
+fn total(s: IShape) i32 {
+    return s.area();
+}
+
+fn main() i32 {
+    var r: Rect = Rect{ w: 3, h: 4 };
+    printf("%d\n", total(r));    // 经接口调用
+    printf("%d\n", r.area());    // 直接调用
+    return 0;
+}</code></pre>
+<pre><code>$ uya run shape.uya
+12
+12</code></pre>
+
+  <h3>切片与循环</h3>
+<pre><code>fn main() i32 {
+    var arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const s: &amp;[i32] = &amp;arr[2:5];      // 从下标 2 起取 5 个元素
+
+    printf("len = %d\n", @len(s));
+    for 0..@len(s) |i| {            // 切片不能直接 for，走下标
+        printf("%d ", s[i]);
+    }
+    printf("\n");
+
+    for arr |&amp;v| {                  // 引用迭代，可修改原数组
+        *v = *v *| 2;
+    }
+    printf("arr[0] = %d\n", arr[0]);
+    return 0;
+}</code></pre>
+<pre><code>$ uya run slice.uya
+len = 5
+2 3 4 5 6
+arr[0] = 0</code></pre>
+
+  <h3>错误处理与 drop</h3>
+<pre><code>extern "libc" fn malloc(n: usize) *void;
+extern "libc" fn free(p: *void) void;
+
+struct Buffer {
+    p: *void,
+
+    fn drop(self: Buffer) void {
+        if self.p != null {
+            free(self.p);
         }
-        return 1;
     }
-    printf("Result with try: %d\n", result1);
-    
-    // 使用饱和运算符（溢出时返回极值）
-    const result2: i32 = a +| b;  // 返回 @max (2147483647)
-    printf("Result with +|: %d\n", result2);
-    
-    // 使用包装运算符（溢出时包装）
-    const result3: i32 = a +% b;  // 包装后的值
-    printf("Result with +%: %d\n", result3);
-    
-    // 减法示例
-    const c: i32 = -2000000000;
-    const d: i32 = 2000000000;
-    const result4: i32 = c -| d;  // 饱和减法，返回 @min
-    const result5: i32 = c -% d;  // 包装减法
-    
-    // 乘法示例
-    const e: i32 = 100000;
-    const f: i32 = 100000;
-    const result6: !i32 = try e * f;  // 检查溢出
-    const result7: i32 = e *| f;       // 饱和乘法
-    const result8: i32 = e *% f;       // 包装乘法
-    
-    return 0;
-}</code></pre>
-                    </div>
-                </section>
-
-                <!-- 标准库部分 -->
-                <section id="standard-library" class="content-section">
-                    <h2>标准库（最小集）</h2>
-                    
-                    <div class="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>函数/运算符</th>
-                                    <th>签名/语法</th>
-                                    <th>说明</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td><code>@len</code></td>
-                                    <td><code>fn @len(a: [T: N]) i32</code></td>
-                                    <td>返回数组元素个数 <code>N</code>（编译期常量）。对于空数组字面量 <code>[]</code>，返回数组声明时的大小，而不是 0</td>
-                                </tr>
-                                <tr>
-                                    <td><code>@size_of</code></td>
-                                    <td><code>fn @size_of(T) i32</code></td>
-                                    <td>返回类型 <code>T</code> 的字节大小（编译期常量，以 @ 开头）</td>
-                                </tr>
-                                <tr>
-                                    <td><code>@align_of</code></td>
-                                    <td><code>fn @align_of(T) i32</code></td>
-                                    <td>返回类型 <code>T</code> 的对齐字节数（编译期常量，以 @ 开头）</td>
-                                </tr>
-                                <tr>
-                                    <td><code>try</code> 关键字</td>
-                                    <td><code>try a + b</code></td>
-                                    <td>检查溢出，溢出返回 <code>error.Overflow</code></td>
-                                </tr>
-                                <tr>
-                                    <td><code>+|</code> <code>-|</code> <code>*|</code></td>
-                                    <td><code>a +| b</code></td>
-                                    <td>饱和运算符，溢出返回极值</td>
-                                </tr>
-                                <tr>
-                                    <td><code>+%</code> <code>-%</code> <code>*%</code></td>
-                                    <td><code>a +% b</code></td>
-                                    <td>包装运算符，溢出返回包装值</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <div class="note">
-                        <p><strong>说明：</strong><code>@len</code>、<code>@size_of</code>、<code>@align_of</code>、<code>@max</code>、<code>@min</code> 为内置函数（以 @ 开头），<code>try</code> 关键字和运算符是编译器内置的，编译期展开，自动可用，无需导入或声明。</p>
-                    </div>
-                    
-                    <h3>@size_of 和 @align_of 示例</h3>
-                    <div class="code-block">
-                        <div class="code-header">
-                            <span>示例：类型大小和对齐</span>
-                            <button class="code-copy">复制</button>
-                        </div>
-
-struct Vec3 {
-    x: f32,
-    y: f32,
-    z: f32
 }
 
-struct Packet {
-    id: i32,
-    data: [byte: 64]
+fn buffer_new(n: usize) !Buffer {
+    const p: *void = malloc(n);
+    if p == null {
+        return error.OutOfMemory;
+    }
+    return Buffer{ p: p };
 }
 
 fn main() i32 {
-    // 获取类型大小
-    const vec3_size: i32 = @size_of(struct Vec3{});      // 12
-    const packet_size: i32 = @size_of(struct Packet{}); // 68
-    
-    // 获取类型对齐
-    const vec3_align: i32 = @align_of(struct Vec3{});    // 4
-    const packet_align: i32 = @align_of(struct Packet{}); // 4
-    
-    // FFI 分配
-    extern malloc(size: i32) *void;
-    // 注意：*byte 不能用于普通变量声明，这里仅作示例说明类型
-    // const ptr: *byte = malloc(@size_of(struct Packet));  // ❌ 编译错误：*byte 不能用于普通变量声明
-    
-    // 对齐检查
-    if @align_of(struct Packet) != 4 {
-        return error.BadAlign;
-    }
-    
-    // 零拷贝序列化缓冲区
-    const MSG: [byte; @size_of(struct Packet)] = [];
-    
-    return 0;
+    const b: Buffer = buffer_new(64) catch |e| {
+        printf("alloc failed\n");
+        return 1;
+    };
+    printf("allocated\n");
+    return 0;    // b 离开作用域，drop 自动 free
 }</code></pre>
-                    </div>
-                </section>
-                
-                <!-- 一句话总结 -->
-                <section id="summary" class="content-section">
-                    <div class="philosophy-card" style="background: linear-gradient(135deg, #e0f2fe, #f0f9ff);">
-                        <h3 style="color: var(--primary);">一句话总结</h3>
-                        <p><strong>Uya = AI友好 · 默认即高级内存安全 + 并发安全 + 显式错误处理 + 泛型系统（&lt;T: Bound&gt;） + 统一结构体标准（C内存布局+完整Uya能力） + 切片类型系统 + 函数指针类型 + 枚举类型系统 + 元组类型系统 + 指针类型转换（&T as *T） + 结构体默认值语法 + 异步编程基础设施</strong>；<br>
-                        <strong>只加 1 个关键字 <code>atomic T</code>，零 lifetime 符号，零 GC</strong>；<br>
-                        <strong>所有 UB 必须被编译期证明为安全 → 失败即编译错误</strong>；<br>
-                        <strong>编译期证明（本函数内），证明超时则自动插入运行时检查，不降级、不插运行时锁。</strong></p>
-                    </div>
-                </section>
-            </div>
-        </div>
-    </main>
-    
-    <!-- 页脚 -->
-    <footer>
-        <div class="container">
-            <div class="footer-content">
-                <div class="footer-section">
-                    <h3>Uya 语言</h3>
-                    <p>AI友好 · 默认高级安全 · 零 GC · 零 lifetime 符号 · 编译期证明 · 单页纸可读完</p>
-                </div>
-                
-                <div class="footer-section">
-                    <h3>资源</h3>
-                    <ul class="footer-links">
-                        <li><a href="#core-features">核心特性</a></li>
-                        <li><a href="#design-philosophy">设计哲学</a></li>
-                        <li><a href="#ai-friendly">AI友好</a></li>
-                        <li><a href="#type-system">类型系统</a></li>
-                        <li><a href="#examples">完整示例</a></li>
-                    </ul>
-                </div>
-                
-                <div class="footer-section">
-                    <h3>开发</h3>
-                    <ul class="footer-links">
-                        <li><a href="#standard-library">标准库</a></li>
-                        <li><a href="compiler-mini/README.md">Uya Mini 编译器</a></li>
-                        <li><a href="docs/releases/RELEASE_v0.1.0.md">v0.1.0 版本说明</a></li>
-                        <li><a href="https://github.com/uya-lang/uya">GitHub 仓库</a></li>
-                    </ul>
-                </div>
-                
-                <div class="footer-section">
-                    <h3>社区</h3>
-                    <ul class="footer-links">
-                        <li><a href="#">论坛</a></li>
-                        <li><a href="#">Discord</a></li>
-                        <li><a href="#">Twitter</a></li>
-                        <li><a href="#">博客</a></li>
-                    </ul>
-                </div>
-            </div>
-            
-                <div class="copyright">
-                <p>Uya 语言规范 0.47（完整版） · 项目 v0.1.0（Uya Mini 编译器已自举）</p>
-                <p>© 2025 Uya 语言项目。MIT 许可证。</p>
-            </div>
-        </div>
-    </footer>
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-c.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-rust.min.js"></script>
-    <script>
-        // 添加自定义Uya语言高亮
-        Prism.languages.uya = Prism.languages.extend('c', {
-            'keyword': /\b(struct|const|var|fn|return|extern|true|false|if|while|break|continue|defer|errdefer|try|catch|error|null|interface|atomic|union|as|as!|type|mc)\b/,
-            'builtin-fn': /@(?:size_of|align_of|len|max|min)\b/,
-            'operator': /=>|\.\.|\+=|\-=|\*=|\/=|%=|&=|\|=|\^=|<<=|>>=|&&|\|\||<<|>>|<=|>=|==|!=|\.\.\.?|\+\||\-\||\*\||\+%|\-%|\*%/,
-            'builtin': /\b(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|byte|void|Self)\b/,
-            'error': /\berror\.[A-Z][A-Za-z0-9]*\b/,  // 高亮错误类型，如 error.FileNotFound
-        });
-        
-        // 动态生成目录
-        document.addEventListener('DOMContentLoaded', function() {
-            const sections = document.querySelectorAll('.content-section');
-            const tocList = document.getElementById('tocList');
-            const navLinks = document.querySelectorAll('.nav-links a');
-            const mobileNav = document.getElementById('mobileNav');
-            const mobileToggle = document.getElementById('mobileToggle');
-            
-            // 生成目录
-            sections.forEach(section => {
-                const heading = section.querySelector('h2');
-                if (heading) {
-                    const listItem = document.createElement('li');
-                    const link = document.createElement('a');
-                    link.href = `#${section.id}`;
-                    link.textContent = heading.textContent;
-                    
-                    // 添加点击事件
-                    link.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        document.querySelector(this.getAttribute('href')).scrollIntoView({
-                            behavior: 'smooth'
-                        });
-                        
-                        // 更新活动状态
-                        document.querySelectorAll('.toc-list a').forEach(a => a.classList.remove('active'));
-                        this.classList.add('active');
-                        
-                        // 在移动端关闭菜单
-                        if (window.innerWidth <= 992) {
-                            mobileNav.classList.remove('active');
-                        }
-                    });
-                    
-                    listItem.appendChild(link);
-                    
-                    // 查找子标题（h3）
-                    const subHeadings = section.querySelectorAll('h3');
-                    if (subHeadings.length > 0) {
-                        const subList = document.createElement('ul');
-                        subList.className = 'toc-sub';
-                        
-                        subHeadings.forEach(subHeading => {
-                            const subListItem = document.createElement('li');
-                            const subLink = document.createElement('a');
-                            subLink.href = `#${section.id}`;
-                            subLink.textContent = subHeading.textContent;
-                            
-                            subLink.addEventListener('click', function(e) {
-                                e.preventDefault();
-                                subHeading.scrollIntoView({
-                                    behavior: 'smooth'
-                                });
-                                
-                                // 更新活动状态
-                                document.querySelectorAll('.toc-list a').forEach(a => a.classList.remove('active'));
-                                this.classList.add('active');
-                                
-                                // 在移动端关闭菜单
-                                if (window.innerWidth <= 992) {
-                                    mobileNav.classList.remove('active');
-                                }
-                            });
-                            
-                            subListItem.appendChild(subLink);
-                            subList.appendChild(subListItem);
-                        });
-                        
-                        listItem.appendChild(subList);
-                    }
-                    
-                    tocList.appendChild(listItem);
-                }
-            });
-            
-            // 导航链接点击事件
-            navLinks.forEach(link => {
-                link.addEventListener('click', function(e) {
-                    if (this.getAttribute('href').startsWith('#')) {
-                        e.preventDefault();
-                        const targetId = this.getAttribute('href');
-                        const targetSection = document.querySelector(targetId);
-                        
-                        if (targetSection) {
-                            targetSection.scrollIntoView({
-                                behavior: 'smooth'
-                            });
-                            
-                            // 更新活动状态
-                            navLinks.forEach(a => a.classList.remove('active'));
-                            this.classList.add('active');
-                        }
-                    }
-                });
-            });
-            
-            // 移动端菜单切换
-            mobileToggle.addEventListener('click', function() {
-                mobileNav.classList.toggle('active');
-                this.innerHTML = mobileNav.classList.contains('active') ? 
-                    '<i class="fas fa-times"></i>' : 
-                    '<i class="fas fa-bars"></i>';
-            });
-            
-            // 滚动时更新活动状态
-            function updateActiveSection() {
-                const scrollPos = window.scrollY + 100;
-                
-                // 更新导航栏活动状态
-                let currentActive = null;
-                sections.forEach(section => {
-                    const sectionTop = section.offsetTop;
-                    const sectionHeight = section.offsetHeight;
-                    
-                    if (scrollPos >= sectionTop && scrollPos < sectionTop + sectionHeight) {
-                        currentActive = section.id;
-                    }
-                });
-                
-                if (currentActive) {
-                    // 更新导航栏链接
-                    navLinks.forEach(link => {
-                        link.classList.remove('active');
-                        if (link.getAttribute('href') === `#${currentActive}`) {
-                            link.classList.add('active');
-                        }
-                    });
-                    
-                    // 更新目录链接
-                    document.querySelectorAll('.toc-list a').forEach(link => {
-                        link.classList.remove('active');
-                        if (link.getAttribute('href') === `#${currentActive}`) {
-                            link.classList.add('active');
-                        }
-                    });
-                }
-            }
-            
-            // 初始更新
-            updateActiveSection();
-            
-            // 监听滚动事件
-            window.addEventListener('scroll', updateActiveSection);
-            
-            // 复制代码功能
-            document.querySelectorAll('.code-copy').forEach(button => {
-                button.addEventListener('click', function() {
-                    const codeBlock = this.closest('.code-block');
-                    const code = codeBlock.querySelector('code').textContent;
-                    
-                    navigator.clipboard.writeText(code).then(() => {
-                        // 显示复制成功反馈
-                        const originalText = this.textContent;
-                        this.textContent = '已复制!';
-                        this.classList.add('copied');
-                        
-                        setTimeout(() => {
-                            this.textContent = originalText;
-                            this.classList.remove('copied');
-                        }, 2000);
-                    }).catch(err => {
-                        console.error('复制失败: ', err);
-                    });
-                });
-            });
-            
-            // 代码块添加语言类
-            document.querySelectorAll('pre code').forEach(code => {
-                if (!code.className) {
-                    code.className = 'language-uya';
-                }
-            });
-            
-            // 重新高亮所有代码块
-            Prism.highlightAll();
-        });
-    </script>
+<pre><code>$ uya run buffer.uya
+allocated</code></pre>
+  <div class="note">
+    <p><code>drop</code> 只能由编译器在离开作用域时插入，不能手写 <code>drop(x)</code> 或 <code>x.drop()</code>；<code>self</code> 必须按值接收。</p>
+  </div>
+</section>
+
+<section id="toolchain">
+  <h2>工具链</h2>
+
+  <h3>命令</h3>
+<pre><code>uya build &lt;file&gt; [-o out] [--c99]   编译为可执行文件或 C 代码
+uya check &lt;file&gt;                   只做词法 / 语法 / 类型检查
+uya run &lt;file&gt; [-- args...]        编译并运行
+uya test &lt;file&gt;                    运行 test 块
+uya fmt &lt;file&gt;                     格式化
+uya upm &lt;sub&gt;                      包管理</code></pre>
+
+  <h3>常用选项</h3>
+  <table>
+    <tr><th>选项</th><th>作用</th></tr>
+    <tr><td><code>--c99</code></td><td>使用 C99 后端生成 C 代码</td></tr>
+    <tr><td><code>--no-strict-overflow</code></td><td>关闭溢出闸门（默认开）</td></tr>
+    <tr><td><code>--jobs N</code> / <code>-jN</code></td><td>前端进程级并行度，默认 CPU 数，上限 32</td></tr>
+    <tr><td><code>--split-c-dir [dir]</code></td><td>多文件 C 输出目录，默认 <code>.uyacache</code></td></tr>
+    <tr><td><code>--no-split-c</code></td><td>关闭多文件 C，输出单文件</td></tr>
+    <tr><td><code>--opt=0..3</code> / <code>-O0..-O3</code></td><td>优化级别，默认 1</td></tr>
+    <tr><td><code>--nostdlib</code></td><td>完全独立模式，走 syscall</td></tr>
+    <tr><td><code>--stack-size KB</code></td><td>栈大小，默认 65536（64 MB）</td></tr>
+  </table>
+
+  <h3>构建与验证</h3>
+  <table>
+    <tr><th>命令</th><th>作用</th></tr>
+    <tr><td><code>make from-c</code> / <code>make from-c-native</code></td><td>冷启动（Linux / macOS），从 <code>backup/</code> 的 C99 种子构建</td></tr>
+    <tr><td><code>make uya</code> / <code>make uya-hosted</code></td><td>构建自举编译器（nostdlib / hosted）</td></tr>
+    <tr><td><code>make b</code> / <code>make b-hosted</code></td><td>自举验证：编译器编译自身，比对输出</td></tr>
+    <tr><td><code>make tests</code> / <code>make tests-uya</code></td><td>回归套件</td></tr>
+    <tr><td><code>make check</code></td><td>全量验证（自举 + 测试 + 各闸门）</td></tr>
+    <tr><td><code>make microapp-check</code></td><td>microapp 聚合回归</td></tr>
+    <tr><td><code>make fmt</code> / <code>make check-fmt</code></td><td>格式化 / 格式检查</td></tr>
+  </table>
+
+  <h3>环境变量</h3>
+  <table>
+    <tr><th>变量</th><th>作用</th></tr>
+    <tr><td><code>UYA_ROOT</code></td><td>标准库位置，未设置时取编译器所在目录上一级的 <code>lib</code></td></tr>
+    <tr><td><code>UYA_JOBS</code></td><td>并行度（<code>--jobs</code> 优先）</td></tr>
+    <tr><td><code>UYA_GCC_JOBS</code></td><td>C 阶段 <code>make -j</code> 并行度</td></tr>
+    <tr><td><code>UYA_FORCE_BUILD=1</code></td><td>跳过增量指纹，强制重建</td></tr>
+    <tr><td><code>TARGET_OS</code> / <code>TARGET_ARCH</code></td><td>交叉目标：linux / macos / windows，x86_64 / arm64 / riscv64</td></tr>
+  </table>
+</section>
+
+<section id="stdlib">
+  <h2>标准库</h2>
+  <p>入口在 <code>lib/std/</code>（21 个目录 + 13 个顶层模块），<code>lib/</code> 顶层另有 <code>libc</code> <code>syscall</code> <code>osal</code> <code>mem</code> <code>kernel</code> <code>tls</code> <code>tflm</code>。</p>
+
+  <div class="grid">
+    <div class="card">
+      <h4>collections</h4>
+      <p><code>Vec&lt;T&gt;</code> <code>HashMap</code> <code>RingQueue</code> <code>StringBuf</code>，创建时传入 <code>IAllocator</code>，<code>drop</code> 释放缓冲区。</p>
+    </div>
+    <div class="card">
+      <h4>mem</h4>
+      <p><code>IAllocator</code> / arena bump 分配 / 基于 osal mmap 的堆分配器，不依赖 malloc。</p>
+    </div>
+    <div class="card">
+      <h4>crypto</h4>
+      <p>纯 Uya 实现：MD5、SHA-1、SHA-256、SHA-512、BLAKE2b/2s、BLAKE3、HMAC、CRC32、4096 位 bigint + Montgomery、X25519、Ed25519。</p>
+    </div>
+    <div class="card">
+      <h4>image</h4>
+      <p>内存位图与基线 JPEG 编解码（Huffman + 8×8 整数 DCT），零 libm、零 C 依赖。</p>
+    </div>
+    <div class="card">
+      <h4>http</h4>
+      <p>解析 / 路由 / 服务端原语、HTTP/1.1 chunked、HTTP/2 帧与流、HPACK、WebSocket、JWT，以及异步框架 <code>uyagin</code>。</p>
+    </div>
+    <div class="card">
+      <h4>async</h4>
+      <p><code>Waker</code> / <code>Future&lt;T&gt;</code> / <code>Poll&lt;T&gt;</code> / <code>Task&lt;T&gt;</code>、帧池、调度器、epoll 事件循环、通道。</p>
+    </div>
+    <div class="card">
+      <h4>process</h4>
+      <p><code>Pipeline</code> 与类型化管道 <code>|&gt;</code>：<code>cmd_argv</code> / <code>cwd</code> / <code>env</code> / <code>capture_into</code>。</p>
+    </div>
+    <div class="card">
+      <h4>序列化</h4>
+      <p><code>json</code> <code>yaml</code> <code>protobuf</code> <code>mqtt</code> <code>sql</code>（通用抽象层，尚无 SQLite/MySQL 驱动）。</p>
+    </div>
+    <div class="card">
+      <h4>IO 与网络</h4>
+      <p><code>io.file</code> <code>io.stream</code> <code>reader</code> <code>writer</code>；<code>net.addr</code> <code>net.socket</code> <code>net.dns</code>。</p>
+    </div>
+    <div class="card">
+      <h4>工具</h4>
+      <p><code>fmt</code>（<code>uya fmt</code> 后端）、<code>testing</code>、<code>path</code> <code>env</code> <code>time</code> <code>thread</code> <code>platform</code>、<code>encoding.base64</code>。</p>
+    </div>
+  </div>
+</section>
+
+<section id="limits">
+  <h2>已知边界</h2>
+  <p>以下是当前实现的实际限制，均已复现确认，不是推测。</p>
+  <table>
+    <tr><th>项</th><th>当前行为</th></tr>
+    <tr><td>负索引切片</td><td><code>&amp;arr[-3:3]</code> 不做 <code>len + start</code> 换算，直接报「切片起始位置越界」</td></tr>
+    <tr><td>切片 for 迭代</td><td>切片不能作为 for 受体，需用 <code>for 0..@len(s) |i| { s[i] }</code></td></tr>
+    <tr><td>函数指针类型</td><td><code>type Op = fn(i32) i32;</code> 与 <code>fn(...)</code> 作参数类型均解析失败</td></tr>
+    <tr><td>泛型方法块</td><td><code>Pair&lt;T&gt; { ... }</code> 独立方法块不被接受，方法需写在结构体体内</td></tr>
+    <tr><td>指针算术返回</td><td><code>return p + n;</code>（函数返回 <code>&amp;i32</code>）报类型不匹配，需先赋局部变量</td></tr>
+    <tr><td><code>@align_of</code></td><td><code>i8</code> <code>i16</code> <code>i64</code> <code>u16</code> 返回 <code>1</code></td></tr>
+    <tr><td><code>@size_of</code></td><td>错误联合（返回 <code>1</code>）与接口（生成无法编译的 <code>sizeof(IFoo)</code>）不可用</td></tr>
+    <tr><td>带 <code>*byte</code> 形参的普通函数</td><td>「普通函数不能使用 FFI 指针类型作为参数」，改 <code>&amp;byte</code> 并在调用处 <code>as *byte</code></td></tr>
+    <tr><td>枚举 match</td><td>必须带 <code>else</code> 或通配符分支</td></tr>
+    <tr><td><code>printf</code> 声明</td><td>写 <code>extern "libc" fn printf(fmt: *byte, ...) i32;</code>；省略 <code>"libc"</code> 会在 C 层与 <code>stdio.h</code> 冲突</td></tr>
+    <tr><td>引用迭代</td><td><code>for arr |&amp;v|</code> 只能用于 <code>var</code> 数组，<code>const</code> 数组报错</td></tr>
+  </table>
+</section>
+
+<section id="docs">
+  <h2>文档</h2>
+  <table>
+    <tr><th>文档</th><th>内容</th></tr>
+    <tr><td><a href="docs/uya.md">docs/uya.md</a></td><td>完整语言规范 0.49.55，含每版变更说明</td></tr>
+    <tr><td><a href="docs/grammar_formal.md">docs/grammar_formal.md</a></td><td>完整 BNF 语法</td></tr>
+    <tr><td><a href="docs/grammar_quick.md">docs/grammar_quick.md</a></td><td>语法速查</td></tr>
+    <tr><td><a href="docs/builtin_functions.md">docs/builtin_functions.md</a></td><td>36 个 <code>@</code> 内置函数逐条说明</td></tr>
+    <tr><td><a href="docs/usage_guide.md">docs/usage_guide.md</a></td><td>编译器使用指南</td></tr>
+    <tr><td><a href="docs/build_speed.md">docs/build_speed.md</a></td><td>并行与增量构建的实测数据、全部开关</td></tr>
+    <tr><td><a href="docs/DEVELOPMENT.md">docs/DEVELOPMENT.md</a></td><td>开发说明</td></tr>
+    <tr><td><a href="docs/TESTING.md">docs/TESTING.md</a></td><td>回归测试说明</td></tr>
+    <tr><td><a href="buglist.md">buglist.md</a></td><td>已知问题与优先级</td></tr>
+    <tr><td><a href="CHANGELOG.md">CHANGELOG.md</a></td><td>编译器 changelog</td></tr>
+    <tr><td><a href="readme.md">readme.md</a></td><td>项目说明与标准库模块一览</td></tr>
+  </table>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><strong>Uya</strong> · 语言规范 0.49.55 · 编译器 v0.10.4 · MIT 许可证 · Copyright (c) 2025-2026 Uya 语言项目</p>
+    <p>本页所有代码均以 <code>bin/uya run</code> 实跑验证，统计数据取自仓库当前提交。</p>
+  </div>
+</footer>
+
 </body>
 </html>
