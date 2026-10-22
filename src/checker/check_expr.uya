@@ -3207,7 +3207,7 @@ fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
                     checker_report_error(checker, expr, "Type.method(...) 调用静态方法时实参个数不匹配" as *byte);
                     return make_void_type();
                 }
-                const method_return_type: Type = type_from_ast(checker, static_method.fn_decl_return_type);
+                const method_return_type: Type = checker_method_return_type_with_self(checker, owner_name, owner_is_union, static_method.fn_decl_return_type);
                 return checker_substitute_method_type_with_owner(checker, &method_return_type,
                     owner_type_params, owner_type_param_count,
                     owner_type_args, owner_type_arg_count,
@@ -3230,7 +3230,7 @@ fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
                         checker_report_error(checker, expr, "Type.method(...) 调用实例方法时第一个参数必须是该类型实例或其引用" as *byte);
                         return make_void_type();
                     }
-                    const method_return_type: Type = type_from_ast(checker, instance_method.fn_decl_return_type);
+                    const method_return_type: Type = checker_method_return_type_with_self(checker, owner_name, owner_is_union, instance_method.fn_decl_return_type);
                     return checker_substitute_method_type_with_owner(checker, &method_return_type,
                         owner_type_params, owner_type_param_count,
                         owner_type_args, owner_type_arg_count,
@@ -3268,7 +3268,7 @@ fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
                     checker_report_error(checker, expr, "Type.method(...) 调用实例方法时第一个参数必须是该类型实例或其引用" as *byte);
                     return make_void_type();
                 }
-                const method_return_type: Type = type_from_ast(checker, instance_method.fn_decl_return_type);
+                const method_return_type: Type = checker_method_return_type_with_self(checker, owner_name, owner_is_union, instance_method.fn_decl_return_type);
                 return checker_substitute_method_type_with_owner(checker, &method_return_type,
                     owner_type_params, owner_type_param_count,
                     owner_type_args, owner_type_arg_count,

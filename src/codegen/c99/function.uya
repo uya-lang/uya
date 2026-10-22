@@ -8654,6 +8654,27 @@ fn c99_mono_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
     return r;
 }
 
+/// 获取方法返回类型的 C 表示，并把 `Self` 展开成方法所属类型。
+///
+/// 方法声明里可以写 `fn m(self: &Self) Self`。`c99_type_to_c` 不认识 `Self`，
+/// 会把它当成未知名，于是链式调用（`a.plus(2).get()`）在推断中继表达式类型时
+/// 失败并发射 `unknown()`。此函数在 `c99_mono_type_to_c` 的实参替换与深度保护
+/// 之外，额外把 `Self` 折叠成 `self_struct_name`。
+///
+/// 参数：codegen - C99 代码生成器；type_node - 方法返回类型节点；
+///       self_struct_name - 方法所属结构体/联合体名，用于展开 `Self`。
+/// 返回：对应的 C 类型名。
+fn c99_mono_type_to_c_with_self(codegen: &C99CodeGenerator, type_node: &ASTNode, self_struct_name: &byte) &byte {
+    if type_node == null || self_struct_name == null {
+        return c99_mono_type_to_c(codegen, type_node);
+    }
+    const substituted: &ASTNode = substitute_type_arg(codegen, type_node);
+    codegen.type_conv_depth = codegen.type_conv_depth +| 1;
+    const r: &byte = c99_type_to_c_with_self(codegen, substituted, self_struct_name);
+    codegen.type_conv_depth = codegen.type_conv_depth -| 1;
+    return r;
+}
+
 fn c99_emit_mono_value_type_deps_for_node(codegen: &C99CodeGenerator, node: &ASTNode) void {
     if codegen == null || node == null {
         return;

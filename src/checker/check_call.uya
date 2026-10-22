@@ -1215,6 +1215,35 @@ fn checker_register_static_method_mono_instance(checker: &TypeChecker, owner_nam
     register_mono_instance(checker, mono_name as &byte, method_type_args, method_type_arg_count, 1);
 }
 
+/// 解析方法声明的返回类型，并在解析期间提供 `Self` 所需的 owner 上下文。
+///
+/// `Self` 在 `type_from_ast` 里靠 `checker.current_self_type_name` 展开成具体
+/// struct/union；若调用方没有设置该上下文，`Self` 会退化成 `TYPE_VOID`，
+/// 链式调用的 receiver 类型随之丢失（`Box.wrap(7).get()` 报「结构体上不存在该方法」）。
+///
+/// 参数：checker - 类型检查器；owner_name - 方法所属类型名；owner_is_union - 非 0 表示联合体；
+///       type_node - 待解析的返回类型节点。
+/// 返回：解析后的返回类型；type_node 为空时返回 void 类型。
+fn checker_method_return_type_with_self(checker: &TypeChecker, owner_name: &byte, owner_is_union: i32,
+    type_node: &ASTNode) Type {
+    if checker == null || type_node == null {
+        return make_void_type();
+    }
+
+    const saved_self_type_name: &byte = checker.current_self_type_name;
+    const saved_self_is_union: i32 = checker.current_self_is_union;
+    if owner_name != null {
+        checker.current_self_type_name = owner_name;
+        checker.current_self_is_union = owner_is_union;
+    }
+
+    const result: Type = type_from_ast(checker, type_node);
+
+    checker.current_self_type_name = saved_self_type_name;
+    checker.current_self_is_union = saved_self_is_union;
+    return result;
+}
+
 fn checker_expected_owner_value_type(checker: &TypeChecker, owner_name: &byte, owner_is_union: i32,
     owner_type_params: &TypeParam, owner_type_param_count: i32,
     owner_type_args: & & ASTNode, owner_type_arg_count: i32) Type {
@@ -1889,7 +1918,7 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
                         }
                         pi_pin_static = pi_pin_static + 1;
                     }
-                    const raw_return_type: Type = type_from_ast(checker, static_method.fn_decl_return_type);
+                    const raw_return_type: Type = checker_method_return_type_with_self(checker, owner_name, owner_is_union, static_method.fn_decl_return_type);
                     return checker_substitute_method_type_with_owner(checker, &raw_return_type,
                         owner_type_params, owner_type_param_count,
                         owner_type_args, owner_type_arg_count,
@@ -1929,7 +1958,7 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
                     }
                     pi_pin_static2 = pi_pin_static2 + 1;
                 }
-                const raw_return_type: Type = type_from_ast(checker, static_method.fn_decl_return_type);
+                const raw_return_type: Type = checker_method_return_type_with_self(checker, owner_name, owner_is_union, static_method.fn_decl_return_type);
                 return checker_substitute_method_type_with_owner(checker, &raw_return_type,
                     owner_type_params, owner_type_param_count,
                     owner_type_args, owner_type_arg_count,
@@ -1992,7 +2021,7 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
                         }
                         j = j + 1;
                     }
-                    const raw_return_type: Type = type_from_ast(checker, instance_method.fn_decl_return_type);
+                    const raw_return_type: Type = checker_method_return_type_with_self(checker, owner_name, owner_is_union, instance_method.fn_decl_return_type);
                     return checker_substitute_method_type_with_owner(checker, &raw_return_type,
                         owner_type_params, owner_type_param_count,
                         owner_type_args, owner_type_arg_count,
@@ -2027,7 +2056,7 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
                     }
                     j = j + 1;
                 }
-                const raw_return_type: Type = type_from_ast(checker, instance_method.fn_decl_return_type);
+                const raw_return_type: Type = checker_method_return_type_with_self(checker, owner_name, owner_is_union, instance_method.fn_decl_return_type);
                 return checker_substitute_method_type_with_owner(checker, &raw_return_type,
                     owner_type_params, owner_type_param_count,
                     owner_type_args, owner_type_arg_count,
@@ -2772,7 +2801,7 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
     if object_type.kind == TypeKind.TYPE_UNION && object_type.union_name != null && checker.program_node != null {
         const m: &ASTNode = find_instance_method_in_union(checker.program_node, object_type.union_name, node.member_access_field_name);
         if m != null {
-            return type_from_ast(checker, m.fn_decl_return_type);
+            return checker_method_return_type_with_self(checker, object_type.union_name, 1, m.fn_decl_return_type);
         }
         checker_report_error(checker, node, "联合体只能通过 match 访问变体，或调用方法" as *byte);
         result.kind = TypeKind.TYPE_VOID;
@@ -2870,7 +2899,7 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
     // 字段不存在：检查是否为结构体方法
     const m: &ASTNode = find_instance_method_in_struct(checker.program_node, type_get_struct_name(&object_type), node.member_access_field_name);
     if m != null {
-        return type_from_ast(checker, m.fn_decl_return_type);
+        return checker_method_return_type_with_self(checker, type_get_struct_name(&object_type), 0, m.fn_decl_return_type);
     }
     result.kind = TypeKind.TYPE_VOID;
     return result;

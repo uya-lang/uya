@@ -7344,7 +7344,9 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
             const saved_spc: i32 = codegen.struct_type_param_count;
             const saved_sac: i32 = codegen.struct_type_arg_count;
             if set_struct_mono_context_from_type_c(codegen, base_type_c) != 0 { }
-            ret = c99_type_to_c(codegen, method.fn_decl_return_type);
+            // 方法返回类型可能写作 `Self`；带上 owner 名解析，否则中继表达式的类型会丢，
+            // 链式调用外层随之发射 unknown()。
+            ret = c99_type_to_c_with_self(codegen, method.fn_decl_return_type, struct_decl.struct_decl_name);
             codegen.struct_type_params = saved_sp;
             codegen.struct_type_args = saved_sa;
             codegen.struct_type_param_count = saved_spc;
@@ -7615,7 +7617,10 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
                             codegen.current_type_param_count = method_fn.fn_decl_type_param_count;
                             codegen.current_type_args = resolved_type_args;
                             codegen.current_type_arg_count = type_arg_count;
-                            const result: &byte = c99_mono_type_to_c(codegen, return_type);
+                            // 方法返回类型里可能出现 Self；c99_mono_type_to_c 不认识 Self，
+                            // 会把它当成未知名，导致链式调用外层推断失败并发射 unknown()。
+                            // 这里带上 owner 名解析，Self 才能折叠成 struct <Owner>。
+                            const result: &byte = c99_mono_type_to_c_with_self(codegen, return_type, &struct_name_buf[0]);
                             codegen.current_type_params = saved_type_params;
                             codegen.current_type_param_count = saved_type_param_count;
                             codegen.current_type_args = saved_type_args;

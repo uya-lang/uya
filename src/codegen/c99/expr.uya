@@ -2480,9 +2480,10 @@ fn c99_emit_method_receiver_arg(codegen: &C99CodeGenerator, param_decl: &ASTNode
         if arg_is_pointer == 0 && arg_type_c != null {
             temp_value_type_c = arg_type_c;
         }
-        const temp_name: &byte = c99_make_temp_name(codegen, "__uya_recv_" as &byte);
-        if temp_value_type_c != null && temp_name != null {
-            fprintf(codegen.emit_stream as *void, "({ %s %s = " as *byte, temp_value_type_c as *byte, temp_name as *byte);
+        // 与下方临时 receiver 同理：此处拷贝出的 const 值也要活到调用点求值结束，
+        // 因此同样用复合字面量数组而不是语句表达式。
+        if temp_value_type_c != null {
+            fprintf(codegen.emit_stream as *void, "&((%s[1]){ " as *byte, temp_value_type_c as *byte);
             if arg_is_pointer != 0 {
                 fputs("*(" as *byte, codegen.emit_stream as *void);
                 gen_expr(codegen, arg_expr);
@@ -2490,7 +2491,7 @@ fn c99_emit_method_receiver_arg(codegen: &C99CodeGenerator, param_decl: &ASTNode
             } else {
                 gen_expr(codegen, arg_expr);
             }
-            fprintf(codegen.emit_stream as *void, "; &%s; })" as *byte, temp_name as *byte);
+            fputs(" })[0]" as *byte, codegen.emit_stream as *void);
             return;
         }
     }
@@ -2509,19 +2510,28 @@ fn c99_emit_method_receiver_arg(codegen: &C99CodeGenerator, param_decl: &ASTNode
         var temp_value_type_c2: &byte = null;
         if codegen.checker != null {
             const inferred_arg_type: Type = checker_infer_type(codegen.checker, arg_expr);
-            temp_value_type_c2 = c99_type_to_c_from_inferred_type(codegen, inferred_arg_type, arg_expr.line, arg_expr.column, arg_expr.filename);
+            // 推断失败会得到 TYPE_VOID，转成 C 类型就是 "void"，直接把 receiver 发成
+            // `&((void[1]){...})[0]` 会让 C 层报「array of voids」。这类情形交给下面按
+            // 形参指向类型兜底。
+            if inferred_arg_type.kind != TypeKind.TYPE_VOID {
+                temp_value_type_c2 = c99_type_to_c_from_inferred_type(codegen, inferred_arg_type, arg_expr.line, arg_expr.column, arg_expr.filename);
+            }
         }
-        if temp_value_type_c2 == null && arg_type_c != null {
+        if temp_value_type_c2 == null && arg_type_c != null && strcmp(arg_type_c as *byte, "void" as *byte) != 0 {
             temp_value_type_c2 = arg_type_c;
         }
         if temp_value_type_c2 == null && param_type.type_pointer_pointed_type != null {
             temp_value_type_c2 = c99_type_to_c(codegen, param_type.type_pointer_pointed_type);
         }
-        const temp_name2: &byte = c99_make_temp_name(codegen, "__uya_recv_" as &byte);
-        if temp_value_type_c2 != null && temp_name2 != null {
-            fprintf(codegen.emit_stream as *void, "({ %s %s = " as *byte, temp_value_type_c2 as *byte, temp_name2 as *byte);
+        // receiver 是临时值：必须让它活到调用点求值结束。
+        // 早期写法是 C 语句表达式 `({ T t = <expr>; &t; })`，而 GNU C 规定该表达式内的
+        // 局部变量在表达式结束时生命周期终止 —— `-O1` 及以上会把 `&t` 折叠成悬垂指针，
+        // 程序编译通过却静默读到 0（tests/test_method_temp_receiver.uya 钉住该行为）。
+        // 改用复合字面量数组：`&((T[1]){ <expr> })[0]`，其生命周期延续到所在块结束。
+        if temp_value_type_c2 != null {
+            fprintf(codegen.emit_stream as *void, "&((%s[1]){ " as *byte, temp_value_type_c2 as *byte);
             gen_expr(codegen, arg_expr);
-            fprintf(codegen.emit_stream as *void, "; &%s; })" as *byte, temp_name2 as *byte);
+            fputs(" })[0]" as *byte, codegen.emit_stream as *void);
             return;
         }
     }

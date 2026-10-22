@@ -1,0 +1,76 @@
+// 回归：实例方法的 receiver 是临时表达式时的取值正确性。
+//
+// 此前 `Box.wrap(1).get()` / `a.plus(2).get()` 都把 receiver 发射成 C 语句表达式
+// `({ struct Box t = <expr>; &t; })`。GNU C 规定该语句表达式内局部变量在表达式结束
+// 时生命周期终止，因此 `-O1` 及以上拿到的是悬垂指针：程序编译通过、静默输出 0。
+// 修复后改用复合字面量 `&((struct Box[1]){ <expr> })[0]`，生命周期到所在块结束。
+//
+// 用例断言的是「通过临时 receiver 读到的值」，stu 变量中转的写法此前就是对的，
+// 两种写法都要过，避免修复只覆盖一条路径。
+
+use std.runtime.entry;
+
+use std.testing.assert_eq_i32;
+use std.testing.run_test;
+use std.testing.test_suite_begin;
+use std.testing.test_suite_end;
+
+struct TempRecvBox {
+    value: i32,
+
+    fn wrap(n: i32) Self {
+        return TempRecvBox{ value: n };
+    }
+
+    fn plus(self: &Self, n: i32) Self {
+        return TempRecvBox{ value: self.value +| n };
+    }
+
+    fn get(self: &Self) i32 {
+        return self.value;
+    }
+}
+
+fn test_static_return_temp_receiver() !void {
+    const v: i32 = TempRecvBox.wrap(7).get();
+    try assert_eq_i32(v, 7, "静态方法返回的临时值作为 receiver 时应读到 7");
+}
+
+fn test_instance_return_temp_receiver() !void {
+    const box: TempRecvBox = TempRecvBox{ value: 5 };
+    const v: i32 = box.plus(3).get();
+    try assert_eq_i32(v, 8, "实例方法返回的临时值作为 receiver 时应读到 8");
+}
+
+fn test_two_hop_temp_chain() !void {
+    const v: i32 = TempRecvBox.wrap(1).plus(2).get();
+    try assert_eq_i32(v, 3, "两跳临时 receiver 链应读到 1+2 = 3");
+}
+
+fn test_temp_receiver_side_effect_once() !void {
+    var calls: i32 = 0;
+    const v: i32 = next_box(&calls).get();
+    try assert_eq_i32(v, 1, "临时 receiver 只应求值一次");
+    try assert_eq_i32(calls, 1, "next_box 应被调用恰好一次");
+}
+
+fn next_box(calls: &i32) TempRecvBox {
+    calls[0] = calls[0] +| 1;
+    return TempRecvBox{ value: calls[0] };
+}
+
+fn test_variable_receiver_still_works() !void {
+    const box: TempRecvBox = TempRecvBox.wrap(11);
+    const v: i32 = box.get();
+    try assert_eq_i32(v, 11, "变量 receiver 不应受本次修复影响");
+}
+
+export fn main() i32 {
+    test_suite_begin("Temp Method Receiver Tests");
+    run_test("static return temp receiver", test_static_return_temp_receiver);
+    run_test("instance return temp receiver", test_instance_return_temp_receiver);
+    run_test("two hop temp chain", test_two_hop_temp_chain);
+    run_test("temp receiver side effect once", test_temp_receiver_side_effect_once);
+    run_test("variable receiver still works", test_variable_receiver_still_works);
+    return test_suite_end();
+}

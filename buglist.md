@@ -321,6 +321,67 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
 
 ## 编译器 bug
 
+- [x] **P0 / 严重：临时 receiver 的方法调用在 `-O1` 及以上静默读到 0**
+  - 状态：**已修复**（2026-10-22）
+  - 现象：`Box.wrap(7).get()`、`box.plus(2).get()` 这类「方法调用结果直接当 receiver」的写法
+    编译通过、运行不报错，但读到的是 0：
+    ```uya
+    struct Box { v: i32,
+      fn wrap(n: i32) Self { return Box{ v: n }; }
+      fn get(self: &Self) i32 { return self.v; } }
+
+    fn main() i32 {
+        printf("%d\n", Box.wrap(7).get());   // 实测输出 0（应为 7）
+        const t: Box = Box.wrap(7);
+        printf("%d\n", t.get());              // 输出 7 —— 走变量中转是对的
+        return 0;
+    }
+    ```
+  - 根因：codegen 把临时 receiver 物化成 C 语句表达式
+    `({ struct Box t = <expr>; &t; })`。GNU C 规定该表达式内局部变量在表达式结束时
+    生命周期终止，`-O1` 及以上把 `&t` 折叠成悬垂指针；`-O0` 侥幸正确。
+    等价的纯 C 复现（`-O0` 得 1、`-O1` 得 0）已单独验证，与 Uya 无关。
+  - 修复：`src/codegen/c99/expr.uya` 的 `c99_emit_method_receiver_arg` 两处
+    （const 拷贝路径与临时值路径）改用复合字面量数组
+    `&((T[1]){ <expr> })[0]`，生命周期延续到所在块结束；四档优化级别均实测正确。
+  - 归属：`src/codegen/c99/expr.uya`。
+  - 回归：`tests/test_method_temp_receiver.uya`（5 用例，含「临时 receiver 只求值一次」）。
+
+- [x] **P0 / 严重：方法返回类型写 `Self` 时链式调用发射 `unknown()`**
+  - 状态：**已修复**（2026-10-22）
+  - 现象：方法返回类型写成 `Self`（而不是显式结构体名）后，任何链式调用都编译失败：
+    ```uya
+    struct Box { v: i32,
+      fn wrap(n: i32) Self { return Box{ v: n }; }   // 写成 Box 则正常
+      fn get(self: &Self) i32 { return self.v; } }
+
+    fn main() i32 {
+        const x: i32 = Box.wrap(7).get();
+        return x;
+    }
+    ```
+    `uya check` 报「结构体上不存在该方法」，`uya build` 则发射出
+    `int32_t _uya_ret = unknown();` 并在链接期报 `undefined reference to 'unknown'`。
+  - 根因：两处上下文缺失。
+    1. checker 在解析方法返回类型时没有设置 `current_self_type_name`，
+       `type_from_ast` 于是无法把 `Self` 展开成具体结构体，返回类型退化为 `TYPE_VOID`。
+    2. codegen 的 `c99_type_to_c` 不认识 `Self`，把它当未知名；推断中继表达式
+       （`a.plus(2)`）的 C 类型时失败，最终落到 `unknown()` 兜底。
+  - 修复：
+    - `src/checker/check_call.uya` 新增 `checker_method_return_type_with_self`，
+      在解析方法返回类型期间提供 owner 上下文；静态方法 / 实例方法 / 联合体 /
+      结构体成员访问共 7 处调用点改用它。
+    - `src/codegen/c99/function.uya` 新增 `c99_mono_type_to_c_with_self`，
+      `src/codegen/c99/types.uya` 的成员访问方法分支与泛型方法分支改用它，
+      使 `Self` 折叠成 `struct <Owner>`。
+    - `c99_emit_method_receiver_arg` 在推断结果为 `TYPE_VOID`（或 C 类型串为 `void`）时
+      不再直接采用，避免发出 `&((void[1]){...})[0]` 与随之而来的
+      「declaration of type name as array of voids」。
+  - 归属：`src/checker/check_call.uya`、`src/checker/check_expr.uya`、
+    `src/codegen/c99/{expr,function,types}.uya`。
+  - 回归：`tests/test_method_temp_receiver.uya` + 既有
+    `test_struct_method_chain` / `test_static_method_*` 全通过。
+
 - [x] **P1 / 高：负 `start` 的切片静默通过并切出越界内容（`&arr[-3:3]`）**
   - 状态：**已修复**（2026-10-21）
   - 现象：
