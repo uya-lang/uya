@@ -1,0 +1,95 @@
+// test_slice_to_byte_pointer_arg.uya - 切片值传给「非切片字节指针」形参
+//
+// buglist「编译器 bug」P1（2026-10-04 首报，2026-10-22 修复）：
+//   被调函数按 `&const byte` / `*const byte` 声明形参时，调用方写
+//   `f(&"abc"[0: 3])` → 进了函数读到的不是 "abc"，而是栈上切片描述符的位模式
+//   （实测打印出 38514DD3… 这类指针/长度字节）。形参写成 `&[byte]` 则正常。
+//
+// 生成的 C（修复前）：
+//   setter((&a), (&(struct uya_slice_uint8_t){ .ptr = …, .len = 13 }), 13);
+//              ^^ 取了整个切片描述符临时量的地址；应传它的 .ptr
+//
+// 根因：c99_call_arg_expr_is_pointer_value 把切片值判成「已是指针」（其 C 类型
+// 是 struct 而非指针，但因含 uya_slice_ 被判为指针值），于是直接放行。
+// 修复（src/codegen/c99/expr.uya）：在指针形参分支前置
+//   c99_param_is_byte_pointer_not_slice + c99_expr_is_slice_value，
+//  命中时发射 `(uint8_t *)(<切片>).ptr`；`&<切片表达式>` 的 `&` 在语言层不表示
+// 取地址，先剥掉再取 .ptr。
+// 配套（src/codegen/c99/types.uya + main.uya）：字符串字面量切片的
+// `struct uya_slice_uint8_t` 此前从不登记定义（get_slice_struct_type_c 直接返回
+// 字面名字），一旦调用点只取 .ptr 就引用到未定义结构体；改为在预收集阶段补登记。
+//
+// 影响面：所有「形参是 &const byte + 实参写切片字面量」的调用点都会静默拿到错数据
+// （不报错、不崩溃，只是内容不对）。真实命中点是 lib/tls/ssl/handshake.uya 的
+// handshake_set_hostname —— SNI hostname 写坏，会话复用按 host 匹配永远 miss。
+
+use std.testing.assert_eq_i32;
+
+const N: usize = 64;
+
+export struct SliceHolder {
+    len: usize,
+    buf: [byte: N],
+}
+
+// 仓库既有约定的参照写法：显式传字节指针。
+fn fill_ref(s: &SliceHolder, name: &const byte, n: usize) void {
+    s.len = n;
+    var i: usize = 0;
+    while i < n {
+        s.buf[i] = name[i];
+        i = i + 1;
+    }
+}
+
+// 切片形参：本来就正常，用作对照，防止修复把这条路径改坏。
+fn fill_slice(s: &SliceHolder, name: &[byte], n: usize) void {
+    s.len = n;
+    var i: usize = 0;
+    while i < n {
+        s.buf[i] = name.ptr[i];
+        i = i + 1;
+    }
+}
+
+test "string_literal_slice_passes_as_byte_pointer" {
+    var h: SliceHolder = SliceHolder{ len: 0, buf: [] };
+    // 关键形态：&"..."[0:n] 传给 &const byte 形参
+    fill_ref(&h, &"r.example.com"[0: 13], 13);
+    try assert_eq_i32(h.len as i32, 13);
+    try assert_eq_i32(h.buf[0] as i32, 114);   // 'r'
+    try assert_eq_i32(h.buf[1] as i32, 46);    // '.'
+    try assert_eq_i32(h.buf[12] as i32, 109);  // 'm'
+}
+
+test "slice_value_variable_passes_as_byte_pointer" {
+    var h: SliceHolder = SliceHolder{ len: 0, buf: [] };
+    const s: &[byte] = &"abcdef"[0: 6];
+    fill_ref(&h, s, 6);
+    try assert_eq_i32(h.buf[0] as i32, 97);   // 'a'
+    try assert_eq_i32(h.buf[5] as i32, 102);  // 'f'
+}
+
+test "slice_param_still_works" {
+    var h: SliceHolder = SliceHolder{ len: 0, buf: [] };
+    fill_slice(&h, &"xyz"[0: 3], 3);
+    try assert_eq_i32(h.buf[0] as i32, 120);  // 'x'
+    try assert_eq_i32(h.buf[2] as i32, 122);  // 'z'
+}
+
+fn main() i32 {
+    var h: SliceHolder = SliceHolder{ len: 0, buf: [] };
+    fill_ref(&h, &"r.example.com"[0: 13], 13);
+    var expect: [byte: 13] = [114, 46, 101, 120, 97, 109, 112, 108, 101, 46, 99, 111, 109];
+    var i: usize = 0;
+    while i < 13 {
+        if h.buf[i] != expect[i] {
+            return 1;
+        }
+        i = i + 1;
+    }
+    if h.len != 13 {
+        return 2;
+    }
+    return 0;
+}

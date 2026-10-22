@@ -6990,6 +6990,40 @@ fn c99_slice_element_type_c_from_struct_c(codegen: &C99CodeGenerator, slice_type
 }
 
 // 从切片表达式推断切片结构体 C 类型（struct uya_slice_X）
+// 确保 `struct uya_slice_uint8_t` 已登记为待发射定义。
+// 字符串字面量切片（`"abc"[0: 3]`）在 get_slice_struct_type_c 里是**直接返回字面名字**，
+// 不经过 AST_TYPE_SLICE 分支，因此不会登记结构体；一旦调用点自己不生成该切片值
+// （如按 .ptr 取字节指针），C 里就会出现「未知结构体 + 无 ptr 成员」。
+fn c99_ensure_slice_uint8_struct(codegen: &C99CodeGenerator) void {
+    if codegen == null {
+        return;
+    }
+    const safe: &byte = c99_arena_strdup(codegen.arena, "uya_slice_uint8_t" as &byte);
+    if safe == null || is_struct_defined(codegen, safe) != 0 {
+        return;
+    }
+    var ii: i32 = 0;
+    while ii < codegen.slice_struct_count {
+        if codegen.slice_struct_names[ii] != null && strcmp(codegen.slice_struct_names[ii] as *byte, safe as *byte) == 0 {
+            return;
+        }
+        ii = ii + 1;
+    }
+    const slice_idx: i32 = codegen.slice_struct_count;
+    if slice_idx < 0 || slice_idx >= C99_MAX_SLICE_STRUCTS {
+        return;
+    }
+    const elem_type: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, 0, 0, codegen.arena, null);
+    if elem_type == null {
+        return;
+    }
+    elem_type.type_named_name = c99_arena_strdup(codegen.arena, "byte" as &byte);
+    codegen.slice_struct_names[slice_idx] = safe;
+    codegen.slice_struct_element_types[slice_idx] = elem_type;
+    codegen.slice_struct_count = slice_idx + 1;
+    add_struct_definition(codegen, safe);
+}
+
 fn get_slice_struct_type_c(codegen: &C99CodeGenerator, slice_expr: &ASTNode) &byte {
     if codegen == null || slice_expr == null || slice_expr.type != ASTNodeType.AST_SLICE_EXPR {
         return ("struct uya_slice_int32_t" as *byte) as &byte;
@@ -7000,6 +7034,7 @@ fn get_slice_struct_type_c(codegen: &C99CodeGenerator, slice_expr: &ASTNode) &by
     }
     // 字符串字面量可切片为 &[byte]，C 侧为 uya_slice_uint8_t
     if base.type == ASTNodeType.AST_STRING {
+        c99_ensure_slice_uint8_struct(codegen);
         return ("struct uya_slice_uint8_t" as *byte) as &byte;
     }
     if base.type == ASTNodeType.AST_IDENTIFIER {
@@ -7440,6 +7475,31 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
                 memcpy(slice_type as *void, prefix as *void, prefix_len as usize);
                 memcpy((slice_type as *byte + prefix_len as i32) as *void, elem_type_c as *void, (elem_len + 1) as usize);
                 return slice_type;
+            }
+        }
+        // 取地址 &operand（非数组字面量）：结果是指向操作数类型的指针。
+        // 早前这里直接落到末尾的 "int32_t" 兜底，于是 `Counter.get(&c)` 这类
+        // 「显式命名空间 + 引用 receiver」的调用点把 `&c` 当成 i32 值，
+        // c99_emit_method_receiver_arg 判定 arg_is_pointer == 0 后物化成
+        // `&((int32_t[1]){ (&c) })[0]`，C 层报 int32_t* 与 struct Counter* 不匹配
+        // （buglist「编译器 bug」P3）。这里按操作数类型补一层 `*`。
+        if (op as TokenType) == TokenType.TOKEN_AMPERSAND {
+            const operand_c: &byte = get_c_type_of_expr(codegen, operand);
+            if operand_c != null && strcmp(operand_c as *byte, "void" as *byte) != 0 &&
+                strchr(operand_c as *byte, 42) == null {
+                const op_len: i32 = strlen(operand_c);
+                const ptr_c: &byte = compiler_arena_alloc(codegen.arena, (op_len + 3) as usize) as &byte;
+                if ptr_c != null {
+                    memcpy(ptr_c as *void, operand_c as *void, op_len as usize);
+                    (ptr_c + op_len as usize)[0] = 32 as byte;   // ' '
+                    (ptr_c + op_len as usize)[1] = 42 as byte;   // '*'
+                    (ptr_c + op_len as usize)[2] = 0 as byte;
+                    return ptr_c;
+                }
+            }
+            // 操作数已经是指针（如 &&T / 切片内部）时保持原样，避免叠出 `T**`。
+            if operand_c != null && strchr(operand_c as *byte, 42) != null {
+                return operand_c;
             }
         }
         return ("int32_t" as *byte) as &byte;

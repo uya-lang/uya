@@ -596,6 +596,14 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
                 const expr_c: &byte = get_c_type_of_expr(codegen, seg.expr);
                 var is_slice_u8: i32 = 0;
                 var is_byte_ptr: i32 = 0;
+                var is_float: i32 = 0;
+
+                // 浮点值必须用 %g：裸 `%d` 会把 double 的位模式当整数打印（实测 `${f}` 输出 1189128536）。
+                if expr_c != null &&
+                    (strstr(expr_c as *byte, "double" as *byte) != null ||
+                     strstr(expr_c as *byte, "float" as *byte) != null) {
+                    is_float = 1;
+                }
 
                 if expr_c != null && strstr(expr_c as *byte, "uya_slice_" as *byte) != null {
                     // slice 在 C 中为 struct { .ptr, .len }，gen_print_expr 当前默认不对其做特殊处理，
@@ -612,6 +620,9 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
 
                 if is_slice_u8 != 0 || is_byte_ptr != 0 {
                     fmt_buf[1] = 115; // 's'
+                    j = 2;
+                } else if is_float != 0 {
+                    fmt_buf[1] = 103; // 'g'
                     j = 2;
                 } else {
                     fmt_buf[1] = 100; // 'd'
@@ -2250,6 +2261,41 @@ fn c99_call_arg_expr_is_pointer_value(codegen: &C99CodeGenerator, arg: &ASTNode)
     return 0;
 }
 
+// 判断形参是否声明为「非切片」的字节指针（&const byte / *const byte / &byte 等）。
+// 切片值是 C 里的胖指针 struct，传给这类形参必须取它的 `.ptr`，不能传描述符地址。
+fn c99_param_is_byte_pointer_not_slice(param: &ASTNode) i32 {
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL || param.var_decl_type == null {
+        return 0;
+    }
+    const pt: &ASTNode = param.var_decl_type;
+    if pt.type != ASTNodeType.AST_TYPE_POINTER || pt.type_pointer_pointed_type == null {
+        return 0;
+    }
+    const pointed: &ASTNode = pt.type_pointer_pointed_type;
+    // 指向切片（&[T]）时不应取 .ptr。
+    if pointed.type == ASTNodeType.AST_TYPE_SLICE {
+        return 0;
+    }
+    if pointed.type != ASTNodeType.AST_TYPE_NAMED || pointed.type_named_name == null {
+        return 0;
+    }
+    return (str_equals(pointed.type_named_name, "byte" as *byte) != 0 ||
+            str_equals(pointed.type_named_name, "u8" as *byte) != 0 ||
+            str_equals(pointed.type_named_name, "i8" as *byte) != 0) as i32;
+}
+
+// 表达式是否为「切片值」（C 侧为 struct uya_slice_*，可安全取 .ptr）。
+fn c99_expr_is_slice_value(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
+    if expr == null {
+        return 0;
+    }
+    const ty: &byte = get_c_type_of_expr(codegen, expr);
+    if ty == null || strstr(ty as *byte, "uya_slice_" as *byte) == null {
+        return 0;
+    }
+    return (strchr(ty as *byte, 42) == null) as i32;
+}
+
 // 调用实参：对按值 slice ABI，将 &expr（expr 为切片值）生成为 expr。
 fn c99_emit_call_arg_expr(codegen: &C99CodeGenerator, fn_decl: &ASTNode, param_index: i32, arg: &ASTNode) void {
     if arg != null && arg.type == ASTNodeType.AST_UNARY_EXPR &&
@@ -2304,6 +2350,36 @@ fn c99_emit_call_arg_expr(codegen: &C99CodeGenerator, fn_decl: &ASTNode, param_i
             codegen.expected_type = param.var_decl_type;
             if param.var_decl_type.type == ASTNodeType.AST_TYPE_POINTER &&
                 c99_expr_is_null_literal(arg) == 0 {
+                if c99_param_is_byte_pointer_not_slice(param) != 0 {
+                    // 形参是「非切片的字节指针」（&const byte 等）而实参是切片值时，
+                    // 必须传 ptr 字段。早前 c99_call_arg_expr_is_pointer_value 把
+                    // 切片值判成「已是指针」直接放行，于是把 `&(struct uya_slice_*){…}`
+                    // 整个描述符地址当字节指针传入，被调方静默读到指针/长度字节
+                    // （buglist「编译器 bug」P1，SNI hostname 写坏即此）。
+                    var slice_operand: &ASTNode = arg;
+                    var unwrap_amp: i32 = 0;
+                    // `&<切片表达式>` 的 `&` 在语言层不表示取地址（切片本身就是值），
+                    // 这里剥掉这层再按切片值取 .ptr。
+                    if arg.type == ASTNodeType.AST_UNARY_EXPR &&
+                        (arg.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND &&
+                        arg.unary_expr_operand != null &&
+                        c99_expr_is_slice_value(codegen, arg.unary_expr_operand) != 0 {
+                        slice_operand = arg.unary_expr_operand;
+                        unwrap_amp = 1;
+                    }
+                    if c99_expr_is_slice_value(codegen, slice_operand) != 0 {
+                        fputs("(uint8_t *)(" as *byte, codegen.emit_stream as *void);
+                        gen_expr(codegen, slice_operand);
+                        fputs(").ptr" as *byte, codegen.emit_stream as *void);
+                        codegen.expected_type = saved_expected_type;
+                        return;
+                    }
+                    if unwrap_amp != 0 {
+                        gen_expr(codegen, slice_operand);
+                        codegen.expected_type = saved_expected_type;
+                        return;
+                    }
+                }
                 if c99_call_arg_expr_is_pointer_value(codegen, arg) != 0 {
                     gen_expr(codegen, arg);
                     codegen.expected_type = saved_expected_type;
@@ -10276,6 +10352,31 @@ fn gen_print_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             } else if inner.type == ASTNodeType.AST_BINARY_EXPR {
                 // 二元表达式：整数或浮点运算
                 fmt = "%lld";
+            }
+
+            // 内建 @print/@println 的实参是 i32 时，`%lld` 会把值零扩展成 64 位再按无符号打印，
+            // 于是 `@println(-100)` 输出 4294967196。这里按操作数的真实 C 类型挑格式：
+            // 无符号（uint32_t 等）走 `%u`，有符号整数一律走 `%d`（C 的整数提升已保证
+            // int8_t/uint8_t/int16_t/int32_t 与 `%d` 匹配）。
+            if inner.type != ASTNodeType.AST_STRING && inner.type != ASTNodeType.AST_STRING_INTERP {
+                const print_ty: &byte = get_c_type_of_expr(codegen, inner);
+                if print_ty != null && strstr(print_ty as *byte, "*" as *byte) == null {
+                    var pt: *byte = print_ty as *byte;
+                    if strncmp(pt, "const " as *byte, 6) == 0 {
+                        pt = pt + 6;
+                    }
+                    if strncmp(pt, "uint64_t" as *byte, 8) == 0 || strncmp(pt, "unsigned long long" as *byte, 19) == 0 {
+                        fmt = "%llu";
+                    } else if strncmp(pt, "int64_t" as *byte, 7) == 0 || strncmp(pt, "long long" as *byte, 9) == 0 {
+                        fmt = "%lld";
+                    } else if strncmp(pt, "uint32_t" as *byte, 8) == 0 || strncmp(pt, "unsigned int" as *byte, 12) == 0 {
+                        fmt = "%u";
+                    } else if strncmp(pt, "double" as *byte, 6) == 0 || strncmp(pt, "float" as *byte, 5) == 0 {
+                        fmt = "%g";
+                    } else if pt[0] == 105 || pt[0] == 117 {  // 'i' / 'u'（int8_t/int16_t/int32_t/uint8_t…）
+                        fmt = "%d";
+                    }
+                }
             }
 
             if fmt == null {
