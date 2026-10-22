@@ -64,6 +64,36 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     精确检测，真溢出才走兜底，不改变安全区间内的结果）。
   - 关闭方式：`--no-strict-overflow`。
 
+- [x] **规范债务清理：数组 `==` 静默生成指针比较**（2026-10-22 修复）
+  - 现象：`docs/uya.md` §10 写「不支持数组的 `==` / `!=` 比较（未来支持）」，但 checker 实际放行，
+    C99 后端对两个 `[i32: 3]` 直接发射 `a == b`（`a`/`b` 在 C 里退化为首元素指针），
+    于是 `[1,2,3] == [1,2,3]` 运行期是 **false**。这是「规范说不支持、实现却静默接受且语义错误」，
+    比单纯的文档滞后更危险。
+  - 修复：`src/checker/check_expr_extra.uya` 的比较运算符分支前置拒绝 `TYPE_ARRAY` 与 `TYPE_SLICE`
+    操作数，报「数组 / 切片不支持 == / != 比较：它们不表示逐元素相等，请用 std.mem.mem_cmp
+    或显式逐元素循环」。规范同步为「结构体支持 `==`/`!=`（按字段比较），数组与切片是硬错误」。
+    （切片同源：切片在 C 侧是胖指针 struct，比较会发射 `invalid operands to binary ==` 的非法 C，
+    实测 `gcc -std=c99` 直接报错。）
+  - 负例：`tests/error_array_eq_compare.uya`、`tests/error_slice_eq_compare.uya`。
+    结构体比较保持可用（`tests/struct_comparison.uya` 4/4 通过），`std.mem.mem_cmp` 替代写法实测可编译。
+
+- [x] **规范债务清理：一批文档与实现脱节的过期断言**（2026-10-22）
+  - `@asm` 的 `clobbers = ["memory"]` 检查在 2026-10-21 已修，但 `builtin_functions.md`、
+    `grammar_quick.md` 仍写「无论写不写都会报错」「暂时无法通过检查」——已改为「不写才报错」，
+    并指向正例 `tests/test_asm_memory_clobber_flag.uya`。
+  - `--strict-overflow` 实现已默认开（`src/main.uya` 的 `g_strict_overflow = 1`），但 `uya.md`、
+    `docs/changelog.md`、`CHANGELOG.md`、`goal_v1_lockdown.md`、`compiler_status.md` 仍写
+    「默认关 / 447 处 / 2052 处待迁移」——已统一改为「默认开启，存量已迁移完毕，tests 语料豁免」。
+  - `uya.md` §19 的 `enum @asm_target { ... }` / `.x86_64_linux` 例子、`@asm_reg_*` / `@asm_mem` /
+    `@asm_flag` / `{name}` 占位符示例都不可编译，与 `grammar_formal.md` 的自述直接矛盾——已按实测
+    改写为 `const target: i32 = @asm_target()` + `%N` 位置编号，并注明占位符与寄存器类型名不可书写。
+  - 负 `start` 切片缺口已在 2026-10-21 修复，但 `uya.md` §1.4 仍写「仍属未收口缺口」——已改为
+    「常量负 `start` 是硬错误」。
+  - 错误处理（`try`/`catch`/错误类型操作）整段内容错挂在 §5.1.1「main函数签名」下，而规范变更
+    条目引用的是「§8 控制流」——已整体搬到 §8 末，新增 `8.1 错误处理：try / catch` 并同步目录与引用。
+  - `grammar_formal.md` 引用了 `primary_expr` 却从未给出产生式——已补，并列出 lexer 白名单里的
+    可书写内置名。
+
 
 ## 标准库 bug
 

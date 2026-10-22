@@ -104,7 +104,7 @@
 - [x] 空指针检测（局部变量）
 - [x] 未初始化变量检测
 - [x] 整数溢出检测（常量折叠期报错 + `try`/`catch` 运行时 checked 算术：溢出 → `error.Overflow`、除零 → `error.DivisionByZero`）
-- [x] `--strict-overflow` 静态闸门（可选，默认关）：**有符号** `+ - *` 必须能证明无溢出，否则编译错误（无符号模运算豁免）；
+- [x] `--strict-overflow` 静态闸门（**默认开启**，`--no-strict-overflow` 关闭）：**有符号** `+ - *` 必须能证明无溢出，否则编译错误（无符号模运算豁免）；`src/` + `lib/` 存量已迁移完毕，`tests/` 由 `run_programs_parallel.sh` 豁免；
 - [x] 未证明的有符号溢出不再落入 C UB：构建与生成代码统一带 `-fwrapv -fno-strict-overflow`，溢出为定义良好的回绕；
       证明器基于 i64 宽化区间，仅采纳可信约束（用户守卫 + 无回绕增量）。回归 `tests/verify_strict_overflow.sh`
 - [x] 除零检测（常量）

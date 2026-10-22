@@ -3,11 +3,12 @@
 ## [Unreleased]
 
 ### Added
-- **`--strict-overflow` 静态溢出闸门（可选，默认关）**：开启后整数 `+` `-` `*` 必须能证明不溢出，
+- **`--strict-overflow` 静态溢出闸门（**默认开启**）**：整数 `+` `-` `*` 必须能证明不溢出，
   否则编译错误，诊断给出 checked / 区间守卫 / 饱和包装三条修法。证明器基于 i64 宽化区间，
   只采纳可信约束（用户守卫、无回绕增量、常量初始化）。只覆盖有符号整数（无符号是良定义模运算，
-  不是 UB）。仓库自身开启后约 447 处待迁移（`i8`/`i16` 已全绿），
-  故默认关闭。回归 `tests/verify_strict_overflow.sh`。
+  不是 UB）。`src/` 与 `lib/` 存量已全部按语义迁移完毕（饱和 `+|` / 回绕 `+%` / `catch`），
+  开启后告警归零，故默认开启；`tests/` 作为对抗性语料由 `tests/run_programs_parallel.sh`
+  显式传 `--no-strict-overflow` 豁免。关闭方式 `--no-strict-overflow`。回归 `tests/verify_strict_overflow.sh`。
 - **`try`/`catch` 整数溢出检查（规范 0.49.55）**：`try expr` 的 `expr` 现在可以是一个**整数算术表达式**
   （根为 `+` `-` `*` `/` `%` 或一元 `-`），按 checked 求值并产出 `!T`：越界 → `error.Overflow`，
   除数为 0 → `error.DivisionByZero`。整棵算术树共享一次检查，每棵子树只求值一次。

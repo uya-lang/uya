@@ -74,10 +74,11 @@ catch 的 block-expr lowering 是 async `@await catch` 的前置；async 完善�
   `try` 的类型规则本身一个字未改（操作数必须提供 `!T`），因此 T2 的「拆分」目标达成且无二义。
   已同步 `docs/uya.md`（0.49.55）、`grammar_formal.md`、`grammar_quick.md`、`uya_ai_prompt.md`。
   测试：`tests/test_try_overflow_{arith,div,catch,types}.uya` + `tests/error_try_overflow_*.uya`（4 个负例）。
-  **闸门（0.49.55 已实现，默认关）**：`--strict-overflow` 开启后 `+ - *` 必须能证明无溢出，
+  **闸门（0.49.55 已实现，现已默认开启）**：`--strict-overflow` 下 `+ - *` 必须能证明无溢出，
   否则编译错误（`checker_prove_no_overflow` + i64 宽化区间 + 可信约束标记），
-  回归 `tests/verify_strict_overflow.sh`。仓库自身开启后约 2052 处待迁移，故默认仍关闭；
-  普通上下文的 `a + b` 默认不检查溢出（见 `buglist.md`）。
+  回归 `tests/verify_strict_overflow.sh`。`src/` 与 `lib/` 存量已按语义迁移完毕（饱和 `+|` /
+  回绕 `+%` / `catch`），开启后告警归零，因此实现默认开启（`src/main.uya` 的 `g_strict_overflow = 1`）；
+  `tests/` 作为对抗性语料由 `tests/run_programs_parallel.sh` 传 `--no-strict-overflow` 豁免。
 - [ ] **禁止 `try X catch` 叠用**：在 parser 或 checker 报明确错误（二者互斥：try 传播 / catch 处理）。补 `tests/error_try_catch_combined.uya` 负测。
 - [ ] **修复多语句 catch block-expr lowering**：在同步路径与 `@await` 路径都正确处理"非末句副作用 + 末句产值 / 发散"。补 `tests/test_catch_multistmt_block.uya`。
 - [ ] `make check` 通过。

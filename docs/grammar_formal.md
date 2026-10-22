@@ -332,7 +332,7 @@ asm_instruction = STRING '(' [ expr_list ] [ '->' expr_list ] ')' [ ';' ]
 
 **说明**：
 - **@asm 块**：内联汇编语句块，包含一条或多条汇编指令（至少一条）
-- **指令模板**：字符串字面量，使用 `{name}` 作为占位符
+- **指令模板**：字符串字面量，**按原样发射**；操作数用 GCC 位置编号 `%0` / `%1`（**输出在前、输入在后**）与 `%%reg`。`{name}` 占位符**未实现**，写进模板不会被替换（BNF 不变，属语义层限制）
 - **输入列表**：指令的输入操作数（普通表达式），多个用逗号分隔
 - **输出列表**：指令的输出操作数，使用 `->` 分隔
 - **clobbers 声明**：显式声明被修改的寄存器列表，**只有块级写法**（写在 `}` 之后）；不存在逐指令 clobbers（`src/parser/primary.uya:1304-1361`）
@@ -396,6 +396,17 @@ if target == 0 {
 ### 特殊表达式
 
 ```
+primary_expr   = literal | ID | 'self' | '(' expr ')' | array_literal | tuple_literal
+               | struct_literal | enum_literal | specialize_expr
+               | '@' BUILTIN_ID [ '(' arg_list ')' ]
+                # 可书写的内置名以 src/lexer.uya:1316-1372 的白名单为准：
+                # size_of align_of len max min params va_start va_end va_arg va_copy
+                # src_name src_path src_line src_col func_name embed embed_dir c_import
+                # mc_eval mc_code mc_ast mc_error mc_get_env mc_type mc_source
+                # async_fn await frame naked_fn align syscall ptr_from_usize usize_from_ptr
+                # error_id error_name print println asm asm_target vector mask
+                # 白名单外的名字（如 @asm_reg_x64 / @asm_mem）是 lexer 错误，不是语法错误
+specialize_expr = ID '<' type_arg_list '>'   # 只在后缀链首、且回看能消解为泛型实参时成立；`ID '{'` 一律按 struct_literal 解析
 range          = expr '..' [ expr ]
 slice_op       = '[' expr ':' expr ']'  // 切片操作；典型为 &base[start:len]；base 可为标识符、数组字面量或 STRING（0.49.41）
 struct_literal = ID '{' field_init_list '}'

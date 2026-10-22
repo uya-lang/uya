@@ -1,8 +1,8 @@
 # Uya 内置函数使用文档
 
-> 版本：v0.49.52（2026-06-29）
+> 版本：v0.10.4（2026-10-19）
 > 此文档为 uya.md 的详细补充说明
-> 语言规范：0.49.52
+> 语言规范：0.49.55
 > 所有内置函数均以 `@` 开头，由编译器识别，无需导入或声明；其实现阶段与运行时开销以各章节说明为准。`@c_import` 也是 `@` 前缀的编译器内建能力，但它是**顶层构建指令**，不是表达式函数
 
 ---
@@ -57,6 +57,7 @@
   - [@align(N)](#alignn)
 - [10. 内联汇编函数](#10-内联汇编函数)
   - [@asm](#asm)
+  - [@asm_target](#asm_target)
 - [11. SIMD 向量内建](#11-simd-向量内建)
   - [@vector](#vector)
   - [@mask](#mask)
@@ -1916,25 +1917,11 @@ checker 认识这些 `@asm_reg*` 类型名（`src/checker/type_from_ast.uya:615-
 - 输入允许整数或指针（`&T`）；**FFI 指针 `*T` 不能直接进 `@asm`**，会报 `FFI 指针 (*T) 不能直接用于 @asm，请转换为 &T 类型`
 - 输出只允许整数类型；`*T` 也不能作为输出
 
-**平台检测**：
-```uya
-// @asm_target() 返回整数平台号（C 宏 UYA_ASM_TARGET_*，见 src/codegen/c99/main.uya:2311-2338）
-// 0 = x86_64_linux   1 = x86_64_macos   2 = x86_64_windows
-// 3 = arm64_linux    4 = arm64_macos    5 = arm64_windows
-// 6 = riscv64_linux
-const target: i32 = @asm_target();
-```
-
-> **实现核对（v0.10.4）**：`@asm_target()` 在 checker 里被标成名为 `@asm_target` 的枚举类型（`src/checker/check_expr.uya:1812-1817`），但**没有对应的枚举声明**，因此：
-> - `if @asm_target() == .x86_64_linux` → 语法错误（意外的 token `.`，见 `tests/test_asm_platform.uya:110` 的注释示例）
-> - `if @asm_target() == 0` → 类型不匹配（`比较运算符的操作数类型必须相同或兼容`）
-> - ✅ 可行：`if @asm_target() as i32 == 0`，或 `const t: i32 = @asm_target(); if t == 0`（均已用 `bin/uya` 实测）
-
 **安全约束（checker 强制执行，`infer_asm_block`）**：
 1. 输入必须是整数或指针类型（`@asm 输入必须是整数或指针类型`），`void`/数组/切片/结构体/f32/f64 都被拒
 2. 输入/输出都不能是 FFI 指针 `*T`
 3. 输出必须是整数类型（`@asm 输出必须是整数类型`）
-4. 内存屏障类指令（`lfence`/`mfence`/`sfence` 以及 `lock ` 前缀的原子指令，判定见 `src/checker/type_utils.uya:1768-1825`）被要求声明 `clobbers = ["memory"]`。**但当前这条检查是坏的**：parser 把 `"memory"` 存进独立标志 `asm_clobbers_memory`（`src/parser/primary.uya:1331-1332`），而 checker 的 `has_memory_clobber` 只扫寄存器数组 `asm_clobbers[]`（`src/checker/check_expr.uya:4007-4024`），因此含上述指令的 `@asm` **无论写不写 `"memory"` 都会报** `内存屏障指令需要声明 clobbers = ["memory"]`（已用 `bin/uya` 复现）。在修复前，`lfence`/`mfence`/`sfence`/`lock ...` 类指令不要放进 `@asm`；用普通同步原语或 `lib/` 里的既有实现
+4. 内存屏障类指令（`lfence`/`mfence`/`sfence` 以及 `lock ` 前缀的原子指令，判定见 `src/checker/type_utils.uya:1768-1825`）必须声明 `clobbers = ["memory"]`。parser 把 `"memory"` 同时记进独立标志 `asm_clobbers_memory`（`src/parser/primary.uya:1331-1332`）与 clobber 列表，checker 的 `has_memory_clobber` 现在两条路都读（`src/checker/check_expr.uya:4007-4024`），因此写 `clobbers = ["memory"]` 即可通过（正例 `tests/test_asm_memory_clobber_flag.uya`）。**不写**才报 `内存屏障指令需要声明 clobbers = ["memory"]`
 5. `microapp` 容器模式下用户代码（非 `lib/std`、`lib/libc`）禁止 `@asm`，报 `E4001: microapp 模式禁止使用 @asm`
 
 **错误示例**：
@@ -1958,12 +1945,17 @@ var p: *byte = null;
 }
 // 错误: FFI 指针 (*T) 不能直接用于 @asm，请转换为 &T 类型
 
-// ❌ 屏障指令：当前实现下必然报错（见上文「安全约束」第 4 条）
+// ❌ 屏障指令：缺少 memory clobber（见上文「安全约束」第 4 条）
 @asm {
     "lfence" ();
 }
 // 错误: 内存屏障指令需要声明 clobbers = ["memory"]
-//      即使写成 } clobbers = ["memory"]; 也照样报错
+
+// ✅ 正确：声明 clobbers = ["memory"] 即可通过
+var flag: i32 = 0;
+@asm {
+    "lfence" ();
+} clobbers = ["memory"];
 
 // ✅ 正确：普通算术指令 + 显式 clobbers
 var x: i32 = 0;
@@ -1980,6 +1972,47 @@ var x: i32 = 0;
 - `{name}` 形式的占位符、`@asm_mem(...)`、`@asm_reg_*` 变量目前都**不在实现范围内**，按上面 `%N` + `%%reg` 写法使用
 - 平台相关代码用 `@asm_target()` 的整数值做条件分支
 - 详细的 API 参考和最佳实践见 [asm_api_reference.md](asm_api_reference.md)（该文为历史设计记录，语法细节以本节为准）
+
+### @asm_target
+
+**函数签名**：
+```uya
+@asm_target() -> @asm_target   // checker 推断为名为 @asm_target 的枚举类型，实际按整数使用
+```
+
+**功能描述**：
+返回当前目标平台的编号，用于平台裁枝。编译期折叠成整数常量（C 侧宏 `UYA_ASM_TARGET_*`，见 `src/codegen/c99/main.uya:2311-2338`）。
+
+平台编号：
+```
+0 = x86_64_linux   1 = x86_64_macos   2 = x86_64_windows
+3 = arm64_linux    4 = arm64_macos    5 = arm64_windows
+6 = riscv64_linux
+```
+
+**参数**：无。
+
+**返回值**：当前平台枚举值（`i32` 语义）。
+
+**使用示例**：
+```uya
+// 先落成 i32 才能比较
+const target: i32 = @asm_target();
+if target == 0 {
+    // x86-64 Linux
+} else if target == 3 {
+    // ARM64 Linux
+}
+
+// 或就地强转
+if @asm_target() as i32 == 0 { /* x86-64 Linux */ }
+```
+
+> **实现核对（v0.10.4）**：`@asm_target()` 在 checker 里被标成名为 `@asm_target` 的枚举类型（`src/checker/check_expr.uya:1812-1817`），但**没有对应的枚举声明**，因此：
+> - `if @asm_target() == .x86_64_linux` → 语法错误（意外的 token `.`，见 `tests/test_asm_platform.uya:110` 的注释示例）
+> - `if @asm_target() == 0` → 类型不匹配（`比较运算符的操作数类型必须相同或兼容`）
+> - ✅ 可行：`if @asm_target() as i32 == 0`，或 `const t: i32 = @asm_target(); if t == 0`（均已用 `bin/uya` 实测）
+
 
 ---
 
@@ -2254,6 +2287,7 @@ fn buffer_info<T>() void {
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v0.10.5 | 2026-10-22 | 规范债务清理：① `@asm` 的 `clobbers = ["memory"]` 检查**已修复**（`infer_asm_block` 现在同时读 `asm_clobbers_memory` 标志与 `asm_clobbers[]` 列表），删除"无论写不写都会报错"的过期断言，改为"不写才报错"，并补正例 `tests/test_asm_memory_clobber_flag.uya`；② 新增 `@asm_target` 独立章节（此前只在内联汇编段里以「平台检测」小标题出现，目录里查不到）；③ 版本头与语言规范同步到 **0.49.55** |
 | v0.10.4 | 2026-10-19 | 按 `src/`、`tests/` 逐项核对全量内置：① `@params` 更正为"当前函数形参元组"（此前误写成 va_list）；② `@src_name` / `@src_path` / `@func_name` 的实际接收类型更正为 `*byte`（checker 仍推断 `&[i8]`，按切片初始化会在 C 层报 invalid initializer）；③ 补 `@syscall`、`@ptr_from_usize`、`@usize_from_ptr`、`@asm_target`、`@frame`、`@align(N)` 声明属性；④ 宏系统状态由"语法解析完成"改为已实现；⑤ `@asm` 状态改为已实现，语法按实现改写（指令原样发射、操作数用 `%N`/`%%reg`，`{name}` 占位符与 `@asm_mem(...)`/`@asm_reg_*` 不可用），`@asm_target()` 需 `as i32`（或先赋给 `i32` 变量）后才能比较；⑥ `@print`/`@println` 按"实参 AST 形态决定格式串"重写；⑦ 分类表状态全部收敛为已实现（异步保持最小闭环）；⑧ 记录两处实测缺陷：`i8` 的 `@max`/`@min` 生成 `0`，`@print` 直打 `i32` 负值输出零扩展值（改用字符串插值可绕过）；⑨ `@error_name` 示例改用 `printf` 而非 `@println`（`@println` 对 `*byte` 打印的是地址） |
 | v0.49.52 | 2026-06-29 | 与 **uya.md 0.49.52** 同步：文件开头 shebang 属于词法规则；内置函数条目无增删 |
 | v0.49.51 | 2026-06-21 | 与 **uya.md 0.49.51** 同步：明确 `@await` 不能出现在 `defer` / `errdefer` 清理块中；checker 前置稳定诊断，避免后端崩溃 |
@@ -2320,4 +2354,4 @@ fn buffer_info<T>() void {
 
 ---
 
-**本文档由 Uya 编译器团队维护，最后更新：2026-06-29（0.49.52）**
+**本文档由 Uya 编译器团队维护，最后更新：2026-10-22（0.49.55）**
