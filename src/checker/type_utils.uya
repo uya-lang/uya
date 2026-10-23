@@ -1878,6 +1878,18 @@ fn requires_memory_barrier(instr: &byte) i32 {
     if str_contains(instr, "lfence" as &byte) != 0 {
         return 1;
     }
+    // AArch64 屏障指令：dmb/dsb 通常带域后缀（dmb ish、dmb sy），用子串匹配覆盖全族。
+    // 不识别的话，arm64 上「声明了 clobbers = ["memory"] 的屏障块」只是碰巧不报错，
+    // 而漏写 clobbers 的真正屏障块也会被放行 —— 屏障语义检查在 Apple Silicon 上失效。
+    if str_contains(instr, "dmb" as &byte) != 0 {
+        return 1;
+    }
+    if str_contains(instr, "dsb" as &byte) != 0 {
+        return 1;
+    }
+    if str_contains(instr, "isb" as &byte) != 0 {
+        return 1;
+    }
     return 0;
 }
 

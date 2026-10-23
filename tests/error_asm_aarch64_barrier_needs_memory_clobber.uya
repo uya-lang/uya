@@ -1,0 +1,25 @@
+// error_asm_aarch64_barrier_needs_memory_clobber.uya - 负例：AArch64 屏障指令漏写 memory clobber 必须报错
+//
+// checker 的 requires_memory_barrier 原先只认 x86 的 mfence/sfence/lfence。arm64 上
+// 真正的屏障指令是 dmb/dsb/isb（常带域后缀，如 dmb ish），漏写 clobbers = ["memory"]
+// 时检查形同虚设 —— 屏障语义在 Apple Silicon 上直接失效。
+//
+// 本负例按目标架构选助记符：x86_64 走 mfence，arm64 走 dmb ish，两条路径都必须编译失败。
+// 判定只看「编译失败」，不校验报错文案（见 AGENTS.md 负例测试规则）。
+
+use std;
+
+fn main() i32 {
+    var x: i32 = 0;
+    std.cfg(std.target_arch == .ta_arm64, {
+        @asm {
+            "dmb ish" (-> x);
+        }
+    }, {
+        @asm {
+            "mfence" (-> x);
+        }
+    })
+    _ = x;
+    return 0;
+}

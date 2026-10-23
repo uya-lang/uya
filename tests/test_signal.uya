@@ -1,4 +1,5 @@
 // test_signal.uya - signal 模块测试
+use std;
 use std.runtime.entry;
 
 use libc.SIGINT;
@@ -34,15 +35,27 @@ use std.testing.run_test;
 // 信号常量测试
 // ============================================================
 
+// 信号编号是宿主 ABI 的一部分：Darwin 的 SIGSTOP 是 17、NSIG 是 32，
+// Linux 分别是 19 和 65（见 lib/libc/signal.uya 的两张常量表）。
+// 期望值按目标 OS 取，避免用 Linux 表去断言 macOS 常量。
+std.cfg(std.target_os == .tos_macos, {
+const EXPECT_SIGSTOP: i32 = 17;
+const EXPECT_NSIG: i32 = 32;
+}, {
+const EXPECT_SIGSTOP: i32 = 19;
+const EXPECT_NSIG: i32 = 65;
+})
+
 fn test_signal_constants() !void {
     // 验证标准信号编号
     try assert_eq_i32(SIGINT, 2);
     try assert_eq_i32(SIGTERM, 15);
     try assert_eq_i32(SIGKILL, 9);
-    try assert_eq_i32(SIGSTOP, 19);
-    
+    try assert_eq_i32(SIGSTOP, EXPECT_SIGSTOP);
+
     // NSIG 应该大于标准信号编号
     try expect(NSIG > SIGTERM);
+    try assert_eq_i32(NSIG, EXPECT_NSIG);
 }
 
 // ============================================================

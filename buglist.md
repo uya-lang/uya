@@ -1,6 +1,9 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-23（**同日又收口 1 条 P0**：macOS hosted 自举 —— codegen 把
+**最后更新：** 2026-10-24（**本轮收口 1 条 P0**：macos-ci `make tests-hosted` 的 31 个失败用例
+—— `ptsname` 的 Darwin 原型撞车（15 例）、`--nostdlib` 用例越出「仅 Linux x86_64」边界（14 例）、
+x86 屏障助记符 `mfence` 在 arm64 上不被 clang 认识（1 例）、信号常量写死 Linux 编号（1 例）；
+详见"编译器 bug"首条，跟踪种子已全部刷新。此前：2026-10-23（**同日又收口 1 条 P0**：macOS hosted 自举 —— codegen 把
 `stat`/`opendir`/`readdir`/`closedir` 当「宿主 libc 裸符号」后，宿主 ABI 把统一
 `Stat`/`Dirent` 写坏，`make uya-hosted` 在 macOS 上报「既不是文件也不是目录」；已恢复
 macOS 保留桥接实现体并刷新全部跟踪种子，详见"编译器 bug"首条。此前同日**本轮修掉 2 条**：① P0 macOS hosted 目标的生成 C 编译不过 ——
@@ -460,6 +463,58 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [x] **P0 / 严重：macos-ci `make tests-hosted` 31 个用例失败 —— `ptsname` ABI 撞车、nostdlib 目标越界、x86 屏障助记符、Linux 信号常量**
+  - 状态：**已修复**（2026-10-24；依据 `macos-ci-1024-log.txt`：1031 用例 / 31 失败）
+  - 现象（macOS 15 arm64 hosted）：
+    - 15 个 `test_typed_pipeline_*` 与 `test_module_scope_isolation_stdlib_check`、
+      `test_std_script_pipeline_facade`：`链接失败`，生成 C 报
+      `error: conflicting types for 'ptsname'`；
+    - 14 个 `--nostdlib` 专用用例（`test_libc_heap_*`、`test_mem`、`test_string`、
+      `bench_malloc_phase4*`、`test_std_stdlib_malloc*`）：`链接失败`，日志只有
+      「当前 --nostdlib 测试链接仅支持 Linux x86_64」；
+    - `test_asm_memory_clobber_flag`：`链接失败`，clang 报 `unrecognized instruction mnemonic`
+      （`mfence` 在 arm64 上不存在）；
+    - `test_signal`：`测试失败（退出码 1）`，`assert_eq_i32(SIGSTOP, 19)` 写死 Linux 编号。
+  - 根因：
+    1. `lib/std/process.uya` 用 `extern fn ptsname(fd: i32) &byte` 直接绑宿主符号，生成 C 是
+       `extern uint8_t * ptsname(int32_t)`；Darwin 的 `<stdlib.h>` 把原型钉成
+       `char *ptsname(int)`，同一 TU 里两个原型对立。Linux 没暴露只是因为 `-std=c99` 下
+       glibc 把 `ptsname` 藏在 `__USE_XOPEN_EXTENDED` 后面。
+    2. nostdlib 用例靠 `test_should_use_nostdlib()` 按名字选中，但
+       `link_generated_test_output` 只实现 Linux x86_64 一条静态链接路径，其它目标直接
+       `return 1` —— 工具链能力边界被当成回归计数。
+    3. 用例硬写 x86 屏障助记符；checker 的 `requires_memory_barrier()` 只认
+       `mfence/sfence/lfence`，AArch64 的 `dmb/dsb/isb` 在 arm64 上等于没有检查。
+    4. `libc.signal` 本来就是 Darwin/Linux 两张常量表，用例期望值却只有 Linux 一份。
+  - 修复内容：
+    - `src/codegen/c99/main.uya`：新增 `uya_macos_ptsname` 宿主绑定（`dlsym` 到 libSystem，
+      C 侧签名 `char *(int32_t)`，与 `uya_macos_realpath` 同一手法）。
+    - `lib/std/process.uya`：按 `std.target_os` 分派 `pty_slave_name()` —— macOS 走
+      `extern "libc" fn uya_macos_ptsname`（`extern "libc"` 无函数体不发射 C 原型），
+      其余目标保持裸 `ptsname`；3 处调用点改走该包装。
+    - `tests/run_programs_parallel.sh`：非 Linux x86_64 目标把
+      `test_should_use_nostdlib()` 选中的用例加进 `SKIP_TESTS` 并打印能力边界提示，
+      不再计入失败数；`UYA_TEST_NOSTDLIB_MODE=off` 时按普通链接跑，不跳过。
+    - `src/checker/type_utils.uya`：`requires_memory_barrier()` 补认 `dmb/dsb/isb`。
+    - `tests/test_asm_memory_clobber_flag.uya`：按 `std.target_arch` 选 `mfence` / `dmb ish`
+      （其余架构退化为 `nop`，只验证 clobbers 标志本身）。
+    - `tests/test_signal.uya`：`SIGSTOP`/`NSIG` 期望值按目标 OS 分表（17/32 与 19/65）。
+    - 新增负例 `tests/error_asm_aarch64_barrier_needs_memory_clobber.uya`：arm64 的
+      `dmb ish` 漏写 `clobbers = ["memory"]` 必须报错。
+    - `tests/verify_macos_hosted_seed_decls.sh`：断言 `uya_macos_ptsname` 绑定存在，
+      且产物里不再有 `uint8_t * ptsname(int32_t fd);` 原型。
+  - 验证：
+    - Linux：`make clean && make backup-all` —— `通过 1186 / 失败 0`，退出码 0，
+      含 `backup/uya-hosted-macos-{arm64,x86_64}.c` 在内的跟踪种子全部刷新。
+    - macOS 目标生成 C（arm64/x86_64）：16 个相关用例用
+      `zig cc -target {aarch64,x86_64}-macos-none -c` 全部编译通过（修复前 arm64 是
+      `conflicting types for 'ptsname'`）；生成 C 里只剩
+      `static char *uya_macos_ptsname(int32_t fd)` 与带 `(uint8_t *)` 转换的调用点。
+    - 新负例在 `./bin/uya check` 下两条 cfg 分支都报
+      「内存屏障指令需要声明 clobbers = ["memory"]」（x86_64 命中第 19 行、arm64 命中第 15 行）。
+    - 刷新后的 macOS arm64 种子用同一套 clang flag（含 `-Werror`）单独编译：零错误。
+    - `tests/verify_macos_hosted_seed_decls.sh`：通过。
 
 - [x] **P0 / 严重：macOS CI `make b-hosted` 自举 C 对比误报 —— 两次输出头部相差 117 行**
   - 状态：**已修复**（2026-10-24）

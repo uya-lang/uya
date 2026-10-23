@@ -1085,6 +1085,28 @@ if [ "$HOST_OS" = "macos" ] && [ "${SKIP_DARWIN_DEFAULT:-1}" != "0" ]; then
     fi
 fi
 
+# --nostdlib 用例依赖 Linux 的 crti.o/crtn.o + 静态 -no-pie 链接，脚本目前只实现
+# Linux x86_64 一条路径（见 link_generated_test_output 的早期 return）。其它目标上
+# 这批用例必然「链接失败」，那是工具链能力边界而不是回归 —— 全量跑时直接跳过，
+# 既不计入失败数也不谎报通过（UYA_TEST_NOSTDLIB_MODE=off 时按普通链接跑，不跳过）。
+if [ "$TARGET_OS" != "linux" ] || [ "$TARGET_ARCH" != "x86_64" ]; then
+    NOSTDLIB_SKIPPED=0
+    for t in "${TEST_FILES[@]}"; do
+        case "$t" in
+            MULTIFILE:*) continue ;;
+        esac
+        bn="$(basename "$t" .uya)"
+        if test_should_use_nostdlib "$bn"; then
+            SKIP_TESTS+=("$bn")
+            NOSTDLIB_SKIPPED=$((NOSTDLIB_SKIPPED + 1))
+        fi
+    done
+    if [ "$NOSTDLIB_SKIPPED" -gt 0 ] && [ "$ERRORS_ONLY" = false ]; then
+        echo "提示: 目标 $TARGET_OS/$TARGET_ARCH 不支持 --nostdlib 静态链接，已跳过 $NOSTDLIB_SKIPPED 个 nostdlib 专用用例"
+        echo ""
+    fi
+fi
+
 if ! libcrypto_link_supported; then
     SKIP_TESTS+=(
         test_tls_ecdsa

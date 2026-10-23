@@ -3103,6 +3103,10 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     // realpath：Darwin 的 <stdlib.h> 声明为 char *(const char *, char *)，
     // 而 uya 侧签名是 uint8_t*，直接 extern 会被 clang 判成 conflicting types。
     fputs("typedef char *(*uya_macos_realpath_fn)(const char *, char *);\n" as *byte, codegen.emit_stream as *void);
+    // ptsname：Darwin 的 <stdlib.h> 声明为 char *(int)，uya 侧 extern 出来的是
+    // uint8_t *(int32_t)，同一 TU 里两原型冲突（Linux 没暴露是因为 -std=c99 下
+    // glibc 把 ptsname 藏在 __USE_XOPEN_EXTENDED 后面）。改走宿主绑定。
+    fputs("typedef char *(*uya_macos_ptsname_fn)(int);\n" as *byte, codegen.emit_stream as *void);
     // 文件操作族：unlink/mkdir/rmdir/rename/dup 在 Darwin 上都没有 Linux 编号，
     // 必须走 libSystem，否则 macOS 上执行到裸 svc 直接 SIGSYS。
     fputs("typedef int (*uya_macos_path2_i_fn)(const char *, const char *);\n" as *byte, codegen.emit_stream as *void);
@@ -3356,6 +3360,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    if (real_realpath == (uya_macos_realpath_fn)0) real_realpath = (uya_macos_realpath_fn)dlsym((void *)-1, \"realpath\");\n" as *byte, codegen.emit_stream as *void);
     fputs("    if (real_realpath == (uya_macos_realpath_fn)0) return (char *)0;\n" as *byte, codegen.emit_stream as *void);
     fputs("    return real_realpath((const char *)path, resolved);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static char *uya_macos_ptsname(int32_t fd) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_ptsname_fn real_ptsname = (uya_macos_ptsname_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_ptsname == (uya_macos_ptsname_fn)0) real_ptsname = (uya_macos_ptsname_fn)dlsym((void *)-1, \"ptsname\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_ptsname == (uya_macos_ptsname_fn)0) return (char *)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return real_ptsname((int)fd);\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n" as *byte, codegen.emit_stream as *void);
     fputs("static struct err_union_int32_t uya_macos_fcntl(int32_t fd, int32_t cmd, int32_t arg) {\n" as *byte, codegen.emit_stream as *void);
     fputs("    int ret = fcntl((int)fd, (int)cmd, (int)arg);\n" as *byte, codegen.emit_stream as *void);

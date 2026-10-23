@@ -11,12 +11,29 @@
 // 预期：编译成功、可运行，返回 0。
 // 同族负例（对应 buglist「内存屏障必报错」的旧行为）见
 // tests/repros/asm_memory_clobber_flag.uya —— 修复前的编译器在它上面报错。
+//
+// 屏障助记符按目标架构选：x86_64 用 mfence，arm64 用 dmb ish（checker 的
+// requires_memory_barrier 同时认这两族）。硬写 mfence 会让 macOS arm64 的
+// hosted 用例在 C 阶段被 clang 判成 unrecognized instruction mnemonic。
+
+use std;
 
 fn main() i32 {
     var x: i32 = 0;
-    @asm {
-        "mfence" (-> x);
-    } clobbers = ["memory"];
+    std.cfg(std.target_arch == .ta_arm64, {
+        @asm {
+            "dmb ish" (-> x);
+        } clobbers = ["memory"];
+    }, std.cfg(std.target_arch == .ta_x86_64, {
+        @asm {
+            "mfence" (-> x);
+        } clobbers = ["memory"];
+    }, {
+        // 其余目标架构没有统一屏障助记符，只验证 clobbers=["memory"] 标志本身被接受。
+        @asm {
+            "nop" (-> x);
+        } clobbers = ["memory"];
+    }))
     if x == 0 {
         return 0;
     }

@@ -119,6 +119,15 @@ for sym in unlink mkdir rmdir rename dup; do
         exit 1
     fi
 done
+
+# ptsname：Darwin 的 <stdlib.h> 已把原型钉成 char *(int)，uya 再 extern 一个
+# uint8_t *(int32_t) 版本会被 clang 判成 conflicting types（tests-hosted 的
+# typed_pipeline 家族全挂在这条上），必须改走 uya_macos_ptsname 宿主绑定。
+require_text 'static char *uya_macos_ptsname(int32_t fd) {' 'uya_macos_ptsname 宿主绑定'
+if grep -Fq 'uint8_t * ptsname(int32_t fd);' "$OUT_C"; then
+    echo "✗ 生成的 uya-hosted.c 仍带 uint8_t * ptsname 原型（Darwin 会判 conflicting types）"
+    exit 1
+fi
 if grep -Fq 'uya_syscall6(libc_SYS_mmap' "$OUT_C"; then
     echo "✗ 生成的 uya-hosted.c 仍在 macOS 上使用裸 mmap syscall"
     exit 1

@@ -85,7 +85,23 @@ extern fn setsid() i32;
 extern fn posix_openpt(flags: i32) i32;
 extern fn grantpt(fd: i32) i32;
 extern fn unlockpt(fd: i32) i32;
+// ptsname：Darwin 的 <stdlib.h> 已把原型钉成 char *(int)，这里再 extern 一个
+// uint8_t *(int32_t) 版本会被 clang 判成 conflicting types（Linux 没暴露只是因为
+// -std=c99 下 glibc 把 ptsname 藏在 __USE_XOPEN_EXTENDED 后面）。macOS 改走
+// codegen 发的 uya_macos_ptsname 宿主绑定，其余目标保持裸符号。
+std.cfg(std.target_os == .tos_macos, {
+extern "libc" fn uya_macos_ptsname(fd: i32) &byte;
+
+fn pty_slave_name(fd: i32) &byte {
+    return uya_macos_ptsname(fd);
+}
+}, {
 extern fn ptsname(fd: i32) &byte;
+
+fn pty_slave_name(fd: i32) &byte {
+    return ptsname(fd);
+}
+})
 extern fn __errno_location() &i32;
 extern fn sigaction(signum: i32, action: &const PipelineSigaction, old_action: &PipelineSigaction) i32;
 
@@ -2860,7 +2876,7 @@ export fn pipeline_terminal_inherit_self_test() !void {
         if master_fd >= 0 { _ = close(master_fd); }
         return error.PipelineIoError;
     }
-    const slave_name: &byte = ptsname(master_fd);
+    const slave_name: &byte = pty_slave_name(master_fd);
     if slave_name == null { _ = close(master_fd); return error.PipelineIoError; }
     const pid: i32 = fork();
     if pid == 0 { pipeline_terminal_inherit_child(slave_name, master_fd); }
@@ -2911,7 +2927,7 @@ export fn pipeline_terminal_background_self_test() !void {
         if master_fd >= 0 { _ = close(master_fd); }
         return error.PipelineIoError;
     }
-    const slave_name: &byte = ptsname(master_fd);
+    const slave_name: &byte = pty_slave_name(master_fd);
     if slave_name == null { _ = close(master_fd); return error.PipelineIoError; }
     const pid: i32 = fork();
     if pid == 0 { pipeline_terminal_background_child(slave_name, master_fd); }
@@ -2970,7 +2986,7 @@ fn pipeline_terminal_stopped_case(background_read: bool) !void {
         if master_fd >= 0 { _ = close(master_fd); }
         return error.PipelineIoError;
     }
-    const slave_name: &byte = ptsname(master_fd);
+    const slave_name: &byte = pty_slave_name(master_fd);
     if slave_name == null { _ = close(master_fd); return error.PipelineIoError; }
     const pid: i32 = fork();
     if pid == 0 { pipeline_terminal_stopped_child(slave_name, master_fd, background_read); }
