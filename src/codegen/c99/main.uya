@@ -3097,6 +3097,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("typedef void *(*uya_macos_mmap_fn)(void *, size_t, int, int, int, off_t);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_munmap_fn)(void *, size_t);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_mprotect_fn)(void *, size_t, int);\n" as *byte, codegen.emit_stream as *void);
+    // realpath：Darwin 的 <stdlib.h> 声明为 char *(const char *, char *)，
+    // 而 uya 侧签名是 uint8_t*，直接 extern 会被 clang 判成 conflicting types。
+    fputs("typedef char *(*uya_macos_realpath_fn)(const char *, char *);\n" as *byte, codegen.emit_stream as *void);
     // kqueue/kevent 通过 dlsym 解析（见下方 uya_macos_kqueue/uya_macos_kevent 的注释）。
     fputs("typedef int (*uya_macos_kqueue_fn)(void);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_kevent_fn)(int, const void *, int, void *, int, const void *);\n" as *byte, codegen.emit_stream as *void);
@@ -3300,6 +3303,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    if (real_mprotect == (uya_macos_mprotect_fn)0) real_mprotect = (uya_macos_mprotect_fn)dlsym((void *)-1, \"mprotect\");\n" as *byte, codegen.emit_stream as *void);
     fputs("    if (real_mprotect == (uya_macos_mprotect_fn)0) return -1;\n" as *byte, codegen.emit_stream as *void);
     fputs("    return (int32_t)real_mprotect(addr, (size_t)length, (int)prot);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static uint8_t *uya_macos_realpath(uint8_t *path, uint8_t *resolved) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_realpath_fn real_realpath = (uya_macos_realpath_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_realpath == (uya_macos_realpath_fn)0) real_realpath = (uya_macos_realpath_fn)dlsym((void *)-1, \"realpath\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_realpath == (uya_macos_realpath_fn)0) return (uint8_t *)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (uint8_t *)real_realpath((const char *)path, (char *)resolved);\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n" as *byte, codegen.emit_stream as *void);
     fputs("static struct err_union_int32_t uya_macos_fcntl(int32_t fd, int32_t cmd, int32_t arg) {\n" as *byte, codegen.emit_stream as *void);
     fputs("    int ret = fcntl((int)fd, (int)cmd, (int)arg);\n" as *byte, codegen.emit_stream as *void);
