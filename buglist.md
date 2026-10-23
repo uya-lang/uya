@@ -486,8 +486,10 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
       unused argument，配 `-Werror` 直接失败）。
     - 刷新 7 个跟踪种子；`tests/verify_macos_hosted_seed_decls.sh` 增加对应断言。
   - 验证：diag 分支实跑 macos-15 —— `seed_rc=0`、`hosted_rc=0`（`make uya-hosted` 通过）。
-  - 仍未修复（macOS 链路的后续问题，非本次回归）：`make b-hosted` 的自举产物比对
-    仍不一致（stage 输出差异）；`make tests-hosted` 仍有失败用例。
+  - 仍未修复（macOS 链路的后续问题，非本次回归，需单独立项）：
+    - `make b-hosted`：自举产物比对仍不一致（stage 输出差异，与 seed 生成 profile 有关）。
+    - `make tests-hosted`：1031 个用例仍有 31 个失败，且文件操作桥接前后失败数完全一致，
+      说明这批失败与裸 syscall 无关，需要逐条按 Darwin 语义排查。
 
 - [x] **P0 / 严重：macOS hosted 自举回归 —— `make uya-hosted` 报「src/main.uya 既不是文件也不是目录」**
   - 状态：**已修复**（2026-10-23）
