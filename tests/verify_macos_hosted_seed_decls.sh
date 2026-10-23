@@ -44,6 +44,16 @@ require_line() {
     fi
 }
 
+require_text() {
+    local expected="$1"
+    local label="$2"
+
+    if ! grep -Fq "$expected" "$OUT_C"; then
+        echo "✗ 生成的 uya-hosted.c 缺少 $label"
+        exit 1
+    fi
+}
+
 require_line 'extern ssize_t read(int, void *, size_t);' 'read extern 声明'
 require_line 'extern ssize_t write(int, const void *, size_t);' 'write extern 声明'
 require_line 'extern int uya_host_getsockname(int, void *, uint32_t *) __asm__("_getsockname");' 'getsockname host extern 声明'
@@ -72,5 +82,18 @@ if [ -z "$pollfd_decl_line" ] || [ -z "$poll_shim_line" ] || [ "$pollfd_decl_lin
     echo "✗ PollFd 前向声明必须早于 uya_macos_poll shim"
     exit 1
 fi
+
+# macOS 原生 struct stat / struct dirent 的布局与项目统一的 Stat / Dirent 不同。
+# stat / opendir / readdir / closedir 必须保留 uya 实现体，走
+# sys_stat -> uya_macos_stat、uya_macos_host_* 逐字段转换；一旦退回宿主裸符号，
+# is_file 会把真实存在的文件判成「既不是文件也不是目录」（make uya-hosted 直接失败），
+# 模块扫描也读不到目录项（use codegen.c99 等报未找到导出项）。
+require_text '__attribute__((used)) int32_t stat(const char * path, struct Stat * buf) {' 'uya 版 stat 桥接实现'
+require_text 'struct err_union_int32_t result = sys_stat((const char *)(const uint8_t *)path, buf);' 'stat 转发 sys_stat'
+require_text '__attribute__((used)) struct DIR * opendir(const char * name) {' 'uya 版 opendir 桥接实现'
+require_text 'void * const host_dir = uya_macos_host_opendir((const char *)name);' 'opendir 走 uya_macos_host_opendir 桥接'
+require_text '__attribute__((used)) struct Dirent * readdir(struct DIR * dirp) {' 'uya 版 readdir 桥接实现'
+require_text 'uya_macos_host_readdir_fill((void *)dirp, (void *)(&readdir_result))' 'readdir 走 uya_macos_host_readdir_fill 桥接'
+require_text '__attribute__((used)) int32_t closedir(struct DIR * dirp) {' 'uya 版 closedir 桥接实现'
 
 echo "✓ macOS hosted 单文件 seed extern 声明通过"

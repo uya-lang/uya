@@ -11110,6 +11110,8 @@ static __attribute__((used)) int32_t c99_filename_is_in_lib_family(uint8_t * fil
 static __attribute__((used)) int32_t c99_filename_is_libc_file(uint8_t * filename, uint8_t * file_name);
 static __attribute__((used)) int32_t c99_name_is_hosted_raw_alloc_symbol(uint8_t * name);
 static __attribute__((used)) int32_t c99_host_target_is_windows();
+static __attribute__((used)) int32_t c99_host_target_is_macos();
+static __attribute__((used)) int32_t c99_host_target_keeps_dirent_bodies();
 static __attribute__((used)) int32_t c99_name_is_hosted_raw_io_symbol(uint8_t * name);
 static __attribute__((used)) int32_t c99_name_is_hosted_raw_stdio_symbol(uint8_t * name);
 static __attribute__((used)) int32_t c99_hosted_stdio_name_uses_host_libc(uint8_t * name);
@@ -138982,6 +138984,45 @@ static __attribute__((used)) int32_t c99_host_target_is_windows() {
         }
 }
 
+static __attribute__((used)) int32_t c99_host_target_is_macos() {
+    uint8_t * const target_os = std_cfg_target_os_name();
+    if (target_os == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strcmp((uint8_t *)target_os, (uint8_t *)(uint8_t *)str777) == 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_host_target_keeps_dirent_bodies() {
+    if (c99_host_target_is_windows() != 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (c99_host_target_is_macos() != 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) int32_t c99_name_is_hosted_raw_io_symbol(uint8_t * name) {
     (void)name;
     if (name == NULL) {
@@ -139581,13 +139622,19 @@ static __attribute__((used)) int32_t c99_should_skip_hosted_libc_function_body(s
                 }
     }
     if (((fn_decl->fn_decl_extern_lib_name != NULL) && (c99_name_is_hosted_raw_libc_symbol(name) != 0))) {
-        if (c99_host_target_is_windows() != 0) {
+        if (c99_host_target_keeps_dirent_bodies() != 0) {
             if ((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3556) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2884) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3557) == 0))) {
                                 {
                     int32_t _uya_ret = 0;
                     return _uya_ret;
                                 }
             }
+        }
+        if (((c99_host_target_is_macos() != 0) && (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3554) == 0))) {
+                        {
+                int32_t _uya_ret = 0;
+                return _uya_ret;
+                        }
         }
                 {
             int32_t _uya_ret = 1;
@@ -139643,7 +139690,7 @@ static __attribute__((used)) int32_t c99_should_skip_hosted_libc_global_var(stru
                 }
     }
     if (c99_filename_is_libc_file(var_decl->filename, (uint8_t *)(uint8_t *)str3613) != 0) {
-        if (c99_host_target_is_windows() != 0) {
+        if (c99_host_target_keeps_dirent_bodies() != 0) {
             if (((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3616) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3617) == 0))) {
                                 {
                     int32_t _uya_ret = 0;

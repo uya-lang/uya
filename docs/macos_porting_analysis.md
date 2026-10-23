@@ -91,6 +91,19 @@
 
 > 当前最大风险并不是上层逻辑，而是 Darwin native `struct stat` 到统一 `Stat` 的 ABI/字段映射。
 
+### 回归约束：hosted 下 `stat` 与目录项不能直接交给宿主
+
+这条链路还有一个**容易被 codegen 优化掉的前提**：hosted 模式下 `stat` /
+`opendir` / `readdir` / `closedir` 必须保留 uya 实现体，不能按「真实系统 libc 裸名」直接
+交给宿主符号。宿主 `stat` 会按 Darwin 原生布局写统一 `Stat`（`st_mode` 错位 ⇒
+`is_file` 把真实文件判成「既不是文件也不是目录」），宿主 `dirent` 的 `d_type`/`d_name`
+偏移也与统一 `Dirent` 不同（模块扫描读不到目录项）。
+
+判据在 `src/codegen/c99/function.uya` 的 `c99_host_target_keeps_dirent_bodies` 与
+`c99_should_skip_hosted_libc_function_body` 的 macOS `stat` 例外；
+`tests/verify_macos_hosted_seed_decls.sh` 在 Linux 上生成 macOS hosted 单文件 C 并断言
+这些桥接实现体存在，可直接回归。
+
 ---
 
 ## 已知差异点

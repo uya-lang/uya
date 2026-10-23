@@ -1,6 +1,9 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-23（**本轮修掉 2 条**：① P0 macOS hosted 目标的生成 C 编译不过 ——
+**最后更新：** 2026-10-23（**同日又收口 1 条 P0**：macOS hosted 自举 —— codegen 把
+`stat`/`opendir`/`readdir`/`closedir` 当「宿主 libc 裸符号」后，宿主 ABI 把统一
+`Stat`/`Dirent` 写坏，`make uya-hosted` 在 macOS 上报「既不是文件也不是目录」；已恢复
+macOS 保留桥接实现体并刷新全部跟踪种子，详见"编译器 bug"首条。此前同日**本轮修掉 2 条**：① P0 macOS hosted 目标的生成 C 编译不过 ——
 `struct timeval`/`struct sigaction`/`signal`/`sa_handler` 与 Darwin 系统头的同名撞车、
 `__attribute__((weak))` 在 Mach-O 上不成立（可选符号改走 dlsym）、
 `libc.signal` 整族 Linux syscall 号与信号编号表；两套 macOS 架构现已能交叉编译并链接，
@@ -457,6 +460,36 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [x] **P0 / 严重：macOS hosted 自举回归 —— `make uya-hosted` 报「src/main.uya 既不是文件也不是目录」**
+  - 状态：**已修复**（2026-10-23）
+  - 现象：macos-ci 的 `make uya-hosted` 在编译 `src/main.uya` 时判 `is_file()` 失败，
+    打印 `错误: '.../src/main.uya' 既不是文件也不是目录` 后退出码 1；后续
+    `make b-hosted` / `make tests-hosted` 全部 skipped。`src/main.uya` 的
+    `is_file`/`is_directory` 与 Darwin `stat` bridge 本身都没有问题。
+  - 根因：`1f617994`（"Fix release-dirty validation and command builds"）引入
+    `c99_name_is_hosted_raw_io_symbol`，把 `stat` / `opendir` / `readdir` / `closedir`
+    归为「真实系统 libc/POSIX ABI 裸名」，hosted 模式下不再发射 uya 实现体，改为直接调
+    宿主符号。Linux 的统一 `Stat`/`Dirent` 与 glibc 布局一致所以无感；Darwin 不一致：
+    libSystem 的 `stat` 按原生布局写统一 `Stat`（`st_mode` 错位），`dirent` 的
+    `d_type`/`d_name` 偏移也不同。于是 `is_file()` 对真实文件返回 0，模块扫描也读不到
+    目录项。最后一次绿色 macos-ci（`#354` / `ad798b76`）的种子里仍有
+    `int32_t stat(...)`、`struct DIR * opendir(...)` 实现体，可作对照。
+  - 修复内容：
+    - `src/codegen/c99/function.uya`：新增 `c99_host_target_is_macos`（复用
+      `std_cfg_target_os_name`，与 `std.cfg(std.target_os)` 同源，未设 `TARGET_OS` 时
+      回落到宿主平台）与 `c99_host_target_keeps_dirent_bodies`。hosted 下 macOS 保留
+      `stat` 实现体，Windows/macOS 都保留 `opendir`/`readdir`/`closedir` 实现体及
+      `opendir_storage`/`readdir_result` 全局变量，继续走
+      `sys_stat -> uya_macos_stat` 与 `uya_macos_host_*` host bridge。
+    - 刷新 7 个跟踪种子：`backup/uya.c`、`backup/uya-linux-x86_64.c`、
+      `backup/uya-hosted.c`、`backup/uya-hosted-linux-x86_64.c`、
+      `backup/uya-hosted-macos.c`、`backup/uya-hosted-macos-arm64.c`、
+      `backup/uya-hosted-macos-x86_64.c`。
+    - `tests/verify_macos_hosted_seed_decls.sh`：新增断言，在 Linux 上生成 macOS
+      hosted 单文件 C，要求 `stat`/`opendir`/`readdir`/`closedir` 的 uya 桥接实现体存在。
+  - 回归：`bash tests/verify_macos_hosted_seed_decls.sh`（已挂进 `make check`）；
+    `zig cc -target aarch64-macos-none -std=c99 -c backup/uya-hosted-macos-arm64.c` 通过。
 
 - [x] **P0 / 严重：macOS hosted 目标的生成 C 根本编译不过（7 个错误），种子家族因此一直无法刷新**
   - 状态：**已修复**（2026-10-23）
