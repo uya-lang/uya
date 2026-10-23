@@ -10358,9 +10358,19 @@ fn gen_print_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             // 于是 `@println(-100)` 输出 4294967196。这里按操作数的真实 C 类型挑格式：
             // 无符号（uint32_t 等）走 `%u`，有符号整数一律走 `%d`（C 的整数提升已保证
             // int8_t/uint8_t/int16_t/int32_t 与 `%d` 匹配）。
-            if inner.type != ASTNodeType.AST_STRING && inner.type != ASTNodeType.AST_STRING_INTERP {
+            //
+            // 只在「上面没有选出更具体的格式」时才覆盖：AST_IDENTIFIER 分支已经把
+            // 字节/字符数组（如 `var buf: [byte: 3]`）判成 `%s + (char*)`，
+            // 而它的 C 类型 `uint8_t[3]` 也满足下面的整型前缀 —— 无条件覆盖会把
+            // 数组当成整数打（实测 `println_byte_array_prints_as_string` 输出 1785768621）。
+            // `%s` 与 `%g` 是「非整型」选择，必须保留。
+            if inner.type != ASTNodeType.AST_STRING && inner.type != ASTNodeType.AST_STRING_INTERP &&
+                (fmt == null ||
+                 (strcmp(fmt as *byte, "%lld" as *byte) == 0 || strcmp(fmt as *byte, "%d" as *byte) == 0 ||
+                  strcmp(fmt as *byte, "%llu" as *byte) == 0 || strcmp(fmt as *byte, "%u" as *byte) == 0)) {
                 const print_ty: &byte = get_c_type_of_expr(codegen, inner);
-                if print_ty != null && strstr(print_ty as *byte, "*" as *byte) == null {
+                if print_ty != null && strstr(print_ty as *byte, "*" as *byte) == null &&
+                    strchr(print_ty as *byte, 91) == null {   // 排除 `T[N]` 数组：那是 %s 的领域
                     var pt: *byte = print_ty as *byte;
                     if strncmp(pt, "const " as *byte, 6) == 0 {
                         pt = pt + 6;
