@@ -44,6 +44,19 @@
 - **入口 `main` 可返回错误联合**：`export fn main() !T` / `fn main() !T` 现在能正常链接运行。
 
 ### Fixed
+- **`ubuntu-ci` 被外部信号打断时只剩一行 `exit code 143`，无法与构建失败区分**：
+  `143 = 128 + SIGTERM(15)`，GitHub 回收/取消 runner 时会给**整个进程组**发 `SIGTERM`，
+  `make` 随之退出 143，日志里只剩 `make[2]: *** [check] Terminated` 这类连锁信息 ——
+  构建与测试本身没有问题（真正的失败是 make 以 2 退出），但也没有任何可定位线索，
+  且 `make check` 当时会把 1185 个用例的完整输出 `rm` 掉。现在：
+  `.github/workflows/ubuntu-ci.yml` 固定 `runs-on: ubuntu-24.04`（不再用 2026-10-19 起
+  向 Ubuntu 26 迁移的浮动 `ubuntu-latest`）、加 `timeout-minutes: 90`、用 `trap` 把
+  130/143 显式打成「外部终止，请 Re-run jobs」、`make release` 全程 `tee` 到
+  `$RUNNER_TEMP/release.log`，并始终上传 `release.log` 与
+  `build/uya_check_output.txt` 两个 artifact；`make check` 失败时改为保留完整单文件
+  测试日志到 `build/uya_check_output.txt` 再退出。本地以 CI 等价条件（`PATH` 内无
+  zig / wine）跑完整 `make release` 通过：`make check` **1185/1185**，
+  `make b` 自举对比一致。
 - **macOS hosted 生成 C 的 7 处 ABI 撞车**：`struct timeval` / `struct sigaction` / `signal` /
   `sa_handler` 与 Darwin 系统头同名撞车；`__attribute__((weak))` 在 Mach-O 上不成立（可选符号
   改走 `dlsym`）；`libc.signal` 整族误用 Linux syscall 号与信号编号表。修复后 macOS x86_64 /

@@ -258,17 +258,31 @@ fn test_division() !void {
 
 ## CI 集成
 
-推荐 CI 流程：
+### ubuntu-ci（`.github/workflows/ubuntu-ci.yml`）
 
-```yaml
-test:
-  script:
-    - make from-c        # Linux 冷启动；macOS 用 make from-c-native
-    - make tests-uya
-    - make b
-    # unknown/web 运行时改动时可追加：
-    # - make tests-emcc
+在 `ubuntu-24.04`（固定镜像，不用浮动的 `ubuntu-latest`）上跑完整 release 闸门：
+
+```bash
+make release         # clean 冷启动 → make uya → make b 自举对比
+                     # → make check（1185 个单文件用例 + 各专项闸门 + microapp 聚合套件）
+                     # → 刷新单文件种子 → -O3 重链 + strip
+make microapp-check  # 用 release 产物再跑一遍 microapp 聚合套件
 ```
+
+本地复现 CI 条件（不装 zig / wine 的宿主与 runner 等价）：
+
+```bash
+make release
+```
+
+**退出码 143 不是构建或测试失败**：`143 = 128 + SIGTERM(15)`。GitHub 回收或取消
+runner 时会给整个进程组发 `SIGTERM`，`make` 随之退出 143，日志通常只剩一行
+`*** [check] Terminated`；真正的失败是 `make` 以 2 退出。workflow 用 `trap` 把这种
+情况显式打出来（提示 Re-run jobs），并始终上传两种日志：
+
+- `release.log`：`make release` 的完整 stdout/stderr（`make check` 内部会把用例输出
+  重定向到文件，只有落盘后才看得到）；
+- `build/uya_check_output.txt`：`make check` 失败时保留的完整单文件测试日志。
 
 ---
 

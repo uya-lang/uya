@@ -1046,6 +1046,9 @@ check: uya
 		grep -E "FAIL:|❌|失败:|编译失败|链接失败|未计入" /tmp/make_check_output.txt | tail -40 || true; \
 		echo "--- 日志尾部（便于定位）---"; \
 		tail -60 /tmp/make_check_output.txt; \
+		mkdir -p build; \
+		cp /tmp/make_check_output.txt build/uya_check_output.txt 2>/dev/null || true; \
+		echo "--- 完整测试日志已保留: build/uya_check_output.txt（CI 会作为 artifact 上传）---"; \
 		rm -f /tmp/make_check_output.txt /tmp/verify_out.txt; \
 		exit 1; \
 	fi; \
