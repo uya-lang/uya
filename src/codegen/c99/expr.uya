@@ -548,6 +548,108 @@ fn c99_emit_try_catch_operand(codegen: &C99CodeGenerator, is_checked: i32, opera
 }
 
 
+/// 取插值表达式/`@print` 实参的**真实 C 类型**，用于选择 printf 格式串。
+///
+/// `get_c_type_of_expr` 对标识符只回落到 `int32_t`，用它选格式串会把 `f64`
+/// 变量当成整数（实测 `"pi=${pi}"` 得到 `%lld` + `(long long)(pi)`，输出 `3`）。
+/// 这里按 AST 形态分派：标识符查变量类型表，`as` 取目标类型，字面量按字面量
+/// 类型，其余回落到 `get_c_type_of_expr`。
+fn c99_interp_expr_c_type(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
+    if codegen == null || expr == null {
+        return null;
+    }
+    if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null {
+        const id_ty: &byte = get_identifier_type_c(codegen, expr.identifier_name);
+        if id_ty != null {
+            return id_ty;
+        }
+    } else if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_target_type != null {
+        const target: &ASTNode = expr.cast_expr_target_type;
+        if target.type == ASTNodeType.AST_TYPE_NAMED && target.type_named_name != null {
+            const name: &byte = target.type_named_name;
+            if str_equals(name as *byte, "i8" as *byte) != 0 { return ("int8_t" as *byte) as &byte; }
+            if str_equals(name as *byte, "i16" as *byte) != 0 { return ("int16_t" as *byte) as &byte; }
+            if str_equals(name as *byte, "i32" as *byte) != 0 { return ("int32_t" as *byte) as &byte; }
+            if str_equals(name as *byte, "i64" as *byte) != 0 { return ("int64_t" as *byte) as &byte; }
+            if str_equals(name as *byte, "u8" as *byte) != 0 { return ("uint8_t" as *byte) as &byte; }
+            if str_equals(name as *byte, "u16" as *byte) != 0 { return ("uint16_t" as *byte) as &byte; }
+            if str_equals(name as *byte, "u32" as *byte) != 0 { return ("uint32_t" as *byte) as &byte; }
+            if str_equals(name as *byte, "u64" as *byte) != 0 { return ("uint64_t" as *byte) as &byte; }
+            if str_equals(name as *byte, "usize" as *byte) != 0 { return ("size_t" as *byte) as &byte; }
+            if str_equals(name as *byte, "f32" as *byte) != 0 { return ("float" as *byte) as &byte; }
+            if str_equals(name as *byte, "f64" as *byte) != 0 { return ("double" as *byte) as &byte; }
+            if str_equals(name as *byte, "bool" as *byte) != 0 { return ("bool" as *byte) as &byte; }
+        }
+    } else if expr.type == ASTNodeType.AST_FLOAT {
+        return ("double" as *byte) as &byte;
+    } else if expr.type == ASTNodeType.AST_NUMBER {
+        return ("int32_t" as *byte) as &byte;
+    } else if expr.type == ASTNodeType.AST_BOOL {
+        return ("bool" as *byte) as &byte;
+    } else if expr.type == ASTNodeType.AST_STRING || expr.type == ASTNodeType.AST_STRING_INTERP {
+        return ("char*" as *byte) as &byte;
+    }
+    return get_c_type_of_expr(codegen, expr);
+}
+
+/// 发射插值段在 `printf`/`fprintf` 变参位置上的实参。
+///
+/// 格式串由 `emit_printf_fmt_inline` 按 `seg.format_kind` 生成；此处必须生成
+/// **与之匹配**的实参类型（`%s` → `char *`，`%lld` → `long long`，
+/// `%llu` → `unsigned long long`，`%g` → `double`），否则变参类型不匹配是未定义行为。
+///
+/// 参数：
+/// - `codegen`：代码生成器。
+/// - `seg`：插值段（`format_kind` 由 checker 填写）。
+///
+/// 返回值：无。
+fn c99_emit_interp_printf_arg(codegen: &C99CodeGenerator, seg: &ASTStringInterpSegment) void {
+    if codegen == null || seg == null || seg.expr == null {
+        return;
+    }
+    // 用户显式给了格式说明符：沿用历史行为，原样传实参。
+    if seg.format_spec != null && seg.format_spec[0] != 0 {
+        gen_expr(codegen, seg.expr);
+        return;
+    }
+    const kind: i32 = seg.format_kind;
+    if kind == 5 {
+        // 切片：传 .ptr
+        const expr_c: &byte = c99_interp_expr_c_type(codegen, seg.expr);
+        if expr_c != null && strstr(expr_c as *byte, "uya_slice_" as *byte) != null {
+            fputs("(char *)(( " as *byte, codegen.emit_stream as *void);
+            fputs(expr_c as *byte, codegen.emit_stream as *void);
+            fputs(")" as *byte, codegen.emit_stream as *void);
+            gen_expr(codegen, seg.expr);
+            fputs(").ptr" as *byte, codegen.emit_stream as *void);
+            return;
+        }
+        fputs("(char *)" as *byte, codegen.emit_stream as *void);
+        gen_expr(codegen, seg.expr);
+        return;
+    }
+    if kind == 4 {
+        fputs("(char *)" as *byte, codegen.emit_stream as *void);
+        gen_expr(codegen, seg.expr);
+        return;
+    }
+    if kind == 3 {
+        fputs("(double)(" as *byte, codegen.emit_stream as *void);
+        gen_expr(codegen, seg.expr);
+        fputs(")" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    if kind == 2 {
+        fputs("(unsigned long long)(" as *byte, codegen.emit_stream as *void);
+        gen_expr(codegen, seg.expr);
+        fputs(")" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    fputs("(long long)(" as *byte, codegen.emit_stream as *void);
+    gen_expr(codegen, seg.expr);
+    fputs(")" as *byte, codegen.emit_stream as *void);
+}
+
 fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_name: &byte) void {
     if codegen == null || expr == null || expr.type != ASTNodeType.AST_STRING_INTERP || buf_name == null {
         return;
@@ -583,6 +685,9 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
             var fmt_buf: [byte: FMT_BUF_SIZE] = [];
             fmt_buf[0] = 37;
             var j: i32 = 1;
+            // 0=用户显式给出格式说明符（实参原样传）；
+            // 1=slice(.ptr) 2=byte 指针 3=double 4=unsigned long long 5=long long
+            var interp_arg_kind: i32 = 0;
             if seg.format_spec != null && seg.format_spec[0] != 0 {
                 var k: i32 = 0;
                 while seg.format_spec[k] != 0 && j < FMT_BUF_SIZE - 2 {
@@ -591,31 +696,43 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
                     k = k + 1;
                 }
             } else {
-                // 默认插值格式：数值为 %d，但对字节指针/切片按 C 字符串 %s 输出。
-                // 注意：插值段最终通过 sprintf("%<fmt>", <expr>) 填入缓冲，因此这里要同时决定格式与参数形态。
-                const expr_c: &byte = get_c_type_of_expr(codegen, seg.expr);
-                var is_slice_u8: i32 = 0;
-                var is_byte_ptr: i32 = 0;
-
-                if expr_c != null && strstr(expr_c as *byte, "uya_slice_" as *byte) != null {
-                    // slice 在 C 中为 struct { .ptr, .len }，gen_print_expr 当前默认不对其做特殊处理，
-                    // 这里把默认格式改为 %s 并在 sprintf 参数处传入 `.ptr`。
-                    is_slice_u8 = 1;
-                } else if expr_c != null && strstr(expr_c as *byte, "*" as *byte) != null {
-                    // 指向字节的指针：const unsigned char* / const uint8_t* 等
-                    if strstr(expr_c as *byte, "uint8_t" as *byte) != null ||
-                       strstr(expr_c as *byte, "int8_t" as *byte) != null ||
-                       strstr(expr_c as *byte, "unsigned char" as *byte) != null {
-                        is_byte_ptr = 1;
-                    }
-                }
-
-                if is_slice_u8 != 0 || is_byte_ptr != 0 {
+                // 默认插值格式：必须与实参的实际 C 类型一致。此前一律发射 %d，
+                // 于是 f64 / f32 插值会把 double 当 int 读（实测 "pi=${pi}" 打出
+                // `-1963457608` 这类垃圾值）。优先用 checker 在段上记录的 format_kind，
+                // 它来自类型检查的真实推断结果；缺失时才回落到后端侧的类型探测。
+                const kind: i32 = seg.format_kind;
+                const expr_c: &byte = c99_interp_expr_c_type(codegen, seg.expr);
+                if kind == 5 || (kind == 0 && expr_c != null && strstr(expr_c as *byte, "uya_slice_" as *byte) != null) {
+                    // slice 在 C 中为 struct { .ptr, .len }，默认按 C 字符串输出
                     fmt_buf[1] = 115; // 's'
                     j = 2;
-                } else {
-                    fmt_buf[1] = 100; // 'd'
+                    interp_arg_kind = 1;      // slice → 传 .ptr
+                } else if kind == 4 || (kind == 0 && expr_c != null && strstr(expr_c as *byte, "*" as *byte) != null &&
+                          (strstr(expr_c as *byte, "uint8_t" as *byte) != null ||
+                           strstr(expr_c as *byte, "int8_t" as *byte) != null ||
+                           strstr(expr_c as *byte, "unsigned char" as *byte) != null ||
+                           strstr(expr_c as *byte, "char" as *byte) != null)) {
+                    // 指向字节的指针：按 C 字符串
+                    fmt_buf[1] = 115; // 's'
                     j = 2;
+                    interp_arg_kind = 2;      // byte pointer → (char *)
+                } else if kind == 3 || (kind == 0 && expr_c != null &&
+                          (str_equals(expr_c as *byte, "float" as *byte) != 0 ||
+                           str_equals(expr_c as *byte, "double" as *byte) != 0)) {
+                    fmt_buf[1] = 103; // 'g'
+                    j = 2;
+                    interp_arg_kind = 3;      // 浮点 → (double)
+                } else if kind == 2 || (kind == 0 && expr_c != null &&
+                          (strstr(expr_c as *byte, "uint" as *byte) != null ||
+                           str_equals(expr_c as *byte, "size_t" as *byte) != 0)) {
+                    fmt_buf[1] = 108; fmt_buf[2] = 108; fmt_buf[3] = 117; // "llu"
+                    j = 4;
+                    interp_arg_kind = 4;      // 无符号 → (unsigned long long)
+                } else {
+                    // 其余按 64 位有符号整数，显式转换避免变参类型不匹配
+                    fmt_buf[1] = 108; fmt_buf[2] = 108; fmt_buf[3] = 100; // "lld"
+                    j = 4;
+                    interp_arg_kind = 5;      // 有符号 → (long long)
                 }
             }
             if j >= 0 && j < FMT_BUF_SIZE {
@@ -625,24 +742,35 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
             c99_emit_indent(codegen);
             fprintf(codegen.emit_stream as *void, "_off_%d += sprintf(%s + _off_%d, \"%s\", " as *byte, fill_id, buf_name as *byte, fill_id, &fmt_buf[0] as *byte);
 
-            // 按最终 fmt（此处仅处理默认 %s）决定 sprintf 参数应输出成何种表达式。
-            if fmt_buf[1] == 115 { // 's'
-                const expr_c3: &byte = get_c_type_of_expr(codegen, seg.expr);
-                if expr_c3 != null && strstr(expr_c3 as *byte, "uya_slice_" as *byte) != null {
-                    // slice struct
-                    fputs("(char *)(( " as *byte, codegen.emit_stream as *void);
-                    fputs(expr_c3 as *byte, codegen.emit_stream as *void);
-                    fputs(")" as *byte, codegen.emit_stream as *void);
-                    gen_expr(codegen, seg.expr);
-                    fputs(").ptr" as *byte, codegen.emit_stream as *void);
-                } else {
-                    // byte pointer
-                    fputs("(char *)" as *byte, codegen.emit_stream as *void);
-                    gen_expr(codegen, seg.expr);
-                }
+            // 按上面判定的参数形态生成实参：变参符号（%s / %lld / %llu / %g）必须与实参类型匹配。
+            if interp_arg_kind == 1 {
+                // slice struct
+                const expr_c3: &byte = c99_interp_expr_c_type(codegen, seg.expr);
+                fputs("(char *)(( " as *byte, codegen.emit_stream as *void);
+                fputs(expr_c3 as *byte, codegen.emit_stream as *void);
+                fputs(")" as *byte, codegen.emit_stream as *void);
+                gen_expr(codegen, seg.expr);
+                fputs(").ptr" as *byte, codegen.emit_stream as *void);
+            } else if interp_arg_kind == 2 {
+                fputs("(char *)" as *byte, codegen.emit_stream as *void);
+                gen_expr(codegen, seg.expr);
+            } else if interp_arg_kind == 3 {
+                fputs("(double)(" as *byte, codegen.emit_stream as *void);
+                gen_expr(codegen, seg.expr);
+                fputs(")" as *byte, codegen.emit_stream as *void);
+            } else if interp_arg_kind == 4 {
+                fputs("(unsigned long long)(" as *byte, codegen.emit_stream as *void);
+                gen_expr(codegen, seg.expr);
+                fputs(")" as *byte, codegen.emit_stream as *void);
+            } else if interp_arg_kind == 5 {
+                fputs("(long long)(" as *byte, codegen.emit_stream as *void);
+                gen_expr(codegen, seg.expr);
+                fputs(")" as *byte, codegen.emit_stream as *void);
             } else {
+                // 用户显式给了格式说明符：沿用历史行为，原样传实参。
                 gen_expr(codegen, seg.expr);
             }
+
             fputs(");\n" as *byte, codegen.emit_stream as *void);
         }
         i = i + 1;
@@ -3260,7 +3388,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     const seg: &ASTStringInterpSegment = &interp.string_interp_segments[i];
                     if seg.is_text == 0 && seg.expr != null {
                         c99_emit_comma_space(codegen);
-                        gen_expr(codegen, seg.expr);
+                        c99_emit_interp_printf_arg(codegen, seg);
                     }
                     i = i + 1;
                 }
@@ -3278,7 +3406,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     const seg: &ASTStringInterpSegment = &interp.string_interp_segments[i];
                     if seg.is_text == 0 && seg.expr != null {
                         c99_emit_comma_space(codegen);
-                        gen_expr(codegen, seg.expr);
+                        c99_emit_interp_printf_arg(codegen, seg);
                     }
                     i = i + 1;
                 }
@@ -10215,7 +10343,12 @@ fn gen_print_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 return;
             }
 
-            // 根据表达式类型确定格式字符串
+            // 格式串必须与实参的**实际 C 类型**匹配：printf 的变参不做提升以外的转换，
+            // 用 %lld 配 int32_t / int8_t / float 都是未定义行为（实测 i32 的 -7 会打
+            // 成 4294967289、f64 会打成指针值）。因此这里按表达式的 C 类型选格式串，
+            // 并在需要时显式转换成格式串对应的实参类型。
+            var print_arg_c: &byte = null;   // 非 null 时先 casts 成该 C 类型
+            var print_slice: i32 = 0;        // 1 表示实参是字节切片，须传 .ptr
             if inner.type == ASTNodeType.AST_NUMBER {
                 // 整数字面量：默认按 i32 处理
                 fmt = "%d";
@@ -10237,49 +10370,80 @@ fn gen_print_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                            str_equals(name as *byte, "i32" as *byte) != 0 ||
                            str_equals(name as *byte, "i64" as *byte) != 0 {
                             fmt = "%lld";
+                            print_arg_c = "long long" as &byte;
                         } else if str_equals(name as *byte, "u8" as *byte) != 0 ||
                                   str_equals(name as *byte, "u16" as *byte) != 0 ||
                                   str_equals(name as *byte, "u32" as *byte) != 0 ||
                                   str_equals(name as *byte, "u64" as *byte) != 0 ||
                                   str_equals(name as *byte, "usize" as *byte) != 0 {
                             fmt = "%llu";
+                            print_arg_c = "unsigned long long" as &byte;
                         } else if str_equals(name as *byte, "f32" as *byte) != 0 ||
                                   str_equals(name as *byte, "f64" as *byte) != 0 {
                             fmt = "%g";
+                            print_arg_c = "double" as &byte;
                         } else if str_equals(name as *byte, "bool" as *byte) != 0 {
                             fmt = "%d";
                         }
                     }
                 }
-            } else if inner.type == ASTNodeType.AST_IDENTIFIER {
-                // 固定 i8/u8 数组在变量表中为 "const int8_t[N]" / "uint8_t[N]" 等，须用 %%s 而非 %%lld
-                var id_ty: &byte = null;
-                if inner.identifier_name != null {
-                    id_ty = get_identifier_type_c(codegen, inner.identifier_name);
-                }
-                if id_ty != null {
-                    var ip: *byte = id_ty as *byte;
-                    if strncmp(ip, "const " as *byte, 6) == 0 {
-                        ip = ip + 6;
-                    }
-                    if strncmp(ip, "int8_t" as *byte, 6) == 0 && ip[6] == 91 {
-                        fmt = "%s";
-                        need_cast = 1;
-                    } else if strncmp(ip, "uint8_t" as *byte, 7) == 0 && ip[7] == 91 {
-                        fmt = "%s";
-                        need_cast = 1;
-                    }
-                }
-                if fmt == null {
-                    fmt = "%lld";
-                }
             } else if inner.type == ASTNodeType.AST_BINARY_EXPR {
-                // 二元表达式：整数或浮点运算
                 fmt = "%lld";
             }
 
+            // 没有按 AST 形态判定的（标识符、调用、成员访问、下标等）一律按真实 C 类型选格式串。
             if fmt == null {
-                fmt = "%lld";  // 默认整数格式
+                const arg_ty: &byte = c99_interp_expr_c_type(codegen, inner);
+                if arg_ty != null {
+                    var tp: *byte = arg_ty as *byte;
+                    if strncmp(tp, "const " as *byte, 6) == 0 {
+                        tp = tp + 6;
+                    }
+                    // 字节数组按字符串打印
+                    if (strncmp(tp, "int8_t" as *byte, 6) == 0 && tp[6] == 91) ||
+                       (strncmp(tp, "uint8_t" as *byte, 7) == 0 && tp[7] == 91) ||
+                       (strncmp(tp, "char" as *byte, 4) == 0 && tp[4] == 91) {
+                        fmt = "%s";
+                        need_cast = 1;
+                    } else if strstr(tp, "uya_slice_" as *byte) != null &&
+                              (strstr(tp, "uint8_t" as *byte) != null ||
+                               strstr(tp, "int8_t" as *byte) != null) {
+                        // 字节切片：C 里是 struct { .ptr, .len }，必须传 .ptr，不能整体 cast
+                        fmt = "%s";
+                        need_cast = 1;
+                        print_slice = 1;
+                    } else if strstr(tp, "*" as *byte) != null &&
+                              (strstr(tp, "uint8_t" as *byte) != null ||
+                               strstr(tp, "int8_t" as *byte) != null ||
+                               strstr(tp, "char" as *byte) != null) {
+                        // 字节指针（含 `const uint8_t * const` 这类带尾部 const 的形态）：按 C 字符串
+                        fmt = "%s";
+                        need_cast = 1;
+                    } else if str_equals(tp, "float" as *byte) != 0 ||
+                              str_equals(tp, "double" as *byte) != 0 {
+                        // float 必须提升到 double（变参默认提升就是这样，显式写出更稳）
+                        fmt = "%g";
+                        print_arg_c = "double" as *byte;
+                    } else if str_equals(tp, "uint8_t" as *byte) != 0 ||
+                              str_equals(tp, "uint16_t" as *byte) != 0 ||
+                              str_equals(tp, "uint32_t" as *byte) != 0 ||
+                              str_equals(tp, "uint64_t" as *byte) != 0 ||
+                              str_equals(tp, "size_t" as *byte) != 0 {
+                        fmt = "%llu";
+                        print_arg_c = "unsigned long long" as &byte;
+                    } else if str_equals(tp, "int8_t" as *byte) != 0 ||
+                              str_equals(tp, "int16_t" as *byte) != 0 ||
+                              str_equals(tp, "int32_t" as *byte) != 0 ||
+                              str_equals(tp, "int64_t" as *byte) != 0 ||
+                              str_equals(tp, "bool" as *byte) != 0 {
+                        fmt = "%lld";
+                        print_arg_c = "long long" as &byte;
+                    }
+                }
+                if fmt == null {
+                    fmt = "%lld";  // 兜底：按 64 位有符号整数
+                    print_arg_c = "long long" as &byte;
+                }
             }
 
             // nostdlib 模式：使用 syscall write，仅支持字符串
@@ -10310,11 +10474,30 @@ fn gen_print_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     fprintf(codegen.emit_stream as *void, "%s(\"%s\", " as *byte, c99_printf_c_name(codegen) as *byte, fmt as *byte);
                 }
 
-                if need_cast != 0 {
+                if print_slice != 0 {
+                    // 字节切片：C 里是 struct { .ptr, .len }，取 .ptr 交给 %s
+                    const sl_c: &byte = c99_interp_expr_c_type(codegen, expr.print_expr);
+                    fputs("(char *)(( " as *byte, codegen.emit_stream as *void);
+                    fputs(sl_c as *byte, codegen.emit_stream as *void);
+                    fputs(")" as *byte, codegen.emit_stream as *void);
+                    gen_expr(codegen, expr.print_expr);
+                    fputs(").ptr" as *byte, codegen.emit_stream as *void);
+                } else if need_cast != 0 {
                     fputs("(char *)" as *byte, codegen.emit_stream as *void);
+                    if print_arg_c != null {
+                        fprintf(codegen.emit_stream as *void, "(%s)(" as *byte, print_arg_c as *byte);
+                        gen_expr(codegen, expr.print_expr);
+                        fputs(")" as *byte, codegen.emit_stream as *void);
+                    } else {
+                        gen_expr(codegen, expr.print_expr);
+                    }
+                } else if print_arg_c != null {
+                    fprintf(codegen.emit_stream as *void, "(%s)(" as *byte, print_arg_c as *byte);
+                    gen_expr(codegen, expr.print_expr);
+                    fputs(")" as *byte, codegen.emit_stream as *void);
+                } else {
+                    gen_expr(codegen, expr.print_expr);
                 }
-
-                gen_expr(codegen, expr.print_expr);
                 fputc(41, codegen.emit_stream as *void);
             }
         }

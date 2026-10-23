@@ -959,8 +959,17 @@ fn parse_integer_literal_with_suffix(str: &byte, arena: &CompilerArena, suffix: 
         return 0;
     }
     
-    const result: i64 = strtoll(&temp[0] as &byte, null as * *byte, base);
-    return result;
+    // 字面量数值必须按**位模式**无损保存，不能靠 strtoll 饱和。
+    //
+    // 根因：`0xbb67ae8584caa73bu64`、`0xFFFFFFFFFFFFFFFF` 这类值大于 INT64_MAX，
+    // strtoll 会饱和成 9223372036854775807，codegen 再按位拆 32 位时得到
+    // `0xFFFFFFFF + (0x7FFFFFFF << 32)` —— SHA-512 的 IV/K、P-256 的素数 p 与阶 n
+    // 全变成 i64 极值，于是所有哈希与 ECDH 都算错。
+    //
+    // 做法：一律用 strtoull 解析，再按二补数转成 i64 存进 `number_value_i64`。
+    // 有符号字面量（`-123` 是一元负号 + 字面量，字面量本身永远是非负数字串）不受影响。
+    const uresult: u64 = strtoull(&temp[0] as &byte, null as * *byte, base);
+    return uresult as i64;
 }
 
 // 辅助函数：解析浮点字面量（支持下划线和类型后缀）

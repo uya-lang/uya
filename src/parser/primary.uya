@@ -749,6 +749,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 segs[j].text = seg_text[j];
                 segs[j].expr = seg_expr[j];
                 segs[j].format_spec = seg_format_spec[j];
+                segs[j].format_kind = 0;  // 由 checker 按推断类型填写
             }
         }
         node.string_interp_segments = segs;

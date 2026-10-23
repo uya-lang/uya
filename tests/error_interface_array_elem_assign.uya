@@ -1,0 +1,20 @@
+// 预期编译失败：具体结构体不能直接赋给接口数组元素
+//
+// 根因回归：早先 `arr[0] = a;`（元素类型是 `IWriter`、`a` 是 `Console`）
+// 静默通过 checker，生成 `arr[0] = a;` 把 struct Console 赋给
+// struct uya_interface_IWriter，是 C 编译器层面的类型错误。
+interface IWriter {
+    fn write(self: &Self) i32;
+}
+
+struct Console : IWriter {
+    fd: i32,
+    fn write(self: &Self) i32 { return self.fd; }
+}
+
+export fn main() i32 {
+    var arr: [IWriter: 2] = [];
+    const a: Console = Console { fd: 3 };
+    arr[0] = a;
+    return 0;
+}

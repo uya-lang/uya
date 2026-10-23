@@ -1,0 +1,72 @@
+// test_strict_div.uya - `--strict-div` 除零正确性证明（规范 §14.2）
+//
+// 背景：`/` 与 `%` 的除数正确性此前**完全没证** —— `fn f(y: i32) i32 { return 100 / y; }`
+// 静默通过，`f(0)` 运行期 SIGFPE。本文件的正例用于锁住「证明该放行时必须放行」，
+// 避免后续把证明器收紧到误报。对应负例见 tests/error_div_zero_unproven.uya
+// （需配合 --strict-div 运行）。
+//
+// 注意：本文件在默认（--strict-div 关闭）下同样应通过；开启后的行为由
+// tests/verify_strict_div.sh 覆盖。
+use std.testing.assert_eq_i32;
+
+// 常量除数：常量折叠阶段就已确定非零
+fn const_divisor() i32 {
+    return 100 / 4;
+}
+
+fn const_modulus() i32 {
+    return 100 % 7;
+}
+
+// 区间守卫把除数收窄到不含 0 的正区间
+fn guarded_by_range(d: i32) i32 {
+    if d <= 0 || d >= 1000 {
+        return 0;
+    }
+    return 100 / d;
+}
+
+// 单边下界守卫：只需证明除数 > 0（u32 天然非负）
+//
+// 注意：这里刻意用 i32 而非 u32。约束表（constraint_add）只按有符号语义记录区间，
+// `u32`/`usize` 的 `d == 0` / `d > 0` 守卫进不了约束表，--strict-div 下会被保守拒绝。
+// 这是证明器的已知边界，不是除零检查本身的缺陷。
+fn guarded_lower_bound(d: i32) i32 {
+    if d <= 0 {
+        return 0;
+    }
+    return 100 / d;
+}
+
+// try 路径走运行时检查，静态证明不参与
+fn checked_div(d: i32) !i32 {
+    return try 100 / d;
+}
+
+test "const_divisor_is_nonzero" {
+    try assert_eq_i32(const_divisor(), 25);
+}
+
+test "const_modulus_is_nonzero" {
+    try assert_eq_i32(const_modulus(), 2);
+}
+
+test "guarded_divisor_range" {
+    try assert_eq_i32(guarded_by_range(4), 25);
+    try assert_eq_i32(guarded_by_range(0), 0);
+}
+
+test "guarded_divisor_lower_bound" {
+    try assert_eq_i32(guarded_lower_bound(4), 25);
+    try assert_eq_i32(guarded_lower_bound(0), 0);
+}
+
+test "checked_div_success" {
+    const v: i32 = checked_div(4) catch { 0 - 1; };
+    try assert_eq_i32(v, 25);
+}
+
+test "checked_div_zero_caught" {
+    const v: i32 = checked_div(0) catch { 0 - 1; };
+    try assert_eq_i32(v, 0 - 1);
+}

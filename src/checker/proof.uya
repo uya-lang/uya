@@ -1791,6 +1791,59 @@ fn validate_async_function(checker: &TypeChecker, fn_node: &ASTNode) i32 {
 // 保守优先：任何无法可靠求界的形态（调用、成员访问、下标、转换、除法等）
 // 一律返回「不可证明」，宁可要求显式检查，也不放过可能的溢出。
 
+// 除数是**非零**是否可证明（`/` 与 `%` 的除数正确性证明）。
+//
+// 规范 §14.2 要求「除零错误：常量除零 → 编译错误；变量 → 证明 `y != 0`」。
+// 常量除零此前已在 `checker_eval_const_expr_ex_impl` 里覆盖，但**变量除数一直没证**：
+// `fn f(y: i32) i32 { return 100 / y; }` 与 `f(0)` 都静默通过，运行期 SIGFPE。
+//
+// 判定用区间：除数区间必须**不含 0**（`hi < 0 || lo > 0`）才算证明成立。
+// 复用 `--strict-overflow` 的约束系统，因此形参守卫（`if y == 0 { return ...; }`）、
+// 常量初始化、无回绕增量都能进约束表；拿不到约束时区间是整个类型范围（含 0），保守拒绝。
+//
+// 参数：checker - 类型检查器；divisor - 除号右侧表达式；kind - 整数类型的 TypeKind（as i32）
+// 返回：1 表示已证明除数非零；0 表示无法证明
+export fn checker_prove_divisor_nonzero(checker: &TypeChecker, divisor: &ASTNode, kind: i32) i32 {
+    if checker == null || divisor == null {
+        return 0;
+    }
+    const wide: WideInterval = wide_interval_of_expr(checker, divisor, kind);
+    // 端点未知（含无约束形参 / 调用 / 成员访问等）时不构成证明
+    if wide.lo_known == 0 || wide.hi_known == 0 {
+        return 0;
+    }
+    // 端点反转同样不算证明（与 interval_within_bounds 的保守取向一致）
+    if wide.lo > wide.hi {
+        return 0;
+    }
+    // 区间必须完全落在 0 的一侧
+    if wide.hi < 0 {
+        return 1;
+    }
+    if wide.lo > 0 {
+        return 1;
+    }
+    return 0;
+}
+
+// 报告「除零无法证明」。
+//
+// 参数：checker - 类型检查器；node - 除法/取模表达式节点；op_text - 运算符原文（"/" 或 "%"）
+// 返回：无
+export fn checker_report_divisor_unproven(checker: &TypeChecker, node: &ASTNode, op_text: &byte) void {
+    if checker == null || node == null {
+        return;
+    }
+    if checker.suppress_codegen_diagnostics != 0 {
+        return;
+    }
+    var msg_buf: [byte: 512] = [];
+    snprintf(&msg_buf[0] as *byte, 512,
+        "除数可能为 0，无法证明 %s 安全：加区间守卫（如 if d <= 0 || d >= N { ... }），或用 try a %s d 走运行时检查" as *byte,
+        op_text as *byte, op_text as *byte);
+    checker_report_error(checker, node, &msg_buf[0] as *byte);
+}
+
 // 整数运算是否在类型 kind 下可证明无溢出。
 // 参数：checker - 类型检查器；expr - 算术表达式；kind - 目标整数类型的 TypeKind（as i32）
 // 返回：1 表示已证明无溢出；0 表示无法证明

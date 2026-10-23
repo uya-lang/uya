@@ -36,8 +36,50 @@ fn copy_type(t: &Type) Type {
     return r;
 }
 
+// 插值实参形态：供 C99 后端选择与实参类型匹配的 printf 转换符。
+// 0=未判定 1=有符号整型 2=无符号整型 3=浮点 4=字节指针 5=切片
+fn checker_interp_format_kind(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_SLICE {
+        return 5;
+    }
+    if t.kind == TypeKind.TYPE_F32 || t.kind == TypeKind.TYPE_F64 {
+        return 3;
+    }
+    if t.kind == TypeKind.TYPE_I8 || t.kind == TypeKind.TYPE_I16 ||
+        t.kind == TypeKind.TYPE_I32 || t.kind == TypeKind.TYPE_I64 {
+        return 1;
+    }
+    if t.kind == TypeKind.TYPE_U8 || t.kind == TypeKind.TYPE_U16 ||
+        t.kind == TypeKind.TYPE_U32 || t.kind == TypeKind.TYPE_U64 ||
+        t.kind == TypeKind.TYPE_USIZE {
+        return 2;
+    }
+    if t.kind == TypeKind.TYPE_POINTER {
+        if t.pointer_to != null {
+            const pk: TypeKind = t.pointer_to[0].kind;
+            if pk == TypeKind.TYPE_BYTE || pk == TypeKind.TYPE_I8 || pk == TypeKind.TYPE_U8 {
+                return 4;
+            }
+        }
+        return 0;
+    }
+    return 0;
+}
+
 // 插值格式说明符对应类型的最大输出宽度
 fn checker_interp_format_max_width(t: Type, spec: &byte) i32 {
+    // 动态宽度 `%*d` 未实现：sprintf 遇到 `*` 会从参数列表再取一个宽度实参，
+    // 而插值只传一个实参 —— 实测 `"${x:*6d}"` 得到 `%426d`（格式串被原样打进输出）。
+    // 这里编译期拒绝，避免静默生成坏格式串。
+    if spec != null {
+        var si: i32 = 0;
+        while spec[si] != 0 {
+            if spec[si] == 42 {  // '*'
+                return -1;
+            }
+            si = si + 1;
+        }
+    }
     // 字符串插值支持：对 &[const byte] / &[byte] 这种 slice，默认按 C 字符串 %s 输出
     if t.kind == TypeKind.TYPE_SLICE {
         // 如用户显式提供了格式说明符（如 :x / :d），当前仅实现默认 ${expr} 这条路径
@@ -1891,6 +1933,10 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
                     checker_report_error(checker, seg.expr, "不支持的插值类型或格式说明符" as *byte);
                     return make_void_type();
                 }
+                // 记录实参形态，供 C99 后端选择与实参类型匹配的 printf 转换符。
+                // 后端不能靠 get_c_type_of_expr 推：它对标识符只回落到 int32_t，
+                // 会把 f64 变量当整数格式化（实测输出 3 而非 3.14159）。
+                seg.format_kind = checker_interp_format_kind(copy_type(&seg_type));
                 total = total +| w;
             }
             i = i + 1;
@@ -3612,6 +3658,19 @@ fn infer_member_access(checker: &TypeChecker, expr: &ASTNode) Type {
                     return type_from_ast(checker, msig.fn_decl_return_type);
                 }
                 i = i + 1;
+            }
+        }
+        // 接口值只能调接口方法，不能读底层结构体的字段：
+        // 接口在 C 里是 `struct uya_interface_X { vtable, data }`，没有具体类型的字段，
+        // 静默放行会生成 `writer.fd` 并把错误推到 C 编译器（"has no member named 'fd'"）。
+        // 例外：`vtable` / `data` 是接口值自身的两个内部字段，标准库（如 `std.async`
+        // 的 `Future`）靠 `f.data` 做 frame 身份比对与释放，必须放行。
+        if method_name != null {
+            const is_iface_internal: i32 =
+                (str_equals(method_name, "vtable" as *byte) != 0 ||
+                 str_equals(method_name, "data" as *byte) != 0) as i32;
+            if is_iface_internal == 0 {
+                checker_report_error(checker, expr, "接口值不能访问字段：接口只暴露方法，请先还原成具体结构体类型再取字段" as *byte);
             }
         }
         return make_void_type();

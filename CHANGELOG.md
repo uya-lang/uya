@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- **`--strict-div` 除零正确性证明（默认关闭）**：整数 `/` 与 `%` 的除数必须能证明非零，
+  否则报「除数可能为 0，无法证明 … 安全」。判定复用 `--strict-overflow` 的 i64 宽化区间：
+  除数区间不含 0 才算证明成立。常量除数与区间守卫（`if d <= 0 || d >= N { ... }`）可通过；
+  常量除零无论开关都会报错。**默认关**：存量库大量依赖「调用方保证非零」的跨函数不变量
+  （`align_size(size, align)`、牛顿迭代 `n / guess`、`bytes_read / size` 等），证明器无法表达，
+  强制会直接让编译器无法自举 —— 与 `--strict-overflow` 当初的处理路线一致。关闭/开启方式
+  `--no-strict-div` / `--strict-div`。回归 `tests/verify_strict_div.sh`（已挂进 `make check`），
+  正例 `tests/test_strict_div.uya`，负例夹具 `tests/repros/strict_div_negative.uya`。
 - **`--strict-overflow` 静态溢出闸门（**默认开启**）**：整数 `+` `-` `*` 必须能证明不溢出，
   否则编译错误，诊断给出 checked / 区间守卫 / 饱和包装三条修法。证明器基于 i64 宽化区间，
   只采纳可信约束（用户守卫、无回绕增量、常量初始化）。只覆盖有符号整数（无符号是良定义模运算，
@@ -18,6 +26,24 @@
 - **入口 `main` 可返回错误联合**：`export fn main() !T` / `fn main() !T` 现在能正常链接运行。
 
 ### Fixed
+- **lexer 遇未知字符静默返回 EOF，整段源码被丢弃**：`#` / `\` / `?` 这类不在词法表里的字符
+  会让 parser 把剩余输入当成文件正常结束 —— `uya check` 退出码 0、零输出，`uya build` 则
+  整段丢弃后续声明。现改为报「无法识别的字符 '<c>'（ASCII n），位于第 L 行第 C 列」并置
+  `lexer.has_error`，错误正确传播为退出码 1。负例 `tests/error_lexer_unknown_char.uya`。
+- **`@print` / `@println` / 字符串插值按错误的 printf 转换符输出实参**：`i32` 负值被当无符号打印
+  （`-7` → `4294967289`）、`i16` 的 `-300` → `4294966996`、`f64` 的 `-1.5` → 指针值、插值
+  `"pi=${pi}"` → `-1963457608`、`*` 动态宽度静默产出 `%426d`。现格式串按实参真实 C 类型选择
+  （有符号 `%lld` / 无符号 `%llu` / 浮点 `%g` / 字节指针与切片 `%s`），并显式转换成匹配类型；
+  `*` 改为编译期拒绝。回归 `tests/test_println_bytes_ptr_slice.uya`，
+  负例 `tests/error_interp_dynamic_width.uya`。
+- **大于 INT64_MAX 的整数字面量被 `strtoll` 饱和**：`0xbb67ae8584caa73bu64`（SHA-512 的 IV）与
+  `0xFFFFFFFFFFFFFFFF`（P-256 素数 p 的 limb）经 `strtoll` 饱和成 `INT64_MAX`，codegen 按位拆分后
+  变成 `0xFFFFFFFF + (0x7FFFFFFF << 32)`，导致 SHA-512 / P-256 / P-384 / RSA / ECDSA 全部算错
+  （8 个 crypto/TLS 测试集体失败）。现改为一律 `strtoull` 解析后按二补数转 i64 保存位模式。
+- **接口值访问字段、具体结构体赋给接口数组元素静默生成非法 C**：`writer.fd` 与 `arr[i] = concrete`
+  都通过 checker 却生成 `has no member named 'fd'` / `incompatible types`。现于 checker 阶段拒绝
+  并给出可用写法（接口值自身的 `vtable` / `data` 字段仍放行，`std.async` 的 `Future` 依赖它）。
+  负例 `tests/error_interface_field_access.uya`、`tests/error_interface_array_elem_assign.uya`。
 - **未证明的有符号溢出不再落入 C UB**：构建（`Makefile` / `src/compile.sh`）、驱动默认 `CFLAGS`
   与生成的 split-C Makefile 统一加 `-fwrapv -fno-strict-overflow`，溢出退化为定义良好的回绕。
   实测 `2147483647 + 1` 由 `-fsanitize=undefined` 报

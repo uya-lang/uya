@@ -1408,6 +1408,12 @@ fn lexer_next_token(lexer: &Lexer, arena: &CompilerArena) &Token {
     if is_digit != 0 {
         return read_number(lexer, arena);
     }
+    // 无法识别的字符：必须报错，绝不能静默返回 EOF。
+    // 静默返回 EOF 会让编译器把「源码中间出现非法字符」当成文件正常结束——
+    // 后续声明被整段丢弃，而 `uya check` 退出码仍为 0，是「静默错误编译」。
+    fprintf(libc.stderr, "错误: 无法识别的字符 '%c'（ASCII %d），位于第 %d 行第 %d 列\n" as *byte,
+        c, cu, line, column);
+    lexer.has_error = 1;
     advance_char(lexer);
     return make_token(arena, TokenType.TOKEN_EOF, null, line, column);
     }

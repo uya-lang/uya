@@ -1,6 +1,14 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-21（**本轮修掉 3 条**：① P1 负 `start` 切片 —— `check_slice_bounds`
+**最后更新：** 2026-10-22（**本轮修掉 4 条 P0**，顺带修掉一批文档脱节：
+① **lexer 未知字符静默 EOF** —— 源码中间写 `#`/`\`/`?` 会整段丢弃后续声明且 `uya check` 退出码 0，
+现改为报错并传播为退出码 1；② **`@print`/`@println`/插值按错 printf 转换符输出** —— `i32` 负值打成
+无符号、`f64` 打成指针值、插值浮点打成整数、`*` 动态宽度静默生成坏格式串，现统一按实参真实 C 类型
+分派并转换（负例 `tests/error_interp_dynamic_width.uya`）；③ **大于 INT64_MAX 的字面量被 `strtoll`
+饱和** —— `strtoll` 把 `0xbb67ae8584caa73bu64` / `0xFFFFFFFFFFFFFFFF` 钳成 INT64_MAX，导致 SHA-512、
+P-256/P-384、RSA、ECDSA 全部算错（8 个 crypto/TLS 测试集体失败），现改为 `strtoull` 位模式解析；
+④ **接口值访问字段 / 具体结构体赋给接口数组元素静默生成非法 C** —— 现于 checker 阶段拒绝并给出可用写法。
+全量 `1181/1181`。此前：2026-10-21（**本轮修掉 3 条**：① P1 负 `start` 切片 —— `check_slice_bounds`
 不再对负 start 做「从末尾回数」的换算放行，改保守拒绝；② P2 `@max`/`@min` 极值常量 ——
 解析标志改用 `TypeKind + 1` 编码（`TYPE_I8 === 0` 与「未解析」哨兵撞车是根因），
 并补上调用实参（含嵌套）的类型下推；③ P2 `@asm` 的 `clobbers = ["memory"]` ——
@@ -36,7 +44,7 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
 （防止证明器收紧到误报）；`make b` 自举字节一致、`make check` 1142/1142。
 同轮登记欠账：**取值路径**（`infer_array_access`）仍缺非线性下标的 `else` 分支，
 补它需连带为 `lib/`+`src/` 的 13 处 `digits[di - 1 - i]` 型多变量下标补证明；
-**除法正确性证明**（证明除数 != 0）尚未实现，`a / b` 乃至 `a / 0` 都还不报错。
+**除法正确性证明**（证明除数 != 0）已在 2026-10-22 落地为 `--strict-div`（默认关）：开启后 `/` 与 `%` 的除数必须能证明非零，常量除数与区间守卫可通过；默认关的原因与迁移路径见下方「P2：`--strict-div` 存量迁移」条目。
 此前：2026-10-11（补 UB 测试覆盖：新增 21 个负例 + 正例 `tests/test_ub_safety_guards.uya`（22 用例）；
 补覆盖过程中发现 **7 条 UB 漏检**，已按 P0 记入"编译器 bug"首条并各带 `tests/repros/` 最小复现 ——
 其中「移动嵌套字段后同一块堆内存被 free 两次」已实测确认真 double free，
@@ -93,6 +101,97 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     条目引用的是「§8 控制流」——已整体搬到 §8 末，新增 `8.1 错误处理：try / catch` 并同步目录与引用。
   - `grammar_formal.md` 引用了 `primary_expr` 却从未给出产生式——已补，并列出 lexer 白名单里的
     可书写内置名。
+
+- [x] **P0：lexer 遇未知字符静默返回 EOF，整段源码被丢弃且退出码为 0**（2026-10-22 修复）
+  - 现象：源码中间出现 `#`、`\`、`?` 这类不在词法表里的字符时，`lexer_next_token` 走
+    `advance_char` + `return TOKEN_EOF`，parser 把剩余输入当成文件正常结束。
+    `uya check` **退出码 0、零输出**，`uya build` 则整段丢弃后续声明后链接失败（或静默产出残缺程序）。
+    `#` 的破坏力最大：它是注释与属性语法的前缀，把 `// comment` 误写成 `# comment` 就会触发。
+  - 根因：`src/lexer.uya` 的最终 fallback 分支把「无法识别」当成「到达末尾」处理。
+  - 修复：fallback 改为报 `无法识别的字符 '<c>'（ASCII <n>），位于第 L 行第 C 列` 并置
+    `lexer.has_error = 1`；该标志在串行（`src/main.uya`）与并行（`src/parse_parallel.uya`）
+    两条路径上都已被检查，错误会正确传播为退出码 1。
+  - 验证：负例 `tests/error_lexer_unknown_char.uya`；实测 `#` / `\` / `?` 三种字符都报错且 `rc=1`。
+
+- [x] **P0：`@print` / `@println` / 字符串插值按错误的 printf 转换符输出实参**（2026-10-22 修复）
+  - 现象（三类，都是静默错误输出）：
+    ① `@println(x)` 对 `i32` 走 `%lld` + 裸 `int32_t` 实参（变参类型不匹配，属 UB）：
+       `x = 0 - 7` 打成 `4294967289`；`i16` 的 `-300` 打成 `4294966996`；`f64` 的 `-1.5` 打成指针值
+       `140190453990848`。
+    ② 字符串插值默认格式一律 `%d`：`"pi=${pi}"`（`pi: f64 = 3.14159`）打出 `-1963457608`。
+    ③ 插值里写 `*` 动态宽度（`"${x:*6d}"`）不报错，`sprintf` 把格式串原样打进结果（输出 `%426d`）。
+  - 根因：
+    * `gen_print_expr`（`src/codegen/c99/expr.uya`）按 **AST 形态**而非实际 C 类型选格式串，
+      标识符一律落到 `%lld` 且不做转换；
+    * `c99_emit_string_interp_fill` 的默认分支硬编码 `%d`；
+    * `emit_printf_fmt_inline`（`printf("...${x}...")` 脱糖路径）同样硬编码 `%d`；
+    * `checker_interp_format_max_width` 不校验 `*`。
+  - 修复：
+    * 新增 `c99_interp_expr_c_type`（按 AST 形态 + 变量类型表取真实 C 类型）与
+      `c99_emit_interp_printf_arg`（按形态生成匹配转换符的实参）；
+    * `ASTStringInterpSegment` 新增 `format_kind` 字段，由 checker 的
+      `checker_interp_format_kind` 按**推断类型**填入（0=未判定 1=有符号 2=无符号 3=浮点
+      4=字节指针 5=切片），后端与 `utils.uya` 的两份格式串生成统一按它分派；
+    * `checker_interp_format_max_width` 遇到 `*` 直接返回 -1（编译期拒绝）。
+  - 验证：`-7` / `-300` / `-1.5` / `3.14159` 全部输出正确；回归
+    `tests/test_println_bytes_ptr_slice.uya`（10 用例，含新增的负值与浮点断言）、
+    负例 `tests/error_interp_dynamic_width.uya`；全量 `1181/1181`。
+
+- [x] **P0：大于 INT64_MAX 的整数字面量被 strtoll 饱和，SHA-512 与 P-256/P-384 全算错**（2026-10-22 修复）
+  - 现象：`test_crypto_sha512`、`test_crypto_ed25519`、`test_ec_p256_ecdh`、`test_ec_p384_ecdh`、
+    `test_tls_rsa`、`test_tls_ecdsa`、`test_tls_sha256`、`test_tls_x25519_pure` 等
+    8 个密码学/TLS 测试集体失败。
+  - 根因：`parse_integer_literal_with_suffix`（`src/parser/types.uya`）对所有字面量调 `strtoll`。
+    `0xbb67ae8584caa73bu64`（SHA-512 的 IV）与 `0xFFFFFFFFFFFFFFFF`（P-256 素数 p 的 limb）
+    数值都大于 INT64_MAX，`strtoll` 按标准**饱和**到 `9223372036854775807`，
+    codegen 再按位拆高低 32 位即得到 `0xFFFFFFFF + (0x7FFFFFFF << 32)`。
+  - 修复：改为一律 `strtoull` 解析后按二补数转 `i64` 存进 `number_value_i64`（该字段只是位模式容器）。
+    无后缀形态同样覆盖 —— P-256 的 `0xFFFFFFFFFFFFFFFF` 就没有 `u64` 后缀。
+  - 验证：`const a: u64 = 0xbb67ae8584caa73bu64;` 现输出 `13503953896175478587`（修复前
+    `9223372036854775807`）；上述 8 个测试全部通过；全量 `1181/1181`。
+
+- [x] **P0：接口值访问字段、具体结构体赋给接口数组元素 —— 静默生成非法 C**（2026-10-22 修复）
+  - 现象：`const fd: i32 = writer.fd;`（`writer: IWriter`）与 `arr[0] = concrete;`
+    （`arr: [IWriter: 2]`）都通过 `uya check`，生成
+    `struct uya_interface_IWriter has no member named 'fd'` /
+    `incompatible types when assigning to type 'struct uya_interface_IWriter'`，
+    错误位置指向生成的 `.c` 而不是源码。
+  - 修复：`infer_member_access` 的接口分支在「字段名不是接口方法」时报
+    「接口值不能访问字段」；`checker_check_assignment` 在「接口元素 ← 具体结构体」时报
+    「暂不支持把具体结构体直接赋给接口数组/切片元素」并给出可用写法。
+    **例外**：接口值自身的 `vtable` / `data` 两个内部字段必须放行 ——
+    `std.async` 的 `Future` 靠 `f.data` 做 frame 身份比对（`tests/test_async_frame_pool_stats.uya`）。
+  - 验证：负例 `tests/error_interface_field_access.uya`、`tests/error_interface_array_elem_assign.uya`；
+    `test_async_frame_pool_stats` 等既有用例保持通过；全量 `1181/1181`。
+
+- [x] **P2：除零正确性证明（`--strict-div`）**（2026-10-22 实现，闸门默认关）
+  - 现象：规范 §14.2 要求「变量除零 → 证明 `y != 0`」，但此前完全没实现 ——
+    `fn f(y: i32) i32 { return 100 / y; }` 与 `f(0)` 都静默通过，运行期 SIGFPE。
+  - 实现：`checker_prove_divisor_nonzero`（`src/checker/proof.uya`）用 `--strict-overflow`
+    的同一套宽化区间判定「除数区间不含 0」；接在 `checker_check_binary_expr` 的
+    `/` `%` 分支上。
+  - **默认关闭**（`--strict-div` 开启）：存量 `src/` + `lib/` 立即出现大量命中，
+    全都是「调用方保证非零」的跨函数不变量 —— `src/arena.uya` 的
+    `(size + align - 1) / align`、`lib/libc/math.uya` 的牛顿迭代 `n / guess`、
+    `lib/libc/stdio.uya` 的 `bytes_read / size`、`lib/libc/stdlib.uya` 的进制转换等。
+    证明器不跨函数，无法表达这类前提，强制开会直接让编译器无法自举。
+    这与 `--strict-overflow` 当初的处理路线一致（先可选、迁移完再翻默认）。
+  - 已知边界：约束表按有符号语义记录，`u32`/`usize` 的 `d == 0` / `d > 0` 守卫进不了
+    约束表，`--strict-div` 下会被保守拒绝；`if d == 0 { return; }` 这种「提前 return 守卫」
+    也不进约束表，可证明的写法是区间守卫 `if d <= 0 || d >= N { ... }`。
+  - 验证：`tests/verify_strict_div.sh`（已挂进 `make check`，断言四件事：默认放行、
+    `--strict-div` 拒绝无证明除数、常量与区间守卫放行、常量除零始终报错）；
+    正例 `tests/test_strict_div.uya`（6 用例）、负例夹具 `tests/repros/strict_div_negative.uya`
+    （**不用 `error_` 前缀**，因为它在默认模式下必须编译通过）。
+
+- [ ] **P1：逃逸检查（数组 / 切片 / 接口值）完全未实现**
+  - `uya.md` §6.5、§6.8、§7 都写了「逃逸即编译错误」，但实测三条路径全部静默通过：
+    `fn mk() [i32: 4] { var buf: [i32: 4] = []; return buf; }`、
+    `fn mk() &[i32] { var buf: [i32: 4] = [1,2,3,4]; return &buf[0:4]; }`、
+    `fn make() IWriter { const s: Console = Console{ fd: 42 }; return s; }`。
+    运行期读到已释放栈帧，属未定义行为（实测恰好返回值正确，因为栈还没被复用）。
+  - 已在 `uya.md` §6.5 / §6.8 / §7 就地标注「设计意图 vs 当前行为」，避免按文档预期编译器行为。
+  - 归属：`src/checker/`（需要作用域层级表，与现有 `enable_safety_proof` 体系独立）。
 
 
 ## 标准库 bug

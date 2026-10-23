@@ -1,0 +1,20 @@
+// 预期编译失败：接口值不能访问底层结构体字段
+//
+// 根因回归：接口在 C 里是 `struct uya_interface_X { vtable, data }`，
+// 早先 checker 对 `writer.fd` 静默返回 void 并放行，错误被推到 C 编译器
+// （"struct uya_interface_IWriter has no member named 'fd'"），诊断位置失真。
+interface IWriter {
+    fn write(self: &Self) i32;
+}
+
+struct Console : IWriter {
+    fd: i32,
+    fn write(self: &Self) i32 { return self.fd; }
+}
+
+export fn main() i32 {
+    const c: Console = Console { fd: 11 };
+    const writer: IWriter = c;
+    const fd: i32 = writer.fd;
+    return fd;
+}

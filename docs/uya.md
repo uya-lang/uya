@@ -740,6 +740,10 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
   as match test mc type opaque
   ```
   - `as!`（强转）是**独立单 token**，不是 `as` 与 `!` 两个 token 的组合（见 [11.3 强转](#113-强转as)）。
+  - **`type` 是「半保留」**：lexer 把它单独标成 `TOKEN_TYPE`（用于 `type X = ...;` 与宏参数类型），
+    但 `const type: i32 = 3;` / `var type: i32` 又能当普通变量名用（实测可运行）。
+    **作为结构体 / 枚举 / 函数名则不行**（`struct type { ... }` 报 `意外的 token 'type'`）。
+    写代码时建议把 `type` 只当关键字用，不要拿它命名。
 - **内置函数**：所有内置函数均以 `@` 开头，无需导入。包括：`@size_of(T)`、`@align_of(T)`、`@len(a)`（数组长度）、`@max`、`@min`（整数类型极值，类型由上下文推断）、`@error_id(err)`（提取错误值的数值 ID）、`@error_name(err)`（提取语言级错误名字符串）、`@embed("file")`（编译期嵌入单文件）、`@embed_dir("dir")`（编译期嵌入目录）。另外，`@c_import("path", cflags?, ldflags?);` 是顶层构建指令，用于把外部 C 源纳入当前构建图；`@async_fn`、`@naked_fn`、`@align(N)` 是**声明属性**。完整清单见 [第 16 章](#16-标准库)。
 - 标识符 `[A-Za-z_][A-Za-z0-9_]*`，区分大小写。
 - 数值字面量：
@@ -784,7 +788,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
       - **只读与实现（0.49.43）**：**`&[const byte]`** 在语义上禁止元素写；C 后端字段类型见 [规范变更 0.49.43](#规范变更) 中「实现说明（只读与 C）」。
     - **其他使用**：
       - ✅ 可以作为 FFI 函数调用的参数：`printf("hello\n");`
-      - ✅ 可以作为 FFI 函数声明的参数类型示例：`extern printf(fmt: *byte, ...) i32;`
+      - ✅ 可以作为 FFI 函数声明的参数类型示例：`extern fn printf(fmt: *byte, ...) i32;`
       - ✅ 可以与 `null` 比较（如果函数返回 `*byte`）：`if ptr == null { ... }`
       - ✅ **后缀下标与切片**（**0.49.41**）：字面量可作为主表达式接 **`[` `]`**，与数组类似：
         - **`"hello"[0]`** → **`byte`**；**`"hello"[0:3]`** → **`&[byte]`**（切片视图，不分配堆内存）
@@ -866,7 +870,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
 - 使用 `export` 关键字标记可导出的项
 - 语法：`export fn`, `export struct`, `export interface`, `export const`, `export error`
 - **FFI 导出**：
-  - `export extern` 或 `extern export` 用于导出 C FFI 函数：`export extern printf(fmt: *byte, ...) i32;` 或 `extern export printf(fmt: *byte, ...) i32;`（两种顺序等价）
+  - `export extern` 或 `extern export` 用于导出 C FFI 函数：`export extern fn printf(fmt: *byte, ...) i32;`（注意 `fn` 不可省略；`extern export fn` 这种反序写法是语法错误）
   - `export struct` 用于导出结构体：`export struct MyStruct { field1: i32, field2: f64 }`
   - `export opaque struct` 用于导出不透明、不可复制的资源类型。字段仅声明文件可见；外部代码不能使用结构体字面量构造或直接访问字段，只能通过公开函数移动值或借用引用。具有 `drop` 方法时，未移动值离开作用域会自动清理。
   - **统一标准**：
@@ -1118,7 +1122,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
   - [见第 13 章原子操作](#13-原子操作012-终极简洁)
 - `*T`：用于方法签名和 FFI 函数声明，表示指针参数；除用字符串字面量初始化（如 `const s: *byte = "hello";`）外不能用于普通变量声明
   - **语法规则**：
-    - `*T` 仅用于 FFI 函数声明（如 `extern printf(fmt: *byte, ...) i32;`）或字符串字面量赋给 `*byte`（见 §1.4）
+    - `*T` 仅用于 FFI 函数声明（如 `extern fn printf(fmt: *byte, ...) i32;`）或字符串字面量赋给 `*byte`（见 §1.4）
     - 方法 self 统一使用 `&T`：`fn method(self: &Self, ...)`，与普通指针一致
     - 调用 FFI 时可用 `&expr as *T` 将 Uya 普通指针转为 FFI 指针
     - 与 `&T` 的区别：`&T` 用于普通变量、函数参数及方法 self；`*T` 仅用于 FFI
@@ -1271,7 +1275,9 @@ union NetworkPacket {
   - 比较运算：`==`, `!=`, `<`, `>`, `<=`, `>=`（如果操作数都是常量）
   - 逻辑运算：`&&`, `||`, `!`（如果操作数都是常量）
   - 不支持：函数调用、变量引用（非常量）、数组/结构体字面量
-- **类型推断**：不支持类型推断，所有变量必须显式类型注解
+- **类型推断**：**不支持局部类型推断**，所有 `const`/`var` 都必须显式类型注解 ——
+  `const x = 10;` 是语法错误（实测报 `意外的 token '='`），必须写 `const x: i32 = 10;`。
+  注意这与「泛型实参推断」「`@max`/`@min` 的上下文类型推断」不是一回事：后者都已实现。
 - **变量遮蔽**：
   - 同一作用域内不能有同名变量
   - **禁止变量遮蔽**：内层作用域不能声明与外层作用域同名的变量（编译错误）
@@ -1509,7 +1515,7 @@ struct File {
 struct File {
     fd: i32,
     fn read(self: &Self, buf: *byte, len: i32) !i32 {
-        extern read(fd: i32, buf: *void, count: i32) i32;
+        extern fn read(fd: i32, buf: *void, count: i32) i32;
         const result: i32 = read(self.fd, buf, len);
         if result < 0 {
             return error.ReadFailed;
@@ -1521,7 +1527,7 @@ struct File {
 // ✅ 可以有方法（结构体外部定义）
 File {
     fn write(self: &Self, buf: *byte, len: i32) !i32 {
-        extern write(fd: i32, buf: *void, count: i32) i32;
+        extern fn write(fd: i32, buf: *void, count: i32) i32;
         const result: i32 = write(self.fd, buf, len);
         if result < 0 {
             return error.WriteFailed;
@@ -1533,7 +1539,7 @@ File {
 // ✅ 可以有 drop（RAII 自动资源管理），只能在结构体内部或方法块中定义
 File {
     fn drop(self: File) void {
-        extern close(fd: i32) i32;
+        extern fn close(fd: i32) i32;
         close(self.fd);
     }
 }
@@ -1546,7 +1552,7 @@ interface IReadable {
 struct File : IReadable {
     fd: i32,
     fn read(self: &Self, buf: *byte, len: i32) !i32 {
-        extern read(fd: i32, buf: *void, count: i32) i32;
+        extern fn read(fd: i32, buf: *void, count: i32) i32;
         const result: i32 = read(self.fd, buf, len);
         if result < 0 {
             return error.ReadFailed;
@@ -1557,7 +1563,7 @@ struct File : IReadable {
 
 // 使用示例
 fn example() !void {
-    extern open(path: *byte, flags: i32) i32;
+    extern fn open(path: *byte, flags: i32) i32;
     const file: File = File{ fd: open("test.txt", 0) };
     
     // 使用结构体方法
@@ -1896,7 +1902,7 @@ struct File {
 File {
     fn drop(self: File) void {
         if self.fd >= 0 {
-            extern close(fd: i32) i32;
+            extern fn close(fd: i32) i32;
             close(self.fd);
         }
     }
@@ -2115,7 +2121,7 @@ const float_val: IntOrFloat = IntOrFloat.f(3.14159);
 const ipv4_packet: NetworkPacket = NetworkPacket.ipv4([192, 168, 1, 1]);
 
 // 指针变体
-extern malloc(size: usize) *void;
+extern fn malloc(size: usize) *void;
 const raw_packet: NetworkPacket = NetworkPacket.raw(malloc(1024) as *byte);
 ```
 
@@ -2260,7 +2266,7 @@ extern union CValue {
 
 // 使用外部联合体
 fn use_c_union() void {
-    extern get_c_value() union CValue;
+    extern fn get_c_value() union CValue;
     const cv: union CValue = get_c_value();
     
     // 访问外部联合体需要模式匹配
@@ -2278,7 +2284,7 @@ Uya 联合体可直接传递给 C 函数：
 
 ```uya
 // C 函数声明
-extern process_c_union(u: union CValue) void;
+extern fn process_c_union(u: union CValue) void;
 
 fn pass_to_c() void {
     const u: IntOrFloat = IntOrFloat.i(42);
@@ -2518,7 +2524,7 @@ Uya 联合体设计完全符合「坚如磐石」哲学：
   - `fn name(...) type { ... }`：内部函数，生成的 C 代码添加 `static` 关键字
   - `export fn name(...) type { ... }`：导出函数，生成的 C 代码不添加 `static`
   - `extern fn name(...) type;`：外部 C 函数声明（无函数体）
-  - `export extern fn name(...) type { ... }` 或 `extern export fn name(...) type { ... }`：导出外部 C 函数（FFI），两种顺序等价
+  - `export extern fn name(...) type { ... }`：导出外部 C 函数（FFI）。**`export` 必须在 `extern` 之前**，`extern export fn` 是语法错误（实测 `意外的 token 'export'`）
   - **声明属性**（可选，写在 `fn` 之前，可叠加）：`@async_fn`（异步函数，见 [18.3.1](#1831-async_fn-函数属性)）、`@naked_fn`（裸函数）、`@align(N)`（异步帧对齐，见 [18.3.1](#1831-async_fn-函数属性)）。顺序示例：`export @align(64) @async_fn fn f() Future<!i32> { ... }`；`@align(N)` 必须写在 `@async_fn` 之前。
 - **函数可见性规则**（0.42 新增）：
   - **`fn`**：内部函数，生成的 C 代码为 `static void foo(void) { ... }`
@@ -2551,7 +2557,7 @@ Uya 联合体设计完全符合「坚如磐石」哲学：
   - **`extern fn`**（有函数体）：Uya 实现的 C 兼容函数，生成的 C 代码为 `void foo(void) { ... }`
     - 用 Uya 实现，但以裸函数名导出（不带模块前缀）
     - 用于包装 C 标准库函数或提供 C 兼容的实现
-  - **`export extern fn`** 或 **`extern export fn`**：导出外部 C 函数（FFI），两种顺序等价
+  - **`export extern fn`**：导出外部 C 函数（FFI）。`extern export fn` 这种反序写法是语法错误
     - **无函数体**：不生成任何代码，链接到 C 标准库的实现
       - 用于声明 C 标准库函数（如 `malloc`, `free`, `strcmp`）
       - 示例：`export extern fn malloc(size: usize) *void;` → 链接到 C 标准库的 `malloc`
@@ -2945,14 +2951,15 @@ bin/uya --c99 app.uya …   # 推荐：由驱动自动加入 entry.uya
 - **Uya 指针传递给 FFI 函数**：
   - ✅ **Uya 普通指针 `&T` 可以通过显式转换传递给 FFI 函数的指针类型参数 `*T`**
   - 使用 `as` 进行显式转换：`&T as *T`（安全转换，无精度损失，编译期检查）
-  - 示例：`extern write(fd: i32, buf: *byte, count: i32) i32;` 调用时使用 `write(1, &buffer[0] as *byte, 10);`
+  - 示例：`extern fn write(fd: i32, buf: *byte, count: i32) i32;` 调用时使用 `write(1, &buffer[0] as *byte, 10);`
   - 这是 FFI 调用时的显式规则，符合 Uya "显式控制"的设计哲学
   - 类型兼容规则：`&T` 可以转换为 `*T`（如果 `T` 类型兼容），详见 [第 11 章类型转换](#11-类型转换)
 - **返回值类型**：返回值类型放在参数列表的 `)` 后面，遵循 Uya 的函数语法
   - 指针类型返回值使用 `*T` 语法（如 `*void` 表示指向 `void` 的指针，对应 C 的 `void*`）
-  - 示例：`extern malloc(size: i32) *void;`（返回 `void*` 指针）
-  - 示例：`extern printf(fmt: *byte, ...) i32;`（返回 `i32`）
-  - 也支持箭头语法：`extern malloc(size: i32) -> *void;`
+  - 示例：`extern fn malloc(size: i32) *void;`（返回 `void*` 指针）
+  - 示例：`extern fn printf(fmt: *byte, ...) i32;`（返回 `i32`）
+  - **没有**箭头返回语法：`extern fn malloc(size: i32) -> *void;` 实测报 `意外的 token '->'`。
+    （本节此前写作 `extern fn malloc(...)` 省略 `fn` 并称「也支持箭头语法」，两处都与实现不符，已订正。）
 - 变参函数使用 `...` 表示可变参数列表
 
 - 声明必须出现在**顶层**；不可与调用混写在一行。
@@ -2982,7 +2989,7 @@ extern fn compare(a: *void, b: *void) i32 {
 type ComparFunc = fn(*void, *void) i32;
 
 // 声明需要函数指针的 C 函数
-extern qsort(base: *void, nmemb: usize, size: usize, compar: ComparFunc) void;
+extern fn qsort(base: *void, nmemb: usize, size: usize, compar: ComparFunc) void;
 
 fn main() i32 {
     const arr: [i32: 5] = [5, 2, 8, 1, 9];
@@ -3183,7 +3190,7 @@ struct Point {
 }
 
 // C 函数声明
-extern draw_point(p: *Point) void;
+extern fn draw_point(p: *Point) void;
 
 fn main() i32 {
     const p: Point = Point{ x: 1.0, y: 2.0 };
@@ -3510,7 +3517,7 @@ fn log_printf(fmt: *byte, ...) i32 {
 | VTable | **编译期唯一生成**；单元素函数指针数组；只读静态数据 |
 | 装箱 | 局部变量/参数/返回值处自动生成；**无运行期注册** |
 | 调用 | `call [vtable+offset]` → **单条指令**，零额外开销 |
-| 生命期 | 由作用域 RAII 保证；**逃逸即编译错误**（见 6.4 节） |
+| 生命期 | 设计意图是「由作用域 RAII 保证，逃逸即编译错误」；**逃逸检查尚未实现**（见 §6.5 的实现核对），当前需自行保证 |
 
 ### 6.4 Self 类型
 
@@ -3529,6 +3536,14 @@ fn log_printf(fmt: *byte, ...) i32 {
 - 编译器只在「赋值/返回/传参」路径检查：  
 [examples/example_028.txt](./examples/example_028.txt)
 - 检查失败**仅一行报错**；通过者**无额外运行时成本**。
+
+> **实现核对（2026-10-22）**：**下面这套接口值 / 切片的逃逸检查目前没有实现**。
+> 实测 `fn make() IWriter { const s: Console = Console{ fd: 42 }; return s; }`
+> 静默通过 `uya check`；成功运行只是因为装箱恰好走 `std_async_box_alloc_current`
+> 拿到的堆内存还没被复用（返回码 42）。切片逃逸同样放行
+> （`fn mk() &[i32] { var buf: [i32: 4] = [1,2,3,4]; return &buf[0:4]; }`）。
+> 已记入 `buglist.md`「逃逸检查（数组 / 切片 / 接口值）」；实现前请自行保证
+> 返回的接口值/切片不指向更短生命周期的数据。下文描述的是**设计意图**，不是当前行为。
 
 **逃逸检查规则**：
 
@@ -3590,10 +3605,17 @@ fn log_printf(fmt: *byte, ...) i32 {
 
 | 限制 | 说明 |
 |---|---|
-| 无字段接口 | `struct S { w: IWriter }` → ❌ 编译错误（当前限制） |
-| 无数组/切片接口 | `const arr: [IWriter: 3]` → ❌ |
+| 接口字段 ✅ 已支持 | `struct S { w: IWriter }` 可用；把具体结构体赋给字段即装箱，实测可正常派发 |
+| 接口数组 ✅ 已支持 | `var arr: [IWriter: 3] = [];` 可声明；但**元素赋值必须是接口值**，`arr[i] = concrete` 是编译错误（无装箱 lowering），要先经接口变量：`const w: IWriter = v; arr[i] = w;` |
+| 接口值不能取字段 | `writer.fd` 是编译错误：接口只暴露方法，须先还原成具体结构体 |
 | 无自引用 | 接口值不能指向自己 |
 | 无运行时注册 | 所有 vtable 编译期生成，**零 map 零锁** |
+
+> **实现核对（2026-10-22）**：上表前两条原写「❌ 编译错误（当前限制）」，与实现不符 ——
+> `struct S { w: IWriter }` 与 `var arr: [IWriter: 3] = []` 都已能编译并运行
+> （接口字段装箱后 `s.w.write()` 实测返回正确值）。真正的限制是**元素赋值缺装箱 lowering**，
+> 以及**接口值不能读字段**（后者原本静默放行并生成非法 C，现已改为编译错误）。
+> 负例：`tests/error_interface_array_elem_assign.uya`、`tests/error_interface_field_access.uya`。
 
 ### 6.9 与 C 互操作
 
@@ -3610,13 +3632,13 @@ fn log_printf(fmt: *byte, ...) i32 {
    - 传参 / 返回：按值复制 16 B。  
 4. **调用点** →  
    - 加载 `vptr` → 计算方法偏移 → `call [reg+offset]`。  
-5. **逃逸检查** → 6.4 节生命周期规则；失败即报错。
+5. **逃逸检查** → 设计上对应 6.5 节生命周期规则；**当前未实现**（见 §6.5 的实现核对）。
 
 ### 6.11 迁移指南
 
 | 旧需求（extern+函数指针） | 新做法（接口） |
 |---|---|
-| `extern call(f: IFunc, x: i32) i32;` | `fn use(IFunc f);` |
+| `extern fn call(f: IFunc, x: i32) i32;` | `fn use(IFunc f);` |
 | 手动管理函数地址 | 编译期 vtable，无地址赋值 |
 | 类型不安全 | 接口签名强制检查 |
 | 需全局注册表 | 零注册，零锁 |
@@ -3630,7 +3652,13 @@ fn log_printf(fmt: *byte, ...) i32 {
 
 **迭代器接口定义**：
 
-由于 Uya 没有泛型，迭代器接口需要针对具体元素类型定义。以下以 `i32` 类型为例：
+> **实现核对（2026-10-22）**：本节原写「由于 Uya 没有泛型，迭代器接口需要针对具体元素类型定义」。
+> **泛型已经实现**（函数泛型、结构体泛型、接口泛型、方法泛型都已可用，见 [附录 B.1](#b1-泛型语法)），
+> 实测 `interface Iterator<T> { fn next(self: &Self) T; }` + `struct R : Iterator<i32>` 能编译并正确派发。
+> 因此更准确的说法是：**泛型接口现在可以写**，下面的「按元素类型各写一份」是历史写法，
+> 仍然可用（`for` 的迭代器协议只要求具体类型实现 `next()`），但不是唯一选择。
+
+以下以 `i32` 类型为例给出不含泛型的历史写法：
 
 [examples/next.uya](./examples/next.uya)
 
@@ -3645,7 +3673,7 @@ fn log_printf(fmt: *byte, ...) i32 {
 **设计说明**：
 - 迭代器接口遵循 Uya 接口的设计原则：编译期生成vtable
 - 使用错误联合类型 `!void` 表示迭代结束，符合 Uya 的错误处理机制
-- 需要为每种元素类型定义对应的迭代器接口（当前限制，泛型功能在未来版本中提供）
+- 可以按元素类型各写一份接口（历史写法），也可以用泛型接口 `Iterator<T>`（推荐）
 - for循环语法会自动使用这些接口进行迭代（[见第8章](#8-控制流)）
 
 ### 6.13 一句话总结
@@ -3698,6 +3726,14 @@ fn log_printf(fmt: *byte, ...) i32 {
   - 被函数返回
   - 被赋值给生命周期更长的变量
   - 被传递给可能存储引用的函数
+
+> **实现核对（2026-10-22）**：以上三条**逃逸检测规则目前都未实现**。实测
+> `fn mk() [i32: 4] { var buf: [i32: 4] = []; return buf; }`、
+> `fn mk() &[i32] { var buf: [i32: 4] = [1,2,3,4]; return &buf[0:4]; }` 与
+> 「把 `&buf[0:4]` 传给形参 `&[i32]` 的函数」都静默通过 `uya check`，生成程序运行期读到已释放栈帧
+> （实测返回值恰好还是原值，属未定义行为碰巧正确）。这与 uya.md §6.5、§6.8 的同类表述一起属于
+> 已知欠账，记在 `buglist.md`「逃逸检查（数组 / 切片 / 接口值）」条目；在实现前请把切片/接口值
+> 的生命周期当作**由调用方保证**，不要依赖编译器报错。
 
 ---
 
@@ -4243,11 +4279,11 @@ Uya 提供两种类型转换语法：
 - **`&T as *T`**：Uya 可变指针转换为 FFI 可变指针类型
   - ✅ 使用 `as` 进行安全转换（无精度损失，编译期检查）
   - 仅在 FFI 函数调用时使用
-  - 示例：`extern write(fd: i32, buf: *byte, count: i32) i32;` 调用时使用 `&buffer[0] as *byte`
+  - 示例：`extern fn write(fd: i32, buf: *byte, count: i32) i32;` 调用时使用 `&buffer[0] as *byte`
 - **`&const T as *const T`**：Uya 只读指针转换为 FFI 只读指针类型（0.42 新增）
   - ✅ 使用 `as` 进行安全转换（无精度损失，编译期检查）
   - 用于标准库函数的只读参数
-  - 示例：`extern strlen(s: *const byte) usize;` 调用时使用 `str as *const byte`
+  - 示例：`extern fn strlen(s: *const byte) usize;` 调用时使用 `str as *const byte`
 - **`&T` → `&const T`**：可变指针隐式转换为只读指针（0.42 新增）
   - ✅ 隐式转换（放宽约束，安全）
   - 无需 `as` 关键字，编译器自动转换
@@ -4573,13 +4609,19 @@ Uya 提供两种类型转换语法：
 
 ### 14.2 内存安全强制表
 
-| UB 场景 | 必须证明为安全 | 失败结果 |
-|---|---|---|
-| 数组越界 | 常量索引越界 → 编译错误；变量索引 → 证明 `i >= 0 && i < len` | **常量错误：编译错误；变量证明失败：编译错误并给出修改建议** |
-| 空指针解引用 | 证明 `ptr != null` 或前序有 `if ptr == null { return error; }` | **常量错误：编译错误；变量证明失败：编译错误并给出修改建议** |
-| 使用未初始化 | 证明「首次使用前已赋值」或「前序有赋值路径」 | **常量错误：编译错误；变量证明失败：编译错误并给出修改建议** |
-| 整数溢出 | 常量溢出 → 编译错误；变量 → 显式检查或编译器证明无溢出 | **常量错误：编译错误；变量证明失败：编译错误并给出修改建议** |
-| 除零错误 | 常量除零 → 编译错误；变量 → 证明 `y != 0` | **常量错误：编译错误；变量证明失败：编译错误并给出修改建议** |
+下表「状态」列按**当前实现实测**标注，`✅` 是已经落地、`⚠️` 是部分落地（有已知缺口）、
+`❌` 是尚未实现。缺口条目都登记在 `buglist.md`，请不要按「设计意图」列来预期编译器行为。
+
+| UB 场景 | 必须证明为安全 | 失败结果 | 状态 |
+|---|---|---|---|
+| 数组越界（常量索引） | 常量索引越界 → 编译错误 | **编译错误** | ✅ 已实现（`uya check` 直接报「数组索引越界」） |
+| 数组越界（变量索引） | 证明 `i >= 0 && i < len` | **编译错误并给出修改建议** | ⚠️ 定长数组已实现（含 `as usize` 下界传递、单边守卫接受 `i < len`）；**切片 `&[T]` 形参下标完全不证**（`s[i]` 静默通过） |
+| 空指针解引用 | 证明 `ptr != null` 或前序有 `if ptr == null { return error; }` | **编译错误并给出修改建议** | ⚠️ 只看**局部变量**是否由 `null` 初始化；**形参 `&T` 解引用不检查**（`fn bad(p: &i32) { *p }` 静默通过，实测运行期 SIGSEGV） |
+| 使用未初始化 | 证明「首次使用前已赋值」或「前序有赋值路径」 | **编译错误并给出修改建议** | ✅ 已实现（语法层直接禁止 `var x: i32;` 无初始化声明） |
+| 整数溢出（常量） | 常量溢出 → 编译错误 | **编译错误** | ✅ 已实现 |
+| 整数溢出（变量） | 显式检查或编译器证明无溢出 | **编译错误** | ✅ 已实现（`--strict-overflow` 默认开启，只覆盖**有符号**整数） |
+| 除零错误（常量） | 常量除零 → 编译错误 | **编译错误** | ✅ 已实现（「常量表达式除零错误」） |
+| 除零错误（变量） | 证明 `y != 0` | **编译错误并给出修改建议** | ⚠️ 由 `--strict-div` 控制（**默认关**）：开启后 `fn f(y: i32) i32 { return 100 / y; }` 报「除数可能为 0，无法证明 / 安全」，常量除数与区间守卫（`if d <= 0 \|\| d >= N { ... }`）可证明通过。默认关是因为存量库大量依赖「调用方保证非零」的跨函数不变量（`align_size(size, align)`、`n / guess` 等），证明器无法表达，强制开会让编译器无法自举。回归 `tests/verify_strict_div.sh`，正例 `tests/test_strict_div.uya`，负例夹具 `tests/repros/strict_div_negative.uya` |
 
 ### 14.3 证明机制
 
@@ -5166,7 +5208,8 @@ fn caller() void {
 - 格式说明符与 C printf 保持一致
 
 - 整体格式 **与 C printf 保持一致**，减少学习成本。  
-- `width` / `precision` 必须为**编译期数字**（`*` 暂不支持）。  
+- `width` / `precision` 必须为**编译期数字**；`*` 动态宽度**未实现**，写 `"${x:*6d}"` 会报
+  「不支持的插值类型或格式说明符」（此前是静默生成坏格式串，输出 `%426d`，已改为编译期拒绝）。
 - 结果类型仍为 `[i8: N]`，宽度由「格式字符串最大可能长度」常量求值得出。
 
 ### 17.3 宽度常量表
@@ -5205,7 +5248,7 @@ fn caller() void {
 ### 17.4 完整示例
 
 ```uya
-extern printf(fmt: *byte, ...) i32;
+extern fn printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
   const x: u32 = 255;
@@ -5280,10 +5323,10 @@ call memcpy(ptr %buf+43, ptr @str.2, i64 2)            ; "\n"
 
 | 限制 | 说明 |
 |---|---|
-| `width/precision` | 必须为**编译期数字**；`*` 暂不支持 |
+| `width/precision` | 必须为**编译期数字**；`*` 动态宽度未实现，编译期报错 |
 | 类型不匹配 | `%.2f` 但表达式是 `i32` → 编译错误 |
 | 嵌套字符串 | `${"abc"}` → ❌ 表达式内不能再有字符串字面量 |
-| 动态宽度 | `"%*d"` → 未来支持 |
+| 动态宽度 | `"%*d"` → 未实现，编译期报错（负例 `tests/error_interp_dynamic_width.uya`） |
 
 ### 17.7 字符串切片
 
@@ -5384,6 +5427,8 @@ for hello |byte| {
 - 顺序敏感：`@async_fn` 后必须紧跟 `fn`，因此 `@align(N)` 写在 `@async_fn` 之后会报「@async_fn 后必须跟着 fn 关键字」。
 
 ```uya
+use std.async;   // Future / Poll / Waker 由 std.async 提供，缺这条会报「Future 未定义」
+
 @align(64)
 @async_fn
 fn aligned_async() Future<!i32> {
@@ -5397,6 +5442,13 @@ fn frame_align_is_64() i32 {
     return 0;
 }
 ```
+
+> **可编译性（2026-10-22 实测）**：上面的形状（`@align(64)` + `@async_fn` + `@align_of(@frame(f))`）
+> 与 `tests/test_async_frame_align_pool.uya` 一致，`uya test` 通过。两个易踩点：
+> ① `Future`/`Poll`/`Waker` 来自 `std.async`，**必须 `use std.async;`**（本节示例此前漏写，
+> 直接拷贝会报类型未定义）；② `@async_fn` 函数体里 `return 42;` 的 42 会按返回类型
+> `Future<!i32>` 解释 —— 只有 `Future` 本身是 `@async_fn` 的合法返回类型，
+> 写成 `fn f() !i32` 会报「@async_fn 函数必须返回 Future<!T> 或 !Future<T>」。
 
 **示例**：
 ```uya
@@ -7179,10 +7231,12 @@ mc hash_string(s) expr {
   - 进一步优化性能
 
 ### 29.3 类型系统增强
-- **类型推断增强**：局部类型推断
-  - 函数内支持类型推断，函数签名仍需显式类型
-  - 提高代码简洁性，保持可读性
-  - 示例：`const x = 10;` 自动推断为 `i32`（注意：当前不支持类型推断，需要显式类型注解）
+- **类型推断增强**：局部类型推断 —— **当前未实现，属规划项**
+  - 目标：函数内支持类型推断，函数签名仍需显式类型
+  - 现状：**所有 `const`/`var` 都必须写类型注解**，`const x = 10;` 报
+    `语法分析失败: 意外的 token '='`；必须写 `const x: i32 = 10;`
+  - 已实现的「推断」是另一回事：泛型实参推断、`@max`/`@min` 由上下文推断类型、
+    结构体字面量的字段类型解析
 - **指针下标访问语法糖**：`ptr[i]` 是 `*(ptr + i)` 的语法糖
   - **语法**：`ptr[i]` 展开为 `*(ptr + i)`，与 C 语言一致
   - **边界检查**：与指针算术相同，需要证明 `i >= 0 && i < len`
@@ -7369,7 +7423,7 @@ extern union CData {
     text: [i8: 32]
 }
 
-extern process_c_data(data: union CData) void;
+extern fn process_c_data(data: union CData) void;
 
 fn ffi_example() void {
     // 创建 Uya 联合体
@@ -7379,7 +7433,7 @@ fn ffi_example() void {
     process_c_data(uya_data);
     
     // 接收 C 联合体
-    extern get_c_data() union CData;
+    extern fn get_c_data() union CData;
     const c_data: union CData = get_c_data();
     
     // 模式匹配处理

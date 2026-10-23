@@ -135,6 +135,13 @@ var g_verbose_output: i32 = 0;
 // 测试语料的豁免见 tests/run_programs_parallel.sh 与 AGENTS.md「负例测试规则」。
 var g_strict_overflow: i32 = 1;
 
+// --strict-div：整数 `/` 与 `%` 的除数必须能证明非零（规范 §14.2 的「除零正确性证明」）。
+// **默认关闭**：与 --strict-overflow 不同，存量库里有大量「调用方保证非零」的形参除法
+//（`align_size(size, align)`、牛顿迭代 `n / guess`、`bytes_read / size` 等），
+// 证明器无法表达这类跨函数不变量，强制开会让 `src/` 与 `lib/` 立刻无法自举。
+// 需要该保证的工程可显式开启；常量除零无论如何都会报错（常量折叠路径）。
+var g_strict_div: i32 = 0;
+
 // --async-frame-heap=on：async frame pool 满时回退到调试 heap
 var g_async_frame_heap_fallback: i32 = 0;
 
@@ -1111,8 +1118,10 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "  -O0, -O1, -O2, -O3   优化级别（简写形式）\n" as *byte);
     fprintf(libc.stderr, "  --safety-proof       启用内存安全证明（默认已启用）\n" as *byte);
     fprintf(libc.stderr, "  --no-safety-proof    禁用内存安全证明\n" as *byte);
-    fprintf(libc.stderr, "  --no-strict-overflow 关闭溢出闸门（默认开：整数算术须能证明无溢出）\n" as *byte);
-    fprintf(libc.stderr, "  --no-strict-overflow 关闭溢出闸门（默认）\n" as *byte);
+    fprintf(libc.stderr, "  --strict-overflow    开启溢出闸门（默认已开：整数算术须能证明无溢出）\n" as *byte);
+    fprintf(libc.stderr, "  --no-strict-overflow 关闭溢出闸门\n" as *byte);
+    fprintf(libc.stderr, "  --strict-div         开启除零证明（默认关：整数 / 与 %% 的除数须能证明非零）\n" as *byte);
+    fprintf(libc.stderr, "  --no-strict-div      关闭除零证明（默认）\n" as *byte);
     fprintf(libc.stderr, "  --nostdlib           完全独立模式：无标准库依赖，使用 syscall\n" as *byte);
     fprintf(libc.stderr, "  --async-frame-heap=on  async frame pool 满时回退到调试 heap（默认关闭）\n" as *byte);
     fprintf(libc.stderr, "  MICROAPP_TARGET_CFLAGS  microapp 目标 gcc 编译旗标；call_gate profile 默认 -std=c99 -Os -fomit-frame-pointer -fno-builtin -fno-stack-protector -fpie -ffunction-sections -fdata-sections -flto=auto，trap profile 默认改为 -fno-pie（均不含 -g）\n" as *byte);
@@ -1849,6 +1858,10 @@ fn parse_args(
             g_strict_overflow = 1;
         } else if strcmp(arg, "--no-strict-overflow" as *byte) == 0 {
             g_strict_overflow = 0;
+        } else if strcmp(arg, "--strict-div" as *byte) == 0 {
+            g_strict_div = 1;
+        } else if strcmp(arg, "--no-strict-div" as *byte) == 0 {
+            g_strict_div = 0;
         } else if strcmp(arg, "--jobs" as *byte) == 0 || strcmp(arg, "-j" as *byte) == 0 {
             // 分离写法：--jobs 8 / -j 8
             if i + 1 >= argc {
@@ -2711,6 +2724,7 @@ fn compile_files(
     // 设置内存安全证明开关
     checker.enable_safety_proof = enable_safety_proof;
     checker.strict_overflow = g_strict_overflow;
+    checker.strict_div = g_strict_div;
     checker.container_mode = g_container_mode;
 
     if checker_check(checker, merged_ast) != 0 {
