@@ -1266,7 +1266,18 @@ if [ $COMPILER_EXIT -eq 0 ]; then
                 fi
             fi
             echo "=========================================="
-            BOOTSTRAP_C="$BUILD_DIR/compiler_bootstrap.c"
+            # 自举对比的两次 C 输出必须使用相同 basename：codegen 会按输出文件名是否为
+            # uya.c / compiler_bootstrap.c 决定是否发射 hosted libc 头文件与 extern 声明
+            # （见 src/codegen/c99/main.uya 的 is_bootstrap）。若副产物固定叫
+            # compiler_bootstrap.c、主产物却是 uya-hosted.c（Darwin hosted 单文件主线），
+            # 两次生成的头部必然不同，C 对比会误报不一致。这里把副产物放进独立目录并
+            # 复用主产物的 basename，保证 is_bootstrap 判定与主产物完全一致。
+            BOOTSTRAP_C_DIR="$BUILD_DIR/bootstrap_compare_c"
+            BOOTSTRAP_C="$BOOTSTRAP_C_DIR/compiler_bootstrap.c"
+            if [ -n "$OUTPUT_FILE" ]; then
+                BOOTSTRAP_C="$BOOTSTRAP_C_DIR/$(basename "$OUTPUT_FILE")"
+            fi
+            mkdir -p "$BOOTSTRAP_C_DIR"
             BOOTSTRAP_EXE="$BUILD_DIR/uya_bootstrap_compare${TARGET_EXE_SUFFIX}"
             BOOTSTRAP_SPLIT_DIR="${BUILD_DIR}/bootstrap_split_c"
             if [ "$VERBOSE" = true ]; then
