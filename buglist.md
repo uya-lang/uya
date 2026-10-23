@@ -1,6 +1,9 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-21（**本轮修掉 3 条**：① P1 负 `start` 切片 —— `check_slice_bounds`
+**最后更新：** 2026-10-23（**本轮修掉 1 条**：跟踪的自举种子再次陈旧 —— 冷启动后的 `make uya`
+解析不了 `-|`（种子里缺 `parser_peek_is_generic_args` 前瞻），`make clean && make from-c &&
+make uya` 断在第二步；已刷新 `backup/*.c` 全部种子并跑通该链条、`make b` 与 `make backup-all`，
+详见"编译器 bug"首条。此前：2026-10-21（**本轮修掉 3 条**：① P1 负 `start` 切片 —— `check_slice_bounds`
 不再对负 start 做「从末尾回数」的换算放行，改保守拒绝；② P2 `@max`/`@min` 极值常量 ——
 解析标志改用 `TypeKind + 1` 编码（`TYPE_I8 === 0` 与「未解析」哨兵撞车是根因），
 并补上调用实参（含嵌套）的类型下推；③ P2 `@asm` 的 `clobbers = ["memory"]` ——
@@ -350,6 +353,40 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [x] **P0 / 严重：跟踪的自举种子再次陈旧，冷启动后的 `make uya` 解析不了 `-|`（`make from-c` 链条断在第二步）**
+  - 状态：**已修复**（2026-10-23）
+  - 现象：`make clean && make from-c && make uya` 在第二步失败，`make from-c` 本身成功：
+    ```
+    cc ... bin/uya.c -o bin/uya -lm            # from-c 成功
+    ./bin/uya ... src/main.uya                 # 用它编当前 src
+    错误: 语法分析失败 (.../src/codegen/c99/enums.uya:498:30): 意外的 token '-|'
+    ```
+    报错点是 `if i < variant_count -| 1 {`。同形态的最小复现（`const c: bool = i < n -| 1;`、
+    `while i < n -| 1`）在 from-c 产出的编译器上必现；`-|` 单独出现在
+    `const x: i32 = n -| 1;` 或 `if n -| 1 > 0` 里则正常。`+|` 同源同现象。
+  - 根因（**不是**语法/解析器逻辑回归，`src/` 侧一直是对的）：`backup/uya.c`、
+    `backup/uya-*-<host>-<arch>.c` 等跟踪种子里**没有** `parser_peek_is_generic_args`
+    这一平衡扫描前瞻（刷新前 `grep -c parser_peek_is_generic_args backup/*.c` 全为 0）。
+    旧种子把 `parser_parse_primary_expr` 里的 `<` 一律当泛型实参列表起点，于是遇到
+    `i < n -| 1` 这种「比较运算符 + 算术运算符」的组合时按 `i<n-|...>` 往前扫，
+    把 `-|` 判成类型实参里的非法 token 并报错。当前 `src/parser/primary.uya`
+    （含该前瞻）从未编进种子，所以种子只能在「自身同源」的树上看得出问题。
+  - 修复内容：先用一个足够新的外部编译器（本机现成的 0.10.4）bootstrap 出可编译当前
+    `src/` 的 `bin/uya`，再按仓库既有流程刷新全部跟踪种子：
+    `make backup-seed`（`backup/uya.c`、`backup/uya-linux-x86_64.c`）+
+    `make backup-hosted-seed`（`backup/uya-hosted.c`、`backup/uya-hosted-linux-x86_64.c`
+    与 macOS 种子家族）。刷新后 `grep -c parser_peek_is_generic_args backup/*.c` 为 3。
+    macOS 种子由默认的 zig 交叉流程更新；该步的交叉**链接**在本机失败
+    （`sa_restorer` 不属于 macOS `struct sigaction`，旧种子同样带这个字段，属既有问题、
+    与本次无关），Makefile 按设计仍保留并写入 C 种子，仅作辅助参考。
+  - 验证状态：`make clean && make from-c && make uya` 全链条通过；用 from-c 产出的编译器
+    删掉 `src/.uyacache`/`src/build` 后 `UYA_FORCE_BUILD=1 make uya` 完整重新编译通过；
+    `make b` 自举对比字节一致；`make backup-all`（含 `make check` 全量）通过。
+  - 归属：`backup/*.c` 跟踪种子陈旧（编译器逻辑无改动）。
+  - 预防：`release-preflight` 目前只比对 `bin/uya.c` 与 `backup/uya.c`，
+    不校验「种子能否编译当前 `src/`」，所以整树干净但种子过期的状态仍能一路通过。
+    把 `from-c → uya` 纳入 release 收口的思路与上一条种子陈旧 bug 相同，仍未实现。
 
 - [x] **P0 / 严重：临时 receiver 的方法调用在 `-O1` 及以上静默读到 0**
   - 状态：**已修复**（2026-10-22）
