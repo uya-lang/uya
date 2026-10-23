@@ -376,6 +376,10 @@ typedef int (*uya_macos_pause_fn)(void);
 typedef void *(*uya_macos_opendir_fn)(const char *);
 typedef void *(*uya_macos_readdir_fn)(void *);
 typedef int (*uya_macos_closedir_fn)(void *);
+extern long sysconf(int);
+typedef void *(*uya_macos_mmap_fn)(void *, size_t, int, int, int, off_t);
+typedef int (*uya_macos_munmap_fn)(void *, size_t);
+typedef int (*uya_macos_mprotect_fn)(void *, size_t, int);
 typedef int (*uya_macos_kqueue_fn)(void);
 typedef int (*uya_macos_kevent_fn)(int, const void *, int, void *, int, const void *);
 extern int uya_macos_real_fstat(int, struct uya_macos_native_stat_call *) __asm__("_fstat");
@@ -550,6 +554,24 @@ static struct err_union_int64_t uya_macos_getcwd(char *buf, size_t size) {
     size_t len = 0; while (len < size && buf[len] != 0) len++;
     if (len >= size || len > 0x7fffffffu) return uya_macos_err_i64(34);
     return uya_macos_ok_i64((int64_t)len);
+}
+static void *uya_macos_mmap(void *addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
+    static uya_macos_mmap_fn real_mmap = (uya_macos_mmap_fn)0;
+    if (real_mmap == (uya_macos_mmap_fn)0) real_mmap = (uya_macos_mmap_fn)dlsym((void *)-1, "mmap");
+    if (real_mmap == (uya_macos_mmap_fn)0) return (void *)-1;
+    return real_mmap(addr, (size_t)length, (int)prot, (int)flags, (int)fd, (off_t)offset);
+}
+static int32_t uya_macos_munmap(void *addr, size_t length) {
+    static uya_macos_munmap_fn real_munmap = (uya_macos_munmap_fn)0;
+    if (real_munmap == (uya_macos_munmap_fn)0) real_munmap = (uya_macos_munmap_fn)dlsym((void *)-1, "munmap");
+    if (real_munmap == (uya_macos_munmap_fn)0) return -1;
+    return (int32_t)real_munmap(addr, (size_t)length);
+}
+static int32_t uya_macos_mprotect(void *addr, size_t length, int32_t prot) {
+    static uya_macos_mprotect_fn real_mprotect = (uya_macos_mprotect_fn)0;
+    if (real_mprotect == (uya_macos_mprotect_fn)0) real_mprotect = (uya_macos_mprotect_fn)dlsym((void *)-1, "mprotect");
+    if (real_mprotect == (uya_macos_mprotect_fn)0) return -1;
+    return (int32_t)real_mprotect(addr, (size_t)length, (int)prot);
 }
 static struct err_union_int32_t uya_macos_fcntl(int32_t fd, int32_t cmd, int32_t arg) {
     int ret = fcntl((int)fd, (int)cmd, (int)arg);
@@ -9125,7 +9147,6 @@ static __attribute__((used)) int32_t read_string_char_into_buffer(struct Lexer *
 struct Token * lexer_next_token(struct Lexer * lexer, struct CompilerArena * arena);
 int32_t lexer_init(struct Lexer * lexer, uint8_t * source, size_t source_len, uint8_t * filename, struct CompilerArena * arena);
 static __attribute__((used)) int32_t parallel_parse_positive_int(const uint8_t * text);
-static __attribute__((used)) int32_t parallel_cpu_count_from_affinity();
 int32_t parallel_parallel_cpu_count();
 int32_t parallel_parallel_available();
 void parallel_parallel_set_jobs(int32_t jobs);
@@ -11801,7 +11822,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_955331488_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -11838,7 +11859,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_88364452_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -13964,6 +13985,10 @@ const int32_t libc_PROT_EXEC = 4;
 #undef libc_RLIMIT_STACK
 #endif
 const int32_t libc_RLIMIT_STACK = 3;
+#ifdef libc_SC_NPROCESSORS_ONLN
+#undef libc_SC_NPROCESSORS_ONLN
+#endif
+const int32_t libc_SC_NPROCESSORS_ONLN = 58;
 #ifdef CLOCKS_PER_SEC
 #undef CLOCKS_PER_SEC
 #endif
@@ -23931,36 +23956,12 @@ static __attribute__((used)) int32_t parallel_parse_positive_int(const uint8_t *
         }
 }
 
-static __attribute__((used)) int32_t parallel_cpu_count_from_affinity() {
-    uint64_t mask[16] = {(uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0};
-    const size_t size = ((size_t)16 * (int32_t)sizeof(uint64_t));
-    const int32_t rc = sched_getaffinity(0, size, (void *)(&mask[0]));
-    if (rc != 0) {
-                {
-            int32_t _uya_ret = 0;
-            return _uya_ret;
-                }
-    }
-    int32_t count = 0;
-    int32_t wi = 0;
-    while (wi < 16) {
-        uint64_t bits = mask[wi];
-        while (bits != (uint64_t)0) {
-            if ((bits & (uint64_t)1) != (uint64_t)0) {
-                count = (count + 1);
-            }
-            bits = (bits >> 1);
-        }
-        wi = (wi + 1);
-    }
-        {
-        int32_t _uya_ret = count;
-        return _uya_ret;
-        }
-}
-
 int32_t parallel_parallel_cpu_count() {
-    int32_t n = parallel_cpu_count_from_affinity();
+    int32_t n = 0;
+    const int64_t online = sysconf(libc_SC_NPROCESSORS_ONLN);
+    if (((online > 0) && (online <= 1024))) {
+        n = (int32_t)online;
+    }
     if (n <= 0) {
         n = 8;
     }
@@ -35401,6 +35402,9 @@ __attribute__((used)) int32_t closedir(struct DIR * dirp) {
 
 
 
+
+
+
 __attribute__((used)) struct err_union_intptr_t sys_write(int32_t fd, const char * buf, size_t count) {
     (void)fd;
     (void)buf;
@@ -35550,7 +35554,7 @@ __attribute__((used)) struct err_union_voidptr sys_mmap(void * addr, size_t leng
     (void)fd;
     (void)offset;
         {
-        struct err_union_voidptr _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_mmap, (int64_t)addr, (int64_t)length, (int64_t)prot, (int64_t)flags, (int64_t)fd, (int64_t)offset); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_voidptr _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (void *){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (void *)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_voidptr _uya_ret = ({ struct err_union_voidptr _uya_asbang = { .error_id = 0, .value = (void *)(uya_macos_mmap(addr, length, prot, flags, fd, offset)) }; _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_voidptr){0};
@@ -35560,9 +35564,10 @@ __attribute__((used)) struct err_union_int32_t sys_munmap(void * addr, size_t le
     (void)addr;
     (void)length;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_munmap, (int64_t)addr, (int64_t)length); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int32_t _uya_asbang = { .error_id = 0, .value = (int32_t)(uya_macos_munmap(addr, length)) }; _uya_asbang; });
         return _uya_ret;
         }
+        return (struct err_union_int32_t){0};
 }
 
 __attribute__((used)) struct err_union_int32_t sys_mprotect(void * addr, size_t length, int32_t prot) {
@@ -35570,9 +35575,10 @@ __attribute__((used)) struct err_union_int32_t sys_mprotect(void * addr, size_t 
     (void)length;
     (void)prot;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_mprotect, (int64_t)addr, (int64_t)length, (int64_t)prot); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int32_t _uya_asbang = { .error_id = 0, .value = (int32_t)(uya_macos_mprotect(addr, length, prot)) }; _uya_asbang; });
         return _uya_ret;
         }
+        return (struct err_union_int32_t){0};
 }
 
 __attribute__((used)) struct err_union_int32_t sys_stat(const char * pathname, struct Stat * statbuf) {
@@ -35695,38 +35701,33 @@ __attribute__((used)) struct err_union_intptr_t sys_getdents64(int32_t fd, void 
         return (struct err_union_intptr_t){0};
 }
 
+
 __attribute__((used)) int32_t sched_setaffinity(int64_t pid, size_t cpusetsize, void * mask) {
     (void)pid;
     (void)cpusetsize;
     (void)mask;
-    struct err_union_int64_t r = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_sched_setaffinity, pid, (int64_t)cpusetsize, (int64_t)mask); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
-    const int64_t v = ({ struct err_union_int64_t _uya_catch_tmp = r; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
-                {
-            int32_t _uya_ret = (-1);
-            return _uya_ret;
-                }
-    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    (void)(pid);
+    (void)(cpusetsize);
+    (void)(mask);
         {
-        int32_t _uya_ret = (int32_t)v;
+        int32_t _uya_ret = (-1);
         return _uya_ret;
         }
+        return 0;
 }
 
 __attribute__((used)) int32_t sched_getaffinity(int64_t pid, size_t cpusetsize, void * mask) {
     (void)pid;
     (void)cpusetsize;
     (void)mask;
-    struct err_union_int64_t r = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_sched_getaffinity, pid, (int64_t)cpusetsize, (int64_t)mask); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
-    const int64_t v = ({ struct err_union_int64_t _uya_catch_tmp = r; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
-                {
-            int32_t _uya_ret = (-1);
-            return _uya_ret;
-                }
-    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    (void)(pid);
+    (void)(cpusetsize);
+    (void)(mask);
         {
-        int32_t _uya_ret = (int32_t)v;
+        int32_t _uya_ret = (-1);
         return _uya_ret;
         }
+        return 0;
 }
 
 __attribute__((used)) int64_t sys_brk(int64_t addr) {
@@ -151088,6 +151089,10 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef void *(*uya_macos_opendir_fn)(const char *);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef void *(*uya_macos_readdir_fn)(void *);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_closedir_fn)(void *);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern long sysconf(int);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef void *(*uya_macos_mmap_fn)(void *, size_t, int, int, int, off_t);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_munmap_fn)(void *, size_t);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_mprotect_fn)(void *, size_t, int);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_kqueue_fn)(void);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_kevent_fn)(int, const void *, int, void *, int, const void *);\n", (void *)codegen->emit_stream)    );
     (void)(c99_emit_host_symbol_decl(codegen, (uint8_t *)(uint8_t *)"extern int uya_macos_real_fstat(int, struct uya_macos_native_stat_call *) __asm__(\"_fstat\");\n", (uint8_t *)(uint8_t *)"extern int uya_macos_real_fstat(int, struct uya_macos_native_stat_call *) __asm__(\"fstat\");\n")    );
@@ -151262,6 +151267,24 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    size_t len = 0; while (len < size && buf[len] != 0) len++;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (len >= size || len > 0x7fffffffu) return uya_macos_err_i64(34);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i64((int64_t)len);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str385, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static void *uya_macos_mmap(void *addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_mmap_fn real_mmap = (uya_macos_mmap_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_mmap == (uya_macos_mmap_fn)0) real_mmap = (uya_macos_mmap_fn)dlsym((void *)-1, \"mmap\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_mmap == (uya_macos_mmap_fn)0) return (void *)-1;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return real_mmap(addr, (size_t)length, (int)prot, (int)flags, (int)fd, (off_t)offset);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str385, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_macos_munmap(void *addr, size_t length) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_munmap_fn real_munmap = (uya_macos_munmap_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_munmap == (uya_macos_munmap_fn)0) real_munmap = (uya_macos_munmap_fn)dlsym((void *)-1, \"munmap\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_munmap == (uya_macos_munmap_fn)0) return -1;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int32_t)real_munmap(addr, (size_t)length);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str385, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_macos_mprotect(void *addr, size_t length, int32_t prot) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_mprotect_fn real_mprotect = (uya_macos_mprotect_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_mprotect == (uya_macos_mprotect_fn)0) real_mprotect = (uya_macos_mprotect_fn)dlsym((void *)-1, \"mprotect\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_mprotect == (uya_macos_mprotect_fn)0) return -1;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int32_t)real_mprotect(addr, (size_t)length, (int)prot);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str385, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_fcntl(int32_t fd, int32_t cmd, int32_t arg) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = fcntl((int)fd, (int)cmd, (int)arg);\n", (void *)codegen->emit_stream)    );
@@ -181066,7 +181089,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_955331488_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -182313,7 +182336,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_88364452_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -182557,7 +182580,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_1872351365_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_88364452_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;

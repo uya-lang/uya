@@ -21,6 +21,7 @@
 // 4. 子进程若发现「共享竞技场不够用」等不可恢复前提被打破，应返回约定的失败状态，
 //    由父进程回退串行重做，而不是产出半成品。
 
+use std;
 use libc;
 use libc.unistd;   // fork, _exit
 use libc.syscall;  // sys_mmap, sched_getaffinity
@@ -79,8 +80,8 @@ fn parallel_parse_positive_int(text: &const byte) i32 {
 
 // 通过 sched_getaffinity 统计可用 CPU 数（与 nproc 语义一致：受 cgroup/affinity 限制）。
 //
-// 只有 Linux 提供该调用；其它目标（macOS 等）会走到 syscall 层的桩函数并返回非 0，
-// 此时返回 0，由 parallel_cpu_count 走默认值。
+// 该 syscall 只有 Linux 有；macOS 在 parallel_cpu_count 里改走 sysconf(_SC_NPROCESSORS_ONLN)，
+// 因此这里的裸 @syscall 不会被 macOS 目标编译进去。
 // 参数说明：无。
 // 返回值说明：CPU 数（>= 1）；探测失败返回 0。
 fn parallel_cpu_count_from_affinity() i32 {
@@ -110,7 +111,17 @@ fn parallel_cpu_count_from_affinity() i32 {
 /// 参数说明：无。
 /// 返回值说明：CPU 数，至少为 1；探测不到时返回 8（实测在本仓库规模下已接近饱和收益）。
 export fn parallel_cpu_count() i32 {
-    var n: i32 = parallel_cpu_count_from_affinity();
+    var n: i32 = 0;
+    std.cfg(std.target_os == .tos_macos, {
+        // Darwin 没有 sched_getaffinity；裸 @syscall 会在 Apple Silicon 上直接 SIGSYS，
+        // 改用 libSystem 的 sysconf(_SC_NPROCESSORS_ONLN)。
+        const online: i64 = sysconf(SC_NPROCESSORS_ONLN);
+        if online > 0 && online <= 1024 {
+            n = online as i32;
+        }
+    }, {
+        n = parallel_cpu_count_from_affinity();
+    })
     if n <= 0 {
         n = 8;
     }
