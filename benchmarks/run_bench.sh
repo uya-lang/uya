@@ -70,7 +70,7 @@ ZAP_REPO_TAG="v0.11.0"
 ZAP_REPO_DIR="/tmp/http_bench_zap_repo"
 ZAP_EXEC="/tmp/http_bench_zap"
 ZAP_SRC="${SCRIPT_DIR}/http_bench_zap/hello.zig"
-ZIG_BIN="${ZIG_BIN:-/home/winger/zig/zig}"
+ZIG_BIN="${ZIG_BIN:-$(command -v zig 2>/dev/null || true)}"
 TOKIO_DIR="${SCRIPT_DIR}/http_bench_tokio"
 TOKIO_EXEC="/tmp/http_bench_tokio"
 # Uya HTTP benchmark 统一走 nostdlib + -O3，避免 hosted libc 路径影响对比。

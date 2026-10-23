@@ -26,6 +26,14 @@
 - **入口 `main` 可返回错误联合**：`export fn main() !T` / `fn main() !T` 现在能正常链接运行。
 
 ### Fixed
+- **未安装 zig 的宿主把 `make check` / `make release` 判成失败**：`Makefile` 把 `ZIG` 默认写死成
+  某台开发机的绝对路径 `/home/winger/zig/zig`，`tests/verify_std_path_platform_targets.sh` 在
+  缺 zig 时又直接 `exit 1`，于是没装 zig 的 CI（ubuntu-ci 跑 `make release`）必然红。
+  现改为：`ZIG` 默认从 PATH 解析（解析不到留空），六个脚本里的同类硬编码一并改掉；
+  std.path 的 windows 目标在缺 zig 时**保留「生成 C 通过」这一级结论**、交叉编译与运行显示
+  `⊘ 跳过`（与既有的 wine 缺省处理一致），并在结尾如实汇报跳过项；
+  `TOOLCHAIN=zig` 但找不到 zig 时给出明确错误，而不是拼出空命令。
+  文档里同源的 `/home/winger/zig/zig` 示例路径一并改为 `/path/to/zig`。
 - **lexer 遇未知字符静默返回 EOF，整段源码被丢弃**：`#` / `\` / `?` 这类不在词法表里的字符
   会让 parser 把剩余输入当成文件正常结束 —— `uya check` 退出码 0、零输出，`uya build` 则
   整段丢弃后续声明。现改为报「无法识别的字符 '<c>'（ASCII n），位于第 L 行第 C 列」并置

@@ -69,10 +69,10 @@ cd src
 
 ```bash
 # 使用 zig 作为统一工具链
-TOOLCHAIN=zig ZIG=/home/winger/zig/zig bin/uya build input.uya -o app --c99
+TOOLCHAIN=zig ZIG=/path/to/zig bin/uya build input.uya -o app --c99
 
 # 等价写法：直接指定 CC_DRIVER
-CC_DRIVER="/home/winger/zig/zig cc" bin/uya build input.uya -o app --c99
+CC_DRIVER="/path/to/zig cc" bin/uya build input.uya -o app --c99
 ```
 
 > 注意：`bin/uya` 的 `--help` 里没有 `-e` 选项——链接是 `build` 命令的默认行为（`-o` 不是 `.c` 就链接）。
@@ -151,14 +151,14 @@ ${CC_DRIVER:-cc} ${CC_TARGET_FLAGS} -std=c99 -O2 -fno-builtin -fno-stack-protect
 make uya-hosted
 
 # 使用 zig cc 统一工具链
-TOOLCHAIN=zig ZIG=/home/winger/zig/zig make uya-hosted
+TOOLCHAIN=zig ZIG=/path/to/zig make uya-hosted
 ```
 
 ### Windows hosted 交叉链接
 
 ```bash
 TOOLCHAIN=zig \
-ZIG=/home/winger/zig/zig \
+ZIG=/path/to/zig \
 TARGET_OS=windows \
 TARGET_ARCH=x86_64 \
 TARGET_TRIPLE=x86_64-windows-gnu \
@@ -169,7 +169,7 @@ make uya-hosted
 
 ```bash
 TOOLCHAIN=zig \
-ZIG=/home/winger/zig/zig \
+ZIG=/path/to/zig \
 TARGET_OS=macos \
 TARGET_ARCH=arm64 \
 TARGET_TRIPLE=aarch64-macos-none \
@@ -180,7 +180,7 @@ Intel macOS 目标改为：
 
 ```bash
 TOOLCHAIN=zig \
-ZIG=/home/winger/zig/zig \
+ZIG=/path/to/zig \
 TARGET_OS=macos \
 TARGET_ARCH=x86_64 \
 TARGET_TRIPLE=x86_64-macos-none \
@@ -198,7 +198,7 @@ cd src
 # 2. 交叉出 Apple Silicon macOS 编译器
 UYA_COMPILER="../bin/uya-hosted-stage-linux" \
 TOOLCHAIN=zig \
-ZIG=/home/winger/zig/zig \
+ZIG=/path/to/zig \
 TARGET_OS=macos \
 TARGET_ARCH=arm64 \
 TARGET_TRIPLE=aarch64-macos-none \
@@ -207,7 +207,7 @@ TARGET_TRIPLE=aarch64-macos-none \
 # 3. 交叉出 Intel macOS 编译器
 UYA_COMPILER="../bin/uya-hosted-stage-linux" \
 TOOLCHAIN=zig \
-ZIG=/home/winger/zig/zig \
+ZIG=/path/to/zig \
 TARGET_OS=macos \
 TARGET_ARCH=x86_64 \
 TARGET_TRIPLE=x86_64-macos-none \
@@ -232,7 +232,7 @@ export fn main() i32 {
 EOF
 
 # 使用 zig cc 统一工具链编译
-TOOLCHAIN=zig ZIG=/home/winger/zig/zig ./bin/uya build /tmp/test.uya -o /tmp/test.c --c99
+TOOLCHAIN=zig ZIG=/path/to/zig ./bin/uya build /tmp/test.uya -o /tmp/test.c --c99
 cc -std=c99 -O2 -fno-builtin /tmp/test.c -o /tmp/test
 
 # 运行生成的可执行文件

@@ -15,9 +15,18 @@ TARGET_TRIPLE ?=
 RUNTIME_MODE ?= hosted
 LINK_MODE ?= default
 TOOLCHAIN ?= system
-ZIG ?= /home/winger/zig/zig
+# zig 只用于 `TOOLCHAIN=zig` 与若干跨目标交叉编译验证。默认从 PATH 解析，
+# 解析不到就留空：各验证脚本按「未安装则 ⊘ 跳过」处理，CI 宿主没装 zig 时
+# 不会把 `make check` 判成失败。需要固定版本时显式传 ZIG=/path/to/zig。
+#
+# 用 bash 而不是 $(shell) 默认的 /bin/sh 解析：部分开发机的 PATH 把家目录写成
+# 字面量 `~/zig`，只有 bash 会在命令查找时展开它（dash 当普通目录名跳过）。
+ZIG ?= $(shell bash -c 'command -v zig' 2>/dev/null)
 CC ?= cc
 ifeq ($(TOOLCHAIN),zig)
+ifeq ($(strip $(ZIG)),)
+$(error TOOLCHAIN=zig 需要可执行的 zig：请把它放进 PATH，或显式传 ZIG=/path/to/zig)
+endif
 CC_DRIVER ?= $(ZIG) cc
 else
 CC_DRIVER ?= $(CC)
@@ -962,7 +971,7 @@ check: uya
 	echo ""; \
 	echo "验证 std.path Linux/macOS/Windows 平台条件..."; \
 	if ZIG="$(ZIG)" ./tests/verify_std_path_platform_targets.sh > /tmp/verify_out.txt 2>&1; then \
-		grep -E "✓|✗|验证 std\\.path" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+		grep -E "✓|✗|⊘|验证 std\\.path" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
 		VERIFY_EXIT=0; \
 	else \
 		cat /tmp/verify_out.txt; \

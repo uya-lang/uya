@@ -9,7 +9,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
 export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 OUT_C="$SCRIPT_DIR/build/syscall_c99_cross_verify.c"
-ZIG="${ZIG:-/home/winger/zig/zig}"
+ZIG="${ZIG:-$(command -v zig 2>/dev/null || true)}"
 ZIG_GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-$SCRIPT_DIR/build/.zig-cache-global}"
 ZIG_LOCAL_CACHE_DIR="${ZIG_LOCAL_CACHE_DIR:-$SCRIPT_DIR/build/.zig-cache-local}"
 
@@ -72,7 +72,7 @@ arm {
 	fi
 	echo "  ✓ ARM32 Linux (gnueabihf) 交叉编译 syscall 片段通过"
 else
-	echo "  ⊘ 未找到可执行 zig（$ZIG），跳过交叉编译 C 的步骤"
+	echo "  ⊘ 未找到可执行 zig（${ZIG:-<PATH 中无 zig>}），跳过交叉编译 C 的步骤"
 fi
 
 echo "✓ @syscall C99 交叉目标（AArch64 / ARM32）验证通过"

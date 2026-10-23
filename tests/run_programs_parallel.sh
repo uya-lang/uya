@@ -72,7 +72,7 @@ RUNTIME_MODE="${RUNTIME_MODE:-hosted}"
 LINK_MODE="${LINK_MODE:-default}"
 UYA_TEST_NOSTDLIB_MODE="${UYA_TEST_NOSTDLIB_MODE:-auto}"
 TOOLCHAIN="${TOOLCHAIN:-system}"
-ZIG="${ZIG:-/home/winger/zig/zig}"
+ZIG="${ZIG:-$(command -v zig 2>/dev/null || true)}"
 CC="${CC:-cc}"
 if [ -z "${CC_DRIVER:-}" ]; then
     if [ "$TOOLCHAIN" = "zig" ]; then

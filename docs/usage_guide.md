@@ -139,7 +139,7 @@ make b                     # 自举验证：编译器编译自身，产物比对
 | `CC_TARGET_FLAGS` | 空 | 目标平台额外参数（如 `-target x86_64-windows-gnu`） |
 | `CFLAGS` | `-std=c99 -O2 -fno-builtin`（`compile.sh`/`Makefile` 追加 `-Werror`） | 宿主 C 编译选项；含 `-O2/-O3/-Os` 时自动追加 `-fno-inline-small-functions` |
 | `LDFLAGS` | 空 | 宿主链接选项 |
-| `TOOLCHAIN` / `ZIG` | `system` / `/home/winger/zig/zig` | `zig` 时用 `zig cc` 作为驱动 |
+| `TOOLCHAIN` / `ZIG` | `system` / `PATH 中的 zig` | `zig` 时用 `zig cc` 作为驱动 |
 | `HOST_OS` / `HOST_ARCH` | 自动探测 | 宿主平台 |
 | `TARGET_OS` / `TARGET_ARCH` / `TARGET_TRIPLE` | 继承宿主 | 目标平台 |
 | `RUNTIME_MODE` / `LINK_MODE` | `hosted` / `default` | `nostdlib`+`static` 为独立链接路线 |
@@ -225,14 +225,14 @@ uya/
 | `UYA_TEST_JOBS` | CPU 核数 | `make tests` 并行度 |
 | `UYA_GCC_JOBS` | CPU 核数 | split-C `make -j` 并行度 |
 | `TARGET_OS` / `TARGET_ARCH` / `TARGET_TRIPLE` | 宿主 | 交叉目标 |
-| `TOOLCHAIN` / `ZIG` / `CC_DRIVER` | `system` / 见 Makefile / `$(CC)` | 宿主工具链 |
+| `TOOLCHAIN` / `ZIG` / `CC_DRIVER` | `system` / `PATH 中的 zig` / `$(CC)` | 宿主工具链 |
 
 ```bash
 # 调试构建（关掉 -O2）
 CFLAGS='-std=c99 -O0 -g -fno-builtin' make from-c
 
 # 用 zig cc 统一工具链
-TOOLCHAIN=zig ZIG=/home/winger/zig/zig make uya-hosted
+TOOLCHAIN=zig ZIG=/path/to/zig make uya-hosted
 ```
 
 ### 构建与自举
@@ -316,12 +316,12 @@ TOOLCHAIN=zig ZIG=/home/winger/zig/zig make uya-hosted
 
 ```bash
 # Windows x86_64 hosted 交叉（Winsock / 控制台代码页 / LLP64 / @syscall 汇聚点已打通）
-TOOLCHAIN=zig ZIG=/home/winger/zig/zig \
+TOOLCHAIN=zig ZIG=/path/to/zig \
 TARGET_OS=windows TARGET_ARCH=x86_64 TARGET_TRIPLE=x86_64-windows-gnu \
 make uya-hosted
 
 # macOS Apple Silicon hosted 交叉
-TOOLCHAIN=zig ZIG=/home/winger/zig/zig \
+TOOLCHAIN=zig ZIG=/path/to/zig \
 TARGET_OS=macos TARGET_ARCH=arm64 TARGET_TRIPLE=aarch64-macos-none \
 make uya-hosted
 ```

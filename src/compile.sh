@@ -10,7 +10,7 @@
 CFLAGS="${CFLAGS:--std=c99 -O2 -g -fno-builtin -fwrapv -fno-strict-overflow -Werror}"
 LDFLAGS="${LDFLAGS:-}"
 TOOLCHAIN="${TOOLCHAIN:-system}"
-ZIG="${ZIG:-/home/winger/zig/zig}"
+ZIG="${ZIG:-$(command -v zig 2>/dev/null || true)}"
 CC="${CC:-cc}"
 if [ -z "${CC_DRIVER:-}" ]; then
     if [ "$TOOLCHAIN" = "zig" ]; then
@@ -473,7 +473,7 @@ usage() {
 
 共享工具链环境变量:
   TOOLCHAIN          system / zig（默认: system）
-  ZIG                zig 可执行文件路径（默认: /home/winger/zig/zig）
+  ZIG                zig 可执行文件路径（默认: 从 PATH 解析，可显式覆盖）
   CC                 默认宿主编译器（默认: cc）
   CC_DRIVER          实际调用的 C 编译器命令，可为多词命令（如 "zig cc"）
   CC_TARGET_FLAGS    目标平台额外参数（如 "-target x86_64-windows-gnu"）
