@@ -2256,7 +2256,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     var is_std_lib: i32 = 0;
     var target_os_is_macos: i32 = 0;
     var target_os_is_windows: i32 = 0;
-    // 检测自举编译（basename 精确为 uya.c 或 compiler_bootstrap.c）：强制与 C 编译器一致，不添加 stdio/string/opendir
+    // 检测自举编译（basename 精确为 uya.c 或 compiler_bootstrap.c）：强制与 C 编译器一致，不添加 stdio/string/opendir。
+    // 注意：compile.sh 的 -b 对比会把副产物 C 放进 bootstrap_compare_c/ 并沿用主产物 basename
+    // （例如 uya-hosted.c），确保两次生成的 is_bootstrap 判定一致；改名时须同步这里。
     var is_bootstrap: i32 = 0;
     const target_os_env: &byte = getenv("TARGET_OS" as &byte);
     if target_os_env != null && strcmp(target_os_env as *byte, "macos" as *byte) == 0 {
@@ -2740,7 +2742,8 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                     fputs("static inline void libc_heap_flush_current_thread_cache(void) { }\n" as *byte, codegen.emit_stream as *void);
                 }
             }
-            // macOS hosted 自举单文件（src/build/uya-hosted.c / compiler_bootstrap.c）中，
+            // macOS hosted 自举单文件（src/build/uya-hosted.c 与对比副产物
+            // src/build/bootstrap_compare_c/uya-hosted.c）中，
             // read/write 可能只在调用点可见，AST 预扫未必能稳定拾取声明；
             // 若此时头部缺少 extern，clang 会在 exec/vm 的 builtin bridge 处直接报
             // “call to undeclared function 'write'”。这里在“未生成本地实现”前提下补一个保底声明。

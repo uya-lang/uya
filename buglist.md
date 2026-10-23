@@ -461,6 +461,31 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
 
 ## 编译器 bug
 
+- [x] **P0 / 严重：macOS CI `make b-hosted` 自举 C 对比误报 —— 两次输出头部相差 117 行**
+  - 状态：**已修复**（2026-10-24）
+  - 现象：macos-ci 的 `Verify hosted self-host` 步骤失败，diff 显示
+    `src/build/uya-hosted.c` 与 `src/build/compiler_bootstrap.c` 的差异全部集中在文件头部：
+    主产物带有 hosted libc 的 `struct FILE`/`snprintf` 原型、`<errno.h>`/`<math.h>`/
+    `<stdlib.h>` 以及 Darwin 同名隐藏宏，自举副产物整块缺失；其余 18 万行完全一致。
+  - 根因：`c99_codegen_generate` 用「输出文件 basename 是否为 `uya.c`/`compiler_bootstrap.c`」
+    判定是否处于自举种子编译（`is_bootstrap`），据此裁剪 hosted 头文件与 extern 声明。
+    `make b` 的主产物是 `uya.c`，两次都判定为自举，所以一致；Darwin hosted 单文件主线的
+    主产物是 `uya-hosted.c`（非自举），而 `compile.sh` 把对比副产物固定写成
+    `compiler_bootstrap.c`（自举），两次生成的头部必然不同，属于对比命名造成的误报，
+    不是代码生成回归。
+  - 修复内容：
+    - `src/compile.sh`：`-b` 的副产物 C 改放到 `src/build/bootstrap_compare_c/`，并沿用
+      主产物的 basename（`uya.c` → `uya.c`，`uya-hosted.c` → `uya-hosted.c`），保证两次
+      生成的 `is_bootstrap` 判定一致。
+    - `src/codegen/c99/main.uya`：在 `is_bootstrap` 检测处注明该命名约定，避免后续改名
+      再次破坏对比。
+  - 验证：
+    - Linux 上以 hosted + 单文件 + `--name uya-hosted` 跑 `compile.sh --c99 -e -b`
+      （等价于 macOS 的 C 对比路径，仅目标平台不同）：`✓ 自举对比一致`。
+    - 同一 hosted 编译器对 macOS 目标连续生成两份 `uya-hosted.c`：字节相同；改回旧名
+      `compiler_bootstrap.c` 则复现 CI 的 `@@ -110,125 +110,8 @@`、117 行差异。
+    - `make b`：通过。
+
 - [x] **P0 / 严重：macOS hosted 自举 SIGSYS —— `make uya-hosted` 退出码 140（Bad system call: 12）**
   - 状态：**已修复**（2026-10-24）
   - 现象：`stat` 判型问题修好后，macos-ci 的 `make uya-hosted` 仍然失败，但错误完全变了：
@@ -487,7 +512,6 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     - 刷新 7 个跟踪种子；`tests/verify_macos_hosted_seed_decls.sh` 增加对应断言。
   - 验证：diag 分支实跑 macos-15 —— `seed_rc=0`、`hosted_rc=0`（`make uya-hosted` 通过）。
   - 仍未修复（macOS 链路的后续问题，非本次回归，需单独立项）：
-    - `make b-hosted`：自举产物比对仍不一致（stage 输出差异，与 seed 生成 profile 有关）。
     - `make tests-hosted`：1031 个用例仍有 31 个失败，且文件操作桥接前后失败数完全一致，
       说明这批失败与裸 syscall 无关，需要逐条按 Darwin 语义排查。
 
