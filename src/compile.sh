@@ -84,8 +84,13 @@ fi
 cc_driver_is_clang_like() {
     case "$1" in
         *clang*|*"zig cc"*|*"zig c++"*) return 0 ;;
-        *) return 1 ;;
     esac
+    # macOS 上 `cc` 就是 Apple clang：名字里没有 "clang"，但同样需要 clang 侧的告警兼容
+    # （Apple clang 会把 -fno-strict-overflow 判成未使用参数，配合 -Werror 直接失败）。
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        return 0
+    fi
+    return 1
 }
 
 cc_driver_uses_zig() {
