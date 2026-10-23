@@ -2769,8 +2769,7 @@ fn build_and_add_printf_fmt_from_interp(codegen: &C99CodeGenerator, interp: &AST
                     k = k + 1;
                 }
             } else {
-                buf[off] = 100;
-                off = off + 1;
+                off = c99_append_interp_default_spec(&buf[0] as &byte, off, seg.format_kind);
             }
         }
         i = i + 1;
@@ -2779,6 +2778,44 @@ fn build_and_add_printf_fmt_from_interp(codegen: &C99CodeGenerator, interp: &AST
         buf[off] = 0;
     }
     return add_string_constant(codegen, &buf[0] as &byte);
+}
+
+/// 按插值实参形态（`ASTStringInterpSegment.format_kind`）把默认 printf 转换符追加到 `buf`。
+///
+/// `kind`：1=有符号整型 → `lld`，2=无符号整型 → `llu`，3=浮点 → `g`，
+/// 4=字节指针 / 5=切片 → `s`，其余回落到 `lld`。
+/// 返回写入后的新偏移。
+///
+/// 参数：
+/// - `buf`：目标缓冲区（已是 NUL 结尾以外的可写区）。
+/// - `off`：当前写入偏移。
+/// - `kind`：插值实参形态编码，见 `ASTStringInterpSegment.format_kind`。
+///
+/// 返回值：写入转换符之后的偏移。
+fn c99_append_interp_default_spec(buf: &byte, off: i32, kind: i32) i32 {
+    var o: i32 = off;
+    if kind == 4 || kind == 5 {
+        // %s：字节指针与切片都按 C 字符串输出
+        if o < C99_STRING_INTERP_LIMIT { buf[o] = 115; o = o + 1; }
+        return o;
+    }
+    if kind == 3 {
+        // %g：浮点
+        if o < C99_STRING_INTERP_LIMIT { buf[o] = 103; o = o + 1; }
+        return o;
+    }
+    if kind == 2 {
+        // %llu：无符号整型
+        if o < C99_STRING_INTERP_LIMIT { buf[o] = 108; o = o + 1; }
+        if o < C99_STRING_INTERP_LIMIT { buf[o] = 108; o = o + 1; }
+        if o < C99_STRING_INTERP_LIMIT { buf[o] = 117; o = o + 1; }
+        return o;
+    }
+    // %lld：有符号整型与兜底
+    if o < C99_STRING_INTERP_LIMIT { buf[o] = 108; o = o + 1; }
+    if o < C99_STRING_INTERP_LIMIT { buf[o] = 108; o = o + 1; }
+    if o < C99_STRING_INTERP_LIMIT { buf[o] = 100; o = o + 1; }
+    return o;
 }
 
 // 将插值格式串直接输出到 output（内联），不依赖常量表
@@ -2818,8 +2855,7 @@ fn emit_printf_fmt_inline(codegen: &C99CodeGenerator, interp: &ASTNode) void {
                     k = k + 1;
                 }
             } else {
-                buf[off] = 100;
-                off = off + 1;
+                off = c99_append_interp_default_spec(&buf[0] as &byte, off, seg.format_kind);
             }
         }
         i = i + 1;

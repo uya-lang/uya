@@ -1,0 +1,14 @@
+// 负例夹具（**不是** error_ 前缀）：本文件在默认模式下能编译通过，
+// 只在 --strict-div 下必须编译失败。由 tests/verify_strict_div.sh 驱动。
+//
+// 规范 §14.2 要求「除零错误：变量 → 证明 `y != 0`」。该证明由 `--strict-div` 控制
+// （默认关闭，因为存量库大量依赖「调用方保证非零」的跨函数不变量）。
+// 放在 tests/repros/ 下：run_programs_parallel.sh 只扫 tests/ 根层（maxdepth 1），
+// 因此这份夹具不会被当成「应当成功运行的程序」（它有 fn main 且真的会除零 SIGFPE）。
+fn divide(a: i32, y: i32) i32 {
+    return a / y;
+}
+
+export fn main() i32 {
+    return divide(100, 0);
+}

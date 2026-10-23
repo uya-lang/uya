@@ -176,6 +176,7 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     // 与 uya CLI 默认一致；compile_files 会按参数覆盖
     checker.enable_safety_proof = 1;
     checker.strict_overflow = 1;      // 溢出闸门默认开启（--no-strict-overflow 关闭）
+    checker.strict_div = 0;           // 除零证明默认关闭（--strict-div 开启）
     checker.suppress_overflow_gate = 0;
     checker.checked_arith_root_count = 0;
     checker.container_mode = 0;  // 默认 kernel 模式（允许 @asm/extern）

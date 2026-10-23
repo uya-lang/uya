@@ -522,7 +522,7 @@ use math_macros.square;
 ### 声明外部 C 函数
 
 ```uya
-extern printf(fmt: *byte, ...) i32;
+extern fn printf(fmt: *byte, ...) i32;
 ```
 
 ### 可变参数与 @params（uya.md §5.4）
@@ -571,7 +571,7 @@ const cmp: ComparFunc = &my_compare;
 ### Uya 指针传递给 FFI 函数
 
 ```uya
-extern write(fd: i32, buf: *byte, count: i32) i32;
+extern fn write(fd: i32, buf: *byte, count: i32) i32;
 
 fn main() i32 {
     var buffer: [byte: 100] = [];

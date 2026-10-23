@@ -1254,6 +1254,30 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
     checker_walk_reachability_expr(checker, node.binary_expr_right);
     
     const op: TokenType = checker_token_or_plus_extra(node.binary_expr_op);
+
+    // 除零正确性证明：`/` 与 `%` 的除数必须能证明非零（规范 §14.2）。
+    // 常量除零在常量折叠里已覆盖；这里补变量路径 —— 此前 `return 100 / y;` 静默通过，
+    // 运行期 SIGFPE。取向与 `--strict-overflow` 一致：证明不成立就报错。
+    // `try a / b` / `(a / b) catch` 走运行时检查，由 suppress 计数豁免；
+    // 浮点除数不在此列（IEEE 754 里 0.0 作除数有定义，是 inf/nan）。
+    if (op == TokenType.TOKEN_SLASH || op == TokenType.TOKEN_PERCENT) &&
+        checker.strict_div != 0 &&
+        checker.enable_safety_proof != 0 && checker.suppress_overflow_gate == 0 &&
+        checker_node_in_checked_arith(checker, node) == 0 &&
+        node.binary_expr_right != null {
+        const div_type: Type = checker_infer_type(checker, node.binary_expr_right);
+        const div_kind: i32 = div_type.kind as i32;
+        if (div_kind == TypeKind.TYPE_I8 as i32 || div_kind == TypeKind.TYPE_I16 as i32 ||
+            div_kind == TypeKind.TYPE_I32 as i32 || div_kind == TypeKind.TYPE_I64 as i32 ||
+            div_kind == TypeKind.TYPE_U8 as i32 || div_kind == TypeKind.TYPE_U16 as i32 ||
+            div_kind == TypeKind.TYPE_U32 as i32 || div_kind == TypeKind.TYPE_U64 as i32 ||
+            div_kind == TypeKind.TYPE_USIZE as i32 || div_kind == TypeKind.TYPE_BYTE as i32) {
+            if checker_prove_divisor_nonzero(checker, node.binary_expr_right, div_kind) == 0 {
+                checker_report_divisor_unproven(checker, node, proof_op_text(op));
+            }
+        }
+    }
+
     if op == TokenType.TOKEN_LOGICAL_AND || op == TokenType.TOKEN_LOGICAL_OR {
         var left_type: Type = make_void_type();
         var right_type: Type = make_void_type();

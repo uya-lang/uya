@@ -244,6 +244,20 @@ fn check_assign_node(checker: &TypeChecker, node: &ASTNode) i32 {
             // 数组访问失败（错误已在 checker_check_array_access 中报告）
             return 0;
         }
+        // 接口元素赋值：`arr[i] = concrete` 目前没有装箱 lowering，会生成
+        // `arr[i] = a;`（把 struct Console 赋给 struct uya_interface_IWriter），
+        // 是 C 编译器层面的类型错误。这里提前拒绝并给出可用写法。
+        if dest_type.kind == TypeKind.TYPE_INTERFACE {
+            const src_node: &ASTNode = node.assign_src;
+            if src_node != null {
+                const src_ty: Type = checker_infer_type(checker, src_node);
+                if src_ty.kind == TypeKind.TYPE_STRUCT {
+                    checker_report_error(checker, dest,
+                        "暂不支持把具体结构体直接赋给接口数组/切片元素：请先声明接口变量再赋值（如 const w: IWriter = value; arr[i] = w;）" as *byte);
+                    return 0;
+                }
+            }
+        }
     } else if dest.type == ASTNodeType.AST_UNARY_EXPR {
         // 解引用赋值（*p = value）：检查解引用表达式
         // 解引用表达式必须是 *expr 形式，其中 expr 是指针类型

@@ -686,6 +686,19 @@ check: uya
 		exit 1; \
 	fi; \
 	echo ""; \
+	echo "验证 --strict-div 除零证明..."; \
+	if ./tests/verify_strict_div.sh > /tmp/verify_out.txt 2>&1; then \
+		grep -E "✓|✗|strict-div" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=0; \
+	else \
+		cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=1; \
+	fi; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ --strict-div 除零证明验证失败"; \
+		exit 1; \
+	fi; \
+	echo ""; \
 	echo "验证默认顶层函数发射..."; \
 	if ./tests/verify_function_reachability_codegen.sh > /tmp/verify_out.txt 2>&1; then \
 		grep -E "✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \

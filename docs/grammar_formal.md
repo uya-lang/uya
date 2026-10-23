@@ -20,7 +20,7 @@
 program        = { declaration }
 declaration    = fn_decl | struct_decl | struct_method_block | union_decl | union_method_block
                | interface_decl | enum_decl | type_alias_decl | const_decl | var_decl
-               | error_decl | extern_decl | export_decl | import_stmt | test_stmt
+               | error_decl | extern_decl | import_stmt | test_stmt
                | macro_decl | c_import_decl | cfg_decl
 
 # 顶层前缀顺序固定（src/parser/main.uya:710-928）：
@@ -153,16 +153,18 @@ union_method_block = ID '{' method_list '}'  # 联合体外部方法定义（同
 ### 枚举声明
 
 ```
-enum_decl      = 'enum' ID [ ':' underlying_type ] '{' enum_variant_list '}'
-underlying_type = base_type  # 底层类型，必须是整数类型（i8, i16, i32, i64, u8, u16, u32, u64）
+enum_decl      = 'enum' ID '{' enum_variant_list '}'
 enum_variant_list = enum_variant { ',' enum_variant }
 enum_variant   = ID [ '=' NUM ]  # 枚举变体，可选显式赋值
 ```
 
 **说明**：
 - 枚举声明在顶层（与函数、结构体定义同级）
-- 默认底层类型为 `i32`（如果未指定）
-- 枚举变体可以显式指定值（使用 `=` 后跟整数常量）
+- 底层类型固定为 `i32`；**没有** `enum E : i32 { ... }` 这种底层类型注解语法 ——
+  实测 `enum Color : i32 { ... }` 报 `意外的 token ':'`。此前本节写有
+  `[ ':' underlying_type ]` 产生式，与实现脱节，已删除。
+- 枚举变体可以显式指定值（使用 `=` 后跟整数常量），实测生效：
+  `enum Color { RED = 5, GREEN = 5 }` 两个变体相等。
 - 枚举值在编译期确定，类型安全
 - 详细语法说明见 [uya.md](./uya.md#2-类型系统) 枚举类型部分
 
@@ -232,6 +234,7 @@ destructure_decl = ('const' | 'var') '(' ID { ',' ID } ')' '=' expr ';'
 ### 语句
 
 ```
+statements     = { statement }        # 语句序列，可为空；函数体/块/分支体都用它
 statement      = expr_stmt | var_decl | destructure_decl | return_stmt | if_stmt | while_stmt
                | for_stmt | break_stmt | continue_stmt | defer_stmt | errdefer_stmt
                | block_stmt | match_stmt | test_stmt
@@ -418,24 +421,36 @@ enum_literal   = ID '.' ID  # 枚举字面量，如 Color.RED, HttpStatus.OK
 expr_list      = [ expr { ',' expr } ]  # 表达式列表，可以为空（空数组字面量 []）
 arg_list       = [ expr { ',' expr } [ ',' '...' ] ]  # 可变参数转发：末尾 ... 表示转发剩余参数
 pattern_list   = pattern '=>' expr { ',' pattern '=>' expr } [ ',' 'else' '=>' expr ]
-pattern        = literal | ID | '_' | struct_pattern | tuple_pattern | enum_pattern
-               | union_pattern | error_pattern
-struct_pattern = ID '{' field_pattern_list '}'
+pattern        = literal | ID | '_' | enum_pattern | union_pattern
+struct_pattern = ID '{' field_pattern_list '}'   # 见下方「实现核对」：当前不支持
 field_pattern_list = [ field_pattern { ',' field_pattern } ]
 field_pattern  = ID ':' (literal | ID | '_')
-tuple_pattern  = '(' tuple_pattern_list ')'  # 元组模式，如 (x, _, z)
-tuple_pattern_list = pattern { ',' pattern }  # 用于元组模式的模式列表
+tuple_pattern  = '(' tuple_pattern_list ')'      # 见下方「实现核对」：当前不支持
+tuple_pattern_list = pattern { ',' pattern }
 enum_pattern   = ID '.' ID  # 枚举模式，如 Color.RED, HttpStatus.OK
 union_pattern  = '.' ID [ '(' (ID | '_') ')' ]  # 联合体模式，如 .i(x)、.f(_)
-error_pattern  = 'error' '.' ID
+error_pattern  = 'error' '.' ID                  # 见下方「实现核对」：当前不支持
 literal        = NUM | STRING | CHAR | 'true' | 'false' | 'null'
 ```
+
+> **实现核对（2026-10-22）**：上面保留的 `struct_pattern` / `tuple_pattern` / `error_pattern`
+> 产生式**当前解析器都不接受**，属设计预留而非可用语法。实测：
+> - `P { x: 1, y: _ } => ...` → `意外的 token '{'`
+> - `(1, _) => ...` → `意外的 token '('`
+> - `.Err(error.Overflow) => ...` → `意外的 token 'error'`
+> - `.RED => ...`（裸点号枚举模式）→ `意外的 token '=>'`，枚举要写全 `Color.RED`
+>
+> **当前真正可用**的模式只有：整数字面量、`Color.RED`（全限定枚举）、变量绑定 `v`、
+> 通配符 `_`、`else`、以及联合体变体 `.name(x)` / `.name(_)`。
+> 另：`match` 表达式**必须**包含 `else` 或通配符/变量绑定兜底分支，否则报
+> 「match 必须包含 else 分支或变量绑定/通配符」（负例 `tests/error_match_missing_else.uya`）。
 
 ### 模块系统
 
 ```
-export_decl    = 'export' (fn_decl | struct_decl | union_decl | interface_decl | enum_decl
-               | type_alias_decl | const_decl | var_decl | error_decl | extern_decl | macro_decl)
+# 导出不是独立产生式：`export` 是各声明自身的一个可选前缀（见 declaration 与各 *_decl 产生式）。
+# 若把 `export_decl` 写成 `'export' (fn_decl | ...)`，而 fn_decl 自身又含 [ 'export' ]，
+# 语法就会允许 `export export fn`，与实际解析器不符 —— 故此处只给说明，不再给产生式。
 import_stmt    = 'use' module_path [ 'as' ID ] ';'
 module_path    = ID { '.' ID }
 ```
@@ -451,8 +466,8 @@ module_path    = ID { '.' ID }
   - `export var debug_mode: i32 = 0;`
   - `export error PublicError;`
   - `export mc twice(x: expr) expr { ${x} + ${x}; }`
-  - `export extern printf(fmt: *byte, ...) i32;`（导出外部 C 函数声明，无函数体，链接到 C 标准库）
-  - `export extern strcmp(s1: &const byte, s2: &const byte) i32 { ... }`（Uya 实现，以裸函数名导出）
+  - `export extern fn printf(fmt: *byte, ...) i32;`（导出外部 C 函数声明，无函数体，链接到 C 标准库）
+  - `export extern fn strcmp(s1: &const byte, s2: &const byte) i32 { ... }`（Uya 实现，以裸函数名导出）
 - **导入语法**：
   - 导入整个模块：`use std.io;`（使用时需要模块前缀：`std.io.read_file()`）
   - 导入特定项：`use std.io.read_file;`（直接使用：`read_file()`）
@@ -581,7 +596,7 @@ TEXT           = [^${}]+
 ```
 macro_decl     = [ 'export' ] 'mc' ID '(' [ param_list ] ')' return_tag '{' statements '}'
 param_list     = param { ',' param }
-param          = ID ':' param_type [ '=' default_value ]
+param          = ID ':' param_type [ '=' expr ]   # 默认值可解析，但展开阶段未实现绑定（见说明）
 param_type     = 'expr' | 'stmt' | 'type' | 'pattern' | 'ident'
 return_tag     = 'expr' | 'stmt' | 'struct' | 'type'
 macro_call     = ID '(' arg_list ')'
@@ -592,7 +607,10 @@ macro_call     = ID '(' arg_list ')'
 - `export mc` 可导出宏供其他模块使用
 - 参数类型：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）、`ident`（标识符）
 - 返回标签：`expr`（表达式）、`stmt`（语句）、`struct`（结构体成员）、`type`（类型标识符）
-- 参数默认值：宏参数支持默认值（`p: expr = <表达式>`，`src/parser/declarations.uya:1510-1519`）；注意**普通函数参数没有默认值语法**
+- 参数默认值：**解析器接受** `p: expr = <表达式>` 语法（`default_value` 已从产生式中删除，见下方说明），
+  但**展开阶段没有把它绑定到实参** —— 省略该实参时宏体里对该参数的引用会保留成裸标识符，
+  C 层报 `undeclared identifier`。因此当前**不要依赖宏参数默认值**，缺参数时请显式传值。
+  注意**普通函数参数没有默认值语法**（`fn f(a: i32 = 5)` 是语法错误）
 - 宏调用语法与普通函数调用完全一致
 - 跨模块宏导入：`use module.macro_name;`
 - **宏是卫生宏（hygienic macro）**：宏体内**引入的**局部绑定（`const`/`var` 局部变量、`for` 循环变量、

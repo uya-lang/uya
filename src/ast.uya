@@ -162,6 +162,9 @@ struct ASTStringInterpSegment {
     text: &byte,        // 纯文本段内容（is_text=1 时）
     expr: &ASTNode,     // 插值表达式（is_text=0 时）
     format_spec: &byte, // 格式说明符（如 ".2f"，可选）
+    // checker 填入的插值实参形态，供 C99 后端选择与实参类型匹配的 printf 转换符：
+    // 0=未判定（沿用旧行为）1=有符号整型 2=无符号整型 3=浮点 4=字节指针 5=切片
+    format_kind: i32,
 }
 
 // AST 节点结构（Uya 无 union，所有变体字段扁平化为独立字段）
