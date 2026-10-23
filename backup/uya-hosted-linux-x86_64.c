@@ -382,6 +382,8 @@ typedef void *(*uya_macos_mmap_fn)(void *, size_t, int, int, int, off_t);
 typedef int (*uya_macos_munmap_fn)(void *, size_t);
 typedef int (*uya_macos_mprotect_fn)(void *, size_t, int);
 typedef char *(*uya_macos_realpath_fn)(const char *, char *);
+typedef int (*uya_macos_path2_i_fn)(const char *, const char *);
+typedef int (*uya_macos_path_mode_i_fn)(const char *, int);
 typedef int (*uya_macos_kqueue_fn)(void);
 typedef int (*uya_macos_kevent_fn)(int, const void *, int, void *, int, const void *);
 extern int uya_macos_real_fstat(int, struct uya_macos_native_stat_call *) __asm__("fstat");
@@ -538,6 +540,46 @@ static struct err_union_int64_t uya_macos_readlink(const char *pathname, char *b
     intptr_t ret = real_readlink(pathname, buf, bufsiz);
     if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());
     return uya_macos_ok_i64((int64_t)ret);
+}
+static struct err_union_int32_t uya_macos_unlink(const char *pathname) {
+    static uya_macos_path_i_fn real_unlink = (uya_macos_path_i_fn)0;
+    if (real_unlink == (uya_macos_path_i_fn)0) real_unlink = (uya_macos_path_i_fn)dlsym((void *)-1, "unlink");
+    if (real_unlink == (uya_macos_path_i_fn)0) return uya_macos_err_i32(78);
+    int ret = real_unlink(pathname);
+    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
+    return uya_macos_ok_i32(ret);
+}
+static struct err_union_int32_t uya_macos_mkdir(const char *pathname, int32_t mode) {
+    static uya_macos_path_mode_i_fn real_mkdir = (uya_macos_path_mode_i_fn)0;
+    if (real_mkdir == (uya_macos_path_mode_i_fn)0) real_mkdir = (uya_macos_path_mode_i_fn)dlsym((void *)-1, "mkdir");
+    if (real_mkdir == (uya_macos_path_mode_i_fn)0) return uya_macos_err_i32(78);
+    int ret = real_mkdir(pathname, (int)mode);
+    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
+    return uya_macos_ok_i32(ret);
+}
+static struct err_union_int32_t uya_macos_rmdir(const char *pathname) {
+    static uya_macos_path_i_fn real_rmdir = (uya_macos_path_i_fn)0;
+    if (real_rmdir == (uya_macos_path_i_fn)0) real_rmdir = (uya_macos_path_i_fn)dlsym((void *)-1, "rmdir");
+    if (real_rmdir == (uya_macos_path_i_fn)0) return uya_macos_err_i32(78);
+    int ret = real_rmdir(pathname);
+    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
+    return uya_macos_ok_i32(ret);
+}
+static struct err_union_int32_t uya_macos_rename(const char *oldpath, const char *newpath) {
+    static uya_macos_path2_i_fn real_rename = (uya_macos_path2_i_fn)0;
+    if (real_rename == (uya_macos_path2_i_fn)0) real_rename = (uya_macos_path2_i_fn)dlsym((void *)-1, "rename");
+    if (real_rename == (uya_macos_path2_i_fn)0) return uya_macos_err_i32(78);
+    int ret = real_rename(oldpath, newpath);
+    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
+    return uya_macos_ok_i32(ret);
+}
+static struct err_union_int32_t uya_macos_dup(int32_t oldfd) {
+    static uya_macos_sig_i_fn real_dup = (uya_macos_sig_i_fn)0;
+    if (real_dup == (uya_macos_sig_i_fn)0) real_dup = (uya_macos_sig_i_fn)dlsym((void *)-1, "dup");
+    if (real_dup == (uya_macos_sig_i_fn)0) return uya_macos_err_i32(78);
+    int ret = real_dup((int)oldfd);
+    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
+    return uya_macos_ok_i32(ret);
 }
 static struct err_union_int32_t uya_macos_chdir(const char *pathname) {
     static uya_macos_path_i_fn real_chdir = (uya_macos_path_i_fn)0;
@@ -35390,6 +35432,11 @@ static __attribute__((used)) uint8_t * dir_state_buf_ptr_at(struct DirState * st
 
 
 
+
+
+
+
+
 __attribute__((used)) struct err_union_intptr_t sys_write(int32_t fd, const char * buf, size_t count) {
     (void)fd;
     (void)buf;
@@ -35743,6 +35790,7 @@ __attribute__((used)) struct err_union_int32_t sys_dup(int32_t fd) {
         struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_dup, (int64_t)fd); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
+        return (struct err_union_int32_t){0};
 }
 
 __attribute__((used)) struct err_union_int32_t sys_dup2(int32_t oldfd, int32_t newfd) {
@@ -151081,6 +151129,8 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_munmap_fn)(void *, size_t);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_mprotect_fn)(void *, size_t, int);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef char *(*uya_macos_realpath_fn)(const char *, char *);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_path2_i_fn)(const char *, const char *);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_path_mode_i_fn)(const char *, int);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_kqueue_fn)(void);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_kevent_fn)(int, const void *, int, void *, int, const void *);\n", (void *)codegen->emit_stream)    );
     (void)(c99_emit_host_symbol_decl(codegen, (uint8_t *)(uint8_t *)"extern int uya_macos_real_fstat(int, struct uya_macos_native_stat_call *) __asm__(\"_fstat\");\n", (uint8_t *)(uint8_t *)"extern int uya_macos_real_fstat(int, struct uya_macos_native_stat_call *) __asm__(\"fstat\");\n")    );
@@ -151237,6 +151287,46 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    intptr_t ret = real_readlink(pathname, buf, bufsiz);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i64((int64_t)ret);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str385, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_unlink(const char *pathname) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_path_i_fn real_unlink = (uya_macos_path_i_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_unlink == (uya_macos_path_i_fn)0) real_unlink = (uya_macos_path_i_fn)dlsym((void *)-1, \"unlink\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_unlink == (uya_macos_path_i_fn)0) return uya_macos_err_i32(78);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = real_unlink(pathname);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str385, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_mkdir(const char *pathname, int32_t mode) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_path_mode_i_fn real_mkdir = (uya_macos_path_mode_i_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_mkdir == (uya_macos_path_mode_i_fn)0) real_mkdir = (uya_macos_path_mode_i_fn)dlsym((void *)-1, \"mkdir\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_mkdir == (uya_macos_path_mode_i_fn)0) return uya_macos_err_i32(78);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = real_mkdir(pathname, (int)mode);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str385, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_rmdir(const char *pathname) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_path_i_fn real_rmdir = (uya_macos_path_i_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_rmdir == (uya_macos_path_i_fn)0) real_rmdir = (uya_macos_path_i_fn)dlsym((void *)-1, \"rmdir\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_rmdir == (uya_macos_path_i_fn)0) return uya_macos_err_i32(78);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = real_rmdir(pathname);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str385, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_rename(const char *oldpath, const char *newpath) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_path2_i_fn real_rename = (uya_macos_path2_i_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_rename == (uya_macos_path2_i_fn)0) real_rename = (uya_macos_path2_i_fn)dlsym((void *)-1, \"rename\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_rename == (uya_macos_path2_i_fn)0) return uya_macos_err_i32(78);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = real_rename(oldpath, newpath);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str385, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_dup(int32_t oldfd) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_sig_i_fn real_dup = (uya_macos_sig_i_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_dup == (uya_macos_sig_i_fn)0) real_dup = (uya_macos_sig_i_fn)dlsym((void *)-1, \"dup\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_dup == (uya_macos_sig_i_fn)0) return uya_macos_err_i32(78);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = real_dup((int)oldfd);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str385, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_chdir(const char *pathname) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_path_i_fn real_chdir = (uya_macos_path_i_fn)0;\n", (void *)codegen->emit_stream)    );

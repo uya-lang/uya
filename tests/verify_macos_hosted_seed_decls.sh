@@ -105,6 +105,20 @@ require_text 'static int32_t uya_macos_mprotect(void *addr, size_t length, int32
 require_text 'uya_macos_mmap(addr, length, prot, flags, fd, offset)' 'sys_mmap 转发 uya_macos_mmap'
 require_text 'uya_macos_munmap(addr, length)' 'sys_munmap 转发 uya_macos_munmap'
 require_text 'uya_macos_mprotect(addr, length, prot)' 'sys_mprotect 转发 uya_macos_mprotect'
+
+# 文件操作族：unlink/mkdir/rmdir/rename/dup 在 Darwin 上也没有 Linux 编号，
+# 一旦退回裸 @syscall 会在 Apple Silicon 上 SIGSYS（tests-hosted 首当其冲）。
+require_text 'static struct err_union_int32_t uya_macos_unlink(const char *pathname) {' 'uya_macos_unlink 宿主绑定'
+require_text 'static struct err_union_int32_t uya_macos_mkdir(const char *pathname, int32_t mode) {' 'uya_macos_mkdir 宿主绑定'
+require_text 'static struct err_union_int32_t uya_macos_rmdir(const char *pathname) {' 'uya_macos_rmdir 宿主绑定'
+require_text 'static struct err_union_int32_t uya_macos_rename(const char *oldpath, const char *newpath) {' 'uya_macos_rename 宿主绑定'
+require_text 'static struct err_union_int32_t uya_macos_dup(int32_t oldfd) {' 'uya_macos_dup 宿主绑定'
+for sym in unlink mkdir rmdir rename dup; do
+    if [ "$(grep -Fc "uya_macos_${sym}(" "$OUT_C")" -lt 2 ]; then
+        echo "✗ 生成的 uya-hosted.c 里 uya_macos_${sym} 只有定义、没有调用点"
+        exit 1
+    fi
+done
 if grep -Fq 'uya_syscall6(libc_SYS_mmap' "$OUT_C"; then
     echo "✗ 生成的 uya-hosted.c 仍在 macOS 上使用裸 mmap syscall"
     exit 1

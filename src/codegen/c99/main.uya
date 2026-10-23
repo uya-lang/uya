@@ -3100,6 +3100,10 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     // realpath：Darwin 的 <stdlib.h> 声明为 char *(const char *, char *)，
     // 而 uya 侧签名是 uint8_t*，直接 extern 会被 clang 判成 conflicting types。
     fputs("typedef char *(*uya_macos_realpath_fn)(const char *, char *);\n" as *byte, codegen.emit_stream as *void);
+    // 文件操作族：unlink/mkdir/rmdir/rename/dup 在 Darwin 上都没有 Linux 编号，
+    // 必须走 libSystem，否则 macOS 上执行到裸 svc 直接 SIGSYS。
+    fputs("typedef int (*uya_macos_path2_i_fn)(const char *, const char *);\n" as *byte, codegen.emit_stream as *void);
+    fputs("typedef int (*uya_macos_path_mode_i_fn)(const char *, int);\n" as *byte, codegen.emit_stream as *void);
     // kqueue/kevent 通过 dlsym 解析（见下方 uya_macos_kqueue/uya_macos_kevent 的注释）。
     fputs("typedef int (*uya_macos_kqueue_fn)(void);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_kevent_fn)(int, const void *, int, void *, int, const void *);\n" as *byte, codegen.emit_stream as *void);
@@ -3266,6 +3270,46 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    intptr_t ret = real_readlink(pathname, buf, bufsiz);\n" as *byte, codegen.emit_stream as *void);
     fputs("    if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());\n" as *byte, codegen.emit_stream as *void);
     fputs("    return uya_macos_ok_i64((int64_t)ret);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static struct err_union_int32_t uya_macos_unlink(const char *pathname) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_path_i_fn real_unlink = (uya_macos_path_i_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_unlink == (uya_macos_path_i_fn)0) real_unlink = (uya_macos_path_i_fn)dlsym((void *)-1, \"unlink\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_unlink == (uya_macos_path_i_fn)0) return uya_macos_err_i32(78);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int ret = real_unlink(pathname);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return uya_macos_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static struct err_union_int32_t uya_macos_mkdir(const char *pathname, int32_t mode) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_path_mode_i_fn real_mkdir = (uya_macos_path_mode_i_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_mkdir == (uya_macos_path_mode_i_fn)0) real_mkdir = (uya_macos_path_mode_i_fn)dlsym((void *)-1, \"mkdir\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_mkdir == (uya_macos_path_mode_i_fn)0) return uya_macos_err_i32(78);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int ret = real_mkdir(pathname, (int)mode);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return uya_macos_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static struct err_union_int32_t uya_macos_rmdir(const char *pathname) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_path_i_fn real_rmdir = (uya_macos_path_i_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_rmdir == (uya_macos_path_i_fn)0) real_rmdir = (uya_macos_path_i_fn)dlsym((void *)-1, \"rmdir\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_rmdir == (uya_macos_path_i_fn)0) return uya_macos_err_i32(78);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int ret = real_rmdir(pathname);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return uya_macos_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static struct err_union_int32_t uya_macos_rename(const char *oldpath, const char *newpath) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_path2_i_fn real_rename = (uya_macos_path2_i_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_rename == (uya_macos_path2_i_fn)0) real_rename = (uya_macos_path2_i_fn)dlsym((void *)-1, \"rename\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_rename == (uya_macos_path2_i_fn)0) return uya_macos_err_i32(78);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int ret = real_rename(oldpath, newpath);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return uya_macos_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static struct err_union_int32_t uya_macos_dup(int32_t oldfd) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_sig_i_fn real_dup = (uya_macos_sig_i_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_dup == (uya_macos_sig_i_fn)0) real_dup = (uya_macos_sig_i_fn)dlsym((void *)-1, \"dup\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_dup == (uya_macos_sig_i_fn)0) return uya_macos_err_i32(78);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int ret = real_dup((int)oldfd);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return uya_macos_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n" as *byte, codegen.emit_stream as *void);
     fputs("static struct err_union_int32_t uya_macos_chdir(const char *pathname) {\n" as *byte, codegen.emit_stream as *void);
     fputs("    static uya_macos_path_i_fn real_chdir = (uya_macos_path_i_fn)0;\n" as *byte, codegen.emit_stream as *void);
