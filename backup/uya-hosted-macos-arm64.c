@@ -574,11 +574,11 @@ static int32_t uya_macos_mprotect(void *addr, size_t length, int32_t prot) {
     if (real_mprotect == (uya_macos_mprotect_fn)0) return -1;
     return (int32_t)real_mprotect(addr, (size_t)length, (int)prot);
 }
-static uint8_t *uya_macos_realpath(uint8_t *path, uint8_t *resolved) {
+static char *uya_macos_realpath(char *path, char *resolved) {
     static uya_macos_realpath_fn real_realpath = (uya_macos_realpath_fn)0;
     if (real_realpath == (uya_macos_realpath_fn)0) real_realpath = (uya_macos_realpath_fn)dlsym((void *)-1, "realpath");
-    if (real_realpath == (uya_macos_realpath_fn)0) return (uint8_t *)0;
-    return (uint8_t *)real_realpath((const char *)path, (char *)resolved);
+    if (real_realpath == (uya_macos_realpath_fn)0) return (char *)0;
+    return real_realpath((const char *)path, resolved);
 }
 static struct err_union_int32_t uya_macos_fcntl(int32_t fd, int32_t cmd, int32_t arg) {
     int ret = fcntl((int)fd, (int)cmd, (int)arg);
@@ -151335,11 +151335,11 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_mprotect == (uya_macos_mprotect_fn)0) return -1;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int32_t)real_mprotect(addr, (size_t)length, (int)prot);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str384, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static uint8_t *uya_macos_realpath(uint8_t *path, uint8_t *resolved) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static char *uya_macos_realpath(char *path, char *resolved) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_realpath_fn real_realpath = (uya_macos_realpath_fn)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_realpath == (uya_macos_realpath_fn)0) real_realpath = (uya_macos_realpath_fn)dlsym((void *)-1, \"realpath\");\n", (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_realpath == (uya_macos_realpath_fn)0) return (uint8_t *)0;\n", (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (uint8_t *)real_realpath((const char *)path, (char *)resolved);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_realpath == (uya_macos_realpath_fn)0) return (char *)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return real_realpath((const char *)path, resolved);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str384, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_fcntl(int32_t fd, int32_t cmd, int32_t arg) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = fcntl((int)fd, (int)cmd, (int)arg);\n", (void *)codegen->emit_stream)    );
