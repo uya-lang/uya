@@ -917,10 +917,15 @@ fn is_file(path: &byte) i32 {
     return 0;
 }
 
-// 仅 Darwin 宿主进 AST；Linux 自举时整段裁剪，不链接 _NSGetExecutablePath
-std.cfg(std.host_os == .hos_macos, {
+// 目标为 macOS 时进 AST：这段用 _NSGetExecutablePath 定位自身可执行文件，
+// 前提是「生成的编译器运行在 macOS 上」，因此按 target_os 裁剪——交叉生成 macOS
+// 种子时也要带上；Linux 目标整段裁掉，不链接 _NSGetExecutablePath。
+// realpath 走 uya_macos_realpath 桥接：Darwin 的 <stdlib.h> 已把 realpath 声明成
+// char *(const char *, char *)，这里再 extern 一个 uint8_t* 版本会被 clang 判成
+// conflicting types 直接编译失败。
+std.cfg(std.target_os == .tos_macos, {
 extern fn _NSGetExecutablePath(buf: *byte, bufsize: *u32) i32;
-extern fn realpath(path: *byte, resolved_path: *byte) *byte;
+extern "libc" fn uya_macos_realpath(path: *byte, resolved_path: *byte) *byte;
 fn main_darwin_get_compiler_dir(buffer: &byte, buffer_size: usize) i32 {
     if buffer == null || buffer_size < 3 {
         return -1;
@@ -932,7 +937,7 @@ fn main_darwin_get_compiler_dir(buffer: &byte, buffer_size: usize) i32 {
     }
     raw[(PATH_MAX - 1) as usize] = 0 as byte;
     var full: [byte: PATH_MAX] = [];
-    const rp: *byte = realpath(&raw[0] as *byte, &full[0] as *byte);
+    const rp: *byte = uya_macos_realpath(&raw[0] as *byte, &full[0] as *byte);
     if rp == null {
         return -1;
     }
@@ -969,7 +974,7 @@ fn get_compiler_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
         }
     }
 
-    std.cfg(std.host_os == .hos_linux, {
+    std.cfg(std.target_os == .tos_linux, {
         var resolved_path: [byte: PATH_MAX] = [];
         const len: i32 = readlink("/proc/self/exe" as *byte, &resolved_path[0], PATH_MAX - 1);
         if len != -1 {
@@ -985,7 +990,7 @@ fn get_compiler_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
                 }
             }
         }
-    }, std.cfg(std.host_os == .hos_macos, {
+    }, std.cfg(std.target_os == .tos_macos, {
         if main_darwin_get_compiler_dir(buffer, buffer_size) == 0 {
             return 0;
         }

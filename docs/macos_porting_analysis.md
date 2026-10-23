@@ -59,6 +59,28 @@
 - 不应走 Linux `nostdlib` 路线
 - 文件系统/路径判型虽然上层逻辑共享，但底层依赖 Darwin host bridge 正确性
 
+### 硬约束：Darwin 上没有 Linux 的 syscall 编号
+
+`lib/libc/syscall.uya` 里的 `@syscall(SYS_xxx, ...)` 会直接发裸 `svc` 指令。
+Darwin 的编号表与 Linux 完全不同，在 Apple Silicon 上只有两种结果：
+
+- 命中未实现编号 → 内核 SIGSYS 直接杀进程（shell 显示 `Bad system call: 12`，退出码 140）；
+- 落到语义完全不同的 syscall 上 → 返回垃圾值，编译器随后莫名其妙地判错路径/分配失败。
+
+两种都不会给出可读错误，因此**任何可能在 macOS 上被调用到的 `sys_*` 都必须有
+`std.cfg(std.target_os == .tos_macos, ...)` 分支**，统一改走 `uya_macos_*` host bridge：
+由 `src/codegen/c99/main.uya` 的 macOS 块发射定义，用 `dlsym((void *)-1, "<symbol>")`
+解析 libSystem 里的同名函数，签名按宿主 ABI 手写（`*byte` 在 `extern "libc"` 里映射为 `char *`）。
+
+已桥接：`stat/fstat/lstat`、`access/open/read/write/close/lseek/readlink`、
+`chdir/getcwd/fcntl/dup/dup2`、`mkdir/rmdir/unlink/rename`、
+`mmap/munmap/mprotect`、`opendir/readdir/closedir`、`fork/waitpid`、
+socket 族、signal 族，以及 `sysconf`（CPU 数，替代 Darwin 不存在的 `sched_getaffinity`）。
+
+历史教训：2026-10 的 `make uya-hosted` SIGSYS（退出码 140）就是 `parallel_cpu_count`
+里 `@syscall(SYS_sched_getaffinity)` 打出来的；修好它之后，`mmap` 族、
+`unlink/mkdir/rmdir/rename/dup` 依次暴露，属于同一类问题。
+
 ---
 
 ## 当前最强怀疑点

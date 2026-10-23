@@ -873,6 +873,16 @@ extern "libc" fn uya_macos_access(pathname: *const byte, mode: i32) !i32;
 extern "libc" fn uya_macos_readlink(pathname: *const byte, buf: *byte, bufsiz: usize) !i64;
 extern "libc" fn uya_macos_chdir(pathname: *const byte) !i32;
 extern "libc" fn uya_macos_getcwd(buf: *byte, size: usize) !i64;
+// mmap 族在 Darwin 上没有可用的 Linux 编号，走 libSystem 绑定（实现见 src/codegen/c99/main.uya）。
+extern "libc" fn uya_macos_mmap(addr: *void, length: usize, prot: i32, flags: i32, fd: i32, offset: i64) *void;
+extern "libc" fn uya_macos_munmap(addr: *void, length: usize) i32;
+extern "libc" fn uya_macos_mprotect(addr: *void, length: usize, prot: i32) i32;
+// 文件操作族同理：Darwin 没有 Linux 的 unlink/mkdir/rmdir/rename/dup 编号。
+extern "libc" fn uya_macos_unlink(pathname: *const byte) !i32;
+extern "libc" fn uya_macos_mkdir(pathname: *const byte, mode: i32) !i32;
+extern "libc" fn uya_macos_rmdir(pathname: *const byte) !i32;
+extern "libc" fn uya_macos_rename(oldpath: *const byte, newpath: *const byte) !i32;
+extern "libc" fn uya_macos_dup(oldfd: i32) !i32;
 extern "libc" fn uya_macos_fcntl(fd: i32, cmd: i32, arg: i32) !i32;
 extern "libc" fn uya_macos_pipe2(pipefd: &i32, flags: i32) !i32;
 extern "libc" fn uya_macos_dup2(oldfd: i32, newfd: i32) !i32;
@@ -1312,13 +1322,17 @@ export extern "libc" fn sys_access(pathname: *const byte, mode: i32) !i32 {
 
 // sys_unlink - 删除文件（AArch64/RISC-V：unlinkat）
 export extern "libc" fn sys_unlink(pathname: *const byte) !i32 {
-    std.cfg(std.target_arch == .ta_arm64, {
-        return @syscall(SYS_unlinkat, AT_FDCWD as i64, pathname as i64, 0 as i64) as! i32;
+    std.cfg(std.target_os == .tos_macos, {
+        return uya_macos_unlink(pathname);
     }, {
-        std.cfg(std.target_arch == .ta_riscv64, {
+        std.cfg(std.target_arch == .ta_arm64, {
             return @syscall(SYS_unlinkat, AT_FDCWD as i64, pathname as i64, 0 as i64) as! i32;
         }, {
-            return @syscall(SYS_unlink, pathname as i64) as! i32;
+            std.cfg(std.target_arch == .ta_riscv64, {
+                return @syscall(SYS_unlinkat, AT_FDCWD as i64, pathname as i64, 0 as i64) as! i32;
+            }, {
+                return @syscall(SYS_unlink, pathname as i64) as! i32;
+            })
         })
     })
 }
@@ -1326,7 +1340,7 @@ export extern "libc" fn sys_unlink(pathname: *const byte) !i32 {
 // sys_mkdir - 创建目录（AArch64/RISC-V：mkdirat）
 export extern "libc" fn sys_mkdir(pathname: *const byte, mode: i32) !i32 {
     std.cfg(std.target_os == .tos_macos, {
-        return @syscall(SYS_mkdir, pathname as i64, mode as i64) as! i32;
+        return uya_macos_mkdir(pathname, mode);
     }, {
         std.cfg(std.target_arch == .ta_arm64, {
             return @syscall(SYS_mkdirat, AT_FDCWD as i64, pathname as i64, mode as i64) as! i32;
@@ -1342,13 +1356,17 @@ export extern "libc" fn sys_mkdir(pathname: *const byte, mode: i32) !i32 {
 
 // sys_rmdir - 删除目录（AArch64/RISC-V：unlinkat(AT_REMOVEDIR)）
 export extern "libc" fn sys_rmdir(pathname: *const byte) !i32 {
-    std.cfg(std.target_arch == .ta_arm64, {
-        return @syscall(SYS_unlinkat, AT_FDCWD as i64, pathname as i64, AT_REMOVEDIR as i64) as! i32;
+    std.cfg(std.target_os == .tos_macos, {
+        return uya_macos_rmdir(pathname);
     }, {
-        std.cfg(std.target_arch == .ta_riscv64, {
+        std.cfg(std.target_arch == .ta_arm64, {
             return @syscall(SYS_unlinkat, AT_FDCWD as i64, pathname as i64, AT_REMOVEDIR as i64) as! i32;
         }, {
-            return @syscall(SYS_rmdir, pathname as i64) as! i32;
+            std.cfg(std.target_arch == .ta_riscv64, {
+                return @syscall(SYS_unlinkat, AT_FDCWD as i64, pathname as i64, AT_REMOVEDIR as i64) as! i32;
+            }, {
+                return @syscall(SYS_rmdir, pathname as i64) as! i32;
+            })
         })
     })
 }
@@ -1373,23 +1391,37 @@ export extern "libc" fn sys_getcwd(buf: *byte, size: usize) !isize {
 
 // sys_mmap - 内存映射（ARM EABI 为 mmap2，offset 为页偏移）
 export extern "libc" fn sys_mmap(addr: *void, length: usize, prot: i32, flags: i32, fd: i32, offset: i64) !*void {
-    std.cfg(std.target_arch == .ta_arm, {
-        const page: i64 = 4096;
-        const pgoff: i64 = offset / page;
-        return @syscall(SYS_mmap, addr as i64, length as i64, prot as i64, flags as i64, fd as i64, pgoff) as! *void;
+    std.cfg(std.target_os == .tos_macos, {
+        // Darwin 的 syscall 编号与 Linux 完全不同：@syscall(SYS_mmap,...) 在 Apple Silicon
+        // 上会撞上未实现的 syscall（SIGSYS 直接杀进程）。统一走 libSystem 的 mmap。
+        return uya_macos_mmap(addr, length, prot, flags, fd, offset) as! *void;
     }, {
-        return @syscall(SYS_mmap, addr as i64, length as i64, prot as i64, flags as i64, fd as i64, offset as i64) as! *void;
+        std.cfg(std.target_arch == .ta_arm, {
+            const page: i64 = 4096;
+            const pgoff: i64 = offset / page;
+            return @syscall(SYS_mmap, addr as i64, length as i64, prot as i64, flags as i64, fd as i64, pgoff) as! *void;
+        }, {
+            return @syscall(SYS_mmap, addr as i64, length as i64, prot as i64, flags as i64, fd as i64, offset as i64) as! *void;
+        })
     })
 }
 
 // sys_munmap - 解除内存映射
 export extern "libc" fn sys_munmap(addr: *void, length: usize) !i32 {
-    return @syscall(SYS_munmap, addr as i64, length as i64) as! i32;
+    std.cfg(std.target_os == .tos_macos, {
+        return uya_macos_munmap(addr, length) as! i32;
+    }, {
+        return @syscall(SYS_munmap, addr as i64, length as i64) as! i32;
+    })
 }
 
 // sys_mprotect - 调整内存映射权限
 export extern "libc" fn sys_mprotect(addr: *void, length: usize, prot: i32) !i32 {
-    return @syscall(SYS_mprotect, addr as i64, length as i64, prot as i64) as! i32;
+    std.cfg(std.target_os == .tos_macos, {
+        return uya_macos_mprotect(addr, length, prot) as! i32;
+    }, {
+        return @syscall(SYS_mprotect, addr as i64, length as i64, prot as i64) as! i32;
+    })
 }
 
 // sys_stat - 获取文件状态（AArch64/RISC-V：newfstatat）
@@ -1520,18 +1552,46 @@ export extern "libc" fn sys_getdents64(fd: i32, dirp: *void, count: usize) !isiz
 // CPU 调度（sched）
 // ============================================================
 
+// sysconf - 运行时配置项。
+// Darwin 没有 sched_getaffinity/sched_setaffinity 这两个 syscall，macOS hosted 的
+// CPU 数探测改走 libSystem 的 sysconf(_SC_NPROCESSORS_ONLN)，否则裸 @syscall 会在
+// Apple Silicon 上撞到未实现的编号（SIGSYS 直接杀掉编译器）。
+// _SC_NPROCESSORS_ONLN：Darwin = 58，glibc = 84。
+std.cfg(std.target_os == .tos_macos, {
+export const SC_NPROCESSORS_ONLN: i32 = 58;
+}, {
+export const SC_NPROCESSORS_ONLN: i32 = 84;
+})
+export extern "libc" fn sysconf(name: i32) i64;
+
 // sched_setaffinity - 设置进程/线程的 CPU 亲和性
 export extern "libc" fn sched_setaffinity(pid: i64, cpusetsize: usize, mask: &void) i32 {
-    const r: !i64 = @syscall(SYS_sched_setaffinity, pid, cpusetsize as i64, mask as i64);
-    const v: i64 = r catch { return -1; };
-    return v as i32;
+    std.cfg(std.target_os == .tos_macos, {
+        // Darwin 无此 syscall：返回 -1，调用方按「不支持亲和性」处理。
+        _ = pid;
+        _ = cpusetsize;
+        _ = mask;
+        return -1;
+    }, {
+        const r: !i64 = @syscall(SYS_sched_setaffinity, pid, cpusetsize as i64, mask as i64);
+        const v: i64 = r catch { return -1; };
+        return v as i32;
+    })
 }
 
 // sched_getaffinity - 获取进程/线程的 CPU 亲和性
 export extern "libc" fn sched_getaffinity(pid: i64, cpusetsize: usize, mask: &void) i32 {
-    const r: !i64 = @syscall(SYS_sched_getaffinity, pid, cpusetsize as i64, mask as i64);
-    const v: i64 = r catch { return -1; };
-    return v as i32;
+    std.cfg(std.target_os == .tos_macos, {
+        // Darwin 无此 syscall：返回 -1（调用方 parallel_cpu_count 已改走 sysconf）。
+        _ = pid;
+        _ = cpusetsize;
+        _ = mask;
+        return -1;
+    }, {
+        const r: !i64 = @syscall(SYS_sched_getaffinity, pid, cpusetsize as i64, mask as i64);
+        const v: i64 = r catch { return -1; };
+        return v as i32;
+    })
 }
 
 // ============================================================
@@ -1549,7 +1609,11 @@ export extern "libc" fn sys_brk(addr: i64) i64 {
 // sys_dup - 复制文件描述符
 // 返回：新的文件描述符
 export extern "libc" fn sys_dup(fd: i32) !i32 {
-    return @syscall(SYS_dup, fd as i64) as! i32;
+    std.cfg(std.target_os == .tos_macos, {
+        return uya_macos_dup(fd);
+    }, {
+        return @syscall(SYS_dup, fd as i64) as! i32;
+    })
 }
 
 // sys_dup2 - 复制文件描述符到指定值
@@ -1577,13 +1641,17 @@ export extern "libc" fn sys_dup2(oldfd: i32, newfd: i32) !i32 {
 // newpath: 新路径
 // 返回：0 成功，-1 失败
 export extern "libc" fn sys_rename(oldpath: &const byte, newpath: &const byte) !i32 {
-    std.cfg(std.target_arch == .ta_arm64, {
-        return @syscall(SYS_renameat, AT_FDCWD as i64, oldpath as i64, AT_FDCWD as i64, newpath as i64) as! i32;
+    std.cfg(std.target_os == .tos_macos, {
+        return uya_macos_rename(oldpath as *const byte, newpath as *const byte);
     }, {
-        std.cfg(std.target_arch == .ta_riscv64, {
+        std.cfg(std.target_arch == .ta_arm64, {
             return @syscall(SYS_renameat, AT_FDCWD as i64, oldpath as i64, AT_FDCWD as i64, newpath as i64) as! i32;
         }, {
-            return @syscall(SYS_rename, oldpath as i64, newpath as i64) as! i32;
+            std.cfg(std.target_arch == .ta_riscv64, {
+                return @syscall(SYS_renameat, AT_FDCWD as i64, oldpath as i64, AT_FDCWD as i64, newpath as i64) as! i32;
+            }, {
+                return @syscall(SYS_rename, oldpath as i64, newpath as i64) as! i32;
+            })
         })
     })
 }

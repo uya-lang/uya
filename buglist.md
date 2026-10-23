@@ -461,6 +461,36 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
 
 ## 编译器 bug
 
+- [x] **P0 / 严重：macOS hosted 自举 SIGSYS —— `make uya-hosted` 退出码 140（Bad system call: 12）**
+  - 状态：**已修复**（2026-10-24）
+  - 现象：`stat` 判型问题修好后，macos-ci 的 `make uya-hosted` 仍然失败，但错误完全变了：
+    `./compile.sh: line 1027: 1610 Bad system call: 12`、`编译失败（退出码: 140）`；
+    直接跑 `bin/uya build src/main.uya --c99 --safety-proof` 同样 140。lldb 现场：
+    `stop reason = signal SIGSYS`，`frame #0: uya\`parallel_parallel_jobs + 416`。
+  - 根因：`lib/libc/syscall.uya` 的 `sys_mmap/sys_munmap/sys_mprotect` 与
+    `sched_getaffinity/sched_setaffinity` 只有 Linux 的 `@syscall(SYS_*)` 实现。Darwin 的
+    syscall 编号与 Linux 完全不同，Apple Silicon 上执行裸 `svc` 只会 SIGSYS 或被内核当成
+    别的 syscall（返回垃圾）。自举时 `parallel_cpu_count()` 是第一个踩中的点，其后
+    `mmap` 族（并行竞技场 + 公共堆）同样会踩。
+  - 修复内容：
+    - `src/codegen/c99/main.uya`：新增 `uya_macos_mmap/_munmap/_mprotect/_realpath/
+      _unlink/_mkdir/_rmdir/_rename/_dup` 宿主绑定（dlsym 解析 libSystem）。
+    - `lib/libc/syscall.uya`：对应 `sys_*` 增加 `std.cfg(std.target_os == .tos_macos)` 分支；
+      macOS 的 `sched_getaffinity/sched_setaffinity` 直接返回 -1（Darwin 无此 syscall）。
+    - `src/parallel.uya`：macOS 的 CPU 数改用 `sysconf(_SC_NPROCESSORS_ONLN)`（Darwin = 58）。
+    - `src/main.uya`：`realpath` 不再自行 extern（与 Darwin `<stdlib.h>` 的
+      `char *realpath(const char *, char *)` 冲突），改走 `uya_macos_realpath`；
+      Darwin 运行时定位块按 `target_os` 裁剪，交叉生成 macOS 种子时也会带上。
+    - `src/compile.sh`：Darwin 上的 `cc` 按 clang 处理并补
+      `-Wno-unused-command-line-argument`（Apple clang 把 `-fno-strict-overflow` 判成
+      unused argument，配 `-Werror` 直接失败）。
+    - 刷新 7 个跟踪种子；`tests/verify_macos_hosted_seed_decls.sh` 增加对应断言。
+  - 验证：diag 分支实跑 macos-15 —— `seed_rc=0`、`hosted_rc=0`（`make uya-hosted` 通过）。
+  - 仍未修复（macOS 链路的后续问题，非本次回归，需单独立项）：
+    - `make b-hosted`：自举产物比对仍不一致（stage 输出差异，与 seed 生成 profile 有关）。
+    - `make tests-hosted`：1031 个用例仍有 31 个失败，且文件操作桥接前后失败数完全一致，
+      说明这批失败与裸 syscall 无关，需要逐条按 Darwin 语义排查。
+
 - [x] **P0 / 严重：macOS hosted 自举回归 —— `make uya-hosted` 报「src/main.uya 既不是文件也不是目录」**
   - 状态：**已修复**（2026-10-23）
   - 现象：macos-ci 的 `make uya-hosted` 在编译 `src/main.uya` 时判 `is_file()` 失败，

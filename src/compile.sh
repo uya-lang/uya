@@ -84,8 +84,13 @@ fi
 cc_driver_is_clang_like() {
     case "$1" in
         *clang*|*"zig cc"*|*"zig c++"*) return 0 ;;
-        *) return 1 ;;
     esac
+    # macOS 上 `cc` 就是 Apple clang：名字里没有 "clang"，但同样需要 clang 侧的告警兼容
+    # （Apple clang 会把 -fno-strict-overflow 判成未使用参数，配合 -Werror 直接失败）。
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        return 0
+    fi
+    return 1
 }
 
 cc_driver_uses_zig() {
@@ -113,6 +118,16 @@ append_clang_warning_compat() {
     case " $base " in
         *" -Wno-ignored-optimization-argument "*) ;;
         *) printf ' %s' "-Wno-ignored-optimization-argument" ;;
+    esac
+    # Apple clang 在「C 源 -> 可执行文件」这一条命令里会把 -fno-strict-overflow 判成
+    # 「unused during compilation」，配合 Makefile 默认 CFLAGS 里的 -Werror 就变成硬错误：
+    #   clang: error: argument unused during compilation: '-fno-strict-overflow'
+    #                    [-Werror,-Wunused-command-line-argument]
+    # 该 flag 只是 GCC 的严格溢出开关（本仓库同时带 -fwrapv），clang 侧忽略无害，
+    # 因此在 clang 驱动上统一静音这类「命令行参数未使用」告警。
+    case " $base " in
+        *" -Wno-unused-command-line-argument "*) ;;
+        *) printf ' %s' "-Wno-unused-command-line-argument" ;;
     esac
 }
 

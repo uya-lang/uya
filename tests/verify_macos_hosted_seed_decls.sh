@@ -96,4 +96,40 @@ require_text '__attribute__((used)) struct Dirent * readdir(struct DIR * dirp) {
 require_text 'uya_macos_host_readdir_fill((void *)dirp, (void *)(&readdir_result))' 'readdir 走 uya_macos_host_readdir_fill 桥接'
 require_text '__attribute__((used)) int32_t closedir(struct DIR * dirp) {' 'uya 版 closedir 桥接实现'
 
+# Darwin 的 syscall 编号与 Linux 不同：mmap 族绝不能在 macOS 种子里继续走
+# @syscall(SYS_mmap/SYS_munmap/SYS_mprotect)，否则 Apple Silicon 上会执行到不相干的
+# syscall（SIGSYS 直接杀进程），make uya-hosted 编译期随机崩在 140。
+require_text 'static void *uya_macos_mmap(void *addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {' 'uya_macos_mmap 宿主绑定'
+require_text 'static int32_t uya_macos_munmap(void *addr, size_t length) {' 'uya_macos_munmap 宿主绑定'
+require_text 'static int32_t uya_macos_mprotect(void *addr, size_t length, int32_t prot) {' 'uya_macos_mprotect 宿主绑定'
+require_text 'uya_macos_mmap(addr, length, prot, flags, fd, offset)' 'sys_mmap 转发 uya_macos_mmap'
+require_text 'uya_macos_munmap(addr, length)' 'sys_munmap 转发 uya_macos_munmap'
+require_text 'uya_macos_mprotect(addr, length, prot)' 'sys_mprotect 转发 uya_macos_mprotect'
+
+# 文件操作族：unlink/mkdir/rmdir/rename/dup 在 Darwin 上也没有 Linux 编号，
+# 一旦退回裸 @syscall 会在 Apple Silicon 上 SIGSYS（tests-hosted 首当其冲）。
+require_text 'static struct err_union_int32_t uya_macos_unlink(const char *pathname) {' 'uya_macos_unlink 宿主绑定'
+require_text 'static struct err_union_int32_t uya_macos_mkdir(const char *pathname, int32_t mode) {' 'uya_macos_mkdir 宿主绑定'
+require_text 'static struct err_union_int32_t uya_macos_rmdir(const char *pathname) {' 'uya_macos_rmdir 宿主绑定'
+require_text 'static struct err_union_int32_t uya_macos_rename(const char *oldpath, const char *newpath) {' 'uya_macos_rename 宿主绑定'
+require_text 'static struct err_union_int32_t uya_macos_dup(int32_t oldfd) {' 'uya_macos_dup 宿主绑定'
+for sym in unlink mkdir rmdir rename dup; do
+    if [ "$(grep -Fc "uya_macos_${sym}(" "$OUT_C")" -lt 2 ]; then
+        echo "✗ 生成的 uya-hosted.c 里 uya_macos_${sym} 只有定义、没有调用点"
+        exit 1
+    fi
+done
+if grep -Fq 'uya_syscall6(libc_SYS_mmap' "$OUT_C"; then
+    echo "✗ 生成的 uya-hosted.c 仍在 macOS 上使用裸 mmap syscall"
+    exit 1
+fi
+if grep -Fq 'uya_syscall2(libc_SYS_munmap' "$OUT_C"; then
+    echo "✗ 生成的 uya-hosted.c 仍在 macOS 上使用裸 munmap syscall"
+    exit 1
+fi
+if grep -Fq 'uya_syscall3(libc_SYS_mprotect' "$OUT_C"; then
+    echo "✗ 生成的 uya-hosted.c 仍在 macOS 上使用裸 mprotect syscall"
+    exit 1
+fi
+
 echo "✓ macOS hosted 单文件 seed extern 声明通过"
