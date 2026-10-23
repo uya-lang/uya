@@ -346,7 +346,7 @@ fn increment(counter: *Counter) void {
 - **快速构建**：Linux 冷启动 `make from-c`，macOS 冷启动 `make from-c-native`；日常自举构建 `make uya`（nostdlib 静态）/ `make uya-hosted`（hosted）。前端默认按 CPU 核数进程级并行（`--jobs/-j`，上限 32），无改动时增量指纹直接短路。
 - **安全验证**：`make uya-safety` 构建启用内存安全检查的编译器；默认构建在编译期证明 UB，无法证明即编译错误。
 - **语言规范**：完整版见 [docs/uya.md](./docs/uya.md)（0.49.54）。
-- **最新特性**：在 **v0.10.3** 的检查器动态表与 async 网络组合基础上，当前 **v0.10.4** 收口**编译器容量与速度**——输入文件表 / call edge 表 / reachable 函数表 / 顶层全局类型查找全部按需增长（大工程不再撞「容量已满」与静默丢函数），前端进程级并行 + 增量指纹让 `make uya` 从 22s 降到 14s（无改动 0.4s）；新增**密码学底座** `std.crypto`（SHA-512/HMAC、4096 位 bigint + Montgomery、Curve25519、Ed25519，含 RSA-4096 Montgomery 溢出与 Ed25519 小阶点两处真缺陷修复）与**纯 Uya 的基线 JPEG 编解码** `std.image`；**Windows 目标**用 zig cc 打通自举（Winsock / 控制台代码页 / LLP64 / 区间运算 UB）；检查器再收口 4 条 UB 漏检并接上切片范围校验；C99 后端默认优化提到 `-O2`。
+- **最新特性**：在 **v0.10.4** 的编译器容量收口与密码学底座基础上，当前 **v0.11.0** 收口三条主线——**安全证明**：`--strict-overflow` 翻为**默认开启**，并新增 `--strict-div` 除零正确性证明（默认关，跨函数不变量暂无法表达）；**静默错误收口**：lexer 未知字符不再静默 EOF、`@print`/字符串插值按实参真实类型选格式串、大于 `INT64_MAX` 的整数字面量按位模式解析、接口字段访问与接口数组元素赋值改为编译期拒绝、数组/切片比较运算符改为编译期拒绝、pipeline worker 入口加 fd 自检不再误接管普通程序；**平台与构建链**：macOS hosted 生成 C 的 7 处 ABI 撞车修复、自举种子家族恢复可交叉编译，未安装 zig 的宿主不再把 `make check` / `make release` 判成失败。
 
 ## 文档
 
