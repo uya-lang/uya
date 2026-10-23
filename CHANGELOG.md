@@ -1,6 +1,24 @@
 # Uya 变更日志
 
-## [Unreleased]
+## v0.11.0 - 溢出证明默认开启、静默错误收口与 macOS 交叉链修复
+
+> 发布日期：2026-10-23
+
+### 概要
+
+**v0.11.0** 是 v0.10.x 之后的一次**里程碑发行**（minor），三条主线：
+
+1. **安全证明收口**：`--strict-overflow` 由默认关翻为**默认开启**（`src/` 与 `lib/` 存量已全部
+   按语义迁移完毕，告警归零），并新增 `--strict-div` 除零正确性证明（默认关，原因见下）。
+2. **一批「静默错误」收口**：lexer 未知字符、`@print` / 字符串插值格式串、大于 `INT64_MAX` 的
+   整数字面量、接口字段访问、数组/切片比较 —— 这些缺陷的共同特征是**不报错但算错**，症状
+   都出现在离真实原因很远的地方。
+3. **平台与构建链**：macOS hosted 生成 C 的 7 处 ABI 撞车修复，自举种子家族恢复可交叉编译；
+   未安装 zig 的宿主不再把 `make check` / `make release` 判成失败。
+
+**兼容性提示（破坏性变更）**：`--strict-overflow` 默认开启后，无法证明不溢出的 `+` `-` `*`
+会直接编译失败。诊断会给出 checked / 区间守卫 / 饱和包装三条修法；存量工程可先以
+`--no-strict-overflow` 过渡。
 
 ### Added
 - **`--strict-div` 除零正确性证明（默认关闭）**：整数 `/` 与 `%` 的除数必须能证明非零，
@@ -26,6 +44,19 @@
 - **入口 `main` 可返回错误联合**：`export fn main() !T` / `fn main() !T` 现在能正常链接运行。
 
 ### Fixed
+- **macOS hosted 生成 C 的 7 处 ABI 撞车**：`struct timeval` / `struct sigaction` / `signal` /
+  `sa_handler` 与 Darwin 系统头同名撞车；`__attribute__((weak))` 在 Mach-O 上不成立（可选符号
+  改走 `dlsym`）；`libc.signal` 整族误用 Linux syscall 号与信号编号表。修复后 macOS x86_64 /
+  arm64 两套架构重新可交叉编译并链接，自举种子家族恢复，Linux 侧行为未变。
+- **数组 / 切片的比较运算符静默产生错误结果**：数组在 C 侧退化成首元素指针比较
+  （`[1,2,3] == [1,2,3]` 运行期是 false），切片则发射非法的 `struct == struct`。现在
+  `==` `!=` `<` `>` `<=` `>=` 遇到数组或切片一律编译期报错，并指向 `std.mem.mem_cmp`
+  或显式逐元素循环。
+- **普通用户程序被 pipeline worker 入口抢先接管**：C99 后端在 `container_mode == 0` 时总会发射
+  弱桥接 `uya_pipeline_worker_dispatch()`，它先于 `main_main()` 执行，此前只按 argc/argv 判断 ——
+  恰好带一个 `--uya-pipeline-worker` 参数的普通程序会被误判成 worker，随后读未 dup2 过的描述符
+  失败并返回退出码 122。现在入口先用 `fcntl(F_GETFD)` 自检两个保留 fd，只有真正由 exec 侧 dup2
+  过的进程才走 worker 分支。回归 `tests/verify_pipeline_worker_entry_guard.sh`。
 - **未安装 zig 的宿主把 `make check` / `make release` 判成失败**：`Makefile` 把 `ZIG` 默认写死成
   某台开发机的绝对路径 `/home/winger/zig/zig`，`tests/verify_std_path_platform_targets.sh` 在
   缺 zig 时又直接 `exit 1`，于是没装 zig 的 CI（ubuntu-ci 跑 `make release`）必然红。

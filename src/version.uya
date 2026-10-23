@@ -10,4 +10,4 @@
 // 版本形态固定为 `MAJOR.MINOR.PATCH`（不带 `v`）；展示时由调用方补 `v` 前缀。
 
 /// 编译器版本号（`MAJOR.MINOR.PATCH`，**不含** `v` 前缀）。
-export const UYA_VERSION: &byte = "0.10.4" as &byte;
+export const UYA_VERSION: &byte = "0.11.0" as &byte;

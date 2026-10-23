@@ -339,7 +339,7 @@ fn increment(counter: *Counter) void {
 }
 ```
 
-## 当前状态（v0.10.4）
+## 当前状态（v0.11.0）
 
 - **自举编译器**：已完成自举，所有测试通过。编译器能编译自身，输出 C99 代码（默认多文件至 `.uyacache`，可用 `--no-split-c` 单文件）。
 - **开发模式**：仅维护 `src/` 目录的自举编译器。
@@ -383,6 +383,6 @@ fn increment(counter: *Counter) void {
 
 ---
 
-**注意**：语言规范为完整版（0.49.54）；当前 **补丁发行**为 **v0.10.4**，说明见 [docs/releases/RELEASE_v0.10.4.md](./docs/releases/RELEASE_v0.10.4.md)；上一里程碑总览见 [docs/releases/RELEASE_v0.10.3.md](./docs/releases/RELEASE_v0.10.3.md) 与 [docs/uya.md](./docs/uya.md)。
+**注意**：语言规范为完整版（0.49.56）；当前 **里程碑发行**为 **v0.11.0**，说明见 [docs/releases/RELEASE_v0.11.0.md](./docs/releases/RELEASE_v0.11.0.md)；上一里程碑总览见 [docs/releases/RELEASE_v0.10.4.md](./docs/releases/RELEASE_v0.10.4.md) 与 [docs/uya.md](./docs/uya.md)。
 
 **许可证**：本项目采用 [MIT 许可证](./LICENSE)。Copyright (c) 2025-2026 Uya 语言项目
