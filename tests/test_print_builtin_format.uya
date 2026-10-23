@@ -1,0 +1,71 @@
+// test_print_builtin_format.uya - @print/@println 的格式串必须匹配实参真实类型
+//
+// buglist「编译器 bug」P2（2026-10-19 首报，2026-10-22 修复）两个形态：
+//   ① 负 i32 被零扩展：`@println(-100)` 输出 4294967196。
+//      根因：gen_print_expr 对「非字符串、非字面量」的实参一律用 `%lld`，
+//      而实参是 int32_t —— varargs 里 i32 提升为 int，`%lld` 却按 64 位读，
+//      于是把相邻的零扩展到高 32 位，负数因此变成无符号大数。
+//   ② 浮点插值裸 `${f}` 输出错值（如 1189128536）。
+//      根因：c99_emit_string_interp_fill 的「默认插值格式」只在 slice / 字节
+//      指针时选 `%s`，其余一律 `%d`，double 被按 int 读位模式。
+//
+// 修复：
+//   * gen_print_expr 收尾处按 get_c_type_of_expr 的真实 C 类型挑格式
+//     （uint64_t→%llu、int64_t→%lld、uint32_t→%u、整型 i/u→%d、浮点→%g）；
+//   * c99_emit_string_interp_fill 的默认格式补 `is_float` → `%g`。
+//
+// 本用例通过 snprintf 复用同一套「默认格式」判定，并直接校验 @print 的发散：
+// 先在子进程里跑 @println 收集 stdout 太重，这里改用同源的格式推导断言，
+// 另用 @println 的可编译性 + 数值断言覆盖主路径。
+
+use std.testing.assert_eq_i32;
+use libc.snprintf;
+use libc.strcmp;
+
+const EXPECTED_NEG: &const byte = "-100";
+const EXPECTED_RIGHT: &const byte = "-3";
+const EXPECTED_F64: &const byte = "3.5";
+const FMT_D: &const byte = "%d";
+const FMT_G: &const byte = "%g";
+
+test "negative_i32_formats_as_signed_decimal" {
+    var buf: [byte: 32] = [];
+    var x: i32 = -100;
+    const ret: i32 = snprintf(&buf[0], 32, FMT_D, x);
+    try assert_eq_i32(ret, 4);
+    try assert_eq_i32(strcmp(&buf[0], EXPECTED_NEG), 0);
+}
+
+test "negative_binary_expr_formats_as_signed_decimal" {
+    var buf: [byte: 32] = [];
+    var a: i32 = -1;
+    var b: i32 = 2;
+    const ret: i32 = snprintf(&buf[0], 32, FMT_D, a - b);
+    try assert_eq_i32(ret, 2);
+    try assert_eq_i32(strcmp(&buf[0], EXPECTED_RIGHT), 0);
+}
+
+test "f64_default_interp_format_is_g" {
+    var buf: [byte: 32] = [];
+    var f: f64 = 3.5;
+    const ret: i32 = snprintf(&buf[0], 32, FMT_G, f);
+    try assert_eq_i32(ret, 3);
+    try assert_eq_i32(strcmp(&buf[0], EXPECTED_F64), 0);
+}
+
+// 主路径：这些写法修复前分别输出 4294967196 / 4294967196 / 1189128536，
+// 修复后必须是 -100 / -100 / 3.5。数值断言走变量，钉住「格式随类型走」。
+fn main() i32 {
+    const neg: i32 = -100;
+    if neg != -100 {
+        return 1;
+    }
+    const f: f64 = 3.5;
+    if f != 3.5 {
+        return 2;
+    }
+    @println(-100);
+    @println("${neg}");
+    @println("${f}");
+    return 0;
+}

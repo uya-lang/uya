@@ -1,0 +1,75 @@
+// test_method_ns_ref_receiver.uya - 显式命名空间 + 引用 receiver 的方法调用
+//
+// buglist「编译器 bug」P3（2026-10-19 首报，2026-10-22 修复）：
+//   `Counter.get(&c)` 生成 `({ void __uya_recv_0 = (&c); ... })` 一类的坏 C，
+//   C 层报 `int32_t *` 与 `struct Counter *` 不匹配；而 `Counter.getval(c)`
+//   （按值 receiver）与 `c.get()`（点号调用）都正常。
+//
+// 根因：get_c_type_of_expr 对 `&operand`（非数组字面量）没有分支，直接落到末尾的
+// "int32_t" 兜底。c99_emit_method_receiver_arg 由此判定 arg_is_pointer == 0，
+// 把已经是指针的 `&c` 又取了一次地址并物化成临时量：
+//     `&((int32_t[1]){ (&c) })[0]`
+// 修复：在 get_c_type_of_expr 的 AST_UNARY_EXPR 分支里按操作数类型补一层 `*`，
+// 操作数本身已是指针时原样返回，避免叠出 `T**`。
+//
+// 三种写法（点号 / 命名空间 + 引用 / 命名空间 + 按值）都必须读到同一个值。
+
+use std.testing.assert_eq_i32;
+
+struct NsRefCounter {
+    n: i32,
+
+    fn get(self: &Self) i32 {
+        return self.n;
+    }
+
+    fn getval(self: Self) i32 {
+        return self.n;
+    }
+
+    fn bump(self: &Self, by: i32) NsRefCounter {
+        return NsRefCounter{ n: self.n +| by };
+    }
+}
+
+test "dot_call_on_ref_receiver" {
+    var c: NsRefCounter = NsRefCounter{ n: 42 };
+    try assert_eq_i32(c.get(), 42);
+}
+
+test "namespace_call_with_ampersand_receiver" {
+    var c: NsRefCounter = NsRefCounter{ n: 42 };
+    try assert_eq_i32(NsRefCounter.get(&c), 42);
+}
+
+test "namespace_call_with_value_receiver" {
+    var c: NsRefCounter = NsRefCounter{ n: 42 };
+    try assert_eq_i32(NsRefCounter.getval(c), 42);
+}
+
+test "namespace_call_ref_receiver_sees_mutation" {
+    var c: NsRefCounter = NsRefCounter{ n: 7 };
+    c.n = 99;
+    try assert_eq_i32(NsRefCounter.get(&c), 99);
+}
+
+test "namespace_call_ref_receiver_returns_struct" {
+    var c: NsRefCounter = NsRefCounter{ n: 10 };
+    var d: NsRefCounter = NsRefCounter.bump(&c, 5);
+    try assert_eq_i32(d.get(), 15);
+    try assert_eq_i32(NsRefCounter.get(&c), 10);
+}
+
+fn main() i32 {
+    var c: NsRefCounter = NsRefCounter{ n: 42 };
+    if c.get() != 42 {
+        return 1;
+    }
+    if NsRefCounter.get(&c) != 42 {
+        return 2;
+    }
+    if NsRefCounter.getval(c) != 42 {
+        return 3;
+    }
+    return 0;
+}

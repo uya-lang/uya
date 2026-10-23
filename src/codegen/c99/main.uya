@@ -1504,6 +1504,14 @@ fn collect_slice_types_from_node(codegen: &C99CodeGenerator, node: &ASTNode) voi
         return;
     }
     if node.type == ASTNodeType.AST_SLICE_EXPR {
+        // 字符串字面量切片在 C 侧是 `struct uya_slice_uint8_t`。该名字由
+        // get_slice_struct_type_c 直接返回、不经过 AST_TYPE_SLICE 分支，所以结构体
+        // 从来不会被登记；调用点若只取 `.ptr`（形参是 &const byte），生成的 C 就会
+        // 引用一个从未定义的结构体。预收集阶段在这里补登记，保证它在
+        // emit_pending_slice_structs 之前已经就位。
+        if node.slice_expr_base != null && node.slice_expr_base.type == ASTNodeType.AST_STRING {
+            c99_ensure_slice_uint8_struct(codegen);
+        }
         collect_slice_types_from_node(codegen, node.slice_expr_base);
         collect_slice_types_from_node(codegen, node.slice_expr_start_expr);
         collect_slice_types_from_node(codegen, node.slice_expr_len_expr);

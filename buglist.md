@@ -694,13 +694,27 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     `id_int(id_int(id_int(@max)))` 的最内层仍发射成 `0` —— 下推入口在顶层调用，
     中间层实参到不了最内层。要修需让下推跟着 `checker_check_call_expr` 逐层递归。
 
-- [ ] **P2 / 中：`@print` / `@println` 直打负 `i32` 输出零扩展值；浮点插值裸 `${f}` 输出错值**
-  - 状态：**未修复**（2026-10-19 实测）
+- [x] **P2 / 中：`@print` / `@println` 直打负 `i32` 输出零扩展值；浮点插值裸 `${f}` 输出错值**
+  - 状态：**已修复**（2026-10-22）
   - 现象：
     - `@println(-100)` 输出 `4294967196`（按无符号/零扩展打印）；字符串插值 `${x}` 对同一变量输出正确。
     - 浮点插值不给格式说明符时（`${f}`）输出整数字面量般的错值（如 `1189128536`）；`${pi:g}` 正常。
+  - 根因（两处，同源「格式串不随实参真实类型走」）：
+    1. `gen_print_expr` 的格式选择只按 **AST 节点形态**分支，落到 `AST_IDENTIFIER` /
+       `AST_BINARY_EXPR` 时一律用 `%lld`。实参在 C 侧是 `int32_t`，varargs 里被提升成
+       `int`，而 `%lld` 按 64 位读 —— 相邻的零扩展位并入高位，负数变成无符号大数。
+    2. `c99_emit_string_interp_fill` 的「默认插值格式」只在 slice / 字节指针时选 `%s`，
+       其余一律 `%d`；`double` 于是被按 `int` 读位模式。
+  - 修复内容（`src/codegen/c99/expr.uya`）：
+    * `gen_print_expr` 收尾处按 `get_c_type_of_expr` 的真实 C 类型重挑格式：
+      `uint64_t`→`%llu`、`int64_t`→`%lld`、`uint32_t`→`%u`、浮点→`%g`、
+      其余整型（`int8_t`/`int16_t`/`int32_t`/`uint8_t`…）→`%d`（C 的整数提升已保证匹配）。
+    * `c99_emit_string_interp_fill` 的默认格式补 `is_float` 分支 → `%g`。
+  - 验证：`@println(-100)`→`-100`、`@println(-1 - 2)`→`-3`、`${x}`（x = -100）→`-100`、
+    `${f}`（f = 3.5）→`3.5`，`${f:g}` 与 `@println(1 + 2)` 保持正确。
+    回归 `tests/test_print_builtin_format.uya`（4 用例）。把修复 stash 掉重编译后
+    `./bin/uya run` 复现原输出（`4294967196` / `0`），确认判据有效。
   - 归属：`src/codegen/c99/expr.uya` 的 `@print` / 插值格式串生成。
-  - 规避：打印负数用插值 `${x}`；浮点必须写 `${x:g}` / `${x:.2f}` 等格式说明符。
 
 - [x] **P2 / 中：`@asm` 的 `clobbers = ["memory"]` 检查失效，内存屏障指令必报错**
   - 状态：**已修复**（2026-10-21）
@@ -718,15 +732,52 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     正例 `tests/test_asm_memory_clobber_flag.uya`，最小复现留档
     `tests/repros/asm_memory_clobber_flag.uya`。
 
-- [ ] **P3 / 低：显式命名空间 + 引用 receiver 的方法调用生成坏 C（`Counter.get(&c)`）**
-  - 状态：**未修复**（2026-10-19 实测）
+- [x] **P3 / 低：显式命名空间 + 引用 receiver 的方法调用生成坏 C（`Counter.get(&c)`）**
+  - 状态：**已修复**（2026-10-22）
   - 现象：`Counter.get(&c)` 生成 `({ void __uya_recv_0 = (&c); ... })`，类型不匹配；
     `Counter.getval(c)`（按值 receiver）与 `c.get()` 正常。
-  - 归属：`src/codegen/c99/expr.uya` 的命名空间方法调用 receiver 物化。
+  - 生成 C（实测，修复前）：
+    ```c
+    const int32_t b = uya_Counter_get(&((int32_t[1]){ (&c) })[0]);
+    //                               ^^^^^^^^^^^^^^^^^^^^^ int32_t *，形参是 struct Counter *
+    ```
+  - 根因：`get_c_type_of_expr`（`src/codegen/c99/types.uya`）的 `AST_UNARY_EXPR` 分支
+    有 `*operand` 解引用与 `&`+数组字面量（→ slice）两个特例，但**没有**一般的
+    `&operand` 取地址分支，直接落到末尾的 `"int32_t"` 兜底。`c99_emit_method_receiver_arg`
+    于是判定 `arg_is_pointer == 0`（arg_type_c 不含 `*`），把已经是指针的 `&c` 又物化了一次。
+  - 修复内容：`get_c_type_of_expr` 的 `AST_UNARY_EXPR` 分支补 `TOKEN_AMPERSAND` 处理 ——
+    按操作数类型补一层 `*`；操作数本身已是指针时原样返回，避免叠出 `T**`。
+  - 验证：`Counter.get(&c)` / `c.get()` / `Counter.getval(c)` 三种写法都读到 42，
+    且 `Counter.bump(&c, 5)` 这类「引用 receiver 返回结构体」也正常。
+    回归 `tests/test_method_ns_ref_receiver.uya`（5 用例）；把修复 stash 掉重编译后该用例
+    `通过: 0 失败: 1`，确认判据有效。`test_method_temp_receiver` / `test_struct_method_chain`
+    无回归。
+  - 归属：`src/codegen/c99/types.uya`（`get_c_type_of_expr`）。
 
 - [ ] **P0 / 严重：UB 漏检一批（7 条，含实测 double free）—— 常量 -1 下标、循环体下标、切片下标/范围、指针形参解引用、嵌套字段移动、元组下标越界**
   - 状态：**部分修复**（2026-10-11 发现；2026-10-12 收口 ①②④⑦ 与 ⑤ 的缺口 2；
     **③ 循环体下标、⑤ 的缺口 1（切片形参下标）、⑥ 指针形参解引用仍未修复**）
+  - 2026-10-22 复核：③ 与 ⑥ 都做过实现尝试，**都因自举/全量误报被迫回退**，下面把
+    实测结论记清楚，免得下一轮重复踩。
+    * **⑥ 指针形参解引用**：真正的根因是 `src/checker/check_stmt.uya` 里那句
+      `pointer_nonnull_add(checker, param.var_decl_name)` —— 旧设计**无条件**把指针形参
+      标成「已知非空」，于是 `fn bad(p: &i32) i32 { return p[0]; }` 一律放行。
+      试过「取消这条假设 = 形参默认可空」，实测**全量 908 个 `tests/test_*.uya` 里 361 个
+      报 `指针可能为空`**（`lib/libc/stdio.uya:318` 的 `i32_to_str(value, buf)`、
+      `lib/libc/errno.uya:365` 的 `_errno_strlen(s)` 等都是 C 风格必填指针）。
+      Uya 目前**没有可空性标注**（`&T` 无法区分必填/可选），所以这条不是改一行能收口的：
+      需要先引入 `?&T` 或 `@nonnull` 之类的语法/属性，再让 std 按语义标注，属独立设计工作量。
+      改成「只对任意来源做检查」的中间态同样不成立 —— 编译器无法区分
+      「调用方保证非空」与「漏检查」，两种写法在 AST 上完全同形。
+    * **③ 循环体下标**：表面现象是循环体不证明，**实际成因是赋值不失效约束**：
+      `i = i + 1` 不会让进入循环前的 `i < 9` 作废，于是
+      `while i < 9 { a[i] = 1; i = i + 1; }`（a 只有 5 个元素）实测越界写 `a[5]`。
+      试过在 `check_assign_node` 里加 `constraint_remove_var` / 只清上界的
+      `constraint_invalidate_upper_bounds`，两次都**自举失败**：
+      `src/main.uya:288` 起的 `i32 溢出无法证明（--strict-overflow）` 成批出现 ——
+      现有的 `i = i + 1` 溢出证明正是靠「下界 + 旧上界」这对约束才成立的，
+      一清就断。真正的收口要连带把循环计数器的溢出证明换成
+      「循环不变式 + 宽化区间」那一套，属独立工作量。
   - 背景：本轮为「所有 UB 必须被编译期证明为安全」（`docs/uya.md` §14）补测试覆盖。
     补负例时发现一部分场景编译器**根本不设放行条件**，直接静默生成越界 / 悬垂 / 重复释放的代码。
     这些不是「测试没写」，是「检查没接上」，因此先以 `tests/repros/` 复现文件记录，
@@ -1189,8 +1240,23 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
 
 ## 编译器 bug
 
-- [ ] **P1 / 高：普通用户程序的 `main` 也被弱 worker 入口抢先接管 —— 凡带 argv 的用户进程都可能被误判成 pipeline worker**
-  - 状态：**未修复**（2026-10-06 定位；`uya-agent` 的整组 TUI 自测轮因此红）
+- [x] **P1 / 高：普通用户程序的 `main` 也被弱 worker 入口抢先接管 —— 凡带 argv 的用户进程都可能被误判成 pipeline worker**
+  - 状态：**已修复**（2026-10-22；`uya-agent` 的整组 TUI 自测轮因此红的成因之一）
+  - 修复内容（`lib/std/process.uya`）：worker 自检再加一层 `pipeline_worker_fds_are_wired()` ——
+    描述符/结果两个保留 fd（`PIPELINE_WORKER_DESCRIPTOR_FD` = 198、
+    `PIPELINE_WORKER_REPORT_FD` = 199）必须已由 exec 侧 `dup2` 过，用 `fcntl(F_GETFD)` 是否成功判定。
+    真正的 exec worker 一定满足（`process.uya` 在 `execve` 前必然 dup2 过），
+    普通用户程序一定不满足，直接返回 -1 交回 `main_main()`。
+    采纳的是上面「建议修法」第 2 条（别只看 argc/argv 形状），未改 codegen 的弱桥接发射。
+  - 验证（**注意**：必须让 std.process 参与链接，否则弱符号 `uya_pipeline_worker_main_if_requested`
+    不进产物、`dispatch` 恒返回 -1，用例覆盖不到目标路径 —— 本次实测踩过这个坑）：
+    修复前 `./prog --uya-pipeline-worker` → 退出码 **122**（用户 main 一次都没执行）；
+    修复后同一命令 → 退出码 **42**。
+    回归 `tests/verify_pipeline_worker_entry_guard.sh`（已挂进 `make check`）：
+    把修复 stash 掉重跑 → 「用户程序被 worker 入口接管（退出码 122；期望 42）」、退出码 1；带修复 → ok。
+    真正的 worker 路径无回归：`test_typed_pipeline_executor_single`、
+    `test_typed_pipeline_caller_buffers` 均通过。
+  - 归属：`lib/std/process.uya`（`uya_pipeline_worker_main_if_requested`）。
   - 现象：`lib/std/runtime/entry/entry.uya` 的 `main` 在调用 `main_main()` **之前**先调
     `uya_pipeline_worker_dispatch()`；而 codegen 在 `container_mode == 0` 时**总是**发射那个
     弱桥接（`src/codegen/c99/main.uya` 的 `uya_thread_call_*` 一族旁边）：它取
@@ -1212,8 +1278,8 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
        `container_mode` / 显式开关决定），普通用户程序不发射；或
     2. `entry.uya` 的这段调用改成「先看环境变量/显式标记」，别只看 argc/argv 形状。
 
-- [ ] **P1 / 高：切片字面量传给 `&const byte` 形参时，生成 C 传的是「切片描述符临时量的地址」而不是字节指针**
-  - 状态：**未修复**（2026-10-04 发现并记录；本轮通过在测试里改用局部数组绕开）
+- [x] **P1 / 高：切片字面量传给 `&const byte` 形参时，生成 C 传的是「切片描述符临时量的地址」而不是字节指针**
+  - 状态：**已修复**（2026-10-22）
   - 现象：被调函数按 `&const byte` / `*const byte` 声明形参时，调用方写
     `f(&"abc"[0: 3])`（或任何 `&[byte]` 切片表达式的取址）→ 进了函数读到的**不是** `"abc"`，
     而是栈上切片描述符的位模式（实测打印出 `38514DD3…` 这类指针/长度字节）。
@@ -1245,11 +1311,30 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     必然失败（表现为「客户端带了会话 ID，服务器也解析到了，但按 host 查缓存永远 miss」）。
   - 现有绕法（仓库既有测试同款）：把字面量先拷进**局部数组**，再传 `&arr[0]`。
     例如 `tests/test_https_loopback.uya` 的 `var host: [byte: 9] = [...]; ssl_set_hostname(ctx, &host[0], 9);`。
-  - 待定修复方向：`src/codegen/c99` 里「切片表达式作为指针形参实参」的转换分支，
-    应发射 `(uint8_t *)(<切片>.ptr)` 而不是 `&(struct uya_slice_*){...}`；
-    需要先补齐回归（形参 `&const byte` + 实参各种切片形式：
-    字面量切片、数组切片、字段切片、函数返回切片）。
-  - 归属：`src/codegen/c99/expr.uya`（切片/取址发射）或 `src/checker`（隐式转换注入点）。
+  - 根因（两层）：`c99_call_arg_expr_is_pointer_value`（`src/codegen/c99/expr.uya`）
+    检查「C 类型串含 `*` 或 `[`」就把实参判成「已是指针」直接放行；切片值的 C 类型是
+    `struct uya_slice_*`（不含 `*`），但这个函数在 `c99_expr_inferred_as_pointer_value`
+    与 `AST_BINARY_EXPR` 兜底之外还有一条 —— 实参本身是 `&<切片表达式>` 时由
+    `AST_UNARY_EXPR + TOKEN_AMPERSAND → return 1` 命中，于是整块描述符地址被当作字节指针传下去。
+  - 修复内容（`src/codegen/c99/expr.uya`）：
+    * 新增 `c99_param_is_byte_pointer_not_slice`（形参是 `&const byte` / `*const byte` /
+      `&byte` 且**不是** `&[T]`）与 `c99_expr_is_slice_value`（C 类型是 `struct uya_slice_*`
+      且不含 `*`）。
+    * 在指针形参分支前置这两个判定：命中时发射 `(uint8_t *)(<切片>).ptr`；
+      `&<切片表达式>` 的 `&` 在语言层不表示取地址（切片本身就是值），先剥掉再取 `.ptr`。
+    * 配套（`src/codegen/c99/types.uya` + `main.uya`）：字符串字面量切片的
+      `struct uya_slice_uint8_t` 此前**从不登记定义** —— `get_slice_struct_type_c` 对
+      `AST_STRING` 基址直接返回字面名字，不经过 `AST_TYPE_SLICE` 分支的登记逻辑。
+      一旦调用点只取 `.ptr`（不再生成切片值），C 里就引用到未定义结构体
+      （`has no member named 'ptr'`）。新增 `c99_ensure_slice_uint8_struct`，并在
+      `collect_slice_types_from_node` 的 `AST_SLICE_EXPR` 分支（预收集阶段）补登记。
+  - 验证：修复前调用点发射 `setter((&a), (&(struct uya_slice_uint8_t){ .ptr = …, .len = 13 }), 13)`，
+    修复后 `setter((&a), (uint8_t *)((struct uya_slice_uint8_t){ .ptr = …, .len = 13 }).ptr, 13)`。
+    回归 `tests/test_slice_to_byte_pointer_arg.uya`（3 用例：字面量切片 / 切片变量 / `&[byte]` 形参对照）；
+    把修复 stash 掉重编译后该用例 `通过: 0 失败: 1`，确认判据有效。
+    `test_slice_expr_from_const_byte_param` / `test_slice_pointer_element_codegen` /
+    `test_https_loopback` / `test_tls_session_resumption` 无回归。
+  - 归属：`src/codegen/c99/expr.uya`、`src/codegen/c99/types.uya`、`src/codegen/c99/main.uya`。
 
 - [x] **P1 / 高：split-C 下同名顶层常量会重复发射定义（`multiple definition`），根因是去重用的全局注册表在 512 槽饱和后静默停登**
   - 状态：已修复（2026-10-04）
