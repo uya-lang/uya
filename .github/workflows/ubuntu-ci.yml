@@ -9,11 +9,60 @@ on:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    # 固定镜像而不是 ubuntu-latest：`ubuntu-latest` 自 2026-10-19 起迁移到 Ubuntu 26，
+    # 迁移期同一份提交会落到不同镜像/不同 gcc 上，release 闸门因此变得不可复现
+    # （runner 重建时还会给整个进程组发 SIGTERM，见下面 exit code 143 的说明）。
+    runs-on: ubuntu-24.04
+    # 4 核 runner 上完整 release 约 20 分钟。显式给上限：真卡死时得到一条明确的
+    # 超时错误，而不是默认的 6 小时。
+    timeout-minutes: 90
 
     steps:
     - uses: actions/checkout@v4
+
     - name: release
-      run: make release
+      shell: bash
+      run: |
+        # `make release` = clean 冷启动 → make uya → make b 自举对比 → make check
+        # （1185 个单文件用例 + 各专项闸门 + microapp 聚合套件）→ 刷新单文件种子
+        # → -O3 重链 + strip。
+        #
+        # 退出码 143 = 128 + SIGTERM(15)：GitHub 回收/取消 runner 时会给整个进程组
+        # 发 SIGTERM，make 随之退出 143，日志里只剩一行 `*** [check] Terminated`。
+        # 那**不是**构建或测试失败（真正的失败 make 以 2 退出），但也拿不到任何线索。
+        # 这里显式区分这两种情况，并把完整日志落盘上传。
+        trap 'echo "::error::release 被 SIGTERM 终止（进程组被外部终止：多为 runner 被回收/取消，而非构建失败）；请 Re-run jobs"; exit 143' TERM
+        trap 'echo "::error::release 被 SIGINT 终止"; exit 130' INT
+
+        set +e
+        make release 2>&1 | tee "${RUNNER_TEMP}/release.log"
+        code=${PIPESTATUS[0]}
+        set -e
+
+        case "$code" in
+          0) ;;
+          130|137|143)
+            echo "::error::release 被信号终止（exit ${code} = 128 + $((code - 128))）：进程组被外部终止，多为 runner 被回收/取消，构建与测试本身没有失败；完整日志见 artifact ubuntu-ci-logs，请 Re-run jobs"
+            ;;
+          *)
+            echo "::error::release 失败（exit ${code}），完整日志见 artifact ubuntu-ci-logs"
+            ;;
+        esac
+        exit "$code"
+
     - name: run microapp suite
       run: make microapp-check
+
+    - name: upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ubuntu-ci-logs
+        # release.log：完整 stdout/stderr（make release 内部把 1185 个用例的输出
+        # 重定向到 /tmp，只有落盘后才看得到）。
+        # build/uya_check_output.txt：make check 失败时保留的完整单文件测试日志。
+        path: |
+          ${{ runner.temp }}/release.log
+          build/uya_check_output.txt
+        if-no-files-found: ignore
+        retention-days: 7
