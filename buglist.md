@@ -1,6 +1,11 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-23（**本轮修掉 1 条**：跟踪的自举种子再次陈旧 —— 冷启动后的 `make uya`
+**最后更新：** 2026-10-23（**本轮修掉 2 条**：① P0 macOS hosted 目标的生成 C 编译不过 ——
+`struct timeval`/`struct sigaction`/`signal`/`sa_handler` 与 Darwin 系统头的同名撞车、
+`__attribute__((weak))` 在 Mach-O 上不成立（可选符号改走 dlsym）、
+`libc.signal` 整族 Linux syscall 号与信号编号表；两套 macOS 架构现已能交叉编译并链接，
+Linux 侧行为未变。② 跟踪的自举种子陈旧导致冷启动后的 `make uya` 解析不了 `-|`；
+已刷新 `backup/*.c` 全部种子，详见"编译器 bug"前两条。此前：2026-10-23（**本轮修掉 1 条**：跟踪的自举种子再次陈旧 —— 冷启动后的 `make uya`
 解析不了 `-|`（种子里缺 `parser_peek_is_generic_args` 前瞻），`make clean && make from-c &&
 make uya` 断在第二步；已刷新 `backup/*.c` 全部种子并跑通该链条、`make b` 与 `make backup-all`，
 详见"编译器 bug"首条。此前：2026-10-21（**本轮修掉 3 条**：① P1 负 `start` 切片 —— `check_slice_bounds`
@@ -353,6 +358,72 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [x] **P0 / 严重：macOS hosted 目标的生成 C 根本编译不过（7 个错误），种子家族因此一直无法刷新**
+  - 状态：**已修复**（2026-10-23）
+  - 现象：`make backup-hosted-seed` 交叉编译 macOS 种子时 `✗ 链接失败`，
+    `zig cc -target x86_64-macos-none` 报：
+    ```
+    error: redefinition of 'timeval'
+    error: redefinition of 'sigaction'
+    error: expected ';' at end of declaration list
+    error: conflicting types for 'signal'        （声明点与定义点各一条）
+    error: field designator 'sa_restorer' does not refer to any field in type 'struct sigaction'  （两条）
+    ```
+    这不是「种子陈旧」的连带现象：`git show 8a25aa6:backup/uya-hosted-macos-x86_64.c`
+    用同一个命令编译复现出**完全相同**的 7 条错误，说明 macOS hosted 冷启动从
+    SA_RESTORER 那次改动（2026-10-03）起就一直是断的，只是 `make check` 走 Linux 看不到。
+  - 根因（三处，都在「Darwin 与 Linux 的宿主 ABI 假设」这一层）：
+    1. **同名类型撞车**：Darwin 的 `<stdlib.h>` 会经 `<sys/wait.h>` 间接带入
+       `<sys/signal.h>` 与 `<sys/_types/_timeval.h>`。而 `lib/libc/signal.uya` 的
+       `struct sigaction`、`lib/libc/time.uya` 的 `struct timeval` 与 `gettimeofday()`、
+       `lib/libc/signal.uya` 的 `signal()` 都用裸 C 名发射，于是与系统声明正面冲突；
+       `sa_handler` 在 Darwin 还是宏（`__sigaction_u.__sa_handler`），会把 uya 结构体
+       字段名展开成垃圾，连带 `sa_restorer` 那条报错。Linux 之所以没事，纯粹是因为
+       那四个系统头在 Linux 的 `<stdlib.h>` 里没有被带进来。
+    2. **可选符号语义**：`uya_pipeline_worker_dispatch()` 用
+       `__attribute__((weak))` 引用可缺失的 `uya_pipeline_worker_main_if_requested`
+       （该函数只在程序用了 `std.process` 时才存在）。ELF 的 weak 未定义引用解析为 0，
+       Mach-O 不是：`weak` 只表示「弱定义」，`weak_import` 对可执行文件同样不够
+       （实测仍报 `undefined symbol`），于是 macOS 链接期直接失败。
+    3. **syscall 语义**：`lib/libc/signal.uya` 整族用 Linux syscall 号
+       （`rt_sigaction`=13、`tgkill`=234、`kill`=62、`SYS_alarm`=37、`SYS_pause`=34）
+       与 Linux 的信号编号表，而 Darwin 没有 `rt_sigaction` 这一族、信号编号也大面积不同
+       （`SIGBUS` 7/10、`SIGUSR1` 10/30、`SIGCHLD` 17/20、`SIGSTOP` 19/17、
+       `SIG_BLOCK` 0/1、`NSIG` 65/32）。
+  - 修复内容：
+    - `src/codegen/c99/main.uya`：新增
+      `c99_emit_darwin_host_name_hide_begin/_end`，沿用既有 `stat` bridge 的
+      「include 前改名占位、include 后 `#undef`」手法，把 `sigaction`、`signal`、
+      `timeval`、`gettimeofday` 四个宿主名藏起来，并在每次 include 之后
+      `#undef sa_handler` / `sa_sigaction`。`UYA_TARGET_MACOS` 提前到首个 `#include`
+      之前定义（原先在 `#include <stdlib.h>` 之后，交叉生成时隐藏窗口根本不会生效）。
+    - `src/codegen/c99/main.uya`：`uya_pipeline_worker_dispatch` 在 Darwin 分支改用
+      dlsym 解析（与 `uya_macos_getpid`/`kqueue` 同一手法），符号缺失返回 -1，语义与
+      ELF 的 weak 一致。注意用的是 `(void *)-2`：Darwin 上它是 `RTLD_DEFAULT`，而
+      `(void *)-1` 是 `RTLD_NEXT`（会跳过主程序自身，找不到用户程序里的定义）；
+      Linux 宿主交叉生成时仍走 `#else` 的 ELF weak 分支。
+    - `src/codegen/c99/main.uya`：新增 8 个 Darwin 宿主绑定
+      `uya_macos_{signal,raise,kill,sigprocmask,sigpending,sigsuspend,alarm,pause}`，
+      内部 dlsym 到 libSystem 同名入口。
+    - `lib/libc/signal.uya`：信号常量按目标 OS 分两张表（Darwin 一侧逐项对齐
+      `any-darwin-any/sys/signal.h`，含 `NSIG=32` 与 `SIG_BLOCK=1`）；8 个 syscall
+      实现的函数加 `std.cfg(std.target_os == .tos_macos, ...)` 分支走宿主绑定。
+    - 顺带记录：`struct sigset_t` 在 uya 侧是 64 位位图、Darwin 侧是 32 位，
+      传给宿主只用低 32 位（与 Darwin `NSIG=32` 对齐，高位恒 0）。
+  - 验证状态：`zig cc -target x86_64-macos-none` 与 `-target aarch64-macos-none`
+    两套 hosted 单文件目标均**编译并链接成功**（`make backup-hosted-seed` 不再报
+    `✗ 链接失败`），生成的 macOS C 里 `libc_SIGBUS=10`、`libc_SIGUSR1=30`、
+    `libc_SIGCHLD=20`、`libc_NSIG=32` 已切到 Darwin 值；
+    Linux 侧 `make b` 自举对比字节一致、`make check` **1177/0**、
+    `./bin/uya test tests/test_signal.uya` 24 断言通过（Linux 行为未变）。
+  - 归属：`src/codegen/c99/main.uya`、`lib/libc/signal.uya`。
+  - 已知边界（**未**在本轮修复，均是 macOS 侧尚无条件实测的部分）：
+    `lib/libc/time.uya` 的 `struct timeval` 是 `{i64 tv_sec, i64 tv_usec}`，而 Darwin 的
+    `tv_usec` 是 32 位；因为仓库内所有构造点都先零初始化、内核只写低 32 位，
+    读 `tv_usec` 仍然正确，但这是隐式约定，不是类型保证。
+    `lib/libc/pthread.uya` 里另有一份同名 `struct timeval`（与 `time.uya` 重复，
+    靠 codegen 去重只剩一份），同样受该约定约束。
 
 - [x] **P0 / 严重：跟踪的自举种子再次陈旧，冷启动后的 `make uya` 解析不了 `-|`（`make from-c` 链条断在第二步）**
   - 状态：**已修复**（2026-10-23）

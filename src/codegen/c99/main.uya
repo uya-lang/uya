@@ -2152,6 +2152,52 @@ fn c99_emit_host_symbol_decl(codegen: &C99CodeGenerator, macos_decl: &byte, posi
     }
 }
 
+/// 发射 Darwin 宿主头文件「同名隐藏」窗口的开头。
+///
+/// Darwin 的 `<stdlib.h>` 会经 `<sys/wait.h>` 间接带入 `<sys/signal.h>` 与
+/// `<sys/_types/_timeval.h>`，于是 `lib/libc/signal.uya` 的 `struct sigaction`
+/// 与 `signal()`、`lib/libc/time.uya` 的 `struct timeval` 与 `gettimeofday()`
+/// 和系统声明正面撞车（`redefinition` / `conflicting types`；`sa_handler` 在
+/// Darwin 还是宏，会把 uya 结构体字段名展开成垃圾）。这里沿用 `stat` bridge 的
+/// 既有手法：include 前把宿主名改成占位名，include 后立刻 `#undef`，让 uya 自己
+/// 的声明成为唯一的定义。
+///
+/// 参数说明：`codegen` —— 代码生成器，持有输出流；不得为 null。
+/// 返回值说明：无返回值；`codegen` 为 null 时不做任何事。
+fn c99_emit_darwin_host_name_hide_begin(codegen: &C99CodeGenerator) void {
+    if codegen == null {
+        return;
+    }
+    fputs("#if defined(__APPLE__) || defined(UYA_TARGET_MACOS)\n" as *byte, codegen.emit_stream as *void);
+    fputs("#define sigaction uya_darwin_host_sigaction_tag\n" as *byte, codegen.emit_stream as *void);
+    fputs("#define signal uya_darwin_host_signal_fn\n" as *byte, codegen.emit_stream as *void);
+    fputs("#define timeval uya_darwin_host_timeval_tag\n" as *byte, codegen.emit_stream as *void);
+    fputs("#define gettimeofday uya_darwin_host_gettimeofday_fn\n" as *byte, codegen.emit_stream as *void);
+    fputs("#endif\n" as *byte, codegen.emit_stream as *void);
+}
+
+/// 发射 Darwin 宿主头文件「同名隐藏」窗口的收尾。
+///
+/// 与 `c99_emit_darwin_host_name_hide_begin` 配对：撤销占位 `#define`，并顺带
+/// 撤销 Darwin `<sys/signal.h>` 里 `sa_handler` / `sa_sigaction` 这两个「把字段名
+/// 变成宏」的陷阱（它们会污染 uya 自己 `struct sigaction` 的字段声明）。
+///
+/// 参数说明：`codegen` —— 代码生成器，持有输出流；不得为 null。
+/// 返回值说明：无返回值；`codegen` 为 null 时不做任何事。
+fn c99_emit_darwin_host_name_hide_end(codegen: &C99CodeGenerator) void {
+    if codegen == null {
+        return;
+    }
+    fputs("#if defined(__APPLE__) || defined(UYA_TARGET_MACOS)\n" as *byte, codegen.emit_stream as *void);
+    fputs("#undef sigaction\n" as *byte, codegen.emit_stream as *void);
+    fputs("#undef signal\n" as *byte, codegen.emit_stream as *void);
+    fputs("#undef timeval\n" as *byte, codegen.emit_stream as *void);
+    fputs("#undef gettimeofday\n" as *byte, codegen.emit_stream as *void);
+    fputs("#ifdef sa_handler\n#undef sa_handler\n#endif\n" as *byte, codegen.emit_stream as *void);
+    fputs("#ifdef sa_sigaction\n#undef sa_sigaction\n#endif\n" as *byte, codegen.emit_stream as *void);
+    fputs("#endif\n" as *byte, codegen.emit_stream as *void);
+}
+
 fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_file: &byte) i32 {
     if codegen == null || input_ast == null || output_file == null {
         return -1;
@@ -2374,6 +2420,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n" as *byte, codegen.emit_stream as *void);
         fputs("#endif\n" as *byte, codegen.emit_stream as *void);
         c99_emit_newline(codegen);
+        // 交叉生成（宿主非 macOS、目标 macOS）时宿主预处理器不认识 __APPLE__，
+        // 所以要在**首个 include 之前**把 UYA_TARGET_MACOS 定下来：后面的
+        // Darwin 同名隐藏窗口与 stat bridge 都以它为开关。
+        if target_os_is_macos != 0 {
+            fputs("#ifndef UYA_TARGET_MACOS\n#define UYA_TARGET_MACOS 1\n#endif\n" as *byte, codegen.emit_stream as *void);
+        }
         if codegen.freestanding == 0 {
             fputs("#include <stddef.h>\n" as *byte, codegen.emit_stream as *void);
         }
@@ -2515,7 +2567,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         }
         // 如果使用了 stdlib 函数（exit, malloc, free 等）且没有冲突，包含 <stdlib.h>
         if codegen.freestanding == 0 && codegen.needs_stdlib_h != 0 && has_stdlib_conflicts == 0 && is_bootstrap == 0 {
+            // Darwin 的 <stdlib.h> 会间接带入 <sys/signal.h> 与 _timeval.h，
+            // 与 libc.signal / libc.time 的同名宿主类型撞车，见 hide_begin 的说明。
+            c99_emit_darwin_host_name_hide_begin(codegen);
             fputs("#include <stdlib.h>\n" as *byte, codegen.emit_stream as *void);
+            c99_emit_darwin_host_name_hide_end(codegen);
         }
         // 如果使用了 stdio 函数（printf, fprintf 等）且没有冲突，包含 <stdio.h>
         if codegen.freestanding == 0 && codegen.needs_stdio_h != 0 && codegen.has_stdio_conflicts == 0 && is_bootstrap == 0 {
@@ -2956,9 +3012,8 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     // 条件必须同时覆盖「宿主是 macOS」（__APPLE__）与「目标是 macOS 而宿主不是」（UYA_TARGET_MACOS）：
     // 后者是交叉生成场景，宿主预处理器不认识 __APPLE__，若不补这一条，整块（含全部包装定义）
     // 会被裁掉，而调用点仍在，于是退化为隐式声明并报 invalid initializer。
-    if target_os_is_macos != 0 {
-        fputs("#define UYA_TARGET_MACOS 1\n" as *byte, codegen.emit_stream as *void);
-    }
+    // UYA_TARGET_MACOS 已在首个 #include 之前定义（见 c99_emit_darwin_host_name_hide_begin
+    // 的调用点），这里不再重复 #define，避免跨编译单元出现重复定义。
     fputs("#if defined(__APPLE__) || defined(UYA_TARGET_MACOS)\n" as *byte, codegen.emit_stream as *void);
     fputs("#define stat uya_macos_native_stat_call\n" as *byte, codegen.emit_stream as *void);
     fputs("#define fstat uya_macos_native_fstat_call\n" as *byte, codegen.emit_stream as *void);
@@ -2997,6 +3052,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("#ifdef S_IROTH\n#undef S_IROTH\n#endif\n" as *byte, codegen.emit_stream as *void);
     fputs("#ifdef S_IWOTH\n#undef S_IWOTH\n#endif\n" as *byte, codegen.emit_stream as *void);
     fputs("#ifdef S_IXOTH\n#undef S_IXOTH\n#endif\n" as *byte, codegen.emit_stream as *void);
+    // <sys/stat.h> 之后再把 signal 的字段宏挡一遍：虽然 <sys/signal.h> 有 include guard、
+    // 正常不会二次展开，但把「字段名被宏污染」这件事钉在每次 include 之后，
+    // 避免将来换头文件/换 SDK 时 struct sigaction 的字段名又被展开成垃圾。
+    fputs("#ifdef sa_handler\n#undef sa_handler\n#endif\n" as *byte, codegen.emit_stream as *void);
+    fputs("#ifdef sa_sigaction\n#undef sa_sigaction\n#endif\n" as *byte, codegen.emit_stream as *void);
     fputs("extern void *dlsym(void *, const char *);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_stat_fn)(const char *, struct uya_macos_native_stat_call *);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef intptr_t (*uya_macos_readlink_fn)(const char *, char *, size_t);\n" as *byte, codegen.emit_stream as *void);
@@ -3007,6 +3067,16 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("typedef char *(*uya_macos_getcwd_fn)(char *, size_t);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_dup2_fn)(int, int);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_pipe_fn)(int *);\n" as *byte, codegen.emit_stream as *void);
+    // libc.signal 的宿主绑定：Darwin 没有 rt_sigaction/rt_sigprocmask 这一族 syscall，
+    // struct sigaction 布局也与 Linux 不同，所以 macOS 下整族改走 libSystem。
+    fputs("typedef void *(*uya_macos_signal_fn)(int, void *);\n" as *byte, codegen.emit_stream as *void);
+    fputs("typedef int (*uya_macos_sig_i_fn)(int);\n" as *byte, codegen.emit_stream as *void);
+    fputs("typedef int (*uya_macos_sig_ii_fn)(int, int);\n" as *byte, codegen.emit_stream as *void);
+    fputs("typedef int (*uya_macos_sig_sets_fn)(int, const void *, void *);\n" as *byte, codegen.emit_stream as *void);
+    fputs("typedef int (*uya_macos_sig_one_set_fn)(void *);\n" as *byte, codegen.emit_stream as *void);
+    fputs("typedef int (*uya_macos_sig_const_set_fn)(const void *);\n" as *byte, codegen.emit_stream as *void);
+    fputs("typedef unsigned int (*uya_macos_alarm_fn)(unsigned int);\n" as *byte, codegen.emit_stream as *void);
+    fputs("typedef int (*uya_macos_pause_fn)(void);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef void *(*uya_macos_opendir_fn)(const char *);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef void *(*uya_macos_readdir_fn)(void *);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_closedir_fn)(void *);\n" as *byte, codegen.emit_stream as *void);
@@ -3384,6 +3454,58 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    if (real_exit == (uya_macos_exit_fn)0) real_exit = (uya_macos_exit_fn)dlsym((void *)-1, \"_exit\");\n" as *byte, codegen.emit_stream as *void);
     fputs("    if (real_exit != (uya_macos_exit_fn)0) real_exit((int)status);\n" as *byte, codegen.emit_stream as *void);
     fputs("    __builtin_trap();\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    // libc.signal 的 Darwin 宿主绑定。
+    // Linux 侧这套 API 走 rt_sigaction/rt_sigprocmask 等 syscall，并依赖 SA_RESTORER 与
+    // Linux 的 struct sigaction 布局；Darwin 既没有这些 syscall，arm64 上也不支持裸 svc 直调，
+    // 所以 macOS 分支整族改调 libSystem 同名入口（ABI 均为 int/指针参数、int/指针返回）。
+    fputs("static void *uya_macos_signal(int32_t signum, void *handler) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_signal_fn real_signal = (uya_macos_signal_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_signal == (uya_macos_signal_fn)0) real_signal = (uya_macos_signal_fn)dlsym((void *)-1, \"signal\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_signal == (uya_macos_signal_fn)0) return (void *)-1;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return real_signal((int)signum, handler);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static int32_t uya_macos_raise(int32_t signum) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_sig_i_fn real_raise = (uya_macos_sig_i_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_raise == (uya_macos_sig_i_fn)0) real_raise = (uya_macos_sig_i_fn)dlsym((void *)-1, \"raise\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_raise == (uya_macos_sig_i_fn)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (int32_t)real_raise((int)signum);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static int32_t uya_macos_kill(int32_t pid, int32_t signum) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_sig_ii_fn real_kill = (uya_macos_sig_ii_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_kill == (uya_macos_sig_ii_fn)0) real_kill = (uya_macos_sig_ii_fn)dlsym((void *)-1, \"kill\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_kill == (uya_macos_sig_ii_fn)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (int32_t)real_kill((int)pid, (int)signum);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static int32_t uya_macos_sigprocmask(int32_t how, int64_t set, int64_t oldset) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_sig_sets_fn real_sigprocmask = (uya_macos_sig_sets_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_sigprocmask == (uya_macos_sig_sets_fn)0) real_sigprocmask = (uya_macos_sig_sets_fn)dlsym((void *)-1, \"sigprocmask\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_sigprocmask == (uya_macos_sig_sets_fn)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (int32_t)real_sigprocmask((int)how, (const void *)set, (void *)oldset);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static int32_t uya_macos_sigpending(int64_t set) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_sig_one_set_fn real_sigpending = (uya_macos_sig_one_set_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_sigpending == (uya_macos_sig_one_set_fn)0) real_sigpending = (uya_macos_sig_one_set_fn)dlsym((void *)-1, \"sigpending\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_sigpending == (uya_macos_sig_one_set_fn)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (int32_t)real_sigpending((void *)set);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static int32_t uya_macos_sigsuspend(int64_t mask) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_sig_const_set_fn real_sigsuspend = (uya_macos_sig_const_set_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_sigsuspend == (uya_macos_sig_const_set_fn)0) real_sigsuspend = (uya_macos_sig_const_set_fn)dlsym((void *)-1, \"sigsuspend\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_sigsuspend == (uya_macos_sig_const_set_fn)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (int32_t)real_sigsuspend((const void *)mask);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static uint32_t uya_macos_alarm(uint32_t seconds) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_alarm_fn real_alarm = (uya_macos_alarm_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_alarm == (uya_macos_alarm_fn)0) real_alarm = (uya_macos_alarm_fn)dlsym((void *)-1, \"alarm\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_alarm == (uya_macos_alarm_fn)0) return 0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (uint32_t)real_alarm((unsigned int)seconds);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static int32_t uya_macos_pause(void) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_pause_fn real_pause = (uya_macos_pause_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_pause == (uya_macos_pause_fn)0) real_pause = (uya_macos_pause_fn)dlsym((void *)-1, \"pause\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_pause == (uya_macos_pause_fn)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (int32_t)real_pause();\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n" as *byte, codegen.emit_stream as *void);
     fputs("static void *uya_macos_host_opendir(const char *path) {\n" as *byte, codegen.emit_stream as *void);
     fputs("    static uya_macos_opendir_fn real_opendir = (uya_macos_opendir_fn)0;\n" as *byte, codegen.emit_stream as *void);
@@ -4946,11 +5068,32 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
             fputs("#else\n" as *byte, codegen.emit_stream as *void);
         }
         fputs("#if defined(__GNUC__) || defined(__clang__)\n" as *byte, codegen.emit_stream as *void);
+        // Mach-O 与 ELF 的可选符号语义不同：Darwin 上 __attribute__((weak)) 只表示
+        // 「弱定义」，未定义引用仍是硬错误（ld64 报 undefined symbol）；
+        // weak_import 对可执行文件同样不够（实测 zig cc -target *-macos-none 仍报
+        // undefined symbol），只有动态库才按“可缺失”处理。因此 Darwin 改用 dlsym：
+        // 与 uya_macos_getpid / kqueue 等既有宿主绑定同一手法，符号缺失时得 NULL，
+        // 语义与 ELF 的 weak 一致。注意 Darwin 的 RTLD_DEFAULT 是 (void *)-2，
+        // 而 (void *)-1 是 RTLD_NEXT（跳过主程序自身，找不到用户程序里的定义）。
+        fputs("#if defined(__APPLE__)\n" as *byte, codegen.emit_stream as *void);
+        fputs("typedef int32_t (*uya_pipeline_worker_fn)(void);\n" as *byte, codegen.emit_stream as *void);
+        fputs("int32_t uya_pipeline_worker_dispatch(void) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    static uya_pipeline_worker_fn real_fn = (uya_pipeline_worker_fn)0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    static int32_t looked_up = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (looked_up == 0) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        real_fn = (uya_pipeline_worker_fn)dlsym((void *)-2, \"uya_pipeline_worker_main_if_requested\");\n" as *byte, codegen.emit_stream as *void);
+        fputs("        looked_up = 1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (real_fn == (uya_pipeline_worker_fn)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return real_fn();\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("#else\n" as *byte, codegen.emit_stream as *void);
         fputs("extern int32_t uya_pipeline_worker_main_if_requested(void) __attribute__((weak));\n" as *byte, codegen.emit_stream as *void);
         fputs("int32_t uya_pipeline_worker_dispatch(void) {\n" as *byte, codegen.emit_stream as *void);
         fputs("    if (uya_pipeline_worker_main_if_requested == (void *)0) return -1;\n" as *byte, codegen.emit_stream as *void);
         fputs("    return uya_pipeline_worker_main_if_requested();\n" as *byte, codegen.emit_stream as *void);
         fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("#endif\n" as *byte, codegen.emit_stream as *void);
         fputs("#else\n" as *byte, codegen.emit_stream as *void);
         fputs("int32_t uya_pipeline_worker_dispatch(void) { return -1; }\n" as *byte, codegen.emit_stream as *void);
         fputs("#endif\n" as *byte, codegen.emit_stream as *void);

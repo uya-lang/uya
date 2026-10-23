@@ -271,6 +271,12 @@ static uint8_t *uya_error_name_from_id(uint32_t uya_error_id) {
 #ifdef S_IXOTH
 #undef S_IXOTH
 #endif
+#ifdef sa_handler
+#undef sa_handler
+#endif
+#ifdef sa_sigaction
+#undef sa_sigaction
+#endif
 extern void *dlsym(void *, const char *);
 typedef int (*uya_macos_stat_fn)(const char *, struct uya_macos_native_stat_call *);
 typedef intptr_t (*uya_macos_readlink_fn)(const char *, char *, size_t);
@@ -281,6 +287,14 @@ typedef int (*uya_macos_path_i_fn)(const char *);
 typedef char *(*uya_macos_getcwd_fn)(char *, size_t);
 typedef int (*uya_macos_dup2_fn)(int, int);
 typedef int (*uya_macos_pipe_fn)(int *);
+typedef void *(*uya_macos_signal_fn)(int, void *);
+typedef int (*uya_macos_sig_i_fn)(int);
+typedef int (*uya_macos_sig_ii_fn)(int, int);
+typedef int (*uya_macos_sig_sets_fn)(int, const void *, void *);
+typedef int (*uya_macos_sig_one_set_fn)(void *);
+typedef int (*uya_macos_sig_const_set_fn)(const void *);
+typedef unsigned int (*uya_macos_alarm_fn)(unsigned int);
+typedef int (*uya_macos_pause_fn)(void);
 typedef void *(*uya_macos_opendir_fn)(const char *);
 typedef void *(*uya_macos_readdir_fn)(void *);
 typedef int (*uya_macos_closedir_fn)(void *);
@@ -643,6 +657,54 @@ static void uya_macos_exit(int32_t status) {
     if (real_exit == (uya_macos_exit_fn)0) real_exit = (uya_macos_exit_fn)dlsym((void *)-1, "_exit");
     if (real_exit != (uya_macos_exit_fn)0) real_exit((int)status);
     __builtin_trap();
+}
+static void *uya_macos_signal(int32_t signum, void *handler) {
+    static uya_macos_signal_fn real_signal = (uya_macos_signal_fn)0;
+    if (real_signal == (uya_macos_signal_fn)0) real_signal = (uya_macos_signal_fn)dlsym((void *)-1, "signal");
+    if (real_signal == (uya_macos_signal_fn)0) return (void *)-1;
+    return real_signal((int)signum, handler);
+}
+static int32_t uya_macos_raise(int32_t signum) {
+    static uya_macos_sig_i_fn real_raise = (uya_macos_sig_i_fn)0;
+    if (real_raise == (uya_macos_sig_i_fn)0) real_raise = (uya_macos_sig_i_fn)dlsym((void *)-1, "raise");
+    if (real_raise == (uya_macos_sig_i_fn)0) return -1;
+    return (int32_t)real_raise((int)signum);
+}
+static int32_t uya_macos_kill(int32_t pid, int32_t signum) {
+    static uya_macos_sig_ii_fn real_kill = (uya_macos_sig_ii_fn)0;
+    if (real_kill == (uya_macos_sig_ii_fn)0) real_kill = (uya_macos_sig_ii_fn)dlsym((void *)-1, "kill");
+    if (real_kill == (uya_macos_sig_ii_fn)0) return -1;
+    return (int32_t)real_kill((int)pid, (int)signum);
+}
+static int32_t uya_macos_sigprocmask(int32_t how, int64_t set, int64_t oldset) {
+    static uya_macos_sig_sets_fn real_sigprocmask = (uya_macos_sig_sets_fn)0;
+    if (real_sigprocmask == (uya_macos_sig_sets_fn)0) real_sigprocmask = (uya_macos_sig_sets_fn)dlsym((void *)-1, "sigprocmask");
+    if (real_sigprocmask == (uya_macos_sig_sets_fn)0) return -1;
+    return (int32_t)real_sigprocmask((int)how, (const void *)set, (void *)oldset);
+}
+static int32_t uya_macos_sigpending(int64_t set) {
+    static uya_macos_sig_one_set_fn real_sigpending = (uya_macos_sig_one_set_fn)0;
+    if (real_sigpending == (uya_macos_sig_one_set_fn)0) real_sigpending = (uya_macos_sig_one_set_fn)dlsym((void *)-1, "sigpending");
+    if (real_sigpending == (uya_macos_sig_one_set_fn)0) return -1;
+    return (int32_t)real_sigpending((void *)set);
+}
+static int32_t uya_macos_sigsuspend(int64_t mask) {
+    static uya_macos_sig_const_set_fn real_sigsuspend = (uya_macos_sig_const_set_fn)0;
+    if (real_sigsuspend == (uya_macos_sig_const_set_fn)0) real_sigsuspend = (uya_macos_sig_const_set_fn)dlsym((void *)-1, "sigsuspend");
+    if (real_sigsuspend == (uya_macos_sig_const_set_fn)0) return -1;
+    return (int32_t)real_sigsuspend((const void *)mask);
+}
+static uint32_t uya_macos_alarm(uint32_t seconds) {
+    static uya_macos_alarm_fn real_alarm = (uya_macos_alarm_fn)0;
+    if (real_alarm == (uya_macos_alarm_fn)0) real_alarm = (uya_macos_alarm_fn)dlsym((void *)-1, "alarm");
+    if (real_alarm == (uya_macos_alarm_fn)0) return 0;
+    return (uint32_t)real_alarm((unsigned int)seconds);
+}
+static int32_t uya_macos_pause(void) {
+    static uya_macos_pause_fn real_pause = (uya_macos_pause_fn)0;
+    if (real_pause == (uya_macos_pause_fn)0) real_pause = (uya_macos_pause_fn)dlsym((void *)-1, "pause");
+    if (real_pause == (uya_macos_pause_fn)0) return -1;
+    return (int32_t)real_pause();
 }
 static void *uya_macos_host_opendir(const char *path) {
     static uya_macos_opendir_fn real_opendir = (uya_macos_opendir_fn)0;
@@ -8412,11 +8474,25 @@ size_t uya_thread_call_usize(void *fn, size_t arg) {
     return ((uya_thrd_fn_usz)fn)(arg);
 }
 #if defined(__GNUC__) || defined(__clang__)
+#if defined(__APPLE__)
+typedef int32_t (*uya_pipeline_worker_fn)(void);
+int32_t uya_pipeline_worker_dispatch(void) {
+    static uya_pipeline_worker_fn real_fn = (uya_pipeline_worker_fn)0;
+    static int32_t looked_up = 0;
+    if (looked_up == 0) {
+        real_fn = (uya_pipeline_worker_fn)dlsym((void *)-2, "uya_pipeline_worker_main_if_requested");
+        looked_up = 1;
+    }
+    if (real_fn == (uya_pipeline_worker_fn)0) return -1;
+    return real_fn();
+}
+#else
 extern int32_t uya_pipeline_worker_main_if_requested(void) __attribute__((weak));
 int32_t uya_pipeline_worker_dispatch(void) {
     if (uya_pipeline_worker_main_if_requested == (void *)0) return -1;
     return uya_pipeline_worker_main_if_requested();
 }
+#endif
 #else
 int32_t uya_pipeline_worker_dispatch(void) { return -1; }
 #endif
@@ -11272,6 +11348,8 @@ static __attribute__((used)) uint8_t * get_test_function_name(struct C99CodeGene
 static __attribute__((used)) void gen_test_function(struct C99CodeGenerator * codegen, struct ASTNode * test_stmt);
 static __attribute__((used)) void gen_test_runner(struct C99CodeGenerator * codegen, struct ASTNode * * tests, int32_t test_count);
 static __attribute__((used)) void c99_emit_host_symbol_decl(struct C99CodeGenerator * codegen, uint8_t * macos_decl, uint8_t * posix_decl);
+static __attribute__((used)) void c99_emit_darwin_host_name_hide_begin(struct C99CodeGenerator * codegen);
+static __attribute__((used)) void c99_emit_darwin_host_name_hide_end(struct C99CodeGenerator * codegen);
 static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerator * codegen, struct ASTNode * input_ast, uint8_t * output_file);
 static __attribute__((used)) void emit_async_frame_descriptor_type_defs(struct C99CodeGenerator * codegen);
 static __attribute__((used)) int32_t c99_program_uses_async_frame_runtime(struct C99CodeGenerator * codegen);
@@ -152469,6 +152547,34 @@ static __attribute__((used)) void c99_emit_host_symbol_decl(struct C99CodeGenera
     }
 }
 
+static __attribute__((used)) void c99_emit_darwin_host_name_hide_begin(struct C99CodeGenerator * codegen) {
+    (void)codegen;
+    if (codegen == NULL) {
+        return;
+    }
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#if defined(__APPLE__) || defined(UYA_TARGET_MACOS)\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define sigaction uya_darwin_host_sigaction_tag\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define signal uya_darwin_host_signal_fn\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define timeval uya_darwin_host_timeval_tag\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define gettimeofday uya_darwin_host_gettimeofday_fn\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str414, (void *)codegen->emit_stream)    );
+}
+
+static __attribute__((used)) void c99_emit_darwin_host_name_hide_end(struct C99CodeGenerator * codegen) {
+    (void)codegen;
+    if (codegen == NULL) {
+        return;
+    }
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#if defined(__APPLE__) || defined(UYA_TARGET_MACOS)\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef sigaction\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef signal\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef timeval\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef gettimeofday\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef sa_handler\n#undef sa_handler\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef sa_sigaction\n#undef sa_sigaction\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str414, (void *)codegen->emit_stream)    );
+}
+
 static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerator * codegen, struct ASTNode * input_ast, uint8_t * output_file) {
     (void)codegen;
     (void)input_ast;
@@ -152662,6 +152768,9 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str414, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
+        if (target_os_is_macos != 0) {
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifndef UYA_TARGET_MACOS\n#define UYA_TARGET_MACOS 1\n#endif\n", (void *)codegen->emit_stream)            );
+        }
         if (codegen->freestanding == 0) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <stddef.h>\n", (void *)codegen->emit_stream)            );
         }
@@ -152768,7 +152877,9 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             si = (si + 1);
         }
         if (((((codegen->freestanding == 0) && (codegen->needs_stdlib_h != 0)) && (has_stdlib_conflicts == 0)) && (is_bootstrap == 0))) {
+            (void)(c99_emit_darwin_host_name_hide_begin(codegen)            );
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <stdlib.h>\n", (void *)codegen->emit_stream)            );
+            (void)(c99_emit_darwin_host_name_hide_end(codegen)            );
         }
         if (((((codegen->freestanding == 0) && (codegen->needs_stdio_h != 0)) && (codegen->has_stdio_conflicts == 0)) && (is_bootstrap == 0))) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <stdio.h>\n", (void *)codegen->emit_stream)            );
@@ -153246,9 +153357,6 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_void { uint32_t error_id; };\n", (void *)codegen->emit_stream)    );
     (void)(mark_struct_defined(codegen, (uint8_t *)(uint8_t *)(uint8_t *)"err_union_void")    );
     (void)(emit_error_name_helper(codegen)    );
-    if (target_os_is_macos != 0) {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define UYA_TARGET_MACOS 1\n", (void *)codegen->emit_stream)        );
-    }
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"#if defined(__APPLE__) || defined(UYA_TARGET_MACOS)\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define stat uya_macos_native_stat_call\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define fstat uya_macos_native_fstat_call\n", (void *)codegen->emit_stream)    );
@@ -153287,6 +153395,8 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IROTH\n#undef S_IROTH\n#endif\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IWOTH\n#undef S_IWOTH\n#endif\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IXOTH\n#undef S_IXOTH\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef sa_handler\n#undef sa_handler\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef sa_sigaction\n#undef sa_sigaction\n#endif\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern void *dlsym(void *, const char *);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_stat_fn)(const char *, struct uya_macos_native_stat_call *);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef intptr_t (*uya_macos_readlink_fn)(const char *, char *, size_t);\n", (void *)codegen->emit_stream)    );
@@ -153297,6 +153407,14 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef char *(*uya_macos_getcwd_fn)(char *, size_t);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_dup2_fn)(int, int);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_pipe_fn)(int *);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef void *(*uya_macos_signal_fn)(int, void *);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_sig_i_fn)(int);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_sig_ii_fn)(int, int);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_sig_sets_fn)(int, const void *, void *);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_sig_one_set_fn)(void *);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_sig_const_set_fn)(const void *);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef unsigned int (*uya_macos_alarm_fn)(unsigned int);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_pause_fn)(void);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef void *(*uya_macos_opendir_fn)(const char *);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef void *(*uya_macos_readdir_fn)(void *);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_closedir_fn)(void *);\n", (void *)codegen->emit_stream)    );
@@ -153659,6 +153777,54 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_exit == (uya_macos_exit_fn)0) real_exit = (uya_macos_exit_fn)dlsym((void *)-1, \"_exit\");\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_exit != (uya_macos_exit_fn)0) real_exit((int)status);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    __builtin_trap();\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str381, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static void *uya_macos_signal(int32_t signum, void *handler) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_signal_fn real_signal = (uya_macos_signal_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_signal == (uya_macos_signal_fn)0) real_signal = (uya_macos_signal_fn)dlsym((void *)-1, \"signal\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_signal == (uya_macos_signal_fn)0) return (void *)-1;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return real_signal((int)signum, handler);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str381, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_macos_raise(int32_t signum) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_sig_i_fn real_raise = (uya_macos_sig_i_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_raise == (uya_macos_sig_i_fn)0) real_raise = (uya_macos_sig_i_fn)dlsym((void *)-1, \"raise\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_raise == (uya_macos_sig_i_fn)0) return -1;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int32_t)real_raise((int)signum);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str381, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_macos_kill(int32_t pid, int32_t signum) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_sig_ii_fn real_kill = (uya_macos_sig_ii_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_kill == (uya_macos_sig_ii_fn)0) real_kill = (uya_macos_sig_ii_fn)dlsym((void *)-1, \"kill\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_kill == (uya_macos_sig_ii_fn)0) return -1;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int32_t)real_kill((int)pid, (int)signum);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str381, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_macos_sigprocmask(int32_t how, int64_t set, int64_t oldset) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_sig_sets_fn real_sigprocmask = (uya_macos_sig_sets_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_sigprocmask == (uya_macos_sig_sets_fn)0) real_sigprocmask = (uya_macos_sig_sets_fn)dlsym((void *)-1, \"sigprocmask\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_sigprocmask == (uya_macos_sig_sets_fn)0) return -1;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int32_t)real_sigprocmask((int)how, (const void *)set, (void *)oldset);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str381, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_macos_sigpending(int64_t set) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_sig_one_set_fn real_sigpending = (uya_macos_sig_one_set_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_sigpending == (uya_macos_sig_one_set_fn)0) real_sigpending = (uya_macos_sig_one_set_fn)dlsym((void *)-1, \"sigpending\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_sigpending == (uya_macos_sig_one_set_fn)0) return -1;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int32_t)real_sigpending((void *)set);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str381, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_macos_sigsuspend(int64_t mask) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_sig_const_set_fn real_sigsuspend = (uya_macos_sig_const_set_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_sigsuspend == (uya_macos_sig_const_set_fn)0) real_sigsuspend = (uya_macos_sig_const_set_fn)dlsym((void *)-1, \"sigsuspend\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_sigsuspend == (uya_macos_sig_const_set_fn)0) return -1;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int32_t)real_sigsuspend((const void *)mask);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str381, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static uint32_t uya_macos_alarm(uint32_t seconds) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_alarm_fn real_alarm = (uya_macos_alarm_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_alarm == (uya_macos_alarm_fn)0) real_alarm = (uya_macos_alarm_fn)dlsym((void *)-1, \"alarm\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_alarm == (uya_macos_alarm_fn)0) return 0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (uint32_t)real_alarm((unsigned int)seconds);\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str381, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_macos_pause(void) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_pause_fn real_pause = (uya_macos_pause_fn)0;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_pause == (uya_macos_pause_fn)0) real_pause = (uya_macos_pause_fn)dlsym((void *)-1, \"pause\");\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_pause == (uya_macos_pause_fn)0) return -1;\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int32_t)real_pause();\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str381, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"static void *uya_macos_host_opendir(const char *path) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_opendir_fn real_opendir = (uya_macos_opendir_fn)0;\n", (void *)codegen->emit_stream)    );
@@ -154941,11 +155107,25 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str412, (void *)codegen->emit_stream)            );
         }
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"#if defined(__GNUC__) || defined(__clang__)\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#if defined(__APPLE__)\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int32_t (*uya_pipeline_worker_fn)(void);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t uya_pipeline_worker_dispatch(void) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_pipeline_worker_fn real_fn = (uya_pipeline_worker_fn)0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static int32_t looked_up = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (looked_up == 0) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        real_fn = (uya_pipeline_worker_fn)dlsym((void *)-2, \"uya_pipeline_worker_main_if_requested\");\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        looked_up = 1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3771, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_fn == (uya_pipeline_worker_fn)0) return -1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return real_fn();\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str381, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str412, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int32_t uya_pipeline_worker_main_if_requested(void) __attribute__((weak));\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t uya_pipeline_worker_dispatch(void) {\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (uya_pipeline_worker_main_if_requested == (void *)0) return -1;\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_pipeline_worker_main_if_requested();\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str381, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str414, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str412, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t uya_pipeline_worker_dispatch(void) { return -1; }\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str414, (void *)codegen->emit_stream)        );

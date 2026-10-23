@@ -64,7 +64,7 @@
 
 ## P1：最小闭环验证（P0 完成后立即执行）
 
-### [ ] 6. 重新生成 macOS seed 家族
+### [x] 6. 重新生成 macOS seed 家族
 - 目标文件：
   - `backup/uya-hosted-macos.c`
   - `backup/uya-hosted-macos-x86_64.c`
@@ -74,6 +74,17 @@
 - 注意：
   - `backup/uya-hosted-macos-arm64.c` 与 `backup/uya-hosted-macos-x86_64.c` 永久保留
   - 不删除历史对照 seed
+- 状态：**已重新生成**（2026-10-23，`make backup-hosted-seed`）
+  - 该步此前长期失败（`✗ 链接失败`）：生成的 C 本身就编译不过，共 7 个错误。
+    根因见 `buglist.md` 的「macOS hosted 目标的生成 C 根本编译不过」一条
+    —— Darwin 系统头的同名类型撞车、Mach-O 上 `__attribute__((weak))` 不成立、
+    `libc.signal` 整族用 Linux syscall 号与 Linux 信号编号表。
+  - 本次在 **Linux 宿主**上验证到「编译 + 链接均通过」：
+    `zig cc -target x86_64-macos-none` 与 `-target aarch64-macos-none` 编译
+    `backup/uya-hosted-macos-{x86_64,arm64}.c` 均返回 0、无 `error:`。
+  - 三个 seed 已含修复标记：`dlsym` 版 worker dispatch、`libc_SIGBUS = 10`。
+  - 局限：这里只证明「种子能编译并链接成 macOS 可执行文件」，
+    **未**在真实 macOS 上运行过（见 7、8 两条）。
 
 ### [ ] 7. 验证 `make from-c-native`
 - 目标：
