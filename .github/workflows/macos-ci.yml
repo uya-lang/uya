@@ -41,7 +41,15 @@ jobs:
       env:
         TEST_PROFILE: hosted
         SKIP_DARWIN_DEFAULT: "1"
-      run: make tests-hosted
+      run: |
+        set +e
+        make tests-hosted 2>&1 | tee /tmp/tests-hosted.log
+        status=${PIPESTATUS[0]}
+        fails=$(grep '❌' /tmp/tests-hosted.log | perl -pe 's/\e\[[0-9;]*m//g' | sed 's/^ *//' | paste -sd ';' -)
+        if [ -n "$fails" ]; then
+          echo "::error::hosted tests failed: $fails"
+        fi
+        exit "$status"
 
     - name: Resolve microapp arm64 toolchain
       run: |
