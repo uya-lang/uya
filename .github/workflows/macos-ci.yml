@@ -48,6 +48,17 @@ jobs:
         fails=$(grep '❌' /tmp/tests-hosted.log | perl -pe 's/\e\[[0-9;]*m//g' | sed 's/^ *//' | paste -sd ';' -)
         if [ -n "$fails" ]; then
           echo "::error::hosted tests failed: $fails"
+          # 并行矩阵里的失败项只报退出码，缺少断言详情；这里逐个单独重跑，
+          # 把输出写进注解（注解公开可读，无需 token 即可定位回归）。
+          for name in $(grep '❌' /tmp/tests-hosted.log | perl -pe 's/\e\[[0-9;]*m//g' \
+              | sed -E 's/^ *❌ ([^:]+):.*/\1/'); do
+            if [ ! -f "tests/$name.uya" ]; then
+              continue
+            fi
+            UYA_ROOT="$PWD/lib/" RUNTIME_MODE=hosted \
+              ./bin/uya-hosted test "tests/$name.uya" > "/tmp/detail-$name.log" 2>&1
+            echo "::error title=$name::$(tail -60 "/tmp/detail-$name.log" | cut -c1-400 | tr '\n' '|')"
+          done
         fi
         exit "$status"
 
