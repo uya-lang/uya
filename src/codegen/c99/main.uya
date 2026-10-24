@@ -3083,7 +3083,6 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("typedef int (*uya_macos_stat_fn)(const char *, struct uya_macos_native_stat_call *);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef intptr_t (*uya_macos_readlink_fn)(const char *, char *, size_t);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_pid_fn)(void);\n" as *byte, codegen.emit_stream as *void);
-    fputs("typedef void (*uya_macos_exit_fn)(int);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_access_fn)(const char *, int);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_path_i_fn)(const char *);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef char *(*uya_macos_getcwd_fn)(char *, size_t);\n" as *byte, codegen.emit_stream as *void);
@@ -3178,6 +3177,10 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     c99_emit_host_symbol_decl(codegen, "extern int uya_host_poll(void *, uint32_t, int) __asm__(\"_poll\");\n" as *byte, "extern int uya_host_poll(void *, uint32_t, int) __asm__(\"poll\");\n" as *byte);
     // kqueue/kevent 不在此声明宿主符号（改走 dlsym，见下方 uya_macos_kqueue 的注释）。
     c99_emit_host_symbol_decl(codegen, "extern int uya_host_fork(void) __asm__(\"_fork\");\n" as *byte, "extern int uya_host_fork(void) __asm__(\"fork\");\n" as *byte);
+    // _exit 必须走静态声明：fork 出来的 child 里第一次解析 dlsym 会去抢 dyld 锁，父进程
+    // 若有线程在 fork 时正握着这把锁，child 就永远卡在 dlsym 里退不出去（Darwin 上
+    // pty 自检实测到这一步：child 回完握手字节后就再也收不了尸）。
+    c99_emit_host_symbol_decl(codegen, "extern void uya_host_exit(int) __asm__(\"__exit\");\n" as *byte, "extern void uya_host_exit(int) __asm__(\"_exit\");\n" as *byte);
     c99_emit_host_symbol_decl(codegen, "extern int uya_host_waitpid(int, int *, int) __asm__(\"_waitpid\");\n" as *byte, "extern int uya_host_waitpid(int, int *, int) __asm__(\"waitpid\");\n" as *byte);
     c99_emit_host_symbol_decl(codegen, "extern void *uya_host_dlsym(void *, const char *) __asm__(\"_dlsym\");\n" as *byte, "extern void *uya_host_dlsym(void *, const char *) __asm__(\"dlsym\");\n" as *byte);
     fputs("typedef void *(*uya_host_opendir_fn)(const char *);\n" as *byte, codegen.emit_stream as *void);
@@ -3563,9 +3566,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    return (int32_t)real_getppid();\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n" as *byte, codegen.emit_stream as *void);
     fputs("static void uya_macos_exit(int32_t status) {\n" as *byte, codegen.emit_stream as *void);
-    fputs("    static uya_macos_exit_fn real_exit = (uya_macos_exit_fn)0;\n" as *byte, codegen.emit_stream as *void);
-    fputs("    if (real_exit == (uya_macos_exit_fn)0) real_exit = (uya_macos_exit_fn)dlsym((void *)-1, \"_exit\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("    if (real_exit != (uya_macos_exit_fn)0) real_exit((int)status);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    uya_host_exit((int)status);\n" as *byte, codegen.emit_stream as *void);
     fputs("    __builtin_trap();\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n" as *byte, codegen.emit_stream as *void);
     // libc.signal 的 Darwin 宿主绑定。
