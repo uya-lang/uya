@@ -15,6 +15,10 @@
 // 屏障助记符按目标架构选：x86_64 用 mfence，arm64 用 dmb ish（checker 的
 // requires_memory_barrier 同时认这两族）。硬写 mfence 会让 macOS arm64 的
 // hosted 用例在 C 阶段被 clang 判成 unrecognized instruction mnemonic。
+//
+// 屏障指令本身不写 x，这里把 x 作为只读输入操作数 (x)，这样 x 的初值 0 会被
+// 真正加载且 asm 之后仍是 0；若写成只写输出 (-> x)，编译器会认为 x 在 asm
+// 之后才被定义，arm64 上该输出寄存器没有确定值，测试会误判为返回 1。
 
 use std;
 
@@ -22,16 +26,16 @@ fn main() i32 {
     var x: i32 = 0;
     std.cfg(std.target_arch == .ta_arm64, {
         @asm {
-            "dmb ish" (-> x);
+            "dmb ish" (x);
         } clobbers = ["memory"];
     }, std.cfg(std.target_arch == .ta_x86_64, {
         @asm {
-            "mfence" (-> x);
+            "mfence" (x);
         } clobbers = ["memory"];
     }, {
         // 其余目标架构没有统一屏障助记符，只验证 clobbers=["memory"] 标志本身被接受。
         @asm {
-            "nop" (-> x);
+            "nop" (x);
         } clobbers = ["memory"];
     }))
     if x == 0 {
