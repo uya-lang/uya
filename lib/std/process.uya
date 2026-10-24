@@ -1612,6 +1612,20 @@ fn pipeline_wait_status(raw: i32, index: usize) PipelineStageStatus {
 fn pipeline_wait_status_is_stopped(raw: i32) bool { return (raw & 255) == 127; }
 fn pipeline_wait_status_is_continued(raw: i32) bool { return raw == 65535; }
 
+/// 等待直接 child 的状态变化。
+/// 参数：pid 为目标 child；raw_status 承接 wait status。
+/// 返回：命中时返回 child pid，无事件返回 0，失败返回 -1。
+fn pipeline_wait_direct_child(pid: i32, raw_status: &i32) i32 {
+    const waited: i32 = waitpid(pid, raw_status,
+        WNOHANG | PIPELINE_WAIT_UNTRACED | PIPELINE_WAIT_CONTINUED);
+    if waited >= 0 { return waited; }
+    // XNU（macOS）的 wait4 只接受 WNOHANG 与 WUNTRACED：多带一个 WCONTINUED 位会
+    // 返回 EINVAL，waitpid 因此恒为 -1。wait loop 把它当成「不是这个 child」并落入
+    // cancelled 分支，于是 macOS 上每个 stage 都被误判成 cancelled
+    // （statuses[i].kind == 2）。丢掉这个位重试一次，让 exit 状态能被正常观察到。
+    return waitpid(pid, raw_status, WNOHANG | PIPELINE_WAIT_UNTRACED);
+}
+
 fn pipeline_capture_read(fd: i32, output: &byte, limit: usize, count: &usize) !i32 {
     if count == null { return error.InvalidPipeline; }
     if count[0] < limit {
@@ -1690,8 +1704,7 @@ fn pipeline_capture_priority_interrupt(pgid: i32, pids: &i32, count: usize,
     var i: usize = 0usize;
     while i < count {
         if !reaped[i] {
-            const waited: i32 = waitpid(pids[i], &raw_statuses[i],
-                WNOHANG | PIPELINE_WAIT_UNTRACED | PIPELINE_WAIT_CONTINUED);
+            const waited: i32 = pipeline_wait_direct_child(pids[i], &raw_statuses[i]);
             if waited == pids[i] && pipeline_wait_status_is_stopped(raw_statuses[i]) {
                 pipeline_cancel_started_group(pgid, pids, count);
                 return true;
@@ -2577,8 +2590,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             var child_idx: usize = 0usize;
             while child_idx < count {
                 if !reaped[child_idx] {
-                    const waited: i32 = waitpid(pids[child_idx], &raw_statuses[child_idx],
-                        WNOHANG | PIPELINE_WAIT_UNTRACED | PIPELINE_WAIT_CONTINUED);
+                    const waited: i32 = pipeline_wait_direct_child(pids[child_idx],
+                        &raw_statuses[child_idx]);
                     if waited == pids[child_idx] && pipeline_wait_status_is_stopped(raw_statuses[child_idx]) {
                         pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
                         if stdout_open { _ = close(stdout_capture_fds[0]); }
@@ -2653,8 +2666,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         var waited_pid: i32 = 0;
         if reaped[i] { waited_pid = pids[i]; }
         while waited_pid == 0 {
-            waited_pid = waitpid(pids[i], &raw_status,
-                WNOHANG | PIPELINE_WAIT_UNTRACED | PIPELINE_WAIT_CONTINUED);
+            waited_pid = pipeline_wait_direct_child(pids[i], &raw_status);
             if waited_pid == pids[i] && pipeline_wait_status_is_stopped(raw_status) {
                 pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
                 return error.Interrupted;
@@ -2970,6 +2982,16 @@ export fn pipeline_terminal_inherit_self_test() !void {
     if waited != pid || ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
 }
 
+/// 杀掉并回收 self test 里忙等的前台占位子进程。
+/// 参数：pid 为 fork 出的前台占位进程；非正数时不做任何事。
+/// 返回：无返回值。
+fn pipeline_terminal_reap_foreground(pid: i32) void {
+    if pid <= 0 { return; }
+    _ = kill(pid, SIGKILL);
+    var raw: i32 = 0;
+    _ = waitpid(pid, &raw, 0);
+}
+
 fn pipeline_terminal_background_child_run(slave_name: &const byte, master_fd: i32) !void {
     _ = close(master_fd);
     if setsid() < 0 { return error.PipelineIoError; }
@@ -2977,19 +2999,26 @@ fn pipeline_terminal_background_child_run(slave_name: &const byte, master_fd: i3
     if tcsetpgrp(slave_fd, getpgrp()) != 0 || dup2(slave_fd, 0) < 0 ||
         dup2(slave_fd, 1) < 0 || dup2(slave_fd, 2) < 0 { return error.PipelineIoError; }
     if slave_fd > 2 { _ = close(slave_fd); }
+    // 命令必须在 fork 前台占位进程之前构造：解析失败时直接返回，不会留下一个
+    // 忙等子进程。这里用 /bin/sh -c ':' 而不是 /bin/true —— macOS 的 /bin 下没有
+    // true（位于 /usr/bin），路径缺失会让本用例必然失败，还会连带泄漏占位进程。
+    const shell_args: [&const byte: 2] = ["-c", ":"];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &shell_args[0:2]);
     const foreground_pid: i32 = fork();
     if foreground_pid == 0 {
         if setpgid(0, 0) != 0 { _exit(1); }
         while true { _ = sched_yield(); }
     }
-    if foreground_pid < 0 || setpgid(foreground_pid, foreground_pid) != 0 ||
-        tcsetpgrp(0, foreground_pid) != 0 { return error.PipelineIoError; }
-    const no_args: [&const byte: 1] = [""];
-    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/true", &no_args[0:0]);
-    const executed: !void = check(try inherit_stdio(command));
-    _ = kill(foreground_pid, SIGKILL);
-    var raw: i32 = 0;
-    _ = waitpid(foreground_pid, &raw, 0);
+    if foreground_pid < 0 { return error.PipelineIoError; }
+    if setpgid(foreground_pid, foreground_pid) != 0 || tcsetpgrp(0, foreground_pid) != 0 {
+        pipeline_terminal_reap_foreground(foreground_pid);
+        return error.PipelineIoError;
+    }
+    // 先把继承终端的结果接住再收尸：直接 try 会在错误路径上跳出函数，忙等子进程
+    // 永远杀不掉，还会一直握着继承来的 stdout，让调用方的管道迟迟等不到 EOF。
+    const inherited: !Pipeline = inherit_stdio(command);
+    pipeline_terminal_reap_foreground(foreground_pid);
+    const executed: !void = check(try inherited);
     try executed;
     if tcgetpgrp(0) != foreground_pid { return error.InvalidPipeline; }
 }
@@ -3026,6 +3055,11 @@ fn pipeline_terminal_stopped_child_run(slave_name: &const byte, master_fd: i32,
     if tcsetpgrp(slave_fd, getpgrp()) != 0 || dup2(slave_fd, 0) < 0 ||
         dup2(slave_fd, 1) < 0 || dup2(slave_fd, 2) < 0 { return error.PipelineIoError; }
     if slave_fd > 2 { _ = close(slave_fd); }
+    // 命令在 fork 前台占位进程之前构造，避免解析失败提前返回时泄漏忙等子进程。
+    var script: &const byte = "kill -TSTP $$";
+    if background_read { script = "read value"; }
+    const args: [&const byte: 2] = ["-c", script];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &args[0:2]);
     var foreground_pid: i32 = 0 - 1;
     if background_read {
         foreground_pid = fork();
@@ -3034,19 +3068,15 @@ fn pipeline_terminal_stopped_child_run(slave_name: &const byte, master_fd: i32,
             while true { _ = sched_yield(); }
         }
         if foreground_pid < 0 || setpgid(foreground_pid, foreground_pid) != 0 ||
-            tcsetpgrp(0, foreground_pid) != 0 { return error.PipelineIoError; }
+            tcsetpgrp(0, foreground_pid) != 0 {
+            pipeline_terminal_reap_foreground(foreground_pid);
+            return error.PipelineIoError;
+        }
     }
-    var script: &const byte = "kill -TSTP $$";
-    if background_read { script = "read value"; }
-    const args: [&const byte: 2] = ["-c", script];
-    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &args[0:2]);
-    const executed: !void = check(try inherit_stdio(command));
+    const inherited: !Pipeline = inherit_stdio(command);
     const foreground_after: i32 = tcgetpgrp(0);
-    if foreground_pid > 0 {
-        _ = kill(foreground_pid, SIGKILL);
-        var raw: i32 = 0;
-        _ = waitpid(foreground_pid, &raw, 0);
-    }
+    pipeline_terminal_reap_foreground(foreground_pid);
+    const executed: !void = check(try inherited);
     if executed.error_id != @error_id(error.Interrupted) { return error.InvalidPipeline; }
     if background_read && foreground_after != foreground_pid { return error.InvalidPipeline; }
     if !background_read && foreground_after != getpgrp() { return error.InvalidPipeline; }
