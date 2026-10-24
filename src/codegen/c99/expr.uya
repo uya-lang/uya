@@ -9179,9 +9179,8 @@ fn gen_struct_init(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                         (user_value.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND &&
                         user_value.unary_expr_operand != null &&
                         user_value.unary_expr_operand.type == ASTNodeType.AST_SLICE_EXPR {
-                        fputs("*(" as *byte, codegen.emit_stream as *void);
+                        // `&<切片表达式>` 已是切片值（gen_unary_expr 不发 `&`），无需 `*(...)` 还原。
                         gen_expr(codegen, user_value);
-                        fputs(")" as *byte, codegen.emit_stream as *void);
                     } else {
                         gen_expr(codegen, user_value);
                     }
@@ -10013,7 +10012,18 @@ fn gen_array_access(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             c99_emit_mmu_wrapped_array_access(codegen, array, index);
             return;
         }
+        // 字符串字面量会展开成 `(uint8_t *)strN` 这样的强制转换，直接接 `[i]` 会变成
+        // `(uint8_t *)strN[i]`（对 cast 右值取下标，`&"lit"[0]` 还会退化成对右值取地址），
+        // 必须整体加括号：`((uint8_t *)strN)[i]`。
+        const base_needs_paren: i32 =
+            (array.type == ASTNodeType.AST_STRING || array.type == ASTNodeType.AST_STRING_INTERP) as i32;
+        if base_needs_paren != 0 {
+            fputc(40, codegen.emit_stream as *void);
+        }
         gen_expr(codegen, array);
+        if base_needs_paren != 0 {
+            fputc(41, codegen.emit_stream as *void);
+        }
         fputc(91, codegen.emit_stream as *void);  // '['
         gen_expr(codegen, index);
         fputc(93, codegen.emit_stream as *void);  // ']'
@@ -10288,7 +10298,13 @@ fn gen_slice_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         if slice_type_c != null {
             slice_type_str = slice_type_c;
         }
-        fprintf(codegen.emit_stream as *void, "(%s){ .ptr = " as *byte, slice_type_str as *byte);
+        // 文件作用域常量只能用初始化列表：`{ .ptr = ..., .len = ... }`；
+        // 函数体内才发带类型名的复合字面量 `(struct uya_slice_X){ ... }`。
+        if codegen.slice_init_no_type == 0 {
+            fprintf(codegen.emit_stream as *void, "(%s){ .ptr = " as *byte, slice_type_str as *byte);
+        } else {
+            fputs("{ .ptr = " as *byte, codegen.emit_stream as *void);
+        }
         if base.type == ASTNodeType.AST_SLICE_EXPR {
             fputc(40, codegen.emit_stream as *void);
             gen_expr(codegen, base);
@@ -11007,6 +11023,16 @@ fn gen_unary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         // 特殊处理：& 作用于数组字面量，生成切片
         if op == TokenType.TOKEN_AMPERSAND && operand.type == ASTNodeType.AST_ARRAY_LITERAL {
             gen_slice_from_array_literal(codegen, expr);
+            return;
+        }
+
+        // 特殊处理：& 作用于切片表达式。`&buf[a: n]` 在语言层就是切片值本身（与调用实参的按值
+        // slice ABI 一致），不是对临时结构体取地址；若照常发 `&` 会得到
+        // `&(struct uya_slice_X){...}`，赋给切片变量/常量时类型不匹配，且临时对象语义也不成立。
+        if op == TokenType.TOKEN_AMPERSAND && operand != null &&
+            operand.type == ASTNodeType.AST_SLICE_EXPR &&
+            c99_expr_is_slice_value(codegen, operand) != 0 {
+            gen_expr(codegen, operand);
             return;
         }
         

@@ -1,0 +1,73 @@
+// 切片字面量的 `&` 语义回归。
+//
+// 在 Uya 里 `&"lit"[a: n]` 得到的是**切片值**，`&` 不表示取地址。这个程序覆盖三种位置：
+//   - 模块级常量（C 静态初始化必须是 `{ .ptr = ..., .len = ... }` 形式）
+//   - 局部变量（可重新赋值，值必须真的指向字面量而不是零缓冲）
+//   - 函数实参（普通函数的切片形参）
+// 另加 `&"lit"[0]`（单个字节取址，类型 `&const byte`）。
+//
+// 这三条曾经都会生成非法或错误的 C：
+//   `const struct uya_slice_uint8_t X = (&(struct uya_slice_uint8_t){...});`（静态初始化非法）
+//   `x = (&(struct uya_slice_uint8_t){...});`（指针赋给结构体，运行时读到零缓冲）
+//   `(&(uint8_t *)str[0])`（lvalue required）
+use std.runtime.entry;
+use std.testing.assert_eq_i32;
+use std.testing.test_suite_begin;
+use std.testing.test_suite_end;
+use std.testing.run_test;
+
+const GREETING: &[byte] = &"hello"[0: 5];
+const EMPTY: &[byte] = &"x"[0: 0];
+
+fn slice_len(s: &[byte]) usize {
+    return s.len;
+}
+
+fn first_byte(s: &[byte]) i32 {
+    return s[0] as i32;
+}
+
+fn slice_at(s: &[byte], i: usize) i32 {
+    return s[i] as i32;
+}
+
+fn test_module_const() !void {
+    try assert_eq_i32(slice_len(GREETING) as i32, 5);
+    try assert_eq_i32(GREETING[0] as i32, 'h' as i32);
+    try assert_eq_i32(GREETING[4] as i32, 'o' as i32);
+    try assert_eq_i32(slice_len(EMPTY) as i32, 0);
+}
+
+fn test_local_var() !void {
+    var s: &[byte] = &"world"[0: 5];
+    try assert_eq_i32(s.len as i32, 5);
+    try assert_eq_i32(s[0] as i32, 'w' as i32);
+    try assert_eq_i32(s[4] as i32, 'd' as i32);
+    s = &"ab"[0: 2];
+    try assert_eq_i32(s.len as i32, 2);
+    try assert_eq_i32(s[1] as i32, 'b' as i32);
+}
+
+fn test_byte_pointer() !void {
+    const p: &const byte = &"xyz"[0];
+    try assert_eq_i32(p[0] as i32, 'x' as i32);
+    try assert_eq_i32(p[2] as i32, 'z' as i32);
+    const q: &const byte = &GREETING[2];
+    try assert_eq_i32(q[0] as i32, 'l' as i32);
+}
+
+fn test_call_arg() !void {
+    try assert_eq_i32(first_byte(&"pq"[0: 2]), 'p' as i32);
+    try assert_eq_i32(slice_len(&"abcdef"[2: 3]) as i32, 3);
+    try assert_eq_i32(slice_at(&"abcdef"[2: 3], 0), 'c' as i32);
+    try assert_eq_i32(slice_at(&"abcdef"[2: 3], 2), 'e' as i32);
+}
+
+export fn main() i32 {
+    test_suite_begin("slice literal addr-of");
+    run_test("module_const", test_module_const);
+    run_test("local_var", test_local_var);
+    run_test("byte_pointer", test_byte_pointer);
+    run_test("call_arg", test_call_arg);
+    return test_suite_end();
+}
