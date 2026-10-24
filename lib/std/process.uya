@@ -3114,15 +3114,18 @@ fn pipeline_closed_stdio_child(closed_fd: i32) void {
     const child_plan: Pipeline = pipeline_registry_allocate();
     const first_added: !void = pipeline_registry_append_process_stage(&child_plan, 2);
     _ = first_added catch { _exit(1); };
+    // 用 /dev/fd/N 判断 stdio 三个 fd 是否真的打开：Linux 上 /dev/fd 指向
+    // /proc/self/fd，Darwin 上由 devfs 直接提供，两边都可用；写成 /proc/self/fd
+    // 会让 macOS 上恒定 exit 91，把宿主路径差异误判成 fd 冲突。
     const first_args: [&const byte: 2] = ["-c",
-        "test -e /proc/self/fd/0 -a -e /proc/self/fd/1 -a -e /proc/self/fd/2 || exit 91; printf token"];
+        "test -e /dev/fd/0 -a -e /dev/fd/1 -a -e /dev/fd/2 || exit 91; printf token"];
     const first_set: !void = pipeline_registry_set_last_stage_argv(&child_plan,
         "/bin/sh", &first_args[0], 2usize);
     _ = first_set catch { _exit(2); };
     const second_added: !void = pipeline_registry_append_process_stage(&child_plan, 2);
     _ = second_added catch { _exit(3); };
     const second_args: [&const byte: 2] = ["-c",
-        "read value; test \"$value\" = token || exit 92; test -e /proc/self/fd/0 -a -e /proc/self/fd/1 -a -e /proc/self/fd/2 || exit 93; printf out; printf err >&2"];
+        "read value; test \"$value\" = token || exit 92; test -e /dev/fd/0 -a -e /dev/fd/1 -a -e /dev/fd/2 || exit 93; printf out; printf err >&2"];
     const second_set: !void = pipeline_registry_set_last_stage_argv(&child_plan,
         "/bin/sh", &second_args[0], 2usize);
     _ = second_set catch { _exit(4); };
