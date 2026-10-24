@@ -2953,11 +2953,12 @@ fn pipeline_terminal_inherit_child_run(slave_name: &const byte, master_fd: i32,
     // 必须等 slave 真正打开后再让父进程往 master 写 token：Darwin 上 slave 还没
     // 打开时写 master 会挂住（数据也无处可去），父进程先写就会让本用例在 macOS 上
     // 永久卡在 write()。这里先回一个 ready 字节，父进程收到后才写 token。
-    try pipeline_terminal_ready_notify(ready_fd);
+    try pipeline_terminal_ready_notify(ready_fd, 82 as byte);
     const args: [&const byte: 2] = ["-c", "read value; test \"$value\" = token"];
     const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &args[0:2]);
     try check(try inherit_stdio(command));
     if tcgetpgrp(0) != getpgrp() { return error.InvalidPipeline; }
+    try pipeline_terminal_ready_notify(ready_fd, 68 as byte);
 }
 
 fn pipeline_terminal_inherit_child(slave_name: &const byte, master_fd: i32,
@@ -2968,25 +2969,49 @@ fn pipeline_terminal_inherit_child(slave_name: &const byte, master_fd: i32,
     _exit(0);
 }
 
-/// 通知父进程 pty slave 已接管完成；子进程侧失败时直接返回错误。
-/// 参数：ready_fd 为握手管道的写端。
+/// 杀掉并回收 self test 里忙等的前台占位子进程。
+/// 参数：pid 为 fork 出的前台占位进程；非正数时不做任何事。
+/// 返回：无返回值。
+fn pipeline_terminal_reap_foreground(pid: i32) void {
+    if pid <= 0 { return; }
+    _ = kill(pid, SIGKILL);
+    var raw: i32 = 0;
+    _ = waitpid(pid, &raw, 0);
+}
+
+/// 向 self test 的握手管道写一个字节。
+/// 参数：ready_fd 为握手管道写端；token 为要写的字节。
 /// 返回：无返回值；写入失败时返回 `error.PipelineIoError`。
-fn pipeline_terminal_ready_notify(ready_fd: i32) !void {
-    var token: byte = 82 as byte;
-    const written: !isize = sys_write(ready_fd, &token, 1usize);
+fn pipeline_terminal_ready_notify(ready_fd: i32, token: byte) !void {
+    var value: byte = token;
+    const written: !isize = sys_write(ready_fd, &value, 1usize);
     const count: isize = written catch { return error.PipelineIoError; };
     if count != 1isize { return error.PipelineIoError; }
 }
 
-/// 等待子进程报告 pty slave 已接管；子进程提前退出时返回错误而不是挂死。
-/// 参数：ready_fd 为握手管道的读端。
-/// 返回：收到 ready 字节返回 1，对端已关闭返回 0。
-fn pipeline_terminal_ready_wait(ready_fd: i32) !i32 {
-    var token: byte = 0 as byte;
-    const received: !isize = sys_read(ready_fd, &token, 1usize);
-    const count: isize = received catch { return error.PipelineIoError; };
-    if count != 1isize || token != 82 as byte { return 0; }
+/// 带超时等待握手管道上的一字节回复；对端提前退出时立即返回，不会挂死。
+/// 参数：ready_fd 为握手管道读端；expected 为期望字节；timeout_ms 为等待上限。
+/// 返回：收到期望字节返回 1；对端关闭或收到其它字节返回 0；超时返回 -1。
+fn pipeline_terminal_await_byte(ready_fd: i32, expected: byte, timeout_ms: i32) !i32 {
+    var wait_fd: PollFd = PollFd { fd: ready_fd, events: POLLIN, revents: 0 };
+    const ready: !i32 = sys_poll(&wait_fd, 1usize, timeout_ms);
+    const count: i32 = ready catch { return 0 - 1; };
+    if count <= 0 { return 0 - 1; }
+    var value: byte = 0 as byte;
+    const received: !isize = sys_read(ready_fd, &value, 1usize);
+    const read_count: isize = received catch { return 0; };
+    if read_count != 1isize || value != expected { return 0; }
     return 1;
+}
+
+/// 自检失败时把原因写到 stderr：CI 上只能读注解，不写出来就只剩一行「超时」。
+/// 参数：text 为以 NUL 结尾的 ASCII 文本。
+/// 返回：无返回值。
+fn pipeline_selftest_note(text: &const byte) void {
+    var length: usize = 0usize;
+    while text[length] != 0 as byte { length = length + 1usize; }
+    const written: !isize = sys_write(2, text, length);
+    _ = written catch {};
 }
 
 /// 验证继承终端 stdin 的 child 可读且 sink 完成后恢复 executor 前台 PGID；仅供回归测试。
@@ -3008,35 +3033,35 @@ export fn pipeline_terminal_inherit_self_test() !void {
     }
     _ = close(ready_pipe[1]);
     if pid < 0 { _ = close(ready_pipe[0]); _ = close(master_fd); return error.PipelineIoError; }
-    const ready: i32 = try pipeline_terminal_ready_wait(ready_pipe[0]);
-    _ = close(ready_pipe[0]);
     var raw: i32 = 0;
-    if ready == 0 {
-        // 子进程在接管 slave 前就失败了：不要再写 master（会挂住），直接收尸。
-        _ = waitpid(pid, &raw, 0);
+    const ready: i32 = try pipeline_terminal_await_byte(ready_pipe[0], 82 as byte, 10000);
+    if ready != 1 {
+        // 子进程没能在超时内接管 slave：不要再写 master（会挂住），收尸后报失败。
+        pipeline_selftest_note("pty selftest: child did not take over the slave\n");
+        pipeline_terminal_reap_foreground(pid);
+        _ = close(ready_pipe[0]);
         _ = close(master_fd);
         return error.InvalidPipeline;
     }
     const token: &const byte = "token\n";
     const written: !isize = sys_write(master_fd, token, 6usize);
     _ = written catch {
-        _ = waitpid(pid, &raw, 0);
+        pipeline_terminal_reap_foreground(pid);
+        _ = close(ready_pipe[0]);
         _ = close(master_fd);
         return error.PipelineIoError;
     };
+    const finished: i32 = try pipeline_terminal_await_byte(ready_pipe[0], 68 as byte, 20000);
+    _ = close(ready_pipe[0]);
+    if finished != 1 {
+        pipeline_selftest_note("pty selftest: stage did not drain the terminal token\n");
+        pipeline_terminal_reap_foreground(pid);
+        _ = close(master_fd);
+        return error.InvalidPipeline;
+    }
     const waited: i32 = waitpid(pid, &raw, 0);
     _ = close(master_fd);
     if waited != pid || ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
-}
-
-/// 杀掉并回收 self test 里忙等的前台占位子进程。
-/// 参数：pid 为 fork 出的前台占位进程；非正数时不做任何事。
-/// 返回：无返回值。
-fn pipeline_terminal_reap_foreground(pid: i32) void {
-    if pid <= 0 { return; }
-    _ = kill(pid, SIGKILL);
-    var raw: i32 = 0;
-    _ = waitpid(pid, &raw, 0);
 }
 
 fn pipeline_terminal_background_child_run(slave_name: &const byte, master_fd: i32) !void {
