@@ -55,8 +55,12 @@ jobs:
             if [ ! -f "tests/$name.uya" ]; then
               continue
             fi
+            echo "----- detail begin: $name -----"
+            # macOS 没有 timeout(1)，用 perl 的 alarm 给重跑封顶，避免挂死拖满 job 预算。
             UYA_ROOT="$PWD/lib/" RUNTIME_MODE=hosted \
-              ./bin/uya-hosted test "tests/$name.uya" > "/tmp/detail-$name.log" 2>&1
+              perl -e 'alarm 240; exec @ARGV' \
+              ./bin/uya-hosted test "tests/$name.uya" 2>&1 | tee "/tmp/detail-$name.log"
+            echo "----- detail end: $name -----"
             echo "::error title=$name::$(tail -60 "/tmp/detail-$name.log" | cut -c1-400 | tr '\n' '|')"
           done
         fi

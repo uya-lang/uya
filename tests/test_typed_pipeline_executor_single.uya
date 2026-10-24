@@ -1,5 +1,10 @@
 // typed pipeline 单 process executor 基础回归。
+//
+// 外部命令一律用 /usr/bin/true：macOS 的基础系统没有 /bin/true（true 装在
+// /usr/bin），沿用 /bin/true 会让这些用例在 Darwin 上以「路径不存在」失败，
+// 而它们覆盖的是 executor 语义，不是路径查找本身。
 
+use std;
 use std.testing;
 use std.process.Pipeline;
 use std.process.PipelineResult;
@@ -35,7 +40,7 @@ use libc.SIGTERM;
 test "pipeline_single_exact_path_check_executes" {
     const values: [&const byte: 1] = [""];
     const args: &[&const byte] = &values[0:0];
-    try check(try cmd_path_argv(pipeline(), "/bin/true", args));
+    try check(try cmd_path_argv(pipeline(), "/usr/bin/true", args));
 }
 
 test "pipeline_single_observing_status_reports_nonzero_exit" {
@@ -258,10 +263,15 @@ test "pipeline_capture_limit_kills_writer_that_ignores_sigpipe" {
 }
 
 test "pipeline_capture_limit_kills_direct_stage_after_setsid_escape" {
+    // macOS 只提供 setsid(2) 系统调用，基础系统里没有 setsid(1) 这个命令，
+    // 无法用外部命令复现「stage 逃出进程组」；Darwin 上跳过，Linux 保持原断言。
+    std.cfg(std.target_os == .tos_macos, {
+        return;
+    }, {})
     const no_args_values: [&const byte: 1] = [""];
     const setsid_values: [&const byte: 3] = ["/bin/sh", "-c",
         "exec 2>/dev/null; while :; do printf escaped-stage; done"];
-    const first: Pipeline = try cmd_path_argv(pipeline(), "/bin/true", &no_args_values[0:0]);
+    const first: Pipeline = try cmd_path_argv(pipeline(), "/usr/bin/true", &no_args_values[0:0]);
     const full: Pipeline = try cmd_path_argv(first, "/usr/bin/setsid", &setsid_values[0:3]);
     var statuses_storage: [PipelineStageStatus: 2] = [];
     var stdout_storage: [byte: 16] = [];
@@ -315,7 +325,7 @@ test "pipeline_cwd_preflight_failure_starts_no_child" {
     const shell_values: [&const byte: 2] = ["-c", "touch /tmp/uya_typed_pipeline_cwd_marker"];
     const true_values: [&const byte: 1] = [""];
     const first: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]);
-    const second: Pipeline = try cmd_path_argv(first, "/bin/true", &true_values[0:0]);
+    const second: Pipeline = try cmd_path_argv(first, "/usr/bin/true", &true_values[0:0]);
     const full: Pipeline = try cwd(second, "/tmp/uya-directory-that-does-not-exist");
     var statuses_storage: [PipelineStageStatus: 2] = [];
     var result: PipelineResult = PipelineResult {};
@@ -348,7 +358,7 @@ test "pipeline_redirect_open_order_has_nontransactional_side_effects" {
     const output: &const byte = "/tmp/uya_typed_pipeline_open_order.txt";
     _ = unlink(output);
     const no_args_values: [&const byte: 1] = [""];
-    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/true", &no_args_values[0:0]);
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/usr/bin/true", &no_args_values[0:0]);
     const with_stdin: Pipeline = try stdin_file(command, "/dev/null");
     const with_stdout: Pipeline = try stdout_file(with_stdin, output);
     const full: Pipeline = try stderr_file(with_stdout, "/tmp/uya-missing-parent/stderr.txt");
@@ -415,7 +425,7 @@ test "pipeline_capture_does_not_wait_for_descendant_writer_eof" {
 test "pipeline_checked_sink_uses_all_stage_pipefail" {
     const no_args_values: [&const byte: 1] = [""];
     const first: Pipeline = try cmd_path_argv(pipeline(), "/bin/false", &no_args_values[0:0]);
-    const full: Pipeline = try cmd_path_argv(first, "/bin/true", &no_args_values[0:0]);
+    const full: Pipeline = try cmd_path_argv(first, "/usr/bin/true", &no_args_values[0:0]);
     var statuses_storage: [PipelineStageStatus: 2] = [];
     var result: PipelineResult = PipelineResult {};
     const executed: !void = check_into(full, &statuses_storage[0:2], &result);
@@ -428,7 +438,7 @@ test "pipeline_checked_sink_uses_all_stage_pipefail" {
 
 test "pipeline_checked_sink_reports_last_stage_nonzero_exit" {
     const no_args_values: [&const byte: 1] = [""];
-    const first: Pipeline = try cmd_path_argv(pipeline(), "/bin/true", &no_args_values[0:0]);
+    const first: Pipeline = try cmd_path_argv(pipeline(), "/usr/bin/true", &no_args_values[0:0]);
     const full: Pipeline = try cmd_path_argv(first, "/bin/false", &no_args_values[0:0]);
     var statuses_storage: [PipelineStageStatus: 2] = [];
     var result: PipelineResult = PipelineResult {};
@@ -502,7 +512,7 @@ test "pipeline_capture_probe_distinguishes_zero_exact_and_overflow" {
     var empty_stdout: [byte: 1] = [];
     var empty_stderr: [byte: 1] = [];
     var empty_result: PipelineCaptureResult = PipelineCaptureResult {};
-    try capture_limit_into(try cmd_path_argv(pipeline(), "/bin/true", &empty_values[0:0]),
+    try capture_limit_into(try cmd_path_argv(pipeline(), "/usr/bin/true", &empty_values[0:0]),
         0usize, &empty_statuses[0:1], &empty_stdout[0:0], &empty_stderr[0:0], &empty_result);
     try assert_eq_bool(empty_result.stdout.complete, true);
     var below_statuses: [PipelineStageStatus: 1] = [];
@@ -545,7 +555,7 @@ test "pipeline_path_permission_failure_has_stable_classification" {
 
 test "pipeline_process_create_failure_has_stable_classification" {
     const no_args_values: [&const byte: 1] = [""];
-    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/true", &no_args_values[0:0]);
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/usr/bin/true", &no_args_values[0:0]);
     var statuses_storage: [PipelineStageStatus: 1] = [];
     var result: PipelineResult = PipelineResult {};
     pipeline_fail_next_fork_for_test();
