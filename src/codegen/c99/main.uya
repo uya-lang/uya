@@ -2116,6 +2116,9 @@ fn gen_test_runner(codegen: &C99CodeGenerator, tests: & & ASTNode, test_count: i
             if func_name != null {
                 // 输出测试名称
                 fprintf(codegen.emit_stream as *void, "    %s(\"  TEST: %s ... \");\n" as *byte, printf_c_name as *byte, description as *byte);
+                // 名称行没有换行，printf 在管道/文件下是整块缓冲，用例挂死后名字会随缓冲区丢掉；
+                // 立刻 flush 才能在超时日志里看出卡在哪个用例。
+                fputs("    fflush((void *)0);\n" as *byte, codegen.emit_stream as *void);
                 // 运行测试并分别统计测试用例与断言
                 fputs("    {\n" as *byte, codegen.emit_stream as *void);
                 fputs("      struct err_union_void _test_result = " as *byte, codegen.emit_stream as *void);
