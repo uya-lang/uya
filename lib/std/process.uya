@@ -70,6 +70,8 @@ use libc.SIGTSTP;
 use libc.SIG_IGN;
 use libc.SIG_ERR;
 use libc.O_NONBLOCK;
+use libc.F_GETFL;
+use libc.F_SETFL;
 use libc.O_RDWR;
 use libc.WNOHANG;
 
@@ -2960,15 +2962,22 @@ fn pipeline_terminal_inherit_child_run(slave_name: &const byte, master_fd: i32,
     const args: [&const byte: 2] = ["-c", "read value; test \"$value\" = token"];
     const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &args[0:2]);
     try check(try inherit_stdio(command));
+    pipeline_selftest_note("pty: child stage done\n");
     if tcgetpgrp(0) != getpgrp() { return error.InvalidPipeline; }
+    pipeline_selftest_note("pty: child pgrp checked\n");
     try pipeline_terminal_ready_notify(ready_fd, 68 as byte);
+    pipeline_selftest_note("pty: child notified done\n");
 }
 
 fn pipeline_terminal_inherit_child(slave_name: &const byte, master_fd: i32,
     ready_fd: i32) void {
     const completed: !void = pipeline_terminal_inherit_child_run(slave_name, master_fd,
         ready_fd);
-    _ = completed catch { _exit(1); };
+    _ = completed catch {
+        pipeline_selftest_note("pty: child failed\n");
+        _exit(1);
+    };
+    pipeline_selftest_note("pty: child exiting\n");
     _exit(0);
 }
 
@@ -3055,6 +3064,27 @@ fn pipeline_selftest_note(text: &const byte) void {
     _ = written catch {};
 }
 
+/// 把 child 通过 pty slave 写出的诊断信息转存到 stderr；非阻塞读，读空即返回。
+/// 参数：master_fd 为 pty master；非正数时不做任何事。
+/// 返回：无返回值。
+fn pipeline_selftest_dump_master(master_fd: i32) void {
+    if master_fd < 0 { return; }
+    const flags: !i32 = sys_fcntl(master_fd, F_GETFL, 0);
+    const current: i32 = flags catch { return; };
+    const nonblocking: !i32 = sys_fcntl(master_fd, F_SETFL, current | O_NONBLOCK);
+    _ = nonblocking catch { return; };
+    var buffer: [byte: 512] = [];
+    pipeline_selftest_note("pty: child stderr >>\n");
+    while true {
+        const chunk: !isize = sys_read(master_fd, &buffer[0], 512usize);
+        const count: isize = chunk catch { break; };
+        if count <= 0 { break; }
+        const written: !isize = sys_write(2, &buffer[0], count as usize);
+        _ = written catch {};
+    }
+    pipeline_selftest_note("pty: child stderr <<\n");
+}
+
 /// 验证继承终端 stdin 的 child 可读且 sink 完成后恢复 executor 前台 PGID；仅供回归测试。
 export fn pipeline_terminal_inherit_self_test() !void {
     const master_fd: i32 = posix_openpt(O_RDWR as i32);
@@ -3119,6 +3149,7 @@ export fn pipeline_terminal_inherit_self_test() !void {
     }
     pipeline_selftest_note("pty: inherit waiting child exit\n");
     const waited: i32 = pipeline_selftest_wait_child(pid, &raw, 5000);
+    pipeline_selftest_dump_master(master_fd);
     pipeline_selftest_note("pty: inherit child reaped\n");
     _ = close(master_fd);
     if waited != 1 { return error.InvalidPipeline; }
