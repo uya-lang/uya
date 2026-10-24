@@ -118,6 +118,64 @@ fn pipeline_errno_location() &i32 {
     return __errno_location();
 }
 })
+
+// 管道里的 Uya stage 需要在 fork 出的子进程里重新 exec 自身（--uya-pipeline-worker）。
+// Linux 走 /proc/self/exe；Darwin 没有 /proc，必须用 _NSGetExecutablePath 取自身路径，
+// 否则 execve 失败、每个 Uya stage 都启动不起来。
+// 路径只在父进程解析一次并缓存，fork 出的子进程直接复用，避免在子进程里调用 dyld。
+const PIPELINE_WORKER_EXEC_PATH_CAPACITY: usize = 4096usize;
+
+var _pipeline_worker_exec_path: [byte: 4096] = [];
+var _pipeline_worker_exec_path_state: i32 = 0;  // 0=未解析，1=可用，-1=不可用
+
+std.cfg(std.target_os == .tos_macos, {
+extern fn _NSGetExecutablePath(buffer: *byte, buffer_size: *u32) i32;
+
+fn pipeline_worker_exec_path_resolve(buffer: &byte, capacity: usize) i32 {
+    if buffer == null || capacity < 2usize {
+        return 0 - 1;
+    }
+    var size: u32 = (capacity - 1usize) as u32;
+    if _NSGetExecutablePath(buffer as *byte, &size) != 0 {
+        return 0 - 1;
+    }
+    buffer[capacity - 1usize] = 0 as byte;
+    return 0;
+}
+}, {
+fn pipeline_worker_exec_path_resolve(buffer: &byte, capacity: usize) i32 {
+    const source: &const byte = "/proc/self/exe";
+    if buffer == null || capacity < 2usize {
+        return 0 - 1;
+    }
+    var i: usize = 0usize;
+    while source[i] != 0 as byte {
+        if i + 1usize >= capacity {
+            return 0 - 1;
+        }
+        buffer[i] = source[i] as byte;
+        i = i + 1usize;
+    }
+    buffer[i] = 0 as byte;
+    return 0;
+}
+})
+
+fn pipeline_worker_exec_path_ensure() &byte {
+    if _pipeline_worker_exec_path_state > 0 {
+        return &_pipeline_worker_exec_path[0];
+    }
+    if _pipeline_worker_exec_path_state < 0 {
+        return null as &byte;
+    }
+    if pipeline_worker_exec_path_resolve(&_pipeline_worker_exec_path[0],
+        PIPELINE_WORKER_EXEC_PATH_CAPACITY) != 0 {
+        _pipeline_worker_exec_path_state = 0 - 1;
+        return null as &byte;
+    }
+    _pipeline_worker_exec_path_state = 1;
+    return &_pipeline_worker_exec_path[0];
+}
 extern fn sigaction(signum: i32, action: &const PipelineSigaction, old_action: &PipelineSigaction) i32;
 
 export error InvalidPipeline;
@@ -2030,6 +2088,13 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             (&_pipeline_test_allow_next_fork_stage) as &i32, 0,
             PIPELINE_ATOMIC_SEQ_CST) != 0;
     }
+    var worker_exec_path: &byte = null as &byte;
+    if has_uya_stage && !use_experimental_fork_stage {
+        worker_exec_path = pipeline_worker_exec_path_ensure();
+        if worker_exec_path == null {
+            return error.PipelineSpawnFailed;
+        }
+    }
     try pipeline_broker_subscribe();
     broker_registered = true;
     broker_signal_epoch = __atomic_load_n((&_pipeline_broker_signal_epoch) as &i32,
@@ -2267,8 +2332,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                             PIPELINE_PHASE_EXEC, pipeline_errno_value());
                     }
                     _ = close(launch_fds[i * 2usize]);
-                    var worker_argv: [&byte: 3] = ["/proc/self/exe", "--uya-pipeline-worker", null];
-                    _ = execve("/proc/self/exe", &worker_argv[0], saved_envp);
+                    var worker_argv: [&byte: 3] = [worker_exec_path, "--uya-pipeline-worker", null];
+                    _ = execve(worker_exec_path, &worker_argv[0], saved_envp);
                     pipeline_child_fail_startup(report_fds[i * 2usize + 1usize],
                         PIPELINE_PHASE_EXEC, pipeline_errno_value());
                 }
