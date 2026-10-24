@@ -66,13 +66,17 @@ jobs:
             continue
           fi
           detail="/tmp/detail-$name.log"
+          # 用 script(1) 给重跑分配一个 pty：测试运行器把 "  TEST: <name> ... " 和
+          # "OK" 分两次 printf，stdout 接文件时是整块缓冲；用例挂死后被 alarm 杀掉，
+          # 缓冲区里的名字全丢，日志会停在倒数第二行，看不出卡在哪个用例。
+          # 走 pty 后 stdout 变成行缓冲，挂死用例名一定能落到日志里。
           UYA_ROOT="$PWD/lib/" RUNTIME_MODE=hosted \
             perl -e 'alarm 240; exec @ARGV' \
-            ./bin/uya-hosted test "tests/$name.uya" > "$detail" 2>&1
+            script -q /dev/null ./bin/uya-hosted test "tests/$name.uya" > "$detail" 2>&1
           echo "----- detail begin: $name -----"
           tail -80 "$detail"
           echo "----- detail end: $name -----"
-          echo "::error title=$name::$(tail -60 "$detail" | cut -c1-400 | tr '\n' '|')"
+          echo "::error title=$name::$(tail -60 "$detail" | tr -d '\r' | cut -c1-400 | tr '\n' '|')"
         done
         exit "$status"
 
