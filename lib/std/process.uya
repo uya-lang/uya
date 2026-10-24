@@ -3058,7 +3058,7 @@ export fn pipeline_terminal_inherit_self_test() !void {
     _ = close(ready_pipe[1]);
     if pid < 0 { _ = close(ready_pipe[0]); _ = close(master_fd); return error.PipelineIoError; }
     var raw: i32 = 0;
-    const ready: i32 = try pipeline_terminal_await_byte(ready_pipe[0], 82 as byte, 5000);
+    const ready: i32 = try pipeline_terminal_await_byte(ready_pipe[0], 82 as byte, 4000);
     if ready != 1 {
         // 子进程没能在超时内接管 slave：不要再写 master（会挂住），收尸后报失败。
         pipeline_selftest_note("pty selftest: child did not take over the slave\n");
@@ -3075,7 +3075,7 @@ export fn pipeline_terminal_inherit_self_test() !void {
         _ = close(master_fd);
         return error.PipelineIoError;
     };
-    const finished: i32 = try pipeline_terminal_await_byte(ready_pipe[0], 68 as byte, 8000);
+    const finished: i32 = try pipeline_terminal_await_byte(ready_pipe[0], 68 as byte, 5000);
     _ = close(ready_pipe[0]);
     if finished != 1 {
         pipeline_selftest_note("pty selftest: stage did not drain the terminal token\n");
@@ -3083,7 +3083,7 @@ export fn pipeline_terminal_inherit_self_test() !void {
         _ = close(master_fd);
         return error.InvalidPipeline;
     }
-    const waited: i32 = pipeline_selftest_wait_child(pid, &raw, 8000);
+    const waited: i32 = pipeline_selftest_wait_child(pid, &raw, 5000);
     _ = close(master_fd);
     if waited != 1 { return error.InvalidPipeline; }
     if ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
@@ -3139,7 +3139,7 @@ export fn pipeline_terminal_background_self_test() !void {
     if pid == 0 { pipeline_terminal_background_child(slave_name, master_fd); }
     if pid < 0 { _ = close(master_fd); return error.PipelineIoError; }
     var raw: i32 = 0;
-    const waited: i32 = pipeline_selftest_wait_child(pid, &raw, 8000);
+    const waited: i32 = pipeline_selftest_wait_child(pid, &raw, 5000);
     _ = close(master_fd);
     if waited != 1 {
         pipeline_selftest_note("pty selftest: background executor did not finish\n");
@@ -3203,7 +3203,7 @@ fn pipeline_terminal_stopped_case(background_read: bool) !void {
     if pid == 0 { pipeline_terminal_stopped_child(slave_name, master_fd, background_read); }
     if pid < 0 { _ = close(master_fd); return error.PipelineIoError; }
     var raw: i32 = 0;
-    const waited: i32 = pipeline_selftest_wait_child(pid, &raw, 8000);
+    const waited: i32 = pipeline_selftest_wait_child(pid, &raw, 5000);
     _ = close(master_fd);
     if waited != 1 {
         pipeline_selftest_note("pty selftest: stopped-child case did not finish\n");
@@ -3290,7 +3290,14 @@ export fn pipeline_closed_stdio_self_test() !void {
         if pid < 0 { return error.PipelineIoError; }
         if pid == 0 { pipeline_closed_stdio_child(closed_fd); }
         var raw: i32 = 0;
-        if waitpid(pid, &raw, 0) != pid || ((raw >> 8) & 255) != 0 {
+        const waited: i32 = pipeline_selftest_wait_child(pid, &raw, 5000);
+        if waited != 1 {
+            pipeline_selftest_note("pty selftest: closed-stdio child did not finish\n");
+            _ = unlink("/tmp/uya-pipeline-closed-stdio.out");
+            _ = unlink("/tmp/uya-pipeline-closed-stdio.err");
+            return error.InvalidPipeline;
+        }
+        if ((raw >> 8) & 255) != 0 {
             return error.InvalidPipeline;
         }
         closed_fd = closed_fd + 1;
