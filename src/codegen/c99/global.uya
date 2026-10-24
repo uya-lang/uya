@@ -467,6 +467,15 @@ fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode, init_ctx_typ
             fputs("(struct EmbedDirEntry *)0" as *byte, codegen.emit_stream as *void);
         }
         fprintf(codegen.emit_stream as *void, ", .len = (size_t)%d }" as *byte, expr.embed_dir_entry_count);
+    } else if expr.type == ASTNodeType.AST_UNARY_EXPR && expr.unary_expr_operand != null &&
+              (expr.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND &&
+              expr.unary_expr_operand.type == ASTNodeType.AST_SLICE_EXPR {
+        // 文件作用域切片常量（`const X: &[byte] = &"lit"[a: n];`）：切片字面量是值，
+        // 而 C 的静态初始化要求常量表达式，不能用复合字面量 `(struct uya_slice_X){...}`，
+        // 只能发初始化列表 `{ .ptr = ..., .len = ... }`（见 gen_slice_expr 的 slice_init_no_type）。
+        codegen.slice_init_no_type = 1;
+        gen_expr(codegen, expr);
+        codegen.slice_init_no_type = 0;
     } else {
         // 对于其他表达式类型（数字、布尔值等），使用标准生成方式
         gen_expr(codegen, expr);

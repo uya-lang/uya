@@ -1398,6 +1398,21 @@ fn c99_async_try_emit_error_future_literal_poll_return(codegen: &C99CodeGenerato
     return 1;
 }
 
+/// 判断表达式是否为 `&<切片表达式>`。
+///
+/// 切片是值类型，`&buf[a: n]` 在语言层就是切片值本身，`gen_unary_expr` 不会为它生成 `&`，
+/// 因此返回切片时不能再套 `*(...)` 还原（那是早期按指针处理的兼容写法）。
+fn c99_expr_is_amp_over_slice_expr(expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_UNARY_EXPR ||
+        (expr.unary_expr_op as TokenType) != TokenType.TOKEN_AMPERSAND {
+        return 0;
+    }
+    if expr.unary_expr_operand == null || expr.unary_expr_operand.type != ASTNodeType.AST_SLICE_EXPR {
+        return 0;
+    }
+    return 1;
+}
+
 fn gen_return_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     const expr: &ASTNode = stmt.return_stmt_expr;
     var is_error_return: i32 = 0;
@@ -1699,7 +1714,10 @@ fn gen_return_normal(codegen: &C99CodeGenerator, expr: &ASTNode, return_type: &A
             if return_type != null && return_type.type == ASTNodeType.AST_TYPE_SLICE &&
                 expr.type == ASTNodeType.AST_UNARY_EXPR &&
                 (expr.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND {
-                need_deref = 1;
+                // `&<切片表达式>` 本身已是切片值，无需再解引用；`&切片变量` 仍是指针，需要解引用
+                if c99_expr_is_amp_over_slice_expr(expr) == 0 {
+                    need_deref = 1;
+                }
                 if expr.unary_expr_operand != null && expr.unary_expr_operand.type == ASTNodeType.AST_SLICE_EXPR &&
                     expr.unary_expr_operand.slice_expr_base != null &&
                     expr.unary_expr_operand.slice_expr_base.type == ASTNodeType.AST_IDENTIFIER &&
@@ -1730,9 +1748,9 @@ fn gen_return_normal(codegen: &C99CodeGenerator, expr: &ASTNode, return_type: &A
             c99_emit_indent(codegen);
             if need_heap_copy_local_slice != 0 {
                 const elem_c: &byte = c99_type_to_c(codegen, return_type.type_slice_element_type);
-                fprintf(codegen.emit_stream as *void, "%s _uya_ret = *(" as *byte, ret_c as *byte);
+                fprintf(codegen.emit_stream as *void, "%s _uya_ret = " as *byte, ret_c as *byte);
                 gen_expr(codegen, expr);
-                c99_emit(codegen, ");\n" as *byte);
+                c99_emit(codegen, ";\n" as *byte);
                 c99_emit_indent(codegen);
                 c99_emit(codegen, "extern void *malloc(size_t);\n" as *byte);
                 c99_emit_indent(codegen);
@@ -1977,7 +1995,10 @@ fn gen_return_error_union(codegen: &C99CodeGenerator, expr: &ASTNode, return_typ
                 if payload_node != null && payload_node.type == ASTNodeType.AST_TYPE_SLICE &&
                     expr.type == ASTNodeType.AST_UNARY_EXPR &&
                     (expr.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND {
-                    need_deref = 1;
+                    // `&<切片表达式>` 本身已是切片值，无需再解引用；`&切片变量` 仍是指针，需要解引用
+                    if c99_expr_is_amp_over_slice_expr(expr) == 0 {
+                        need_deref = 1;
+                    }
                     if expr.unary_expr_operand != null && expr.unary_expr_operand.type == ASTNodeType.AST_SLICE_EXPR &&
                         expr.unary_expr_operand.slice_expr_base != null &&
                         expr.unary_expr_operand.slice_expr_base.type == ASTNodeType.AST_IDENTIFIER &&
@@ -2007,9 +2028,9 @@ fn gen_return_error_union(codegen: &C99CodeGenerator, expr: &ASTNode, return_typ
                 }
                 if need_heap_copy_local_slice != 0 {
                     const elem_c: &byte = c99_type_to_c(codegen, payload_node.type_slice_element_type);
-                    fprintf(codegen.emit_stream as *void, "%s _uya_ret = (%s){ .error_id = 0, .value = *(" as *byte, ret_c as *byte, ret_c as *byte);
+                    fprintf(codegen.emit_stream as *void, "%s _uya_ret = (%s){ .error_id = 0, .value = " as *byte, ret_c as *byte, ret_c as *byte);
                     gen_expr(codegen, expr);
-                    fputs(") };\n" as *byte, codegen.emit_stream as *void);
+                    fputs(" };\n" as *byte, codegen.emit_stream as *void);
                     c99_emit_indent(codegen);
                     c99_emit(codegen, "extern void *malloc(size_t);\n" as *byte);
                     c99_emit_indent(codegen);
@@ -3416,21 +3437,9 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                         }
                     }
                     if did_string_slice_init == 0 {
-                    var need_slice_deref_init: i32 = 0;
-                    if var_type != null && var_type.type == ASTNodeType.AST_TYPE_SLICE &&
-                        init_expr.type == ASTNodeType.AST_UNARY_EXPR &&
-                        (init_expr.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND &&
-                        init_expr.unary_expr_operand != null &&
-                        init_expr.unary_expr_operand.type == ASTNodeType.AST_SLICE_EXPR {
-                        need_slice_deref_init = 1;
-                    }
-                    if need_slice_deref_init != 0 {
-                        fputs("*(" as *byte, codegen.emit_stream as *void);
-                        gen_expr(codegen, init_expr);
-                        fputs(")" as *byte, codegen.emit_stream as *void);
-                    } else {
-                        gen_expr(codegen, init_expr);
-                    }
+                    // `&<切片表达式>` 在语言层是切片值本身（gen_unary_expr 不再发 `&`），
+                    // 原来用 `*(...)` 把指针还原成值的兼容写法已不需要。
+                    gen_expr(codegen, init_expr);
                     }
                 }
                 codegen.expected_block_union_type = saved_init_expected_union;
