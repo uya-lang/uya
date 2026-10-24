@@ -2105,6 +2105,14 @@ fn gen_test_runner(codegen: &C99CodeGenerator, tests: & & ASTNode, test_count: i
     // （见 c99_printf_c_name）。
     const printf_c_name: &byte = c99_printf_c_name(codegen);
 
+    // 测试名之后要立刻 flush：名称行没有换行，stdout 接管道/文件时是整块缓冲，
+    // 用例挂死后名字随缓冲区丢失，CI 上只能看到上一个用例，无法定位。
+    // 生成物不含 <stdio.h>，这里按宿主平台发射带 asm 标签的 fflush 声明，
+    // 并用独立 C 名避免与将来引入的系统声明冲突。
+    c99_emit_host_symbol_decl(codegen,
+        "extern int uya_test_flush(void *) __asm__(\"_fflush\");\n" as *byte,
+        "extern int uya_test_flush(void *) __asm__(\"fflush\");\n" as *byte);
+
     fputs("static void uya_run_tests(void) {\n" as *byte, codegen.emit_stream as *void);
     
     var i: i32 = 0;
@@ -2118,7 +2126,7 @@ fn gen_test_runner(codegen: &C99CodeGenerator, tests: & & ASTNode, test_count: i
                 fprintf(codegen.emit_stream as *void, "    %s(\"  TEST: %s ... \");\n" as *byte, printf_c_name as *byte, description as *byte);
                 // 名称行没有换行，printf 在管道/文件下是整块缓冲，用例挂死后名字会随缓冲区丢掉；
                 // 立刻 flush 才能在超时日志里看出卡在哪个用例。
-                fputs("    fflush((void *)0);\n" as *byte, codegen.emit_stream as *void);
+                fputs("    uya_test_flush((void *)0);\n" as *byte, codegen.emit_stream as *void);
                 // 运行测试并分别统计测试用例与断言
                 fputs("    {\n" as *byte, codegen.emit_stream as *void);
                 fputs("      struct err_union_void _test_result = " as *byte, codegen.emit_stream as *void);
