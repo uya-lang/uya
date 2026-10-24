@@ -2972,14 +2972,19 @@ fn pipeline_terminal_inherit_child(slave_name: &const byte, master_fd: i32,
     _exit(0);
 }
 
-/// 杀掉并回收 self test 里忙等的前台占位子进程。
+/// 杀掉并回收 self test 里忙等的前台占位子进程；回收也是有界的，不会阻塞等待。
 /// 参数：pid 为 fork 出的前台占位进程；非正数时不做任何事。
 /// 返回：无返回值。
 fn pipeline_terminal_reap_foreground(pid: i32) void {
     if pid <= 0 { return; }
     _ = kill(pid, SIGKILL);
     var raw: i32 = 0;
-    _ = waitpid(pid, &raw, 0);
+    var rounds: i32 = 0;
+    while rounds < 2000000 {
+        const waited: i32 = waitpid(pid, &raw, WNOHANG);
+        if waited == pid || waited < 0 { return; }
+        rounds = rounds + 1;
+    }
 }
 
 /// 带超时等待 fd 可写；Darwin 上 slave 尚未就绪时写 master 会永久阻塞，先探一次。
@@ -2997,9 +3002,10 @@ fn pipeline_terminal_await_writable(fd: i32, timeout_ms: i32) i32 {
 /// 参数：pid 为目标 child；raw 承接 wait status；timeout_ms 为等待上限（换算成轮转次数）。
 /// 返回：child 已退出（不论状态）返回 1；超时返回 0；waitpid 出错返回 -1。
 ///
-/// 每轮 = waitpid(WNOHANG) + sched_yield，不依赖 poll/sleep 之类的超时原语：Darwin 上
-/// 需要真正等超时的那次 poll 曾经直接不回，把「带超时的等待」变成了新的挂死点。
-/// 轮转次数按 1ms 约 200 轮折算，5s 上限约 100 万轮，正常路径第一轮就能收到 child。
+/// 每轮只做一次 waitpid(WNOHANG)，不依赖 poll/sleep/sched_yield 等任何原语：Darwin 上
+/// 「真正需要等超时」的 poll 曾经直接不返回，自检自己反而成了挂死点，所以这里只用
+/// 最朴素的轮转计数封顶。轮转次数按 1ms 约 200 轮折算，5s 上限约 100 万轮，
+/// 正常路径第一轮就能收到已退出的 child。
 fn pipeline_selftest_wait_child(pid: i32, raw: &i32, timeout_ms: i32) i32 {
     const rounds_budget: i32 = timeout_ms *| 200;
     var rounds: i32 = 0;
@@ -3007,9 +3013,9 @@ fn pipeline_selftest_wait_child(pid: i32, raw: &i32, timeout_ms: i32) i32 {
         const waited: i32 = waitpid(pid, raw, WNOHANG);
         if waited == pid { return 1; }
         if waited < 0 { return 0 - 1; }
-        _ = sched_yield();
         rounds = rounds + 1;
     }
+    pipeline_selftest_note("pty selftest: child did not exit in time\n");
     pipeline_terminal_reap_foreground(pid);
     return 0;
 }
