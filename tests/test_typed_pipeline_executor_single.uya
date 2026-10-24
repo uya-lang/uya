@@ -424,7 +424,7 @@ test "pipeline_capture_does_not_wait_for_descendant_writer_eof" {
 
 test "pipeline_checked_sink_uses_all_stage_pipefail" {
     const no_args_values: [&const byte: 1] = [""];
-    const first: Pipeline = try cmd_path_argv(pipeline(), "/bin/false", &no_args_values[0:0]);
+    const first: Pipeline = try cmd_path_argv(pipeline(), "/usr/bin/false", &no_args_values[0:0]);
     const full: Pipeline = try cmd_path_argv(first, "/usr/bin/true", &no_args_values[0:0]);
     var statuses_storage: [PipelineStageStatus: 2] = [];
     var result: PipelineResult = PipelineResult {};
@@ -439,7 +439,7 @@ test "pipeline_checked_sink_uses_all_stage_pipefail" {
 test "pipeline_checked_sink_reports_last_stage_nonzero_exit" {
     const no_args_values: [&const byte: 1] = [""];
     const first: Pipeline = try cmd_path_argv(pipeline(), "/usr/bin/true", &no_args_values[0:0]);
-    const full: Pipeline = try cmd_path_argv(first, "/bin/false", &no_args_values[0:0]);
+    const full: Pipeline = try cmd_path_argv(first, "/usr/bin/false", &no_args_values[0:0]);
     var statuses_storage: [PipelineStageStatus: 2] = [];
     var result: PipelineResult = PipelineResult {};
     const executed: !void = check_into(full, &statuses_storage[0:2], &result);
@@ -569,7 +569,7 @@ test "pipeline_process_create_failure_has_stable_classification" {
 test "pipeline_relative_cmd_path_resolves_after_stage_cwd" {
     const no_args_values: [&const byte: 1] = [""];
     const command: Pipeline = try cwd(
-        try cmd_path_argv(pipeline(), "true", &no_args_values[0:0]), "/bin");
+        try cmd_path_argv(pipeline(), "true", &no_args_values[0:0]), "/usr/bin");
     try check(command);
 }
 

@@ -2,6 +2,16 @@ use std.process;
 use std.testing.assert_eq_u64;
 use libc.strcmp;
 
+/// 跳过前导空格：BSD wc 把计数右对齐补空格（macOS 上 `wc -l` 输出 `       2`），
+/// GNU wc 直接输出 `2`；比较前统一去掉补位，用例就不会依赖宿主 wc 的输出格式。
+/// 参数：text 为以 NUL 结尾的字符串。
+/// 返回：指向第一个非空格字节的指针。
+fn skip_count_padding(text: &const byte) &const byte {
+    var offset: usize = 0usize;
+    while text[offset] == 32 as byte { offset = offset + 1usize; }
+    return &text[offset];
+}
+
 error PipelineExpectedStageFailure;
 
 struct PipelinePassStage : PipelineStage {
@@ -193,7 +203,7 @@ test "pipeline_line_filter_runs_between_external_commands" {
     var stderr_buf: [byte: 1] = [];
     var result: PipelineCaptureResult = PipelineCaptureResult {};
     try capture_into(captured, &statuses[0:3], &stdout_buf[0:16], &stderr_buf[0:1], &result);
-    try assert_eq_u64(strcmp(&stdout_buf[0], "2\n") as u64, 0);
+    try assert_eq_u64(strcmp(skip_count_padding(&stdout_buf[0]), "2\n") as u64, 0);
     try assert_eq_u64(statuses[1].kind as u64, PipelineStageStatusKind.completed as u64);
     try assert_eq_u64(statuses[1].stage_index as u64, 1);
 }
@@ -225,7 +235,7 @@ test "pipeline_stage_streams_large_input_without_full_buffering" {
     var stderr_buf: [byte: 1] = [];
     var result: PipelineCaptureResult = PipelineCaptureResult {};
     try capture_into(captured, &statuses[0:3], &stdout_buf[0:32], &stderr_buf[0:1], &result);
-    try assert_eq_u64(strcmp(&stdout_buf[0], "200000\n") as u64, 0);
+    try assert_eq_u64(strcmp(skip_count_padding(&stdout_buf[0]), "200000\n") as u64, 0);
 }
 
 test "pipeline_exec_worker_force_terminates_cpu_bound_stage" {

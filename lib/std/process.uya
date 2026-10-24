@@ -2942,23 +2942,51 @@ export fn pipeline_child_signal_setup_self_test() !void {
     }
 }
 
-fn pipeline_terminal_inherit_child_run(slave_name: &const byte, master_fd: i32) !void {
+fn pipeline_terminal_inherit_child_run(slave_name: &const byte, master_fd: i32,
+    ready_fd: i32) !void {
     _ = close(master_fd);
     if setsid() < 0 { return error.PipelineIoError; }
     const slave_fd: i32 = try sys_open(slave_name, O_RDWR as i32, 0);
     if tcsetpgrp(slave_fd, getpgrp()) != 0 || dup2(slave_fd, 0) < 0 ||
         dup2(slave_fd, 1) < 0 || dup2(slave_fd, 2) < 0 { return error.PipelineIoError; }
     if slave_fd > 2 { _ = close(slave_fd); }
+    // 必须等 slave 真正打开后再让父进程往 master 写 token：Darwin 上 slave 还没
+    // 打开时写 master 会挂住（数据也无处可去），父进程先写就会让本用例在 macOS 上
+    // 永久卡在 write()。这里先回一个 ready 字节，父进程收到后才写 token。
+    try pipeline_terminal_ready_notify(ready_fd);
     const args: [&const byte: 2] = ["-c", "read value; test \"$value\" = token"];
     const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &args[0:2]);
     try check(try inherit_stdio(command));
     if tcgetpgrp(0) != getpgrp() { return error.InvalidPipeline; }
 }
 
-fn pipeline_terminal_inherit_child(slave_name: &const byte, master_fd: i32) void {
-    const completed: !void = pipeline_terminal_inherit_child_run(slave_name, master_fd);
+fn pipeline_terminal_inherit_child(slave_name: &const byte, master_fd: i32,
+    ready_fd: i32) void {
+    const completed: !void = pipeline_terminal_inherit_child_run(slave_name, master_fd,
+        ready_fd);
     _ = completed catch { _exit(1); };
     _exit(0);
+}
+
+/// 通知父进程 pty slave 已接管完成；子进程侧失败时直接返回错误。
+/// 参数：ready_fd 为握手管道的写端。
+/// 返回：无返回值；写入失败时返回 `error.PipelineIoError`。
+fn pipeline_terminal_ready_notify(ready_fd: i32) !void {
+    var token: byte = 82 as byte;
+    const written: !isize = sys_write(ready_fd, &token, 1usize);
+    const count: isize = written catch { return error.PipelineIoError; };
+    if count != 1isize { return error.PipelineIoError; }
+}
+
+/// 等待子进程报告 pty slave 已接管；子进程提前退出时返回错误而不是挂死。
+/// 参数：ready_fd 为握手管道的读端。
+/// 返回：收到 ready 字节返回 1，对端已关闭返回 0。
+fn pipeline_terminal_ready_wait(ready_fd: i32) !i32 {
+    var token: byte = 0 as byte;
+    const received: !isize = sys_read(ready_fd, &token, 1usize);
+    const count: isize = received catch { return error.PipelineIoError; };
+    if count != 1isize || token != 82 as byte { return 0; }
+    return 1;
 }
 
 /// 验证继承终端 stdin 的 child 可读且 sink 完成后恢复 executor 前台 PGID；仅供回归测试。
@@ -2970,13 +2998,32 @@ export fn pipeline_terminal_inherit_self_test() !void {
     }
     const slave_name: &byte = pty_slave_name(master_fd);
     if slave_name == null { _ = close(master_fd); return error.PipelineIoError; }
+    var ready_pipe: [i32: 2] = [0 - 1, 0 - 1];
+    const created: !i32 = sys_pipe2(&ready_pipe[0], O_CLOEXEC);
+    _ = created catch { _ = close(master_fd); return error.PipelineIoError; };
     const pid: i32 = fork();
-    if pid == 0 { pipeline_terminal_inherit_child(slave_name, master_fd); }
-    if pid < 0 { _ = close(master_fd); return error.PipelineIoError; }
+    if pid == 0 {
+        _ = close(ready_pipe[0]);
+        pipeline_terminal_inherit_child(slave_name, master_fd, ready_pipe[1]);
+    }
+    _ = close(ready_pipe[1]);
+    if pid < 0 { _ = close(ready_pipe[0]); _ = close(master_fd); return error.PipelineIoError; }
+    const ready: i32 = try pipeline_terminal_ready_wait(ready_pipe[0]);
+    _ = close(ready_pipe[0]);
+    var raw: i32 = 0;
+    if ready == 0 {
+        // 子进程在接管 slave 前就失败了：不要再写 master（会挂住），直接收尸。
+        _ = waitpid(pid, &raw, 0);
+        _ = close(master_fd);
+        return error.InvalidPipeline;
+    }
     const token: &const byte = "token\n";
     const written: !isize = sys_write(master_fd, token, 6usize);
-    _ = written catch { _ = close(master_fd); return error.PipelineIoError; };
-    var raw: i32 = 0;
+    _ = written catch {
+        _ = waitpid(pid, &raw, 0);
+        _ = close(master_fd);
+        return error.PipelineIoError;
+    };
     const waited: i32 = waitpid(pid, &raw, 0);
     _ = close(master_fd);
     if waited != pid || ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
