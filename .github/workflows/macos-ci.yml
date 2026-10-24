@@ -43,27 +43,37 @@ jobs:
         SKIP_DARWIN_DEFAULT: "1"
       run: |
         set +e
-        make tests-hosted 2>&1 | tee /tmp/tests-hosted.log
-        status=${PIPESTATUS[0]}
-        fails=$(grep '❌' /tmp/tests-hosted.log | perl -pe 's/\e\[[0-9;]*m//g' | sed 's/^ *//' | paste -sd ';' -)
+        log=/tmp/tests-hosted.log
+        # macOS 没有 timeout(1)；用 perl 的 alarm（跨 execve 保留）给整步封顶。
+        # 输出写文件而不是接管道：挂死的用例即使留下孤儿进程也不会把 tee 挂住，
+        # 这样 job 一定能结束并发布注解。
+        perl -e 'alarm 1500; exec @ARGV' make tests-hosted > "$log" 2>&1
+        status=$?
+        echo "----- make tests-hosted: status=$status -----"
+        tail -40 "$log"
+        fails=$(grep '❌' "$log" | perl -pe 's/\e\[[0-9;]*m//g' | sed 's/^ *//' | paste -sd ';' -)
         if [ -n "$fails" ]; then
           echo "::error::hosted tests failed: $fails"
-          # 并行矩阵里的失败项只报退出码，缺少断言详情；这里逐个单独重跑，
-          # 把输出写进注解（注解公开可读，无需 token 即可定位回归）。
-          for name in $(grep '❌' /tmp/tests-hosted.log | perl -pe 's/\e\[[0-9;]*m//g' \
-              | sed -E 's/^ *❌ ([^:]+):.*/\1/'); do
-            if [ ! -f "tests/$name.uya" ]; then
-              continue
-            fi
-            echo "----- detail begin: $name -----"
-            # macOS 没有 timeout(1)，用 perl 的 alarm 给重跑封顶，避免挂死拖满 job 预算。
-            UYA_ROOT="$PWD/lib/" RUNTIME_MODE=hosted \
-              perl -e 'alarm 240; exec @ARGV' \
-              ./bin/uya-hosted test "tests/$name.uya" 2>&1 | tee "/tmp/detail-$name.log"
-            echo "----- detail end: $name -----"
-            echo "::error title=$name::$(tail -60 "/tmp/detail-$name.log" | cut -c1-400 | tr '\n' '|')"
-          done
+        elif [ "$status" -ne 0 ]; then
+          # 没有 ❌ 行却非零：多半是整步被 alarm 打断（有用例挂死），把末尾写进注解。
+          echo "::error title=tests-hosted-hang::$(tail -30 "$log" | cut -c1-400 | tr '\n' '|')"
         fi
+        # 并行矩阵里的失败项只报退出码，缺少断言详情；这里逐个单独重跑，
+        # 把输出写进注解（注解公开可读，无需 token 即可定位回归）。
+        for name in $(grep '❌' "$log" | perl -pe 's/\e\[[0-9;]*m//g' \
+            | sed -E 's/^ *❌ ([^:]+):.*/\1/'); do
+          if [ ! -f "tests/$name.uya" ]; then
+            continue
+          fi
+          detail="/tmp/detail-$name.log"
+          UYA_ROOT="$PWD/lib/" RUNTIME_MODE=hosted \
+            perl -e 'alarm 240; exec @ARGV' \
+            ./bin/uya-hosted test "tests/$name.uya" > "$detail" 2>&1
+          echo "----- detail begin: $name -----"
+          tail -80 "$detail"
+          echo "----- detail end: $name -----"
+          echo "::error title=$name::$(tail -60 "$detail" | cut -c1-400 | tr '\n' '|')"
+        done
         exit "$status"
 
     - name: Resolve microapp arm64 toolchain
