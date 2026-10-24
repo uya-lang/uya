@@ -3041,15 +3041,19 @@ fn pipeline_selftest_note(text: &const byte) void {
 /// 验证继承终端 stdin 的 child 可读且 sink 完成后恢复 executor 前台 PGID；仅供回归测试。
 export fn pipeline_terminal_inherit_self_test() !void {
     const master_fd: i32 = posix_openpt(O_RDWR as i32);
+    pipeline_selftest_note("pty: inherit enter\n");
     if master_fd < 0 || grantpt(master_fd) != 0 || unlockpt(master_fd) != 0 {
         if master_fd >= 0 { _ = close(master_fd); }
         return error.PipelineIoError;
     }
+    pipeline_selftest_note("pty: inherit master opened\n");
     const slave_name: &byte = pty_slave_name(master_fd);
     if slave_name == null { _ = close(master_fd); return error.PipelineIoError; }
+    pipeline_selftest_note("pty: inherit slave named\n");
     var ready_pipe: [i32: 2] = [0 - 1, 0 - 1];
     const created: !i32 = sys_pipe2(&ready_pipe[0], O_CLOEXEC);
     _ = created catch { _ = close(master_fd); return error.PipelineIoError; };
+    pipeline_selftest_note("pty: inherit ready pipe\n");
     const pid: i32 = fork();
     if pid == 0 {
         _ = close(ready_pipe[0]);
@@ -3057,6 +3061,7 @@ export fn pipeline_terminal_inherit_self_test() !void {
     }
     _ = close(ready_pipe[1]);
     if pid < 0 { _ = close(ready_pipe[0]); _ = close(master_fd); return error.PipelineIoError; }
+    pipeline_selftest_note("pty: inherit forked\n");
     var raw: i32 = 0;
     const ready: i32 = try pipeline_terminal_await_byte(ready_pipe[0], 82 as byte, 4000);
     if ready != 1 {
@@ -3067,6 +3072,7 @@ export fn pipeline_terminal_inherit_self_test() !void {
         _ = close(master_fd);
         return error.InvalidPipeline;
     }
+    pipeline_selftest_note("pty: inherit slave ready\n");
     const token: &const byte = "token\n";
     const written: !isize = sys_write(master_fd, token, 6usize);
     _ = written catch {
@@ -3129,6 +3135,7 @@ fn pipeline_terminal_background_child(slave_name: &const byte, master_fd: i32) v
 /// 验证后台 executor 不会调用 tcsetpgrp 抢占现有前台 process group；仅供回归测试。
 export fn pipeline_terminal_background_self_test() !void {
     const master_fd: i32 = posix_openpt(O_RDWR as i32);
+    pipeline_selftest_note("pty: background enter\n");
     if master_fd < 0 || grantpt(master_fd) != 0 || unlockpt(master_fd) != 0 {
         if master_fd >= 0 { _ = close(master_fd); }
         return error.PipelineIoError;
@@ -3193,6 +3200,7 @@ fn pipeline_terminal_stopped_child(slave_name: &const byte, master_fd: i32,
 
 fn pipeline_terminal_stopped_case(background_read: bool) !void {
     const master_fd: i32 = posix_openpt(O_RDWR as i32);
+    pipeline_selftest_note("pty: stopped case enter\n");
     if master_fd < 0 || grantpt(master_fd) != 0 || unlockpt(master_fd) != 0 {
         if master_fd >= 0 { _ = close(master_fd); }
         return error.PipelineIoError;
@@ -3221,6 +3229,7 @@ export fn pipeline_terminal_stopped_self_test() !void {
 /// 验证 StreamReader/StreamWriter 的阻塞、短行尾段与 EOF 语义；仅供回归测试。
 export fn pipeline_stream_self_test() !void {
     var fds: [i32: 2] = [];
+    pipeline_selftest_note("pty: stream enter\n");
     _ = try sys_pipe2(&fds[0], O_CLOEXEC);
     var reader: StreamReader = StreamReader { _fd: fds[0] };
     var writer: StreamWriter = StreamWriter { _fd: fds[1] };
@@ -3283,6 +3292,7 @@ fn pipeline_closed_stdio_child(closed_fd: i32) void {
 /// 验证宿主分别预先关闭 0/1/2 时，pipe/file remap 与 exec 后 stdio 均正确；仅供回归测试。
 export fn pipeline_closed_stdio_self_test() !void {
     _ = unlink("/tmp/uya-pipeline-closed-stdio.out");
+    pipeline_selftest_note("pty: closed-stdio enter\n");
     _ = unlink("/tmp/uya-pipeline-closed-stdio.err");
     var closed_fd: i32 = 0;
     while closed_fd < 3 {
