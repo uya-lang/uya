@@ -2993,11 +2993,23 @@ fn pipeline_terminal_await_writable(fd: i32, timeout_ms: i32) i32 {
     return 1;
 }
 
-/// self test 用的短睡：poll 一个空集合，等价于 sleep(milliseconds)。
+// self test 的 sleep 用一根永不就绪的管道实现：读端常驻，写端故意保持打开且不写入，
+// 于是 poll 只会因超时返回。
+// 不用 poll(NULL, 0, ms)：那在 Darwin 上的行为没有保证，自检自己也挂死过一次。
+var _pipeline_selftest_sleep_fd: i32 = 0 - 1;
+
+/// self test 用的短睡：等一根永不就绪的管道，等价于 sleep(milliseconds)。
 /// 参数：milliseconds 为等待毫秒数。
 /// 返回：无返回值。
 fn pipeline_selftest_sleep(milliseconds: i32) void {
-    const waited: !i32 = sys_poll(null as &PollFd, 0usize, milliseconds);
+    if _pipeline_selftest_sleep_fd < 0 {
+        var fds: [i32: 2] = [0 - 1, 0 - 1];
+        const created: !i32 = sys_pipe2(&fds[0], O_CLOEXEC);
+        _ = created catch { return; };
+        _pipeline_selftest_sleep_fd = fds[0];
+    }
+    var wait_fd: PollFd = PollFd { fd: _pipeline_selftest_sleep_fd, events: POLLIN, revents: 0 };
+    const waited: !i32 = sys_poll(&wait_fd, 1usize, milliseconds);
     _ = waited catch {};
 }
 
@@ -3114,7 +3126,9 @@ export fn pipeline_terminal_inherit_self_test() !void {
         _ = close(master_fd);
         return error.InvalidPipeline;
     }
+    pipeline_selftest_note("pty: inherit waiting child exit\n");
     const waited: i32 = pipeline_selftest_wait_child(pid, &raw, 5000);
+    pipeline_selftest_note("pty: inherit child reaped\n");
     _ = close(master_fd);
     if waited != 1 { return error.InvalidPipeline; }
     if ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
