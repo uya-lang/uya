@@ -2979,6 +2979,30 @@ fn pipeline_terminal_reap_foreground(pid: i32) void {
     _ = waitpid(pid, &raw, 0);
 }
 
+/// self test 用的短睡：poll 一个空集合，等价于 sleep(milliseconds)。
+/// 参数：milliseconds 为等待毫秒数。
+/// 返回：无返回值。
+fn pipeline_selftest_sleep(milliseconds: i32) void {
+    const waited: !i32 = sys_poll(null as &PollFd, 0usize, milliseconds);
+    _ = waited catch {};
+}
+
+/// 带超时等待并回收 self test 的 child；超时强杀，避免整步挂死。
+/// 参数：pid 为目标 child；raw 承接 wait status；timeout_ms 为等待上限。
+/// 返回：child 已退出（不论状态）返回 1；超时返回 0；waitpid 出错返回 -1。
+fn pipeline_selftest_wait_child(pid: i32, raw: &i32, timeout_ms: i32) i32 {
+    var elapsed: i32 = 0;
+    while elapsed < timeout_ms {
+        const waited: i32 = waitpid(pid, raw, WNOHANG);
+        if waited == pid { return 1; }
+        if waited < 0 { return 0 - 1; }
+        pipeline_selftest_sleep(50);
+        elapsed = elapsed + 50;
+    }
+    pipeline_terminal_reap_foreground(pid);
+    return 0;
+}
+
 /// 向 self test 的握手管道写一个字节。
 /// 参数：ready_fd 为握手管道写端；token 为要写的字节。
 /// 返回：无返回值；写入失败时返回 `error.PipelineIoError`。
@@ -3034,7 +3058,7 @@ export fn pipeline_terminal_inherit_self_test() !void {
     _ = close(ready_pipe[1]);
     if pid < 0 { _ = close(ready_pipe[0]); _ = close(master_fd); return error.PipelineIoError; }
     var raw: i32 = 0;
-    const ready: i32 = try pipeline_terminal_await_byte(ready_pipe[0], 82 as byte, 10000);
+    const ready: i32 = try pipeline_terminal_await_byte(ready_pipe[0], 82 as byte, 5000);
     if ready != 1 {
         // 子进程没能在超时内接管 slave：不要再写 master（会挂住），收尸后报失败。
         pipeline_selftest_note("pty selftest: child did not take over the slave\n");
@@ -3051,7 +3075,7 @@ export fn pipeline_terminal_inherit_self_test() !void {
         _ = close(master_fd);
         return error.PipelineIoError;
     };
-    const finished: i32 = try pipeline_terminal_await_byte(ready_pipe[0], 68 as byte, 20000);
+    const finished: i32 = try pipeline_terminal_await_byte(ready_pipe[0], 68 as byte, 8000);
     _ = close(ready_pipe[0]);
     if finished != 1 {
         pipeline_selftest_note("pty selftest: stage did not drain the terminal token\n");
@@ -3059,9 +3083,10 @@ export fn pipeline_terminal_inherit_self_test() !void {
         _ = close(master_fd);
         return error.InvalidPipeline;
     }
-    const waited: i32 = waitpid(pid, &raw, 0);
+    const waited: i32 = pipeline_selftest_wait_child(pid, &raw, 8000);
     _ = close(master_fd);
-    if waited != pid || ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
+    if waited != 1 { return error.InvalidPipeline; }
+    if ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
 }
 
 fn pipeline_terminal_background_child_run(slave_name: &const byte, master_fd: i32) !void {
@@ -3114,9 +3139,13 @@ export fn pipeline_terminal_background_self_test() !void {
     if pid == 0 { pipeline_terminal_background_child(slave_name, master_fd); }
     if pid < 0 { _ = close(master_fd); return error.PipelineIoError; }
     var raw: i32 = 0;
-    const waited: i32 = waitpid(pid, &raw, 0);
+    const waited: i32 = pipeline_selftest_wait_child(pid, &raw, 8000);
     _ = close(master_fd);
-    if waited != pid || ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
+    if waited != 1 {
+        pipeline_selftest_note("pty selftest: background executor did not finish\n");
+        return error.InvalidPipeline;
+    }
+    if ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
 }
 
 fn pipeline_terminal_stopped_child_run(slave_name: &const byte, master_fd: i32,
@@ -3174,9 +3203,13 @@ fn pipeline_terminal_stopped_case(background_read: bool) !void {
     if pid == 0 { pipeline_terminal_stopped_child(slave_name, master_fd, background_read); }
     if pid < 0 { _ = close(master_fd); return error.PipelineIoError; }
     var raw: i32 = 0;
-    const waited: i32 = waitpid(pid, &raw, 0);
+    const waited: i32 = pipeline_selftest_wait_child(pid, &raw, 8000);
     _ = close(master_fd);
-    if waited != pid || ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
+    if waited != 1 {
+        pipeline_selftest_note("pty selftest: stopped-child case did not finish\n");
+        return error.InvalidPipeline;
+    }
+    if ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
 }
 
 /// 验证 SIGTSTP/SIGTTIN stopped child 均有限取消、返回 Interrupted 并恢复终端；仅供回归测试。
