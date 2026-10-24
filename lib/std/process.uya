@@ -102,7 +102,22 @@ fn pty_slave_name(fd: i32) &byte {
     return ptsname(fd);
 }
 })
+// errno 的取址入口随目标 ABI 而不同：macOS/Darwin 是 __error()，glibc 等是
+// __errno_location()。只声明并调用目标对应的那个，避免在 Darwin 上引入
+// glibc 符号 __errno_location，链接期报 undefined reference to `___errno_location'。
+std.cfg(std.target_os == .tos_macos, {
+extern fn __error() &i32;
+
+fn pipeline_errno_location() &i32 {
+    return __error();
+}
+}, {
 extern fn __errno_location() &i32;
+
+fn pipeline_errno_location() &i32 {
+    return __errno_location();
+}
+})
 extern fn sigaction(signum: i32, action: &const PipelineSigaction, old_action: &PipelineSigaction) i32;
 
 export error InvalidPipeline;
@@ -1726,7 +1741,7 @@ fn pipeline_write_all_bytes(fd: i32, input: &const byte, count: usize) !void {
 }
 
 fn pipeline_errno_value() i32 {
-    const location: &i32 = __errno_location();
+    const location: &i32 = pipeline_errno_location();
     if location == null { return 0; }
     return location[0];
 }
