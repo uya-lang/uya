@@ -13,15 +13,17 @@
   T3（赋值表达式/@mc_source）、T4（if 表达式）、T4b（语句分支 match）、
   T5b（for 数组值绑定 + `|&item|` 引用绑定）、T6（match 全模式）、
   T12（嵌套数组写入）、T13 主体（双指针/指针元素类型）与若干诊断/静默失败修复。
-- 最近一次实测（本轮 checked 算术 catch/try + `undefined` + 字符串转切片之后）：
-  `test --vm` 通过 **452 / 914（49.5%）**，失败 462。
-- 失败原因分布：`generic` 273、`simd` 69、`catch_expr` 18、`extern_abi` 16、
-  `build` 15、`runtime` 13、`string_interp` 9、`async` 6、`timeout` 5、
+- 最近一次实测（本轮 checked 算术 catch/try + `undefined` + 字符串转切片 + 宏深拷贝之后）：
+  `test --vm` 通过 **456 / 914（49.9%）**，失败 458。
+- 失败原因分布：`generic` 258、`simd` 69、`runtime` 30、`catch_expr` 18、
+  `extern_abi` 16、`string_interp` 9、`build` 9、`async` 6、`timeout` 5、
   `c_import` 4、`try_expr` 1；`match_expr` 已清零。
 - `generic` 内部 Top：泛型调用/varargs 转发 101、仅支持局部变量/参数/全局标识符 46、
   语句节点 `type=79`（inline asm）42、成员方法 `kind=13` 19、结构体声明 18、
   interface 方法表 15、表达式节点 `type=28` 7、编译期 builtin 折叠 5。
-- 本轮之前的基线是 431 / 914（47.2%），checked 算术与两个字面量类缺陷共带来 +21。
+- `runtime` 内部 Top：`当前不支持该指针元素类型` 19（多为 fmt_* 系列，已推进到
+  更深的运行时错误）、`LOAD_FIELD 字段越界` 6、`LOAD_INDEX 越界` 3。
+- 本轮从 431 / 914（47.2%）起步，累计 +25。
 - 待办：T5（泛型/varargs）、T7（SIMD）、T8（原生桥）、T9（async）、T10（剩余诊断）、
   T13 余下 3 例、T11 收口。
 
@@ -149,6 +151,22 @@
   46 例中相当一部分是 `undefined`）。
 - [x] `"..." as &[byte]` 在 lowering 期补齐长度：此前只得到裸指针，
   `.len` 恒为 0、`.ptr` 报 `LOAD_SLICE_PTR 目标不是 slice`。
+
+### T4e 宏深拷贝与原生指针聚合元素（build / runtime 桶）
+
+- [x] `macro_expand` 的 `deep_copy_ast_internal` 按节点类型逐字段复制，未覆盖的
+  节点会丢掉全部子表达式。`expect(...)`/`assert_*` 这类宏会把参数 AST 再复制一次，
+  于是 `expect(@usize_from_ptr(x) == ...)` 展开后操作数变 null，exec lowering
+  静默失败。已补齐 `@ptr_from_usize`/`@usize_from_ptr`、pipeline、`@print`、
+  数组/元组字面量、字符串插值、`@syscall`、类型节点、`@va_*` 的子节点复制。
+- [x] exec lowering 兜底诊断：表达式 lowering 返回 null 且未设错误时，报出节点
+  类型（`exec: 表达式节点 lowering 失败但未设置错误信息(type=N)`），
+  不再出现「函数 lowering 失败但未设置错误信息」。
+- [x] `arena_alloc(...) as &Token` 这类「原生指针 + 聚合元素」在 VM 里没有原生
+  布局可用，新增旁路表把 (基地址, 下标) 映射到 ExecValue 槽位；
+  LOAD/STORE/ADDR_INDEX 在 pointee 原生大小未知时走该表。
+  fmt_* 系列不再在 `write_token` 报「当前不支持该指针元素类型」。
+- 余下：fmt_* 推进到 `tokenizer.uya:110` 的「切片基值不是 array/slice」，继续跟。
 
 ### T7 SIMD（55 例）
 
