@@ -9,7 +9,7 @@
 
 ## 进度快照
 
-- 最近一次实测（T12 之后）：`test --vm` 通过 **344 / 912（37.7%）**，失败 568。
+- 最近一次实测（T4b 之后）：`test --vm` 通过 **345 / 913（37.8%）**，失败 568。
 - 失败原因分布：`generic` 376、`simd` 55、`runtime` 48、`match_expr` 20、
   `unknown` 14、`extern_abi` 13、`string_interp` 9、`build` 8、`catch_expr` 7、
   `try_expr` 4、`c_import` 4、`async` 2。
@@ -71,13 +71,13 @@
   （`@await` 除外，归 T9）。
 - 验收：该消息在 census 中为 0。
 
-### T4b match 分支尾部是语句（16 例）
+### T4b match 分支尾部是语句（已完成）
 
-- 根因：`exec_lower_match_arm_result_node` 把分支块的最后一条**语句**（例如
-  `if i_val != 42 { return 10; }`）当成结果*表达式*返回，随后 `exec_lower_expr`
-  按表达式 lowering，报「if 表达式缺少条件或分支」。C99 把这类 match 当语句/void match。
-- 计划：match lowering 区分「表达式分支」与「语句分支」，语句分支用
-  `exec_lower_wrap_block_as_stmt` 注入并按 void 结果处理。
+- [x] 根因：`exec_lower_extract_block_result_expr` 把分支块的最后一条**语句**
+  （`if i_val != 42 { return 10; }`）当作结果表达式 lower，报「if 表达式缺少条件或分支」。
+- [x] 修复：尾部是无 else 的 `if` 时，整块按语句 lowering 成前缀块，结果用 void 零值占位
+  （与 C99 的语句/void match 口径一致）。
+- 实测：通过率 37.7% → 37.8%（这批文件继续前进到泛型/标识符/catch 等下一层）。
 
 ### T12 多维数组下标写入（已完成）
 

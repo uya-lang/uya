@@ -969,6 +969,18 @@ fn exec_lower_extract_block_result_expr(ctx: &ExecLowerContext, block: &ASTNode,
     if require_return_stmt != 0 {
         return exec_lower_fail_expr(block, "exec: 当前仅支持以 return 结束的 returning match 分支块" as *byte);
     }
+    if tail_stmt.type == ASTNodeType.AST_IF_STMT && tail_stmt.if_stmt_else_branch == null {
+        // 分支块以「无 else 的 if」这类语句收尾：整块按语句执行，结果用 void 零值占位
+        // （C99 侧这种 match 就是语句/void match，不是表达式）。
+        if out_prefix_block != null {
+            out_prefix_block[0] = exec_lower_block(ctx, block);
+            if out_prefix_block[0] == null {
+                return null;
+            }
+        }
+        const void_tail_type: Type = make_void_type();
+        return exec_lower_make_zero_expr(ctx, tail_stmt, &void_tail_type);
+    }
     return exec_lower_expr(ctx, tail_stmt);
 }
 
