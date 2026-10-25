@@ -162,6 +162,12 @@
   `exec_builder_pointer_pointee_kind_code` 产出的编码；下一步核对这个编码与
   `exec_vm_type_kind_size` 的取值域是否一致（数组/切片路径能跑通，说明标量编码一致，
   指针指向指针时可能落到了别的码）。
+- 第二次尝试：在 5 个使用点把 `exec_value_pointer_pointee_kind` 的返回值经
+  `exec_vm_decode_ref_kind` 解码。双指针的报错从「指针元素类型」变成
+  「LOAD_INDEX 越界」，但 `verify_exec_vm_smoke.sh` 在 struct 字段指针用例回归
+  （`test_exec_vm_struct_init_zero_fill`），说明 `aux_i64_value` 同时承担
+  「pointee kind」与「引用编码（REF_KIND_BASE/INDEX_BASE）」两种语义，
+  必须先把「是否是索引引用」从 kind 编码里拆成独立标志位，再谈解码。已回滚。
 
 ## 下一轮起点（上下文压缩后从这里继续）
 
