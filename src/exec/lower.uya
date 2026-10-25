@@ -2421,9 +2421,10 @@ fn exec_lower_make_for_range_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
     if stmt_node.for_stmt_is_range == 0 {
         return exec_lower_make_for_array_stmt(ctx, stmt_node);
     }
-    if stmt_node.for_stmt_var_name == null {
-        exec_backend_set_generic_unsupported_error(stmt_node, "exec: 当前 for range 必须显式绑定迭代变量" as *byte);
-        return null;
+    // 未写迭代变量（`for 0..3 { }`）或写 `_` 时，绑定到内部临时变量即可。
+    var iter_bind_name: &byte = stmt_node.for_stmt_var_name;
+    if iter_bind_name == null || str_equals(iter_bind_name, "_" as &byte) != 0 {
+        iter_bind_name = "__exec_for_iter" as &byte;
     }
     if stmt_node.for_stmt_is_ref != 0 {
         exec_backend_set_generic_unsupported_error(stmt_node, "exec: 当前不支持 for range 引用绑定" as *byte);
@@ -2447,7 +2448,7 @@ fn exec_lower_make_for_range_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
         return null;
     }
     const iter_type: Type = make_i32_type();
-    const iter_slot: i32 = exec_lower_append_local(ctx, null, stmt_node.for_stmt_var_name, &iter_type, 0);
+    const iter_slot: i32 = exec_lower_append_local(ctx, null, iter_bind_name, &iter_type, 0);
     const end_slot: i32 = exec_lower_append_local(ctx, null, "__exec_for_end" as *byte, &iter_type, 0);
     if iter_slot < 0 || end_slot < 0 {
         exec_lower_pop_scope(ctx);
