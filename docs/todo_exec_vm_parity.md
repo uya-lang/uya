@@ -9,10 +9,10 @@
 
 ## 进度快照
 
-- 最近一次实测：`test --vm` 通过 **220 / 911（24.1%）**，失败 691。
-- 失败原因分布：`generic` 531、`simd` 55、`runtime` 20、`match_expr` 19、
-  `unknown` 13、`extern_abi` 11、`string_interp` 9、`catch_expr` 7、
-  `c_import` 4、`try_expr` 3、`async` 2、`build` 1。
+- 最近一次实测（T2 之后）：`test --vm` 通过 **325 / 911（35.7%）**，失败 586。
+- 失败原因分布：`generic` 376、`simd` 55、`runtime` 48、`match_expr` 20、
+  `unknown` 14、`extern_abi` 13、`string_interp` 9、`build` 8、`catch_expr` 7、
+  `try_expr` 4、`c_import` 4、`async` 2。
 - 门禁全绿：`make check` 1188/1188；8 个 `tests/verify_exec_vm_*.sh` 全过。
 
 ## 任务清单
@@ -38,8 +38,15 @@
   `checker.program_node.program_decls`，说明合并 AST 里**含**库模块的 decl；
   但 `exec_lower_collect_global_slots_from_program` 只收到 5 个全局槽位，
   需确认是收集入口的 program 节点不同、还是 decl 类型判断漏了。
-- 验收：`tests/test_as_force_cast.uya` 等含 `use std.testing.<item>` 的用例
-  在 `--vm` 下不再报该错误；census 通过率显著上升。
+- [x] 已完成：lowering 改为「先按调用边闭包补齐可达函数 → 按函数所在文件补采全局
+  槽位 → 再降函数」，并用最多 4 轮定点循环补降新发现全局的初始化表达式。
+- 实测：`220 / 911（24.1%）` → `325 / 911（35.7%）`；8 个 `verify_exec_vm_*.sh` 全过。
+
+### T2b `as!` 数值转换（T2 暴露）
+
+- 现象：`tests/test_as_force_cast.uya` 的 `f64 as! i32` 得到 `1374389535`
+  （IEEE-754 位模式），C99 侧应为截断值 `3`；说明强制转换走了位重解释而非数值转换。
+- 验收：该用例 `test --vm` 全过；补一条 f32/f64 ↔ 整数互转的回归用例。
 
 ### T3 赋值表达式（`(x = 1) != 0`）
 

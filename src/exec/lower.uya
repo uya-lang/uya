@@ -3647,6 +3647,53 @@ fn exec_lower_find_global_slot_by_decl_in_globals(globals: &HIRGlobalSlot, globa
     return -1;
 }
 
+fn exec_lower_collect_file_globals_node(checker: &TypeChecker, node: &ASTNode, filename: &byte, globals: &HIRGlobalSlot, out_count: &i32) i32 {
+    if node == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_PROGRAM {
+        var i: i32 = 0;
+        while i < node.program_decl_count {
+            if exec_lower_collect_file_globals_node(checker, node.program_decls[i], filename, globals, out_count) != 0 {
+                return -1;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+    if node.filename == null || filename == null {
+        return 0;
+    }
+    if str_equals(node.filename, filename) == 0 {
+        return 0;
+    }
+    if exec_lower_global_is_runtime_decl(node) == 0 {
+        return 0;
+    }
+    if exec_lower_find_global_slot_by_decl_in_globals(globals, out_count[0], node) >= 0 {
+        return 0;
+    }
+    const global_type_ast: &ASTNode = exec_lower_global_type_ast(node);
+    if global_type_ast == null {
+        return 0;
+    }
+    const global_type: Type = type_from_ast(checker, global_type_ast);
+    if exec_type_is_vm_value_supported(global_type) == 0 {
+        return 0;
+    }
+    if exec_lower_append_global_slot(checker, node, globals, out_count, 1) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn exec_lower_collect_file_globals(checker: &TypeChecker, filename: &byte, globals: &HIRGlobalSlot, out_count: &i32) i32 {
+    if checker == null || filename == null || checker.program_node == null {
+        return 0;
+    }
+    return exec_lower_collect_file_globals_node(checker, checker.program_node, filename, globals, out_count);
+}
+
 fn exec_lower_collect_global_slots(arena: &CompilerArena, checker: &TypeChecker, program: &ASTNode, out_count: &i32) &HIRGlobalSlot {
     if out_count != null {
         out_count[0] = 0;
@@ -3662,6 +3709,13 @@ fn exec_lower_collect_global_slots(arena: &CompilerArena, checker: &TypeChecker,
     var count: i32 = 0;
     if exec_lower_collect_global_slots_from_program(checker, program, globals, &count) != 0 {
         return null;
+    }
+    // 库模块（如 std.testing）的全局变量可能只挂在 checker 的合并程序节点上，
+    // 而不在调用方传入的 program 里；两者不是同一节点时补扫一遍。
+    if checker.program_node != null && checker.program_node != program {
+        if exec_lower_collect_global_slots_from_program(checker, checker.program_node, globals, &count) != 0 {
+            return null;
+        }
     }
     if exec_lower_collect_global_slots_from_symbols(checker, globals, &count) != 0 {
         return null;
@@ -5988,17 +6042,9 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
             test_build_idx = test_build_idx + 1;
         }
     }
-    if exec_lower_lower_global_init_exprs(arena, checker, globals, global_count, &exec_reachable[0] as & & ASTNode, &exec_reachable_count) != 0 {
-        return null;
-    }
-    const global_init_function: &HIRFunction = exec_lower_build_global_init_function(arena, globals, global_count);
-    const functions: & & HIRFunction = compiler_arena_alloc(arena, @size_of(&HIRFunction) * MAX_REACHABLE_FN_DECLS as usize) as & & HIRFunction;
-    if functions == null {
-        exec_backend_set_error(program, "exec: HIR function 列表分配失败" as *byte, 0);
-        return null;
-    }
-    var count: i32 = 0;
-    var entry_fn: &HIRFunction = null;
+    // 先按调用边闭包补齐可达函数集合，再按函数所在文件补采该文件的全局变量：
+    // 库模块内部函数（如 std.testing 的 assert 实现）引用的模块全局不在调用方
+    // program 的收集路径里，必须在 lowering 前拿到槽位。
     var queue: [&ASTNode: MAX_REACHABLE_FN_DECLS] = [];
     var head: i32 = 0;
     var tail: i32 = 0;
@@ -6032,9 +6078,36 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
             edge_idx = edge_idx + 1;
         }
     }
+    var file_global_i: i32 = 0;
+    while file_global_i < exec_reachable_count {
+        const file_global_decl: &ASTNode = exec_reachable[file_global_i];
+        if file_global_decl != null && file_global_decl.filename != null {
+            if exec_lower_collect_file_globals(checker, file_global_decl.filename, globals, &global_count) != 0 {
+                return null;
+            }
+        }
+        file_global_i = file_global_i + 1;
+    }
+    if exec_lower_lower_global_init_exprs(arena, checker, globals, global_count, &exec_reachable[0] as & & ASTNode, &exec_reachable_count) != 0 {
+        return null;
+    }
+    const functions: & & HIRFunction = compiler_arena_alloc(arena, @size_of(&HIRFunction) * MAX_REACHABLE_FN_DECLS as usize) as & & HIRFunction;
+    if functions == null {
+        exec_backend_set_error(program, "exec: HIR function 列表分配失败" as *byte, 0);
+        return null;
+    }
+    var count: i32 = 0;
+    var entry_fn: &HIRFunction = null;
     var i: i32 = 0;
+    var lower_pass: i32 = 0;
+    while lower_pass < 4 {
     while i < exec_reachable_count {
         const decl: &ASTNode = exec_reachable[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null && decl.filename != null {
+            if exec_lower_collect_file_globals(checker, decl.filename, globals, &global_count) != 0 {
+                return null;
+            }
+        }
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null {
             const lowered: &HIRFunction = exec_lower_function(arena, checker, decl, globals, global_count);
             if lowered == null {
@@ -6062,6 +6135,17 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
         }
         i = i + 1;
     }
+    // 新发现的模块全局变量（模块内部函数引用）需要补降初始化表达式；
+    // 初始化表达式可能再引入新的可达函数，下一轮继续，最多 4 轮。
+    if exec_lower_lower_global_init_exprs(arena, checker, globals, global_count, &exec_reachable[0] as & & ASTNode, &exec_reachable_count) != 0 {
+        return null;
+    }
+    if i >= exec_reachable_count {
+        break;
+    }
+    lower_pass = lower_pass + 1;
+    }
+    const global_init_function: &HIRFunction = exec_lower_build_global_init_function(arena, globals, global_count);
     if entry_fn == null {
         exec_lower_set_unsupported(program, "exec: 无法定位 exec 入口 main" as *byte);
         return null;
