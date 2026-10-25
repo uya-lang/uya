@@ -1,6 +1,7 @@
 // exec/lower.uya - checked AST to minimal Exec HIR lowering
 
 use libc;
+use ast;
 
 const EXEC_MAX_LOCALS: i32 = 256;
 // 保持平铺数组查找的热路径简单，同时给编译器本体 staged smoke 留足全局槽位。
@@ -388,16 +389,16 @@ fn exec_lower_match_host_call(fn_decl: &ASTNode, call_arg_count: i32) ExecHostCa
         }
         return ExecHostCallId.EXEC_HOST_CALL_NONE;
     }
-    if str_equals(fn_decl.fn_decl_name, "fprintf" as &byte) != 0 && call_arg_count == 2 {
+    if str_equals(fn_decl.fn_decl_name, "fprintf" as &byte) != 0 && call_arg_count >= 2 {
         return ExecHostCallId.EXEC_HOST_CALL_FPRINTF_FIXED;
     }
-    if str_equals(fn_decl.fn_decl_name, "printf" as &byte) != 0 && call_arg_count == 1 {
+    if str_equals(fn_decl.fn_decl_name, "printf" as &byte) != 0 && call_arg_count >= 1 {
         return ExecHostCallId.EXEC_HOST_CALL_PRINTF_FIXED;
     }
-    if str_equals(fn_decl.fn_decl_name, "sprintf" as &byte) != 0 && call_arg_count == 2 {
+    if str_equals(fn_decl.fn_decl_name, "sprintf" as &byte) != 0 && call_arg_count >= 2 {
         return ExecHostCallId.EXEC_HOST_CALL_SPRINTF_FIXED;
     }
-    if str_equals(fn_decl.fn_decl_name, "snprintf" as &byte) != 0 && call_arg_count == 3 {
+    if str_equals(fn_decl.fn_decl_name, "snprintf" as &byte) != 0 && call_arg_count >= 3 {
         return ExecHostCallId.EXEC_HOST_CALL_SNPRINTF_FIXED;
     }
     return ExecHostCallId.EXEC_HOST_CALL_NONE;
@@ -3273,10 +3274,16 @@ fn exec_lower_collect_global_slots_from_module_imports(checker: &TypeChecker, gl
     const itbl_cap: i32 = checker.import_table.table.capacity;
     while slot < itbl_cap {
         const import_item: &ImportedItem = checker_import_slot_at(checker, slot);
-        if import_item != null && import_item.item_type == (0 - 1) && import_item.module_name != null {
+        if import_item != null && import_item.module_name != null {
             var requested_names: [&byte: EXEC_MAX_MODULE_GLOBAL_REQUESTS] = [];
             var requested_count: i32 = 0;
             exec_lower_collect_module_global_use_names_node(checker, checker.program_node, import_item.module_name, &requested_names[0] as & & byte, &requested_count);
+            // 选择性导入（item_type != -1）：导入项本身可能不是全局变量，但它是该模块的
+            // 导出项时，collect_global_slots_from_module_import 会把同文件里的全局变量一并
+            // 纳入槽位——模块内部函数引用自己的全局变量依赖这一步。
+            if import_item.item_type != (0 - 1) && import_item.original_name != null {
+                exec_lower_add_requested_module_global_name(&requested_names[0] as & & byte, &requested_count, import_item.original_name);
+            }
             if exec_lower_collect_global_slots_from_module_import(checker, import_item.module_name, &requested_names[0] as & & byte, requested_count, globals, out_count) != 0 {
                 return -1;
             }
@@ -3307,6 +3314,25 @@ fn exec_lower_collect_global_slots_from_use_stmts(checker: &TypeChecker, globals
                     exec_lower_collect_module_global_use_names_node(checker, checker.program_node, module_name, &requested_names[0] as & & byte, &requested_count);
                     if exec_lower_collect_global_slots_from_module_import(checker, module_name, &requested_names[0] as & & byte, requested_count, globals, out_count) != 0 {
                         return -1;
+                    }
+                }
+            }
+            // 选择性导入（use std.testing.assert_eq_i32）：路径末段是导入项，父路径才是模块名。
+            // 这里按父路径再查一次，命中导出项后会把该模块文件里的全局变量一并纳入槽位，
+            // 否则模块内部函数（如 testing 的 assert 实现）引用自己的全局会找不到槽位。
+            if decl.use_stmt_path_segment_count >= 2 {
+                const parent_len: i32 = exec_lower_joined_module_name_len(decl.use_stmt_path_segments, decl.use_stmt_path_segment_count - 1);
+                if parent_len > 0 {
+                    const parent_name: &byte = compiler_arena_alloc(checker.arena, parent_len as usize + 1 as usize) as &byte;
+                    if parent_name != null {
+                        exec_lower_write_joined_module_name(parent_name, decl.use_stmt_path_segments, decl.use_stmt_path_segment_count - 1);
+                        const item_names: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte)) as & & byte;
+                        if item_names != null {
+                            item_names[0] = decl.use_stmt_path_segments[decl.use_stmt_path_segment_count - 1];
+                            if exec_lower_collect_global_slots_from_module_import(checker, parent_name, item_names, 1, globals, out_count) != 0 {
+                                return -1;
+                            }
+                        }
                     }
                 }
             }
@@ -3893,6 +3919,78 @@ fn exec_lower_build_global_init_function(arena: &CompilerArena, globals: &HIRGlo
     fn_hir.param_count = 0;
     fn_hir.body = body;
     return fn_hir;
+}
+
+fn exec_lower_find_user_main_decl(checker: &TypeChecker) &ASTNode {
+    if checker == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < checker.reachable_fn_decl_count {
+        const decl: &ASTNode = checker.reachable_fn_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
+            decl.fn_decl_name != null && decl.fn_decl_body != null &&
+            decl.fn_decl_is_extern == 0 && decl.fn_decl_param_count == 0 &&
+            str_equals(decl.fn_decl_name, "main" as &byte) != 0 {
+            return decl;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+fn exec_lower_make_test_fn_decl(arena: &CompilerArena, test_node: &ASTNode, index: i32) &ASTNode {
+    if arena == null || test_node == null || test_node.type != ASTNodeType.AST_TEST_STMT {
+        return null;
+    }
+    const fn_decl: &ASTNode = ast_new_node(ASTNodeType.AST_FN_DECL, test_node.line, test_node.column, arena, test_node.filename);
+    if fn_decl == null {
+        return null;
+    }
+    const name_buf: &byte = compiler_arena_alloc(arena, 32) as &byte;
+    if name_buf == null {
+        return null;
+    }
+    _ = snprintf(name_buf as *byte, 32, "__exec_test_%d" as *byte, index);
+    fn_decl.fn_decl_name = name_buf;
+    const void_type_node: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, test_node.line, test_node.column, arena, test_node.filename);
+    if void_type_node != null {
+        void_type_node.type_named_name = "void" as *byte;
+    }
+    const err_union_node: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_ERROR_UNION, test_node.line, test_node.column, arena, test_node.filename);
+    if err_union_node != null {
+        err_union_node.type_error_union_payload_type = void_type_node;
+    }
+    fn_decl.fn_decl_return_type = err_union_node;
+    fn_decl.fn_decl_body = test_node.test_stmt_body;
+    fn_decl.fn_decl_param_count = 0;
+    fn_decl.fn_decl_is_extern = 0;
+    return fn_decl;
+}
+
+fn exec_lower_build_test_entry_decl(arena: &CompilerArena, program: &ASTNode) &ASTNode {
+    if arena == null || program == null {
+        return null;
+    }
+    const fn_decl: &ASTNode = ast_new_node(ASTNodeType.AST_FN_DECL, 0, 0, arena, program.filename);
+    if fn_decl == null {
+        return null;
+    }
+    fn_decl.fn_decl_name = "__exec_test_entry" as &byte;
+    const void_type_node: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, 0, 0, arena, program.filename);
+    if void_type_node != null {
+        void_type_node.type_named_name = "void" as *byte;
+    }
+    fn_decl.fn_decl_return_type = void_type_node;
+    const empty_block: &ASTNode = ast_new_node(ASTNodeType.AST_BLOCK, 0, 0, arena, program.filename);
+    if empty_block != null {
+        empty_block.block_stmt_count = 0;
+        empty_block.block_stmts = null;
+    }
+    fn_decl.fn_decl_body = empty_block;
+    fn_decl.fn_decl_param_count = 0;
+    fn_decl.fn_decl_is_extern = 0;
+    return fn_decl;
 }
 
 fn exec_lower_find_entry_decl(checker: &TypeChecker) &ASTNode {
@@ -4549,6 +4647,15 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             return exec_lower_fail_expr(expr, "exec: 当前仅支持直接函数调用" as *byte);
         }
         const callee_decl: &ASTNode = exec_lower_resolve_function_decl_from_file(ctx.checker, expr.filename, expr.call_expr_callee.identifier_name);
+        // 编译器合成宿主符号：exec 侧没有 native worker 入口，语义与 C99 代码生成器
+        // 内联的常量一致（entry.uya 用 `>= 0` 判断是否已被 worker 接管）。
+        if callee_decl != null && callee_decl.type == ASTNodeType.AST_FN_DECL &&
+            callee_decl.fn_decl_is_extern != 0 && expr.call_expr_arg_count == 0 &&
+            callee_decl.fn_decl_name != null &&
+            str_equals(callee_decl.fn_decl_name, "uya_pipeline_worker_dispatch" as &byte) != 0 {
+            const worker_type: Type = make_i32_type();
+            return exec_lower_make_int_const_expr(ctx, expr, &worker_type, -1 as i64);
+        }
         var host_call_id: ExecHostCallId = ExecHostCallId.EXEC_HOST_CALL_NONE;
         if callee_decl != null &&
             callee_decl.type == ASTNodeType.AST_FN_DECL &&
@@ -5806,14 +5913,81 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
         return null;
     }
     var main_decl: &ASTNode = exec_lower_find_entry_decl(checker);
-    if main_decl == null {
+    var user_main_decl: &ASTNode = exec_lower_find_user_main_decl(checker);
+    var has_user_main: i32 = 0;
+    if user_main_decl != null {
+        has_user_main = 1;
+        main_decl = user_main_decl;
+    }
+    // 顶层 test "..." 块：C99 侧由代码生成器收集并为每个块发射一个 !void 函数，
+    // 这里同样按源码顺序收集，交给 exec 侧 lowering 成独立 HIR 函数。
+    var test_nodes: [&ASTNode: 256] = [];
+    var test_count: i32 = 0;
+    var test_scan: i32 = 0;
+    if program.program_decls != null {
+        while test_scan < program.program_decl_count && test_count < 256 {
+            const scan_decl: &ASTNode = program.program_decls[test_scan];
+            if scan_decl != null && scan_decl.type == ASTNodeType.AST_TEST_STMT {
+                test_nodes[test_count] = scan_decl;
+                test_count = test_count + 1;
+            }
+            test_scan = test_scan + 1;
+        }
+    }
+    if main_decl == null && test_count == 0 {
         exec_lower_set_unsupported(program, "exec: 当前仅支持包含显式 fn/export fn main 的程序" as *byte);
         return null;
+    }
+    if test_count > 0 && has_user_main == 0 {
+        const test_entry_decl: &ASTNode = exec_lower_build_test_entry_decl(arena, program);
+        if test_entry_decl == null {
+            exec_backend_set_error(program, "exec: 测试入口函数构造失败" as *byte, 0);
+            return null;
+        }
+        main_decl = test_entry_decl;
     }
     var exec_reachable: [&ASTNode: MAX_REACHABLE_FN_DECLS] = [];
     var exec_reachable_count: i32 = 0;
     exec_reachable[0] = main_decl;
     exec_reachable_count = 1;
+    var test_functions: & & HIRFunction = null;
+    var test_descriptions: & & byte = null;
+    var test_fn_decls: [&ASTNode: 256] = [];
+    var test_seed: i32 = 0;
+    while test_seed < test_count {
+        if exec_reachable_count >= MAX_REACHABLE_FN_DECLS {
+            exec_backend_set_error(test_nodes[test_seed], "exec: 测试种子超出上限" as *byte, 0);
+            return null;
+        }
+        exec_reachable[exec_reachable_count] = test_nodes[test_seed];
+        exec_reachable_count = exec_reachable_count + 1;
+        test_seed = test_seed + 1;
+    }
+    if test_count > 0 {
+        test_functions = compiler_arena_alloc(arena, @size_of(&HIRFunction) * test_count as usize) as & & HIRFunction;
+        test_descriptions = compiler_arena_alloc(arena, @size_of(&byte) * test_count as usize) as & & byte;
+        if test_functions == null || test_descriptions == null {
+            exec_backend_set_error(program, "exec: 测试函数表分配失败" as *byte, 0);
+            return null;
+        }
+        var test_build_idx: i32 = 0;
+        while test_build_idx < test_count {
+            const built_decl: &ASTNode = exec_lower_make_test_fn_decl(arena, test_nodes[test_build_idx], test_build_idx);
+            if built_decl == null {
+                exec_backend_set_error(test_nodes[test_build_idx], "exec: 测试函数声明构造失败" as *byte, 0);
+                return null;
+            }
+            test_fn_decls[test_build_idx] = built_decl;
+            test_descriptions[test_build_idx] = test_nodes[test_build_idx].test_stmt_description;
+            if exec_reachable_count >= MAX_REACHABLE_FN_DECLS {
+                exec_backend_set_error(built_decl, "exec: 测试函数超出可达上限" as *byte, 0);
+                return null;
+            }
+            exec_reachable[exec_reachable_count] = built_decl;
+            exec_reachable_count = exec_reachable_count + 1;
+            test_build_idx = test_build_idx + 1;
+        }
+    }
     if exec_lower_lower_global_init_exprs(arena, checker, globals, global_count, &exec_reachable[0] as & & ASTNode, &exec_reachable_count) != 0 {
         return null;
     }
@@ -5870,6 +6044,16 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
             if decl == main_decl {
                 entry_fn = lowered;
             }
+            var test_match_idx: i32 = 0;
+            while test_match_idx < test_count {
+                if test_fn_decls[test_match_idx] == decl {
+                    if test_functions != null {
+                        test_functions[test_match_idx] = lowered;
+                    }
+                    break;
+                }
+                test_match_idx = test_match_idx + 1;
+            }
             if lowered.body != null {
                 exec_lower_collect_called_decls_from_block(lowered.body, &exec_reachable[0] as & & ASTNode, &exec_reachable_count);
             }
@@ -5894,5 +6078,9 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
     module.globals = globals;
     module.global_count = global_count;
     module.global_init_function = global_init_function;
+    module.tests = test_functions;
+    module.test_descriptions = test_descriptions;
+    module.test_count = test_count;
+    module.has_user_main = has_user_main;
     return module;
 }

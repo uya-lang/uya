@@ -171,4 +171,10 @@ struct HIRModule {
     globals: &HIRGlobalSlot,
     global_count: i32,
     global_init_function: &HIRFunction,
+    // 顶层 test "..." 块：每个测试一个 !void HIR 函数，描述串用于 runner 输出
+    tests: & & HIRFunction,
+    test_descriptions: & & byte,
+    test_count: i32,
+    // 程序是否自带用户 main（决定 runner 是否打印汇总并以其失败数作为退出码）
+    has_user_main: i32,
 }

@@ -127,4 +127,11 @@ struct BCProgram {
     error_name_count: i32,
     globals: &ExecValue,
     global_count: i32,
+    // 顶层 test "..." 块在函数表中的下标与描述串（VM 入口负责逐个执行并统计）
+    test_function_indices: &i32,
+    test_descriptions: & & byte,
+    test_count: i32,
+    has_user_main: i32,
+    // std.testing 的 _test_passed 全局槽位；未导入时为 -1
+    test_passed_global_index: i32,
 }

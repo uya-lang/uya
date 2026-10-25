@@ -8,6 +8,19 @@
 >
 > **仍未支持（与文末清单一致，未变）**：async / `@await`（`src/exec/lower.uya:5634` 明确 `exec: 当前不支持 async`）、`@frame`、`@c_import` 直接接入、SIMD、inline asm、microapp / softvm / hosted 以外目标、native JIT。
 
+## 2026 进展：C99 对齐计划启动
+
+按「C99 后端能跑的程序 exec VM 也要能跑且结果一致」重新立了总纲
+`docs/exec_vm_c99_parity.md`（判据、门禁、基线、阶段表）。
+
+- 新增门禁工具：`tests/verify_exec_vm_census.sh`（全量 `test --vm` 普查 + 原因直方图）、
+  `tests/verify_exec_vm_parity.sh`（逐用例 C99/VM 差分）、`make exec-census` / `make exec-parity`。
+- 已落地：`uya_pipeline_worker_dispatch` 合成符号降为常量 `-1`；
+  printf 家族 varargs（新增 `src/exec/format.uya`，逐条转换规格委托宿主 snprintf）。
+- 基线：`test --vm` 通过从 **119/910（13.1%）** 提升到 **216/910（23.7%）**。
+- 已确认的下一优先项：`test "..."` 块 lowering + exec 测试 runner —— 这是
+  `main_main/0`（403 例）失败的根因，也是打通"测试文件"这一类用例的前提。
+
 **状态**：executable TODO, implementation in progress
 **更新日期**：2026-05-30
 **配套设计**：`docs/bytecode_exec_design.md`
