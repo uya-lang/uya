@@ -134,7 +134,10 @@
 
 - [x] 值绑定与 `|_|`：`exec_lower_make_for_array_stmt` 把数组值存进临时局部，
   再用下标循环把 `arr[i]` 绑定到 `for_stmt_var_name`（`_` 不绑定）。
-- [ ] 引用绑定 `|&item|`（4 个文件）：需要 `&arr[i]` 的别名写入语义，单独实现。
+- [ ] 引用绑定 `|&item|`（4 个文件）：尝试过用 `HIR_EXPR_ADDR` 包 `HIR_EXPR_INDEX`
+  并在 builder 里新增 `ADDR_INDEX` 分支，运行时直接段错误（`run --vm` 返回 139），
+  已整段回滚（保留显式 unsupported）。下次先补 `&arr[i]` 的 VM 单测与字节码断言，
+  确认 `BC_ADDR_INDEX` 的 `c`（下标槽）/`imm`（元素类型）编码正确后再接到 for 上。
 - 实测：通过率 37.4% → 37.6%；8 个 `verify_exec_vm_*.sh` 全过。
 
 - `for arr |v|`、`for arr |&item|` 等在 `--vm` 下静默退出 1；
