@@ -814,14 +814,15 @@ const EXEC_NATIVE_AGG_MAX_ELEMS: i32 = 256;
 var g_native_agg_base: [usize: 64] = [];
 var g_native_agg_count: [i32: 64] = [];
 var g_native_agg_values: [[ExecValue: 256]: 64] = [];
+var g_native_agg_handles: [ExecAggregate: 64] = [];
 var g_native_agg_used: i32 = 0;
 
-/// 取原生指针第 index 个聚合元素对应的 ExecValue 槽位（按需建表）。
-/// 参数：base 指针地址；index 元素下标。
-/// 返回值：指向该元素 ExecValue 的指针；越界或表满返回 null。
-fn exec_vm_native_agg_slot(base: usize, index: i64) &ExecValue {
-    if base == 0 as usize || index < 0 || index >= (EXEC_NATIVE_AGG_MAX_ELEMS as i64) {
-        return null;
+/// 查找或建立原生指针聚合元素旁路表的条目。
+/// 参数：base 指针地址。
+/// 返回值：条目下标；无法建立返回 -1。
+fn exec_vm_native_agg_slot_index(base: usize) i32 {
+    if base == 0 as usize {
+        return -1;
     }
     var slot: i32 = -1;
     var i: i32 = 0;
@@ -832,15 +833,29 @@ fn exec_vm_native_agg_slot(base: usize, index: i64) &ExecValue {
         }
         i = i + 1;
     }
-    if slot < 0 {
-        if g_native_agg_used < 0 || g_native_agg_used >= EXEC_NATIVE_AGG_MAX_BASES {
-            return null;
-        }
-        slot = g_native_agg_used;
-        g_native_agg_base[slot] = base;
-        g_native_agg_count[slot] = 0;
-        g_native_agg_used = slot + 1;
+    if slot >= 0 {
+        return slot;
     }
+    if g_native_agg_used < 0 || g_native_agg_used >= EXEC_NATIVE_AGG_MAX_BASES {
+        return -1;
+    }
+    slot = g_native_agg_used;
+    g_native_agg_base[slot] = base;
+    g_native_agg_count[slot] = 0;
+    g_native_agg_handles[slot].count = 0;
+    g_native_agg_handles[slot].values = &g_native_agg_values[slot][0];
+    g_native_agg_used = slot + 1;
+    return slot;
+}
+
+/// 取原生指针第 index 个聚合元素对应的 ExecValue 槽位（按需建表）。
+/// 参数：base 指针地址；index 元素下标。
+/// 返回值：指向该元素 ExecValue 的指针；越界或表满返回 null。
+fn exec_vm_native_agg_slot(base: usize, index: i64) &ExecValue {
+    if index < 0 || index >= (EXEC_NATIVE_AGG_MAX_ELEMS as i64) {
+        return null;
+    }
+    const slot: i32 = exec_vm_native_agg_slot_index(base);
     if slot < 0 || slot >= EXEC_NATIVE_AGG_MAX_BASES {
         return null;
     }
@@ -850,8 +865,21 @@ fn exec_vm_native_agg_slot(base: usize, index: i64) &ExecValue {
     }
     if idx >= g_native_agg_count[slot] {
         g_native_agg_count[slot] = idx + 1;
+        g_native_agg_handles[slot].count = idx + 1;
     }
     return &g_native_agg_values[slot][idx];
+}
+
+/// 取原生指针聚合元素旁路表的聚合视图（按需建表）。
+/// `&Token` 这类裸指针切片的元素是 ExecValue，只能落在旁路表里。
+/// 参数：base 指针地址。
+/// 返回值：覆盖该表的聚合句柄；无法建立返回 null。
+fn exec_vm_native_agg_handle(base: usize) &ExecAggregate {
+    const slot: i32 = exec_vm_native_agg_slot_index(base);
+    if slot < 0 || slot >= EXEC_NATIVE_AGG_MAX_BASES {
+        return null;
+    }
+    return &g_native_agg_handles[slot];
 }
 
 fn exec_vm_pointer_element_ptr(function: &BCFunction, base: ExecValue, index_value: i64) ExecValue {
@@ -2419,24 +2447,30 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             const ptr_elem_kind: i32 = exec_value_pointer_pointee_kind(&slice_base);
             const ptr_elem_size: usize = exec_vm_type_kind_size(ptr_elem_kind);
             if ptr_elem_size == 0 as usize {
-                var slice_kind_msg: [byte: 128] = [];
-                _ = snprintf(&slice_kind_msg[0] as *byte, 128,
-                    "exec: 切片基值不是 array/slice（pointee=%d kind=%d）" as *byte,
-                    ptr_elem_kind, slice_base.kind as i32);
-                exec_backend_set_error(function.decl, &slice_kind_msg[0] as &byte, 0);
-                return -1;
-            }
-            const ptr_base: &byte = slice_base.ptr_value;
-            if ptr_base == null && slice_len > 0 {
-                exec_backend_set_error(function.decl, "exec: 切片基值为空指针" as *byte, 0);
-                return -1;
-            }
-            if ptr_base == null {
-                slot_a[0] = exec_make_raw_slice(null, ptr_elem_kind, 0);
+                // 裸指针指向聚合（`&Token` 之类）：元素在旁路表里，切片直接建在表上。
+                const agg_handle: &ExecAggregate = exec_vm_native_agg_handle(exec_vm_pointer_address(&slice_base));
+                if agg_handle == null {
+                    var slice_kind_msg: [byte: 128] = [];
+                    _ = snprintf(&slice_kind_msg[0] as *byte, 128,
+                        "exec: 切片基值不是 array/slice（pointee=%d kind=%d）" as *byte,
+                        ptr_elem_kind, slice_base.kind as i32);
+                    exec_backend_set_error(function.decl, &slice_kind_msg[0] as &byte, 0);
+                    return -1;
+                }
+                slot_a[0] = exec_make_slice(agg_handle, requested_start, slice_len);
             } else {
-                const ptr_addr: usize = @usize_from_ptr(ptr_base as &void) + ptr_elem_size * (requested_start as usize);
-                const ptr_elem_ptr: ExecValue = exec_make_pointer_with_kind(ptr_addr, ptr_elem_kind);
-                slot_a[0] = exec_make_raw_slice(ptr_elem_ptr.ptr_value, ptr_elem_kind, slice_len);
+                const ptr_base: &byte = slice_base.ptr_value;
+                if ptr_base == null && slice_len > 0 {
+                    exec_backend_set_error(function.decl, "exec: 切片基值为空指针" as *byte, 0);
+                    return -1;
+                }
+                if ptr_base == null {
+                    slot_a[0] = exec_make_raw_slice(null, ptr_elem_kind, 0);
+                } else {
+                    const ptr_addr: usize = @usize_from_ptr(ptr_base as &void) + ptr_elem_size * (requested_start as usize);
+                    const ptr_elem_ptr: ExecValue = exec_make_pointer_with_kind(ptr_addr, ptr_elem_kind);
+                    slot_a[0] = exec_make_raw_slice(ptr_elem_ptr.ptr_value, ptr_elem_kind, slice_len);
+                }
             }
         } else {
             const slice_base_is_slice: i32 = (slice_base.kind == ExecValueKind.EXEC_VALUE_SLICE) as i32;
