@@ -13,13 +13,15 @@
   T3（赋值表达式/@mc_source）、T4（if 表达式）、T4b（语句分支 match）、
   T5b（for 数组值绑定 + `|&item|` 引用绑定）、T6（match 全模式）、
   T12（嵌套数组写入）、T13 主体（双指针/指针元素类型）与若干诊断/静默失败修复。
-- 最近一次实测（本轮 T6/T5b/T13 之后）：`test --vm` 通过 **431 / 914（47.2%）**，失败 483。
-- 失败原因分布：`generic` 284、`simd` 68、`catch_expr` 35、`extern_abi` 16、
-  `build` 14、`runtime` 11、`string_interp` 9、`async` 6、`try_expr` 4、`timeout` 4、
-  `c_import` 4；`match_expr` 已清零。
+- 最近一次实测（本轮 checked 算术 catch/try + `undefined` + 字符串转切片之后）：
+  `test --vm` 通过 **452 / 914（49.5%）**，失败 462。
+- 失败原因分布：`generic` 273、`simd` 69、`catch_expr` 18、`extern_abi` 16、
+  `build` 15、`runtime` 13、`string_interp` 9、`async` 6、`timeout` 5、
+  `c_import` 4、`try_expr` 1；`match_expr` 已清零。
 - `generic` 内部 Top：泛型调用/varargs 转发 101、仅支持局部变量/参数/全局标识符 46、
   语句节点 `type=79`（inline asm）42、成员方法 `kind=13` 19、结构体声明 18、
-  编译期 builtin 折叠 17、interface 方法表 14。
+  interface 方法表 15、表达式节点 `type=28` 7、编译期 builtin 折叠 5。
+- 本轮之前的基线是 431 / 914（47.2%），checked 算术与两个字面量类缺陷共带来 +21。
 - 待办：T5（泛型/varargs）、T7（SIMD）、T8（原生桥）、T9（async）、T10（剩余诊断）、
   T13 余下 3 例、T11 收口。
 
@@ -117,6 +119,36 @@
   VM 侧 `*ref` 对 union/错误联合取整值（`Self` 解析还需要 checker 缓存键带上
   `current_self_type_name`，见 `fix(checker): type_from_ast 缓存键纳入 Self 上下文`）。
 - [x] 验收：census 里 `match_expr` 已清零（914 例中 0 个）。
+
+### T4c checked 整数算术的 `catch` / `try`（catch_expr 35 → 18）
+
+- 现象：`(a + b) catch { ... }`、`try (a + b)` 在 `--vm` 下报
+  `exec: catch 操作数不是错误联合`——checker 对受检算术不做错误联合包装，
+  但 exec 后端只认错误联合形态。
+- [x] 新增 5 个 opcode `BC_ADD/SUB/MUL/DIV/REM_CHECK`：结果写成错误联合，
+  正常分支携带结果，错误分支携带 checker 注册的 `error.Overflow` /
+  `error.DivisionByZero` id（`imm` 低位是结果类型码、高位是错误 id，
+  按 i64 解码，别先截成 i32）。
+- [x] lower：`catch_expr_is_checked_arith` / `try_expr_is_checked_arith`
+  走 `HIR_EXPR_CHECKED_CATCH`（`try` 语义用 `bool_value` 标记，错误分支直接
+  `BC_RET` 该错误联合），受检算术树递归 lowering，一元负号归一成 `0 - x`。
+  载荷类型取 checker 记录的 `*_checked_kind`：lowering 期 checker 作用域已退出，
+  现推会退化成字面量默认的 i32，把 i64/u64 运算截断。
+- [x] builder：同一 `catch` 内所有受检运算共享一个错误联合槽位，溢出跳转统一
+  回填到 catch 分支；`catch |e|` 的绑定经 `BC_UNWRAP_ERR` 取真实错误 id。
+- [x] 无符号受检算术补上越界判定（加/减/乘先按 `+%`/`+|` 对比，再按类型上界判范围）。
+- [x] 顺带修掉字面量截断：`3000000000 as i64` 先前先被当成 i32 截断成
+  1705032704（C99 侧不会），cast 的字面量操作数现在按目标类型直接取值。
+- 实测：`test_try_overflow_catch`、`test_try_overflow_types` 在 `--vm` 下全过。
+- 余下 18 例的 `catch` 报错样本仍是 `@await ... catch`，归 T9。
+
+### T4d `undefined` 初值与字符串字面量转切片
+
+- [x] `var x: T = undefined` 按零值 lowering（内容本就不保证）。修掉
+  `test_fmt_*` 一类用例的「当前仅支持局部变量/参数/全局标识符」（该消息
+  46 例中相当一部分是 `undefined`）。
+- [x] `"..." as &[byte]` 在 lowering 期补齐长度：此前只得到裸指针，
+  `.len` 恒为 0、`.ptr` 报 `LOAD_SLICE_PTR 目标不是 slice`。
 
 ### T7 SIMD（55 例）
 
