@@ -4455,10 +4455,17 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             if exec_type_is_vm_value_supported(force_payload_type) == 0 {
                 return exec_lower_fail_expr(expr, "exec: as! 载荷类型当前不可被 exec VM 表示" as *byte);
             }
-            const force_payload_expr: &HIRExpr = exec_lower_coerce_expr(ctx, expr.cast_expr_expr, &force_payload_type);
+            const force_payload_operand: &HIRExpr = exec_lower_coerce_expr(ctx, expr.cast_expr_expr, &force_payload_type);
+            if force_payload_operand == null {
+                return null;
+            }
+            // as! 是数值/指针转换，必须真正发射 cast：直接复用操作数会让 f64 的位模式
+            // 被当成目标整数读取（例如 3.14 as! i32 得到 1374389535）。
+            const force_payload_expr: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CAST, &force_payload_type);
             if force_payload_expr == null {
                 return null;
             }
+            force_payload_expr.left = force_payload_operand;
             const hir_force_ok: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_MAKE_OK, &expr_type);
             if hir_force_ok == null {
                 return null;

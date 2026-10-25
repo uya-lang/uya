@@ -9,7 +9,7 @@
 
 ## 进度快照
 
-- 最近一次实测（T2 之后）：`test --vm` 通过 **325 / 911（35.7%）**，失败 586。
+- 最近一次实测（T2b 之后）：`test --vm` 通过 **326 / 911（35.8%）**，失败 585。
 - 失败原因分布：`generic` 376、`simd` 55、`runtime` 48、`match_expr` 20、
   `unknown` 14、`extern_abi` 13、`string_interp` 9、`build` 8、`catch_expr` 7、
   `try_expr` 4、`c_import` 4、`async` 2。
@@ -46,7 +46,10 @@
 
 - 现象：`tests/test_as_force_cast.uya` 的 `f64 as! i32` 得到 `1374389535`
   （IEEE-754 位模式），C99 侧应为截断值 `3`；说明强制转换走了位重解释而非数值转换。
-- 验收：该用例 `test --vm` 全过；补一条 f32/f64 ↔ 整数互转的回归用例。
+- [x] 已完成：`as!` 现在无条件发射 `HIR_EXPR_CAST`，不再直接复用操作数；
+  `3.14 as! i32` 由 1374389535（位模式）修正为 3。
+- 实测：`tests/test_as_force_cast.uya` 在 `--vm` 与 C99 下均全过；
+  8 个 `verify_exec_vm_*.sh` 全过；census 325 → 326。
 
 ### T3 赋值表达式（`(x = 1) != 0`）
 
