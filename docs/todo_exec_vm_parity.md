@@ -14,15 +14,16 @@
   T5b（for 数组值绑定 + `|&item|` 引用绑定）、T6（match 全模式）、
   T12（嵌套数组写入）、T13 主体（双指针/指针元素类型）与若干诊断/静默失败修复。
 - 最近一次实测（本轮 checked 算术 catch/try + `undefined` + 字符串转切片 + 宏深拷贝之后）：
-  `test --vm` 通过 **456 / 914（49.9%）**，失败 458。
-- 失败原因分布：`generic` 258、`simd` 69、`runtime` 30、`catch_expr` 18、
+  `test --vm` 通过 **458 / 914（50.1%）**，失败 456。
+- 失败原因分布：`generic` 258、`simd` 69、`runtime` 27、`catch_expr` 18、
   `extern_abi` 16、`string_interp` 9、`build` 9、`async` 6、`timeout` 5、
   `c_import` 4、`try_expr` 1；`match_expr` 已清零。
 - `generic` 内部 Top：泛型调用/varargs 转发 101、仅支持局部变量/参数/全局标识符 46、
   语句节点 `type=79`（inline asm）42、成员方法 `kind=13` 19、结构体声明 18、
   interface 方法表 15、表达式节点 `type=28` 7、编译期 builtin 折叠 5。
-- `runtime` 内部 Top：`当前不支持该指针元素类型` 19（多为 fmt_* 系列，已推进到
-  更深的运行时错误）、`LOAD_FIELD 字段越界` 6、`LOAD_INDEX 越界` 3。
+- `runtime` 内部 Top：`切片基值不是 array/slice` 16（全是 fmt_* 系列，
+  `&Token` 裸指针切片卡在 `tokenize_ptr_len` 的 `return out[0:count]`）、
+  `LOAD_FIELD 字段越界` 6、`LOAD_INDEX 越界` 3。
 - 本轮从 431 / 914（47.2%）起步，累计 +25。
 - 待办：T5（泛型/varargs）、T7（SIMD）、T8（原生桥）、T9（async）、T10（剩余诊断）、
   T13 余下 3 例、T11 收口。
