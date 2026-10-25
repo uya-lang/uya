@@ -684,6 +684,12 @@ fn exec_vm_index_ref(value: &ExecValue, index_value: i32) &ExecValue {
         const is_index_base: i32 = exec_vm_pointer_is_index_base_ref(value);
         const target_aggregate: &ExecAggregate = exec_value_as_aggregate(target);
         const ref_kind: i32 = exec_vm_decode_ref_kind(value.aux_i64_value as i32);
+        // `*ref`：引用指向 struct/tuple 值本体时，下标 0 就是该值本身
+        // （结构体字段访问走 LOAD_FIELD，不经过下标）。
+        if is_index_base == 0 && index_value == 0 && target_aggregate != null &&
+            (ref_kind == TypeKind.TYPE_STRUCT as i32 || ref_kind == TypeKind.TYPE_TUPLE as i32) {
+            return target;
+        }
         // 嵌套数组 `arr[0][1]`：引用指向内层数组本体，下标要按内层 aggregate.values 取，
         // 不能沿外层 aggregate 步进。判据是引用的元素类型是数组。
         if is_index_base != 0 && target_aggregate != null &&
@@ -962,6 +968,16 @@ fn exec_vm_cast_value(value: ExecValue, target_kind: i32, target_pointee_kind: i
     }
     if target_kind == TypeKind.TYPE_POINTER as i32 {
         if value.kind == ExecValueKind.EXEC_VALUE_POINTER {
+            // 内部引用（`&local`/`&arr[i]` 产出的引用）转指针时保留引用编码，
+            // 否则后续解引用会把它当原生指针对待，按标量尺寸访问 ExecValue。
+            if exec_vm_pointer_is_internal_ref(&value) != 0 {
+                if exec_vm_pointer_is_index_base_ref(&value) != 0 {
+                    return exec_make_pointer_with_kind(value.i64_value as usize,
+                        exec_vm_encode_index_ref_kind(target_pointee_kind));
+                }
+                return exec_make_pointer_with_kind(value.i64_value as usize,
+                    exec_vm_encode_ref_kind(target_pointee_kind));
+            }
             return exec_make_pointer_with_kind(value.i64_value as usize, target_pointee_kind);
         }
         if value.kind == ExecValueKind.EXEC_VALUE_STRING {
