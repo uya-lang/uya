@@ -1304,6 +1304,20 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         }
         return dst_cast;
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_ASSIGN {
+        if expr.left == null || expr.right == null {
+            exec_backend_set_error(expr.ast_node, "exec: 赋值表达式缺少操作数" as *byte, 0);
+            return -1;
+        }
+        const assign_expr_value_slot: i32 = exec_builder_compile_expr(ctx, expr.right);
+        if assign_expr_value_slot < 0 {
+            return -1;
+        }
+        if exec_builder_compile_lvalue_store(ctx, expr.left, assign_expr_value_slot, expr.ast_node) < 0 {
+            return -1;
+        }
+        return assign_expr_value_slot;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_LEN {
         const src_len: i32 = exec_builder_compile_expr(ctx, expr.left);
         const dst_len: i32 = exec_builder_new_temp(ctx);

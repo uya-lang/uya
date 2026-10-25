@@ -9,7 +9,7 @@
 
 ## 进度快照
 
-- 最近一次实测（T2b 之后）：`test --vm` 通过 **326 / 911（35.8%）**，失败 585。
+- 最近一次实测（T3 之后）：`test --vm` 通过 **339 / 911（37.2%）**，失败 572。
 - 失败原因分布：`generic` 376、`simd` 55、`runtime` 48、`match_expr` 20、
   `unknown` 14、`extern_abi` 13、`string_interp` 9、`build` 8、`catch_expr` 7、
   `try_expr` 4、`c_import` 4、`async` 2。
@@ -51,11 +51,14 @@
 - 实测：`tests/test_as_force_cast.uya` 在 `--vm` 与 C99 下均全过；
   8 个 `verify_exec_vm_*.sh` 全过；census 325 → 326。
 
-### T3 赋值表达式（`(x = 1) != 0`）
+### T3 赋值表达式与 `@mc_source`（已完成）
 
-- 现象：`tests/test_and_return.uya:24:28` 报 `exec: 尚未支持的表达式节点`。
-- 需要 HIR/bytecode 支持「表达式形式的赋值」：求值赋给目标并产出值。
-- 验收：`test_and_return` 在 `--vm` 下通过；新增回归用例。
+- [x] 新增 `HIR_EXPR_ASSIGN`：赋值表达式与赋值语句共用目标/取值 lowering，
+  builder 落库后返回被赋的值。`tests/test_and_return.uya` 在 `--vm` 下通过。
+- [x] `@mc_source` 未展开时按 C99 口径发射空字符串（此前直接报未支持表达式）。
+- 实测：通过率 35.8% → 37.2%，8 个 `verify_exec_vm_*.sh` 全过。
+
+### T4 if 表达式（`type=15`，20 例）
 
 ### T4 未支持表达式节点清零（84 例）
 

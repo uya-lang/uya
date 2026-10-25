@@ -5488,7 +5488,37 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     if expr.type == ASTNodeType.AST_ASM {
         return exec_lower_fail_expr_reason(expr, "exec: 当前不支持 inline asm" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_ASM);
     }
-    return exec_lower_fail_expr(expr, "exec: 尚未支持的表达式节点" as *byte);
+    var unsupported_expr_msg: [byte: 128] = [];
+    _ = snprintf(&unsupported_expr_msg[0] as *byte, 128, "exec: 尚未支持的表达式节点(type=%d)" as *byte, expr.type as i32);
+    if expr.type == ASTNodeType.AST_MC_SOURCE {
+        // C99 侧对未被宏展开替换的 @mc_source 发射空字符串，exec 保持一致。
+        return exec_lower_make_string_const_expr(ctx, expr, &expr_type, "" as &byte);
+    }
+    if expr.type == ASTNodeType.AST_ASSIGN {
+        // 赋值表达式（(x = 1) != 0）：与赋值语句共用目标/取值的 lowering 规则。
+        if expr.assign_dest == null || expr.assign_src == null {
+            return exec_lower_fail_expr(expr, "exec: 赋值表达式缺少目标或值" as *byte);
+        }
+        if expr.assign_dest.type == ASTNodeType.AST_UNDERSCORE {
+            return exec_lower_fail_expr(expr, "exec: 不支持把 `_ =` 用作表达式" as *byte);
+        }
+        const assign_dest_expr: &HIRExpr = exec_lower_make_dest_expr(ctx, expr.assign_dest);
+        if assign_dest_expr == null {
+            return null;
+        }
+        const assign_value_expr: &HIRExpr = exec_lower_coerce_expr(ctx, expr.assign_src, &assign_dest_expr.type_ref.type);
+        if assign_value_expr == null {
+            return null;
+        }
+        const hir_assign_expr: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_ASSIGN, &expr_type);
+        if hir_assign_expr == null {
+            return null;
+        }
+        hir_assign_expr.left = assign_dest_expr;
+        hir_assign_expr.right = assign_value_expr;
+        return hir_assign_expr;
+    }
+    return exec_lower_fail_expr(expr, &unsupported_expr_msg[0]);
 }
 
 fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
@@ -5796,7 +5826,9 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
             if stmt_node.type == ASTNodeType.AST_TEST_STMT {
                 return exec_lower_fail_block(stmt_node, "exec: 当前不支持 test 语句" as *byte);
             }
-            return exec_lower_fail_block(stmt_node, "exec: 尚未支持的语句节点" as *byte);
+            var unsupported_stmt_msg: [byte: 128] = [];
+            _ = snprintf(&unsupported_stmt_msg[0] as *byte, 128, "exec: 尚未支持的语句节点(type=%d)" as *byte, stmt_node.type as i32);
+            return exec_lower_fail_block(stmt_node, &unsupported_stmt_msg[0]);
         }
         if stmt == null {
             exec_lower_pop_scope(ctx);
