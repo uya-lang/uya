@@ -180,6 +180,25 @@
 - 实测：**tests/test_fmt_*.uya 19 个用例在 --vm 下全部通过**（本轮起步时 0 个），
   8 个 verify_exec_vm_*.sh 门禁全过。
 
+### T4f 字符串插值（9 例，待实现）
+
+已探明实现路径，下一轮可直接落地：
+
+- 复用 `src/exec/format.uya` 的 `exec_format_render(fmt, args, arg_count, out)`
+  （printf 风格，吃 `ExecValue` 实参），不需要新的格式化逻辑。
+- 新增 `HIR_EXPR_STRING_INTERP`（`string_value` 放格式串、`items`/`item_count`
+  放实参）与 `BC_STRING_INTERP`（`a`=目标槽、`b`=首实参槽、`c`=实参个数、
+  `text`=格式串）。
+- 格式串按 `src/codegen/c99/utils.uya:2823 emit_printf_fmt_inline` 的规则拼：
+  文本段 `%`→`%%`，插值段 `%` + `seg.format_spec`，没有 spec 时按
+  `seg.format_kind` 取默认（4/5→`s`、3→`g`、2→`llu`、其余 `lld`）。
+- builder 侧 `exec_builder_new_temp` 是连续分配：先一次性占 N 个槽，再把每个
+  实参编译进对应槽，即可让实参连续。
+- VM 侧：读 `b..b+c-1` 槽 → 切片实参先换成字符串（`%s` 用 `ptr_value`，
+  切片需要先取到首字节指针）→ `exec_format_render` → `exec_make_string`。
+- 注意 `const msg: [i8: 32] = "${n}"` 这类「插值结果赋给定长字符数组」是另一条
+  路径（数组填充），9 例里有一部分属于它。
+
 ### T7 SIMD（55 例）
 
 - `ExecValueKind` 增加 `VECTOR`/`MASK`，实现逐通道运算与 `@vector.*` 内建。
