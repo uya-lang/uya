@@ -276,7 +276,9 @@ fn exec_lower_eval_size_align_builtin(ctx: &ExecLowerContext, expr: &ASTNode) i3
             }
         }
     }
-    var target_type: Type = exec_lower_checker_infer_type_quiet(ctx, target);
+    // 操作数是表达式（如 `@size_of(x)` 的局部变量）时要用带作用域重建的类型推断：
+    // 直接调用 checker 推断会因为 lowering 期的 checker 作用域已退出而拿不到局部变量类型。
+    var target_type: Type = exec_lower_expr_type(ctx, target);
     if is_type_expr != 0 {
         target_type = type_from_ast(ctx.checker, target);
     } else if target.type == ASTNodeType.AST_IDENTIFIER && target.identifier_name != null {
