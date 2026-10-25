@@ -350,7 +350,7 @@
      说明「结果槽 `slot_a` 与 `BC_JMP_IF_FALSE` 读取的条件槽不是同一个」或
      该 `if` 的条件另有来源 —— 下一步应校验 `HIR_EXPR_IF` 里
      `if_cond_slot` 与 `BC_CMP_EQ` 的 `a` 是否一致（插桩输出 `instr.a/b/c` 与帧内槽号）。
-   - **`@usize_from_ptr(&arr)` 与 `&arr[0]` 不等价（已最小复现，未修）**：
+   - **`@usize_from_ptr(&arr)` 与 `&arr[0]` 不等价（已修，byte/u8/i8/bool 数组）**：
      ```uya
      var buf: [byte: 8] = [0, 0, 0, 0, 0, 0, 0, 0];
      const a: usize = @usize_from_ptr(&buf);
@@ -368,6 +368,17 @@
      相关代码：`exec_vm_value_bytes_address`（`src/exec/vm.uya:410`）、
      `exec_vm_ref_target_value`、`exec_value_is_raw_array`、`BC_ADDR_INDEX` 的
      `exec_vm_raw_array_element_ptr` 分支（`&arr[0]` 走的就是这条，是对的）。
+     **根因与修法**：`BC_MAKE_ARRAY` 的 `imm`（元素种类）取自 HIR 里数组字面量的
+     **推断类型**，而 `[0, 0, …]` 这类无后缀字面量会被推成 `[i32; N]`，于是
+     `[byte: N]` 也被建成聚合（`aux_kind == VOID`），`exec_value_is_raw_array` 为假。
+     修法是在 `exec_lower_coerce_expr` 里给「声明类型是固定数组 + 非空无重复的
+     数组字面量」加一条分支：按声明类型重挂 `type_ref`，让元素种类回到 byte。
+     修后 `@usize_from_ptr(&buf) == @usize_from_ptr(&buf[0])`，memset/memcpy 可直接
+     作用在字节缓冲上。
+     **仍未覆盖**：`[i32: N]` 等非字节元素数组在 VM 里仍是 ExecValue 聚合，
+     没有原生字节布局，`memmove` 对它们按字节寻址依旧会 `LOAD_INDEX 越界`
+     （`test_mem` 的 `memmove_with_overlap_*` 就卡在这里）。要根治需要让
+     非字节定长数组也走原生缓冲，属独立大项。
 3. 每完成一项：`make uya` → 相关脚本 → census → 更新本文件勾选 → 单独提交。
 4. 收口（T11）前必须 `make check` 全绿且 `make exec-parity` 全绿，再
    `worktree finish` 合并到 main 并删除工作区。

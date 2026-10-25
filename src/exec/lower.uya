@@ -2035,6 +2035,20 @@ fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type:
         (expected_type.kind == TypeKind.TYPE_ARRAY || expected_type.kind == TypeKind.TYPE_SLICE) {
         return exec_lower_make_zero_expr(ctx, expr, expected_type);
     }
+    // 固定长度数组字面量按**声明类型**建值：元素种类决定它能否用裸字节缓冲表示。
+    // 未加后缀的字面量会被推断成 [i32; N]，若照推断类型建值，`[byte: N]` 会变成
+    // 聚合，`&buf` 取到的是槽位地址而不是数据地址（memset/memcpy 会写坏值）。
+    if expected_type != null &&
+        expected_type.kind == TypeKind.TYPE_ARRAY &&
+        expr.type == ASTNodeType.AST_ARRAY_LITERAL &&
+        expr.array_literal_repeat_count_expr == null &&
+        expr.array_literal_element_count > 0 {
+        const coerced_array: &HIRExpr = exec_lower_expr(ctx, expr);
+        if coerced_array != null && coerced_array.kind == HIRExprKind.HIR_EXPR_ARRAY_INIT {
+            coerced_array.type_ref = exec_lower_make_type_ref(expected_type);
+        }
+        return coerced_array;
+    }
     // 存储是编码值 = TypeKind + 1（resolve_int_limit_node）：解析、求值
     // 与 exec_lower_eval_int_limit 的解码保持同一口径。
     if expected_type != null && expr.type == ASTNodeType.AST_INT_LIMIT && is_integer_type(expected_type.kind) != 0 {
