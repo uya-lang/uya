@@ -294,6 +294,24 @@ fn exec_lower_eval_size_align_builtin(ctx: &ExecLowerContext, expr: &ASTNode) i3
             target_type = make_named_type(TypeKind.TYPE_INTERFACE, target.identifier_name);
         }
     }
+    // SIMD：向量按「元素尺寸 × 通道数」计大小，掩码按位集 i64 计。
+    if target_type.kind == TypeKind.TYPE_VECTOR && target_type.element_type != null {
+        const elem_size: i32 = get_type_size_bytes_v2(ctx.checker, &target_type.element_type[0], ctx.checker.program_node);
+        const elem_align: i32 = get_type_align_bytes_v2(ctx.checker, &target_type.element_type[0], ctx.checker.program_node);
+        if expr.type == ASTNodeType.AST_SIZEOF {
+            if elem_size > 0 && target_type.array_size > 0 {
+                return elem_size *| target_type.array_size;
+            }
+            return -1;
+        }
+        return elem_align;
+    }
+    if target_type.kind == TypeKind.TYPE_MASK {
+        if expr.type == ASTNodeType.AST_SIZEOF {
+            return @size_of(i64) as i32;
+        }
+        return @size_of(i64) as i32;
+    }
     if expr.type == ASTNodeType.AST_SIZEOF {
         return get_type_size_bytes_v2(ctx.checker, &target_type, ctx.checker.program_node);
     }

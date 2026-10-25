@@ -571,6 +571,66 @@ fn exec_vector_set_lane_bits(data: &byte, elem_type_kind: i32, index: i32, bits:
 }
 
 /// 向量逐通道比较，结果写进掩码（低位为通道 0）。
+/// 有符号元素类型按自身宽度做符号扩展（通道值以小端拼接成 i64）。
+fn exec_vector_elem_is_signed(elem_type_kind: i32) i32 {
+    if elem_type_kind == TypeKind.TYPE_I8 as i32 ||
+        elem_type_kind == TypeKind.TYPE_I16 as i32 ||
+        elem_type_kind == TypeKind.TYPE_I32 as i32 ||
+        elem_type_kind == TypeKind.TYPE_I64 as i32 ||
+        elem_type_kind == TypeKind.TYPE_ENUM as i32 {
+        return 1;
+    }
+    return 0;
+}
+
+fn exec_vector_lane_signed(bits: i64, elem_type_kind: i32) i64 {
+    if elem_type_kind == TypeKind.TYPE_I8 as i32 {
+        return (bits as i8) as i64;
+    }
+    if elem_type_kind == TypeKind.TYPE_I16 as i32 {
+        return (bits as i16) as i64;
+    }
+    if elem_type_kind == TypeKind.TYPE_I32 as i32 || elem_type_kind == TypeKind.TYPE_ENUM as i32 {
+        return (bits as i32) as i64;
+    }
+    return bits;
+}
+
+/// 把通道值钳到元素类型的取值范围内（向量饱和运算用）。
+fn exec_vector_clamp_lane(value: i64, elem_type_kind: i32) i64 {
+    if elem_type_kind == TypeKind.TYPE_I8 as i32 {
+        if value > 127 as i64 { return 127 as i64; }
+        if value < -128 as i64 { return -128 as i64; }
+        return value;
+    }
+    if elem_type_kind == TypeKind.TYPE_I16 as i32 {
+        if value > 32767 as i64 { return 32767 as i64; }
+        if value < -32768 as i64 { return -32768 as i64; }
+        return value;
+    }
+    if elem_type_kind == TypeKind.TYPE_I32 as i32 || elem_type_kind == TypeKind.TYPE_ENUM as i32 {
+        if value > 2147483647 as i64 { return 2147483647 as i64; }
+        if value < (-2147483647 as i64) - 1 as i64 { return (-2147483647 as i64) - 1 as i64; }
+        return value;
+    }
+    if elem_type_kind == TypeKind.TYPE_U8 as i32 || elem_type_kind == TypeKind.TYPE_BYTE as i32 {
+        if value > 255 as i64 { return 255 as i64; }
+        if value < 0 as i64 { return 0 as i64; }
+        return value;
+    }
+    if elem_type_kind == TypeKind.TYPE_U16 as i32 {
+        if value > 65535 as i64 { return 65535 as i64; }
+        if value < 0 as i64 { return 0 as i64; }
+        return value;
+    }
+    if elem_type_kind == TypeKind.TYPE_U32 as i32 {
+        if value > 4294967295 as i64 { return 4294967295 as i64; }
+        if value < 0 as i64 { return 0 as i64; }
+        return value;
+    }
+    return value;
+}
+
 fn exec_vm_vector_compare(opcode_code: i32, left: ExecValue, right: ExecValue) ExecValue {
     const lanes: i32 = exec_value_vector_lanes(&left);
     const elem_kind: i32 = exec_value_vector_elem_kind(&left);
@@ -578,6 +638,7 @@ fn exec_vm_vector_compare(opcode_code: i32, left: ExecValue, right: ExecValue) E
     const rdata: &byte = exec_value_vector_data(&right);
     const right_is_vector: i32 = (right.kind == ExecValueKind.EXEC_VALUE_VECTOR) as i32;
     const right_scalar_bits: i64 = right.i64_value;
+    const signed_elem: i32 = exec_vector_elem_is_signed(elem_kind);
     if lanes <= 0 || lanes > 64 || ldata == null {
         return exec_make_void();
     }
@@ -586,10 +647,14 @@ fn exec_vm_vector_compare(opcode_code: i32, left: ExecValue, right: ExecValue) E
     var mask_bits: i64 = 0;
     var li: i32 = 0;
     while li < lanes {
-        const lb: i64 = exec_vector_lane_bits(ldata, elem_kind, li);
+        var lb: i64 = exec_vector_lane_bits(ldata, elem_kind, li);
         var rb: i64 = right_scalar_bits;
         if right_is_vector != 0 {
             rb = exec_vector_lane_bits(rdata, elem_kind, li);
+        }
+        if signed_elem != 0 {
+            lb = exec_vector_lane_signed(lb, elem_kind);
+            rb = exec_vector_lane_signed(rb, elem_kind);
         }
         var lane_true: i32 = 0;
         if is_f32 != 0 || is_f64 != 0 {
@@ -634,6 +699,7 @@ fn exec_vm_vector_binary(opcode_code: i32, left: ExecValue, right: ExecValue) Ex
     const rdata: &byte = exec_value_vector_data(&right);
     const right_is_vector2: i32 = (right.kind == ExecValueKind.EXEC_VALUE_VECTOR) as i32;
     const right_scalar_bits2: i64 = right.i64_value;
+    const signed_elem2: i32 = exec_vector_elem_is_signed(elem_kind);
     if lanes <= 0 || ldata == null {
         return exec_make_void();
     }
@@ -646,10 +712,14 @@ fn exec_vm_vector_binary(opcode_code: i32, left: ExecValue, right: ExecValue) Ex
     }
     var li: i32 = 0;
     while li < lanes {
-        const lb: i64 = exec_vector_lane_bits(ldata, elem_kind, li);
+        var lb: i64 = exec_vector_lane_bits(ldata, elem_kind, li);
         var rb: i64 = right_scalar_bits2;
         if right_is_vector2 != 0 {
             rb = exec_vector_lane_bits(rdata, elem_kind, li);
+        }
+        if signed_elem2 != 0 {
+            lb = exec_vector_lane_signed(lb, elem_kind);
+            rb = exec_vector_lane_signed(rb, elem_kind);
         }
         var res: i64 = 0;
         if is_float_elem != 0 {
@@ -2577,6 +2647,47 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         var not_mask: ExecValue = exec_make_mask_value(exec_value_vector_lanes(slot_b));
         not_mask.i64_value = ~slot_b.i64_value;
         slot_a[0] = not_mask;
+    } else if (instr.opcode == BCOpcode.BC_ADD_SAT || instr.opcode == BCOpcode.BC_SUB_SAT ||
+        instr.opcode == BCOpcode.BC_MUL_SAT) &&
+        slot_a != null && slot_b != null && slot_c != null &&
+        slot_b.kind == ExecValueKind.EXEC_VALUE_VECTOR {
+        const sat_lanes: i32 = exec_value_vector_lanes(slot_b);
+        const sat_kind: i32 = exec_value_vector_elem_kind(slot_b);
+        const sat_ldata: &byte = exec_value_vector_data(slot_b);
+        const sat_r_is_vec: i32 = (slot_c.kind == ExecValueKind.EXEC_VALUE_VECTOR) as i32;
+        const sat_rdata: &byte = exec_value_vector_data(slot_c);
+        const sat_scalar: i64 = slot_c.i64_value;
+        const sat_signed: i32 = exec_vector_elem_is_signed(sat_kind);
+        var sat_out: ExecValue = exec_make_vector(sat_kind, sat_lanes);
+        const sat_odata: &byte = exec_value_vector_data(&sat_out);
+        if sat_odata == null {
+            exec_backend_set_error(function.decl, "exec: 向量饱和运算分配失败" as *byte, 0);
+            return -1;
+        }
+        var sati: i32 = 0;
+        while sati < sat_lanes {
+            var sat_lb: i64 = exec_vector_lane_bits(sat_ldata, sat_kind, sati);
+            var sat_rb: i64 = sat_scalar;
+            if sat_r_is_vec != 0 {
+                sat_rb = exec_vector_lane_bits(sat_rdata, sat_kind, sati);
+            }
+            if sat_signed != 0 {
+                sat_lb = exec_vector_lane_signed(sat_lb, sat_kind);
+                sat_rb = exec_vector_lane_signed(sat_rb, sat_kind);
+            }
+            var sat_raw: i64 = 0;
+            if instr.opcode == BCOpcode.BC_ADD_SAT {
+                sat_raw = sat_lb +| sat_rb;
+            } else if instr.opcode == BCOpcode.BC_SUB_SAT {
+                sat_raw = sat_lb -| sat_rb;
+            } else {
+                sat_raw = sat_lb *| sat_rb;
+            }
+            exec_vector_set_lane_bits(sat_odata, sat_kind, sati,
+                exec_vector_clamp_lane(sat_raw, sat_kind));
+            sati = sati + 1;
+        }
+        slot_a[0] = sat_out;
     } else if instr.opcode == BCOpcode.BC_ADD {
         if slot_a == null || slot_b == null || slot_c == null {
             exec_backend_set_error(function.decl, "exec: ADD 槽位越界" as *byte, 0);
