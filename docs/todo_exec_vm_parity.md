@@ -179,6 +179,11 @@
   旁路表扩容到 256 基地址 × 512 元素（整份源码的标记量远超原上限）。
 - 实测：**tests/test_fmt_*.uya 19 个用例在 --vm 下全部通过**（本轮起步时 0 个），
   8 个 verify_exec_vm_*.sh 门禁全过。
+- 追加线索（下一轮起点）：builder 的静态槽位校验报
+  「bytecode 读取了未初始化槽位(slot=0 msg=MOV 源槽位非法)」，
+  `test_crypto_ed25519`（已越过 256 元素上限）与
+  `test_function_reachability_string_interp_expr`（插值结果赋给定长字符数组）
+  都卡在这里。诊断已带槽位号与指令类别，先去 MOV 的生成点查这条槽为何没写。
 
 ### T4f 字符串插值（9 例，已实现 8 例）
 
