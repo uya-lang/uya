@@ -3338,6 +3338,18 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                     exec_vector_set_lane_bits(splat_data, vec_elem_kind, si, splat_bits);
                     si = si + 1;
                 }
+            } else if exec_vm_pointer_is_index_base_ref(src_arg) != 0 &&
+                exec_vm_pointer_address(src_arg) != 0 as usize {
+                // 源是「聚合数组元素」的索引引用：逐通道读相邻 ExecValue，
+                // 这样 `@vector.load(&buf[0])` 对 `[u32: N]` 这类聚合数组也成立。
+                const agg_first: &ExecValue = @ptr_from_usize(exec_vm_pointer_address(src_arg)) as &ExecValue;
+                vec_out = exec_make_vector(vec_elem_kind, vec_lanes);
+                const agg_dst: &byte = exec_value_vector_data(&vec_out);
+                var ai: i32 = 0;
+                while ai < vec_lanes && agg_dst != null {
+                    exec_vector_set_lane_bits(agg_dst, vec_elem_kind, ai, agg_first[ai].i64_value);
+                    ai = ai + 1;
+                }
             } else {
                 const load_src: &byte = src_arg.ptr_value;
                 vec_out = exec_make_vector(vec_elem_kind, vec_lanes);
@@ -3478,13 +3490,24 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 exec_backend_set_error(function.decl, "exec: @vector.store 参数槽位非法" as *byte, 0);
                 return -1;
             }
-            const st_dst: &byte = st_ptr.ptr_value;
             const st_src: &byte = exec_value_vector_data(st_vec);
-            const st_size: usize = exec_vm_type_kind_size(vec_elem_kind) * (vec_lanes as usize);
-            var sti: usize = 0;
-            while sti < st_size && st_dst != null && st_src != null {
-                st_dst[sti] = st_src[sti];
-                sti = sti + 1;
+            if exec_vm_pointer_is_index_base_ref(st_ptr) != 0 &&
+                exec_vm_pointer_address(st_ptr) != 0 as usize {
+                // 目标是聚合数组元素：逐通道写回相邻 ExecValue（与 load 对称）。
+                const st_first: &ExecValue = @ptr_from_usize(exec_vm_pointer_address(st_ptr)) as &ExecValue;
+                var stj: i32 = 0;
+                while stj < vec_lanes && st_src != null {
+                    st_first[stj].i64_value = exec_vector_lane_bits(st_src, vec_elem_kind, stj);
+                    stj = stj + 1;
+                }
+            } else {
+                const st_dst: &byte = st_ptr.ptr_value;
+                const st_size: usize = exec_vm_type_kind_size(vec_elem_kind) * (vec_lanes as usize);
+                var sti: usize = 0;
+                while sti < st_size && st_dst != null && st_src != null {
+                    st_dst[sti] = st_src[sti];
+                    sti = sti + 1;
+                }
             }
             vec_out = exec_make_void();
         } else {
