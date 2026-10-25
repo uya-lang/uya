@@ -635,6 +635,32 @@ fn exec_vm_aggregate_ref_from_value(value: &ExecValue) &ExecAggregate {
     return null;
 }
 
+/// STORE_FIELD 的字段引用：允许把未初始化的槽位就地长成一个结构体。
+/// 原生指针上的聚合元素只能按需落地，第一次写字段时给它一个足够大的容量，
+/// 之后所有字段写入都只是改 ExecValue 元素，不再越界。
+/// 参数：value 目标对象；field_idx 字段下标。
+/// 返回值：字段槽位；无法建立返回 null。
+fn exec_vm_field_ref_store(value: &ExecValue, field_idx: i32) &ExecValue {
+    if value == null || field_idx < 0 || field_idx >= 64 {
+        return null;
+    }
+    var object: &ExecValue = value;
+    if exec_vm_pointer_is_internal_ref(value) != 0 {
+        const target: &ExecValue = exec_vm_ref_target_value(value);
+        if target != null {
+            object = target;
+        }
+    }
+    if object.kind == ExecValueKind.EXEC_VALUE_VOID {
+        object[0] = exec_value_make_aggregate(ExecValueKind.EXEC_VALUE_STRUCT, 64);
+    }
+    const aggregate: &ExecAggregate = exec_vm_aggregate_ref_from_value(object);
+    if aggregate == null || field_idx >= aggregate.count {
+        return null;
+    }
+    return &aggregate.values[field_idx];
+}
+
 fn exec_vm_field_ref(value: &ExecValue, field_idx: i32) &ExecValue {
     const aggregate: &ExecAggregate = exec_vm_aggregate_ref_from_value(value);
     if aggregate == null || field_idx < 0 || field_idx >= aggregate.count {
@@ -779,6 +805,55 @@ fn exec_vm_slice_ptr_value(value: &ExecValue, pointee_kind: i32) ExecValue {
     return exec_vm_make_index_value_ref(&slice_data.aggregate.values[slice_data.start], pointee_kind);
 }
 
+// 原生指针上的聚合元素旁路表。
+// `arena_alloc` 之类返回的是原生内存，里面放不下 ExecValue；
+// 以「基地址 → ExecValue 数组」的旁路表承接 `ptr[i].field` 的读写。
+const EXEC_NATIVE_AGG_MAX_BASES: i32 = 64;
+const EXEC_NATIVE_AGG_MAX_ELEMS: i32 = 256;
+
+var g_native_agg_base: [usize: 64] = [];
+var g_native_agg_count: [i32: 64] = [];
+var g_native_agg_values: [[ExecValue: 256]: 64] = [];
+var g_native_agg_used: i32 = 0;
+
+/// 取原生指针第 index 个聚合元素对应的 ExecValue 槽位（按需建表）。
+/// 参数：base 指针地址；index 元素下标。
+/// 返回值：指向该元素 ExecValue 的指针；越界或表满返回 null。
+fn exec_vm_native_agg_slot(base: usize, index: i64) &ExecValue {
+    if base == 0 as usize || index < 0 || index >= (EXEC_NATIVE_AGG_MAX_ELEMS as i64) {
+        return null;
+    }
+    var slot: i32 = -1;
+    var i: i32 = 0;
+    while i < g_native_agg_used {
+        if g_native_agg_base[i] == base {
+            slot = i;
+            break;
+        }
+        i = i + 1;
+    }
+    if slot < 0 {
+        if g_native_agg_used < 0 || g_native_agg_used >= EXEC_NATIVE_AGG_MAX_BASES {
+            return null;
+        }
+        slot = g_native_agg_used;
+        g_native_agg_base[slot] = base;
+        g_native_agg_count[slot] = 0;
+        g_native_agg_used = slot + 1;
+    }
+    if slot < 0 || slot >= EXEC_NATIVE_AGG_MAX_BASES {
+        return null;
+    }
+    const idx: i32 = index as i32;
+    if idx < 0 || idx >= EXEC_NATIVE_AGG_MAX_ELEMS {
+        return null;
+    }
+    if idx >= g_native_agg_count[slot] {
+        g_native_agg_count[slot] = idx + 1;
+    }
+    return &g_native_agg_values[slot][idx];
+}
+
 fn exec_vm_pointer_element_ptr(function: &BCFunction, base: ExecValue, index_value: i64) ExecValue {
     if function == null {
         exec_backend_set_error(null, "exec: pointer addr 输入无效" as *byte, 0);
@@ -807,8 +882,12 @@ fn exec_vm_pointer_element_ptr(function: &BCFunction, base: ExecValue, index_val
     const pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
     const elem_size: usize = exec_vm_type_kind_size(pointee_kind);
     if elem_size == 0 as usize {
-        exec_backend_set_error(function.decl, "exec: 当前不支持该指针元素类型" as *byte, 0);
-        return exec_make_void();
+        const agg_slot: &ExecValue = exec_vm_native_agg_slot(base_addr, index_value);
+        if agg_slot == null {
+            exec_backend_set_error(function.decl, "exec: 当前不支持该指针元素类型" as *byte, 0);
+            return exec_make_void();
+        }
+        return exec_vm_make_value_ref(agg_slot, pointee_kind);
     }
     const addr: usize = base_addr + (index_value as usize) * elem_size;
     return exec_make_pointer_with_kind(addr, pointee_kind);
@@ -896,8 +975,13 @@ fn exec_vm_load_pointer_index(function: &BCFunction, base: ExecValue, index_valu
     const pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
     const elem_size: usize = exec_vm_type_kind_size(pointee_kind);
     if elem_size == 0 as usize {
-        exec_backend_set_error(function.decl, "exec: 当前不支持该指针元素类型" as *byte, 0);
-        return -1;
+        const agg_slot: &ExecValue = exec_vm_native_agg_slot(base_addr, index_value);
+        if agg_slot == null {
+            exec_backend_set_error(function.decl, "exec: 当前不支持该指针元素类型" as *byte, 0);
+            return -1;
+        }
+        out_value[0] = exec_value_clone(agg_slot);
+        return 0;
     }
     const addr: usize = base_addr + (index_value as usize) * elem_size;
     if pointee_kind == TypeKind.TYPE_BOOL as i32 {
@@ -1002,8 +1086,13 @@ fn exec_vm_store_pointer_index(function: &BCFunction, base: ExecValue, index_val
     const pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
     const elem_size: usize = exec_vm_type_kind_size(pointee_kind);
     if elem_size == 0 as usize {
-        exec_backend_set_error(function.decl, "exec: 当前不支持该指针元素类型" as *byte, 0);
-        return -1;
+        const agg_slot: &ExecValue = exec_vm_native_agg_slot(base_addr, index_value);
+        if agg_slot == null {
+            exec_backend_set_error(function.decl, "exec: 当前不支持该指针元素类型" as *byte, 0);
+            return -1;
+        }
+        agg_slot[0] = exec_value_clone(&src_value);
+        return 0;
     }
     const addr: usize = base_addr + (index_value as usize) * elem_size;
     if pointee_kind == TypeKind.TYPE_BOOL as i32 {
@@ -2386,7 +2475,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, "exec: STORE_FIELD 槽位越界" as *byte, 0);
             return -1;
         }
-        const field_ref2: &ExecValue = exec_vm_field_ref(slot_a, instr.imm as i32);
+        const field_ref2: &ExecValue = exec_vm_field_ref_store(slot_a, instr.imm as i32);
         if field_ref2 == null {
             exec_backend_set_error(function.decl, "exec: STORE_FIELD 字段越界" as *byte, 0);
             return -1;
