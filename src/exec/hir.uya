@@ -71,6 +71,7 @@ enum HIRExprKind {
     HIR_EXPR_PRINTLN,
     // 字符串插值：string_value 是格式串，items 是实参。
     HIR_EXPR_STRING_INTERP,
+    HIR_EXPR_VECTOR_OP,
     HIR_EXPR_ERROR_ID,
     HIR_EXPR_ERROR_NAME,
     HIR_EXPR_SYSCALL,

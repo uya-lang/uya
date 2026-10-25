@@ -29,6 +29,8 @@ enum ExecValueKind {
     EXEC_VALUE_ERROR_UNION,
     EXEC_VALUE_I8,
     EXEC_VALUE_I16,
+    EXEC_VALUE_VECTOR,
+    EXEC_VALUE_MASK,
 }
 
 struct ExecAggregate {

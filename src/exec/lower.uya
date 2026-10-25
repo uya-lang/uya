@@ -152,6 +152,10 @@ fn exec_lower_host_asm_target_value() i32 {
 }
 
 fn exec_type_is_scalar_supported(type: Type) i32 {
+    // SIMD 值在 VM 里按「元素类型的定长缓冲 + 通道数」表示，属于一等标量。
+    if type.kind == TypeKind.TYPE_VECTOR || type.kind == TypeKind.TYPE_MASK {
+        return 1;
+    }
     if type.kind == TypeKind.TYPE_ATOMIC {
         const inner: &Type = type_get_atomic_inner(&type);
         if inner != null {
@@ -5346,6 +5350,40 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         const union_ctor: &HIRExpr = exec_lower_try_union_ctor_expr(ctx, expr, &expr_type);
         if union_ctor != null {
             return union_ctor;
+        }
+        // `@vector.<op>(...)`：解析器把它建成 `@vector` 标识符的成员调用，
+        // 这里直接降成向量内建节点，交给 VM 的 BC_VECTOR_OP 执行。
+        if expr.call_expr_callee != null && expr.call_expr_callee.type == ASTNodeType.AST_MEMBER_ACCESS &&
+            expr.call_expr_callee.member_access_object != null &&
+            expr.call_expr_callee.member_access_object.type == ASTNodeType.AST_IDENTIFIER &&
+            expr.call_expr_callee.member_access_object.identifier_name != null &&
+            str_equals(expr.call_expr_callee.member_access_object.identifier_name, "@vector" as &byte) != 0 &&
+            expr.call_expr_callee.member_access_field_name != null {
+            var vec_args: & & HIRExpr = null;
+            if expr.call_expr_arg_count > 0 {
+                vec_args = compiler_arena_alloc(ctx.arena, @size_of(&HIRExpr) * expr.call_expr_arg_count as usize) as & & HIRExpr;
+                if vec_args == null {
+                    exec_backend_set_error(expr, "exec: @vector 参数分配失败" as *byte, 0);
+                    return null;
+                }
+            }
+            var vai: i32 = 0;
+            while vai < expr.call_expr_arg_count {
+                const lowered_varg: &HIRExpr = exec_lower_expr(ctx, expr.call_expr_args[vai]);
+                if lowered_varg == null {
+                    return null;
+                }
+                vec_args[vai] = lowered_varg;
+                vai = vai + 1;
+            }
+            const hir_vec: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_VECTOR_OP, &expr_type);
+            if hir_vec == null {
+                return null;
+            }
+            hir_vec.callee_name = expr.call_expr_callee.member_access_field_name;
+            hir_vec.call_args = vec_args;
+            hir_vec.call_arg_count = expr.call_expr_arg_count;
+            return hir_vec;
         }
         if expr.call_expr_type_arg_count > 0 || expr.call_expr_has_ellipsis_forward != 0 {
             return exec_lower_fail_expr(expr, "exec: 当前不支持泛型调用或 varargs 转发" as *byte);

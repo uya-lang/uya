@@ -77,6 +77,7 @@ fn exec_debug_opcode_name(opcode: BCOpcode) &byte {
     if opcode == BCOpcode.BC_PRINT { return "BC_PRINT" as &byte; }
     if opcode == BCOpcode.BC_PRINTLN { return "BC_PRINTLN" as &byte; }
     if opcode == BCOpcode.BC_STRING_INTERP { return "BC_STRING_INTERP" as &byte; }
+    if opcode == BCOpcode.BC_VECTOR_OP { return "BC_VECTOR_OP" as &byte; }
     if opcode == BCOpcode.BC_ERROR_ID { return "BC_ERROR_ID" as &byte; }
     if opcode == BCOpcode.BC_ERROR_NAME { return "BC_ERROR_NAME" as &byte; }
     return "BC_UNKNOWN" as &byte;

@@ -79,6 +79,7 @@ enum BCOpcode {
     BC_PRINT,
     BC_PRINTLN,
     BC_STRING_INTERP,
+    BC_VECTOR_OP,
     BC_ERROR_ID,
     BC_ERROR_NAME,
 }

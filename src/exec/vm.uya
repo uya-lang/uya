@@ -473,6 +473,217 @@ fn exec_vm_syscall_arg_to_i64(value: ExecValue) i64 {
     return exec_vm_numeric_to_i64(value);
 }
 
+
+/// 向量值的元素类型（TypeKind 编码，存放在 i64_value）。
+fn exec_value_vector_elem_kind(value: &ExecValue) i32 {
+    if value == null || value.kind != ExecValueKind.EXEC_VALUE_VECTOR {
+        return TypeKind.TYPE_VOID as i32;
+    }
+    return value.i64_value as i32;
+}
+
+/// 向量 / 掩码的通道数（存放在 aux_i64_value）。
+fn exec_value_vector_lanes(value: &ExecValue) i32 {
+    if value == null {
+        return 0;
+    }
+    if value.kind != ExecValueKind.EXEC_VALUE_VECTOR && value.kind != ExecValueKind.EXEC_VALUE_MASK {
+        return 0;
+    }
+    return value.aux_i64_value as i32;
+}
+
+/// 向量的数据缓冲（元素紧密排列，无对齐假设）。
+fn exec_value_vector_data(value: &ExecValue) &byte {
+    if value == null || value.kind != ExecValueKind.EXEC_VALUE_VECTOR {
+        return null;
+    }
+    return value.ptr_value;
+}
+
+fn exec_make_vector(elem_type_kind: i32, lane_count: i32) ExecValue {
+    const elem_size: usize = exec_vm_type_kind_size(elem_type_kind);
+    if lane_count <= 0 || elem_size == 0 as usize {
+        return exec_make_void();
+    }
+    const total: usize = elem_size * (lane_count as usize);
+    const buf: &byte = exec_value_alloc_bytes(total);
+    if buf == null {
+        return exec_make_void();
+    }
+    var vi: usize = 0;
+    while vi < total {
+        buf[vi] = 0 as byte;
+        vi = vi + 1;
+    }
+    return ExecValue {
+        kind: ExecValueKind.EXEC_VALUE_VECTOR,
+        i64_value: elem_type_kind as i64,
+        ptr_value: buf,
+        aux_kind: ExecValueKind.EXEC_VALUE_VOID,
+        aux_i64_value: lane_count as i64,
+        aux_ptr_value: null,
+        error_id: 0,
+    };
+}
+
+fn exec_make_mask_value(lane_count: i32) ExecValue {
+    return ExecValue {
+        kind: ExecValueKind.EXEC_VALUE_MASK,
+        i64_value: 0,
+        ptr_value: null,
+        aux_kind: ExecValueKind.EXEC_VALUE_VOID,
+        aux_i64_value: lane_count as i64,
+        aux_ptr_value: null,
+        error_id: 0,
+    };
+}
+
+/// 取某个通道的原始比特（小端拼装，避免对齐/别名假设）。
+fn exec_vector_lane_bits(data: &byte, elem_type_kind: i32, index: i32) i64 {
+    const elem_size: usize = exec_vm_type_kind_size(elem_type_kind);
+    if data == null || index < 0 || elem_size == 0 as usize {
+        return 0;
+    }
+    const base: usize = elem_size * (index as usize);
+    var bits: u64 = 0 as u64;
+    var bi: usize = 0;
+    while bi < elem_size {
+        const byte_value: u64 = (data[base +| bi] as byte) as u64;
+        bits = bits | (byte_value << ((bi as i32) * 8));
+        bi = bi + 1;
+    }
+    return bits as i64;
+}
+
+fn exec_vector_set_lane_bits(data: &byte, elem_type_kind: i32, index: i32, bits: i64) void {
+    const elem_size: usize = exec_vm_type_kind_size(elem_type_kind);
+    if data == null || index < 0 || elem_size == 0 as usize {
+        return;
+    }
+    const base: usize = elem_size * (index as usize);
+    var bi: usize = 0;
+    while bi < elem_size {
+        const shifted: u64 = (bits as u64) >> ((bi as i32) * 8);
+        data[base +| bi] = (shifted & 0xFFu64) as byte;
+        bi = bi + 1;
+    }
+}
+
+/// 向量逐通道比较，结果写进掩码（低位为通道 0）。
+fn exec_vm_vector_compare(opcode_code: i32, left: ExecValue, right: ExecValue) ExecValue {
+    const lanes: i32 = exec_value_vector_lanes(&left);
+    const elem_kind: i32 = exec_value_vector_elem_kind(&left);
+    const ldata: &byte = exec_value_vector_data(&left);
+    const rdata: &byte = exec_value_vector_data(&right);
+    if lanes <= 0 || lanes > 64 || ldata == null || rdata == null {
+        return exec_make_void();
+    }
+    const is_f32: i32 = (elem_kind == TypeKind.TYPE_F32 as i32) as i32;
+    const is_f64: i32 = (elem_kind == TypeKind.TYPE_F64 as i32) as i32;
+    var mask_bits: i64 = 0;
+    var li: i32 = 0;
+    while li < lanes {
+        const lb: i64 = exec_vector_lane_bits(ldata, elem_kind, li);
+        const rb: i64 = exec_vector_lane_bits(rdata, elem_kind, li);
+        var lane_true: i32 = 0;
+        if is_f32 != 0 || is_f64 != 0 {
+            var lf: f64 = 0.0;
+            var rf: f64 = 0.0;
+            if is_f32 != 0 {
+                lf = exec_f32_from_bits(lb as u32) as f64;
+                rf = exec_f32_from_bits(rb as u32) as f64;
+            } else {
+                lf = exec_f64_from_bits(lb as u64);
+                rf = exec_f64_from_bits(rb as u64);
+            }
+            if opcode_code == BCOpcode.BC_CMP_EQ as i32 { lane_true = (lf == rf) as i32;
+            } else if opcode_code == BCOpcode.BC_CMP_NE as i32 { lane_true = (lf != rf) as i32;
+            } else if opcode_code == BCOpcode.BC_CMP_LT as i32 { lane_true = (lf < rf) as i32;
+            } else if opcode_code == BCOpcode.BC_CMP_LE as i32 { lane_true = (lf <= rf) as i32;
+            } else if opcode_code == BCOpcode.BC_CMP_GT as i32 { lane_true = (lf > rf) as i32;
+            } else { lane_true = (lf >= rf) as i32; }
+        } else {
+            if opcode_code == BCOpcode.BC_CMP_EQ as i32 { lane_true = (lb == rb) as i32;
+            } else if opcode_code == BCOpcode.BC_CMP_NE as i32 { lane_true = (lb != rb) as i32;
+            } else if opcode_code == BCOpcode.BC_CMP_LT as i32 { lane_true = (lb < rb) as i32;
+            } else if opcode_code == BCOpcode.BC_CMP_LE as i32 { lane_true = (lb <= rb) as i32;
+            } else if opcode_code == BCOpcode.BC_CMP_GT as i32 { lane_true = (lb > rb) as i32;
+            } else { lane_true = (lb >= rb) as i32; }
+        }
+        if lane_true != 0 {
+            mask_bits = mask_bits | ((1 as i64) << li);
+        }
+        li = li + 1;
+    }
+    var mask_result: ExecValue = exec_make_mask_value(lanes);
+    mask_result.i64_value = mask_bits;
+    return mask_result;
+}
+
+/// 向量逐通道算术；浮点元素按 f32/f64 位模式换算。
+fn exec_vm_vector_binary(opcode_code: i32, left: ExecValue, right: ExecValue) ExecValue {
+    const lanes: i32 = exec_value_vector_lanes(&left);
+    const elem_kind: i32 = exec_value_vector_elem_kind(&left);
+    const ldata: &byte = exec_value_vector_data(&left);
+    const rdata: &byte = exec_value_vector_data(&right);
+    if lanes <= 0 || ldata == null || rdata == null {
+        return exec_make_void();
+    }
+    const is_f32_elem: i32 = (elem_kind == TypeKind.TYPE_F32 as i32) as i32;
+    const is_float_elem: i32 = (is_f32_elem != 0 || elem_kind == TypeKind.TYPE_F64 as i32) as i32;
+    var out: ExecValue = exec_make_vector(elem_kind, lanes);
+    const odata: &byte = exec_value_vector_data(&out);
+    if odata == null {
+        return exec_make_void();
+    }
+    var li: i32 = 0;
+    while li < lanes {
+        const lb: i64 = exec_vector_lane_bits(ldata, elem_kind, li);
+        const rb: i64 = exec_vector_lane_bits(rdata, elem_kind, li);
+        var res: i64 = 0;
+        if is_float_elem != 0 {
+            var lf: f64 = 0.0;
+            var rf: f64 = 0.0;
+            if is_f32_elem != 0 {
+                lf = exec_f32_from_bits(lb as u32) as f64;
+                rf = exec_f32_from_bits(rb as u32) as f64;
+            } else {
+                lf = exec_f64_from_bits(lb as u64);
+                rf = exec_f64_from_bits(rb as u64);
+            }
+            var fr: f64 = 0.0;
+            if opcode_code == BCOpcode.BC_ADD as i32 {
+                fr = lf + rf;
+            } else if opcode_code == BCOpcode.BC_SUB as i32 {
+                fr = lf - rf;
+            } else if opcode_code == BCOpcode.BC_MUL as i32 {
+                fr = lf * rf;
+            } else if rf != 0.0 {
+                fr = lf / rf;
+            }
+            if is_f32_elem != 0 {
+                res = exec_f32_to_bits(fr as f32) as i64;
+            } else {
+                res = exec_f64_to_bits(fr) as i64;
+            }
+        } else if opcode_code == BCOpcode.BC_ADD as i32 {
+            res = lb +| rb;
+        } else if opcode_code == BCOpcode.BC_SUB as i32 {
+            res = lb -| rb;
+        } else if opcode_code == BCOpcode.BC_MUL as i32 {
+            res = lb *| rb;
+        } else if opcode_code == BCOpcode.BC_DIV as i32 {
+            if rb != 0 { res = lb / rb; }
+        } else if rb != 0 {
+            res = lb % rb;
+        }
+        exec_vector_set_lane_bits(odata, elem_kind, li, res);
+        li = li + 1;
+    }
+    return out;
+}
+
 fn exec_vm_compare_values(left: ExecValue, right: ExecValue) i32 {
     if exec_value_is_pointer_like(left) != 0 || exec_value_is_pointer_like(right) != 0 {
         const left_u: u64 = left.i64_value as u64;
@@ -2254,6 +2465,17 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return -1;
         }
         slot_a[0] = exec_vm_box_value_ref(slot_b[0], instr.c);
+    } else if (instr.opcode == BCOpcode.BC_ADD || instr.opcode == BCOpcode.BC_SUB ||
+        instr.opcode == BCOpcode.BC_MUL || instr.opcode == BCOpcode.BC_DIV ||
+        instr.opcode == BCOpcode.BC_REM) &&
+        slot_a != null && slot_b != null && slot_c != null &&
+        slot_b.kind == ExecValueKind.EXEC_VALUE_VECTOR {
+        const vec_bin: ExecValue = exec_vm_vector_binary(instr.opcode as i32, slot_b[0], slot_c[0]);
+        if vec_bin.kind != ExecValueKind.EXEC_VALUE_VECTOR {
+            exec_backend_set_error(function.decl, "exec: 向量算术失败" as *byte, 0);
+            return -1;
+        }
+        slot_a[0] = vec_bin;
     } else if instr.opcode == BCOpcode.BC_ADD {
         if slot_a == null || slot_b == null || slot_c == null {
             exec_backend_set_error(function.decl, "exec: ADD 槽位越界" as *byte, 0);
@@ -2881,6 +3103,147 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         }
         var error_ok_value: ExecValue = exec_value_unwrap_ok(slot_b[0]);
         slot_a[0] = error_ok_value;
+    } else if instr.opcode == BCOpcode.BC_VECTOR_OP {
+        if slot_a == null || slot_b == null || instr.text == null {
+            exec_backend_set_error(function.decl, "exec: VECTOR_OP 参数非法" as *byte, 0);
+            return -1;
+        }
+        const vec_elem_kind: i32 = (instr.imm >> 32) as i32;
+        const vec_lanes: i32 = (instr.imm & (0xFFFFFFFF as i64)) as i32;
+        var vec_out: ExecValue = exec_make_void();
+        if str_equals(instr.text, "splat" as &byte) != 0 || str_equals(instr.text, "load" as &byte) != 0 {
+            const src_arg: &ExecValue = exec_vm_slot_ref(frame, instr.b);
+            if src_arg == null {
+                exec_backend_set_error(function.decl, "exec: VECTOR_OP 源槽位非法" as *byte, 0);
+                return -1;
+            }
+            if str_equals(instr.text, "splat" as &byte) != 0 {
+                const splat_bits: i64 = src_arg.i64_value;
+                vec_out = exec_make_vector(vec_elem_kind, vec_lanes);
+                const splat_data: &byte = exec_value_vector_data(&vec_out);
+                var si: i32 = 0;
+                while si < vec_lanes {
+                    exec_vector_set_lane_bits(splat_data, vec_elem_kind, si, splat_bits);
+                    si = si + 1;
+                }
+            } else {
+                const load_src: &byte = src_arg.ptr_value;
+                vec_out = exec_make_vector(vec_elem_kind, vec_lanes);
+                const load_dst: &byte = exec_value_vector_data(&vec_out);
+                const load_size: usize = exec_vm_type_kind_size(vec_elem_kind) * (vec_lanes as usize);
+                var li2: usize = 0;
+                while li2 < load_size && load_src != null && load_dst != null {
+                    load_dst[li2] = load_src[li2];
+                    li2 = li2 + 1;
+                }
+            }
+        } else if str_equals(instr.text, "all" as &byte) != 0 ||
+            str_equals(instr.text, "any" as &byte) != 0 ||
+            str_equals(instr.text, "reduce_add" as &byte) != 0 ||
+            str_equals(instr.text, "reduce_min" as &byte) != 0 ||
+            str_equals(instr.text, "reduce_max" as &byte) != 0 ||
+            str_equals(instr.text, "reduce_mul" as &byte) != 0 {
+            const arg0v: &ExecValue = exec_vm_slot_ref(frame, instr.b);
+            if arg0v == null {
+                exec_backend_set_error(function.decl, "exec: VECTOR_OP 源槽位非法" as *byte, 0);
+                return -1;
+            }
+            if arg0v.kind == ExecValueKind.EXEC_VALUE_MASK &&
+                (str_equals(instr.text, "all" as &byte) != 0 || str_equals(instr.text, "any" as &byte) != 0) {
+                const m_lanes: i32 = exec_value_vector_lanes(arg0v);
+                const m_bits: i64 = arg0v.i64_value;
+                var m_all: i32 = 1;
+                var m_any: i32 = 0;
+                var mi: i32 = 0;
+                while mi < m_lanes {
+                    if (((m_bits >> mi) & 1 as i64) != 0) { m_any = 1; } else { m_all = 0; }
+                    mi = mi + 1;
+                }
+                if str_equals(instr.text, "all" as &byte) != 0 {
+                    vec_out = exec_make_bool(m_all);
+                } else {
+                    vec_out = exec_make_bool(m_any);
+                }
+            } else {
+                const rv_lanes: i32 = exec_value_vector_lanes(arg0v);
+                const rv_data: &byte = exec_value_vector_data(arg0v);
+                const rv_kind: i32 = exec_value_vector_elem_kind(arg0v);
+                var acc: i64 = 0;
+                if str_equals(instr.text, "reduce_mul" as &byte) != 0 { acc = 1; }
+                var ri: i32 = 0;
+                while ri < rv_lanes && rv_data != null {
+                    const lane_bits: i64 = exec_vector_lane_bits(rv_data, rv_kind, ri);
+                    if str_equals(instr.text, "reduce_add" as &byte) != 0 {
+                        acc = acc +| lane_bits;
+                    } else if str_equals(instr.text, "reduce_mul" as &byte) != 0 {
+                        acc = acc *| lane_bits;
+                    } else if ri == 0 {
+                        acc = lane_bits;
+                    } else if str_equals(instr.text, "reduce_min" as &byte) != 0 {
+                        if lane_bits < acc { acc = lane_bits; }
+                    } else if lane_bits > acc {
+                        acc = lane_bits;
+                    }
+                    ri = ri + 1;
+                }
+                vec_out = exec_make_i64(acc);
+            }
+        } else if str_equals(instr.text, "select" as &byte) != 0 {
+            const sel_mask: &ExecValue = exec_vm_slot_ref(frame, instr.b);
+            const sel_a: &ExecValue = exec_vm_slot_ref(frame, instr.b +| 1);
+            const sel_b: &ExecValue = exec_vm_slot_ref(frame, instr.b +| 2);
+            if sel_mask == null || sel_a == null || sel_b == null {
+                exec_backend_set_error(function.decl, "exec: @vector.select 参数槽位非法" as *byte, 0);
+                return -1;
+            }
+            vec_out = exec_make_vector(vec_elem_kind, vec_lanes);
+            const sel_dst: &byte = exec_value_vector_data(&vec_out);
+            const sel_a_data: &byte = exec_value_vector_data(sel_a);
+            const sel_b_data: &byte = exec_value_vector_data(sel_b);
+            var si2: i32 = 0;
+            while si2 < vec_lanes {
+                const pick: i64 = ((sel_mask.i64_value >> si2) & 1 as i64);
+                if pick != 0 {
+                    exec_vector_set_lane_bits(sel_dst, vec_elem_kind, si2,
+                        exec_vector_lane_bits(sel_a_data, vec_elem_kind, si2));
+                } else {
+                    exec_vector_set_lane_bits(sel_dst, vec_elem_kind, si2,
+                        exec_vector_lane_bits(sel_b_data, vec_elem_kind, si2));
+                }
+                si2 = si2 + 1;
+            }
+        } else if str_equals(instr.text, "store" as &byte) != 0 {
+            const st_ptr: &ExecValue = exec_vm_slot_ref(frame, instr.b);
+            const st_vec: &ExecValue = exec_vm_slot_ref(frame, instr.b +| 1);
+            if st_ptr == null || st_vec == null {
+                exec_backend_set_error(function.decl, "exec: @vector.store 参数槽位非法" as *byte, 0);
+                return -1;
+            }
+            const st_dst: &byte = st_ptr.ptr_value;
+            const st_src: &byte = exec_value_vector_data(st_vec);
+            const st_size: usize = exec_vm_type_kind_size(vec_elem_kind) * (vec_lanes as usize);
+            var sti: usize = 0;
+            while sti < st_size && st_dst != null && st_src != null {
+                st_dst[sti] = st_src[sti];
+                sti = sti + 1;
+            }
+            vec_out = exec_make_void();
+        } else {
+            exec_backend_set_error(function.decl, "exec: 不支持的 @vector 操作" as *byte, 0);
+            return -1;
+        }
+        slot_a[0] = vec_out;
+    } else if (instr.opcode == BCOpcode.BC_CMP_EQ || instr.opcode == BCOpcode.BC_CMP_NE ||
+        instr.opcode == BCOpcode.BC_CMP_LT || instr.opcode == BCOpcode.BC_CMP_LE ||
+        instr.opcode == BCOpcode.BC_CMP_GT || instr.opcode == BCOpcode.BC_CMP_GE) &&
+        slot_a != null && slot_b != null && slot_c != null &&
+        slot_b.kind == ExecValueKind.EXEC_VALUE_VECTOR {
+        const vec_mask: ExecValue = exec_vm_vector_compare(instr.opcode as i32, slot_b[0], slot_c[0]);
+        if vec_mask.kind != ExecValueKind.EXEC_VALUE_MASK {
+            exec_backend_set_error(function.decl, "exec: 向量比较失败" as *byte, 0);
+            return -1;
+        }
+        slot_a[0] = vec_mask;
     } else if instr.opcode == BCOpcode.BC_CMP_EQ {
         if slot_a == null || slot_b == null || slot_c == null {
             exec_backend_set_error(function.decl, "exec: CMP_EQ 槽位越界" as *byte, 0);

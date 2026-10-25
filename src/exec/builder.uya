@@ -764,6 +764,25 @@ fn exec_builder_compile_zero_value(ctx: &ExecFunctionBuildContext, ast_node: &AS
     return -1;
 }
 
+/// 向量元素类型（TypeKind 编码）；非向量返回 void。
+fn exec_builder_vector_elem_kind_code(ty: &Type) i32 {
+    if ty == null || ty.kind != TypeKind.TYPE_VECTOR || ty.element_type == null {
+        return TypeKind.TYPE_VOID as i32;
+    }
+    return exec_builder_effective_kind_code(&ty.element_type[0]);
+}
+
+/// 向量 / 掩码的通道数。
+fn exec_builder_vector_lane_count(ty: &Type) i32 {
+    if ty == null {
+        return 0;
+    }
+    if ty.kind != TypeKind.TYPE_VECTOR && ty.kind != TypeKind.TYPE_MASK {
+        return 0;
+    }
+    return ty.array_size;
+}
+
 fn exec_builder_emit_const(ctx: &ExecFunctionBuildContext, dst: i32, expr: &HIRExpr) i32 {
     var const_value: ExecValue = exec_make_void();
     const kind_code: i32 = exec_builder_effective_kind_code(&expr.type_ref.type);
@@ -1718,6 +1737,41 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         }
         exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: 无法为表达式构造地址" as *byte);
         return -1;
+    }
+    if expr.kind == HIRExprKind.HIR_EXPR_VECTOR_OP {
+        if expr.callee_name == null {
+            exec_backend_set_error(expr.ast_node, "exec: @vector 操作缺少名称" as *byte, 0);
+            return -1;
+        }
+        // 形状以结果类型为准；all/any 的结果是 bool，回退到第一个实参（掩码）的类型。
+        var vec_shape: &Type = &expr.type_ref.type;
+        if vec_shape.kind != TypeKind.TYPE_VECTOR && vec_shape.kind != TypeKind.TYPE_MASK {
+            if expr.call_args != null && expr.call_arg_count > 0 && expr.call_args[0] != null {
+                vec_shape = &expr.call_args[0].type_ref.type;
+            }
+        }
+        const vec_elem_code: i32 = exec_builder_vector_elem_kind_code(vec_shape);
+        const vec_lanes: i32 = exec_builder_vector_lane_count(vec_shape);
+        const vec_arg_base: i32 = exec_builder_compile_item_pack(ctx, expr.call_args, expr.call_arg_count);
+        if vec_arg_base < 0 {
+            return -1;
+        }
+        const vec_dst: i32 = exec_builder_new_temp(ctx);
+        if vec_dst < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_VECTOR_OP,
+            a: vec_dst,
+            b: vec_arg_base,
+            c: expr.call_arg_count,
+            imm: ((vec_elem_code as i64) << 32) | (vec_lanes as i64),
+            text: expr.callee_name,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return vec_dst;
     }
     if expr.kind == HIRExprKind.HIR_EXPR_CONST {
         const dst: i32 = exec_builder_new_temp(ctx);
@@ -4073,6 +4127,23 @@ fn exec_builder_validate_function(module: &HIRModule, fn_hir: &HIRFunction, out_
             const dst_slot5: i32 = instr.a;
             if dst_slot5 >= 0 && dst_slot5 < EXEC_MAX_FRAME_SLOTS {
                 slot_written[dst_slot5] = 1;
+            }
+        } else if instr.opcode == BCOpcode.BC_VECTOR_OP {
+            var vec_vi: i32 = 0;
+            while vec_vi < instr.c {
+                if exec_builder_validate_slot_read(fn_hir, instr.b + vec_vi, out_fn.slot_count,
+                    &slot_written[0], "exec: VECTOR_OP 源槽位非法" as *byte) != 0 {
+                    return -1;
+                }
+                vec_vi = vec_vi + 1;
+            }
+            if instr.a < 0 || instr.a >= out_fn.slot_count {
+                exec_backend_set_error(fn_hir.decl, "exec: VECTOR_OP 目标槽位非法" as *byte, 0);
+                return -1;
+            }
+            const dst_slot_vec: i32 = instr.a;
+            if dst_slot_vec >= 0 && dst_slot_vec < EXEC_MAX_FRAME_SLOTS {
+                slot_written[dst_slot_vec] = 1;
             }
         } else if instr.opcode == BCOpcode.BC_MAKE_UNION {
             if instr.b >= 0 {
