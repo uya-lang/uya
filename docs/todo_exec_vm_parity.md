@@ -180,9 +180,15 @@
 - 实测：**tests/test_fmt_*.uya 19 个用例在 --vm 下全部通过**（本轮起步时 0 个），
   8 个 verify_exec_vm_*.sh 门禁全过。
 
-### T4f 字符串插值（9 例，待实现）
+### T4f 字符串插值（9 例，已实现 8 例）
 
-已探明实现路径，下一轮可直接落地：
+- [x] 新增 `HIR_EXPR_STRING_INTERP` + `BC_STRING_INTERP`，格式串按 C99
+  `emit_printf_fmt_inline` 的规则拼，实参复用 `exec_format_render`；
+  builder 连续占槽保证实参槽位连续；VM 侧把切片实参先换成 C 字符串。
+- [x] `@println` 打印裸指针时 i8/u8 也按 C 字符串输出。
+- 余 2 例：插值结果赋给定长字符数组（`test_function_reachability_string_interp_expr`
+  报「bytecode 读取了未初始化槽位」）、`test_println_bytes_ptr_slice`。
+- 实现要点留档：
 
 - 复用 `src/exec/format.uya` 的 `exec_format_render(fmt, args, arg_count, out)`
   （printf 风格，吃 `ExecValue` 实参），不需要新的格式化逻辑。
