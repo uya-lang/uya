@@ -73,6 +73,12 @@ enum HIRExprKind {
     HIR_EXPR_VA_COPY,
     // 把错误值包装进错误联合（err 分支）；int_value 携带 error id。
     HIR_EXPR_MAKE_ERR,
+    // 溢出受检的整数二元运算：left/right 是操作数，binary_op 是运算符，
+    // type_ref 是**结果值类型**（不是错误联合）。溢出时跳到最近的 CHECKED_CATCH。
+    HIR_EXPR_CHECKED_ARITH,
+    // `(a + b) catch { ... }`：left 是受检算术树，block/right 是 catch 分支。
+    // 与 HIR_EXPR_CATCH 的区别是错误来源不是错误联合值，而是算术溢出。
+    HIR_EXPR_CHECKED_CATCH,
 }
 
 struct HIRMatchArm {

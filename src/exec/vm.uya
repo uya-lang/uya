@@ -161,6 +161,140 @@ fn exec_vm_sat_mul(kind: ExecValueKind, a_signed: i64, a_unsigned: u64, b_signed
     return exec_vm_make_integer_by_kind(kind, prod, 0);
 }
 
+// 溢出受检算术（`(a + b) catch` 的语义）：结果封装成错误联合，
+// 正常时携带运算结果，溢出/除零时携带 err_id（来自指令 imm 高位，
+// 与 checker 注册的 error.Overflow / error.DivisionByZero 一致）。
+
+/// 判断整数 kind 的取值是否落在该类型范围内。
+/// 参数：kind 目标整数类型；value 待检查的十进制值。
+/// 返回值：1 表示在范围内，0 表示溢出。
+fn exec_vm_checked_arith_in_range(kind: ExecValueKind, value: i64) i32 {
+    var lo: [i64: 1] = [0i64];
+    var hi: [i64: 1] = [0i64];
+    exec_vm_sat_bounds_signed(kind, &lo[0], &hi[0]);
+    if value < lo[0] || value > hi[0] {
+        return 0;
+    }
+    return 1;
+}
+
+/// 判断无符号 kind 的取值是否落在该类型范围内。
+/// 参数：kind 目标整数类型；value 待检查的无符号值。
+/// 返回值：1 表示在范围内，0 表示越界。
+fn exec_vm_checked_arith_in_unsigned_range(kind: ExecValueKind, value: u64) i32 {
+    var umax: [u64: 1] = [0u64];
+    exec_vm_sat_bounds_unsigned(kind, &umax[0]);
+    if value > umax[0] {
+        return 0;
+    }
+    return 1;
+}
+
+/// 执行一个溢出受检的整数二元运算。
+/// 参数：opcode 受检运算 opcode；type_code 结果类型的 TypeKind 编码；
+///       left/right 左右操作数。
+/// 返回值：错误联合值；正常分支携带运算结果，错误分支携带溢出/除零 id。
+fn exec_vm_checked_arith(opcode: BCOpcode, type_code: i32, err_id: i32, left: ExecValue, right: ExecValue) ExecValue {
+    const kind: ExecValueKind = exec_vm_value_kind_from_type_code(type_code, left.kind);
+    const is_div: i32 = (opcode == BCOpcode.BC_DIV_CHECK || opcode == BCOpcode.BC_REM_CHECK) as i32;
+    if is_div != 0 && right.i64_value == 0 {
+        return exec_make_error_union_err(err_id);
+    }
+    if exec_vm_value_kind_is_float(kind) != 0 {
+        // 浮点没有整数溢出语义，退化为普通运算。
+        if opcode == BCOpcode.BC_ADD_CHECK {
+            return exec_make_error_union_ok(exec_vm_make_float_by_kind(kind, exec_value_as_f64(&left) + exec_value_as_f64(&right)));
+        }
+        if opcode == BCOpcode.BC_SUB_CHECK {
+            return exec_make_error_union_ok(exec_vm_make_float_by_kind(kind, exec_value_as_f64(&left) - exec_value_as_f64(&right)));
+        }
+        if opcode == BCOpcode.BC_MUL_CHECK {
+            return exec_make_error_union_ok(exec_vm_make_float_by_kind(kind, exec_value_as_f64(&left) * exec_value_as_f64(&right)));
+        }
+        if opcode == BCOpcode.BC_DIV_CHECK {
+            return exec_make_error_union_ok(exec_vm_make_float_by_kind(kind, exec_value_as_f64(&left) / exec_value_as_f64(&right)));
+        }
+        return exec_make_error_union_ok(exec_vm_make_float_by_kind(kind, exec_value_as_f64(&left)));
+    }
+    if exec_vm_value_kind_is_unsigned(kind) != 0 {
+        // 无符号 checked 算术：算出结果后按目标类型上界判定是否越界。
+        const lhs_u: u64 = left.i64_value as u64;
+        const rhs_u: u64 = right.i64_value as u64;
+        var value_u: u64 = 0;
+        var overflow_u: i32 = 0;
+        if opcode == BCOpcode.BC_ADD_CHECK {
+            value_u = lhs_u +% rhs_u;
+            if (lhs_u +| rhs_u) != value_u {
+                overflow_u = 1;
+            }
+        } else if opcode == BCOpcode.BC_SUB_CHECK {
+            if rhs_u > lhs_u {
+                overflow_u = 1;
+                value_u = 0u64;
+            } else {
+                value_u = lhs_u - rhs_u;
+            }
+        } else if opcode == BCOpcode.BC_MUL_CHECK {
+            value_u = lhs_u *% rhs_u;
+            if (lhs_u *| rhs_u) != value_u {
+                overflow_u = 1;
+            }
+        } else if opcode == BCOpcode.BC_DIV_CHECK {
+            value_u = lhs_u / rhs_u;
+        } else {
+            value_u = lhs_u % rhs_u;
+        }
+        if overflow_u == 0 && exec_vm_checked_arith_in_unsigned_range(kind, value_u) == 0 {
+            overflow_u = 1;
+        }
+        if overflow_u != 0 {
+            return exec_make_error_union_err(err_id);
+        }
+        return exec_make_error_union_ok(exec_vm_make_integer_by_kind(kind, 0, value_u));
+    }
+    const lhs: i64 = left.i64_value;
+    const rhs: i64 = right.i64_value;
+    if is_div != 0 {
+        var lo_div: [i64: 1] = [0i64];
+        var hi_div: [i64: 1] = [0i64];
+        exec_vm_sat_bounds_signed(kind, &lo_div[0], &hi_div[0]);
+        // 最小值 / -1 是唯一的除法溢出；最小值 % -1 定义为 0。
+        if rhs == (0 - 1) && lhs == lo_div[0] {
+            if opcode == BCOpcode.BC_DIV_CHECK {
+                return exec_make_error_union_err(err_id);
+            }
+            return exec_make_error_union_ok(exec_vm_make_integer_by_kind(kind, 0, 0u64));
+        }
+        var value_d: i64 = 0;
+        if opcode == BCOpcode.BC_DIV_CHECK {
+            value_d = lhs / rhs;
+        } else {
+            value_d = lhs % rhs;
+        }
+        return exec_make_error_union_ok(exec_vm_make_integer_by_kind(kind, value_d, 0));
+    }
+    // 加减乘：包装结果与饱和结果不一致即 i64 溢出；窄类型再用范围判定。
+    var wrapped: i64 = 0;
+    var saturated: i64 = 0;
+    if opcode == BCOpcode.BC_ADD_CHECK {
+        wrapped = lhs +% rhs;
+        saturated = lhs +| rhs;
+    } else if opcode == BCOpcode.BC_SUB_CHECK {
+        wrapped = lhs -% rhs;
+        saturated = lhs -| rhs;
+    } else {
+        wrapped = lhs *% rhs;
+        saturated = lhs *| rhs;
+    }
+    if saturated != wrapped {
+        return exec_make_error_union_err(err_id);
+    }
+    if exec_vm_checked_arith_in_range(kind, wrapped) == 0 {
+        return exec_make_error_union_err(err_id);
+    }
+    return exec_make_error_union_ok(exec_vm_make_integer_by_kind(kind, wrapped, 0));
+}
+
 fn exec_vm_make_integer_by_kind(kind: ExecValueKind, signed_value: i64, unsigned_value: u64) ExecValue {
     if kind == ExecValueKind.EXEC_VALUE_I8 {
         return exec_make_i8(signed_value as i8);
@@ -1873,6 +2007,18 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             slot_a[0] = exec_vm_sat_mul(sat_mul_kind, slot_b.i64_value, slot_b.i64_value as u64,
                 slot_c.i64_value, slot_c.i64_value as u64);
         }
+    } else if instr.opcode == BCOpcode.BC_ADD_CHECK ||
+        instr.opcode == BCOpcode.BC_SUB_CHECK ||
+        instr.opcode == BCOpcode.BC_MUL_CHECK ||
+        instr.opcode == BCOpcode.BC_DIV_CHECK ||
+        instr.opcode == BCOpcode.BC_REM_CHECK {
+        if slot_a == null || slot_b == null || slot_c == null {
+            exec_backend_set_error(function.decl, "exec: CHECKED 算术槽位越界" as *byte, 0);
+            return -1;
+        }
+        // imm 编码：低 8 位是结果类型码，高位是错误 id（按 i64 解码，避免截断）。
+        slot_a[0] = exec_vm_checked_arith(instr.opcode, (instr.imm & 255) as i32,
+            (instr.imm >> 8) as i32, slot_b[0], slot_c[0]);
     } else if instr.opcode == BCOpcode.BC_SUB {
         if slot_a == null || slot_b == null || slot_c == null {
             exec_backend_set_error(function.decl, "exec: SUB 槽位越界" as *byte, 0);

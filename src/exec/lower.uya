@@ -1207,6 +1207,72 @@ fn exec_lower_make_float_const_expr(ctx: &ExecLowerContext, ast_node: &ASTNode, 
     return expr;
 }
 
+/// 用 TypeKind 编码构造只带 kind 的类型（checked 算术的载荷类型由 checker 记录）。
+/// 参数：kind_code TypeKind 的整数编码。
+/// 返回值：对应 Type；未知编码返回 void 类型。
+fn exec_lower_type_from_kind_code(kind_code: i32) Type {
+    var t: Type = make_void_type();
+    if kind_code >= 0 && kind_code <= 32 {
+        t.kind = kind_code as TypeKind;
+    }
+    return t;
+}
+
+/// 把 checked 整数算术树 lower 成溢出受检的 HIR。
+/// 参数：ctx 降级上下文；node 算术 AST 节点；value_type 运算结果类型。
+/// 返回值：HIR 表达式；非受检算术节点退化为普通 lowering 结果。
+fn exec_lower_checked_arith_tree(ctx: &ExecLowerContext, node: &ASTNode, value_type: &Type) &HIRExpr {
+    if ctx == null || node == null || value_type == null {
+        return null;
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR && node.unary_expr_operand != null &&
+        node.unary_expr_op == TokenType.TOKEN_MINUS as i32 {
+        // `-x` 的溢出等价于 `0 - x`，统一按二元受检减法处理。
+        const operand_unary: &HIRExpr = exec_lower_checked_arith_tree(ctx, node.unary_expr_operand, value_type);
+        const zero_unary: &HIRExpr = exec_lower_make_int_const_expr(ctx, node, value_type, 0);
+        if operand_unary == null || zero_unary == null {
+            return null;
+        }
+        const hir_neg: &HIRExpr = exec_lower_alloc_expr(ctx, node, HIRExprKind.HIR_EXPR_CHECKED_ARITH, value_type);
+        if hir_neg == null {
+            return null;
+        }
+        hir_neg.binary_op = TokenType.TOKEN_MINUS as i32;
+        hir_neg.left = zero_unary;
+        hir_neg.right = operand_unary;
+        return hir_neg;
+    }
+    var is_checked_binary: i32 = 0;
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        if node.binary_expr_op == TokenType.TOKEN_PLUS as i32 ||
+            node.binary_expr_op == TokenType.TOKEN_MINUS as i32 ||
+            node.binary_expr_op == TokenType.TOKEN_ASTERISK as i32 ||
+            node.binary_expr_op == TokenType.TOKEN_SLASH as i32 ||
+            node.binary_expr_op == TokenType.TOKEN_PERCENT as i32 {
+            is_checked_binary = 1;
+        }
+    }
+    if is_checked_binary == 0 {
+        return exec_lower_expr(ctx, node);
+    }
+    const left_tree: &HIRExpr = exec_lower_checked_arith_tree(ctx, node.binary_expr_left, value_type);
+    if left_tree == null {
+        return null;
+    }
+    const right_tree: &HIRExpr = exec_lower_checked_arith_tree(ctx, node.binary_expr_right, value_type);
+    if right_tree == null {
+        return null;
+    }
+    const hir_binary: &HIRExpr = exec_lower_alloc_expr(ctx, node, HIRExprKind.HIR_EXPR_CHECKED_ARITH, value_type);
+    if hir_binary == null {
+        return null;
+    }
+    hir_binary.binary_op = node.binary_expr_op;
+    hir_binary.left = left_tree;
+    hir_binary.right = right_tree;
+    return hir_binary;
+}
+
 fn exec_lower_pointer_pointee_kind(type: &Type) i32 {
     if type == null || type.kind != TypeKind.TYPE_POINTER || type.pointer_to == null {
         return TypeKind.TYPE_VOID as i32;
@@ -4507,6 +4573,25 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         return null;
     }
     if expr.type == ASTNodeType.AST_TRY_EXPR {
+        if expr.try_expr_is_checked_arith != 0 {
+            // checked 整数算术：`try (a + b)` 溢出/除零时把错误联合原样返回。
+            var try_payload_checked: Type = exec_lower_type_from_kind_code(expr.try_expr_checked_kind);
+            if try_payload_checked.kind == TypeKind.TYPE_VOID {
+                try_payload_checked = exec_lower_expr_type(ctx, expr.try_expr_operand);
+            }
+            const hir_checked_try: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CHECKED_CATCH, &try_payload_checked);
+            if hir_checked_try == null {
+                return null;
+            }
+            hir_checked_try.left = exec_lower_checked_arith_tree(ctx, expr.try_expr_operand, &try_payload_checked);
+            if hir_checked_try.left == null {
+                return null;
+            }
+            hir_checked_try.bool_value = 1;
+            hir_checked_try.int_value = get_or_add_error_id(ctx.checker, "Overflow" as &byte, expr) as i64;
+            hir_checked_try.global_slot = get_or_add_error_id(ctx.checker, "DivisionByZero" as &byte, expr) as i32;
+            return hir_checked_try;
+        }
         const operand_try_early: &HIRExpr = exec_lower_expr(ctx, expr.try_expr_operand);
         if operand_try_early == null {
             return null;
@@ -4541,22 +4626,51 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 return null;
             }
         }
-        const operand_catch_early: &HIRExpr = exec_lower_expr(ctx, expr.catch_expr_operand);
+        var catch_payload_type: Type = make_void_type();
+        var catch_is_checked_early: i32 = 0;
+        var operand_catch_early: &HIRExpr = null;
+        if expr.catch_expr_is_checked_arith != 0 {
+            // checked 整数算术：`(a + b) catch { ... }` 就地处理溢出，不要求错误联合。
+            // 载荷类型用 checker 记录的 checked_kind：lowering 期 checker 作用域已退出，
+            // 现推会退化成字面量默认的 i32，把 i64/u64 运算截断。
+            catch_payload_type = exec_lower_type_from_kind_code(expr.catch_expr_checked_kind);
+            catch_is_checked_early = 1;
+            operand_catch_early = exec_lower_checked_arith_tree(ctx, expr.catch_expr_operand, &catch_payload_type);
+        } else {
+            operand_catch_early = exec_lower_expr(ctx, expr.catch_expr_operand);
+        }
         if operand_catch_early == null {
             if catch_bind_scope_early != 0 {
                 exec_lower_pop_scope(ctx);
             }
             return null;
         }
-        if operand_catch_early.type_ref.type.kind != TypeKind.TYPE_ERROR_UNION ||
+        if catch_is_checked_early != 0 {
+            if catch_payload_type.kind == TypeKind.TYPE_VOID {
+                if catch_bind_scope_early != 0 {
+                    exec_lower_pop_scope(ctx);
+                }
+                return exec_lower_fail_expr_reason(expr, "exec: catch 的算术操作数不是整数类型" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_CATCH_EXPR);
+            }
+        } else if operand_catch_early.type_ref.type.kind != TypeKind.TYPE_ERROR_UNION ||
             operand_catch_early.type_ref.type.error_union_payload_type == null {
             if catch_bind_scope_early != 0 {
                 exec_lower_pop_scope(ctx);
             }
             return exec_lower_fail_expr_reason(expr, "exec: catch 操作数不是错误联合" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_CATCH_EXPR);
+        } else {
+            catch_payload_type = operand_catch_early.type_ref.type.error_union_payload_type[0];
         }
-        const catch_payload_type: Type = operand_catch_early.type_ref.type.error_union_payload_type[0];
-        const hir_catch_early: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CATCH, &catch_payload_type);
+        var catch_hir_kind_early: HIRExprKind = HIRExprKind.HIR_EXPR_CATCH;
+        if catch_is_checked_early != 0 {
+            catch_hir_kind_early = HIRExprKind.HIR_EXPR_CHECKED_CATCH;
+        }
+        const hir_catch_early: &HIRExpr = exec_lower_alloc_expr(ctx, expr, catch_hir_kind_early, &catch_payload_type);
+        if catch_is_checked_early != 0 {
+            // catch 分支要按真实错误 id 绑定 `|e|`，id 与 checker 注册的一致。
+            hir_catch_early.int_value = get_or_add_error_id(ctx.checker, "Overflow" as &byte, expr) as i64;
+            hir_catch_early.global_slot = get_or_add_error_id(ctx.checker, "DivisionByZero" as &byte, expr) as i32;
+        }
         if hir_catch_early == null {
             if catch_bind_scope_early != 0 {
                 exec_lower_pop_scope(ctx);
@@ -4900,6 +5014,16 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         }
         if exec_type_is_vm_value_supported(expr_type) == 0 {
             return exec_lower_fail_expr(expr, "exec: cast 目标类型当前不可被 exec VM 表示" as *byte);
+        }
+        // 字面量直接按目标整数类型取值：否则大字面量会先被当成 i32 截断
+        // （`3000000000 as i64` 会得到 1705032704，与 C99 后端不一致）。
+        if expr.cast_expr_expr != null && is_integer_type(expr_type.kind) != 0 {
+            if expr.cast_expr_expr.type == ASTNodeType.AST_NUMBER {
+                return exec_lower_make_int_const_expr(ctx, expr, &expr_type, expr.cast_expr_expr.number_value_i64);
+            }
+            if expr.cast_expr_expr.type == ASTNodeType.AST_CHAR {
+                return exec_lower_make_int_const_expr(ctx, expr, &expr_type, expr.cast_expr_expr.char_literal_value as i64);
+            }
         }
         const cast_operand: &HIRExpr = exec_lower_expr(ctx, expr.cast_expr_expr);
         if cast_operand == null {
@@ -5649,6 +5773,25 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         return hir_error_name;
     }
     if expr.type == ASTNodeType.AST_TRY_EXPR {
+        if expr.try_expr_is_checked_arith != 0 {
+            // checked 整数算术：`try (a + b)` 溢出/除零时把错误联合原样返回。
+            var try_payload2: Type = exec_lower_type_from_kind_code(expr.try_expr_checked_kind);
+            if try_payload2.kind == TypeKind.TYPE_VOID {
+                try_payload2 = copy_type(&expr_type);
+            }
+            const hir_checked_try2: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CHECKED_CATCH, &try_payload2);
+            if hir_checked_try2 == null {
+                return null;
+            }
+            hir_checked_try2.left = exec_lower_checked_arith_tree(ctx, expr.try_expr_operand, &try_payload2);
+            if hir_checked_try2.left == null {
+                return null;
+            }
+            hir_checked_try2.bool_value = 1;
+            hir_checked_try2.int_value = get_or_add_error_id(ctx.checker, "Overflow" as &byte, expr) as i64;
+            hir_checked_try2.global_slot = get_or_add_error_id(ctx.checker, "DivisionByZero" as &byte, expr) as i32;
+            return hir_checked_try2;
+        }
         const operand: &HIRExpr = exec_lower_expr(ctx, expr.try_expr_operand);
         if operand == null {
             return null;
@@ -5681,20 +5824,40 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 return null;
             }
         }
-        const operand2: &HIRExpr = exec_lower_expr(ctx, expr.catch_expr_operand);
+        var catch_is_checked: i32 = 0;
+        var operand2: &HIRExpr = null;
+        if expr.catch_expr_is_checked_arith != 0 {
+            // checked 整数算术：`(a + b) catch { ... }` 就地处理溢出。
+            catch_is_checked = 1;
+            var checked_payload: Type = exec_lower_type_from_kind_code(expr.catch_expr_checked_kind);
+            if checked_payload.kind == TypeKind.TYPE_VOID {
+                checked_payload = copy_type(&expr_type);
+            }
+            operand2 = exec_lower_checked_arith_tree(ctx, expr.catch_expr_operand, &checked_payload);
+        } else {
+            operand2 = exec_lower_expr(ctx, expr.catch_expr_operand);
+        }
         if operand2 == null {
             if catch_bind_scope != 0 {
                 exec_lower_pop_scope(ctx);
             }
             return null;
         }
-        if operand2.type_ref.type.kind != TypeKind.TYPE_ERROR_UNION {
+        if catch_is_checked == 0 && operand2.type_ref.type.kind != TypeKind.TYPE_ERROR_UNION {
             if catch_bind_scope != 0 {
                 exec_lower_pop_scope(ctx);
             }
             return exec_lower_fail_expr_reason(expr, "exec: catch 操作数不是错误联合" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_CATCH_EXPR);
         }
-        const hir_catch: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CATCH, &expr_type);
+        var catch_hir_kind: HIRExprKind = HIRExprKind.HIR_EXPR_CATCH;
+        if catch_is_checked != 0 {
+            catch_hir_kind = HIRExprKind.HIR_EXPR_CHECKED_CATCH;
+        }
+        const hir_catch: &HIRExpr = exec_lower_alloc_expr(ctx, expr, catch_hir_kind, &expr_type);
+        if catch_is_checked != 0 {
+            hir_catch.int_value = get_or_add_error_id(ctx.checker, "Overflow" as &byte, expr) as i64;
+            hir_catch.global_slot = get_or_add_error_id(ctx.checker, "DivisionByZero" as &byte, expr) as i32;
+        }
         if hir_catch == null {
             if catch_bind_scope != 0 {
                 exec_lower_pop_scope(ctx);

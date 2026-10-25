@@ -22,6 +22,11 @@ fn exec_debug_opcode_name(opcode: BCOpcode) &byte {
     if opcode == BCOpcode.BC_MUL { return "BC_MUL" as &byte; }
     if opcode == BCOpcode.BC_DIV { return "BC_DIV" as &byte; }
     if opcode == BCOpcode.BC_REM { return "BC_REM" as &byte; }
+    if opcode == BCOpcode.BC_ADD_CHECK { return "BC_ADD_CHECK" as &byte; }
+    if opcode == BCOpcode.BC_SUB_CHECK { return "BC_SUB_CHECK" as &byte; }
+    if opcode == BCOpcode.BC_MUL_CHECK { return "BC_MUL_CHECK" as &byte; }
+    if opcode == BCOpcode.BC_DIV_CHECK { return "BC_DIV_CHECK" as &byte; }
+    if opcode == BCOpcode.BC_REM_CHECK { return "BC_REM_CHECK" as &byte; }
     if opcode == BCOpcode.BC_BIT_AND { return "BC_BIT_AND" as &byte; }
     if opcode == BCOpcode.BC_BIT_OR { return "BC_BIT_OR" as &byte; }
     if opcode == BCOpcode.BC_BIT_XOR { return "BC_BIT_XOR" as &byte; }

@@ -21,6 +21,13 @@ enum BCOpcode {
     BC_MUL_SAT,
     BC_DIV,
     BC_REM,
+    // 溢出受检算术：结果写入错误联合槽位，正常时携带运算结果，
+    // 溢出/除零时携带错误 id（供 `(a + b) catch` 就地处理）。
+    BC_ADD_CHECK,
+    BC_SUB_CHECK,
+    BC_MUL_CHECK,
+    BC_DIV_CHECK,
+    BC_REM_CHECK,
     BC_BIT_AND,
     BC_BIT_OR,
     BC_BIT_XOR,
