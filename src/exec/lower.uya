@@ -5446,6 +5446,71 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             const object_ast: &ASTNode = expr.call_expr_callee.member_access_object;
             const method_name: &byte = expr.call_expr_callee.member_access_field_name;
             const owner_type: Type = exec_lower_member_base_type(ctx, object_ast);
+            // 静态方法调用 `TypeName.method(...)`：接收者是类型名而不是值，
+            // 上面的类型推断会得到 void，这里按类型名找关联的静态方法当普通函数调用。
+            if owner_type.kind == TypeKind.TYPE_VOID &&
+                object_ast.type == ASTNodeType.AST_IDENTIFIER && object_ast.identifier_name != null {
+                var owner_name: &byte = object_ast.identifier_name;
+                const alias_decl: &ASTNode = find_type_alias_from_program(ctx.checker.program_node, owner_name);
+                if alias_decl != null && alias_decl.type_alias_target_type != null &&
+                    alias_decl.type_alias_target_type.type == ASTNodeType.AST_TYPE_NAMED &&
+                    alias_decl.type_alias_target_type.type_named_name != null {
+                    owner_name = alias_decl.type_alias_target_type.type_named_name;
+                }
+                var static_decl: &ASTNode = null;
+                if find_struct_decl_from_program(ctx.checker.program_node, owner_name) != null {
+                    static_decl = find_static_method_in_struct(ctx.checker.program_node, owner_name, method_name);
+                } else if find_union_decl_from_program(ctx.checker.program_node, owner_name) != null {
+                    static_decl = find_static_method_in_union(ctx.checker.program_node, owner_name, method_name);
+                }
+                // `Type.method(recv, ...)`：把实例方法当普通函数调用（接收者显式传参）。
+                if static_decl == null {
+                    if find_struct_decl_from_program(ctx.checker.program_node, owner_name) != null {
+                        static_decl = find_instance_method_in_struct(ctx.checker.program_node, owner_name, method_name);
+                    } else if find_union_decl_from_program(ctx.checker.program_node, owner_name) != null {
+                        static_decl = find_instance_method_in_union(ctx.checker.program_node, owner_name, method_name);
+                    }
+                }
+                if static_decl != null {
+                    const static_args: & & HIRExpr = null;
+                    var static_args_mut: & & HIRExpr = static_args;
+                    if expr.call_expr_arg_count > 0 {
+                        static_args_mut = compiler_arena_alloc(ctx.arena, @size_of(&HIRExpr) * expr.call_expr_arg_count as usize) as & & HIRExpr;
+                        if static_args_mut == null {
+                            exec_backend_set_error(expr, "exec: 静态方法调用参数分配失败" as *byte, 0);
+                            return null;
+                        }
+                    }
+                    var sai: i32 = 0;
+                    while sai < expr.call_expr_arg_count {
+                        var lowered_sarg: &HIRExpr = null;
+                        if static_decl.fn_decl_params != null && sai < static_decl.fn_decl_param_count &&
+                            static_decl.fn_decl_params[sai] != null &&
+                            static_decl.fn_decl_params[sai].type == ASTNodeType.AST_VAR_DECL &&
+                            static_decl.fn_decl_params[sai].var_decl_type != null {
+                            const expected_sarg: Type = type_from_ast(ctx.checker, static_decl.fn_decl_params[sai].var_decl_type);
+                            lowered_sarg = exec_lower_coerce_expr(ctx, expr.call_expr_args[sai], &expected_sarg);
+                        } else {
+                            lowered_sarg = exec_lower_expr(ctx, expr.call_expr_args[sai]);
+                        }
+                        if lowered_sarg == null {
+                            return null;
+                        }
+                        static_args_mut[sai] = lowered_sarg;
+                        sai = sai + 1;
+                    }
+                    const static_call: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CALL, &expr_type);
+                    if static_call == null {
+                        return null;
+                    }
+                    static_call.callee_name = static_decl.fn_decl_name;
+                    static_call.callee_decl = static_decl;
+                    static_call.call_host_id = ExecHostCallId.EXEC_HOST_CALL_NONE;
+                    static_call.call_args = static_args_mut;
+                    static_call.call_arg_count = expr.call_expr_arg_count;
+                    return static_call;
+                }
+            }
             if owner_type.kind == TypeKind.TYPE_INTERFACE && owner_type.interface_name != null {
                 const method_sig: &ASTNode = find_interface_method_sig(ctx.checker.program_node, owner_type.interface_name, method_name);
                 const method_index: i32 = exec_lower_interface_method_index(ctx, &owner_type, method_name);
