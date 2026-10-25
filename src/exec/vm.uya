@@ -576,7 +576,9 @@ fn exec_vm_vector_compare(opcode_code: i32, left: ExecValue, right: ExecValue) E
     const elem_kind: i32 = exec_value_vector_elem_kind(&left);
     const ldata: &byte = exec_value_vector_data(&left);
     const rdata: &byte = exec_value_vector_data(&right);
-    if lanes <= 0 || lanes > 64 || ldata == null || rdata == null {
+    const right_is_vector: i32 = (right.kind == ExecValueKind.EXEC_VALUE_VECTOR) as i32;
+    const right_scalar_bits: i64 = right.i64_value;
+    if lanes <= 0 || lanes > 64 || ldata == null {
         return exec_make_void();
     }
     const is_f32: i32 = (elem_kind == TypeKind.TYPE_F32 as i32) as i32;
@@ -585,7 +587,10 @@ fn exec_vm_vector_compare(opcode_code: i32, left: ExecValue, right: ExecValue) E
     var li: i32 = 0;
     while li < lanes {
         const lb: i64 = exec_vector_lane_bits(ldata, elem_kind, li);
-        const rb: i64 = exec_vector_lane_bits(rdata, elem_kind, li);
+        var rb: i64 = right_scalar_bits;
+        if right_is_vector != 0 {
+            rb = exec_vector_lane_bits(rdata, elem_kind, li);
+        }
         var lane_true: i32 = 0;
         if is_f32 != 0 || is_f64 != 0 {
             var lf: f64 = 0.0;
@@ -627,7 +632,9 @@ fn exec_vm_vector_binary(opcode_code: i32, left: ExecValue, right: ExecValue) Ex
     const elem_kind: i32 = exec_value_vector_elem_kind(&left);
     const ldata: &byte = exec_value_vector_data(&left);
     const rdata: &byte = exec_value_vector_data(&right);
-    if lanes <= 0 || ldata == null || rdata == null {
+    const right_is_vector2: i32 = (right.kind == ExecValueKind.EXEC_VALUE_VECTOR) as i32;
+    const right_scalar_bits2: i64 = right.i64_value;
+    if lanes <= 0 || ldata == null {
         return exec_make_void();
     }
     const is_f32_elem: i32 = (elem_kind == TypeKind.TYPE_F32 as i32) as i32;
@@ -640,7 +647,10 @@ fn exec_vm_vector_binary(opcode_code: i32, left: ExecValue, right: ExecValue) Ex
     var li: i32 = 0;
     while li < lanes {
         const lb: i64 = exec_vector_lane_bits(ldata, elem_kind, li);
-        const rb: i64 = exec_vector_lane_bits(rdata, elem_kind, li);
+        var rb: i64 = right_scalar_bits2;
+        if right_is_vector2 != 0 {
+            rb = exec_vector_lane_bits(rdata, elem_kind, li);
+        }
         var res: i64 = 0;
         if is_float_elem != 0 {
             var lf: f64 = 0.0;
