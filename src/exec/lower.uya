@@ -1693,6 +1693,11 @@ fn exec_lower_make_ref_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     if ctx == null || expr == null {
         return null;
     }
+    // `&arr[a:b]` 的切片表达式本身就是切片，不能再取一次地址
+    // （否则类型会退化成指向切片的指针，return/赋值时与 `&[T]` 对不上）。
+    if expr.type == ASTNodeType.AST_SLICE_EXPR {
+        return exec_lower_expr(ctx, expr);
+    }
     const expr_type: Type = exec_lower_resolve_exact_type(ctx, expr);
     if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null {
         const local_slot: i32 = exec_lower_find_slot(ctx, expr.identifier_name);

@@ -402,6 +402,21 @@ fn exec_vm_numeric_to_i64(value: ExecValue) i64 {
     return value.i64_value;
 }
 
+/// 把「指向聚合的内部引用」换算成可当字节地址用的整数。
+/// `&buf` 在 C 里与 `&buf[0]` 取值相同；VM 里裸数组的数据在 ptr_value，
+/// 直接取引用地址会得到 ExecValue 自身的地址（memset/memcpy 会写坏值）。
+/// 参数：value 待换算的值。
+/// 返回值：可当字节地址使用的无符号整数。
+fn exec_vm_value_bytes_address(value: ExecValue) u64 {
+    if value.kind == ExecValueKind.EXEC_VALUE_POINTER && exec_vm_pointer_is_internal_ref(&value) != 0 {
+        const target: &ExecValue = exec_vm_ref_target_value(&value);
+        if target != null && exec_value_is_raw_array(target) != 0 {
+            return target.ptr_value as u64;
+        }
+    }
+    return exec_vm_numeric_to_u64(value);
+}
+
 fn exec_vm_numeric_to_u64(value: ExecValue) u64 {
     if exec_vm_value_kind_is_float(value.kind) != 0 {
         return exec_value_as_f64(&value) as u64;
@@ -1092,7 +1107,7 @@ fn exec_vm_cast_value(value: ExecValue, target_kind: i32, target_pointee_kind: i
         return exec_make_u64(exec_vm_numeric_to_u64(value));
     }
     if target_kind == TypeKind.TYPE_USIZE as i32 {
-        return exec_make_usize(exec_vm_numeric_to_u64(value) as usize);
+        return exec_make_usize(exec_vm_value_bytes_address(value) as usize);
     }
     if target_kind == TypeKind.TYPE_BOOL as i32 {
         return exec_make_bool((exec_value_truthy(value) != 0) as i32);
