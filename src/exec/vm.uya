@@ -672,6 +672,25 @@ fn exec_vm_field_ref_store(value: &ExecValue, field_idx: i32) &ExecValue {
 /// 取字段访问真正要读写的对象：沿引用/裸指针自动解引用到聚合为止。
 /// 参数：value 字段访问的基值。
 /// 返回值：聚合对象的 ExecValue；无法解析返回 null。
+/// 插值实参里 `%s` 需要 C 字符串：切片先取首字节指针再当字符串用。
+/// 参数：value 实参值。
+/// 返回值：可直接给 exec_format_render 的值。
+fn exec_vm_interp_string_arg(value: ExecValue) ExecValue {
+    if value.kind == ExecValueKind.EXEC_VALUE_SLICE {
+        const slice_data: &ExecSliceData = exec_value_as_slice(&value);
+        if slice_data != null && slice_data.raw_ptr != null {
+            return exec_make_string(slice_data.raw_ptr);
+        }
+    }
+    if value.kind == ExecValueKind.EXEC_VALUE_POINTER && exec_vm_pointer_is_internal_ref(&value) != 0 {
+        const target: &ExecValue = exec_vm_ref_target_value(&value);
+        if target != null && target.kind == ExecValueKind.EXEC_VALUE_STRING {
+            return exec_make_string(target.ptr_value);
+        }
+    }
+    return value;
+}
+
 fn exec_vm_field_object(value: &ExecValue) &ExecValue {
     if value == null {
         return null;
@@ -1436,7 +1455,9 @@ fn exec_vm_print_value(value: ExecValue, newline: i32) void {
         return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_POINTER {
-        if value.ptr_value != null && exec_value_pointer_pointee_kind(&value) == TypeKind.TYPE_BYTE as i32 {
+        const print_pointee: i32 = exec_value_pointer_pointee_kind(&value);
+        if value.ptr_value != null && (print_pointee == TypeKind.TYPE_BYTE as i32 ||
+            print_pointee == TypeKind.TYPE_I8 as i32 || print_pointee == TypeKind.TYPE_U8 as i32) {
             if newline != 0 {
                 fprintf(libc.stdout, "%s\n" as *byte, value.ptr_value as *byte);
             } else {
@@ -3016,6 +3037,41 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return -1;
         }
         exec_vm_print_value(slot_a[0], 0);
+    } else if instr.opcode == BCOpcode.BC_STRING_INTERP {
+        if slot_a == null {
+            exec_backend_set_error(function.decl, "exec: STRING_INTERP 槽位越界" as *byte, 0);
+            return -1;
+        }
+        const interp_count: i32 = instr.c;
+        if interp_count < 0 || interp_count > 16 {
+            exec_backend_set_error(function.decl, "exec: STRING_INTERP 实参数量非法" as *byte, 0);
+            return -1;
+        }
+        var interp_args: [ExecValue: 16] = [];
+        var interp_i: i32 = 0;
+        while interp_i < interp_count {
+            const interp_arg_ref: &ExecValue = exec_vm_slot_ref(frame, instr.b + interp_i);
+            if interp_arg_ref == null {
+                exec_backend_set_error(function.decl, "exec: STRING_INTERP 实参槽位越界" as *byte, 0);
+                return -1;
+            }
+            interp_args[interp_i] = exec_vm_interp_string_arg(interp_arg_ref[0]);
+            interp_i = interp_i + 1;
+        }
+        var interp_buf: ExecFormatBuffer = ExecFormatBuffer {
+            data: null,
+            len: 0 as usize,
+            cap: 0 as usize,
+        };
+        if exec_format_buffer_init(&interp_buf) == 0 {
+            exec_backend_set_error(function.decl, "exec: STRING_INTERP 缓冲分配失败" as *byte, 0);
+            return -1;
+        }
+        if exec_format_render(instr.text, &interp_args[0], interp_count, &interp_buf) == 0 {
+            exec_backend_set_error(function.decl, "exec: STRING_INTERP 渲染失败" as *byte, 0);
+            return -1;
+        }
+        slot_a[0] = exec_make_string(interp_buf.data);
     } else if instr.opcode == BCOpcode.BC_PRINTLN {
         if slot_a == null {
             exec_backend_set_error(function.decl, "exec: PRINTLN 槽位越界" as *byte, 0);

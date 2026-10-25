@@ -4609,6 +4609,121 @@ fn exec_lower_error_union_match_expr(ctx: &ExecLowerContext, expr: &ASTNode,
     return hir_match;
 }
 
+/// 往插值格式串缓冲里追加一个字节（带容量检查，便于数组越界证明）。
+/// 参数：buf 缓冲；off 当前写入位置；cap 容量；b 字节。
+/// 返回值：0 成功，-1 越界。
+fn exec_lower_interp_put(buf: &byte, off: &i32, cap: i32, b: byte) i32 {
+    if buf == null || off == null || off[0] < 0 || off[0] >= cap {
+        return -1;
+    }
+    buf[off[0]] = b;
+    off[0] = off[0] +| 1;
+    return 0;
+}
+
+/// 把 `"a${x}b"` lowering 成「格式串 + 实参列表」，由 BC_STRING_INTERP 渲染。
+/// 格式串规则与 C99 后端 emit_printf_fmt_inline 保持一致。
+/// 参数：ctx lowering 上下文；expr 插值节点；type 结果类型。
+/// 返回值：HIR 表达式；失败返回 null。
+fn exec_lower_string_interp_expr(ctx: &ExecLowerContext, expr: &ASTNode, type: &Type) &HIRExpr {
+    if ctx == null || expr == null || type == null || ctx.arena == null {
+        return null;
+    }
+    if expr.string_interp_segment_count <= 0 || expr.string_interp_segments == null {
+        return exec_lower_fail_expr_reason(expr, "exec: 字符串插值缺少分段" as *byte,
+            ExecUnsupportedReason.EXEC_UNSUPPORTED_STRING_INTERP);
+    }
+    var fmt_buf: [byte: 1024] = [];
+    var off: i32 = 0;
+    var arg_total: i32 = 0;
+    var i: i32 = 0;
+    while i < expr.string_interp_segment_count && off < 900 {
+        const seg: &ASTStringInterpSegment = &expr.string_interp_segments[i];
+        if seg.is_text != 0 {
+            if seg.text != null {
+                var p: i32 = 0;
+                while seg.text[p] != 0 {
+                    const ch: byte = seg.text[p];
+                    if ch == 37 as byte {
+                        if exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, 37 as byte) < 0 {
+                            break;
+                        }
+                    }
+                    if exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, ch) < 0 {
+                        break;
+                    }
+                    p = p + 1;
+                }
+            }
+        } else {
+            if exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, 37 as byte) < 0 {
+                break;
+            }
+            if seg.format_spec != null && seg.format_spec[0] != 0 {
+                var k: i32 = 0;
+                while seg.format_spec[k] != 0 {
+                    if exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, seg.format_spec[k]) < 0 {
+                        break;
+                    }
+                    k = k + 1;
+                }
+            } else if seg.format_kind == 4 || seg.format_kind == 5 {
+                _ = exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, 115 as byte);
+            } else if seg.format_kind == 3 {
+                _ = exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, 103 as byte);
+            } else if seg.format_kind == 2 {
+                _ = exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, 108 as byte);
+                _ = exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, 108 as byte);
+                _ = exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, 117 as byte);
+            } else {
+                _ = exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, 108 as byte);
+                _ = exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, 108 as byte);
+                _ = exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, 100 as byte);
+            }
+            arg_total = arg_total + 1;
+        }
+        i = i + 1;
+    }
+    _ = exec_lower_interp_put(&fmt_buf[0] as &byte, &off, 1024, 0 as byte);
+    const fmt_copy: &byte = compiler_arena_alloc(ctx.arena, (off as usize) + 1 as usize) as &byte;
+    if fmt_copy == null {
+        return null;
+    }
+    var c: i32 = 0;
+    while c < off {
+        fmt_copy[c] = fmt_buf[c];
+        c = c +| 1;
+    }
+    fmt_copy[off] = 0 as byte;
+    const hir_interp: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_STRING_INTERP, type);
+    if hir_interp == null {
+        return null;
+    }
+    hir_interp.string_value = fmt_copy;
+    hir_interp.item_count = arg_total;
+    if arg_total > 0 {
+        hir_interp.items = compiler_arena_alloc(ctx.arena, @size_of(&HIRExpr) * (arg_total as usize)) as & & HIRExpr;
+        if hir_interp.items == null {
+            return null;
+        }
+    }
+    var arg_index: i32 = 0;
+    var j: i32 = 0;
+    while j < expr.string_interp_segment_count {
+        const seg2: &ASTStringInterpSegment = &expr.string_interp_segments[j];
+        if seg2.is_text == 0 && seg2.expr != null && arg_index < arg_total && hir_interp.items != null {
+            const arg_hir: &HIRExpr = exec_lower_expr(ctx, seg2.expr);
+            if arg_hir == null {
+                return null;
+            }
+            hir_interp.items[arg_index] = arg_hir;
+            arg_index = arg_index + 1;
+        }
+        j = j + 1;
+    }
+    return hir_interp;
+}
+
 fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     const lowered: &HIRExpr = exec_lower_expr_inner(ctx, expr);
     if lowered != null || expr == null {
@@ -4898,7 +5013,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         return exec_lower_make_string_const_expr(ctx, expr, &expr_type, expr.string_literal_value);
     }
     if expr.type == ASTNodeType.AST_STRING_INTERP {
-        return exec_lower_fail_expr_reason(expr, "exec: 当前不支持字符串插值" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_STRING_INTERP);
+        return exec_lower_string_interp_expr(ctx, expr, &expr_type);
     }
     if expr.type == ASTNodeType.AST_ERROR_VALUE {
         return exec_lower_make_int_const_expr(ctx, expr, &expr_type, expr_type.error_error_id as i64);

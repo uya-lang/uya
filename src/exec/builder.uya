@@ -2936,6 +2936,61 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         }
         return dst_va_copy;
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_STRING_INTERP {
+        const interp_arg_count: i32 = expr.item_count;
+        if interp_arg_count < 0 || interp_arg_count > 16 {
+            exec_backend_set_error(expr.ast_node, "exec: 字符串插值实参过多" as *byte, 0);
+            return -1;
+        }
+        const interp_dest: i32 = exec_builder_new_temp(ctx);
+        const interp_first: i32 = exec_builder_new_temp(ctx);
+        if interp_dest < 0 || interp_first < 0 {
+            return -1;
+        }
+        var interp_reserve: i32 = 1;
+        while interp_reserve < interp_arg_count {
+            if exec_builder_new_temp(ctx) != interp_first +| interp_reserve {
+                exec_backend_set_error(expr.ast_node, "exec: 字符串插值实参槽位不连续" as *byte, 0);
+                return -1;
+            }
+            interp_reserve = interp_reserve + 1;
+        }
+        var interp_i: i32 = 0;
+        while interp_i < interp_arg_count {
+            if expr.items == null {
+                exec_backend_set_error(expr.ast_node, "exec: 字符串插值缺少实参" as *byte, 0);
+                return -1;
+            }
+            const interp_arg_slot: i32 = exec_builder_compile_expr(ctx, expr.items[interp_i]);
+            if interp_arg_slot < 0 {
+                return -1;
+            }
+            if exec_builder_emit(ctx, BCInstr {
+                opcode: BCOpcode.BC_MOV,
+                a: interp_first + interp_i,
+                b: interp_arg_slot,
+                c: 0,
+                imm: 0,
+                text: null,
+                source: exec_builder_make_source(expr.ast_node),
+            }) < 0 {
+                return -1;
+            }
+            interp_i = interp_i + 1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_STRING_INTERP,
+            a: interp_dest,
+            b: interp_first,
+            c: interp_arg_count,
+            imm: 0,
+            text: expr.string_value,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return interp_dest;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_PRINT || expr.kind == HIRExprKind.HIR_EXPR_PRINTLN {
         const src: i32 = exec_builder_compile_expr(ctx, expr.left);
         if src < 0 {
