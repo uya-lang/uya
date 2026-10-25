@@ -9,6 +9,11 @@
 
 ## 进度快照
 
+- 本分支阶段性成果已合并到 main：T1（门禁）、T2（模块全局槽位）、T2b（as! 转换）、
+  T3（赋值表达式/@mc_source）、T4（if 表达式）、T4b（语句分支 match）、
+  T5b（for 数组值绑定）、T12（嵌套数组写入）与若干诊断/静默失败修复。
+- 剩余 T5（泛型/varargs）、T6（match 全模式）、T7（SIMD）、T8（原生桥）、
+  T9（async）、T10（剩余诊断）、T5b 引用绑定 继续在 main 上按同样节奏推进。
 - 最近一次实测（T4b 之后）：`test --vm` 通过 **345 / 913（37.8%）**，失败 568。
 - 失败原因分布：`generic` 376、`simd` 55、`runtime` 48、`match_expr` 20、
   `unknown` 14、`extern_abi` 13、`string_interp` 9、`build` 8、`catch_expr` 7、
