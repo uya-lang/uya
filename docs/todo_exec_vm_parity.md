@@ -146,6 +146,22 @@
   任何失败都必须有原因码 + `file:line` + 消息。
 - 验收：`tests/verify_exec_vm_diagnostics.sh` 通过，census 中无空消息失败。
 
+## 下一轮起点（上下文压缩后从这里继续）
+
+1. 先跑基线：`UYA_EXEC_CENSUS_JOBS=16 bash tests/verify_exec_vm_census.sh`，
+   报告在 `/tmp/uya_exec_vm_census.tsv`（列：文件、退出码、原因码、消息）。
+2. 按消息直方图取 Top：
+   - `当前不支持泛型调用或 varargs 转发`（约 99）：先挑一个**非 async** 文件看
+     具体调用形态（`awk -F'\t' '$4 ~ /泛型调用/ {print $1}'`），再决定单态化/varargs 方案。
+   - `当前不支持 SIMD`（约 64）：需要 `ExecValueKind.VECTOR/MASK`，独立大项。
+   - `当前仅支持局部变量/参数/全局标识符`（约 49）：多数来自 watch 不到的
+     库函数标识符（如 `strtod`）或 match 绑定；先看 `file:line` 再定位。
+   - `尚未支持的语句节点(type=79)`（约 39）= inline asm，属 T8 原生桥。
+   - `catch 操作数不是错误联合`（约 29）：样本多为 `@await expr catch ...`，属 T9。
+3. 每完成一项：`make uya` → 相关脚本 → census → 更新本文件勾选 → 单独提交。
+4. 收口（T11）前必须 `make check` 全绿且 `make exec-parity` 全绿，再
+   `worktree finish` 合并到 main 并删除工作区。
+
 ### T11 收口
 
 - [ ] `uya test --vm` 全量通过（跳过表只保留 C99 侧同样不适用的用例）
