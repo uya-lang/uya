@@ -514,7 +514,7 @@ struct ASTNode {
 }
 
 // 创建新的 AST 节点
-fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &CompilerArena, filename: &byte) &ASTNode {
+export fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &CompilerArena, filename: &byte) &ASTNode {
     if arena == null {
         return null;
     }

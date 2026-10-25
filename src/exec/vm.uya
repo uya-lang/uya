@@ -15,6 +15,7 @@ use libc.sprintf;
 use libc.snprintf;
 use libc.write;
 use libc.strlen;
+use libc.fflush;
 
 const EXEC_VM_REF_KIND_BASE: i32 = 65536;
 const EXEC_VM_REF_KIND_INDEX_BASE: i32 = 131072;
@@ -1469,7 +1470,7 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_FPRINTF_FIXED {
-        if arg_count != 2 {
+        if arg_count < 2 {
             exec_backend_set_error(function.decl, "exec: fprintf 参数数量非法" as *byte, 0);
             return -1;
         }
@@ -1479,17 +1480,25 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             exec_backend_set_error(function.decl, "exec: fprintf 参数槽位非法" as *byte, 0);
             return -1;
         }
+        const rest: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
         const vm_fd: i32 = exec_vm_file_fd_from_value(arg0);
+        var written: i32 = -1;
         if vm_fd >= 0 {
-            const format_len: usize = strlen(arg1.ptr_value as *const byte);
-            out_value[0] = exec_make_i32(write(vm_fd, arg1.ptr_value as &const byte, format_len) as i32);
-            return 0;
+            written = exec_format_printf_like(EXEC_FORMAT_TARGET_FD, vm_fd, null, null, 0,
+                arg1.ptr_value as &const byte, rest, arg_count -| 2);
+        } else {
+            written = exec_format_printf_like(EXEC_FORMAT_TARGET_FILE, -1, arg0.ptr_value as &FILE,
+                null, 0, arg1.ptr_value as &const byte, rest, arg_count -| 2);
         }
-        out_value[0] = exec_make_i32(fprintf(arg0.ptr_value as &FILE, arg1.ptr_value as &const byte));
+        if written < 0 {
+            exec_backend_set_error(function.decl, "exec: fprintf 格式化失败（不支持的格式或不完整实参）" as *byte, 0);
+            return -1;
+        }
+        out_value[0] = exec_make_i32(written);
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_PRINTF_FIXED {
-        if arg_count != 1 {
+        if arg_count < 1 {
             exec_backend_set_error(function.decl, "exec: printf 参数数量非法" as *byte, 0);
             return -1;
         }
@@ -1498,11 +1507,20 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             exec_backend_set_error(function.decl, "exec: printf 参数槽位非法" as *byte, 0);
             return -1;
         }
-        out_value[0] = exec_make_i32(printf(arg0.ptr_value as &const byte));
+        const rest: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        // 与 @print 保持一致：写 libc.stdout（Uya stdio 实现，带行缓冲），
+        // 避免宿主 fd 写入与缓冲输出交错导致与 C99 后端顺序不一致。
+        const written: i32 = exec_format_printf_like(EXEC_FORMAT_TARGET_FILE, -1, libc.stdout, null, 0,
+            arg0.ptr_value as &const byte, rest, arg_count -| 1);
+        if written < 0 {
+            exec_backend_set_error(function.decl, "exec: printf 格式化失败（不支持的格式或不完整实参）" as *byte, 0);
+            return -1;
+        }
+        out_value[0] = exec_make_i32(written);
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_SPRINTF_FIXED {
-        if arg_count != 2 {
+        if arg_count < 2 {
             exec_backend_set_error(function.decl, "exec: sprintf 参数数量非法" as *byte, 0);
             return -1;
         }
@@ -1512,11 +1530,18 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             exec_backend_set_error(function.decl, "exec: sprintf 参数槽位非法" as *byte, 0);
             return -1;
         }
-        out_value[0] = exec_make_i32(sprintf(arg0.ptr_value, arg1.ptr_value as &const byte));
+        const rest: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
+        const written: i32 = exec_format_printf_like(EXEC_FORMAT_TARGET_BUF, -1, null,
+            arg0.ptr_value, 0, arg1.ptr_value as &const byte, rest, arg_count -| 2);
+        if written < 0 {
+            exec_backend_set_error(function.decl, "exec: sprintf 格式化失败（不支持的格式或不完整实参）" as *byte, 0);
+            return -1;
+        }
+        out_value[0] = exec_make_i32(written);
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_SNPRINTF_FIXED {
-        if arg_count != 3 {
+        if arg_count < 3 {
             exec_backend_set_error(function.decl, "exec: snprintf 参数数量非法" as *byte, 0);
             return -1;
         }
@@ -1527,7 +1552,14 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             exec_backend_set_error(function.decl, "exec: snprintf 参数槽位非法" as *byte, 0);
             return -1;
         }
-        out_value[0] = exec_make_i32(snprintf(arg0.ptr_value, arg1.i64_value as usize, arg2.ptr_value as &const byte));
+        const rest: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 3);
+        const written: i32 = exec_format_printf_like(EXEC_FORMAT_TARGET_BUF_LIMIT, -1, null,
+            arg0.ptr_value, arg1.i64_value as usize, arg2.ptr_value as &const byte, rest, arg_count -| 3);
+        if written < 0 {
+            exec_backend_set_error(function.decl, "exec: snprintf 格式化失败（不支持的格式或不完整实参）" as *byte, 0);
+            return -1;
+        }
+        out_value[0] = exec_make_i32(written);
         return 0;
     }
     exec_backend_set_error(function.decl, "exec: hostcall 目标非法" as *byte, 0);
@@ -2536,6 +2568,50 @@ export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
         var init_result: ExecValue = exec_make_void();
         if exec_vm_call_function(program, program.global_init_function_index, null, 0, trace_vm, &init_result) != 0 {
             return 1;
+        }
+    }
+    // 顶层 test "..." 块：与 C99 侧 uya_run_tests() 的输出格式保持一致。
+    // - 没有用户 main 时（测试文件），先打印 "=== Running N tests ==="，最后打印汇总并
+    //   以失败用例数作为退出码；
+    // - 有用户 main 时，测试在 main 之前执行（对齐 C99 在 main 开头注入 uya_run_tests），
+    //   退出码仍取 main 的返回值。
+    if program.test_count > 0 {
+        if program.has_user_main == 0 {
+            printf("\n=== Running %d tests ===\n" as *byte, program.test_count);
+        }
+        var passed_cases: i32 = 0;
+        var failed_cases: i32 = 0;
+        var test_i: i32 = 0;
+        while test_i < program.test_count {
+            var test_desc: &const byte = null;
+            if program.test_descriptions != null && program.test_descriptions[test_i] != null {
+                test_desc = program.test_descriptions[test_i] as &const byte;
+            }
+            printf("  TEST: %s ... " as *byte, test_desc);
+            _ = fflush(libc.stdout);
+            var test_result: ExecValue = exec_make_void();
+            if exec_vm_call_function(program, program.test_function_indices[test_i], null, 0, trace_vm, &test_result) != 0 {
+                return 1;
+            }
+            if exec_value_is_error_union_err(test_result) != 0 {
+                printf("ERROR\n" as *byte);
+                failed_cases = failed_cases +| 1;
+            } else {
+                passed_cases = passed_cases +| 1;
+                printf("OK\n" as *byte);
+            }
+            test_i = test_i + 1;
+        }
+        if program.has_user_main == 0 {
+            var assertion_count: i32 = 0;
+            if program.test_passed_global_index >= 0 && program.test_passed_global_index < program.global_count {
+                assertion_count = program.globals[program.test_passed_global_index].i64_value as i32;
+            }
+            printf("\n=== Results ===\n" as *byte);
+            printf("  Tests Passed:       %d\n" as *byte, passed_cases);
+            printf("  Tests Failed:       %d\n" as *byte, failed_cases);
+            printf("  Assertions Passed:  %d\n" as *byte, assertion_count);
+            return failed_cases;
         }
     }
     var result: ExecValue = exec_make_void();

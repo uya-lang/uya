@@ -3746,6 +3746,33 @@ export fn exec_build_bytecode(arena: &CompilerArena, checker: &TypeChecker, modu
         functions[i] = built_global_init[0];
         global_init_index = i;
     }
+    // 顶层 test "..." 块：把 HIR 测试函数映射成 bytecode 函数下标，供 VM 入口逐个执行。
+    var test_indices: &i32 = null;
+    if module.test_count > 0 {
+        test_indices = compiler_arena_alloc(arena, @size_of(i32) * module.test_count as usize) as &i32;
+        if test_indices == null {
+            exec_backend_set_error(module.entry_function.decl, "exec: 测试索引表分配失败" as *byte, 0);
+            return null;
+        }
+        var test_i: i32 = 0;
+        while test_i < module.test_count {
+            var found_index: i32 = -1;
+            var fn_i: i32 = 0;
+            while fn_i < module.function_count {
+                if module.functions[fn_i] == module.tests[test_i] {
+                    found_index = fn_i;
+                    break;
+                }
+                fn_i = fn_i + 1;
+            }
+            if found_index < 0 {
+                exec_backend_set_error(module.entry_function.decl, "exec: 测试函数未进入 bytecode 函数表" as *byte, 0);
+                return null;
+            }
+            test_indices[test_i] = found_index;
+            test_i = test_i + 1;
+        }
+    }
     if entry_index < 0 {
         exec_backend_set_error(module.entry_function.decl, "exec: 未找到 entry bytecode 函数" as *byte, 0);
         return null;
@@ -3755,6 +3782,20 @@ export fn exec_build_bytecode(arena: &CompilerArena, checker: &TypeChecker, modu
     program.function_count = total_function_count;
     program.entry_function_index = entry_index;
     program.global_init_function_index = global_init_index;
+    program.test_function_indices = test_indices;
+    program.test_descriptions = module.test_descriptions;
+    program.test_count = module.test_count;
+    program.has_user_main = module.has_user_main;
+    program.test_passed_global_index = -1;
+    var test_global_i: i32 = 0;
+    while test_global_i < module.global_count {
+        if module.globals != null && module.globals[test_global_i].name != null &&
+            str_equals(module.globals[test_global_i].name, "_test_passed" as &byte) != 0 {
+            program.test_passed_global_index = test_global_i;
+            break;
+        }
+        test_global_i = test_global_i + 1;
+    }
     if const_pool_builder.count > 0 {
         const const_values: &ExecValue = compiler_arena_alloc(arena, @size_of(ExecValue) * const_pool_builder.count as usize) as &ExecValue;
         if const_values == null {

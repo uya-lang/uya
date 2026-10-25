@@ -1,0 +1,441 @@
+// exec/format.uya - printf 家族 varargs 格式化
+//
+// 背景：exec VM 之前的 printf/fprintf/sprintf/snprintf 宿主调用只接受
+// 「没有转换说明符」的固定形态（例如 printf("...")），一旦带 %d/%s 等参数
+// 就以 `extern_abi` 不支持回退到 C99。这里补齐 varargs 形态：
+//   - 逐条转换规格仍交给宿主 snprintf 完成，因此 flags/width/precision、
+//     浮点格式与 C99 后端调用的同一 libc 逐字节一致；
+//   - 先渲染到堆缓冲区，再按目标（stdout fd / FILE* / 字符串缓冲区）分发，
+//     四个 printf 家族函数共用同一份实现；
+//   - 实参来自 VM 槽位，按 ExecValueKind 还原成对应的 C 实参类型。
+//
+// 约束：不支持 %n（写回指针）与宽字符 %ls/%lc；遇到时返回 -1，由调用方
+// 转成明确的 exec 运行错误，而不是静默输出错误内容。
+
+use libc;
+use libc.heap;
+use libc.mem;
+use libc.string;
+use libc.snprintf;
+use libc.write;
+use libc.fwrite;
+
+// 输出目标
+const EXEC_FORMAT_TARGET_FD: i32 = 0;
+const EXEC_FORMAT_TARGET_FILE: i32 = 1;
+const EXEC_FORMAT_TARGET_BUF: i32 = 2;        // sprintf：无界
+const EXEC_FORMAT_TARGET_BUF_LIMIT: i32 = 3;  // snprintf：有界
+
+// 单条转换的栈上缓冲；超过时退化为堆缓冲
+const EXEC_FORMAT_LOCAL_CAP: usize = 512 as usize;
+// 单次格式化输出上限，防止异常格式串导致无限增长
+const EXEC_FORMAT_MAX_CAP: usize = 16 as usize * 1024 * 1024;
+// 转换规格字符串上限（"%[-+ #0]*.*lld" 量级）
+const EXEC_FORMAT_SPEC_CAP: usize = 64 as usize;
+
+struct ExecFormatBuffer {
+    data: &byte,
+    len: usize,
+    cap: usize,
+}
+
+fn exec_format_buffer_init(buf: &ExecFormatBuffer) i32 {
+    if buf == null {
+        return 0;
+    }
+    const initial: usize = 256 as usize;
+    buf.data = malloc(initial) as &byte;
+    if buf.data == null {
+        return 0;
+    }
+    buf.len = 0 as usize;
+    buf.cap = initial;
+    return 1;
+}
+
+fn exec_format_buffer_free(buf: &ExecFormatBuffer) void {
+    if buf == null {
+        return;
+    }
+    if buf.data != null {
+        free(buf.data as &void);
+        buf.data = null;
+    }
+    buf.len = 0 as usize;
+    buf.cap = 0 as usize;
+}
+
+fn exec_format_buffer_reserve(buf: &ExecFormatBuffer, extra: usize) i32 {
+    if buf == null {
+        return 0;
+    }
+    const need: usize = buf.len + extra;
+    if need <= buf.cap {
+        return 1;
+    }
+    var next: usize = buf.cap;
+    if next == 0 as usize {
+        next = 256 as usize;
+    }
+    while next < need {
+        next = next *| 2 as usize;
+        if next >= EXEC_FORMAT_MAX_CAP {
+            next = EXEC_FORMAT_MAX_CAP;
+            break;
+        }
+    }
+    if next < need {
+        return 0;
+    }
+    const grown: &byte = realloc(buf.data as &void, next) as &byte;
+    if grown == null {
+        return 0;
+    }
+    buf.data = grown;
+    buf.cap = next;
+    return 1;
+}
+
+fn exec_format_buffer_append(buf: &ExecFormatBuffer, src: &const byte, len: usize) i32 {
+    if buf == null || src == null {
+        return 0;
+    }
+    if len == 0 as usize {
+        return 1;
+    }
+    if exec_format_buffer_reserve(buf, len) == 0 {
+        return 0;
+    }
+    _ = memcpy((buf.data + buf.len) as *byte, src as *const byte, len);
+    buf.len = buf.len + len;
+    return 1;
+}
+
+fn exec_format_buffer_append_byte(buf: &ExecFormatBuffer, c: byte) i32 {
+    if buf == null {
+        return 0;
+    }
+    if exec_format_buffer_reserve(buf, 1 as usize) == 0 {
+        return 0;
+    }
+    buf.data[buf.len] = c;
+    buf.len = buf.len + 1 as usize;
+    return 1;
+}
+
+fn exec_format_is_digit(c: byte) i32 {
+    if c >= '0' as byte && c <= '9' as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn exec_format_is_flag(c: byte) i32 {
+    if c == '-' as byte || c == '+' as byte || c == ' ' as byte {
+        return 1;
+    }
+    if c == '#' as byte || c == '0' as byte || c == '\'' as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn exec_format_is_length(c: byte) i32 {
+    if c == 'h' as byte || c == 'l' as byte || c == 'j' as byte {
+        return 1;
+    }
+    if c == 'z' as byte || c == 't' as byte || c == 'L' as byte {
+        return 1;
+    }
+    return 0;
+}
+
+/// 把无符号十进制写入规格缓冲，返回新的写入位置。
+fn exec_format_write_uint(buf: &byte, pos: usize, value: u64) usize {
+    var digits: [byte: 32] = [];
+    var n: usize = 0 as usize;
+    var v: u64 = value;
+    if v == 0 as u64 {
+        buf[pos] = '0' as byte;
+        return pos + 1 as usize;
+    }
+    while v > 0 as u64 && n < 32 as usize {
+        digits[n] = ('0' as byte) +| ((v % 10 as u64) as byte);
+        v = v / 10 as u64;
+        n = n + 1 as usize;
+    }
+    var i: usize = 0 as usize;
+    while i < n {
+        buf[pos + i] = digits[n - 1 as usize - i];
+        i = i + 1 as usize;
+    }
+    return pos + n;
+}
+
+/// 按转换字符选择 C 实参类型，委托宿主 snprintf 完成单条转换。
+/// 参数：`dst`/`cap` 为输出缓冲；`spec` 为已归一化的转换规格（不含 `*`）；
+///       `arg` 为本次转换对应的实参值；`conv` 为转换字符。
+/// 返回值：写入长度（不含 NUL）；不支持或失败返回 -1。
+fn exec_format_snprintf_typed(dst: &byte, cap: usize, spec: &const byte, arg: &ExecValue, conv: byte) i32 {
+    if dst == null || spec == null || arg == null {
+        return -1;
+    }
+    if conv == 'd' as byte || conv == 'i' as byte {
+        if arg.kind == ExecValueKind.EXEC_VALUE_I64 || arg.kind == ExecValueKind.EXEC_VALUE_U64 ||
+            arg.kind == ExecValueKind.EXEC_VALUE_U32 || arg.kind == ExecValueKind.EXEC_VALUE_ISIZE ||
+            arg.kind == ExecValueKind.EXEC_VALUE_USIZE || arg.kind == ExecValueKind.EXEC_VALUE_POINTER {
+            return snprintf(dst as *byte, cap, spec, arg.i64_value as i64);
+        }
+        return snprintf(dst as *byte, cap, spec, arg.i64_value as i32);
+    }
+    if conv == 'u' as byte || conv == 'o' as byte || conv == 'x' as byte || conv == 'X' as byte {
+        if arg.kind == ExecValueKind.EXEC_VALUE_USIZE || arg.kind == ExecValueKind.EXEC_VALUE_ISIZE {
+            return snprintf(dst as *byte, cap, spec, arg.i64_value as usize);
+        }
+        if arg.kind == ExecValueKind.EXEC_VALUE_I64 || arg.kind == ExecValueKind.EXEC_VALUE_U64 ||
+            arg.kind == ExecValueKind.EXEC_VALUE_U32 || arg.kind == ExecValueKind.EXEC_VALUE_POINTER {
+            return snprintf(dst as *byte, cap, spec, arg.i64_value as u64);
+        }
+        return snprintf(dst as *byte, cap, spec, arg.i64_value as u32);
+    }
+    if conv == 'c' as byte {
+        return snprintf(dst as *byte, cap, spec, arg.i64_value as i32);
+    }
+    if conv == 's' as byte {
+        var text: &const byte = null;
+        if arg.ptr_value != null {
+            text = arg.ptr_value as &const byte;
+        } else if arg.i64_value != 0 {
+            text = @ptr_from_usize(arg.i64_value as usize) as &const byte;
+        }
+        return snprintf(dst as *byte, cap, spec, text);
+    }
+    if conv == 'p' as byte {
+        return snprintf(dst as *byte, cap, spec, arg.ptr_value as &void);
+    }
+    if conv == 'f' as byte || conv == 'F' as byte || conv == 'e' as byte || conv == 'E' as byte ||
+        conv == 'g' as byte || conv == 'G' as byte || conv == 'a' as byte || conv == 'A' as byte {
+        return snprintf(dst as *byte, cap, spec, exec_value_as_f64(arg));
+    }
+    return -1;
+}
+
+/// 渲染单条转换并追加到输出缓冲。
+/// 返回值：1 成功；0 失败（不支持/内存不足/超长）。
+fn exec_format_append_value(out: &ExecFormatBuffer, spec: &const byte, arg: &ExecValue, conv: byte) i32 {
+    var local: [byte: 512] = [];
+    const n: i32 = exec_format_snprintf_typed(&local[0], EXEC_FORMAT_LOCAL_CAP, spec, arg, conv);
+    if n < 0 {
+        return 0;
+    }
+    if (n as usize) < EXEC_FORMAT_LOCAL_CAP {
+        return exec_format_buffer_append(out, &local[0] as &const byte, n as usize);
+    }
+    const cap: usize = (n as usize) + 1 as usize;
+    if cap > EXEC_FORMAT_MAX_CAP {
+        return 0;
+    }
+    const big: &byte = malloc(cap) as &byte;
+    if big == null {
+        return 0;
+    }
+    var ok: i32 = 0;
+    const n2: i32 = exec_format_snprintf_typed(big, cap, spec, arg, conv);
+    if n2 >= 0 && (n2 as usize) < cap {
+        ok = exec_format_buffer_append(out, big as &const byte, n2 as usize);
+    }
+    free(big as &void);
+    return ok;
+}
+
+/// 渲染整条格式串。
+/// 参数：`fmt` 为 NUL 结尾格式串；`args`/`arg_count` 为 varargs 实参槽位；
+///       `out` 为输出缓冲。
+/// 返回值：1 成功；0 失败（格式串不完整、实参不足、不支持 %n/宽字符等）。
+fn exec_format_render(fmt: &const byte, args: &ExecValue, arg_count: i32, out: &ExecFormatBuffer) i32 {
+    if fmt == null || out == null {
+        return 0;
+    }
+    const fmt_len: usize = strlen(fmt as *const byte);
+    var i: usize = 0 as usize;
+    var literal_start: usize = 0 as usize;
+    var arg_index: i32 = 0;
+    while i < fmt_len {
+        if fmt[i] != '%' as byte {
+            i = i + 1 as usize;
+            continue;
+        }
+        if i > literal_start {
+            if exec_format_buffer_append(out, (fmt + literal_start) as &const byte, i - literal_start) == 0 {
+                return 0;
+            }
+        }
+        if (i + 1 as usize) < fmt_len && fmt[i + 1 as usize] == '%' as byte {
+            if exec_format_buffer_append_byte(out, '%' as byte) == 0 {
+                return 0;
+            }
+            i = i + 2 as usize;
+            literal_start = i;
+            continue;
+        }
+        var spec: [byte: 64] = [];
+        var sp: usize = 0 as usize;
+        spec[sp] = '%' as byte;
+        sp = sp + 1 as usize;
+        var k: usize = i + 1 as usize;
+        // flags
+        while k < fmt_len && exec_format_is_flag(fmt[k]) != 0 {
+            if (sp + 2 as usize) >= EXEC_FORMAT_SPEC_CAP {
+                return 0;
+            }
+            spec[sp] = fmt[k];
+            sp = sp + 1 as usize;
+            k = k + 1 as usize;
+        }
+        // width（`*` 在这里就被实参替换成十进制数字，避免向宿主 snprintf 传整数宽度）
+        if k < fmt_len && fmt[k] == '*' as byte {
+            if arg_index >= arg_count {
+                return 0;
+            }
+            var width: i32 = args[arg_index].i64_value as i32;
+            arg_index = arg_index + 1;
+            if width < 0 {
+                if (sp + 2 as usize) >= EXEC_FORMAT_SPEC_CAP {
+                    return 0;
+                }
+                spec[sp] = '-' as byte;
+                sp = sp + 1 as usize;
+                width = 0 -| width;
+            }
+            sp = exec_format_write_uint(&spec[0] as &byte, sp, width as u64);
+            k = k + 1 as usize;
+        } else {
+            while k < fmt_len && exec_format_is_digit(fmt[k]) != 0 {
+                if (sp + 2 as usize) >= EXEC_FORMAT_SPEC_CAP {
+                    return 0;
+                }
+                spec[sp] = fmt[k];
+                sp = sp + 1 as usize;
+                k = k + 1 as usize;
+            }
+        }
+        // precision
+        if k < fmt_len && fmt[k] == '.' as byte {
+            k = k + 1 as usize;
+            if k < fmt_len && fmt[k] == '*' as byte {
+                if arg_index >= arg_count {
+                    return 0;
+                }
+                const precision: i32 = args[arg_index].i64_value as i32;
+                arg_index = arg_index + 1;
+                // 负精度等价于省略精度
+                if precision >= 0 {
+                    if (sp + 2 as usize) >= EXEC_FORMAT_SPEC_CAP {
+                        return 0;
+                    }
+                    spec[sp] = '.' as byte;
+                    sp = sp + 1 as usize;
+                    sp = exec_format_write_uint(&spec[0] as &byte, sp, precision as u64);
+                }
+                k = k + 1 as usize;
+            } else {
+                if (sp + 2 as usize) >= EXEC_FORMAT_SPEC_CAP {
+                    return 0;
+                }
+                spec[sp] = '.' as byte;
+                sp = sp + 1 as usize;
+                while k < fmt_len && exec_format_is_digit(fmt[k]) != 0 {
+                    if (sp + 2 as usize) >= EXEC_FORMAT_SPEC_CAP {
+                        return 0;
+                    }
+                    spec[sp] = fmt[k];
+                    sp = sp + 1 as usize;
+                    k = k + 1 as usize;
+                }
+            }
+        }
+        // length
+        while k < fmt_len && exec_format_is_length(fmt[k]) != 0 {
+            if (sp + 2 as usize) >= EXEC_FORMAT_SPEC_CAP {
+                return 0;
+            }
+            spec[sp] = fmt[k];
+            sp = sp + 1 as usize;
+            k = k + 1 as usize;
+        }
+        if k >= fmt_len {
+            return 0;
+        }
+        const conv: byte = fmt[k];
+        spec[sp] = conv;
+        sp = sp + 1 as usize;
+        spec[sp] = 0 as byte;
+        if arg_index >= arg_count {
+            return 0;
+        }
+        if exec_format_append_value(out, &spec[0] as &const byte, &args[arg_index], conv) == 0 {
+            return 0;
+        }
+        arg_index = arg_index + 1;
+        k = k + 1 as usize;
+        i = k;
+        literal_start = k;
+    }
+    if fmt_len > literal_start {
+        if exec_format_buffer_append(out, (fmt + literal_start) as &const byte, fmt_len - literal_start) == 0 {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/// printf 家族统一入口。
+/// 参数：`target` 为输出目标；`fd`/`file` 对应 fd 与 FILE* 目标；
+///       `dst`/`cap` 对应字符串缓冲区目标；`fmt`/`args`/`arg_count` 为格式与实参。
+/// 返回值：与 libc printf 家族一致的写入长度；失败返回 -1。
+fn exec_format_printf_like(target: i32, fd: i32, file: &FILE, dst: &byte, cap: usize,
+    fmt: &const byte, args: &ExecValue, arg_count: i32) i32 {
+    var buf: ExecFormatBuffer = ExecFormatBuffer {
+        data: null,
+        len: 0 as usize,
+        cap: 0 as usize,
+    };
+    if exec_format_buffer_init(&buf) == 0 {
+        return -1;
+    }
+    var result: i32 = -1;
+    if exec_format_render(fmt, args, arg_count, &buf) != 0 {
+        if target == EXEC_FORMAT_TARGET_FD {
+            const written: i64 = write(fd, buf.data as &const byte, buf.len);
+            if written >= 0 {
+                result = written as i32;
+            }
+        } else if target == EXEC_FORMAT_TARGET_FILE {
+            if file != null {
+                result = fwrite(buf.data as &const byte, 1 as usize, buf.len, file) as i32;
+            }
+        } else if target == EXEC_FORMAT_TARGET_BUF {
+            if dst != null {
+                _ = memcpy(dst as *byte, buf.data as *const byte, buf.len);
+                dst[buf.len] = 0 as byte;
+                result = buf.len as i32;
+            }
+        } else if target == EXEC_FORMAT_TARGET_BUF_LIMIT {
+            if dst != null {
+                if cap == 0 as usize {
+                    result = buf.len as i32;
+                } else {
+                    var n: usize = buf.len;
+                    if n > cap - 1 as usize {
+                        n = cap - 1 as usize;
+                    }
+                    _ = memcpy(dst as *byte, buf.data as *const byte, n);
+                    dst[n] = 0 as byte;
+                    result = buf.len as i32;
+                }
+            }
+        }
+    }
+    exec_format_buffer_free(&buf);
+    return result;
+}

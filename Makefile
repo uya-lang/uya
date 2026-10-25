@@ -492,6 +492,25 @@ microapp-check:
 	@echo ""
 	@echo "✓ microapp 验证套件通过"
 
+# exec VM 覆盖普查：对 tests/test_*.uya 全量跑 `uya test --vm`，
+# 输出通过率与失败原因直方图（exec VM / C99 对齐计划的覆盖度门禁）。
+exec-census: uya
+	@echo "=========================================="
+	@echo "运行 exec VM 覆盖普查"
+	@echo "=========================================="
+	@UYA_EXEC_CENSUS_MIN="$(UYA_EXEC_CENSUS_MIN)" ./tests/verify_exec_vm_census.sh
+	@echo ""
+	@echo "✓ exec VM 覆盖普查完成"
+
+# exec VM / C99 逐用例差分：比较测试摘要与退出码（PARITY_STDOUT=1 时加比对 stdout）。
+exec-parity: uya
+	@echo "=========================================="
+	@echo "运行 exec VM / C99 差分"
+	@echo "=========================================="
+	@./tests/verify_exec_vm_parity.sh
+	@echo ""
+	@echo "✓ exec VM / C99 差分一致"
+
 examples-check:
 	@echo "=========================================="
 	@echo "运行 examples 验证套件"

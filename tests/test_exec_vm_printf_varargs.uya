@@ -1,0 +1,27 @@
+// printf 家族 varargs 回归：exec VM 逐条转换规格委托宿主 snprintf，
+// 必须与 C99 后端（同一 libc）逐字节一致。
+extern "libc" fn printf(fmt: *byte, ...) i32;
+extern "libc" fn snprintf(dest: *byte, size: usize, fmt: *byte, ...) i32;
+
+export fn main() i32 {
+    printf("i32=%d i64=%lld u=%u hex=%X str=%s c=%c f=%.3f pct=%%\n" as *byte,
+        42, 123456789 as i64, 7 as u32, 255, "ok" as *byte, 'A' as i32, 2.5);
+    printf("width=%5d left=%-4d star=%*d prec=%.2f\n" as *byte, 3, 9, 5 as i32, 10, 1.5);
+
+    var buf: [byte: 64] = [];
+    const n: i32 = snprintf(&buf[0] as *byte, 64, "%d-%s" as *byte, 7, "x" as *byte);
+    if n != 3 {
+        return 1;
+    }
+    printf("buf=%s\n" as *byte, &buf[0] as *byte);
+
+    var small: [byte: 4] = [];
+    const need: i32 = snprintf(&small[0] as *byte, 4, "%s" as *byte, "abcdef" as *byte);
+    if need != 6 {
+        return 2;
+    }
+    if small[3] != 0 as byte {
+        return 3;
+    }
+    return 0;
+}
