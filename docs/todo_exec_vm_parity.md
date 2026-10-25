@@ -103,6 +103,15 @@
 
 ### T6 match 全模式（19 例）
 
+- 现状（已取样）：`exec: 当前仅支持标量 match` 的样本
+  `tests/test_epoll_server.uya:173`、`tests/test_http_http2_frame.uya:103`
+  都是对 **error union** 的 match：
+  `match st { error.ReadWouldBlock => {...} pr => {...} }`。
+- 需要：subject 为 error union 时按错误 id 分发（`EXEC_VALUE_ERROR_UNION` 的
+  `i64_value` 即错误 id，0 表示 ok）；`error.X` 模式比较常量 id，
+  绑定臂绑定 payload，`else` 兜底。
+- 验收：上述两个用例在 `--vm` 下通过，`match_expr` 原因码清零。
+
 - 现象：`exec: 当前仅支持标量 match`。
 - 覆盖枚举/错误/联合/元组模式与守卫。
 - 验收：`match_expr` 原因码清零。
