@@ -81,10 +81,15 @@
 
 ### T12 多维数组下标语义（12+ 例）
 
-- 现象：`tests/test_array_bounds.uya` 的 `arr14[0][1]` 取到 20，C99 为 200；
-  另有 12 例报 `exec: LOAD_INDEX 越界`、12 例 `exec: 切片基值不是 array/slice`。
-- 方向：核对 VM 里 ARRAY 元素（含嵌套数组）的取值是拷贝还是别名，以及
-  `LOAD_INDEX` 的基址/步长计算。
+- 现象：`tests/test_array_bounds.uya` 的 `arr14[0][1] = 200` 写不回原数组，
+  随后读到 20（C99 为 200）。只读的 `arr13[0][1]`/`arr13[1][0]` 是正确的。
+- 根因（已定位）：`LOAD_INDEX` 的普通分支用
+  `exec_vm_store_slot(slot_a, exec_value_get_index(slot_b, index))` **拷贝**元素；
+  于是 `arr14[0][1] = 200` 里的 `arr14[0]` 先被拷贝成临时数组，`STORE_INDEX`
+  写进了这个副本。VM 已有内部引用（`exec_vm_pointer_is_internal_ref` /
+  `exec_vm_ref_target_value`），缺的是「下标取值在内层是左值链时返回内部引用」。
+- 方向：给左值链上的 `LOAD_INDEX` 引入返回内部引用的变体（或让 builder 对赋值目标
+  生成地址链），同一套能力也能覆盖 `for |&item|`（T5b 剩余 4 例）。
 
 ### T5 泛型调用 / varargs 转发（90 例）
 
