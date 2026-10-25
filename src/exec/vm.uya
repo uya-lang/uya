@@ -2419,7 +2419,11 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             const ptr_elem_kind: i32 = exec_value_pointer_pointee_kind(&slice_base);
             const ptr_elem_size: usize = exec_vm_type_kind_size(ptr_elem_kind);
             if ptr_elem_size == 0 as usize {
-                exec_backend_set_error(function.decl, "exec: 切片基值不是 array/slice" as *byte, 0);
+                var slice_kind_msg: [byte: 128] = [];
+                _ = snprintf(&slice_kind_msg[0] as *byte, 128,
+                    "exec: 切片基值不是 array/slice（pointee=%d kind=%d）" as *byte,
+                    ptr_elem_kind, slice_base.kind as i32);
+                exec_backend_set_error(function.decl, &slice_kind_msg[0] as &byte, 0);
                 return -1;
             }
             const ptr_base: &byte = slice_base.ptr_value;
