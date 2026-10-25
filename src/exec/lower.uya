@@ -1977,9 +1977,45 @@ fn exec_lower_enum_variant_value(ctx: &ExecLowerContext, enum_name: &byte, varia
     return -1;
 }
 
+/// 把字符串字面量转成切片：`"abc" as &[byte]` 需要编译期补齐长度。
+/// 参数：ctx lowering 上下文；cast_ast 类型转换节点；slice_type 目标切片类型。
+/// 返回值：构造切片的 HIR 表达式；失败返回 null。
+fn exec_lower_string_as_slice(ctx: &ExecLowerContext, cast_ast: &ASTNode, slice_type: &Type) &HIRExpr {
+    if ctx == null || cast_ast == null || slice_type == null || slice_type.slice_element_type == null {
+        return null;
+    }
+    const literal: &ASTNode = cast_ast.cast_expr_expr;
+    var elem_type: Type = slice_type.slice_element_type[0];
+    const ptr_type: Type = make_pointer_type(ctx.arena, &elem_type, 0);
+    const str_const: &HIRExpr = exec_lower_make_string_const_expr(ctx, literal, &ptr_type, literal.string_literal_value);
+    if str_const == null {
+        return null;
+    }
+    const usize_type: Type = make_usize_type();
+    const start_const: &HIRExpr = exec_lower_make_int_const_expr(ctx, literal, &usize_type, 0);
+    const len_value: i64 = strlen(literal.string_literal_value as *byte) as i64;
+    const len_const: &HIRExpr = exec_lower_make_int_const_expr(ctx, literal, &usize_type, len_value);
+    if start_const == null || len_const == null {
+        return null;
+    }
+    const hir_slice: &HIRExpr = exec_lower_alloc_expr(ctx, cast_ast, HIRExprKind.HIR_EXPR_SLICE, slice_type);
+    if hir_slice == null {
+        return null;
+    }
+    hir_slice.left = str_const;
+    hir_slice.right = start_const;
+    hir_slice.extra = len_const;
+    return hir_slice;
+}
+
 fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type: &Type) &HIRExpr {
     if ctx == null || expr == null {
         return null;
+    }
+    // `undefined` 表示「未初始化」：exec VM 一律按零值处理（内容本就不保证）。
+    if expected_type != null && expr.type == ASTNodeType.AST_IDENTIFIER &&
+        expr.identifier_name != null && str_equals(expr.identifier_name, "undefined" as &byte) != 0 {
+        return exec_lower_make_zero_expr(ctx, expr, expected_type);
     }
     if expected_type != null &&
         expr.type == ASTNodeType.AST_ARRAY_LITERAL &&
@@ -4927,6 +4963,10 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             hir_global.global_slot = global_slot;
             return hir_global;
         }
+        if expr.identifier_name != null && str_equals(expr.identifier_name, "undefined" as &byte) != 0 &&
+            expr_type.kind != TypeKind.TYPE_VOID {
+            return exec_lower_make_zero_expr(ctx, expr, &expr_type);
+        }
         if expr.identifier_name != null && str_equals(expr.identifier_name, "null" as &byte) != 0 {
             // null 字面量在 AST 里是标识符（parser 用名字标记），exec 侧按零值指针处理。
             var null_type: Type = copy_type(&expr_type);
@@ -5014,6 +5054,15 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         }
         if exec_type_is_vm_value_supported(expr_type) == 0 {
             return exec_lower_fail_expr(expr, "exec: cast 目标类型当前不可被 exec VM 表示" as *byte);
+        }
+        // `"..." as &[byte]`：字符串字面量要补上长度，否则拿到的是个裸指针。
+        if expr_type.kind == TypeKind.TYPE_SLICE && expr.cast_expr_expr != null &&
+            expr.cast_expr_expr.type == ASTNodeType.AST_STRING &&
+            expr.cast_expr_expr.string_literal_value != null {
+            const slice_from_string: &HIRExpr = exec_lower_string_as_slice(ctx, expr, &expr_type);
+            if slice_from_string != null {
+                return slice_from_string;
+            }
         }
         // 字面量直接按目标整数类型取值：否则大字面量会先被当成 i32 截断
         // （`3000000000 as i64` 会得到 1705032704，与 C99 后端不一致）。
