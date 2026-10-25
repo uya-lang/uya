@@ -616,6 +616,17 @@ fn exec_vm_aggregate_ref_from_value(value: &ExecValue) &ExecAggregate {
         value.kind == ExecValueKind.EXEC_VALUE_TUPLE {
         return exec_value_as_aggregate(value);
     }
+    if value.kind == ExecValueKind.EXEC_VALUE_POINTER && exec_vm_pointer_is_internal_ref(value) == 0 {
+        // 裸指针指向聚合：`p.field` 等价于旁路表第 0 个元素。
+        const pointee_kind_code: i32 = exec_value_pointer_pointee_kind(value);
+        if exec_vm_type_kind_size(pointee_kind_code) == 0 as usize {
+            const elem: &ExecValue = exec_vm_native_agg_slot(exec_vm_pointer_address(value), 0);
+            if elem != null {
+                return exec_value_as_aggregate(elem);
+            }
+        }
+        return null;
+    }
     if exec_vm_pointer_is_internal_ref(value) != 0 {
         const target: &ExecValue = exec_vm_ref_target_value(value);
         if target == null {
@@ -649,6 +660,14 @@ fn exec_vm_field_ref_store(value: &ExecValue, field_idx: i32) &ExecValue {
         const target: &ExecValue = exec_vm_ref_target_value(value);
         if target != null {
             object = target;
+        }
+    } else if value.kind == ExecValueKind.EXEC_VALUE_POINTER {
+        const pointee_kind_code: i32 = exec_value_pointer_pointee_kind(value);
+        if exec_vm_type_kind_size(pointee_kind_code) == 0 as usize {
+            const elem: &ExecValue = exec_vm_native_agg_slot(exec_vm_pointer_address(value), 0);
+            if elem != null {
+                object = elem;
+            }
         }
     }
     if object.kind == ExecValueKind.EXEC_VALUE_VOID {
@@ -2504,7 +2523,16 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         }
         const field_ref: &ExecValue = exec_vm_field_ref(slot_b, instr.imm as i32);
         if field_ref == null {
-            exec_backend_set_error(function.decl, "exec: LOAD_FIELD 字段越界" as *byte, 0);
+            var fld_msg: [byte: 160] = [];
+            var fld_count: i32 = -1;
+            const fld_agg: &ExecAggregate = exec_vm_aggregate_ref_from_value(slot_b);
+            if fld_agg != null {
+                fld_count = fld_agg.count;
+            }
+            _ = snprintf(&fld_msg[0] as *byte, 160,
+                "exec: LOAD_FIELD 字段越界(idx=%d kind=%d count=%d)" as *byte,
+                instr.imm as i32, slot_b.kind as i32, fld_count);
+            exec_backend_set_error(function.decl, &fld_msg[0] as &byte, 0);
             return -1;
         }
         exec_vm_store_slot(slot_a, field_ref[0]);
