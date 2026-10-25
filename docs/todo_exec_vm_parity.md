@@ -9,16 +9,19 @@
 
 ## 进度快照
 
-- 本分支阶段性成果已合并到 main：T1（门禁）、T2（模块全局槽位）、T2b（as! 转换）、
+- 本分支阶段性成果已合并/落地：T1（门禁）、T2（模块全局槽位）、T2b（as! 转换）、
   T3（赋值表达式/@mc_source）、T4（if 表达式）、T4b（语句分支 match）、
-  T5b（for 数组值绑定）、T12（嵌套数组写入）与若干诊断/静默失败修复。
-- 剩余 T5（泛型/varargs）、T6（match 全模式）、T7（SIMD）、T8（原生桥）、
-  T9（async）、T10（剩余诊断）、T5b 引用绑定 继续在 main 上按同样节奏推进。
-- 最近一次实测（T4b 之后）：`test --vm` 通过 **345 / 913（37.8%）**，失败 568。
-- 失败原因分布：`generic` 376、`simd` 55、`runtime` 48、`match_expr` 20、
-  `unknown` 14、`extern_abi` 13、`string_interp` 9、`build` 8、`catch_expr` 7、
-  `try_expr` 4、`c_import` 4、`async` 2。
-- 门禁全绿：`make check` 1188/1188；8 个 `tests/verify_exec_vm_*.sh` 全过。
+  T5b（for 数组值绑定 + `|&item|` 引用绑定）、T6（match 全模式）、
+  T12（嵌套数组写入）、T13 主体（双指针/指针元素类型）与若干诊断/静默失败修复。
+- 最近一次实测（本轮 T6/T5b/T13 之后）：`test --vm` 通过 **431 / 914（47.2%）**，失败 483。
+- 失败原因分布：`generic` 284、`simd` 68、`catch_expr` 35、`extern_abi` 16、
+  `build` 14、`runtime` 11、`string_interp` 9、`async` 6、`try_expr` 4、`timeout` 4、
+  `c_import` 4；`match_expr` 已清零。
+- `generic` 内部 Top：泛型调用/varargs 转发 101、仅支持局部变量/参数/全局标识符 46、
+  语句节点 `type=79`（inline asm）42、成员方法 `kind=13` 19、结构体声明 18、
+  编译期 builtin 折叠 17、interface 方法表 14。
+- 待办：T5（泛型/varargs）、T7（SIMD）、T8（原生桥）、T9（async）、T10（剩余诊断）、
+  T13 余下 3 例、T11 收口。
 
 ## 任务清单
 
@@ -103,18 +106,17 @@
 
 ### T6 match 全模式（19 例）
 
-- 现状（已取样）：`exec: 当前仅支持标量 match` 的样本
-  `tests/test_epoll_server.uya:173`、`tests/test_http_http2_frame.uya:103`
-  都是对 **error union** 的 match：
-  `match st { error.ReadWouldBlock => {...} pr => {...} }`。
-- 需要：subject 为 error union 时按错误 id 分发（`EXEC_VALUE_ERROR_UNION` 的
-  `i64_value` 即错误 id，0 表示 ok）；`error.X` 模式比较常量 id，
-  绑定臂绑定 payload，`else` 兜底。
-- 验收：上述两个用例在 `--vm` 下通过，`match_expr` 原因码清零。
-
-- 现象：`exec: 当前仅支持标量 match`。
-- 覆盖枚举/错误/联合/元组模式与守卫。
-- 验收：`match_expr` 原因码清零。
+- [x] error union match：新增 `BC_LOAD_ERROR_TAG`/`BC_LOAD_ERROR_PAYLOAD`，按
+  `error_id` 分发；`error.X` 比较常量 id，绑定臂取 ok 载荷，`else` 兜底；
+  `return match` 且 match 为 void 时按语句块降级。
+- [x] 枚举模式：subject 为枚举时按枚举变体常量比较（`find_enum_decl_from_program`
+  + 显式值/自增口径解析）。
+- [x] 绑定臂：标量/union/error union 的 `v => ...`；`_ => ...` 在 AST 里是
+  `MATCH_PAT_BIND`，此前直接判不支持（test_json_value 因此失败），现在按兜底臂处理。
+- [x] `match *self` / `match &union`：subject 为 `&union` 时自动解引用，
+  VM 侧 `*ref` 对 union/错误联合取整值（`Self` 解析还需要 checker 缓存键带上
+  `current_self_type_name`，见 `fix(checker): type_from_ast 缓存键纳入 Self 上下文`）。
+- [x] 验收：census 里 `match_expr` 已清零（914 例中 0 个）。
 
 ### T7 SIMD（55 例）
 
@@ -150,10 +152,13 @@
 
 - [x] 值绑定与 `|_|`：`exec_lower_make_for_array_stmt` 把数组值存进临时局部，
   再用下标循环把 `arr[i]` 绑定到 `for_stmt_var_name`（`_` 不绑定）。
-- [ ] 引用绑定 `|&item|`（4 个文件）：尝试过用 `HIR_EXPR_ADDR` 包 `HIR_EXPR_INDEX`
-  并在 builder 里新增 `ADDR_INDEX` 分支，运行时直接段错误（`run --vm` 返回 139），
-  已整段回滚（保留显式 unsupported）。下次先补 `&arr[i]` 的 VM 单测与字节码断言，
-  确认 `BC_ADDR_INDEX` 的 `c`（下标槽）/`imm`（元素类型）编码正确后再接到 for 上。
+- [x] 引用绑定 `|&item|`（4 个文件）：`exec_lower_make_for_array_stmt` 用
+  `HIR_EXPR_ADDR(left=数组地址, right=下标)` 绑定元素地址。关键点是不能用
+  `__exec_for_arr` 副本的地址——写回会丢，必须对原数组表达式取 `&`。
+  同时把自增挪到循环体开头、计数器从 -1 起步：`continue` 会跳回循环体开头，
+  自增留在体尾就会被跳过，直接把 `for` 变成死循环（range 循环同样处理）。
+  4 个用例（test_for_ref / test_for_loop / test_break_continue_for / test_path_for）
+  在 `--vm` 下通过。
 - 实测：通过率 37.4% → 37.6%；8 个 `verify_exec_vm_*.sh` 全过。
 
 - `for arr |v|`、`for arr |&item|` 等在 `--vm` 下静默退出 1；
@@ -177,6 +182,21 @@
   （`test_exec_vm_struct_init_zero_fill`），说明 `aux_i64_value` 同时承担
   「pointee kind」与「引用编码（REF_KIND_BASE/INDEX_BASE）」两种语义，
   必须先把「是否是索引引用」从 kind 编码里拆成独立标志位，再谈解码。已回滚。
+- [x] 正解：值引用（`&local`/`&struct.field` 产出的内部引用）指向的是 **ExecValue
+  本体**，不能按原生标量尺寸访问。`load/store_pointer_index`、`pointer_element_ptr`
+  对内部引用一律按 `@size_of(ExecValue)` 步进整块读写，`aux` 里的引用编码只用于取
+  元素类型，不再喂给 `exec_vm_type_kind_size`。`LOAD_INDEX` 对非聚合目标的下标 0
+  直接取该槽位（`&&T` 第一层解引用）；`exec_vm_index_ref` 区分「嵌套数组
+  （内层 `aggregate.values`）」与「指针元素序列（ExecValue 步进）」，
+  `arr[0][1] = x` 的写回与 `settings.ptr[i].id` 同时成立。
+- [x] 14 个受影响用例中 11 个转为通过：双指针类型/赋值回归、http_hpack、http_parse、
+  null_check、std_net_addr、tls_dtls、tls_store、wchar、unary_operators
+  （`*ptr` 取整个 struct）、pointer_array_field_access（`&arr[0] as &T` 后
+  `ptr[i].field` 读写——指针转换不能再把引用编码替换成裸元素类型）。
+- [ ] 余下 3 个：`test_crypto_bigint`（超时，疑似 VM 死循环）、
+  `test_protobuf_dynamic`（`lib/std/protobuf/dynamic.uya:86` 仍是
+  `当前不支持该指针元素类型`）、`test_tls_x509`
+  （`lib/tls/x509/cert.uya:468` `LOAD_FIELD 字段越界`）。
 
 ## 下一轮起点（上下文压缩后从这里继续）
 
