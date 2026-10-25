@@ -83,13 +83,18 @@
 
 - 现象：`tests/test_array_bounds.uya` 的 `arr14[0][1] = 200` 写不回原数组，
   随后读到 20（C99 为 200）。只读的 `arr13[0][1]`/`arr13[1][0]` 是正确的。
-- 根因（已定位）：`LOAD_INDEX` 的普通分支用
-  `exec_vm_store_slot(slot_a, exec_value_get_index(slot_b, index))` **拷贝**元素；
-  于是 `arr14[0][1] = 200` 里的 `arr14[0]` 先被拷贝成临时数组，`STORE_INDEX`
-  写进了这个副本。VM 已有内部引用（`exec_vm_pointer_is_internal_ref` /
-  `exec_vm_ref_target_value`），缺的是「下标取值在内层是左值链时返回内部引用」。
-- 方向：给左值链上的 `LOAD_INDEX` 引入返回内部引用的变体（或让 builder 对赋值目标
-  生成地址链），同一套能力也能覆盖 `for |&item|`（T5b 剩余 4 例）。
+- 已核对的链路：`exec_lower_make_dest_expr` 对 `AST_ARRAY_ACCESS` 走
+  `exec_lower_expr` 得到嵌套 `HIR_EXPR_INDEX`；builder 的
+  `exec_builder_compile_lvalue_store` 对 INDEX 用
+  `exec_builder_compile_addressable_expr_slot`（支持 LOCAL/GLOBAL/FIELD/INDEX，
+  发 `BC_ADDR_INDEX`）；VM 侧 `BC_ADDR_INDEX` 与 `BC_STORE_INDEX` 都有
+  internal-ref 分支，`exec_vm_index_ref` 也会递归解析引用。**链路完整但写入仍丢失**，
+  说明断点在「引用是否指向原数组元素」这一层，而不是缺少 opcode。
+- 下一步（需要实测）：用 `--dump-bytecode` 取 `nested access` 测试的字节码，
+  确认 `arr14[0][1] = 200` 是否真的发成 `ADDR_INDEX`+`STORE_INDEX`；若是，
+  再核对 `exec_vm_index_ref` 在 `exec_vm_pointer_is_index_base_ref` 为真时按
+  `@size_of(ExecValue)` 做指针步进是否与嵌套聚合的真实布局一致。
+- 同一套能力也能覆盖 `for |&item|`（T5b 剩余 4 例）。
 
 ### T5 泛型调用 / varargs 转发（90 例）
 
