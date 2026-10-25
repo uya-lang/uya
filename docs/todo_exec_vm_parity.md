@@ -324,6 +324,20 @@
      库函数标识符（如 `strtod`）或 match 绑定；先看 `file:line` 再定位。
    - `尚未支持的语句节点(type=79)`（约 39）= inline asm，属 T8 原生桥。
    - `catch 操作数不是错误联合`（约 29）：样本多为 `@await expr catch ...`，属 T9。
+   - `test_error_id_builtin` 的 `@error_id` 语义差异（已定位、未修）：VM 里
+     `3096688242u32` 的 `i64_value` 是**符号扩展**的 `-1198279054`，
+     `as i64` / `as u64` / `as usize` 三条转换都原样输出 `-1198279054`，
+     而 C99 后端输出 `3096688242`。镜像用例（常量 vs 常量）`==` 为真，
+     但「常量 vs `@error_id(err)` 运行时值」的 `==` 为假，导致
+     `error.ErrorIdMismatch`。相关代码：`exec_builder_emit_const` 的
+     `TYPE_U32` 分支、`exec_make_u32`（`value as i64`）、
+     `exec_vm_cast_value`（I64/U64 分支不做按源宽度截宽）、
+     `exec_vm_compare_values`（**只在 left 无符号时**走无符号分支，
+     而常量那侧 kind 是 I32）。
+     已尝试「任一侧无符号即按无符号比较 + 按 kind 截宽归一」与
+     「I64 目标零扩展」，编译通过但对上述用例**无任何改善**，说明假设仍不完整，
+     已回退，避免留下未验证的比较语义变更。下一轮需先在 `BC_CMP_EQ`
+     里打印两侧 `kind`/`i64_value` 再动手。
 3. 每完成一项：`make uya` → 相关脚本 → census → 更新本文件勾选 → 单独提交。
 4. 收口（T11）前必须 `make check` 全绿且 `make exec-parity` 全绿，再
    `worktree finish` 合并到 main 并删除工作区。
