@@ -71,6 +71,21 @@
   （`@await` 除外，归 T9）。
 - 验收：该消息在 census 中为 0。
 
+### T4b match 分支尾部是语句（16 例）
+
+- 根因：`exec_lower_match_arm_result_node` 把分支块的最后一条**语句**（例如
+  `if i_val != 42 { return 10; }`）当成结果*表达式*返回，随后 `exec_lower_expr`
+  按表达式 lowering，报「if 表达式缺少条件或分支」。C99 把这类 match 当语句/void match。
+- 计划：match lowering 区分「表达式分支」与「语句分支」，语句分支用
+  `exec_lower_wrap_block_as_stmt` 注入并按 void 结果处理。
+
+### T12 多维数组下标语义（12+ 例）
+
+- 现象：`tests/test_array_bounds.uya` 的 `arr14[0][1]` 取到 20，C99 为 200；
+  另有 12 例报 `exec: LOAD_INDEX 越界`、12 例 `exec: 切片基值不是 array/slice`。
+- 方向：核对 VM 里 ARRAY 元素（含嵌套数组）的取值是拷贝还是别名，以及
+  `LOAD_INDEX` 的基址/步长计算。
+
 ### T5 泛型调用 / varargs 转发（90 例）
 
 - 现象：`exec: 当前不支持泛型调用或 varargs 转发`。
@@ -108,8 +123,8 @@
   `exec: 当前不支持 for 数组迭代`（census 中空消息失败 41 → 27）。
 - [x] `exec_build_program`、全局初始化、函数 lowering 三处补「失败但未设置错误」兜底，
   避免再次出现无消息失败。
-- [ ] 仍有 27 例空消息失败（多为 `run --vm` 在进程内直接返回 1 的形态），
-  下一轮按同样方法逐个定位。
+- [x] 其余 29 例空消息失败已确认**不是**静默构建失败：flush 修复后都能看到
+  `程序运行返回码：1`，属于「VM 跑完但结果不对」的语义缺陷（转 T12/T4b 等）。
 
 ### T5b for 数组迭代（`|v|` / `|&v|` / `|_|`）
 
