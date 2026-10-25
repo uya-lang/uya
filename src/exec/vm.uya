@@ -685,8 +685,14 @@ fn exec_vm_vector_binary(opcode_code: i32, left: ExecValue, right: ExecValue) Ex
             res = lb *| rb;
         } else if opcode_code == BCOpcode.BC_DIV as i32 {
             if rb != 0 { res = lb / rb; }
-        } else if rb != 0 {
-            res = lb % rb;
+        } else if opcode_code == BCOpcode.BC_REM as i32 {
+            if rb != 0 { res = lb % rb; }
+        } else if opcode_code == BCOpcode.BC_BIT_AND as i32 {
+            res = lb & rb;
+        } else if opcode_code == BCOpcode.BC_BIT_OR as i32 {
+            res = lb | rb;
+        } else {
+            res = lb ^ rb;
         }
         exec_vector_set_lane_bits(odata, elem_kind, li, res);
         li = li + 1;
@@ -2477,7 +2483,8 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         slot_a[0] = exec_vm_box_value_ref(slot_b[0], instr.c);
     } else if (instr.opcode == BCOpcode.BC_ADD || instr.opcode == BCOpcode.BC_SUB ||
         instr.opcode == BCOpcode.BC_MUL || instr.opcode == BCOpcode.BC_DIV ||
-        instr.opcode == BCOpcode.BC_REM) &&
+        instr.opcode == BCOpcode.BC_REM || instr.opcode == BCOpcode.BC_BIT_AND ||
+        instr.opcode == BCOpcode.BC_BIT_OR || instr.opcode == BCOpcode.BC_BIT_XOR) &&
         slot_a != null && slot_b != null && slot_c != null &&
         slot_b.kind == ExecValueKind.EXEC_VALUE_VECTOR {
         const vec_bin: ExecValue = exec_vm_vector_binary(instr.opcode as i32, slot_b[0], slot_c[0]);

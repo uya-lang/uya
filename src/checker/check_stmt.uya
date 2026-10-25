@@ -104,6 +104,13 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         }
     }
     
+    // 声明类型是向量时，先把目标向量类型下推给初始化表达式，
+    // 让 `const v: V4 = @vector.splat(1) + @vector.splat(2)` 里两侧的
+    // splat 都能拿到通道数/元素类型（return 语句已有同样处理）。
+    if node.var_decl_init != null && var_type.kind == TypeKind.TYPE_VECTOR {
+        checker_simd_prep_expr_with_expected_vector(checker, node.var_decl_init, copy_type(&var_type));
+    }
+
     // 检查初始化表达式类型
     if node.var_decl_init != null {
         checker_walk_reachability_expr(checker, node.var_decl_init);

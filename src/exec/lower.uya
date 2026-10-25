@@ -5376,7 +5376,14 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 vec_args[vai] = lowered_varg;
                 vai = vai + 1;
             }
-            const hir_vec: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_VECTOR_OP, &expr_type);
+            // 未绑定的 `@vector.splat(...)` 自身没有具体类型，checker 会把目标向量类型
+            // 记在 simd_splat_target_type 上（`a + @vector.splat(1)` 这类上下文）。
+            var vec_result_type: Type = copy_type(&expr_type);
+            if (vec_result_type.kind != TypeKind.TYPE_VECTOR && vec_result_type.kind != TypeKind.TYPE_MASK) &&
+                expr.simd_splat_target_type != null {
+                vec_result_type = type_from_ast(ctx.checker, expr.simd_splat_target_type);
+            }
+            const hir_vec: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_VECTOR_OP, &vec_result_type);
             if hir_vec == null {
                 return null;
             }
