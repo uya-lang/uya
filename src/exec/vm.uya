@@ -655,20 +655,9 @@ fn exec_vm_field_ref_store(value: &ExecValue, field_idx: i32) &ExecValue {
     if value == null || field_idx < 0 || field_idx >= 64 {
         return null;
     }
-    var object: &ExecValue = value;
-    if exec_vm_pointer_is_internal_ref(value) != 0 {
-        const target: &ExecValue = exec_vm_ref_target_value(value);
-        if target != null {
-            object = target;
-        }
-    } else if value.kind == ExecValueKind.EXEC_VALUE_POINTER {
-        const pointee_kind_code: i32 = exec_value_pointer_pointee_kind(value);
-        if exec_vm_type_kind_size(pointee_kind_code) == 0 as usize {
-            const elem: &ExecValue = exec_vm_native_agg_slot(exec_vm_pointer_address(value), 0);
-            if elem != null {
-                object = elem;
-            }
-        }
+    const object: &ExecValue = exec_vm_field_object(value);
+    if object == null {
+        return null;
     }
     if object.kind == ExecValueKind.EXEC_VALUE_VOID {
         object[0] = exec_value_make_aggregate(ExecValueKind.EXEC_VALUE_STRUCT, 64);
@@ -680,8 +669,53 @@ fn exec_vm_field_ref_store(value: &ExecValue, field_idx: i32) &ExecValue {
     return &aggregate.values[field_idx];
 }
 
+/// 取字段访问真正要读写的对象：沿引用/裸指针自动解引用到聚合为止。
+/// 参数：value 字段访问的基值。
+/// 返回值：聚合对象的 ExecValue；无法解析返回 null。
+fn exec_vm_field_object(value: &ExecValue) &ExecValue {
+    if value == null {
+        return null;
+    }
+    var object: &ExecValue = value;
+    var depth: i32 = 0;
+    while depth < 4 {
+        if object.kind == ExecValueKind.EXEC_VALUE_STRUCT ||
+            object.kind == ExecValueKind.EXEC_VALUE_TUPLE ||
+            object.kind == ExecValueKind.EXEC_VALUE_UNION {
+            return object;
+        }
+        if object.kind == ExecValueKind.EXEC_VALUE_POINTER {
+            if exec_vm_pointer_is_internal_ref(object) != 0 {
+                const target: &ExecValue = exec_vm_ref_target_value(object);
+                if target == null {
+                    return null;
+                }
+                object = target;
+            } else {
+                const pointee_kind_code: i32 = exec_value_pointer_pointee_kind(object);
+                if exec_vm_type_kind_size(pointee_kind_code) != 0 as usize {
+                    return null;
+                }
+                const elem: &ExecValue = exec_vm_native_agg_slot(exec_vm_pointer_address(object), 0);
+                if elem == null {
+                    return null;
+                }
+                object = elem;
+            }
+            depth = depth + 1;
+            continue;
+        }
+        return object;
+    }
+    return null;
+}
+
 fn exec_vm_field_ref(value: &ExecValue, field_idx: i32) &ExecValue {
-    const aggregate: &ExecAggregate = exec_vm_aggregate_ref_from_value(value);
+    const object: &ExecValue = exec_vm_field_object(value);
+    if object == null {
+        return null;
+    }
+    const aggregate: &ExecAggregate = exec_vm_aggregate_ref_from_value(object);
     if aggregate == null || field_idx < 0 || field_idx >= aggregate.count {
         return null;
     }
@@ -827,13 +861,13 @@ fn exec_vm_slice_ptr_value(value: &ExecValue, pointee_kind: i32) ExecValue {
 // 原生指针上的聚合元素旁路表。
 // `arena_alloc` 之类返回的是原生内存，里面放不下 ExecValue；
 // 以「基地址 → ExecValue 数组」的旁路表承接 `ptr[i].field` 的读写。
-const EXEC_NATIVE_AGG_MAX_BASES: i32 = 64;
-const EXEC_NATIVE_AGG_MAX_ELEMS: i32 = 256;
+const EXEC_NATIVE_AGG_MAX_BASES: i32 = 256;
+const EXEC_NATIVE_AGG_MAX_ELEMS: i32 = 512;
 
-var g_native_agg_base: [usize: 64] = [];
-var g_native_agg_count: [i32: 64] = [];
-var g_native_agg_values: [[ExecValue: 256]: 64] = [];
-var g_native_agg_handles: [ExecAggregate: 64] = [];
+var g_native_agg_base: [usize: 256] = [];
+var g_native_agg_count: [i32: 256] = [];
+var g_native_agg_values: [[ExecValue: 512]: 256] = [];
+var g_native_agg_handles: [ExecAggregate: 256] = [];
 var g_native_agg_used: i32 = 0;
 
 /// 查找或建立原生指针聚合元素旁路表的条目。
@@ -2529,9 +2563,13 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             if fld_agg != null {
                 fld_count = fld_agg.count;
             }
+            var fld_pointee: i32 = -1;
+            if slot_b.kind == ExecValueKind.EXEC_VALUE_POINTER {
+                fld_pointee = exec_value_pointer_pointee_kind(&slot_b[0]);
+            }
             _ = snprintf(&fld_msg[0] as *byte, 160,
-                "exec: LOAD_FIELD 字段越界(idx=%d kind=%d count=%d)" as *byte,
-                instr.imm as i32, slot_b.kind as i32, fld_count);
+                "exec: LOAD_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d)" as *byte,
+                instr.imm as i32, slot_b.kind as i32, fld_count, fld_pointee);
             exec_backend_set_error(function.decl, &fld_msg[0] as &byte, 0);
             return -1;
         }
@@ -2543,7 +2581,20 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         }
         const field_ref2: &ExecValue = exec_vm_field_ref_store(slot_a, instr.imm as i32);
         if field_ref2 == null {
-            exec_backend_set_error(function.decl, "exec: STORE_FIELD 字段越界" as *byte, 0);
+            var stf_msg: [byte: 160] = [];
+            var stf_count: i32 = -1;
+            var stf_pointee: i32 = -1;
+            const stf_agg: &ExecAggregate = exec_vm_aggregate_ref_from_value(slot_a);
+            if stf_agg != null {
+                stf_count = stf_agg.count;
+            }
+            if slot_a.kind == ExecValueKind.EXEC_VALUE_POINTER {
+                stf_pointee = exec_value_pointer_pointee_kind(&slot_a[0]);
+            }
+            _ = snprintf(&stf_msg[0] as *byte, 160,
+                "exec: STORE_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d)" as *byte,
+                instr.imm as i32, slot_a.kind as i32, stf_count, stf_pointee);
+            exec_backend_set_error(function.decl, &stf_msg[0] as &byte, 0);
             return -1;
         }
         exec_vm_store_slot(field_ref2, slot_b[0]);
