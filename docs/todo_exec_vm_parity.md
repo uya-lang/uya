@@ -13,9 +13,12 @@
   T3（赋值表达式/@mc_source）、T4（if 表达式）、T4b（语句分支 match）、
   T5b（for 数组值绑定 + `|&item|` 引用绑定）、T6（match 全模式）、
   T12（嵌套数组写入）、T13 主体（双指针/指针元素类型）与若干诊断/静默失败修复。
-- 最近一次完整普查（SIMD 一整套能力落地之后）：`test --vm` 通过
+- 最近一次完整普查（SIMD 主要能力落地之后）：`test --vm` 通过
   **535 / 914（58.5%）**，失败 379；与上一基线（482）比对**零回归**，
   新增通过集中在 `test_simd_*`、`test_json_encode_*`、`test_yaml_*`。
+- 该普查之后又有 4 个提交（T7 收口 3 例 + 静态方法/UFCS 4 例），
+  这些用例已逐个单独验证通过，但未再跑全量普查。
+- `make check` 已全绿：1191 个测试，通过 1191，失败 0。
 - 失败原因分布：`generic` 258、`simd` 69、`catch_expr` 18、`extern_abi` 16、
   `runtime` 12、`build` 9、`timeout` 6、`async` 6、`c_import` 4、`try_expr` 1；
   `match_expr` 与 `string_interp` 均已清零。
