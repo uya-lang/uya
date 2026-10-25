@@ -13,7 +13,9 @@
   T3（赋值表达式/@mc_source）、T4（if 表达式）、T4b（语句分支 match）、
   T5b（for 数组值绑定 + `|&item|` 引用绑定）、T6（match 全模式）、
   T12（嵌套数组写入）、T13 主体（双指针/指针元素类型）与若干诊断/静默失败修复。
-- 最近一次实测（本轮 fmt_* 打通之后）：`test --vm` 通过 **475 / 914（52.0%）**，失败 439。
+- 最近一次完整普查（fmt_* 打通之后）：`test --vm` 通过 **475 / 914（52.0%）**。
+  其后字符串插值（9 例中 8 例）与聚合上限修复又推进了一批，**尚未重新普查**，
+  预计约 483 / 914（52.8%）——下一轮开头重跑 `tests/verify_exec_vm_census.sh` 核实。
 - 失败原因分布：`generic` 258、`simd` 69、`catch_expr` 18、`extern_abi` 16、
   `runtime` 11、`string_interp` 9、`build` 9、`async` 6、`timeout` 5、
   `c_import` 4、`try_expr` 1；`match_expr` 已清零。
