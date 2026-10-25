@@ -258,8 +258,14 @@
       修好 `const v: V4 = @vector.splat(1) + @vector.splat(2)` 这类两侧都是
       未绑定 splat 的写法 —— 这一条此前只有 return 语句有，变量声明缺。
 - [x] exec lowering：未绑定的 splat 回落到 `simd_splat_target_type`。
-- 现状：`tests/test_simd_*.uya` **41 / 46 通过**（改造前 0）。
-- [ ] 余下 5 例待查：`vector_select`（第 3 个断言，`select(...) + splat(0)`）、
+- [x] 通道值按元素宽度做符号扩展（`-7 / 2` 不再算成 4294967289/2）。
+- [x] `+|` / `-|` / `*|` 的向量版本：逐通道饱和到元素类型范围。
+- [x] `@size_of` / `@alignof` 支持 `@vector(T,N)` 与 `@mask(N)`。
+- 现状：`tests/test_simd_*.uya` **43 / 46 通过**（改造前 0）。
+- [ ] 余下 3 例：`return_splat_binary`（函数返回向量后调用侧拿到非向量值）、
+      `type_positions`（`@size_of(别名类型)` 仍走不到向量分支）、
+      `vector_load`（`[u32: N]` 仍是 ExecValue 聚合，没有原生字节布局）。
+      更早的记录留档：`vector_select`（第 3 个断言，`select(...) + splat(0)`）、
       `vector_load`/`vector_store`、`vector_reduce_*`、`div_f32_i32`、
       `i16_add`/`i8_u8_i64_sse`/`u32_basic`（`除零`）、`mask_bitwise_shift`
       （掩码上的 `&|^ << >>` 还没在 `BC_*` 上逐位处理）、
