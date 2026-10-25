@@ -13,18 +13,17 @@
   T3（赋值表达式/@mc_source）、T4（if 表达式）、T4b（语句分支 match）、
   T5b（for 数组值绑定 + `|&item|` 引用绑定）、T6（match 全模式）、
   T12（嵌套数组写入）、T13 主体（双指针/指针元素类型）与若干诊断/静默失败修复。
-- 最近一次实测（本轮 checked 算术 catch/try + `undefined` + 字符串转切片 + 宏深拷贝之后）：
-  `test --vm` 通过 **458 / 914（50.1%）**，失败 456。
-- 失败原因分布：`generic` 258、`simd` 69、`runtime` 27、`catch_expr` 18、
-  `extern_abi` 16、`string_interp` 9、`build` 9、`async` 6、`timeout` 5、
+- 最近一次实测（本轮 fmt_* 打通之后）：`test --vm` 通过 **475 / 914（52.0%）**，失败 439。
+- 失败原因分布：`generic` 258、`simd` 69、`catch_expr` 18、`extern_abi` 16、
+  `runtime` 11、`string_interp` 9、`build` 9、`async` 6、`timeout` 5、
   `c_import` 4、`try_expr` 1；`match_expr` 已清零。
-- `generic` 内部 Top：泛型调用/varargs 转发 101、仅支持局部变量/参数/全局标识符 46、
-  语句节点 `type=79`（inline asm）42、成员方法 `kind=13` 19、结构体声明 18、
+- `generic` 内部 Top：泛型调用/varargs 转发 101、语句节点 `type=79`（inline asm）47、
+  仅支持局部变量/参数/全局标识符 27、成员方法 `kind=13` 21、结构体声明 18、
   interface 方法表 15、表达式节点 `type=28` 7、编译期 builtin 折叠 5。
-- `runtime` 内部 Top：`切片基值不是 array/slice` 16（全是 fmt_* 系列，
-  `&Token` 裸指针切片卡在 `tokenize_ptr_len` 的 `return out[0:count]`）、
-  `LOAD_FIELD 字段越界` 6、`LOAD_INDEX 越界` 3。
-- 本轮从 431 / 914（47.2%）起步，累计 +25。
+- `runtime` 内部 Top：`LOAD_FIELD 字段越界` 6（含槽位读到未初始化值的情形）、
+  `LOAD_INDEX 越界` 3、`ADDR_INDEX 越界` 1、除零 1。
+- `catch_expr` 的 18 例全部是 `@await 表达式 catch`，归 T9。
+- 本轮从 431 / 914（47.2%）起步，累计 +44。
 - 待办：T5（泛型/varargs）、T7（SIMD）、T8（原生桥）、T9（async）、T10（剩余诊断）、
   T13 余下 3 例、T11 收口。
 
@@ -173,8 +172,13 @@
   裸指针取字段（`p.field`）同样按旁路表第 0 个元素解引用。
   实测 fmt_* 系列由 0 例通过变为 **6 例通过**（tokenizer / comment_collection /
   comment_grouping / comments_phase1 等），smoke / aggregates 门禁仍全过。
-- 余下 fmt_*：`test_fmt_parser` 等卡在 `LOAD_FIELD 字段越界(idx=1 kind=14
-  count=-1)`——裸指针的基地址与写入时不一致，下一步查这条地址走岔。
+- [x] 错误联合 ok 载荷只搬 kind/i64/ptr，指针的 pointee 种类和裸数组元素种类
+  都会丢：`!&Token` 返回后解包成「pointee=0 的指针」，再取字段就报 LOAD_FIELD
+  越界。ok 时 `error_id` 位无意义，借它保存 `aux_i64_value`，解包侧还原。
+- [x] 字段访问统一经 `exec_vm_field_object` 沿引用/裸指针自动解引用到聚合；
+  旁路表扩容到 256 基地址 × 512 元素（整份源码的标记量远超原上限）。
+- 实测：**tests/test_fmt_*.uya 19 个用例在 --vm 下全部通过**（本轮起步时 0 个），
+  8 个 verify_exec_vm_*.sh 门禁全过。
 
 ### T7 SIMD（55 例）
 
