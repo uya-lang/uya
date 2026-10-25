@@ -188,6 +188,10 @@
   说明某条路径把非 ExecValue 的数据当值读了（osal 是 `os_gettimeofday(&tv, ...)`
   之后读 `tv.tv_sec`）。帧槽位本身在建立时已统一置 VOID（vm.uya:3120），
   所以要么是 extern 调用把手写坏的地址传错，要么是某个槽索引越界。
+  **重点怀疑** `exec_vm_slot_ref`（vm.uya:23）：它只校验
+  `idx < EXEC_MAX_FRAME_SLOTS`，没校验 `idx < frame.slot_count`，而帧槽位数组
+  是复用的，读到别的函数残留的 ExecValue 就会呈现这种「ASCII 当 kind」的值。
+  下一步：先在 slot_ref 里补 slot_count 越界检查，再看 osal/kernel_dispatch 是否转好。
 - 追加线索三：`timeout` 6 例（crypto_bigint/curve25519/ed25519/sha256_stream/
   sha512/epoll_server）在 VM 里跑不完，crypto_ed25519 已确认卡在第一个用例，
   属死循环而非单纯慢。
