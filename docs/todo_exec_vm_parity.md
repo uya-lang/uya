@@ -188,10 +188,11 @@
   说明某条路径把非 ExecValue 的数据当值读了（osal 是 `os_gettimeofday(&tv, ...)`
   之后读 `tv.tv_sec`）。帧槽位本身在建立时已统一置 VOID（vm.uya:3120），
   所以要么是 extern 调用把手写坏的地址传错，要么是某个槽索引越界。
-  **重点怀疑** `exec_vm_slot_ref`（vm.uya:23）：它只校验
-  `idx < EXEC_MAX_FRAME_SLOTS`，没校验 `idx < frame.slot_count`，而帧槽位数组
-  是复用的，读到别的函数残留的 ExecValue 就会呈现这种「ASCII 当 kind」的值。
-  下一步：先在 slot_ref 里补 slot_count 越界检查，再看 osal/kernel_dispatch 是否转好。
+  （已排除「帧槽位复用残留」：`vm.uya:3118` 每次调用都把全部
+  `EXEC_MAX_FRAME_SLOTS` 槽位置成 VOID，所以垃圾值是**被某条指令写进去的**，
+  更可能是「原生内存被当成 ExecValue 读」——extern 调用拿到 `&tv` 这类值引用后
+  按原生地址写，或 `%s`/memcpy 一类把字符数据写进了槽位。）
+  下一步：在 LOAD_FIELD 失败时把该槽的内存按整数打印出来，反查是哪条指令写的。
 - 追加线索三：`timeout` 6 例（crypto_bigint/curve25519/ed25519/sha256_stream/
   sha512/epoll_server）在 VM 里跑不完，crypto_ed25519 已确认卡在第一个用例，
   属死循环而非单纯慢。
