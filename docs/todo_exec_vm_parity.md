@@ -240,7 +240,23 @@
 
 ### T7 SIMD（55 例）
 
-- `ExecValueKind` 增加 `VECTOR`/`MASK`，实现逐通道运算与 `@vector.*` 内建。
+- [x] `ExecValueKind` 增加 `VECTOR`/`MASK`：向量 = 元素 `TypeKind` + 通道数 +
+      紧排字节缓冲，掩码 = `i64` 位集（避免对齐/别名假设）。
+- [x] `BC_VECTOR_OP`：`splat` / `load` / `store` / `select` / `all` / `any` /
+      `reduce_add` / `reduce_min` / `reduce_max` / `reduce_mul`。
+- [x] 比较（`== != < <= > >=`）在一侧是向量时逐通道求值并产出掩码；
+      标量一侧按通道广播（`v == 3`）。
+- [x] 加减乘除取余逐通道执行，浮点元素按 f32/f64 位模式换算。
+- [x] lowering：`@vector.<op>(...)` → `HIR_EXPR_VECTOR_OP`；向量/掩码纳入
+      `exec_type_is_scalar_supported`，不再报「当前不支持 SIMD」。
+- [x] builder：`BC_VECTOR_OP` 纳入静态槽位校验（定义 `a`、读 `b..b+c-1`）。
+- 现状：`tests/test_simd_*.uya` **22 / 46 通过**（改造前 0）。
+- [ ] 余下 24 例待查：`vector_select`（第 3 个断言，`select(...) + splat(0)`）、
+      `vector_load`/`vector_store`、`vector_reduce_*`、`div_f32_i32`、
+      `i16_add`/`i8_u8_i64_sse`/`u32_basic`（`除零`）、`mask_bitwise_shift`
+      （掩码上的 `&|^ << >>` 还没在 `BC_*` 上逐位处理）、
+      `unary_ops`（`@vector` 一元取负/取反）、`type_positions`
+      （编译期 builtin 折叠）、`sat_wrap_i32`（`+%`/`+|` 的向量版本）。
 - 验收：`simd` 原因码清零。
 
 ### T8 extern / FFI 原生桥（11 例）
