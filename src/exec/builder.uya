@@ -1053,9 +1053,10 @@ fn exec_builder_compile_error_union_match(ctx: &ExecFunctionBuildContext, expr: 
 }
 
 fn exec_builder_compile_item_pack(ctx: &ExecFunctionBuildContext, items: & & HIRExpr, item_count: i32) i32 {
-    var src_slots: [i32: 256] = [];
+    // 上限对齐到 1024：ed25519 一类预计算表字面量超过 256 个元素。
+    var src_slots: [i32: 1024] = [];
     var item_base: i32 = -1;
-    if item_count < 0 || item_count > 256 {
+    if item_count < 0 || item_count > 1024 {
         exec_backend_set_error(null, "exec: 聚合值元素超出上限" as *byte, 0);
         return -1;
     }
