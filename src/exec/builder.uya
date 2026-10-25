@@ -1066,7 +1066,7 @@ fn exec_builder_compile_item_pack(ctx: &ExecFunctionBuildContext, items: & & HIR
         if src_slot < 0 {
             return -1;
         }
-        if i >= 0 && i < 256 {
+        if i >= 0 && i < 1024 {
             src_slots[i] = src_slot;
         }
         i = i + 1;
