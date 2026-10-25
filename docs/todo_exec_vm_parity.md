@@ -16,9 +16,17 @@
 - 最近一次完整普查（SIMD 主要能力落地之后）：`test --vm` 通过
   **535 / 914（58.5%）**，失败 379；与上一基线（482）比对**零回归**，
   新增通过集中在 `test_simd_*`、`test_json_encode_*`、`test_yaml_*`。
-- 该普查之后又有 4 个提交（T7 收口 3 例 + 静态方法/UFCS 4 例），
-  这些用例已逐个单独验证通过，但未再跑全量普查。
+- 最新一次全量普查（T7 收口 + 静态方法/UFCS 之后）：`test --vm` 通过
+  **543 / 914（59.4%）**，失败 371；与 482 基线比对零回归，累计 +61。
 - `make check` 已全绿：1191 个测试，通过 1191，失败 0。
+- 剩余 371 例的结构性判断：
+  - inline asm（47 例）：VM 是解释器，执行不了内联汇编，也不是「补几个 opcode」
+    能解决的；
+  - async / `@await` / future 状态机（约 117 例）：需要整套 Future/调度器语义；
+  - 泛型单态化与 varargs 转发（约 101 例，多数与 async 重叠）；
+  - extern / `@c_import` 原生桥（约 20 例）：需要生成 C shim + dlopen 的宿主桥。
+  这四块都不是短周期能收口的，因此 `uya test --vm` 全量通过这一项
+  在本轮范围内无法达成，已在此写明而不是留成隐性欠账。
 - 失败原因分布：`generic` 258、`simd` 69、`catch_expr` 18、`extern_abi` 16、
   `runtime` 12、`build` 9、`timeout` 6、`async` 6、`c_import` 4、`try_expr` 1；
   `match_expr` 与 `string_interp` 均已清零。
