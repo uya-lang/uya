@@ -1,0 +1,29 @@
+// 嵌套数组下标写入：arr[i][j] = v 必须写回原数组（exec VM 与 C99 一致）
+use std.testing.assert_eq_i32;
+
+test "nested array write" {
+    var arr: [[i32: 2]: 2] = [[10, 20], [30, 40]];
+    arr[0][1] = 200;
+    try assert_eq_i32(arr[0][1], 200);
+    try assert_eq_i32(arr[0][0], 10);
+    try assert_eq_i32(arr[1][0], 30);
+    arr[1][0] = 300;
+    try assert_eq_i32(arr[1][0], 300);
+    try assert_eq_i32(arr[1][1], 40);
+}
+
+test "nested array write in loop" {
+    var grid: [[i32: 3]: 2] = [[0, 0, 0], [0, 0, 0]];
+    var i: i32 = 0;
+    while i < 2 {
+        var j: i32 = 0;
+        while j < 3 {
+            grid[i][j] = i *| 10 +| j;
+            j = j +| 1;
+        }
+        i = i +| 1;
+    }
+    try assert_eq_i32(grid[0][2], 2);
+    try assert_eq_i32(grid[1][0], 10);
+    try assert_eq_i32(grid[1][2], 12);
+}

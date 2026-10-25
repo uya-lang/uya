@@ -9,7 +9,7 @@
 
 ## 进度快照
 
-- 最近一次实测（T5b 之后）：`test --vm` 通过 **343 / 912（37.6%）**，失败 569。
+- 最近一次实测（T12 之后）：`test --vm` 通过 **344 / 912（37.7%）**，失败 568。
 - 失败原因分布：`generic` 376、`simd` 55、`runtime` 48、`match_expr` 20、
   `unknown` 14、`extern_abi` 13、`string_interp` 9、`build` 8、`catch_expr` 7、
   `try_expr` 4、`c_import` 4、`async` 2。
@@ -79,22 +79,16 @@
 - 计划：match lowering 区分「表达式分支」与「语句分支」，语句分支用
   `exec_lower_wrap_block_as_stmt` 注入并按 void 结果处理。
 
-### T12 多维数组下标语义（12+ 例）
+### T12 多维数组下标写入（已完成）
 
-- 现象：`tests/test_array_bounds.uya` 的 `arr14[0][1] = 200` 写不回原数组，
-  随后读到 20（C99 为 200）。只读的 `arr13[0][1]`/`arr13[1][0]` 是正确的。
-- 已核对的链路：`exec_lower_make_dest_expr` 对 `AST_ARRAY_ACCESS` 走
-  `exec_lower_expr` 得到嵌套 `HIR_EXPR_INDEX`；builder 的
-  `exec_builder_compile_lvalue_store` 对 INDEX 用
-  `exec_builder_compile_addressable_expr_slot`（支持 LOCAL/GLOBAL/FIELD/INDEX，
-  发 `BC_ADDR_INDEX`）；VM 侧 `BC_ADDR_INDEX` 与 `BC_STORE_INDEX` 都有
-  internal-ref 分支，`exec_vm_index_ref` 也会递归解析引用。**链路完整但写入仍丢失**，
-  说明断点在「引用是否指向原数组元素」这一层，而不是缺少 opcode。
-- 下一步（需要实测）：用 `--dump-bytecode` 取 `nested access` 测试的字节码，
-  确认 `arr14[0][1] = 200` 是否真的发成 `ADDR_INDEX`+`STORE_INDEX`；若是，
-  再核对 `exec_vm_index_ref` 在 `exec_vm_pointer_is_index_base_ref` 为真时按
-  `@size_of(ExecValue)` 做指针步进是否与嵌套聚合的真实布局一致。
-- 同一套能力也能覆盖 `for |&item|`（T5b 剩余 4 例）。
+- [x] 根因：`exec_vm_index_ref` 对 internal-ref 一律先按
+  `@size_of(ExecValue)` 做原始指针步进；但装箱聚合（数组/元组/结构体）的元素在
+  `aggregate.values` 里，导致 `arr[i][j] = v` 写到聚合头之外的地址、写回丢失
+  （`test_array_bounds` 的 `arr14[0][1]` 读回 20 而不是 200）。
+- [x] 修复：internal-ref 分支先判断目标是否为装箱聚合，是则按 `aggregate.values`
+  取元素，原始指针步进只保留给真正的 raw array。
+- 回归用例：`tests/test_exec_vm_nested_array_write.uya`（C99 与 `--vm` 双通过）。
+- 实测：通过率 37.6% → 37.7%；`test_array_bounds` 在 `--vm` 下全过。
 
 ### T5 泛型调用 / varargs 转发（90 例）
 

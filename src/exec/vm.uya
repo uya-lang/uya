@@ -629,6 +629,13 @@ fn exec_vm_index_ref(value: &ExecValue, index_value: i32) &ExecValue {
         if target == null {
             return null;
         }
+        // 装箱聚合（数组/元组/结构体）的元素在 aggregate.values 里，必须按聚合下标取，
+        // 不能对 &ExecValue 做原始指针步进：嵌套数组写入 arr[0][1] = x 走的正是这条路径，
+        // 一旦按指针步进就会写到聚合头之外的地址，写回丢失。
+        const target_aggregate: &ExecAggregate = exec_value_as_aggregate(target);
+        if target_aggregate != null && target_aggregate.values != null && index_value < target_aggregate.count {
+            return &target_aggregate.values[index_value];
+        }
         if exec_vm_pointer_is_index_base_ref(value) != 0 {
             const target_addr2: usize = @usize_from_ptr(target as &void);
             return @ptr_from_usize(target_addr2 + (@size_of(ExecValue) as usize) * (index_value as usize)) as &ExecValue;
