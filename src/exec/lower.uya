@@ -354,6 +354,29 @@ fn exec_lower_match_host_call(fn_decl: &ASTNode, call_arg_count: i32) ExecHostCa
         return ExecHostCallId.EXEC_HOST_CALL_NONE;
     }
     if fn_decl.fn_decl_is_varargs == 0 {
+        // 内存 / 字符串族：protobuf、tflm、process 等模块只声明不带体的
+        // `extern "libc"`，VM 必须自己按原生指针实现，否则这些模块整体不可用。
+        // 带 Uya 体的版本（lib/libc/mem.uya）仍走解释执行，不受影响。
+        if str_equals(fn_decl.fn_decl_name, "memcpy" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_MEMCPY;
+        }
+        if str_equals(fn_decl.fn_decl_name, "memmove" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_MEMMOVE;
+        }
+        if str_equals(fn_decl.fn_decl_name, "memset" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_MEMSET;
+        }
+        if str_equals(fn_decl.fn_decl_name, "memcmp" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_MEMCMP;
+        }
+        if str_equals(fn_decl.fn_decl_name, "strlen" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_STRLEN;
+        }
         if str_equals(fn_decl.fn_decl_name, "puts" as &byte) != 0 &&
             fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_PUTS;

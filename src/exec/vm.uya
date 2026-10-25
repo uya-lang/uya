@@ -1857,6 +1857,102 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
         out_value[0] = exec_make_i64(llabs(arg0.i64_value));
         return 0;
     }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_MEMCPY || site.id == ExecHostCallId.EXEC_HOST_CALL_MEMMOVE ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_MEMSET {
+        if arg_count != 3 {
+            exec_backend_set_error(function.decl, "exec: 内存函数参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const mem_dst: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const mem_second: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        const mem_n: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
+        if mem_dst == null || mem_second == null || mem_n == null {
+            exec_backend_set_error(function.decl, "exec: 内存函数参数槽位非法" as *byte, 0);
+            return -1;
+        }
+        const mem_count: usize = mem_n.i64_value as usize;
+        const mem_dst_ptr: &byte = mem_dst.ptr_value;
+        const mem_src_ptr: &byte = mem_second.ptr_value;
+        if mem_dst_ptr != null && mem_count > 0 as usize &&
+            site.id == ExecHostCallId.EXEC_HOST_CALL_MEMSET {
+            const mem_fill: byte = mem_second.i64_value as byte;
+            var mi: usize = 0;
+            while mi < mem_count {
+                mem_dst_ptr[mi] = mem_fill;
+                mi = mi + 1;
+            }
+        } else if mem_dst_ptr != null && mem_src_ptr != null && mem_count > 0 as usize {
+            var mem_forward: i32 = 1;
+            if site.id == ExecHostCallId.EXEC_HOST_CALL_MEMMOVE &&
+                @usize_from_ptr(mem_dst_ptr as &void) > @usize_from_ptr(mem_src_ptr as &void) {
+                mem_forward = 0;
+            }
+            if mem_forward != 0 {
+                var mi2: usize = 0;
+                while mi2 < mem_count {
+                    mem_dst_ptr[mi2] = mem_src_ptr[mi2];
+                    mi2 = mi2 + 1;
+                }
+            } else {
+                var mi3: usize = mem_count;
+                while mi3 > 0 {
+                    const idx3: usize = mi3 - 1;
+                    mem_dst_ptr[idx3] = mem_src_ptr[idx3];
+                    mi3 = idx3;
+                }
+            }
+        }
+        out_value[0] = mem_dst[0];
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_MEMCMP {
+        if arg_count != 3 {
+            exec_backend_set_error(function.decl, "exec: memcmp 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const cmp_a: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const cmp_b: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        const cmp_n: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
+        if cmp_a == null || cmp_b == null || cmp_n == null {
+            exec_backend_set_error(function.decl, "exec: memcmp 参数槽位非法" as *byte, 0);
+            return -1;
+        }
+        const cmp_count: usize = cmp_n.i64_value as usize;
+        const cmp_ap: &byte = cmp_a.ptr_value;
+        const cmp_bp: &byte = cmp_b.ptr_value;
+        var cmp_result: i32 = 0;
+        var ci: usize = 0;
+        while ci < cmp_count && cmp_result == 0 && cmp_ap != null && cmp_bp != null {
+            const cmp_lb: byte = cmp_ap[ci];
+            const cmp_rb: byte = cmp_bp[ci];
+            if cmp_lb < cmp_rb {
+                cmp_result = -1;
+            } else if cmp_lb > cmp_rb {
+                cmp_result = 1;
+            }
+            ci = ci + 1;
+        }
+        out_value[0] = exec_make_i32(cmp_result);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_STRLEN {
+        if arg_count != 1 {
+            exec_backend_set_error(function.decl, "exec: strlen 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const len_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        if len_arg == null {
+            exec_backend_set_error(function.decl, "exec: strlen 参数槽位非法" as *byte, 0);
+            return -1;
+        }
+        const len_ptr: &byte = len_arg.ptr_value;
+        var len_count: usize = 0;
+        while len_ptr != null && len_ptr[len_count] != 0 as byte {
+            len_count = len_count + 1;
+        }
+        out_value[0] = exec_make_usize(len_count);
+        return 0;
+    }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_MKDIR {
         if arg_count != 2 {
             exec_backend_set_error(function.decl, "exec: mkdir 参数数量非法" as *byte, 0);
