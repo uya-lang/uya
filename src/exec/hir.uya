@@ -71,6 +71,8 @@ enum HIRExprKind {
     HIR_EXPR_VA_END,
     HIR_EXPR_VA_ARG,
     HIR_EXPR_VA_COPY,
+    // 把错误值包装进错误联合（err 分支）；int_value 携带 error id。
+    HIR_EXPR_MAKE_ERR,
 }
 
 struct HIRMatchArm {

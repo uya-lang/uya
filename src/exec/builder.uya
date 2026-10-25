@@ -880,6 +880,171 @@ fn exec_builder_match_uses_union_patterns(expr: &HIRExpr) i32 {
     return 0;
 }
 
+// 发射「i32 常量 == 标签」比较，返回布尔结果槽位；失败返回 -1。
+fn exec_builder_emit_int_tag_compare(ctx: &ExecFunctionBuildContext, ast_node: &ASTNode,
+                                     tag_slot: i32, value: i64) i32 {
+    const pattern_slot: i32 = exec_builder_new_temp(ctx);
+    const cmp_slot: i32 = exec_builder_new_temp(ctx);
+    if pattern_slot < 0 || cmp_slot < 0 {
+        return -1;
+    }
+    var pattern_expr: HIRExpr = HIRExpr {
+        kind: HIRExprKind.HIR_EXPR_CONST,
+        ast_node: ast_node,
+        type_ref: HIRTypeRef {
+            type: make_i32_type(),
+        },
+        local_slot: -1,
+        global_slot: -1,
+        unary_op: 0,
+        binary_op: 0,
+        int_value: value,
+        float_value: 0.0,
+        bool_value: 0,
+        string_value: null,
+        left: null,
+        right: null,
+        callee_name: null,
+        callee_decl: null,
+        call_host_id: ExecHostCallId.EXEC_HOST_CALL_NONE,
+        call_args: null,
+        call_arg_count: 0,
+        dispatch_decls: null,
+        dispatch_decl_count: 0,
+        items: null,
+        item_count: 0,
+        extra: null,
+        match_arms: null,
+        match_arm_count: 0,
+    };
+    if exec_builder_emit_const(ctx, pattern_slot, &pattern_expr) < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_CMP_EQ,
+        a: cmp_slot,
+        b: tag_slot,
+        c: pattern_slot,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(ast_node),
+    }) < 0 {
+        return -1;
+    }
+    return cmp_slot;
+}
+
+// 编译 match 分支体（可选前缀块 + 结果表达式），结果写入目标槽位；失败返回 -1。
+fn exec_builder_compile_match_arm_body(ctx: &ExecFunctionBuildContext, match_dst: i32,
+                                       arm: &HIRMatchArm) i32 {
+    if arm.result_block != null {
+        if exec_builder_compile_block(ctx, arm.result_block) < 0 {
+            return -1;
+        }
+    }
+    const arm_slot: i32 = exec_builder_compile_expr(ctx, arm.result_expr);
+    if arm_slot < 0 {
+        return -1;
+    }
+    return exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_MOV,
+        a: match_dst,
+        b: arm_slot,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(arm.result_expr.ast_node),
+    });
+}
+
+// 错误联合 match：标签 0 表示 ok，非 0 为 error_id。
+// MATCH_PAT_ERROR 比较错误 id；MATCH_PAT_BIND 在 ok 时把整个错误联合值绑定到槽位。
+fn exec_builder_compile_error_union_match(ctx: &ExecFunctionBuildContext, expr: &HIRExpr,
+                                          subject_slot: i32, match_dst: i32) i32 {
+    const tag_slot: i32 = exec_builder_new_temp(ctx);
+    if tag_slot < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_LOAD_ERROR_TAG,
+        a: tag_slot,
+        b: subject_slot,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(expr.ast_node),
+    }) < 0 {
+        return -1;
+    }
+    var end_jumps: [i32: 64] = [];
+    var end_jump_count: i32 = 0;
+    var i: i32 = 0;
+    while i < expr.match_arm_count {
+        const arm: &HIRMatchArm = expr.match_arms + i;
+        if arm.kind == MatchPatternKind.MATCH_PAT_ELSE || arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD {
+            if exec_builder_compile_match_arm_body(ctx, match_dst, arm) < 0 {
+                return -1;
+            }
+        } else {
+            const cmp_slot: i32 = exec_builder_emit_int_tag_compare(ctx, expr.ast_node, tag_slot, arm.int_value);
+            if cmp_slot < 0 {
+                return -1;
+            }
+            const skip_jump: i32 = exec_builder_emit(ctx, BCInstr {
+                opcode: BCOpcode.BC_JMP_IF_FALSE,
+                a: cmp_slot,
+                b: 0,
+                c: 0,
+                imm: 0,
+                text: null,
+                source: exec_builder_make_source(expr.ast_node),
+            });
+            if skip_jump < 0 {
+                return -1;
+            }
+            if arm.kind == MatchPatternKind.MATCH_PAT_BIND && arm.bind_local_slot >= 0 {
+                if exec_builder_emit(ctx, BCInstr {
+                    opcode: BCOpcode.BC_MOV,
+                    a: arm.bind_local_slot,
+                    b: subject_slot,
+                    c: 0,
+                    imm: 0,
+                    text: null,
+                    source: exec_builder_make_source(expr.ast_node),
+                }) < 0 {
+                    return -1;
+                }
+            }
+            if exec_builder_compile_match_arm_body(ctx, match_dst, arm) < 0 {
+                return -1;
+            }
+            if end_jump_count < 64 {
+                end_jumps[end_jump_count] = exec_builder_emit(ctx, BCInstr {
+                    opcode: BCOpcode.BC_JMP,
+                    a: 0,
+                    b: 0,
+                    c: 0,
+                    imm: 0,
+                    text: null,
+                    source: exec_builder_make_source(expr.ast_node),
+                });
+                if end_jumps[end_jump_count] < 0 {
+                    return -1;
+                }
+                end_jump_count = end_jump_count + 1;
+            }
+            exec_builder_patch_jump(ctx, skip_jump, ctx.instr_count);
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while i < end_jump_count {
+        exec_builder_patch_jump(ctx, end_jumps[i], ctx.instr_count);
+        i = i + 1;
+    }
+    return 0;
+}
+
 fn exec_builder_compile_item_pack(ctx: &ExecFunctionBuildContext, items: & & HIRExpr, item_count: i32) i32 {
     var src_slots: [i32: 256] = [];
     var item_base: i32 = -1;
@@ -1876,6 +2041,25 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         }
         return dst_ok;
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_MAKE_ERR {
+        const payload_slot_err: i32 = exec_builder_compile_expr(ctx, expr.left);
+        const dst_err: i32 = exec_builder_new_temp(ctx);
+        if payload_slot_err < 0 || dst_err < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MAKE_ERR,
+            a: dst_err,
+            b: payload_slot_err,
+            c: 0,
+            imm: expr.int_value,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return dst_err;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_MATCH {
         const subject_slot: i32 = exec_builder_compile_expr(ctx, expr.left);
         if subject_slot < 0 {
@@ -1884,6 +2068,12 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         const match_dst: i32 = exec_builder_new_temp(ctx);
         if match_dst < 0 {
             return -1;
+        }
+        if expr.left != null && expr.left.type_ref.type.kind == TypeKind.TYPE_ERROR_UNION {
+            if exec_builder_compile_error_union_match(ctx, expr, subject_slot, match_dst) < 0 {
+                return -1;
+            }
+            return match_dst;
         }
         if exec_builder_match_uses_union_patterns(expr) != 0 {
             const tag_slot: i32 = exec_builder_new_temp(ctx);
@@ -1906,7 +2096,22 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             var umi: i32 = 0;
             while umi < expr.match_arm_count {
                 const union_arm: &HIRMatchArm = expr.match_arms + umi;
-                if union_arm.kind == MatchPatternKind.MATCH_PAT_ELSE || union_arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD {
+                if union_arm.kind == MatchPatternKind.MATCH_PAT_ELSE || union_arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD ||
+                    union_arm.kind == MatchPatternKind.MATCH_PAT_BIND {
+                    // 绑定臂把整个 union 值复制到绑定槽后无条件进入分支。
+                    if union_arm.kind == MatchPatternKind.MATCH_PAT_BIND && union_arm.bind_local_slot >= 0 {
+                        if exec_builder_emit(ctx, BCInstr {
+                            opcode: BCOpcode.BC_MOV,
+                            a: union_arm.bind_local_slot,
+                            b: subject_slot,
+                            c: 0,
+                            imm: 0,
+                            text: null,
+                            source: exec_builder_make_source(expr.ast_node),
+                        }) < 0 {
+                            return -1;
+                        }
+                    }
                     if union_arm.result_block != null {
                         if exec_builder_compile_block(ctx, union_arm.result_block) < 0 {
                             return -1;
@@ -2052,7 +2257,57 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         var mi: i32 = 0;
         while mi < expr.match_arm_count {
             const arm: &HIRMatchArm = expr.match_arms + mi;
-            if arm.kind == MatchPatternKind.MATCH_PAT_ELSE || arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD {
+            if arm.kind == MatchPatternKind.MATCH_PAT_BIND {
+                // 绑定臂：无条件匹配，把 subject 复制到绑定槽后执行分支体。
+                if arm.bind_local_slot >= 0 {
+                    if exec_builder_emit(ctx, BCInstr {
+                        opcode: BCOpcode.BC_MOV,
+                        a: arm.bind_local_slot,
+                        b: subject_slot,
+                        c: 0,
+                        imm: 0,
+                        text: null,
+                        source: exec_builder_make_source(expr.ast_node),
+                    }) < 0 {
+                        return -1;
+                    }
+                }
+                if arm.result_block != null {
+                    if exec_builder_compile_block(ctx, arm.result_block) < 0 {
+                        return -1;
+                    }
+                }
+                const bind_arm_slot: i32 = exec_builder_compile_expr(ctx, arm.result_expr);
+                if bind_arm_slot < 0 {
+                    return -1;
+                }
+                if exec_builder_emit(ctx, BCInstr {
+                    opcode: BCOpcode.BC_MOV,
+                    a: match_dst,
+                    b: bind_arm_slot,
+                    c: 0,
+                    imm: 0,
+                    text: null,
+                    source: exec_builder_make_source(expr.ast_node),
+                }) < 0 {
+                    return -1;
+                }
+                if end_jump_count < 64 {
+                    end_jumps[end_jump_count] = exec_builder_emit(ctx, BCInstr {
+                        opcode: BCOpcode.BC_JMP,
+                        a: 0,
+                        b: 0,
+                        c: 0,
+                        imm: 0,
+                        text: null,
+                        source: exec_builder_make_source(expr.ast_node),
+                    });
+                    if end_jumps[end_jump_count] < 0 {
+                        return -1;
+                    }
+                    end_jump_count = end_jump_count + 1;
+                }
+            } else if arm.kind == MatchPatternKind.MATCH_PAT_ELSE || arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD {
                 if arm.result_block != null {
                     if exec_builder_compile_block(ctx, arm.result_block) < 0 {
                         return -1;
@@ -2865,6 +3120,10 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
     while i < block.stmt_count {
         const stmt_temp_base: i32 = ctx.next_temp_slot;
         const stmt: &HIRStmt = block.stmts[i];
+        if stmt == null {
+            i = i + 1;
+            continue;
+        }
         if stmt.kind == HIRStmtKind.HIR_STMT_SCOPE_ENTER {
             if exec_builder_push_cleanup_scope(ctx, stmt.ast_node, stmt.scope_id) < 0 {
                 return -1;
@@ -3424,6 +3683,8 @@ fn exec_builder_validate_function(module: &HIRModule, fn_hir: &HIRFunction, out_
             instr.opcode == BCOpcode.BC_LOAD_SLICE_PTR ||
             instr.opcode == BCOpcode.BC_LOAD_UNION_TAG ||
             instr.opcode == BCOpcode.BC_LOAD_UNION_PAYLOAD ||
+            instr.opcode == BCOpcode.BC_LOAD_ERROR_TAG ||
+            instr.opcode == BCOpcode.BC_LOAD_ERROR_PAYLOAD ||
             instr.opcode == BCOpcode.BC_MAKE_OK || instr.opcode == BCOpcode.BC_MAKE_ERR ||
             instr.opcode == BCOpcode.BC_IS_ERR || instr.opcode == BCOpcode.BC_UNWRAP_OK ||
             instr.opcode == BCOpcode.BC_UNWRAP_ERR ||
@@ -3670,6 +3931,10 @@ fn exec_builder_validate_return_types_in_block(fn_hir: &HIRFunction, block: &HIR
     var i: i32 = 0;
     while i < block.stmt_count {
         const stmt: &HIRStmt = block.stmts[i];
+        if stmt == null {
+            i = i + 1;
+            continue;
+        }
         if stmt.kind == HIRStmtKind.HIR_STMT_RETURN {
             if fn_hir.return_type.type.kind == TypeKind.TYPE_VOID {
                 if stmt.expr != null {

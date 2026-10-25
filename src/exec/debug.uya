@@ -44,6 +44,8 @@ fn exec_debug_opcode_name(opcode: BCOpcode) &byte {
     if opcode == BCOpcode.BC_STORE_INDEX { return "BC_STORE_INDEX" as &byte; }
     if opcode == BCOpcode.BC_LOAD_UNION_TAG { return "BC_LOAD_UNION_TAG" as &byte; }
     if opcode == BCOpcode.BC_LOAD_UNION_PAYLOAD { return "BC_LOAD_UNION_PAYLOAD" as &byte; }
+    if opcode == BCOpcode.BC_LOAD_ERROR_TAG { return "BC_LOAD_ERROR_TAG" as &byte; }
+    if opcode == BCOpcode.BC_LOAD_ERROR_PAYLOAD { return "BC_LOAD_ERROR_PAYLOAD" as &byte; }
     if opcode == BCOpcode.BC_CMP_EQ { return "BC_CMP_EQ" as &byte; }
     if opcode == BCOpcode.BC_CMP_NE { return "BC_CMP_NE" as &byte; }
     if opcode == BCOpcode.BC_CMP_LT { return "BC_CMP_LT" as &byte; }

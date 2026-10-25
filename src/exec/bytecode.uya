@@ -43,6 +43,9 @@ enum BCOpcode {
     BC_STORE_INDEX,
     BC_LOAD_UNION_TAG,
     BC_LOAD_UNION_PAYLOAD,
+    // 错误联合 match 分发：标签（ok=0，err=error_id）与成功分支载荷
+    BC_LOAD_ERROR_TAG,
+    BC_LOAD_ERROR_PAYLOAD,
     BC_CMP_EQ,
     BC_CMP_NE,
     BC_CMP_LT,

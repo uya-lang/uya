@@ -172,6 +172,7 @@ fn exec_type_is_scalar_supported(type: Type) i32 {
         type.kind == TypeKind.TYPE_F64 ||
         type.kind == TypeKind.TYPE_BOOL ||
         type.kind == TypeKind.TYPE_BYTE ||
+        type.kind == TypeKind.TYPE_ENUM ||
         type.kind == TypeKind.TYPE_VOID {
         return 1;
     }
@@ -1114,6 +1115,12 @@ fn exec_lower_try_make_returning_match_stmt(ctx: &ExecLowerContext, stmt_node: &
     if ctx == null || stmt_node == null || stmt_node.type != ASTNodeType.AST_MATCH_EXPR {
         return null;
     }
+    // void match（分支都是语句、含 return/空块）按语句 lowering：
+    // 各分支的 return 自己生效，不能把整个 match 包成 `return match`。
+    const match_type: Type = exec_lower_expr_type(ctx, stmt_node);
+    if match_type.kind == TypeKind.TYPE_VOID {
+        return null;
+    }
     const stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_RETURN);
     if stmt == null {
         return null;
@@ -1724,6 +1731,9 @@ fn exec_lower_make_ref_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         return null;
     }
     addr_value.left = source_expr;
+    // 非左值取地址：int_value = -1 让 builder 走 BOX_VALUE（堆上装箱后取地址），
+    // 避免被误判成字段地址（字段地址用 int_value >= 0 表示）。
+    addr_value.int_value = -1;
     return addr_value;
 }
 
@@ -1838,6 +1848,67 @@ fn exec_lower_box_interface_expr(ctx: &ExecLowerContext, expr: &ASTNode, interfa
     return boxed;
 }
 
+// `&[a, b, c]` / `&[v; N]` 在语言层构造切片（与 C99 后端 gen_slice_from_array_literal 一致）。
+// 参数：ctx - lowering 上下文；unary_ast - 整个取地址表达式；slice_type - 目标切片类型。
+// 返回：切片表达式；数组字面量降级失败时返回 null。
+fn exec_lower_make_array_literal_slice_expr(ctx: &ExecLowerContext, unary_ast: &ASTNode, slice_type: &Type) &HIRExpr {
+    const operand: &ASTNode = unary_ast.unary_expr_operand;
+    if operand == null || operand.type != ASTNodeType.AST_ARRAY_LITERAL {
+        return null;
+    }
+    const array_expr: &HIRExpr = exec_lower_expr(ctx, operand);
+    if array_expr == null {
+        return null;
+    }
+    var len_value: i64 = operand.array_literal_element_count as i64;
+    if operand.array_literal_repeat_count_expr != null {
+        len_value = checker_eval_const_expr(ctx.checker, operand.array_literal_repeat_count_expr) as i64;
+    }
+    var usize_type: Type = make_usize_type();
+    const start_expr: &HIRExpr = exec_lower_make_int_const_expr(ctx, operand, &usize_type, 0);
+    const len_expr: &HIRExpr = exec_lower_make_int_const_expr(ctx, operand, &usize_type, len_value);
+    if start_expr == null || len_expr == null {
+        return null;
+    }
+    const slice_expr: &HIRExpr = exec_lower_alloc_expr(ctx, unary_ast, HIRExprKind.HIR_EXPR_SLICE, slice_type);
+    if slice_expr == null {
+        return null;
+    }
+    slice_expr.left = array_expr;
+    slice_expr.right = start_expr;
+    slice_expr.extra = len_expr;
+    return slice_expr;
+}
+
+// 枚举变体数值：显式 `= N` 解析为整数，否则按前一变体递增（与 C99 后端
+// find_enum_variant_value 口径一致）。参数：ctx/枚举名/变体名。返回：数值，失败 -1。
+fn exec_lower_enum_variant_value(ctx: &ExecLowerContext, enum_name: &byte, variant_name: &byte) i32 {
+    if ctx == null || ctx.checker == null || enum_name == null || variant_name == null {
+        return -1;
+    }
+    const enum_decl: &ASTNode = find_enum_decl_from_program(ctx.checker.program_node, enum_name);
+    if enum_decl == null || enum_decl.type != ASTNodeType.AST_ENUM_DECL {
+        return -1;
+    }
+    const variants: &EnumVariant = enum_decl.enum_decl_variants;
+    var current_value: i32 = 0;
+    var i: i32 = 0;
+    while i < enum_decl.enum_decl_variant_count {
+        const variant: &EnumVariant = variants + i;
+        if variant.name != null {
+            if variant.value != null {
+                current_value = atoi(variant.value as *byte);
+            }
+            if str_equals(variant.name, variant_name) != 0 {
+                return current_value;
+            }
+            current_value = current_value +| 1;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
 fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type: &Type) &HIRExpr {
     if ctx == null || expr == null {
         return null;
@@ -1880,6 +1951,36 @@ fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type:
         if actual_type.kind == TypeKind.TYPE_STRUCT && actual_type.struct_name != null &&
             struct_implements_interface(ctx.checker, actual_type.struct_name, expected_type.interface_name) != 0 {
             return exec_lower_box_interface_expr(ctx, expr, expected_type);
+        }
+    }
+    if expected_type != null && expected_type.kind == TypeKind.TYPE_ERROR_UNION {
+        var actual_error_type: Type = exec_lower_expr_type(ctx, expr);
+        if actual_error_type.kind == TypeKind.TYPE_ERROR {
+            const error_value_expr: &HIRExpr = exec_lower_expr(ctx, expr);
+            if error_value_expr == null {
+                return null;
+            }
+            const make_err_expr: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_MAKE_ERR, expected_type);
+            if make_err_expr == null {
+                return null;
+            }
+            make_err_expr.left = error_value_expr;
+            make_err_expr.int_value = actual_error_type.error_error_id as i64;
+            return make_err_expr;
+        }
+    }
+    if expected_type != null && expected_type.kind == TypeKind.TYPE_SLICE &&
+        expr.type == ASTNodeType.AST_UNARY_EXPR &&
+        (expr.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND &&
+        expr.unary_expr_operand != null {
+        // 语言层 `& <切片值>` 不表示取地址（切片本身就是值），直接使用切片值；
+        // `&[a, b, c]` / `&[v; N]` 则构造切片。
+        var ref_operand_type: Type = exec_lower_expr_type(ctx, expr.unary_expr_operand);
+        if ref_operand_type.kind == TypeKind.TYPE_SLICE {
+            return exec_lower_expr(ctx, expr.unary_expr_operand);
+        }
+        if expr.unary_expr_operand.type == ASTNodeType.AST_ARRAY_LITERAL {
+            return exec_lower_make_array_literal_slice_expr(ctx, expr, expected_type);
         }
     }
     return exec_lower_expr(ctx, expr);
@@ -2164,10 +2265,7 @@ fn exec_lower_make_for_array_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
     if ctx == null || stmt_node == null || stmt_node.for_stmt_array == null {
         return null;
     }
-    if stmt_node.for_stmt_is_ref != 0 {
-        exec_backend_set_generic_unsupported_error(stmt_node, "exec: 当前不支持 for 数组引用绑定" as *byte);
-        return null;
-    }
+    const is_ref_binding: i32 = stmt_node.for_stmt_is_ref;
     const array_expr: &HIRExpr = exec_lower_expr(ctx, stmt_node.for_stmt_array);
     if array_expr == null {
         return null;
@@ -2182,6 +2280,15 @@ fn exec_lower_make_for_array_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
         exec_backend_set_generic_unsupported_error(stmt_node, "exec: for 迭代对象必须是数组或切片" as *byte);
         return null;
     }
+    // `|&item|` 绑定的是元素地址（与 C99 的引用迭代一致）。
+    var bind_type: Type = copy_type(&element_type);
+    if is_ref_binding != 0 {
+        bind_type = exec_lower_make_pointer_type_copy(ctx, copy_type(&element_type));
+        if bind_type.kind != TypeKind.TYPE_POINTER {
+            exec_backend_set_error(stmt_node, "exec: for 引用绑定类型无效" as *byte, 0);
+            return null;
+        }
+    }
     if exec_lower_push_scope(ctx, stmt_node, -1) == 0 {
         return null;
     }
@@ -2194,12 +2301,17 @@ fn exec_lower_make_for_array_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
         bind_name = null;
     }
     if bind_name != null {
-        item_slot = exec_lower_append_local(ctx, null, bind_name, &element_type, 0);
+        item_slot = exec_lower_append_local(ctx, null, bind_name, &bind_type, 0);
     }
     if array_slot < 0 || index_slot < 0 || (bind_name != null && item_slot < 0) {
         exec_lower_pop_scope(ctx);
         exec_backend_set_error(stmt_node, "exec: for 数组槽位不足" as *byte, 0);
         return null;
+    }
+    // 引用绑定必须写到原数组上：临时局部只是副本，取它的地址会让写回丢失。
+    var array_ref_expr: &HIRExpr = null;
+    if is_ref_binding != 0 {
+        array_ref_expr = exec_lower_make_ref_expr(ctx, stmt_node.for_stmt_array);
     }
     const user_body: &HIRBlock = exec_lower_block(ctx, stmt_node.for_stmt_body);
     if user_body == null {
@@ -2220,7 +2332,11 @@ fn exec_lower_make_for_array_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
         exec_lower_pop_scope(ctx);
         return null;
     }
-    const then_block: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, 3);
+    var then_body_count: i32 = 1;
+    if bind_name != null {
+        then_body_count = 2;
+    }
+    const then_block: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, then_body_count);
     const break_block: &HIRBlock = exec_lower_make_break_block(ctx, stmt_node);
     if then_block == null || break_block == null {
         exec_lower_pop_scope(ctx);
@@ -2231,13 +2347,22 @@ fn exec_lower_make_for_array_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
     if bind_name != null {
         const arr_local_for_item: &HIRExpr = exec_lower_make_local_expr(ctx, stmt_node, array_slot, &array_type);
         const index_local_for_item: &HIRExpr = exec_lower_make_local_expr(ctx, stmt_node, index_slot, &index_type);
-        const item_expr: &HIRExpr = exec_lower_alloc_expr(ctx, stmt_node, HIRExprKind.HIR_EXPR_INDEX, &element_type);
+        var item_expr: &HIRExpr = null;
+        if is_ref_binding != 0 {
+            item_expr = exec_lower_alloc_expr(ctx, stmt_node, HIRExprKind.HIR_EXPR_ADDR, &bind_type);
+        } else {
+            item_expr = exec_lower_alloc_expr(ctx, stmt_node, HIRExprKind.HIR_EXPR_INDEX, &element_type);
+        }
         const bind_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_VAR_INIT);
         if arr_local_for_item == null || index_local_for_item == null || item_expr == null || bind_stmt == null {
             exec_lower_pop_scope(ctx);
             return null;
         }
-        item_expr.left = arr_local_for_item;
+        var ref_base_expr: &HIRExpr = arr_local_for_item;
+        if array_ref_expr != null {
+            ref_base_expr = array_ref_expr;
+        }
+        item_expr.left = ref_base_expr;
         item_expr.right = index_local_for_item;
         bind_stmt.local_slot = item_slot;
         bind_stmt.expr = item_expr;
@@ -2252,12 +2377,14 @@ fn exec_lower_make_for_array_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
         exec_lower_pop_scope(ctx);
         return null;
     }
-    zero_expr.int_value = 0;
+    // 计数器用 -1 起步、循环体开头先自增：`continue` 会跳回循环体开头，
+    // 自增必须在那里，否则 continue 会跳过自增导致死循环。
+    zero_expr.int_value = -1;
     one_expr.int_value = 1;
     const next_index_expr: &HIRExpr = exec_lower_make_binary_expr(ctx, stmt_node, TokenType.TOKEN_PLUS as i32, index_local_for_inc, one_expr, &index_type);
     const inc_stmt: &HIRStmt = exec_lower_make_assign_stmt(ctx, stmt_node, index_slot, next_index_expr);
     const cond_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_IF);
-    const loop_body: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, 1);
+    const loop_body: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, 2);
     const loop_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_LOOP);
     const setup_block: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, 3);
     const init_array: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_VAR_INIT);
@@ -2269,11 +2396,11 @@ fn exec_lower_make_for_array_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
         return null;
     }
     then_block.stmts[then_index] = wrapped_user_body;
-    then_block.stmts[then_index +| 1] = inc_stmt;
     cond_stmt.expr = cond_expr;
     cond_stmt.then_block = then_block;
     cond_stmt.else_block = break_block;
-    loop_body.stmts[1] = cond_stmt;
+    loop_body.stmts[1] = inc_stmt;
+    loop_body.stmts[2] = cond_stmt;
     loop_stmt.loop_body = loop_body;
     init_array.local_slot = array_slot;
     init_array.expr = array_expr;
@@ -2334,7 +2461,7 @@ fn exec_lower_make_for_range_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
         return null;
     }
 
-    const loop_body: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, 1);
+    const loop_body: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, 2);
     if loop_body == null {
         exec_lower_pop_scope(ctx);
         exec_backend_set_error(stmt_node, "exec: for loop body 分配失败" as *byte, 0);
@@ -2345,7 +2472,7 @@ fn exec_lower_make_for_range_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
     const end_local_for_cond: &HIRExpr = exec_lower_make_local_expr(ctx, stmt_node, end_slot, &iter_type);
     const cond_type: Type = make_bool_type();
     const cond_expr: &HIRExpr = exec_lower_make_binary_expr(ctx, stmt_node, TokenType.TOKEN_LESS as i32, iter_local_for_cond, end_local_for_cond, &cond_type);
-    const then_block: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, 2);
+    const then_block: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, 1);
     const break_block: &HIRBlock = exec_lower_make_break_block(ctx, stmt_node);
     if cond_expr == null || then_block == null || break_block == null {
         exec_lower_pop_scope(ctx);
@@ -2363,12 +2490,20 @@ fn exec_lower_make_for_range_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
     one_expr.int_value = 1;
     const next_iter_expr: &HIRExpr = exec_lower_make_binary_expr(ctx, stmt_node, TokenType.TOKEN_PLUS as i32, iter_local_for_inc, one_expr, &iter_type);
     const inc_stmt: &HIRStmt = exec_lower_make_assign_stmt(ctx, stmt_node, iter_slot, next_iter_expr);
-    if inc_stmt == null {
+    // 计数器从 start-1 起步、循环体开头先自增：`continue` 跳回循环体开头，
+    // 自增必须在那里，否则 continue 会跳过自增导致死循环。
+    const init_one: &HIRExpr = exec_lower_alloc_expr(ctx, stmt_node, HIRExprKind.HIR_EXPR_CONST, &iter_type);
+    if inc_stmt == null || init_one == null {
+        exec_lower_pop_scope(ctx);
+        return null;
+    }
+    init_one.int_value = 1;
+    const start_minus_one: &HIRExpr = exec_lower_make_binary_expr(ctx, stmt_node, TokenType.TOKEN_MINUS as i32, start_expr, init_one, &iter_type);
+    if start_minus_one == null {
         exec_lower_pop_scope(ctx);
         return null;
     }
     then_block.stmts[1] = wrapped_user_body;
-    then_block.stmts[2] = inc_stmt;
 
     const cond_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_IF);
     if cond_stmt == null {
@@ -2378,7 +2513,8 @@ fn exec_lower_make_for_range_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
     cond_stmt.expr = cond_expr;
     cond_stmt.then_block = then_block;
     cond_stmt.else_block = break_block;
-    loop_body.stmts[1] = cond_stmt;
+    loop_body.stmts[1] = inc_stmt;
+    loop_body.stmts[2] = cond_stmt;
 
     const loop_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_LOOP);
     const setup_block: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, 3);
@@ -2391,7 +2527,7 @@ fn exec_lower_make_for_range_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
     }
     loop_stmt.loop_body = loop_body;
     init_iter.local_slot = iter_slot;
-    init_iter.expr = start_expr;
+    init_iter.expr = start_minus_one;
     init_end.local_slot = end_slot;
     init_end.expr = end_expr;
     setup_block.stmts[1] = init_iter;
@@ -4231,6 +4367,138 @@ fn exec_lower_decl_index(decls: & & ASTNode, decl_count: i32, target: &ASTNode) 
     return -1;
 }
 
+// 常量全局替换：把 `const X: T = init` 内联为 init，并按声明类型 T 补一次转换，
+// 避免初始化字面量（默认 i32）与声明类型（如 usize）不一致。
+// 参数：ctx - lowering 上下文；use_expr - 使用处的标识符节点；decl - 全局声明节点。
+// 返回：替换后的表达式；不可替换时返回 null（调用方继续走原有回退路径）。
+fn exec_lower_const_global_init_expr(ctx: &ExecLowerContext, use_expr: &ASTNode, decl: &ASTNode) &HIRExpr {
+    const init_ast: &ASTNode = exec_lower_global_init_ast(decl);
+    if init_ast == null || init_ast == use_expr {
+        return null;
+    }
+    const init_expr: &HIRExpr = exec_lower_expr(ctx, init_ast);
+    if init_expr == null {
+        return null;
+    }
+    const type_ast: &ASTNode = exec_lower_global_type_ast(decl);
+    if type_ast == null {
+        return init_expr;
+    }
+    var declared_type: Type = type_from_ast(ctx.checker, type_ast);
+    if declared_type.kind == TypeKind.TYPE_VOID ||
+        type_equals(init_expr.type_ref.type, declared_type) != 0 ||
+        exec_type_is_vm_value_supported(declared_type) == 0 {
+        return init_expr;
+    }
+    const cast_expr: &HIRExpr = exec_lower_alloc_expr(ctx, use_expr, HIRExprKind.HIR_EXPR_CAST, &declared_type);
+    if cast_expr == null {
+        return null;
+    }
+    cast_expr.left = init_expr;
+    return cast_expr;
+}
+
+// match 分支结果：void match 把整个分支块按语句执行，结果用 void 零值占位；
+// 其余情况按「前缀块 + 尾部取值表达式」拆分。
+fn exec_lower_match_arm_value(ctx: &ExecLowerContext, arm: &ASTMatchArm, match_is_void: i32,
+                              out_block: & & HIRBlock) &HIRExpr {
+    if out_block != null {
+        out_block[0] = null;
+    }
+    if match_is_void != 0 && arm.result_is_block != 0 {
+        const arm_block: &HIRBlock = exec_lower_block(ctx, arm.result_expr);
+        if arm_block == null {
+            return null;
+        }
+        if out_block != null {
+            out_block[0] = arm_block;
+        }
+        const void_type: Type = make_void_type();
+        return exec_lower_make_zero_expr(ctx, arm.result_expr, &void_type);
+    }
+    if arm.result_is_block != 0 {
+        return exec_lower_extract_block_result_expr(ctx, arm.result_expr, out_block, 0);
+    }
+    return exec_lower_expr(ctx, arm.result_expr);
+}
+
+// 错误联合 match：`error.X` 模式按错误 id 分发，变量绑定臂在 ok 时绑定整个错误联合值。
+// 参数：ctx - lowering 上下文；expr - match 表达式节点；subject_expr - 已 lowering 的
+// 主体表达式；subject_type - 主体的错误联合类型；match_is_void - 1 表示语句位置 match。
+// 返回：HIR_EXPR_MATCH 表达式；失败返回 null 并设置错误。
+fn exec_lower_error_union_match_expr(ctx: &ExecLowerContext, expr: &ASTNode,
+                                     subject_expr: &HIRExpr, subject_type: Type,
+                                     match_is_void: i32) &HIRExpr {
+    const arms: &HIRMatchArm = compiler_arena_alloc(ctx.arena, @size_of(HIRMatchArm) * expr.match_expr_arm_count as usize) as &HIRMatchArm;
+    if arms == null {
+        exec_backend_set_error(expr, "exec: 错误联合 match arms 分配失败" as *byte, 0);
+        return null;
+    }
+    var i: i32 = 0;
+    while i < expr.match_expr_arm_count {
+        const arm: ASTMatchArm = expr.match_expr_arms[i];
+        if arm.kind != MatchPatternKind.MATCH_PAT_ERROR &&
+            arm.kind != MatchPatternKind.MATCH_PAT_BIND &&
+            arm.kind != MatchPatternKind.MATCH_PAT_ELSE &&
+            arm.kind != MatchPatternKind.MATCH_PAT_WILDCARD {
+            return exec_lower_fail_expr_reason(expr, "exec: 错误联合 match 仅支持 error/绑定/else 模式" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_MATCH_EXPR);
+        }
+        var pattern_value: i64 = 0;
+        if arm.kind == MatchPatternKind.MATCH_PAT_ERROR {
+            if arm.error_name == null {
+                return exec_lower_fail_expr_reason(expr, "exec: 错误联合 match 缺少错误名" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_MATCH_EXPR);
+            }
+            const error_id: u32 = get_or_add_error_id(ctx.checker, arm.error_name, expr);
+            if error_id == 0 {
+                return exec_lower_fail_expr_reason(expr, "exec: 错误联合 match 错误 id 无效" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_MATCH_EXPR);
+            }
+            pattern_value = error_id as i64;
+        }
+        var bind_slot: i32 = -1;
+        var arm_scope_pushed: i32 = 0;
+        if arm.kind == MatchPatternKind.MATCH_PAT_BIND && arm.var_name != null &&
+            str_equals(arm.var_name, "_" as *byte) == 0 {
+            if exec_lower_push_scope(ctx, arm.result_expr, -1) == 0 {
+                return null;
+            }
+            arm_scope_pushed = 1;
+            bind_slot = exec_lower_append_local(ctx, null, arm.var_name, &subject_type, 0);
+            if bind_slot < 0 {
+                exec_lower_pop_scope(ctx);
+                exec_backend_set_error(expr, "exec: 错误联合 match 绑定槽位不足" as *byte, 0);
+                return null;
+            }
+        }
+        var arm_result_block: &HIRBlock = null;
+        var arm_result_expr: &HIRExpr = null;
+        arm_result_expr = exec_lower_match_arm_value(ctx, &arm, match_is_void, &arm_result_block);
+        if arm_scope_pushed != 0 {
+            exec_lower_pop_scope(ctx);
+        }
+        if arm_result_expr == null {
+            return null;
+        }
+        arms[i] = HIRMatchArm {
+            kind: arm.kind,
+            int_value: pattern_value,
+            bool_value: 0,
+            bind_local_slot: bind_slot,
+            result_block: arm_result_block,
+            result_expr: arm_result_expr,
+        };
+        i = i + 1;
+    }
+    var match_result_type: Type = exec_lower_expr_type(ctx, expr);
+    const hir_match: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_MATCH, &match_result_type);
+    if hir_match == null {
+        return null;
+    }
+    hir_match.left = subject_expr;
+    hir_match.match_arms = arms;
+    hir_match.match_arm_count = expr.match_expr_arm_count;
+    return hir_match;
+}
+
 fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     if ctx == null || expr == null {
         return null;
@@ -4511,9 +4779,9 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 return hir_global_by_decl;
             }
             if exec_lower_global_is_const(imported_global_decl) != 0 {
-                const const_init_expr: &ASTNode = exec_lower_global_init_ast(imported_global_decl);
-                if const_init_expr != null && const_init_expr != expr {
-                    return exec_lower_expr(ctx, const_init_expr);
+                const const_value: &HIRExpr = exec_lower_const_global_init_expr(ctx, expr, imported_global_decl);
+                if const_value != null {
+                    return const_value;
                 }
             }
             if imported_global_decl != null {
@@ -5171,9 +5439,9 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                     return exec_lower_fail_expr(expr, &slot_msg[0]);
                 }
                 if exec_lower_global_is_const(module_global_decl) != 0 {
-                    const module_const_init: &ASTNode = exec_lower_global_init_ast(module_global_decl);
-                    if module_const_init != null && module_const_init != expr {
-                        return exec_lower_expr(ctx, module_const_init);
+                    const module_const_value: &HIRExpr = exec_lower_const_global_init_expr(ctx, expr, module_global_decl);
+                    if module_const_value != null {
+                        return module_const_value;
                     }
                 }
                 const module_global_type_ast: &ASTNode = exec_lower_global_type_ast(module_global_decl);
@@ -5242,7 +5510,9 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         }
         if base_type.kind == TypeKind.TYPE_SLICE {
             if expr.member_access_field_name != null && str_equals(expr.member_access_field_name, "len" as *byte) != 0 {
-                const hir_slice_len: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_LEN, &expr_type);
+                // slice.len 的静态类型固定为 usize，避免 checker 推断缺省成 i32。
+                var slice_len_type: Type = make_usize_type();
+                const hir_slice_len: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_LEN, &slice_len_type);
                 if hir_slice_len == null {
                     return null;
                 }
@@ -5512,7 +5782,7 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if expr.match_expr_expr == null || expr.match_expr_arms == null || expr.match_expr_arm_count <= 0 {
             return exec_lower_fail_expr_reason(expr, "exec: match 结构无效" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_MATCH_EXPR);
         }
-        const subject_expr: &HIRExpr = exec_lower_expr(ctx, expr.match_expr_expr);
+        var subject_expr: &HIRExpr = exec_lower_expr(ctx, expr.match_expr_expr);
         if subject_expr == null {
             return null;
         }
@@ -5520,6 +5790,22 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if subject_type.kind == TypeKind.TYPE_VOID {
             subject_type = subject_expr.type_ref.type;
         }
+        // `match ref`：subject 是 &union/&!T 时按值解引用后再分发（与 checker 自动解引用一致）。
+        if subject_type.kind == TypeKind.TYPE_POINTER && subject_type.pointer_to != null &&
+            (subject_type.pointer_to[0].kind == TypeKind.TYPE_UNION ||
+             subject_type.pointer_to[0].kind == TypeKind.TYPE_ERROR_UNION) {
+            const deref_target_type: Type = copy_type(&subject_type.pointer_to[0]);
+            var zero_index_type: Type = make_i32_type();
+            const zero_index_expr: &HIRExpr = exec_lower_make_int_const_expr(ctx, expr.match_expr_expr, &zero_index_type, 0);
+            const deref_expr: &HIRExpr = exec_lower_alloc_expr(ctx, expr.match_expr_expr, HIRExprKind.HIR_EXPR_INDEX, &deref_target_type);
+            if zero_index_expr != null && deref_expr != null {
+                deref_expr.left = subject_expr;
+                deref_expr.right = zero_index_expr;
+                subject_expr = deref_expr;
+                subject_type = deref_target_type;
+            }
+        }
+        const match_is_void: i32 = (expr_type.kind == TypeKind.TYPE_VOID) as i32;
         if subject_type.kind == TypeKind.TYPE_UNION {
             const arms_union: &HIRMatchArm = compiler_arena_alloc(ctx.arena, @size_of(HIRMatchArm) * expr.match_expr_arm_count as usize) as &HIRMatchArm;
             if arms_union == null {
@@ -5530,9 +5816,10 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             while umi < expr.match_expr_arm_count {
                 const arm_union: ASTMatchArm = expr.match_expr_arms[umi];
                 if arm_union.kind != MatchPatternKind.MATCH_PAT_UNION &&
+                    arm_union.kind != MatchPatternKind.MATCH_PAT_BIND &&
                     arm_union.kind != MatchPatternKind.MATCH_PAT_ELSE &&
                     arm_union.kind != MatchPatternKind.MATCH_PAT_WILDCARD {
-                    return exec_lower_fail_expr_reason(expr, "exec: 当前仅支持 union/else/wildcard match" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_MATCH_EXPR);
+                    return exec_lower_fail_expr_reason(expr, "exec: 当前仅支持 union/绑定/else/wildcard match" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_MATCH_EXPR);
                 }
                 var bind_slot: i32 = -1;
                 var arm_result_block2: &HIRBlock = null;
@@ -5559,18 +5846,24 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                             return null;
                         }
                     }
-                    if arm_union.result_is_block != 0 {
-                        arm_result_expr2 = exec_lower_extract_block_result_expr(ctx, arm_union.result_expr, &arm_result_block2, 0);
-                    } else {
-                        arm_result_expr2 = exec_lower_expr(ctx, arm_union.result_expr);
+                    arm_result_expr2 = exec_lower_match_arm_value(ctx, &arm_union, match_is_void, &arm_result_block2);
+                    exec_lower_pop_scope(ctx);
+                } else if arm_union.kind == MatchPatternKind.MATCH_PAT_BIND &&
+                    arm_union.var_name != null && str_equals(arm_union.var_name, "_" as *byte) == 0 {
+                    // 绑定臂：把整个 union 值绑定到变量后无条件进入分支。
+                    if exec_lower_push_scope(ctx, arm_union.result_expr, -1) == 0 {
+                        return null;
                     }
+                    bind_slot = exec_lower_append_local(ctx, null, arm_union.var_name, &subject_type, 0);
+                    if bind_slot < 0 {
+                        exec_lower_pop_scope(ctx);
+                        exec_backend_set_error(expr, "exec: union match 绑定槽位不足" as *byte, 0);
+                        return null;
+                    }
+                    arm_result_expr2 = exec_lower_match_arm_value(ctx, &arm_union, match_is_void, &arm_result_block2);
                     exec_lower_pop_scope(ctx);
                 } else {
-                    if arm_union.result_is_block != 0 {
-                        arm_result_expr2 = exec_lower_extract_block_result_expr(ctx, arm_union.result_expr, &arm_result_block2, 0);
-                    } else {
-                        arm_result_expr2 = exec_lower_expr(ctx, arm_union.result_expr);
-                    }
+                    arm_result_expr2 = exec_lower_match_arm_value(ctx, &arm_union, match_is_void, &arm_result_block2);
                 }
                 if arm_result_expr2 == null {
                     return null;
@@ -5594,6 +5887,9 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             hir_union_match.match_arm_count = expr.match_expr_arm_count;
             return hir_union_match;
         }
+        if subject_type.kind == TypeKind.TYPE_ERROR_UNION {
+            return exec_lower_error_union_match_expr(ctx, expr, subject_expr, subject_type, match_is_void);
+        }
         if exec_type_is_scalar_supported(subject_type) == 0 {
             return exec_lower_fail_expr_reason(expr, "exec: 当前仅支持标量 match" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_MATCH_EXPR);
         }
@@ -5606,25 +5902,49 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         while mi < expr.match_expr_arm_count {
             const arm: ASTMatchArm = expr.match_expr_arms[mi];
             if arm.kind != MatchPatternKind.MATCH_PAT_LITERAL &&
+                arm.kind != MatchPatternKind.MATCH_PAT_ENUM &&
+                arm.kind != MatchPatternKind.MATCH_PAT_BIND &&
                 arm.kind != MatchPatternKind.MATCH_PAT_ELSE &&
                 arm.kind != MatchPatternKind.MATCH_PAT_WILDCARD {
-                return exec_lower_fail_expr_reason(expr, "exec: 当前仅支持 literal/else/wildcard match" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_MATCH_EXPR);
+                return exec_lower_fail_expr_reason(expr, "exec: 当前仅支持 literal/枚举/绑定/else/wildcard match" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_MATCH_EXPR);
+            }
+            var pattern_value: i64 = arm.literal_int_value as i64;
+            if arm.kind == MatchPatternKind.MATCH_PAT_ENUM {
+                const variant_value: i32 = exec_lower_enum_variant_value(ctx, arm.enum_name, arm.variant_name);
+                if variant_value < 0 {
+                    return exec_lower_fail_expr_reason(expr, "exec: match 枚举变体数值无效" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_MATCH_EXPR);
+                }
+                pattern_value = variant_value as i64;
+            }
+            var bind_slot: i32 = -1;
+            var arm_scope_pushed: i32 = 0;
+            if arm.kind == MatchPatternKind.MATCH_PAT_BIND && arm.var_name != null &&
+                str_equals(arm.var_name, "_" as *byte) == 0 {
+                if exec_lower_push_scope(ctx, arm.result_expr, -1) == 0 {
+                    return null;
+                }
+                arm_scope_pushed = 1;
+                bind_slot = exec_lower_append_local(ctx, null, arm.var_name, &subject_type, 0);
+                if bind_slot < 0 {
+                    exec_lower_pop_scope(ctx);
+                    exec_backend_set_error(expr, "exec: match 绑定槽位不足" as *byte, 0);
+                    return null;
+                }
             }
             var arm_result_block: &HIRBlock = null;
             var arm_result_expr: &HIRExpr = null;
-            if arm.result_is_block != 0 {
-                arm_result_expr = exec_lower_extract_block_result_expr(ctx, arm.result_expr, &arm_result_block, 0);
-            } else {
-                arm_result_expr = exec_lower_expr(ctx, arm.result_expr);
+            arm_result_expr = exec_lower_match_arm_value(ctx, &arm, match_is_void, &arm_result_block);
+            if arm_scope_pushed != 0 {
+                exec_lower_pop_scope(ctx);
             }
             if arm_result_expr == null {
                 return null;
             }
             arms[mi] = HIRMatchArm {
                 kind: arm.kind,
-                int_value: arm.literal_int_value as i64,
+                int_value: pattern_value,
                 bool_value: arm.literal_is_bool,
-                bind_local_slot: -1,
+                bind_local_slot: bind_slot,
                 result_block: arm_result_block,
                 result_expr: arm_result_expr,
             };

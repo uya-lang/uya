@@ -442,6 +442,13 @@ fn exec_vm_ref_target_value(value: &ExecValue) &ExecValue {
     return @ptr_from_usize(target_addr) as &ExecValue;
 }
 
+// INDEX 基引用指向 aggregate.values 数组里的 ExecValue，元素步长固定为 sizeof(ExecValue)。
+// 参数：base - INDEX 基引用；index_value - 元素序号。返回：目标元素地址。
+fn exec_vm_index_ref_element_addr(base: &ExecValue, index_value: i64) usize {
+    const base_addr: usize = base.i64_value as usize;
+    return base_addr + (@size_of(ExecValue) as usize) * (index_value as usize);
+}
+
 fn exec_vm_box_value_ref(value: ExecValue, pointee_kind: i32) ExecValue {
     const boxed: &ExecValue = exec_value_alloc_bytes(@size_of(ExecValue)) as &ExecValue;
     if boxed == null {
@@ -544,6 +551,40 @@ fn exec_vm_raw_array_slice_ptr(value: &ExecValue, index_value: i32) ExecValue {
     return exec_make_pointer_with_kind(addr, elem_kind);
 }
 
+// 指针算术：`ptr ± n` 按 pointee 元素大小缩放，`ptr - ptr` 返回元素个数。
+// 参数：function - 当前函数（错误定位）；base - 指针操作数；offset - 偏移量或另一指针；
+// subtract - 1 表示减法。返回：结果值；非法元素类型时返回 void 并设置错误。
+fn exec_vm_pointer_add(function: &BCFunction, base: &ExecValue, offset: &ExecValue, subtract: i32) ExecValue {
+    if base == null || offset == null {
+        return exec_make_void();
+    }
+    const pointee_kind: i32 = exec_value_pointer_pointee_kind(base);
+    const elem_size: usize = exec_vm_type_kind_size(pointee_kind);
+    if elem_size == 0 as usize {
+        exec_backend_set_error(function.decl, "exec: 指针算术不支持该元素类型" as *byte, 0);
+        return exec_make_void();
+    }
+    var effective_sub: i32 = (subtract != 0) as i32;
+    if effective_sub != 0 && offset.kind == ExecValueKind.EXEC_VALUE_POINTER {
+        return exec_make_i64((base.i64_value -| offset.i64_value) / (elem_size as i64));
+    }
+    var magnitude: usize = offset.i64_value as usize;
+    if offset.i64_value < 0 {
+        var neg_value: i64 = 0 as i64 -| offset.i64_value;
+        magnitude = neg_value as usize;
+        if effective_sub != 0 {
+            effective_sub = 0;
+        } else {
+            effective_sub = 1;
+        }
+    }
+    const scaled: usize = elem_size * magnitude;
+    if effective_sub != 0 {
+        return exec_make_pointer_with_kind((base.i64_value as usize) -| scaled, pointee_kind);
+    }
+    return exec_make_pointer_with_kind((base.i64_value as usize) +| scaled, pointee_kind);
+}
+
 fn exec_vm_raw_slice_element_ptr(value: &ExecValue, index_value: i32, allow_end: i32) ExecValue {
     if value == null || exec_value_is_raw_slice(value) == 0 || index_value < 0 {
         return exec_make_void();
@@ -603,6 +644,11 @@ fn exec_vm_pointer_element_ptr(function: &BCFunction, base: ExecValue, index_val
         exec_backend_set_error(function.decl, "exec: 指针下标不能为负数" as *byte, 0);
         return exec_make_void();
     }
+    // INDEX 基引用按 aggregate.values 步进，元素是 ExecValue 而不是原生标量。
+    if exec_vm_pointer_is_index_base_ref(&base) != 0 {
+        const index_ref_kind: i32 = exec_vm_decode_ref_kind(base.aux_i64_value as i32);
+        return exec_vm_make_index_ref_from_addr(exec_vm_index_ref_element_addr(&base, index_value), index_ref_kind);
+    }
     const pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
     const elem_size: usize = exec_vm_type_kind_size(pointee_kind);
     if elem_size == 0 as usize {
@@ -629,16 +675,18 @@ fn exec_vm_index_ref(value: &ExecValue, index_value: i32) &ExecValue {
         if target == null {
             return null;
         }
+        // INDEX 基引用已经指向 aggregate.values 里的某个元素，必须按 ExecValue 步进：
+        // slice.ptr[i] 的 i 是元素序号，而不是结构体字段下标。
+        if exec_vm_pointer_is_index_base_ref(value) != 0 {
+            const target_addr2: usize = @usize_from_ptr(target as &void);
+            return @ptr_from_usize(target_addr2 + (@size_of(ExecValue) as usize) * (index_value as usize)) as &ExecValue;
+        }
         // 装箱聚合（数组/元组/结构体）的元素在 aggregate.values 里，必须按聚合下标取，
         // 不能对 &ExecValue 做原始指针步进：嵌套数组写入 arr[0][1] = x 走的正是这条路径，
         // 一旦按指针步进就会写到聚合头之外的地址，写回丢失。
         const target_aggregate: &ExecAggregate = exec_value_as_aggregate(target);
         if target_aggregate != null && target_aggregate.values != null && index_value < target_aggregate.count {
             return &target_aggregate.values[index_value];
-        }
-        if exec_vm_pointer_is_index_base_ref(value) != 0 {
-            const target_addr2: usize = @usize_from_ptr(target as &void);
-            return @ptr_from_usize(target_addr2 + (@size_of(ExecValue) as usize) * (index_value as usize)) as &ExecValue;
         }
         return exec_vm_index_ref(target, index_value);
     }
@@ -662,6 +710,12 @@ fn exec_vm_load_pointer_index(function: &BCFunction, base: ExecValue, index_valu
     if index_value < 0 {
         exec_backend_set_error(function.decl, "exec: 指针下标不能为负数" as *byte, 0);
         return -1;
+    }
+    // INDEX 基引用按 aggregate.values 步进，元素是 ExecValue 而不是原生标量。
+    if exec_vm_pointer_is_index_base_ref(&base) != 0 {
+        const index_elem: &ExecValue = @ptr_from_usize(exec_vm_index_ref_element_addr(&base, index_value)) as &ExecValue;
+        out_value[0] = exec_value_clone(index_elem);
+        return 0;
     }
     const pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
     const elem_size: usize = exec_vm_type_kind_size(pointee_kind);
@@ -756,6 +810,12 @@ fn exec_vm_store_pointer_index(function: &BCFunction, base: ExecValue, index_val
     if index_value < 0 {
         exec_backend_set_error(function.decl, "exec: 指针下标不能为负数" as *byte, 0);
         return -1;
+    }
+    // INDEX 基引用按 aggregate.values 步进，元素是 ExecValue 而不是原生标量。
+    if exec_vm_pointer_is_index_base_ref(&base) != 0 {
+        const index_elem2: &ExecValue = @ptr_from_usize(exec_vm_index_ref_element_addr(&base, index_value)) as &ExecValue;
+        index_elem2[0] = exec_value_clone(&src_value);
+        return 0;
     }
     const pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
     const elem_size: usize = exec_vm_type_kind_size(pointee_kind);
@@ -1721,7 +1781,12 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return -1;
         }
         const add_kind: ExecValueKind = exec_vm_value_kind_from_type_code(instr.imm as i32, slot_b.kind);
-        if exec_vm_value_kind_is_float(add_kind) != 0 {
+        if add_kind == ExecValueKind.EXEC_VALUE_POINTER {
+            slot_a[0] = exec_vm_pointer_add(function, slot_b, slot_c, 0);
+            if slot_a[0].kind == ExecValueKind.EXEC_VALUE_VOID {
+                return -1;
+            }
+        } else if exec_vm_value_kind_is_float(add_kind) != 0 {
             slot_a[0] = exec_vm_make_float_by_kind(add_kind, exec_value_as_f64(slot_b) + exec_value_as_f64(slot_c));
         } else if exec_vm_value_kind_is_unsigned(add_kind) != 0 {
             slot_a[0] = exec_vm_make_integer_by_kind(add_kind, 0, (slot_b.i64_value as u64) + (slot_c.i64_value as u64));
@@ -1771,7 +1836,12 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return -1;
         }
         const sub_kind: ExecValueKind = exec_vm_value_kind_from_type_code(instr.imm as i32, slot_b.kind);
-        if exec_vm_value_kind_is_float(sub_kind) != 0 {
+        if sub_kind == ExecValueKind.EXEC_VALUE_POINTER {
+            slot_a[0] = exec_vm_pointer_add(function, slot_b, slot_c, 1);
+            if slot_a[0].kind == ExecValueKind.EXEC_VALUE_VOID {
+                return -1;
+            }
+        } else if exec_vm_value_kind_is_float(sub_kind) != 0 {
             slot_a[0] = exec_vm_make_float_by_kind(sub_kind, exec_value_as_f64(slot_b) - exec_value_as_f64(slot_c));
         } else if exec_vm_value_kind_is_unsigned(sub_kind) != 0 {
             slot_a[0] = exec_vm_make_integer_by_kind(sub_kind, 0, (slot_b.i64_value as u64) - (slot_c.i64_value as u64));
@@ -2051,6 +2121,26 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 return -1;
             }
             slot_a[0] = exec_make_raw_slice(raw_slice_ptr.ptr_value, exec_value_slice_element_kind(&slice_base), slice_len);
+        } else if exec_value_is_pointer_like(slice_base) != 0 {
+            // 裸指针切片：ptr[start: start+len]，元素大小按指针 pointee kind 计算。
+            const ptr_elem_kind: i32 = exec_value_pointer_pointee_kind(&slice_base);
+            const ptr_elem_size: usize = exec_vm_type_kind_size(ptr_elem_kind);
+            if ptr_elem_size == 0 as usize {
+                exec_backend_set_error(function.decl, "exec: 切片基值不是 array/slice" as *byte, 0);
+                return -1;
+            }
+            const ptr_base: &byte = slice_base.ptr_value;
+            if ptr_base == null && slice_len > 0 {
+                exec_backend_set_error(function.decl, "exec: 切片基值为空指针" as *byte, 0);
+                return -1;
+            }
+            if ptr_base == null {
+                slot_a[0] = exec_make_raw_slice(null, ptr_elem_kind, 0);
+            } else {
+                const ptr_addr: usize = @usize_from_ptr(ptr_base as &void) + ptr_elem_size * (requested_start as usize);
+                const ptr_elem_ptr: ExecValue = exec_make_pointer_with_kind(ptr_addr, ptr_elem_kind);
+                slot_a[0] = exec_make_raw_slice(ptr_elem_ptr.ptr_value, ptr_elem_kind, slice_len);
+            }
         } else {
             const slice_base_is_slice: i32 = (slice_base.kind == ExecValueKind.EXEC_VALUE_SLICE) as i32;
             var start_idx: i32 = requested_start;
@@ -2137,6 +2227,13 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 if exec_vm_load_pointer_index(function, base_target2[0], slot_c.i64_value, slot_a) != 0 {
                     return -1;
                 }
+            } else if index_value == 0 &&
+                base_target2[0].kind != ExecValueKind.EXEC_VALUE_SLICE &&
+                exec_value_as_aggregate(base_target2) == null &&
+                exec_value_is_raw_slice(base_target2) == 0 &&
+                exec_value_is_raw_array(base_target2) == 0 {
+                // `*ref`：引用指向标量/union/错误联合等非聚合、非切片值时，解引用就是取整个值。
+                exec_vm_store_slot(slot_a, base_target2[0]);
             } else {
                 const index_ref2: &ExecValue = exec_vm_index_ref(slot_b, index_value);
                 if index_ref2 == null {
@@ -2227,6 +2324,35 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return -1;
         }
         slot_a[0] = exec_value_clone(&union_data2.payload);
+    } else if instr.opcode == BCOpcode.BC_LOAD_ERROR_TAG {
+        if slot_a == null || slot_b == null {
+            exec_backend_set_error(function.decl, "exec: LOAD_ERROR_TAG 槽位越界" as *byte, 0);
+            return -1;
+        }
+        if slot_b.kind != ExecValueKind.EXEC_VALUE_ERROR_UNION {
+            exec_backend_set_error(function.decl, "exec: LOAD_ERROR_TAG 目标不是错误联合" as *byte, 0);
+            return -1;
+        }
+        var error_tag: i32 = 0;
+        if slot_b.i64_value != 0 {
+            error_tag = slot_b.error_id;
+        }
+        slot_a[0] = exec_make_i32(error_tag);
+    } else if instr.opcode == BCOpcode.BC_LOAD_ERROR_PAYLOAD {
+        if slot_a == null || slot_b == null {
+            exec_backend_set_error(function.decl, "exec: LOAD_ERROR_PAYLOAD 槽位越界" as *byte, 0);
+            return -1;
+        }
+        if slot_b.kind != ExecValueKind.EXEC_VALUE_ERROR_UNION {
+            exec_backend_set_error(function.decl, "exec: LOAD_ERROR_PAYLOAD 目标不是错误联合" as *byte, 0);
+            return -1;
+        }
+        if slot_b.i64_value != 0 {
+            exec_backend_set_error(function.decl, "exec: LOAD_ERROR_PAYLOAD 错误分支没有载荷" as *byte, 0);
+            return -1;
+        }
+        var error_ok_value: ExecValue = exec_value_unwrap_ok(slot_b[0]);
+        slot_a[0] = error_ok_value;
     } else if instr.opcode == BCOpcode.BC_CMP_EQ {
         if slot_a == null || slot_b == null || slot_c == null {
             exec_backend_set_error(function.decl, "exec: CMP_EQ 槽位越界" as *byte, 0);
