@@ -2486,6 +2486,90 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return -1;
         }
         slot_a[0] = vec_bin;
+    } else if (instr.opcode == BCOpcode.BC_BIT_AND || instr.opcode == BCOpcode.BC_BIT_OR ||
+        instr.opcode == BCOpcode.BC_BIT_XOR) &&
+        slot_a != null && slot_b != null && slot_c != null &&
+        slot_b.kind == ExecValueKind.EXEC_VALUE_MASK {
+        var mask_out_bits: i64 = 0;
+        if instr.opcode == BCOpcode.BC_BIT_AND {
+            mask_out_bits = slot_b.i64_value & slot_c.i64_value;
+        } else if instr.opcode == BCOpcode.BC_BIT_OR {
+            mask_out_bits = slot_b.i64_value | slot_c.i64_value;
+        } else {
+            mask_out_bits = slot_b.i64_value ^ slot_c.i64_value;
+        }
+        var mask_out: ExecValue = exec_make_mask_value(exec_value_vector_lanes(slot_b));
+        mask_out.i64_value = mask_out_bits;
+        slot_a[0] = mask_out;
+    } else if (instr.opcode == BCOpcode.BC_SHL || instr.opcode == BCOpcode.BC_SHR) &&
+        slot_a != null && slot_b != null && slot_c != null &&
+        slot_b.kind == ExecValueKind.EXEC_VALUE_VECTOR {
+        const sh_lanes: i32 = exec_value_vector_lanes(slot_b);
+        const sh_kind: i32 = exec_value_vector_elem_kind(slot_b);
+        const sh_ldata: &byte = exec_value_vector_data(slot_b);
+        const sh_right_is_vec: i32 = (slot_c.kind == ExecValueKind.EXEC_VALUE_VECTOR) as i32;
+        const sh_rdata: &byte = exec_value_vector_data(slot_c);
+        const sh_scalar: i64 = slot_c.i64_value;
+        var sh_out: ExecValue = exec_make_vector(sh_kind, sh_lanes);
+        const sh_odata: &byte = exec_value_vector_data(&sh_out);
+        if sh_odata == null {
+            exec_backend_set_error(function.decl, "exec: 向量移位分配失败" as *byte, 0);
+            return -1;
+        }
+        var shi: i32 = 0;
+        while shi < sh_lanes {
+            const sh_lb: i64 = exec_vector_lane_bits(sh_ldata, sh_kind, shi);
+            var sh_rb: i64 = sh_scalar;
+            if sh_right_is_vec != 0 {
+                sh_rb = exec_vector_lane_bits(sh_rdata, sh_kind, shi);
+            }
+            var sh_res: i64 = 0;
+            if instr.opcode == BCOpcode.BC_SHL {
+                sh_res = sh_lb << (sh_rb as i32);
+            } else {
+                sh_res = sh_lb >> (sh_rb as i32);
+            }
+            exec_vector_set_lane_bits(sh_odata, sh_kind, shi, sh_res);
+            shi = shi + 1;
+        }
+        slot_a[0] = sh_out;
+    } else if (instr.opcode == BCOpcode.BC_NEG || instr.opcode == BCOpcode.BC_NOT) &&
+        slot_a != null && slot_b != null && slot_b.kind == ExecValueKind.EXEC_VALUE_VECTOR {
+        const un_lanes: i32 = exec_value_vector_lanes(slot_b);
+        const un_kind: i32 = exec_value_vector_elem_kind(slot_b);
+        const un_src: &byte = exec_value_vector_data(slot_b);
+        var un_out: ExecValue = exec_make_vector(un_kind, un_lanes);
+        const un_dst: &byte = exec_value_vector_data(&un_out);
+        if un_dst == null {
+            exec_backend_set_error(function.decl, "exec: 向量一元运算分配失败" as *byte, 0);
+            return -1;
+        }
+        const un_is_f32: i32 = (un_kind == TypeKind.TYPE_F32 as i32) as i32;
+        const un_is_float: i32 = (un_is_f32 != 0 || un_kind == TypeKind.TYPE_F64 as i32) as i32;
+        var uni: i32 = 0;
+        while uni < un_lanes {
+            const un_bits: i64 = exec_vector_lane_bits(un_src, un_kind, uni);
+            var un_res: i64 = 0;
+            if instr.opcode == BCOpcode.BC_NOT {
+                un_res = ~un_bits;
+            } else if un_is_float != 0 {
+                if un_is_f32 != 0 {
+                    un_res = exec_f32_to_bits(-(exec_f32_from_bits(un_bits as u32))) as i64;
+                } else {
+                    un_res = exec_f64_to_bits(-(exec_f64_from_bits(un_bits as u64))) as i64;
+                }
+            } else {
+                un_res = 0 -| un_bits;
+            }
+            exec_vector_set_lane_bits(un_dst, un_kind, uni, un_res);
+            uni = uni + 1;
+        }
+        slot_a[0] = un_out;
+    } else if instr.opcode == BCOpcode.BC_NOT &&
+        slot_a != null && slot_b != null && slot_b.kind == ExecValueKind.EXEC_VALUE_MASK {
+        var not_mask: ExecValue = exec_make_mask_value(exec_value_vector_lanes(slot_b));
+        not_mask.i64_value = ~slot_b.i64_value;
+        slot_a[0] = not_mask;
     } else if instr.opcode == BCOpcode.BC_ADD {
         if slot_a == null || slot_b == null || slot_c == null {
             exec_backend_set_error(function.decl, "exec: ADD 槽位越界" as *byte, 0);
@@ -3178,25 +3262,72 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 const rv_lanes: i32 = exec_value_vector_lanes(arg0v);
                 const rv_data: &byte = exec_value_vector_data(arg0v);
                 const rv_kind: i32 = exec_value_vector_elem_kind(arg0v);
+                const rv_is_f32: i32 = (rv_kind == TypeKind.TYPE_F32 as i32) as i32;
+                const rv_is_float: i32 = (rv_is_f32 != 0 || rv_kind == TypeKind.TYPE_F64 as i32) as i32;
+                const rv_is_add: i32 = (str_equals(instr.text, "reduce_add" as &byte) != 0) as i32;
+                const rv_is_mul: i32 = (str_equals(instr.text, "reduce_mul" as &byte) != 0) as i32;
+                const rv_is_min: i32 = (str_equals(instr.text, "reduce_min" as &byte) != 0) as i32;
                 var acc: i64 = 0;
-                if str_equals(instr.text, "reduce_mul" as &byte) != 0 { acc = 1; }
+                if rv_is_mul != 0 { acc = 1; }
+                var acc_f: f64 = 0.0;
+                if rv_is_mul != 0 { acc_f = 1.0; }
                 var ri: i32 = 0;
                 while ri < rv_lanes && rv_data != null {
                     const lane_bits: i64 = exec_vector_lane_bits(rv_data, rv_kind, ri);
-                    if str_equals(instr.text, "reduce_add" as &byte) != 0 {
+                    if rv_is_float != 0 {
+                        var lane_f: f64 = 0.0;
+                        if rv_is_f32 != 0 {
+                            lane_f = exec_f32_from_bits(lane_bits as u32) as f64;
+                        } else {
+                            lane_f = exec_f64_from_bits(lane_bits as u64);
+                        }
+                        if rv_is_add != 0 {
+                            acc_f = acc_f + lane_f;
+                        } else if rv_is_mul != 0 {
+                            acc_f = acc_f * lane_f;
+                        } else if ri == 0 {
+                            acc_f = lane_f;
+                        } else if rv_is_min != 0 {
+                            if lane_f < acc_f { acc_f = lane_f; }
+                        } else if lane_f > acc_f {
+                            acc_f = lane_f;
+                        }
+                    } else if rv_is_add != 0 {
                         acc = acc +| lane_bits;
-                    } else if str_equals(instr.text, "reduce_mul" as &byte) != 0 {
+                    } else if rv_is_mul != 0 {
                         acc = acc *| lane_bits;
                     } else if ri == 0 {
                         acc = lane_bits;
-                    } else if str_equals(instr.text, "reduce_min" as &byte) != 0 {
+                    } else if rv_is_min != 0 {
                         if lane_bits < acc { acc = lane_bits; }
                     } else if lane_bits > acc {
                         acc = lane_bits;
                     }
                     ri = ri + 1;
                 }
-                vec_out = exec_make_i64(acc);
+                if rv_is_float != 0 {
+                    if rv_is_f32 != 0 {
+                        vec_out = exec_make_f32(acc_f as f32);
+                    } else {
+                        vec_out = exec_make_f64(acc_f);
+                    }
+                } else if rv_kind == TypeKind.TYPE_I32 as i32 {
+                    vec_out = exec_make_i32(acc as i32);
+                } else if rv_kind == TypeKind.TYPE_U32 as i32 {
+                    vec_out = exec_make_u32(acc as u32);
+                } else if rv_kind == TypeKind.TYPE_U8 as i32 {
+                    vec_out = exec_make_u8(acc as u8);
+                } else if rv_kind == TypeKind.TYPE_U16 as i32 {
+                    vec_out = exec_make_u16(acc as u16);
+                } else if rv_kind == TypeKind.TYPE_U64 as i32 {
+                    vec_out = exec_make_u64(acc as u64);
+                } else if rv_kind == TypeKind.TYPE_I16 as i32 {
+                    vec_out = exec_make_i16(acc as i16);
+                } else if rv_kind == TypeKind.TYPE_I8 as i32 {
+                    vec_out = exec_make_i8(acc as i8);
+                } else {
+                    vec_out = exec_make_i64(acc);
+                }
             }
         } else if str_equals(instr.text, "select" as &byte) != 0 {
             const sel_mask: &ExecValue = exec_vm_slot_ref(frame, instr.b);
