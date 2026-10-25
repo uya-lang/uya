@@ -17,6 +17,10 @@ var g_type_from_ast_cache_nodes: [&ASTNode: TYPE_FROM_AST_CACHE_SIZE] = [];
 var g_type_from_ast_cache_type_params: [&TypeParam: TYPE_FROM_AST_CACHE_SIZE] = [];
 var g_type_from_ast_cache_type_param_counts: [i32: TYPE_FROM_AST_CACHE_SIZE] = [];
 var g_type_from_ast_cache_values: [&Type: TYPE_FROM_AST_CACHE_SIZE] = [];
+// `Self` 的解析结果依赖 current_self_type_name / current_self_is_union；
+// 缓存键必须带上这两项，否则方法块里的 `&Self` 会命中其它上下文写入的旧结果。
+var g_type_from_ast_cache_self_names: [&byte: TYPE_FROM_AST_CACHE_SIZE] = [];
+var g_type_from_ast_cache_self_is_union: [i32: TYPE_FROM_AST_CACHE_SIZE] = [];
 
 fn simd_is_valid_lane_count(lanes: i32) i32 {
     if lanes == 2 || lanes == 4 || lanes == 8 || lanes == 16 || lanes == 32 || lanes == 64 {
@@ -43,6 +47,8 @@ fn type_from_ast_reset_cache() void {
         g_type_from_ast_cache_type_params[i] = null;
         g_type_from_ast_cache_type_param_counts[i] = 0;
         g_type_from_ast_cache_values[i] = null;
+        g_type_from_ast_cache_self_names[i] = null;
+        g_type_from_ast_cache_self_is_union[i] = 0;
         i = i + 1;
     }
     g_type_from_ast_cached_checker = null;
@@ -76,6 +82,12 @@ fn type_from_ast_cache_slot(checker: &TypeChecker, type_node: &ASTNode) i32 {
     if checker != null {
         h = h + ((checker.current_type_param_count as usize) * 17 as usize);
     }
+    if checker != null && checker.current_self_type_name != null {
+        h = h + (@usize_from_ptr(checker.current_self_type_name as &void) * 7 as usize);
+    }
+    if checker != null && checker.current_self_is_union != 0 {
+        h = h + 3 as usize;
+    }
     return (h as i32) & TYPE_FROM_AST_CACHE_MASK;
 }
 
@@ -100,7 +112,9 @@ fn type_from_ast_cache_lookup(checker: &TypeChecker, type_node: &ASTNode) &Type 
         }
         if g_type_from_ast_cache_nodes[idx] == type_node &&
             g_type_from_ast_cache_type_params[idx] == checker.current_type_params &&
-            g_type_from_ast_cache_type_param_counts[idx] == checker.current_type_param_count {
+            g_type_from_ast_cache_type_param_counts[idx] == checker.current_type_param_count &&
+            g_type_from_ast_cache_self_names[idx] == checker.current_self_type_name &&
+            g_type_from_ast_cache_self_is_union[idx] == checker.current_self_is_union {
             return cached;
         }
         probe = probe + 1;
@@ -128,7 +142,9 @@ fn type_from_ast_cache_store(checker: &TypeChecker, type_node: &ASTNode, result:
         if cached == null ||
             (g_type_from_ast_cache_nodes[idx] == type_node &&
                 g_type_from_ast_cache_type_params[idx] == checker.current_type_params &&
-                g_type_from_ast_cache_type_param_counts[idx] == checker.current_type_param_count) {
+                g_type_from_ast_cache_type_param_counts[idx] == checker.current_type_param_count &&
+                g_type_from_ast_cache_self_names[idx] == checker.current_self_type_name &&
+                g_type_from_ast_cache_self_is_union[idx] == checker.current_self_is_union) {
             target_idx = idx;
             break;
         }
@@ -151,6 +167,8 @@ fn type_from_ast_cache_store(checker: &TypeChecker, type_node: &ASTNode, result:
     g_type_from_ast_cache_nodes[target_idx] = type_node;
     g_type_from_ast_cache_type_params[target_idx] = checker.current_type_params;
     g_type_from_ast_cache_type_param_counts[target_idx] = checker.current_type_param_count;
+    g_type_from_ast_cache_self_names[target_idx] = checker.current_self_type_name;
+    g_type_from_ast_cache_self_is_union[target_idx] = checker.current_self_is_union;
     g_type_from_ast_cache_values[target_idx] = stored;
 }
 
