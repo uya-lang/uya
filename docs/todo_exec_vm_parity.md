@@ -151,6 +151,18 @@
   任何失败都必须有原因码 + `file:line` + 消息。
 - 验收：`tests/verify_exec_vm_diagnostics.sh` 通过，census 中无空消息失败。
 
+### T13 双指针 / 指针元素类型（15 例）
+
+- 现象：`tests/test_double_pointer_type.uya`、`test_double_pointer_assign_regression.uya`
+  在 `--vm` 下运行期报 `exec: 当前不支持该指针元素类型`（`**ptr2` 解引用处）。
+- 已排查：报错来自 `src/exec/vm.uya` 的 `exec_vm_pointer_element_ptr`
+  （约 609 行）等三处，条件是 `exec_vm_type_kind_size(pointee_kind) == 0`；
+  而 `exec_vm_type_kind_size` **已经**为 `TYPE_POINTER` 返回 `@size_of(usize)`，
+  说明传入的 `pointee_kind` 不是 TypeKind 本身，而是
+  `exec_builder_pointer_pointee_kind_code` 产出的编码；下一步核对这个编码与
+  `exec_vm_type_kind_size` 的取值域是否一致（数组/切片路径能跑通，说明标量编码一致，
+  指针指向指针时可能落到了别的码）。
+
 ## 下一轮起点（上下文压缩后从这里继续）
 
 1. 先跑基线：`UYA_EXEC_CENSUS_JOBS=16 bash tests/verify_exec_vm_census.sh`，
