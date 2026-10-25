@@ -101,6 +101,13 @@
 
 ### T10 静默失败清理
 
+- [x] `exec_run_program` 与 driver 的 exec 分支在退出前 flush `libc.stdout`/`libc.stderr`，
+  避免未换行结尾的输出和运行后诊断信息随进程退出丢失。
+- [ ] 仍在排查：`./bin/uya run --vm tests/test_break_continue_for.uya` 返回 1 且
+  stdout/stderr 均为 0 字节；`--exec --verbose` 停在 `exec build 耗时` 之后，
+  连无条件的 `exec backend 已构建: ...` 都没有输出，说明进程在打印前即终止或该分支未走到。
+  下一步在 `exec_build_program` 前后加最小打点定位。
+
 - `for arr |v|`、`for arr |&item|` 等在 `--vm` 下静默退出 1；
   任何失败都必须有原因码 + `file:line` + 消息。
 - 验收：`tests/verify_exec_vm_diagnostics.sh` 通过，census 中无空消息失败。

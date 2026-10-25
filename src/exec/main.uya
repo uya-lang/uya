@@ -2,6 +2,7 @@
 
 use libc;
 use libc.stdlib;
+use libc.fflush;
 
 enum ExecUnsupportedReason {
     EXEC_UNSUPPORTED_NONE,
@@ -234,6 +235,10 @@ export fn exec_run_program() i32 {
     }
     const run_start_time: i64 = clock();
     const exit_code: i32 = vm_run_program(g_exec_bc_program, g_exec_trace_vm_enabled);
+    // VM 在编译器进程内运行，Uya stdio 带行/块缓冲：返回前显式 flush，
+    // 否则没有换行结尾的输出（测试名、失败前的缓冲）会随进程退出丢失。
+    _ = fflush(libc.stdout);
+    _ = fflush(libc.stderr);
     const run_end_time: i64 = clock();
     g_exec_last_vm_run_time_ms = (run_end_time -| run_start_time) *| 1000 / CLOCKS_PER_SEC;
     return exit_code;
