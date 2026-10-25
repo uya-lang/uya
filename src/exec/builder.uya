@@ -3819,7 +3819,10 @@ fn exec_builder_validate_slot_read(fn_hir: &HIRFunction, slot: i32, slot_count: 
         return -1;
     }
     if slot_written != null && slot_written[slot] == 0 {
-        exec_backend_set_error(fn_hir.decl, "exec: bytecode 读取了未初始化槽位" as *byte, 0);
+        var uninit_msg: [byte: 128] = [];
+        _ = snprintf(&uninit_msg[0] as *byte, 128,
+            "exec: bytecode 读取了未初始化槽位(slot=%d)" as *byte, slot);
+        exec_backend_set_error(fn_hir.decl, &uninit_msg[0] as &byte, 0);
         return -1;
     }
     return 0;
