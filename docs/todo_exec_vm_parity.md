@@ -9,7 +9,7 @@
 
 ## 进度快照
 
-- 最近一次实测（T4 之后）：`test --vm` 通过 **341 / 912（37.4%）**，失败 571。
+- 最近一次实测（T5b 之后）：`test --vm` 通过 **343 / 912（37.6%）**，失败 569。
 - 失败原因分布：`generic` 376、`simd` 55、`runtime` 48、`match_expr` 20、
   `unknown` 14、`extern_abi` 13、`string_interp` 9、`build` 8、`catch_expr` 7、
   `try_expr` 4、`c_import` 4、`async` 2。
@@ -113,11 +113,10 @@
 
 ### T5b for 数组迭代（`|v|` / `|&v|` / `|_|`）
 
-- 现象：`for arr |item| { ... }`（`for_stmt_is_range == 0`）完全没有 lowering，
-  直接失败；涉及约 27 个空消息文件中的大部分。
-- 计划：按「数组值存临时局部 → 下标循环 → 每轮把元素（或元素地址）绑定到
-  `for_stmt_var_name`」desugar，支持值绑定、引用绑定与 `|_|`。
-- 验收：`tests/test_break_continue_for.uya` 在 `--vm` 下通过；空消息失败清零。
+- [x] 值绑定与 `|_|`：`exec_lower_make_for_array_stmt` 把数组值存进临时局部，
+  再用下标循环把 `arr[i]` 绑定到 `for_stmt_var_name`（`_` 不绑定）。
+- [ ] 引用绑定 `|&item|`（4 个文件）：需要 `&arr[i]` 的别名写入语义，单独实现。
+- 实测：通过率 37.4% → 37.6%；8 个 `verify_exec_vm_*.sh` 全过。
 
 - `for arr |v|`、`for arr |&item|` 等在 `--vm` 下静默退出 1；
   任何失败都必须有原因码 + `file:line` + 消息。
