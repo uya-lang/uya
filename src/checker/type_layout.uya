@@ -158,6 +158,13 @@ fn get_type_align_bytes_v2(checker: &TypeChecker, t: &Type, program_node: &ASTNo
     if t.kind == TypeKind.TYPE_ARRAY && t.element_type != null {
         return get_type_align_bytes_v2(checker, t.element_type, program_node);
     }
+    // SIMD：向量对齐取元素对齐；掩码是 i64 位集。
+    if t.kind == TypeKind.TYPE_VECTOR && t.element_type != null {
+        return get_type_align_bytes_v2(checker, t.element_type, program_node);
+    }
+    if t.kind == TypeKind.TYPE_MASK {
+        return 8;
+    }
     if t.kind == TypeKind.TYPE_SLICE || t.kind == TypeKind.TYPE_INTERFACE {
         return 8;
     }
