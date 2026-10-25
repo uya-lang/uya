@@ -350,6 +350,24 @@
      说明「结果槽 `slot_a` 与 `BC_JMP_IF_FALSE` 读取的条件槽不是同一个」或
      该 `if` 的条件另有来源 —— 下一步应校验 `HIR_EXPR_IF` 里
      `if_cond_slot` 与 `BC_CMP_EQ` 的 `a` 是否一致（插桩输出 `instr.a/b/c` 与帧内槽号）。
+   - **`@usize_from_ptr(&arr)` 与 `&arr[0]` 不等价（已最小复现，未修）**：
+     ```uya
+     var buf: [byte: 8] = [0, 0, 0, 0, 0, 0, 0, 0];
+     const a: usize = @usize_from_ptr(&buf);
+     const b: usize = @usize_from_ptr(&buf[0]);
+     // C99: a == b 为真；VM: a == b 为假
+     ```
+     VM 的 `a` 是局部槽位地址（`exec_vm_value_bytes_address` 里
+     `exec_vm_ref_target_value` 拿到的目标没被识别成 raw array，退回
+     `exec_vm_numeric_to_u64` 取到引用地址），于是
+     `memset(@ptr_from_usize(a) as *byte, c, n)` 直接写坏那个 `ExecValue`，
+     紧接着读 `buf[0]` 就报 `LOAD_INDEX 越界`。
+     受影响用例：`test_mem`（从 `memset_basic` 起整块失败）、
+     `test_protobuf_wire`、`test_tflm_interpreter`、`test_tflm_phase2`；
+     修好这一处可连带解锁 memcpy/memset 一族。
+     相关代码：`exec_vm_value_bytes_address`（`src/exec/vm.uya:410`）、
+     `exec_vm_ref_target_value`、`exec_value_is_raw_array`、`BC_ADDR_INDEX` 的
+     `exec_vm_raw_array_element_ptr` 分支（`&arr[0]` 走的就是这条，是对的）。
 3. 每完成一项：`make uya` → 相关脚本 → census → 更新本文件勾选 → 单独提交。
 4. 收口（T11）前必须 `make check` 全绿且 `make exec-parity` 全绿，再
    `worktree finish` 合并到 main 并删除工作区。
