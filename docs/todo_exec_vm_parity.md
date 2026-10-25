@@ -183,7 +183,15 @@
   旁路表扩容到 256 基地址 × 512 元素（整份源码的标记量远超原上限）。
 - 实测：**tests/test_fmt_*.uya 19 个用例在 --vm 下全部通过**（本轮起步时 0 个），
   8 个 verify_exec_vm_*.sh 门禁全过。
-- 追加线索（下一轮起点）：builder 的静态槽位校验报
+- 追加线索二：`test_osal` / `test_kernel_dispatch` 的 LOAD_FIELD 越界里
+  `kind=1792947790` 这种值明显是垃圾内存（ASCII 字节被当成 ExecValue 读），
+  说明某条路径把非 ExecValue 的数据当值读了（osal 是 `os_gettimeofday(&tv, ...)`
+  之后读 `tv.tv_sec`）。帧槽位本身在建立时已统一置 VOID（vm.uya:3120），
+  所以要么是 extern 调用把手写坏的地址传错，要么是某个槽索引越界。
+- 追加线索三：`timeout` 6 例（crypto_bigint/curve25519/ed25519/sha256_stream/
+  sha512/epoll_server）在 VM 里跑不完，crypto_ed25519 已确认卡在第一个用例，
+  属死循环而非单纯慢。
+- 追加线索（builder 静态槽位校验）：
   「bytecode 读取了未初始化槽位(slot=0 msg=MOV 源槽位非法)」，
   `test_crypto_ed25519`（已越过 256 元素上限）与
   `test_function_reachability_string_interp_expr`（插值结果赋给定长字符数组）
