@@ -1,0 +1,19 @@
+// null 字面量：exec VM 与 C99 行为一致（AST 里 null 以标识符形式出现）
+use std.testing.assert_eq_i32;
+
+test "null pointer compare" {
+    const p: *byte = null;
+    try assert_eq_i32(p == null, true);
+    const q: *byte = null;
+    try assert_eq_i32(q == null, true);
+    try assert_eq_i32(p != null, false);
+}
+
+test "null in struct field" {
+    var holder: PtrHolder = PtrHolder { ptr: null };
+    try assert_eq_i32(holder.ptr == null, true);
+}
+
+struct PtrHolder {
+    ptr: *byte,
+}

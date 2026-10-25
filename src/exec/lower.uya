@@ -4542,6 +4542,15 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             hir_global.global_slot = global_slot;
             return hir_global;
         }
+        if expr.identifier_name != null && str_equals(expr.identifier_name, "null" as &byte) != 0 {
+            // null 字面量在 AST 里是标识符（parser 用名字标记），exec 侧按零值指针处理。
+            var null_type: Type = copy_type(&expr_type);
+            if null_type.kind == TypeKind.TYPE_VOID {
+                const void_pointee: Type = make_void_type();
+                null_type = make_pointer_type(ctx.arena, &void_pointee, 0);
+            }
+            return exec_lower_make_zero_expr(ctx, expr, &null_type);
+        }
         return exec_lower_fail_expr(expr, "exec: 当前仅支持局部变量/参数/全局标识符" as *byte);
     }
     if expr.type == ASTNodeType.AST_MEMBER_ACCESS {

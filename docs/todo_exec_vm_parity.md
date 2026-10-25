@@ -127,6 +127,8 @@
   `exec: 当前不支持 for 数组迭代`（census 中空消息失败 41 → 27）。
 - [x] `exec_build_program`、全局初始化、函数 lowering 三处补「失败但未设置错误」兜底，
   避免再次出现无消息失败。
+- [x] `null` 字面量（parser 用名为 `null` 的标识符表示）按零值指针 lowering，
+  回归用例 `tests/test_exec_vm_null_pointer.uya`（C99/VM 双通过）。
 - [x] 其余 29 例空消息失败已确认**不是**静默构建失败：flush 修复后都能看到
   `程序运行返回码：1`，属于「VM 跑完但结果不对」的语义缺陷（转 T12/T4b 等）。
 
