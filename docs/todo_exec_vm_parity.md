@@ -264,8 +264,11 @@
 - [x] `@size_of` / `@alignof` 支持 `@vector(T,N)` 与 `@mask(N)`。
 - [x] `@size_of` / `@alignof` 覆盖 `@vector(T,N)` / `@mask(N)`（含类型别名，
       以及含向量字段的结构体布局）。
-- 现状：`tests/test_simd_*.uya` **44 / 46 通过**（改造前 0）。
-- [ ] 余下 2 例：`return_splat_binary`（函数返回向量后调用侧拿到非向量值）、
+- [x] `@vector.load` / `@vector.store` 支持聚合数组：识别「索引基引用」后
+      逐通道读写相邻 `ExecValue`，`[u32: N]` 这类没有原生字节布局的定长数组也能用。
+- [x] 错误联合 ok 载荷保留向量/掩码通道数（`!@vector(T,N)` 返回不再丢通道）。
+- 现状：`tests/test_simd_*.uya` **46 / 46 全部通过**（改造前 0）—— T7 收口。
+- 历史记录（已全部修掉）：`return_splat_binary`（函数返回向量后调用侧拿到非向量值）、
       `type_positions`（`@size_of(别名类型)` 仍走不到向量分支）、
       `vector_load`（`[u32: N]` 仍是 ExecValue 聚合，没有原生字节布局）。
       更早的记录留档：`vector_select`（第 3 个断言，`select(...) + splat(0)`）、
