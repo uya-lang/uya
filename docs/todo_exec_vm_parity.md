@@ -196,6 +196,11 @@
 - 追加线索三：`timeout` 6 例（crypto_bigint/curve25519/ed25519/sha256_stream/
   sha512/epoll_server）在 VM 里跑不完，crypto_ed25519 已确认卡在第一个用例，
   属死循环而非单纯慢。
+- 追加线索四：`&"xyz"[i]`（字符串字面量取址，`test_slice_literal_addr_of:51`）
+  在 VM 里 ADDR_INDEX 越界。试过在 ADDR_INDEX 里把 EXEC_VALUE_STRING 的
+  `ptr_value + i` 直接当字节指针返回，结果后续用例段错误（字面量所在内存不可
+  直接按字节读/或生命周期不成立），已回退。下一轮应从「字符串常量的存放形态」
+  入手，而不是简单取址。
 - 追加线索（builder 静态槽位校验）：
   「bytecode 读取了未初始化槽位(slot=0 msg=MOV 源槽位非法)」，
   `test_crypto_ed25519`（已越过 256 元素上限）与
