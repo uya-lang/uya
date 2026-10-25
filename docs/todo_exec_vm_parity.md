@@ -26,6 +26,12 @@
   interface 方法表 15、表达式节点 `type=28` 7、编译期 builtin 折叠 5。
 - `runtime` 内部 Top：`LOAD_FIELD 字段越界` 6（含槽位读到未初始化值的情形）、
   `LOAD_INDEX 越界` 3、`ADDR_INDEX 越界` 1、除零 1。
+- `exec VM / C99` 差分基线（`tests/verify_exec_vm_parity.sh`，全量 914 例实跑）：
+  **一致 487 / 不一致 427**，跳过 0；不一致**全部**是 `STATUS_MISMATCH`
+  （`C99=0 VM=1`），没有一条摘要或 stdout 差异 —— 说明失败都停在
+  「VM 侧根本没跑起来/提前报错」，而不是结果不同。差分明细在 `/tmp/parity_now.tsv`。
+  这条基线说明 T11 的 `make exec-parity` 与普查通过率几乎等价（487 vs 482），
+  98% 的用例 C99 侧是好的，缺口全在 VM。
 - `catch_expr` 的 18 例全部是 `@await 表达式 catch`，归 T9。
 - 本轮从 431 / 914（47.2%）起步，累计 +44。
 - 待办：T5（泛型/varargs）、T7（SIMD）、T8（原生桥）、T9（async）、T10（剩余诊断）、
@@ -335,9 +341,15 @@
      `exec_vm_compare_values`（**只在 left 无符号时**走无符号分支，
      而常量那侧 kind 是 I32）。
      已尝试「任一侧无符号即按无符号比较 + 按 kind 截宽归一」与
-     「I64 目标零扩展」，编译通过但对上述用例**无任何改善**，说明假设仍不完整，
-     已回退，避免留下未验证的比较语义变更。下一轮需先在 `BC_CMP_EQ`
-     里打印两侧 `kind`/`i64_value` 再动手。
+     「I64 目标零扩展」，编译通过但对上述用例**无任何改善**，已回退。
+     **已在 `BC_CMP_EQ` 临时插桩取到的现场**：该次比较为
+     `kb=6(U32) vb=-1198279054 kc=1(I32) vc=-1198279054`，两侧 `i64_value`
+     完全相同，但写出的布尔结果是 `out=0`（假）。而 `exec_make_bool(1)`
+     会把 `i64_value` 置 1、`exec_value_truthy` 读 `i64_value`，
+     `exec_vm_compare_values` 在原实现下对这两个值也应返回 0。
+     说明「结果槽 `slot_a` 与 `BC_JMP_IF_FALSE` 读取的条件槽不是同一个」或
+     该 `if` 的条件另有来源 —— 下一步应校验 `HIR_EXPR_IF` 里
+     `if_cond_slot` 与 `BC_CMP_EQ` 的 `a` 是否一致（插桩输出 `instr.a/b/c` 与帧内槽号）。
 3. 每完成一项：`make uya` → 相关脚本 → census → 更新本文件勾选 → 单独提交。
 4. 收口（T11）前必须 `make check` 全绿且 `make exec-parity` 全绿，再
    `worktree finish` 合并到 main 并删除工作区。
