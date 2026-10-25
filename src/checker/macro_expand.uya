@@ -1512,6 +1512,105 @@ fn deep_copy_ast_internal(node: &ASTNode, ctx: &MacroExpandContext, filename: &b
         copy.len_expr_array = deep_copy_ast_internal(node.len_expr_array, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
     } else if node.type == ASTNodeType.AST_ERROR_VALUE {
         copy.error_value_name = node.error_value_name;
+    } else if node.type == ASTNodeType.AST_PTR_FROM_USIZE {
+        copy.ptr_from_usize_value = deep_copy_ast_internal(node.ptr_from_usize_value, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+    } else if node.type == ASTNodeType.AST_USIZE_FROM_PTR {
+        copy.usize_from_ptr_ptr = deep_copy_ast_internal(node.usize_from_ptr_ptr, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+    } else if node.type == ASTNodeType.AST_PIPELINE_EXPR {
+        copy.pipeline_expr_left = deep_copy_ast_internal(node.pipeline_expr_left, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+        copy.pipeline_expr_right = deep_copy_ast_internal(node.pipeline_expr_right, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+        copy.pipeline_expr_move_checked = node.pipeline_expr_move_checked;
+    } else if node.type == ASTNodeType.AST_PRINT || node.type == ASTNodeType.AST_PRINTLN {
+        copy.print_expr = deep_copy_ast_internal(node.print_expr, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+    } else if node.type == ASTNodeType.AST_ARRAY_LITERAL {
+        copy.array_literal_element_count = node.array_literal_element_count;
+        copy.array_literal_repeat_count_expr = deep_copy_ast_internal(node.array_literal_repeat_count_expr, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+        if node.array_literal_elements != null && node.array_literal_element_count > 0 {
+            copy.array_literal_elements = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode) * node.array_literal_element_count) as & & ASTNode;
+            if copy.array_literal_elements != null {
+                var li: i32 = 0;
+                while li < node.array_literal_element_count {
+                    copy.array_literal_elements[li] = deep_copy_ast_internal(node.array_literal_elements[li], ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+                    li = li + 1;
+                }
+            }
+        }
+    } else if node.type == ASTNodeType.AST_TUPLE_LITERAL {
+        copy.tuple_literal_element_count = node.tuple_literal_element_count;
+        if node.tuple_literal_elements != null && node.tuple_literal_element_count > 0 {
+            copy.tuple_literal_elements = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode) * node.tuple_literal_element_count) as & & ASTNode;
+            if copy.tuple_literal_elements != null {
+                var ti: i32 = 0;
+                while ti < node.tuple_literal_element_count {
+                    copy.tuple_literal_elements[ti] = deep_copy_ast_internal(node.tuple_literal_elements[ti], ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+                    ti = ti + 1;
+                }
+            }
+        }
+    } else if node.type == ASTNodeType.AST_STRING_INTERP {
+        copy.string_interp_segment_count = node.string_interp_segment_count;
+        copy.string_interp_computed_size = node.string_interp_computed_size;
+        if node.string_interp_segments != null && node.string_interp_segment_count > 0 {
+            copy.string_interp_segments = compiler_arena_alloc(ctx.arena, @size_of(ASTStringInterpSegment) * node.string_interp_segment_count) as &ASTStringInterpSegment;
+            if copy.string_interp_segments != null {
+                var si: i32 = 0;
+                while si < node.string_interp_segment_count {
+                    copy.string_interp_segments[si].is_text = node.string_interp_segments[si].is_text;
+                    copy.string_interp_segments[si].text = node.string_interp_segments[si].text;
+                    copy.string_interp_segments[si].format_spec = node.string_interp_segments[si].format_spec;
+                    copy.string_interp_segments[si].format_kind = node.string_interp_segments[si].format_kind;
+                    copy.string_interp_segments[si].expr = deep_copy_ast_internal(node.string_interp_segments[si].expr, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+                    si = si + 1;
+                }
+            }
+        }
+    } else if node.type == ASTNodeType.AST_SYSCALL {
+        copy.syscall_number = deep_copy_ast_internal(node.syscall_number, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+        copy.syscall_arg_count = node.syscall_arg_count;
+        if node.syscall_args != null && node.syscall_arg_count > 0 {
+            copy.syscall_args = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode) * node.syscall_arg_count) as & & ASTNode;
+            if copy.syscall_args != null {
+                var sc: i32 = 0;
+                while sc < node.syscall_arg_count {
+                    copy.syscall_args[sc] = deep_copy_ast_internal(node.syscall_args[sc], ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+                    sc = sc + 1;
+                }
+            }
+        }
+    } else if node.type == ASTNodeType.AST_TYPE_TUPLE {
+        copy.type_tuple_element_count = node.type_tuple_element_count;
+        if node.type_tuple_element_types != null && node.type_tuple_element_count > 0 {
+            copy.type_tuple_element_types = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode) * node.type_tuple_element_count) as & & ASTNode;
+            if copy.type_tuple_element_types != null {
+                var tt: i32 = 0;
+                while tt < node.type_tuple_element_count {
+                    copy.type_tuple_element_types[tt] = deep_copy_ast_internal(node.type_tuple_element_types[tt], ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+                    tt = tt + 1;
+                }
+            }
+        }
+    } else if node.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+        copy.type_error_union_payload_type = deep_copy_ast_internal(node.type_error_union_payload_type, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+    } else if node.type == ASTNodeType.AST_TYPE_VECTOR {
+        copy.type_vector_element_type = deep_copy_ast_internal(node.type_vector_element_type, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+        copy.type_vector_size_expr = deep_copy_ast_internal(node.type_vector_size_expr, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+    } else if node.type == ASTNodeType.AST_TYPE_MASK {
+        copy.type_mask_size_expr = deep_copy_ast_internal(node.type_mask_size_expr, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+    } else if node.type == ASTNodeType.AST_TYPE_FRAME {
+        copy.type_frame_operand = deep_copy_ast_internal(node.type_frame_operand, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+    } else if node.type == ASTNodeType.AST_TYPE_ATOMIC {
+        copy.type_atomic_inner_type = deep_copy_ast_internal(node.type_atomic_inner_type, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+    } else if node.type == ASTNodeType.AST_VA_START {
+        copy.va_start_ap = deep_copy_ast_internal(node.va_start_ap, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+        copy.va_start_last_param = deep_copy_ast_internal(node.va_start_last_param, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+    } else if node.type == ASTNodeType.AST_VA_END {
+        copy.va_end_ap = deep_copy_ast_internal(node.va_end_ap, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+    } else if node.type == ASTNodeType.AST_VA_ARG {
+        copy.va_arg_ap = deep_copy_ast_internal(node.va_arg_ap, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+        copy.va_arg_arg_type = deep_copy_ast_internal(node.va_arg_arg_type, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+    } else if node.type == ASTNodeType.AST_VA_COPY {
+        copy.va_copy_dest = deep_copy_ast_internal(node.va_copy_dest, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+        copy.va_copy_src = deep_copy_ast_internal(node.va_copy_src, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
     }
 
     return copy;

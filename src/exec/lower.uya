@@ -4605,6 +4605,20 @@ fn exec_lower_error_union_match_expr(ctx: &ExecLowerContext, expr: &ASTNode,
 }
 
 fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
+    const lowered: &HIRExpr = exec_lower_expr_inner(ctx, expr);
+    if lowered != null || expr == null {
+        return lowered;
+    }
+    if exec_backend_get_last_error() == null {
+        var fallback_msg: [byte: 128] = [];
+        _ = snprintf(&fallback_msg[0] as *byte, 128,
+            "exec: 表达式节点 lowering 失败但未设置错误信息(type=%d)" as *byte, expr.type as i32);
+        exec_backend_set_error(expr, &fallback_msg[0] as &byte, 0);
+    }
+    return lowered;
+}
+
+fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     if ctx == null || expr == null {
         return null;
     }
