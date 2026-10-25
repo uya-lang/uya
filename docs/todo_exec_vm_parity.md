@@ -167,7 +167,14 @@
   布局可用，新增旁路表把 (基地址, 下标) 映射到 ExecValue 槽位；
   LOAD/STORE/ADDR_INDEX 在 pointee 原生大小未知时走该表。
   fmt_* 系列不再在 `write_token` 报「当前不支持该指针元素类型」。
-- 余下：fmt_* 推进到 `tokenizer.uya:110` 的「切片基值不是 array/slice」，继续跟。
+- [x] `return out[0:count]`（`out` 是 `arena_alloc` 得到的 `&Token`）此前报
+  「切片基值不是 array/slice」：裸指针切片的元素是 ExecValue，原生内存放不下。
+  改为在旁路表上建切片，句柄长度跟随实际写入的元素数；
+  裸指针取字段（`p.field`）同样按旁路表第 0 个元素解引用。
+  实测 fmt_* 系列由 0 例通过变为 **6 例通过**（tokenizer / comment_collection /
+  comment_grouping / comments_phase1 等），smoke / aggregates 门禁仍全过。
+- 余下 fmt_*：`test_fmt_parser` 等卡在 `LOAD_FIELD 字段越界(idx=1 kind=14
+  count=-1)`——裸指针的基地址与写入时不一致，下一步查这条地址走岔。
 
 ### T7 SIMD（55 例）
 
