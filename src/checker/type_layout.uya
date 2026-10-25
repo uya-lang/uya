@@ -243,6 +243,17 @@ fn get_type_size_bytes_v2(checker: &TypeChecker, t: &Type, program_node: &ASTNod
         }
         return -1;
     }
+    // SIMD：向量按「元素尺寸 × 通道数」紧排；掩码在 VM/C99 里都是 i64 位集。
+    if t.kind == TypeKind.TYPE_VECTOR {
+        const v_elem_sz: i32 = get_type_size_bytes_v2(checker, t.element_type, program_node);
+        if v_elem_sz > 0 && t.array_size > 0 {
+            return v_elem_sz *| t.array_size;
+        }
+        return -1;
+    }
+    if t.kind == TypeKind.TYPE_MASK {
+        return 8;
+    }
     if t.kind == TypeKind.TYPE_SLICE {
         return 16;
     }

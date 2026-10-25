@@ -295,6 +295,24 @@ fn exec_lower_eval_size_align_builtin(ctx: &ExecLowerContext, expr: &ASTNode) i3
         }
     }
     // SIMD：向量按「元素尺寸 × 通道数」计大小，掩码按位集 i64 计。
+    // 目标写成类型别名（`type V4 = @vector(i32,4)`）时，上面按表达式推断会得到
+    // void，这里再按类型节点解析一次。
+    if target_type.kind != TypeKind.TYPE_VECTOR && target_type.kind != TypeKind.TYPE_MASK {
+        const alt_type: Type = type_from_ast(ctx.checker, target);
+        if alt_type.kind == TypeKind.TYPE_VECTOR || alt_type.kind == TypeKind.TYPE_MASK {
+            target_type = alt_type;
+        }
+    }
+    if target_type.kind != TypeKind.TYPE_VECTOR && target_type.kind != TypeKind.TYPE_MASK &&
+        target.type == ASTNodeType.AST_IDENTIFIER && target.identifier_name != null {
+        const alias_decl: &ASTNode = find_type_alias_from_program(ctx.checker.program_node, target.identifier_name);
+        if alias_decl != null && alias_decl.type_alias_target_type != null {
+            const alias_type: Type = type_from_ast(ctx.checker, alias_decl.type_alias_target_type);
+            if alias_type.kind == TypeKind.TYPE_VECTOR || alias_type.kind == TypeKind.TYPE_MASK {
+                target_type = alias_type;
+            }
+        }
+    }
     if target_type.kind == TypeKind.TYPE_VECTOR && target_type.element_type != null {
         const elem_size: i32 = get_type_size_bytes_v2(ctx.checker, &target_type.element_type[0], ctx.checker.program_node);
         const elem_align: i32 = get_type_align_bytes_v2(ctx.checker, &target_type.element_type[0], ctx.checker.program_node);
