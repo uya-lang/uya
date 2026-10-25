@@ -13,8 +13,9 @@
   T3（赋值表达式/@mc_source）、T4（if 表达式）、T4b（语句分支 match）、
   T5b（for 数组值绑定 + `|&item|` 引用绑定）、T6（match 全模式）、
   T12（嵌套数组写入）、T13 主体（双指针/指针元素类型）与若干诊断/静默失败修复。
-- 最近一次完整普查（字符串插值 + 聚合打包修复之后）：`test --vm` 通过
-  **482 / 914（52.7%）**，失败 432。
+- 最近一次完整普查（SIMD 一整套能力落地之后）：`test --vm` 通过
+  **535 / 914（58.5%）**，失败 379；与上一基线（482）比对**零回归**，
+  新增通过集中在 `test_simd_*`、`test_json_encode_*`、`test_yaml_*`。
 - 失败原因分布：`generic` 258、`simd` 69、`catch_expr` 18、`extern_abi` 16、
   `runtime` 12、`build` 9、`timeout` 6、`async` 6、`c_import` 4、`try_expr` 1；
   `match_expr` 与 `string_interp` 均已清零。
@@ -261,8 +262,10 @@
 - [x] 通道值按元素宽度做符号扩展（`-7 / 2` 不再算成 4294967289/2）。
 - [x] `+|` / `-|` / `*|` 的向量版本：逐通道饱和到元素类型范围。
 - [x] `@size_of` / `@alignof` 支持 `@vector(T,N)` 与 `@mask(N)`。
-- 现状：`tests/test_simd_*.uya` **43 / 46 通过**（改造前 0）。
-- [ ] 余下 3 例：`return_splat_binary`（函数返回向量后调用侧拿到非向量值）、
+- [x] `@size_of` / `@alignof` 覆盖 `@vector(T,N)` / `@mask(N)`（含类型别名，
+      以及含向量字段的结构体布局）。
+- 现状：`tests/test_simd_*.uya` **44 / 46 通过**（改造前 0）。
+- [ ] 余下 2 例：`return_splat_binary`（函数返回向量后调用侧拿到非向量值）、
       `type_positions`（`@size_of(别名类型)` 仍走不到向量分支）、
       `vector_load`（`[u32: N]` 仍是 ExecValue 聚合，没有原生字节布局）。
       更早的记录留档：`vector_select`（第 3 个断言，`select(...) + splat(0)`）、
