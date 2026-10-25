@@ -250,8 +250,16 @@
 - [x] lowering：`@vector.<op>(...)` → `HIR_EXPR_VECTOR_OP`；向量/掩码纳入
       `exec_type_is_scalar_supported`，不再报「当前不支持 SIMD」。
 - [x] builder：`BC_VECTOR_OP` 纳入静态槽位校验（定义 `a`、读 `b..b+c-1`）。
-- 现状：`tests/test_simd_*.uya` **22 / 46 通过**（改造前 0）。
-- [ ] 余下 24 例待查：`vector_select`（第 3 个断言，`select(...) + splat(0)`）、
+- [x] 一元运算：整数向量取负 / 按位取反，浮点向量按 f32/f64 取负；掩码取反。
+- [x] 浮点 reduce（add/min/max/mul）按 f32/f64 累加，结果按元素类型返回标量。
+- [x] 掩码上的 `& | ^`、向量上的 `& | ^ %` 与 `<< >>`（右侧可标量广播）。
+- [x] checker：变量声明把声明里的向量类型下推给初始化表达式
+      （`checker_simd_prep_expr_with_expected_vector`），
+      修好 `const v: V4 = @vector.splat(1) + @vector.splat(2)` 这类两侧都是
+      未绑定 splat 的写法 —— 这一条此前只有 return 语句有，变量声明缺。
+- [x] exec lowering：未绑定的 splat 回落到 `simd_splat_target_type`。
+- 现状：`tests/test_simd_*.uya` **41 / 46 通过**（改造前 0）。
+- [ ] 余下 5 例待查：`vector_select`（第 3 个断言，`select(...) + splat(0)`）、
       `vector_load`/`vector_store`、`vector_reduce_*`、`div_f32_i32`、
       `i16_add`/`i8_u8_i64_sse`/`u32_basic`（`除零`）、`mask_bitwise_shift`
       （掩码上的 `&|^ << >>` 还没在 `BC_*` 上逐位处理）、
