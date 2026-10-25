@@ -342,6 +342,12 @@ fn exec_make_union(tag: i32, payload: ExecValue) ExecValue {
 }
 
 fn exec_make_error_union_ok(value: ExecValue) ExecValue {
+    // 指针的元素种类、裸数组的元素类型码都在 aux_i64_value 里，
+    // 错误联合只有一个 aux 三元组，借用 error_id 位保存（ok 时 error_id 本无意义）。
+    var saved_aux: i32 = 0;
+    if value.kind == ExecValueKind.EXEC_VALUE_POINTER || value.kind == ExecValueKind.EXEC_VALUE_ARRAY {
+        saved_aux = value.aux_i64_value as i32;
+    }
     return ExecValue {
         kind: ExecValueKind.EXEC_VALUE_ERROR_UNION,
         i64_value: 0,
@@ -349,7 +355,7 @@ fn exec_make_error_union_ok(value: ExecValue) ExecValue {
         aux_kind: value.kind,
         aux_i64_value: value.i64_value,
         aux_ptr_value: value.ptr_value,
-        error_id: 0,
+        error_id: saved_aux,
     };
 }
 
@@ -373,7 +379,7 @@ fn exec_value_is_error_union_err(value: ExecValue) i32 {
 }
 
 fn exec_value_unwrap_ok(value: ExecValue) ExecValue {
-    return ExecValue {
+    var restored: ExecValue = ExecValue {
         kind: value.aux_kind,
         i64_value: value.aux_i64_value,
         ptr_value: value.aux_ptr_value,
@@ -382,6 +388,13 @@ fn exec_value_unwrap_ok(value: ExecValue) ExecValue {
         aux_ptr_value: null,
         error_id: 0,
     };
+    if restored.kind == ExecValueKind.EXEC_VALUE_POINTER {
+        restored.aux_i64_value = value.error_id as i64;
+    } else if restored.kind == ExecValueKind.EXEC_VALUE_ARRAY && value.error_id != 0 {
+        restored.aux_kind = exec_value_scalar_kind_from_type_kind(value.error_id);
+        restored.aux_i64_value = value.error_id as i64;
+    }
+    return restored;
 }
 
 fn exec_value_unwrap_err(value: ExecValue) ExecValue {
