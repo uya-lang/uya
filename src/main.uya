@@ -3482,6 +3482,10 @@ export fn main() i32 {
                 }
                 fprintf(libc.stderr, "程序运行返回码：%d\n" as *byte, child_exit_exec);
             }
+            // exec 在编译器进程内运行：退出前必须 flush Uya stdio，
+            // 否则未换行结尾的输出和上面的诊断信息会随进程退出丢失。
+            _ = fflush(libc.stdout);
+            _ = fflush(libc.stderr);
             return child_exit_exec;
         }
         // 获取输出路径

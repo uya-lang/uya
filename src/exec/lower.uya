@@ -969,6 +969,18 @@ fn exec_lower_extract_block_result_expr(ctx: &ExecLowerContext, block: &ASTNode,
     if require_return_stmt != 0 {
         return exec_lower_fail_expr(block, "exec: 当前仅支持以 return 结束的 returning match 分支块" as *byte);
     }
+    if tail_stmt.type == ASTNodeType.AST_IF_STMT && tail_stmt.if_stmt_else_branch == null {
+        // 分支块以「无 else 的 if」这类语句收尾：整块按语句执行，结果用 void 零值占位
+        // （C99 侧这种 match 就是语句/void match，不是表达式）。
+        if out_prefix_block != null {
+            out_prefix_block[0] = exec_lower_block(ctx, block);
+            if out_prefix_block[0] == null {
+                return null;
+            }
+        }
+        const void_tail_type: Type = make_void_type();
+        return exec_lower_make_zero_expr(ctx, tail_stmt, &void_tail_type);
+    }
     return exec_lower_expr(ctx, tail_stmt);
 }
 
@@ -2148,9 +2160,139 @@ fn exec_lower_make_break_block(ctx: &ExecLowerContext, ast_node: &ASTNode) &HIRB
     return block;
 }
 
-fn exec_lower_make_for_range_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &HIRStmt {
-    if stmt_node == null || stmt_node.for_stmt_is_range == 0 {
+fn exec_lower_make_for_array_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &HIRStmt {
+    if ctx == null || stmt_node == null || stmt_node.for_stmt_array == null {
         return null;
+    }
+    if stmt_node.for_stmt_is_ref != 0 {
+        exec_backend_set_generic_unsupported_error(stmt_node, "exec: 当前不支持 for 数组引用绑定" as *byte);
+        return null;
+    }
+    const array_expr: &HIRExpr = exec_lower_expr(ctx, stmt_node.for_stmt_array);
+    if array_expr == null {
+        return null;
+    }
+    const array_type: Type = array_expr.type_ref.type;
+    var element_type: Type = make_void_type();
+    if array_type.kind == TypeKind.TYPE_ARRAY && array_type.element_type != null {
+        element_type = array_type.element_type[0];
+    } else if array_type.kind == TypeKind.TYPE_SLICE && array_type.slice_element_type != null {
+        element_type = array_type.slice_element_type[0];
+    } else {
+        exec_backend_set_generic_unsupported_error(stmt_node, "exec: for 迭代对象必须是数组或切片" as *byte);
+        return null;
+    }
+    if exec_lower_push_scope(ctx, stmt_node, -1) == 0 {
+        return null;
+    }
+    const array_slot: i32 = exec_lower_append_local(ctx, null, "__exec_for_arr" as *byte, &array_type, 0);
+    const index_type: Type = make_i32_type();
+    const index_slot: i32 = exec_lower_append_local(ctx, null, "__exec_for_idx" as *byte, &index_type, 0);
+    var item_slot: i32 = -1;
+    var bind_name: &byte = stmt_node.for_stmt_var_name;
+    if bind_name != null && str_equals(bind_name, "_" as &byte) != 0 {
+        bind_name = null;
+    }
+    if bind_name != null {
+        item_slot = exec_lower_append_local(ctx, null, bind_name, &element_type, 0);
+    }
+    if array_slot < 0 || index_slot < 0 || (bind_name != null && item_slot < 0) {
+        exec_lower_pop_scope(ctx);
+        exec_backend_set_error(stmt_node, "exec: for 数组槽位不足" as *byte, 0);
+        return null;
+    }
+    const user_body: &HIRBlock = exec_lower_block(ctx, stmt_node.for_stmt_body);
+    if user_body == null {
+        exec_lower_pop_scope(ctx);
+        return null;
+    }
+    const bool_type: Type = make_bool_type();
+    const arr_local_for_len: &HIRExpr = exec_lower_make_local_expr(ctx, stmt_node, array_slot, &array_type);
+    const len_expr: &HIRExpr = exec_lower_alloc_expr(ctx, stmt_node, HIRExprKind.HIR_EXPR_LEN, &index_type);
+    const index_local_for_cond: &HIRExpr = exec_lower_make_local_expr(ctx, stmt_node, index_slot, &index_type);
+    if arr_local_for_len == null || len_expr == null || index_local_for_cond == null {
+        exec_lower_pop_scope(ctx);
+        return null;
+    }
+    len_expr.left = arr_local_for_len;
+    const cond_expr: &HIRExpr = exec_lower_make_binary_expr(ctx, stmt_node, TokenType.TOKEN_LESS as i32, index_local_for_cond, len_expr, &bool_type);
+    if cond_expr == null {
+        exec_lower_pop_scope(ctx);
+        return null;
+    }
+    const then_block: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, 3);
+    const break_block: &HIRBlock = exec_lower_make_break_block(ctx, stmt_node);
+    if then_block == null || break_block == null {
+        exec_lower_pop_scope(ctx);
+        exec_backend_set_error(stmt_node, "exec: for 数组循环块分配失败" as *byte, 0);
+        return null;
+    }
+    var then_index: i32 = 1;
+    if bind_name != null {
+        const arr_local_for_item: &HIRExpr = exec_lower_make_local_expr(ctx, stmt_node, array_slot, &array_type);
+        const index_local_for_item: &HIRExpr = exec_lower_make_local_expr(ctx, stmt_node, index_slot, &index_type);
+        const item_expr: &HIRExpr = exec_lower_alloc_expr(ctx, stmt_node, HIRExprKind.HIR_EXPR_INDEX, &element_type);
+        const bind_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_VAR_INIT);
+        if arr_local_for_item == null || index_local_for_item == null || item_expr == null || bind_stmt == null {
+            exec_lower_pop_scope(ctx);
+            return null;
+        }
+        item_expr.left = arr_local_for_item;
+        item_expr.right = index_local_for_item;
+        bind_stmt.local_slot = item_slot;
+        bind_stmt.expr = item_expr;
+        then_block.stmts[then_index] = bind_stmt;
+        then_index = then_index +| 1;
+    }
+    const wrapped_user_body: &HIRStmt = exec_lower_wrap_block_as_stmt(ctx, stmt_node.for_stmt_body, user_body);
+    const zero_expr: &HIRExpr = exec_lower_alloc_expr(ctx, stmt_node, HIRExprKind.HIR_EXPR_CONST, &index_type);
+    const index_local_for_inc: &HIRExpr = exec_lower_make_local_expr(ctx, stmt_node, index_slot, &index_type);
+    const one_expr: &HIRExpr = exec_lower_alloc_expr(ctx, stmt_node, HIRExprKind.HIR_EXPR_CONST, &index_type);
+    if wrapped_user_body == null || zero_expr == null || index_local_for_inc == null || one_expr == null {
+        exec_lower_pop_scope(ctx);
+        return null;
+    }
+    zero_expr.int_value = 0;
+    one_expr.int_value = 1;
+    const next_index_expr: &HIRExpr = exec_lower_make_binary_expr(ctx, stmt_node, TokenType.TOKEN_PLUS as i32, index_local_for_inc, one_expr, &index_type);
+    const inc_stmt: &HIRStmt = exec_lower_make_assign_stmt(ctx, stmt_node, index_slot, next_index_expr);
+    const cond_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_IF);
+    const loop_body: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, 1);
+    const loop_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_LOOP);
+    const setup_block: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, 3);
+    const init_array: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_VAR_INIT);
+    const init_index: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_VAR_INIT);
+    if inc_stmt == null || cond_stmt == null || loop_body == null || loop_stmt == null ||
+        setup_block == null || init_array == null || init_index == null {
+        exec_lower_pop_scope(ctx);
+        exec_backend_set_error(stmt_node, "exec: for 数组循环装配失败" as *byte, 0);
+        return null;
+    }
+    then_block.stmts[then_index] = wrapped_user_body;
+    then_block.stmts[then_index +| 1] = inc_stmt;
+    cond_stmt.expr = cond_expr;
+    cond_stmt.then_block = then_block;
+    cond_stmt.else_block = break_block;
+    loop_body.stmts[1] = cond_stmt;
+    loop_stmt.loop_body = loop_body;
+    init_array.local_slot = array_slot;
+    init_array.expr = array_expr;
+    init_index.local_slot = index_slot;
+    init_index.expr = zero_expr;
+    setup_block.stmts[1] = init_array;
+    setup_block.stmts[2] = init_index;
+    setup_block.stmts[3] = loop_stmt;
+    const result_stmt: &HIRStmt = exec_lower_wrap_block_as_stmt(ctx, stmt_node, setup_block);
+    exec_lower_pop_scope(ctx);
+    return result_stmt;
+}
+
+fn exec_lower_make_for_range_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &HIRStmt {
+    if stmt_node == null {
+        return null;
+    }
+    if stmt_node.for_stmt_is_range == 0 {
+        return exec_lower_make_for_array_stmt(ctx, stmt_node);
     }
     if stmt_node.for_stmt_var_name == null {
         exec_backend_set_generic_unsupported_error(stmt_node, "exec: 当前 for range 必须显式绑定迭代变量" as *byte);
@@ -3647,6 +3789,53 @@ fn exec_lower_find_global_slot_by_decl_in_globals(globals: &HIRGlobalSlot, globa
     return -1;
 }
 
+fn exec_lower_collect_file_globals_node(checker: &TypeChecker, node: &ASTNode, filename: &byte, globals: &HIRGlobalSlot, out_count: &i32) i32 {
+    if node == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_PROGRAM {
+        var i: i32 = 0;
+        while i < node.program_decl_count {
+            if exec_lower_collect_file_globals_node(checker, node.program_decls[i], filename, globals, out_count) != 0 {
+                return -1;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+    if node.filename == null || filename == null {
+        return 0;
+    }
+    if str_equals(node.filename, filename) == 0 {
+        return 0;
+    }
+    if exec_lower_global_is_runtime_decl(node) == 0 {
+        return 0;
+    }
+    if exec_lower_find_global_slot_by_decl_in_globals(globals, out_count[0], node) >= 0 {
+        return 0;
+    }
+    const global_type_ast: &ASTNode = exec_lower_global_type_ast(node);
+    if global_type_ast == null {
+        return 0;
+    }
+    const global_type: Type = type_from_ast(checker, global_type_ast);
+    if exec_type_is_vm_value_supported(global_type) == 0 {
+        return 0;
+    }
+    if exec_lower_append_global_slot(checker, node, globals, out_count, 1) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn exec_lower_collect_file_globals(checker: &TypeChecker, filename: &byte, globals: &HIRGlobalSlot, out_count: &i32) i32 {
+    if checker == null || filename == null || checker.program_node == null {
+        return 0;
+    }
+    return exec_lower_collect_file_globals_node(checker, checker.program_node, filename, globals, out_count);
+}
+
 fn exec_lower_collect_global_slots(arena: &CompilerArena, checker: &TypeChecker, program: &ASTNode, out_count: &i32) &HIRGlobalSlot {
     if out_count != null {
         out_count[0] = 0;
@@ -3662,6 +3851,13 @@ fn exec_lower_collect_global_slots(arena: &CompilerArena, checker: &TypeChecker,
     var count: i32 = 0;
     if exec_lower_collect_global_slots_from_program(checker, program, globals, &count) != 0 {
         return null;
+    }
+    // 库模块（如 std.testing）的全局变量可能只挂在 checker 的合并程序节点上，
+    // 而不在调用方传入的 program 里；两者不是同一节点时补扫一遍。
+    if checker.program_node != null && checker.program_node != program {
+        if exec_lower_collect_global_slots_from_program(checker, checker.program_node, globals, &count) != 0 {
+            return null;
+        }
     }
     if exec_lower_collect_global_slots_from_symbols(checker, globals, &count) != 0 {
         return null;
@@ -3852,6 +4048,9 @@ fn exec_lower_lower_global_init_exprs(arena: &CompilerArena, checker: &TypeCheck
             exec_lower_seed_globals(&ctx, globals, global_count);
             const lowered_init: &HIRExpr = exec_lower_coerce_expr(&ctx, init_expr_ast, &globals[i].type_ref.type);
             if lowered_init == null {
+                if exec_backend_get_last_error() == null {
+                    exec_backend_set_error(decl, "exec: 全局初始化表达式无法 lowering" as *byte, 0);
+                }
                 return -1;
             }
             globals[i].init_expr = lowered_init;
@@ -4343,6 +4542,15 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             hir_global.global_slot = global_slot;
             return hir_global;
         }
+        if expr.identifier_name != null && str_equals(expr.identifier_name, "null" as &byte) != 0 {
+            // null 字面量在 AST 里是标识符（parser 用名字标记），exec 侧按零值指针处理。
+            var null_type: Type = copy_type(&expr_type);
+            if null_type.kind == TypeKind.TYPE_VOID {
+                const void_pointee: Type = make_void_type();
+                null_type = make_pointer_type(ctx.arena, &void_pointee, 0);
+            }
+            return exec_lower_make_zero_expr(ctx, expr, &null_type);
+        }
         return exec_lower_fail_expr(expr, "exec: 当前仅支持局部变量/参数/全局标识符" as *byte);
     }
     if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
@@ -4401,10 +4609,17 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             if exec_type_is_vm_value_supported(force_payload_type) == 0 {
                 return exec_lower_fail_expr(expr, "exec: as! 载荷类型当前不可被 exec VM 表示" as *byte);
             }
-            const force_payload_expr: &HIRExpr = exec_lower_coerce_expr(ctx, expr.cast_expr_expr, &force_payload_type);
+            const force_payload_operand: &HIRExpr = exec_lower_coerce_expr(ctx, expr.cast_expr_expr, &force_payload_type);
+            if force_payload_operand == null {
+                return null;
+            }
+            // as! 是数值/指针转换，必须真正发射 cast：直接复用操作数会让 f64 的位模式
+            // 被当成目标整数读取（例如 3.14 as! i32 得到 1374389535）。
+            const force_payload_expr: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CAST, &force_payload_type);
             if force_payload_expr == null {
                 return null;
             }
+            force_payload_expr.left = force_payload_operand;
             const hir_force_ok: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_MAKE_OK, &expr_type);
             if hir_force_ok == null {
                 return null;
@@ -5427,7 +5642,77 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     if expr.type == ASTNodeType.AST_ASM {
         return exec_lower_fail_expr_reason(expr, "exec: 当前不支持 inline asm" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_ASM);
     }
-    return exec_lower_fail_expr(expr, "exec: 尚未支持的表达式节点" as *byte);
+    var unsupported_expr_msg: [byte: 128] = [];
+    _ = snprintf(&unsupported_expr_msg[0] as *byte, 128, "exec: 尚未支持的表达式节点(type=%d)" as *byte, expr.type as i32);
+    if expr.type == ASTNodeType.AST_MC_SOURCE {
+        // C99 侧对未被宏展开替换的 @mc_source 发射空字符串，exec 保持一致。
+        return exec_lower_make_string_const_expr(ctx, expr, &expr_type, "" as &byte);
+    }
+    if expr.type == ASTNodeType.AST_ASSIGN {
+        // 赋值表达式（(x = 1) != 0）：与赋值语句共用目标/取值的 lowering 规则。
+        if expr.assign_dest == null || expr.assign_src == null {
+            return exec_lower_fail_expr(expr, "exec: 赋值表达式缺少目标或值" as *byte);
+        }
+        if expr.assign_dest.type == ASTNodeType.AST_UNDERSCORE {
+            return exec_lower_fail_expr(expr, "exec: 不支持把 `_ =` 用作表达式" as *byte);
+        }
+        const assign_dest_expr: &HIRExpr = exec_lower_make_dest_expr(ctx, expr.assign_dest);
+        if assign_dest_expr == null {
+            return null;
+        }
+        const assign_value_expr: &HIRExpr = exec_lower_coerce_expr(ctx, expr.assign_src, &assign_dest_expr.type_ref.type);
+        if assign_value_expr == null {
+            return null;
+        }
+        const hir_assign_expr: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_ASSIGN, &expr_type);
+        if hir_assign_expr == null {
+            return null;
+        }
+        hir_assign_expr.left = assign_dest_expr;
+        hir_assign_expr.right = assign_value_expr;
+        return hir_assign_expr;
+    }
+    if expr.type == ASTNodeType.AST_IF_STMT {
+        // if 表达式：分支取值为块尾表达式（checker 提供统一取值规则）。
+        if expr.if_stmt_condition == null || expr.if_stmt_then_branch == null || expr.if_stmt_else_branch == null {
+            return exec_lower_fail_expr(expr, "exec: if 表达式缺少条件或分支" as *byte);
+        }
+        const if_cond_expr: &HIRExpr = exec_lower_expr(ctx, expr.if_stmt_condition);
+        if if_cond_expr == null {
+            return null;
+        }
+        const then_value_node: &ASTNode = checker_if_expr_branch_value_node(expr.if_stmt_then_branch);
+        if then_value_node == null {
+            return exec_lower_fail_expr(expr, "exec: if 表达式 then 分支没有值" as *byte);
+        }
+        const then_value_expr: &HIRExpr = exec_lower_coerce_expr(ctx, then_value_node, &expr_type);
+        if then_value_expr == null {
+            return null;
+        }
+        const else_value_node: &ASTNode = checker_if_expr_branch_value_node(expr.if_stmt_else_branch);
+        if else_value_node == null {
+            return exec_lower_fail_expr(expr, "exec: if 表达式 else 分支没有值" as *byte);
+        }
+        const else_value_expr: &HIRExpr = exec_lower_coerce_expr(ctx, else_value_node, &expr_type);
+        if else_value_expr == null {
+            return null;
+        }
+        const if_items: & & HIRExpr = exec_lower_alloc_items(ctx, 1);
+        if if_items == null {
+            return null;
+        }
+        if_items[0] = else_value_expr;
+        const hir_if_expr: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_IF, &expr_type);
+        if hir_if_expr == null {
+            return null;
+        }
+        hir_if_expr.left = if_cond_expr;
+        hir_if_expr.right = then_value_expr;
+        hir_if_expr.items = if_items;
+        hir_if_expr.item_count = 1;
+        return hir_if_expr;
+    }
+    return exec_lower_fail_expr(expr, &unsupported_expr_msg[0]);
 }
 
 fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
@@ -5735,7 +6020,9 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
             if stmt_node.type == ASTNodeType.AST_TEST_STMT {
                 return exec_lower_fail_block(stmt_node, "exec: 当前不支持 test 语句" as *byte);
             }
-            return exec_lower_fail_block(stmt_node, "exec: 尚未支持的语句节点" as *byte);
+            var unsupported_stmt_msg: [byte: 128] = [];
+            _ = snprintf(&unsupported_stmt_msg[0] as *byte, 128, "exec: 尚未支持的语句节点(type=%d)" as *byte, stmt_node.type as i32);
+            return exec_lower_fail_block(stmt_node, &unsupported_stmt_msg[0]);
         }
         if stmt == null {
             exec_lower_pop_scope(ctx);
@@ -5988,17 +6275,9 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
             test_build_idx = test_build_idx + 1;
         }
     }
-    if exec_lower_lower_global_init_exprs(arena, checker, globals, global_count, &exec_reachable[0] as & & ASTNode, &exec_reachable_count) != 0 {
-        return null;
-    }
-    const global_init_function: &HIRFunction = exec_lower_build_global_init_function(arena, globals, global_count);
-    const functions: & & HIRFunction = compiler_arena_alloc(arena, @size_of(&HIRFunction) * MAX_REACHABLE_FN_DECLS as usize) as & & HIRFunction;
-    if functions == null {
-        exec_backend_set_error(program, "exec: HIR function 列表分配失败" as *byte, 0);
-        return null;
-    }
-    var count: i32 = 0;
-    var entry_fn: &HIRFunction = null;
+    // 先按调用边闭包补齐可达函数集合，再按函数所在文件补采该文件的全局变量：
+    // 库模块内部函数（如 std.testing 的 assert 实现）引用的模块全局不在调用方
+    // program 的收集路径里，必须在 lowering 前拿到槽位。
     var queue: [&ASTNode: MAX_REACHABLE_FN_DECLS] = [];
     var head: i32 = 0;
     var tail: i32 = 0;
@@ -6032,12 +6311,42 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
             edge_idx = edge_idx + 1;
         }
     }
+    var file_global_i: i32 = 0;
+    while file_global_i < exec_reachable_count {
+        const file_global_decl: &ASTNode = exec_reachable[file_global_i];
+        if file_global_decl != null && file_global_decl.filename != null {
+            if exec_lower_collect_file_globals(checker, file_global_decl.filename, globals, &global_count) != 0 {
+                return null;
+            }
+        }
+        file_global_i = file_global_i + 1;
+    }
+    if exec_lower_lower_global_init_exprs(arena, checker, globals, global_count, &exec_reachable[0] as & & ASTNode, &exec_reachable_count) != 0 {
+        return null;
+    }
+    const functions: & & HIRFunction = compiler_arena_alloc(arena, @size_of(&HIRFunction) * MAX_REACHABLE_FN_DECLS as usize) as & & HIRFunction;
+    if functions == null {
+        exec_backend_set_error(program, "exec: HIR function 列表分配失败" as *byte, 0);
+        return null;
+    }
+    var count: i32 = 0;
+    var entry_fn: &HIRFunction = null;
     var i: i32 = 0;
+    var lower_pass: i32 = 0;
+    while lower_pass < 4 {
     while i < exec_reachable_count {
         const decl: &ASTNode = exec_reachable[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null && decl.filename != null {
+            if exec_lower_collect_file_globals(checker, decl.filename, globals, &global_count) != 0 {
+                return null;
+            }
+        }
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null {
             const lowered: &HIRFunction = exec_lower_function(arena, checker, decl, globals, global_count);
             if lowered == null {
+                if exec_backend_get_last_error() == null {
+                    exec_backend_set_error(decl, "exec: 函数 lowering 失败但未设置错误信息" as *byte, 0);
+                }
                 return null;
             }
             functions[count] = lowered;
@@ -6062,6 +6371,17 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
         }
         i = i + 1;
     }
+    // 新发现的模块全局变量（模块内部函数引用）需要补降初始化表达式；
+    // 初始化表达式可能再引入新的可达函数，下一轮继续，最多 4 轮。
+    if exec_lower_lower_global_init_exprs(arena, checker, globals, global_count, &exec_reachable[0] as & & ASTNode, &exec_reachable_count) != 0 {
+        return null;
+    }
+    if i >= exec_reachable_count {
+        break;
+    }
+    lower_pass = lower_pass + 1;
+    }
+    const global_init_function: &HIRFunction = exec_lower_build_global_init_function(arena, globals, global_count);
     if entry_fn == null {
         exec_lower_set_unsupported(program, "exec: 无法定位 exec 入口 main" as *byte);
         return null;
