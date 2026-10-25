@@ -1304,6 +1304,78 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         }
         return dst_cast;
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_IF {
+        if expr.left == null || expr.right == null || expr.items == null ||
+            expr.item_count < 1 || expr.items[0] == null {
+            exec_backend_set_error(expr.ast_node, "exec: if 表达式缺少条件或分支" as *byte, 0);
+            return -1;
+        }
+        const if_cond_slot: i32 = exec_builder_compile_expr(ctx, expr.left);
+        if if_cond_slot < 0 {
+            return -1;
+        }
+        const if_result_slot: i32 = exec_builder_new_temp(ctx);
+        if if_result_slot < 0 {
+            return -1;
+        }
+        const if_jmp_false: i32 = exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_JMP_IF_FALSE,
+            a: if_cond_slot,
+            b: 0,
+            c: 0,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        });
+        if if_jmp_false < 0 {
+            return -1;
+        }
+        const if_then_slot: i32 = exec_builder_compile_expr(ctx, expr.right);
+        if if_then_slot < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MOV,
+            a: if_result_slot,
+            b: if_then_slot,
+            c: 0,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        const if_jmp_end: i32 = exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_JMP,
+            a: 0,
+            b: 0,
+            c: 0,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        });
+        if if_jmp_end < 0 {
+            return -1;
+        }
+        exec_builder_patch_jump(ctx, if_jmp_false, ctx.instr_count);
+        const if_else_slot: i32 = exec_builder_compile_expr(ctx, expr.items[0]);
+        if if_else_slot < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MOV,
+            a: if_result_slot,
+            b: if_else_slot,
+            c: 0,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        exec_builder_patch_jump(ctx, if_jmp_end, ctx.instr_count);
+        return if_result_slot;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_ASSIGN {
         if expr.left == null || expr.right == null {
             exec_backend_set_error(expr.ast_node, "exec: 赋值表达式缺少操作数" as *byte, 0);

@@ -5518,6 +5518,46 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         hir_assign_expr.right = assign_value_expr;
         return hir_assign_expr;
     }
+    if expr.type == ASTNodeType.AST_IF_STMT {
+        // if 表达式：分支取值为块尾表达式（checker 提供统一取值规则）。
+        if expr.if_stmt_condition == null || expr.if_stmt_then_branch == null || expr.if_stmt_else_branch == null {
+            return exec_lower_fail_expr(expr, "exec: if 表达式缺少条件或分支" as *byte);
+        }
+        const if_cond_expr: &HIRExpr = exec_lower_expr(ctx, expr.if_stmt_condition);
+        if if_cond_expr == null {
+            return null;
+        }
+        const then_value_node: &ASTNode = checker_if_expr_branch_value_node(expr.if_stmt_then_branch);
+        if then_value_node == null {
+            return exec_lower_fail_expr(expr, "exec: if 表达式 then 分支没有值" as *byte);
+        }
+        const then_value_expr: &HIRExpr = exec_lower_coerce_expr(ctx, then_value_node, &expr_type);
+        if then_value_expr == null {
+            return null;
+        }
+        const else_value_node: &ASTNode = checker_if_expr_branch_value_node(expr.if_stmt_else_branch);
+        if else_value_node == null {
+            return exec_lower_fail_expr(expr, "exec: if 表达式 else 分支没有值" as *byte);
+        }
+        const else_value_expr: &HIRExpr = exec_lower_coerce_expr(ctx, else_value_node, &expr_type);
+        if else_value_expr == null {
+            return null;
+        }
+        const if_items: & & HIRExpr = exec_lower_alloc_items(ctx, 1);
+        if if_items == null {
+            return null;
+        }
+        if_items[0] = else_value_expr;
+        const hir_if_expr: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_IF, &expr_type);
+        if hir_if_expr == null {
+            return null;
+        }
+        hir_if_expr.left = if_cond_expr;
+        hir_if_expr.right = then_value_expr;
+        hir_if_expr.items = if_items;
+        hir_if_expr.item_count = 1;
+        return hir_if_expr;
+    }
     return exec_lower_fail_expr(expr, &unsupported_expr_msg[0]);
 }
 

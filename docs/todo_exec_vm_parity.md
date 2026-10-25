@@ -9,7 +9,7 @@
 
 ## 进度快照
 
-- 最近一次实测（T3 之后）：`test --vm` 通过 **339 / 911（37.2%）**，失败 572。
+- 最近一次实测（T4 之后）：`test --vm` 通过 **341 / 912（37.4%）**，失败 571。
 - 失败原因分布：`generic` 376、`simd` 55、`runtime` 48、`match_expr` 20、
   `unknown` 14、`extern_abi` 13、`string_interp` 9、`build` 8、`catch_expr` 7、
   `try_expr` 4、`c_import` 4、`async` 2。
@@ -59,6 +59,11 @@
 - 实测：通过率 35.8% → 37.2%，8 个 `verify_exec_vm_*.sh` 全过。
 
 ### T4 if 表达式（`type=15`，20 例）
+
+- [x] 新增 `HIR_EXPR_IF` + 字节码分支合流（`BC_JMP_IF_FALSE`/`BC_JMP`/`BC_MOV`），
+  分支取值走 checker 的 `checker_if_expr_branch_value_node` 规则，支持 `else if` 链。
+- 回归用例：`tests/test_exec_vm_if_expr.uya`（C99 与 `--vm` 双通过）。
+- 实测：通过率 37.2% → 37.4%；同原因文件在修复后暴露下一层错误，继续按直方图推进。
 
 ### T4 未支持表达式节点清零（84 例）
 
