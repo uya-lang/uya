@@ -103,10 +103,21 @@
 
 - [x] `exec_run_program` 与 driver 的 exec 分支在退出前 flush `libc.stdout`/`libc.stderr`，
   避免未换行结尾的输出和运行后诊断信息随进程退出丢失。
-- [ ] 仍在排查：`./bin/uya run --vm tests/test_break_continue_for.uya` 返回 1 且
-  stdout/stderr 均为 0 字节；`--exec --verbose` 停在 `exec build 耗时` 之后，
-  连无条件的 `exec backend 已构建: ...` 都没有输出，说明进程在打印前即终止或该分支未走到。
-  下一步在 `exec_build_program` 前后加最小打点定位。
+- [x] 定位并修复首例静默失败：`for arr |v|` 数组迭代在 `exec_lower_make_for_range_stmt`
+  里直接 `return null` 且不设错误，导致 build 失败但零输出。现在显式报
+  `exec: 当前不支持 for 数组迭代`（census 中空消息失败 41 → 27）。
+- [x] `exec_build_program`、全局初始化、函数 lowering 三处补「失败但未设置错误」兜底，
+  避免再次出现无消息失败。
+- [ ] 仍有 27 例空消息失败（多为 `run --vm` 在进程内直接返回 1 的形态），
+  下一轮按同样方法逐个定位。
+
+### T5b for 数组迭代（`|v|` / `|&v|` / `|_|`）
+
+- 现象：`for arr |item| { ... }`（`for_stmt_is_range == 0`）完全没有 lowering，
+  直接失败；涉及约 27 个空消息文件中的大部分。
+- 计划：按「数组值存临时局部 → 下标循环 → 每轮把元素（或元素地址）绑定到
+  `for_stmt_var_name`」desugar，支持值绑定、引用绑定与 `|_|`。
+- 验收：`tests/test_break_continue_for.uya` 在 `--vm` 下通过；空消息失败清零。
 
 - `for arr |v|`、`for arr |&item|` 等在 `--vm` 下静默退出 1；
   任何失败都必须有原因码 + `file:line` + 消息。

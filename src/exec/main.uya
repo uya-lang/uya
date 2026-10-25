@@ -196,6 +196,9 @@ export fn exec_build_program(checker: &TypeChecker, program: &ASTNode, module_na
     const lower_end_time: i64 = clock();
     g_exec_last_lower_time_ms = (lower_end_time -| lower_start_time) *| 1000 / CLOCKS_PER_SEC;
     if lowered == null {
+        if exec_backend_get_last_error() == null {
+            exec_backend_set_error(program, "exec: lowering 失败但未设置错误信息" as *byte, 0);
+        }
         if exec_backend_error_is_unsupported() != 0 {
             return 2;
         }
@@ -210,6 +213,9 @@ export fn exec_build_program(checker: &TypeChecker, program: &ASTNode, module_na
     const build_end_time: i64 = clock();
     g_exec_last_bytecode_build_time_ms = (build_end_time -| build_start_time) *| 1000 / CLOCKS_PER_SEC;
     if bytecode == null {
+        if exec_backend_get_last_error() == null {
+            exec_backend_set_error(program, "exec: bytecode 构建失败但未设置错误信息" as *byte, 0);
+        }
         if exec_backend_error_is_unsupported() != 0 {
             return 2;
         }
