@@ -566,11 +566,36 @@ fn exec_builder_emit_loaded_const_value(ctx: &ExecFunctionBuildContext, ast_node
     return dst_slot;
 }
 
-fn exec_builder_pack_syscall_meta(arg_base: i32, arg_count: i32, target_kind: i32, target_pointee_kind: i32) i64 {
+fn exec_builder_pack_syscall_meta(arg_base: i32, arg_count: i32, target_kind: i32, target_pointee_kind: i32, out_mask: i32) i64 {
     return (arg_base as i64) |
         ((arg_count as i64) << 16) |
         ((target_kind as i64) << 24) |
-        ((target_pointee_kind as i64) << 40);
+        ((target_pointee_kind as i64) << 40) |
+        ((out_mask as i64) << 56);
+}
+
+/// 判断 syscall 参数是否是「指向聚合体的指针」（出参结构体）。
+/// VM 里聚合值不是原生内存布局，这类参数必须先换成原生缓冲区，
+/// 否则内核会把 ExecValue 头部写成垃圾（`sys_gettimeofday(&tv, …)` 就是这样）。
+/// 参数：arg - 参数表达式；返回：是则置对应位掩码位，否则 0。
+fn exec_builder_syscall_arg_out_struct_bit(arg: &HIRExpr, bit_index: i32) i32 {
+    if arg == null || bit_index < 0 || bit_index > 1 {
+        return 0;
+    }
+    var probe: &HIRExpr = arg;
+    if probe.kind == HIRExprKind.HIR_EXPR_CAST && probe.left != null {
+        probe = probe.left;
+    }
+    const arg_type: Type = copy_type(&probe.type_ref.type);
+    if arg_type.kind != TypeKind.TYPE_POINTER || arg_type.pointer_to == null {
+        return 0;
+    }
+    const pointee_kind: TypeKind = arg_type.pointer_to[0].kind;
+    if pointee_kind == TypeKind.TYPE_STRUCT || pointee_kind == TypeKind.TYPE_UNION ||
+        pointee_kind == TypeKind.TYPE_ARRAY || pointee_kind == TypeKind.TYPE_TUPLE {
+        return 1 << bit_index;
+    }
+    return 0;
 }
 
 fn exec_builder_array_element_kind_code(type: Type) i32 {
@@ -3297,12 +3322,19 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         if dst_syscall < 0 {
             return -1;
         }
+        var syscall_out_mask: i32 = 0;
+        var out_idx: i32 = 0;
+        while out_idx < expr.item_count && out_idx < 2 {
+            syscall_out_mask = syscall_out_mask |
+                exec_builder_syscall_arg_out_struct_bit(expr.items[out_idx], out_idx);
+            out_idx = out_idx + 1;
+        }
         if exec_builder_emit(ctx, BCInstr {
             opcode: BCOpcode.BC_SYSCALL,
             a: dst_syscall,
             b: nr_slot,
             c: 0,
-            imm: exec_builder_pack_syscall_meta(arg_base_sys, expr.item_count, expr.int_value as i32, expr.unary_op),
+            imm: exec_builder_pack_syscall_meta(arg_base_sys, expr.item_count, expr.int_value as i32, expr.unary_op, syscall_out_mask),
             text: null,
             source: exec_builder_make_source(expr.ast_node),
         }) < 0 {

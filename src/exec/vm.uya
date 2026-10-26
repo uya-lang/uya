@@ -388,6 +388,20 @@ fn exec_vm_value_kind_is_float(kind: ExecValueKind) i32 {
     return exec_value_is_float_kind(kind);
 }
 
+/// 值类型的 kind 是否是整数族（写回 syscall 出参结构体时用）。
+fn exec_vm_value_kind_is_integer(kind: ExecValueKind) i32 {
+    if kind == ExecValueKind.EXEC_VALUE_I8 || kind == ExecValueKind.EXEC_VALUE_I16 ||
+        kind == ExecValueKind.EXEC_VALUE_I32 || kind == ExecValueKind.EXEC_VALUE_I64 ||
+        kind == ExecValueKind.EXEC_VALUE_ISIZE || kind == ExecValueKind.EXEC_VALUE_U8 ||
+        kind == ExecValueKind.EXEC_VALUE_U16 || kind == ExecValueKind.EXEC_VALUE_U32 ||
+        kind == ExecValueKind.EXEC_VALUE_U64 || kind == ExecValueKind.EXEC_VALUE_USIZE ||
+        kind == ExecValueKind.EXEC_VALUE_BOOL || kind == ExecValueKind.EXEC_VALUE_BYTE ||
+        kind == ExecValueKind.EXEC_VALUE_POINTER {
+        return 1;
+    }
+    return 0;
+}
+
 fn exec_vm_make_float_by_kind(kind: ExecValueKind, value: f64) ExecValue {
     if kind == ExecValueKind.EXEC_VALUE_F32 {
         return exec_make_f32(value as f32);
@@ -464,6 +478,83 @@ fn exec_vm_decode_syscall_target_kind(meta: i64) i32 {
 
 fn exec_vm_decode_syscall_target_pointee_kind(meta: i64) i32 {
     return ((meta >> 40) & 65535) as i32;
+}
+
+fn exec_vm_decode_syscall_out_mask(meta: i64) i32 {
+    return ((meta >> 56) & 127) as i32;
+}
+
+/// 给出参结构体准备原生缓冲区：VM 的聚合值每个字段都是 ExecValue，
+/// 内核却按 `{ i64, i64 }` 这类原生布局写入，直接传引用地址会把
+/// ExecValue 头部写成垃圾（`sys_gettimeofday(&tv, …)` 之后的 `tv.tv_sec` 就会崩）。
+/// 参数：target - 出参聚合值；out_count - 输出字段数。
+/// 返回：原生缓冲区（每字段 8 字节），不是聚合值时返回 null。
+fn exec_vm_syscall_out_struct_prepare(target: &ExecValue, out_count: &i32) &i64 {
+    if target == null || out_count == null {
+        return null;
+    }
+    if target.kind != ExecValueKind.EXEC_VALUE_STRUCT &&
+        target.kind != ExecValueKind.EXEC_VALUE_ARRAY &&
+        target.kind != ExecValueKind.EXEC_VALUE_TUPLE {
+        return null;
+    }
+    const aggregate: &ExecAggregate = target.ptr_value as &ExecAggregate;
+    if aggregate == null || aggregate.values == null {
+        return null;
+    }
+    const field_count: i32 = aggregate.count;
+    if field_count <= 0 || field_count > 16 {
+        return null;
+    }
+    const buffer: &i64 = exec_value_alloc_bytes((@size_of(i64) * field_count as usize)) as &i64;
+    if buffer == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < field_count {
+        buffer[i] = exec_vm_numeric_to_i64(aggregate.values[i]);
+        i = i + 1;
+    }
+    out_count[0] = field_count;
+    return buffer;
+}
+
+/// 把原生缓冲区写回出参聚合值（只覆盖整数字段，其余字段保持原值）。
+fn exec_vm_syscall_out_struct_apply(target: &ExecValue, buffer: &i64, field_count: i32) void {
+    if target == null || buffer == null {
+        return;
+    }
+    const aggregate: &ExecAggregate = target.ptr_value as &ExecAggregate;
+    if aggregate == null || aggregate.values == null {
+        return;
+    }
+    var i: i32 = 0;
+    while i < aggregate.count && i < field_count {
+        if exec_vm_value_kind_is_integer(aggregate.values[i].kind) != 0 {
+            aggregate.values[i].i64_value = buffer[i];
+        }
+        i = i + 1;
+    }
+}
+
+/// 定位 syscall 出参结构体（参数值可能是指针、内部引用或裸地址）。
+fn exec_vm_syscall_out_struct_target(arg_slot: &ExecValue, raw_address: i64) &ExecValue {
+    const resolved: &ExecValue = exec_vm_resolve_va_target(arg_slot);
+    if resolved != null && (resolved.kind == ExecValueKind.EXEC_VALUE_STRUCT ||
+            resolved.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
+            resolved.kind == ExecValueKind.EXEC_VALUE_TUPLE) {
+        return resolved;
+    }
+    if raw_address <= 0 {
+        return null;
+    }
+    const by_address: &ExecValue = raw_address as &ExecValue;
+    if by_address.kind == ExecValueKind.EXEC_VALUE_STRUCT ||
+        by_address.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
+        by_address.kind == ExecValueKind.EXEC_VALUE_TUPLE {
+        return by_address;
+    }
+    return null;
 }
 
 fn exec_vm_syscall_arg_to_i64(value: ExecValue) i64 {
@@ -1942,6 +2033,61 @@ fn exec_vm_host_syscall6(target_kind: i32, target_pointee_kind: i32, nr: i64, a1
     return exec_vm_wrap_syscall_result(@syscall(nr, a1, a2, a3, a4, a5, a6), target_kind, target_pointee_kind);
 }
 
+fn exec_vm_dispatch_host_syscall(target_kind: i32, target_pointee_kind: i32, nr: i64, args: &i64, arg_count: i32) ExecValue {
+    if arg_count == 0 {
+        return exec_vm_host_syscall0(target_kind, target_pointee_kind, nr);
+    }
+    if arg_count == 1 {
+        return exec_vm_host_syscall1(target_kind, target_pointee_kind, nr, args[0]);
+    }
+    if arg_count == 2 {
+        return exec_vm_host_syscall2(target_kind, target_pointee_kind, nr, args[0], args[1]);
+    }
+    if arg_count == 3 {
+        return exec_vm_host_syscall3(target_kind, target_pointee_kind, nr, args[0], args[1], args[2]);
+    }
+    if arg_count == 4 {
+        return exec_vm_host_syscall4(target_kind, target_pointee_kind, nr, args[0], args[1], args[2], args[3]);
+    }
+    if arg_count == 5 {
+        return exec_vm_host_syscall5(target_kind, target_pointee_kind, nr, args[0], args[1], args[2], args[3], args[4]);
+    }
+    if arg_count == 6 {
+        return exec_vm_host_syscall6(target_kind, target_pointee_kind, nr, args[0], args[1], args[2], args[3], args[4], args[5]);
+    }
+    return exec_make_void();
+}
+
+/// 出参结构体：把标记过的参数换成原生缓冲区（内核按原生布局写入），
+/// 调完 syscall 再按字段顺序写回 VM 的聚合值。
+/// 参数：function - 当前函数；frame - 当前帧；meta 各字段见 exec_vm_decode_*；
+///       args - 参数数组（会被就地改写为缓冲区地址）；out_target - 输出出参聚合值。
+/// 返回：0 成功，-1 失败。
+fn exec_vm_syscall_marshal_out_struct(function: &BCFunction, frame: &ExecFrame, arg_base: i32, arg_count: i32,
+    out_mask: i32, args: &i64, out_target: & & ExecValue) &i64 {
+    out_target[0] = null;
+    if out_mask == 0 || args == null {
+        return null;
+    }
+    var oi: i32 = 0;
+    while oi < arg_count && oi < 2 {
+        if (out_mask & (1 << oi)) != 0 {
+            const arg_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base + oi);
+            const target: &ExecValue = exec_vm_syscall_out_struct_target(arg_slot, args[oi]);
+            var field_count: i32 = 0;
+            const buffer: &i64 = exec_vm_syscall_out_struct_prepare(target, &field_count);
+            if buffer != null {
+                out_target[0] = target;
+                args[oi] = buffer as i64;
+                return buffer;
+            }
+            return null;
+        }
+        oi = oi + 1;
+    }
+    return null;
+}
+
 fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &ExecValue, syscall_meta: i64, out_value: &ExecValue) i32 {
     if function == null || frame == null || nr_slot == null || out_value == null {
         exec_backend_set_error(null, "exec: syscall 输入无效" as *byte, 0);
@@ -1951,6 +2097,7 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
     const arg_count: i32 = exec_vm_decode_syscall_arg_count(syscall_meta);
     const target_kind: i32 = exec_vm_decode_syscall_target_kind(syscall_meta);
     const target_pointee_kind: i32 = exec_vm_decode_syscall_target_pointee_kind(syscall_meta);
+    const out_mask: i32 = exec_vm_decode_syscall_out_mask(syscall_meta);
     var args: [i64: 6] = [];
     var ai: i32 = 0;
     while ai < arg_count {
@@ -1963,36 +2110,18 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
         ai = ai + 1;
     }
     const nr_value: i64 = exec_vm_syscall_arg_to_i64(nr_slot[0]);
-    if arg_count == 0 {
-        out_value[0] = exec_vm_host_syscall0(target_kind, target_pointee_kind, nr_value);
-        return 0;
+    var out_target: &ExecValue = null;
+    const out_buffer: &i64 = exec_vm_syscall_marshal_out_struct(function, frame, arg_base, arg_count,
+        out_mask, &args[0], &out_target);
+    if arg_count > 6 {
+        exec_backend_set_error(function.decl, "exec: syscall 参数数量非法" as *byte, 0);
+        return -1;
     }
-    if arg_count == 1 {
-        out_value[0] = exec_vm_host_syscall1(target_kind, target_pointee_kind, nr_value, args[0]);
-        return 0;
+    out_value[0] = exec_vm_dispatch_host_syscall(target_kind, target_pointee_kind, nr_value, &args[0], arg_count);
+    if out_target != null && out_buffer != null {
+        exec_vm_syscall_out_struct_apply(out_target, out_buffer, out_target.i64_value as i32);
     }
-    if arg_count == 2 {
-        out_value[0] = exec_vm_host_syscall2(target_kind, target_pointee_kind, nr_value, args[0], args[1]);
-        return 0;
-    }
-    if arg_count == 3 {
-        out_value[0] = exec_vm_host_syscall3(target_kind, target_pointee_kind, nr_value, args[0], args[1], args[2]);
-        return 0;
-    }
-    if arg_count == 4 {
-        out_value[0] = exec_vm_host_syscall4(target_kind, target_pointee_kind, nr_value, args[0], args[1], args[2], args[3]);
-        return 0;
-    }
-    if arg_count == 5 {
-        out_value[0] = exec_vm_host_syscall5(target_kind, target_pointee_kind, nr_value, args[0], args[1], args[2], args[3], args[4]);
-        return 0;
-    }
-    if arg_count == 6 {
-        out_value[0] = exec_vm_host_syscall6(target_kind, target_pointee_kind, nr_value, args[0], args[1], args[2], args[3], args[4], args[5]);
-        return 0;
-    }
-    exec_backend_set_error(function.decl, "exec: syscall 参数数量非法" as *byte, 0);
-    return -1;
+    return 0;
 }
 
 fn exec_vm_va_start(function: &BCFunction, frame: &ExecFrame, ap_ref_slot: &ExecValue) i32 {
