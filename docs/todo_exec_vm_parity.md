@@ -429,7 +429,19 @@
 
 ### 第 272 轮末的 Top 阻塞（按可收割性排序，已更新）
 
-实测基线：`/tmp/census_r273.tsv`，**673 / 914 通过**，零回归。
+实测基线：`/tmp/census_r274.tsv`，**678 / 914 通过**，零回归（673 → 678）。
+
+第 274 轮又修掉两处「值悄悄变成 0」的 lowering 缺陷：
+- `&T` 装箱成 interface（`vec_new<byte>(get_allocator())` 这类）只认
+  `TYPE_STRUCT`，指针实参被当 interface 值直接传，被调方按结构体读字段 →
+  `LOAD_FIELD 字段越界(kind=14 count=0)`。现在强制转换先解一层指针，
+  装箱数据直接用该指针（不再多取地址）。
+- 字符串字面量隐式转 `&[const byte]`（变量初始化、函数实参）没构造
+  `{ptr, 0, len}` 切片值，`.len` 读成 0 —— 这就是 `test_string_buf`
+  与 `test_std_env` 里「写进去读出来全是 0」的根因。现在与
+  `as &[const byte]` 共用 `exec_lower_make_string_literal_slice`。
+  新增通过：`test_string_literal_assign_byte`、`test_interface_value_assign`、
+  `test_ffi_cast`、`test_extern_union`、`test_exec_vm_extern_decl_varargs_unsupported`。
 
 1. `exec: LOAD_FIELD/STORE_FIELD 字段越界(idx=N kind=K count=0 pointee=P)`（4 例）
    —— 运行时缺陷，不是「没支持」。样本：`lib/tls/base/mpi.uya:53` 的
@@ -452,7 +464,14 @@
    的 `sb.len()` 全为 0）、`test_hashmap` 的 `hashmap_values_vec_contains`、
    `test_std_env` 的 `actual[i]` 全 0 —— 都是「单态副本写入的值读不回来」，
    疑似副本里对 `&Self` 字段的 STORE/LOAD 落到了不同槽位，待查。
-4. ~~`exec: 当前不支持 extern ABI`（12 例）~~ **已改为零值桩（第 272 轮）**：
+4. ~~`exec: 当前不支持 extern ABI`（12 例）~~ **已改为零值桩（第 272 轮）**；
+   注意 `lib/libc/syscall.uya` 的 `export extern "libc" fn sys_read/sys_open/...`
+   都是转发到 `uya_unknown_host_*` 的未定义 extern，零值桩下这些调用返回 0
+   （fd=0、read=0），DNS/HTTPS 这类测试因此仍会失败，但失败点从
+   「不支持 extern ABI」变成了真实解析路径（`slice 越界` 等）。要让文件/网络
+   用例真正跑起来，需要给这 18 个 `uya_unknown_host_*` 接上 `@syscall`
+   桥（VM 里已有 `exec_vm_host_syscall0..3`，属于独立大项）。
+   原先的记录：
    解释器没有宿主等价物的 extern 调用（`sigaction`/`tcgetpgrp`/`wait4` 一类）
    不再硬失败，按「无副作用 + 返回零值」处理。单条 `use libc.WNOHANG`（C 宏常量，
    Uya 侧无声明）这条链路仍然报「当前仅支持局部变量/参数/全局标识符」，
