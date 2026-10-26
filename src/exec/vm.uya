@@ -3492,7 +3492,8 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         if slot_b.i64_value != 0 {
             error_tag = slot_b.error_id;
         }
-        slot_a[0] = exec_make_i32(error_tag);
+        // 错误 id 按 u32 输出，与 match 分支里的 u32 常量比较保持一致。
+        slot_a[0] = exec_make_u32(error_tag as u32);
     } else if instr.opcode == BCOpcode.BC_LOAD_ERROR_PAYLOAD {
         if slot_a == null || slot_b == null {
             exec_backend_set_error(function.decl, "exec: LOAD_ERROR_PAYLOAD 槽位越界" as *byte, 0);

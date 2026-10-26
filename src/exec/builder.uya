@@ -991,7 +991,10 @@ fn exec_builder_emit_int_tag_compare(ctx: &ExecFunctionBuildContext, ast_node: &
         kind: HIRExprKind.HIR_EXPR_CONST,
         ast_node: ast_node,
         type_ref: HIRTypeRef {
-            type: make_i32_type(),
+            // 错误 id 是 u32：按 i32 发常量会把高位为 1 的 id（如
+            // error.URITooLong / error.NamedFailure）变成负数，和
+            // BC_LOAD_ERROR_TAG 的运行时值比不上。
+            type: make_u32_type(),
         },
         local_slot: -1,
         global_slot: -1,
