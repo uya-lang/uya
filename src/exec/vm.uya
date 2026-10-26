@@ -2033,6 +2033,14 @@ fn exec_vm_host_syscall6(target_kind: i32, target_pointee_kind: i32, nr: i64, a1
     return exec_vm_wrap_syscall_result(@syscall(nr, a1, a2, a3, a4, a5, a6), target_kind, target_pointee_kind);
 }
 
+/// 取错误值自带的错误 id（错误值 / 错误联合）；不是错误值就按整数载荷处理。
+fn exec_vm_error_id_from_value(value: ExecValue) i64 {
+    if value.kind == ExecValueKind.EXEC_VALUE_ERROR || value.kind == ExecValueKind.EXEC_VALUE_ERROR_UNION {
+        return (value.error_id as u32) as i64;
+    }
+    return value.i64_value;
+}
+
 fn exec_vm_dispatch_host_syscall(target_kind: i32, target_pointee_kind: i32, nr: i64, args: &i64, arg_count: i32) ExecValue {
     if arg_count == 0 {
         return exec_vm_host_syscall0(target_kind, target_pointee_kind, nr);
@@ -3782,7 +3790,13 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, "exec: MAKE_ERR 槽位越界" as *byte, 0);
             return -1;
         }
-        slot_a[0] = exec_make_error_union_err(instr.imm as i32);
+        var make_err_id: i64 = instr.imm;
+        if make_err_id == 0 && slot_b != null {
+            // `catch |err| { return err; }` 这类转发在编译期拿不到错误 id，
+            // 只能取运行时错误值自带的 id；否则上游 catch 会看到 id=0。
+            make_err_id = exec_vm_error_id_from_value(slot_b[0]);
+        }
+        slot_a[0] = exec_make_error_union_err(make_err_id as i32);
     } else if instr.opcode == BCOpcode.BC_IS_ERR {
         if slot_a == null || slot_b == null {
             exec_backend_set_error(function.decl, "exec: IS_ERR 槽位越界" as *byte, 0);
@@ -3819,7 +3833,9 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, "exec: ERROR_ID 槽位越界" as *byte, 0);
             return -1;
         }
-        slot_a[0] = exec_make_i32(exec_value_error_id(slot_b[0]));
+        // `@error_id` 的类型是 u32：必须零扩展，否则高位为 1 的错误 id
+        // （如 error.NamedFailure = 3096688242）会变成负数，和常量比较恒不相等。
+        slot_a[0] = exec_make_u32(exec_value_error_id(slot_b[0]) as u32);
     } else if instr.opcode == BCOpcode.BC_ERROR_NAME {
         if slot_a == null || slot_b == null {
             exec_backend_set_error(function.decl, "exec: ERROR_NAME 槽位越界" as *byte, 0);

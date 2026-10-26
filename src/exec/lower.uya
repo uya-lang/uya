@@ -6289,11 +6289,18 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                     return exec_lower_fail_expr(expr, "exec: 结构体字面量字段缺失且字段类型未知" as *byte);
                 }
                 const missing_field_type: Type = type_from_ast(ctx.checker, field_decl.var_decl_type);
-                const zero_field_expr: &HIRExpr = exec_lower_make_zero_expr(ctx, field_decl, &missing_field_type);
-                if zero_field_expr == null {
+                var missing_field_expr: &HIRExpr = null;
+                if field_decl.var_decl_init != null {
+                    // 字段带默认值（`port: i32 = 8080`）：字面量省略该字段时取默认值，
+                    // 与 C99 后端一致；只有没有任何默认值时才补零值。
+                    missing_field_expr = exec_lower_coerce_expr(ctx, field_decl.var_decl_init, &missing_field_type);
+                } else {
+                    missing_field_expr = exec_lower_make_zero_expr(ctx, field_decl, &missing_field_type);
+                }
+                if missing_field_expr == null {
                     return null;
                 }
-                items[fi] = zero_field_expr;
+                items[fi] = missing_field_expr;
                 fi = fi + 1;
                 continue;
             }
