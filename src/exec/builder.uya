@@ -3170,25 +3170,15 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         if expr.kind == HIRExprKind.HIR_EXPR_PRINTLN {
             op = BCOpcode.BC_PRINTLN;
         }
-        if exec_builder_emit(ctx, BCInstr {
-            opcode: op,
-            a: src,
-            b: 0,
-            c: 0,
-            imm: 0,
-            text: null,
-            source: exec_builder_make_source(expr.ast_node),
-        }) < 0 {
-            return -1;
-        }
+        // a = 结果槽（写出的字节数），b = 要打印的值。
         const dst: i32 = exec_builder_new_temp(ctx);
         if dst < 0 {
             return -1;
         }
         if exec_builder_emit(ctx, BCInstr {
-            opcode: BCOpcode.BC_LOAD_CONST,
+            opcode: op,
             a: dst,
-            b: 0,
+            b: src,
             c: 0,
             imm: 0,
             text: null,
@@ -4455,8 +4445,17 @@ fn exec_builder_validate_function(module: &HIRModule, fn_hir: &HIRFunction, out_
                 slot_written[dst_slot_va_copy2] = 1;
             }
         } else if instr.opcode == BCOpcode.BC_PRINT || instr.opcode == BCOpcode.BC_PRINTLN {
-            if exec_builder_validate_slot_read(fn_hir, instr.a, out_fn.slot_count, &slot_written[0], "exec: print 槽位非法" as *byte) != 0 {
+            // b = 要打印的值（读），a = 写出的字节数（写）。
+            if exec_builder_validate_slot_read(fn_hir, instr.b, out_fn.slot_count, &slot_written[0], "exec: print 槽位非法" as *byte) != 0 {
                 return -1;
+            }
+            if instr.a < 0 || instr.a >= out_fn.slot_count {
+                exec_backend_set_error(fn_hir.decl, "exec: print 返回槽位非法" as *byte, 0);
+                return -1;
+            }
+            const dst_slot_print: i32 = instr.a;
+            if dst_slot_print >= 0 && dst_slot_print < EXEC_MAX_FRAME_SLOTS {
+                slot_written[dst_slot_print] = 1;
             }
         } else if instr.opcode == BCOpcode.BC_RET {
             if instr.a >= 0 &&

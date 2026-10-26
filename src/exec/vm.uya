@@ -1773,102 +1773,139 @@ fn exec_vm_cast_value(value: ExecValue, target_kind: i32, target_pointee_kind: i
     return value;
 }
 
-fn exec_vm_print_value(value: ExecValue, newline: i32) void {
+/// 取一个可打印值的字节码（低 8 位），非整数类型返回 0。
+fn exec_vm_print_byte_at(value: ExecValue) i32 {
+    if exec_vm_value_kind_is_integer(value.kind) == 0 {
+        return 0;
+    }
+    return (value.i64_value & 255) as i32;
+}
+
+/// 打印字节切片：与 C 的 `%s` 一致，遇到 NUL 或切片末尾就停。
+/// 参数：value 字节切片；newline 非 0 时追加换行。
+/// 返回值：实际写出的字节数（含换行）。
+fn exec_vm_print_byte_slice(value: ExecValue, newline: i32) i64 {
+    if exec_value_is_raw_slice(&value) != 0 {
+        const raw: &byte = exec_value_slice_raw_ptr(&value);
+        if raw == null {
+            return 0;
+        }
+        if newline != 0 {
+            return fprintf(libc.stdout, "%s\n" as *byte, raw) as i64;
+        }
+        return fprintf(libc.stdout, "%s" as *byte, raw) as i64;
+    }
+    const slice_data: &ExecSliceData = exec_value_as_slice(&value);
+    if slice_data == null || slice_data.aggregate == null || slice_data.aggregate.values == null {
+        return 0;
+    }
+    var printed: i64 = 0;
+    var step: i32 = 0;
+    while step < slice_data.len {
+        const idx: i32 = slice_data.start +% step;
+        if idx < 0 || idx >= slice_data.aggregate.count {
+            break;
+        }
+        const ch: i32 = exec_vm_print_byte_at(slice_data.aggregate.values[idx]);
+        if ch == 0 {
+            break;
+        }
+        if fputc(ch, libc.stdout) < 0 {
+            break;
+        }
+        printed = printed + 1;
+        step = step + 1;
+    }
+    if newline != 0 && fputc(10, libc.stdout) >= 0 {
+        printed = printed + 1;
+    }
+    return printed;
+}
+
+fn exec_vm_print_value(value: ExecValue, newline: i32) i64 {
     if value.kind == ExecValueKind.EXEC_VALUE_I8 {
         if newline != 0 {
-            fprintf(libc.stdout, "%d\n" as *byte, value.i64_value as i8);
+            return fprintf(libc.stdout, "%d\n" as *byte, value.i64_value as i8) as i64;
         } else {
-            fprintf(libc.stdout, "%d" as *byte, value.i64_value as i8);
+            return fprintf(libc.stdout, "%d" as *byte, value.i64_value as i8) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_I16 {
         if newline != 0 {
-            fprintf(libc.stdout, "%d\n" as *byte, value.i64_value as i16);
+            return fprintf(libc.stdout, "%d\n" as *byte, value.i64_value as i16) as i64;
         } else {
-            fprintf(libc.stdout, "%d" as *byte, value.i64_value as i16);
+            return fprintf(libc.stdout, "%d" as *byte, value.i64_value as i16) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_I32 {
         if newline != 0 {
-            fprintf(libc.stdout, "%d\n" as *byte, value.i64_value as i32);
+            return fprintf(libc.stdout, "%d\n" as *byte, value.i64_value as i32) as i64;
         } else {
-            fprintf(libc.stdout, "%d" as *byte, value.i64_value as i32);
+            return fprintf(libc.stdout, "%d" as *byte, value.i64_value as i32) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_I64 {
         if newline != 0 {
-            fprintf(libc.stdout, "%ld\n" as *byte, value.i64_value);
+            return fprintf(libc.stdout, "%ld\n" as *byte, value.i64_value) as i64;
         } else {
-            fprintf(libc.stdout, "%ld" as *byte, value.i64_value);
+            return fprintf(libc.stdout, "%ld" as *byte, value.i64_value) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_ISIZE {
         if newline != 0 {
-            fprintf(libc.stdout, "%ld\n" as *byte, value.i64_value as isize);
+            return fprintf(libc.stdout, "%ld\n" as *byte, value.i64_value as isize) as i64;
         } else {
-            fprintf(libc.stdout, "%ld" as *byte, value.i64_value as isize);
+            return fprintf(libc.stdout, "%ld" as *byte, value.i64_value as isize) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_U8 {
         if newline != 0 {
-            fprintf(libc.stdout, "%u\n" as *byte, value.i64_value as u8);
+            return fprintf(libc.stdout, "%u\n" as *byte, value.i64_value as u8) as i64;
         } else {
-            fprintf(libc.stdout, "%u" as *byte, value.i64_value as u8);
+            return fprintf(libc.stdout, "%u" as *byte, value.i64_value as u8) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_U16 {
         if newline != 0 {
-            fprintf(libc.stdout, "%u\n" as *byte, value.i64_value as u16);
+            return fprintf(libc.stdout, "%u\n" as *byte, value.i64_value as u16) as i64;
         } else {
-            fprintf(libc.stdout, "%u" as *byte, value.i64_value as u16);
+            return fprintf(libc.stdout, "%u" as *byte, value.i64_value as u16) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_U32 {
         if newline != 0 {
-            fprintf(libc.stdout, "%u\n" as *byte, value.i64_value as u32);
+            return fprintf(libc.stdout, "%u\n" as *byte, value.i64_value as u32) as i64;
         } else {
-            fprintf(libc.stdout, "%u" as *byte, value.i64_value as u32);
+            return fprintf(libc.stdout, "%u" as *byte, value.i64_value as u32) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_U64 {
         if newline != 0 {
-            fprintf(libc.stdout, "%lu\n" as *byte, value.i64_value as u64);
+            return fprintf(libc.stdout, "%lu\n" as *byte, value.i64_value as u64) as i64;
         } else {
-            fprintf(libc.stdout, "%lu" as *byte, value.i64_value as u64);
+            return fprintf(libc.stdout, "%lu" as *byte, value.i64_value as u64) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_USIZE {
         if newline != 0 {
-            fprintf(libc.stdout, "%lu\n" as *byte, value.i64_value as usize);
+            return fprintf(libc.stdout, "%lu\n" as *byte, value.i64_value as usize) as i64;
         } else {
-            fprintf(libc.stdout, "%lu" as *byte, value.i64_value as usize);
+            return fprintf(libc.stdout, "%lu" as *byte, value.i64_value as usize) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_F32 {
         if newline != 0 {
-            fprintf(libc.stdout, "%g\n" as *byte, exec_f32_from_bits(value.i64_value as u32) as f64);
+            return fprintf(libc.stdout, "%g\n" as *byte, exec_f32_from_bits(value.i64_value as u32) as f64) as i64;
         } else {
-            fprintf(libc.stdout, "%g" as *byte, exec_f32_from_bits(value.i64_value as u32) as f64);
+            return fprintf(libc.stdout, "%g" as *byte, exec_f32_from_bits(value.i64_value as u32) as f64) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_F64 {
         if newline != 0 {
-            fprintf(libc.stdout, "%g\n" as *byte, exec_f64_from_bits(value.i64_value as u64));
+            return fprintf(libc.stdout, "%g\n" as *byte, exec_f64_from_bits(value.i64_value as u64)) as i64;
         } else {
-            fprintf(libc.stdout, "%g" as *byte, exec_f64_from_bits(value.i64_value as u64));
+            return fprintf(libc.stdout, "%g" as *byte, exec_f64_from_bits(value.i64_value as u64)) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_BOOL {
         var bool_text: *byte = "false" as *byte;
@@ -1876,47 +1913,51 @@ fn exec_vm_print_value(value: ExecValue, newline: i32) void {
             bool_text = "true" as *byte;
         }
         if newline != 0 {
-            fprintf(libc.stdout, "%s\n" as *byte, bool_text);
+            return fprintf(libc.stdout, "%s\n" as *byte, bool_text) as i64;
         } else {
-            fprintf(libc.stdout, "%s" as *byte, bool_text);
+            return fprintf(libc.stdout, "%s" as *byte, bool_text) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_BYTE {
         if newline != 0 {
-            fprintf(libc.stdout, "%c\n" as *byte, value.i64_value as i32);
+            return fprintf(libc.stdout, "%c\n" as *byte, value.i64_value as i32) as i64;
         } else {
-            fprintf(libc.stdout, "%c" as *byte, value.i64_value as i32);
+            return fprintf(libc.stdout, "%c" as *byte, value.i64_value as i32) as i64;
         }
-        return;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_STRING && value.ptr_value != null {
         if newline != 0 {
-            fprintf(libc.stdout, "%s\n" as *byte, value.ptr_value as *byte);
+            return fprintf(libc.stdout, "%s\n" as *byte, value.ptr_value as *byte) as i64;
         } else {
-            fprintf(libc.stdout, "%s" as *byte, value.ptr_value as *byte);
+            return fprintf(libc.stdout, "%s" as *byte, value.ptr_value as *byte) as i64;
         }
-        return;
+    }
+    if value.kind == ExecValueKind.EXEC_VALUE_SLICE {
+        const print_slice_elem: i32 = exec_value_slice_element_kind(&value);
+        if print_slice_elem == TypeKind.TYPE_BYTE as i32 || print_slice_elem == TypeKind.TYPE_I8 as i32 ||
+            print_slice_elem == TypeKind.TYPE_U8 as i32 {
+            return exec_vm_print_byte_slice(value, newline);
+        }
     }
     if value.kind == ExecValueKind.EXEC_VALUE_POINTER {
         const print_pointee: i32 = exec_value_pointer_pointee_kind(&value);
         if value.ptr_value != null && (print_pointee == TypeKind.TYPE_BYTE as i32 ||
             print_pointee == TypeKind.TYPE_I8 as i32 || print_pointee == TypeKind.TYPE_U8 as i32) {
             if newline != 0 {
-                fprintf(libc.stdout, "%s\n" as *byte, value.ptr_value as *byte);
+                return fprintf(libc.stdout, "%s\n" as *byte, value.ptr_value as *byte) as i64;
             } else {
-                fprintf(libc.stdout, "%s" as *byte, value.ptr_value as *byte);
+                return fprintf(libc.stdout, "%s" as *byte, value.ptr_value as *byte) as i64;
             }
         } else if newline != 0 {
-            fprintf(libc.stdout, "%lu\n" as *byte, value.i64_value as usize);
+            return fprintf(libc.stdout, "%lu\n" as *byte, value.i64_value as usize) as i64;
         } else {
-            fprintf(libc.stdout, "%lu" as *byte, value.i64_value as usize);
+            return fprintf(libc.stdout, "%lu" as *byte, value.i64_value as usize) as i64;
         }
-        return;
     }
     if newline != 0 {
-        fprintf(libc.stdout, "\n" as *byte);
+        return fprintf(libc.stdout, "\n" as *byte) as i64;
     }
+    return 0;
 }
 
 fn exec_vm_trace(trace_vm: i32, fn_name: &byte, ip: i32, instr: &BCInstr) void {
@@ -3980,11 +4021,13 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         }
         slot_a[0] = exec_make_void();
     } else if instr.opcode == BCOpcode.BC_PRINT {
-        if slot_a == null {
+        if slot_a == null || slot_b == null {
             exec_backend_set_error(function.decl, "exec: PRINT 槽位越界" as *byte, 0);
             return -1;
         }
-        exec_vm_print_value(slot_a[0], 0);
+        // `@print`/`@println` 的返回值是实际写出的字节数（含换行），
+        // 和 C 的 printf 一致；写进 a 槽（临时槽）。
+        slot_a[0] = exec_make_i32(exec_vm_print_value(slot_b[0], 0) as i32);
     } else if instr.opcode == BCOpcode.BC_STRING_INTERP {
         if slot_a == null {
             exec_backend_set_error(function.decl, "exec: STRING_INTERP 槽位越界" as *byte, 0);
@@ -4021,11 +4064,11 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         }
         slot_a[0] = exec_make_string(interp_buf.data);
     } else if instr.opcode == BCOpcode.BC_PRINTLN {
-        if slot_a == null {
+        if slot_a == null || slot_b == null {
             exec_backend_set_error(function.decl, "exec: PRINTLN 槽位越界" as *byte, 0);
             return -1;
         }
-        exec_vm_print_value(slot_a[0], 1);
+        slot_a[0] = exec_make_i32(exec_vm_print_value(slot_b[0], 1) as i32);
     } else if instr.opcode == BCOpcode.BC_RET {
         if instr.a >= 0 {
             if slot_a == null {
