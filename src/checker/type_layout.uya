@@ -312,6 +312,10 @@ fn get_type_size_bytes_v2(checker: &TypeChecker, t: &Type, program_node: &ASTNod
         if decl != null && decl.struct_decl_fields != null && decl.struct_decl_field_count > 0 {
             return compute_struct_size_v2(checker, decl, program_node);
         }
+        // 零字段结构体按 C 兼容布局是 1 字节（对齐也是 1），而不是「无法确定」。
+        if decl != null {
+            return 1;
+        }
         return -1;
     }
     if t.kind == TypeKind.TYPE_UNION && t.union_name != null && program_node != null {

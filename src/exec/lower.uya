@@ -204,9 +204,31 @@ fn exec_lower_type_ast_align_bytes(checker: &TypeChecker, type_ast: &ASTNode, pr
     return get_type_align_bytes_v2(checker, &resolved, program_node);
 }
 
+/// 空结构体（零字段）在 C 兼容布局下尺寸/对齐都是 1，但共享的
+/// `get_type_size_bytes_v2` 对零字段结构体返回 -1，这里补上。
+///
+/// 参数：`checker` 类型检查器；`name` 类型名；`program_node` 程序根节点。
+/// 返回值：1 表示是零字段结构体，否则 0。
+fn exec_lower_is_empty_struct_decl(checker: &TypeChecker, name: &byte, program_node: &ASTNode) i32 {
+    if checker == null || name == null || program_node == null {
+        return 0;
+    }
+    const decl: &ASTNode = find_struct_decl_from_program(program_node, name);
+    if decl == null || decl.type != ASTNodeType.AST_STRUCT_DECL {
+        return 0;
+    }
+    if decl.struct_decl_field_count > 0 {
+        return 0;
+    }
+    return 1;
+}
+
 fn exec_lower_named_decl_size_bytes(checker: &TypeChecker, name: &byte, program_node: &ASTNode) i32 {
     if checker == null || name == null || program_node == null {
         return -1;
+    }
+    if exec_lower_is_empty_struct_decl(checker, name, program_node) != 0 {
+        return 1;
     }
     if find_struct_decl_from_program(program_node, name) != null {
         const named_struct: Type = make_named_type(TypeKind.TYPE_STRUCT, name);
@@ -230,6 +252,9 @@ fn exec_lower_named_decl_size_bytes(checker: &TypeChecker, name: &byte, program_
 fn exec_lower_named_decl_align_bytes(checker: &TypeChecker, name: &byte, program_node: &ASTNode) i32 {
     if checker == null || name == null || program_node == null {
         return -1;
+    }
+    if exec_lower_is_empty_struct_decl(checker, name, program_node) != 0 {
+        return 1;
     }
     if find_struct_decl_from_program(program_node, name) != null {
         const named_struct: Type = make_named_type(TypeKind.TYPE_STRUCT, name);
@@ -370,6 +395,31 @@ fn exec_lower_eval_size_align_builtin(ctx: &ExecLowerContext, expr: &ASTNode) i3
             return @size_of(i64) as i32;
         }
         return @size_of(i64) as i32;
+    }
+    // `va_list` 是平台相关内置类型：x86-64 SysV 下是 24 字节、8 字节对齐。
+    if target.type == ASTNodeType.AST_IDENTIFIER && target.identifier_name != null &&
+        str_equals(target.identifier_name, "va_list" as &byte) != 0 &&
+        (target_type.kind == TypeKind.TYPE_VOID || target_type.kind == TypeKind.TYPE_VA_LIST) {
+        if expr.type == ASTNodeType.AST_SIZEOF {
+            return 24;
+        }
+        return 8;
+    }
+    // 空结构体（零字段）的尺寸/对齐按 C 兼容取 1；共享 layout 对零字段返回 -1。
+    if target_type.kind == TypeKind.TYPE_STRUCT && target_type.struct_name != null &&
+        exec_lower_is_empty_struct_decl(ctx.checker, target_type.struct_name, ctx.checker.program_node) != 0 {
+        return 1;
+    }
+    // `[Empty: N]` 同理：元素 1 字节，总长就是元素个数。
+    if target_type.kind == TypeKind.TYPE_ARRAY && target_type.element_type != null &&
+        target_type.element_type[0].kind == TypeKind.TYPE_STRUCT &&
+        target_type.element_type[0].struct_name != null &&
+        exec_lower_is_empty_struct_decl(ctx.checker, target_type.element_type[0].struct_name,
+            ctx.checker.program_node) != 0 {
+        if expr.type == ASTNodeType.AST_SIZEOF {
+            return target_type.array_size;
+        }
+        return 1;
     }
     if expr.type == ASTNodeType.AST_SIZEOF {
         return get_type_size_bytes_v2(ctx.checker, &target_type, ctx.checker.program_node);
