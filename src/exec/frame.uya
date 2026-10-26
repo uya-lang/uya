@@ -6,7 +6,7 @@ const EXEC_MAX_FRAME_SLOTS: i32 = 8192;
 struct ExecFrame {
     function: &BCFunction,
     ip: i32,
-    slots: [ExecValue: EXEC_MAX_FRAME_SLOTS],
+    slots: &ExecValue,  // 指向 vm.uya 的槽位栈（按 function.slot_count 切片）
     varargs: [ExecValue: EXEC_MAX_CALL_ARGS],
     vararg_count: i32,
 }

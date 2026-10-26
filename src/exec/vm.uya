@@ -26,6 +26,48 @@ use libc.fflush;
 const EXEC_VM_REF_KIND_BASE: i32 = 65536;
 const EXEC_VM_REF_KIND_INDEX_BASE: i32 = 131072;
 
+// 调用帧槽位的共享栈（LIFO）。
+//
+// 早先每个调用都在 C 栈上放一个 `[ExecValue: 8192]`（约 393KB）并逐槽清零：
+// 一次普通函数调用要几十万条初始化指令，纯计算型用例（大数模幂、SHA-384）
+// 因此慢到几十分钟。改为按 function.slot_count 从共享栈里切一段，调用返回时
+// 回退栈顶；递归按 LIFO 自然正确。
+var g_exec_vm_slot_pool: [ExecValue: EXEC_MAX_FRAME_SLOTS] = [];
+var g_exec_vm_slot_top: i32 = 0;
+
+/// 从共享槽位栈里切一段给新调用帧。
+/// 参数：`slot_count` 本次调用需要的槽位数。
+/// 返回值：切出的起始下标；空间不足返回 -1。
+fn exec_vm_slot_pool_push(slot_count: i32) i32 {
+    if slot_count < 0 || g_exec_vm_slot_top < 0 {
+        return -1;
+    }
+    const base: i32 = g_exec_vm_slot_top;
+    if slot_count > EXEC_MAX_FRAME_SLOTS -| base {
+        return -1;
+    }
+    g_exec_vm_slot_top = base +| slot_count;
+    return base;
+}
+
+/// 取共享槽位栈里某段起始位置的值指针。
+/// 参数：`base` push 返回的起始下标。
+/// 返回值：指向该槽位的指针；下标越界返回 null。
+fn exec_vm_slot_pool_base(base: i32) &ExecValue {
+    if base < 0 || base >= EXEC_MAX_FRAME_SLOTS {
+        return null;
+    }
+    return &g_exec_vm_slot_pool[base];
+}
+
+/// 归还一段槽位（必须与 push 一一配对）。
+/// 参数：`base` push 返回的起始下标。
+fn exec_vm_slot_pool_pop(base: i32) void {
+    if base >= 0 && base <= EXEC_MAX_FRAME_SLOTS {
+        g_exec_vm_slot_top = base;
+    }
+}
+
 fn exec_vm_slot_ref(frame: &ExecFrame, idx: i32) &ExecValue {
     if frame == null || idx < 0 || idx >= EXEC_MAX_FRAME_SLOTS {
         return null;
@@ -4411,16 +4453,35 @@ fn exec_vm_call_function(program: &BCProgram, function_index: i32, args: &ExecVa
         exec_backend_set_error(function.decl, "exec: VM frame slot 超限" as *byte, 0);
         return -1;
     }
+    const base: i32 = exec_vm_slot_pool_push(function.slot_count);
+    if base < 0 {
+        exec_backend_set_error(function.decl, "exec: VM frame slot 超限" as *byte, 0);
+        return -1;
+    }
+    const rc: i32 = exec_vm_run_frame(program, function, args, arg_count, trace_vm, out_value, base);
+    exec_vm_slot_pool_pop(base);
+    return rc;
+}
+
+/// 在已经切好的槽位栈段上执行一个函数体（配对 `exec_vm_call_function`）。
+/// 参数：`base` 槽位栈起始下标。
+/// 返回值：0 表示执行完成，-1 表示运行时错误。
+fn exec_vm_run_frame(program: &BCProgram, function: &BCFunction, args: &ExecValue, arg_count: i32,
+    trace_vm: i32, out_value: &ExecValue, base: i32) i32 {
+    var slots_ptr: &ExecValue = exec_vm_slot_pool_base(base);
+    if slots_ptr == null {
+        slots_ptr = &g_exec_vm_slot_pool[0];
+    }
     var frame: ExecFrame = ExecFrame {
         function: function,
         ip: 0,
-        slots: [],
+        slots: slots_ptr,
         varargs: [],
         vararg_count: 0,
     };
     exec_vm_trace_call_enter(trace_vm, function.name, arg_count);
     var si: i32 = 0;
-    while si < EXEC_MAX_FRAME_SLOTS {
+    while si < function.slot_count {
         frame.slots[si] = exec_make_void();
         si = si + 1;
     }

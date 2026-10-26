@@ -1,0 +1,8 @@
+# exec VM census 单用例超时覆盖表
+#
+# 格式：`用例文件名<TAB>秒数`（# 起注释）。只给「语义已经对齐、但解释器纯 CPU
+# 开销大」的用例放宽超时；跑不通的用例不要往这里加，它属于覆盖率问题。
+#
+# test_crypto_bigint_modexp4096：4096 位私钥指数模幂 = 6144 次 64×64 Montgomery
+# 乘法，解释器实测约 343s（C99 侧约 1s）。内存稳定在 40MB 级别。
+test_crypto_bigint_modexp4096.uya	900

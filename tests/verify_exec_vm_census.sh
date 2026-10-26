@@ -25,6 +25,9 @@
 #                             吃光；设上限让它快速失败，并记为原因 mem。
 #   UYA_EXEC_CENSUS_REPORT    明细 TSV 落盘路径（默认 /tmp/uya_exec_vm_census.tsv）
 #   UYA_EXEC_CENSUS_SKIP      跳过表路径（默认 tests/exec_vm_census_skip.txt）
+#   UYA_EXEC_CENSUS_TIMEOUTS  单用例超时覆盖表（默认 tests/exec_vm_census_timeouts.txt）
+#                             格式：`用例名<TAB>秒数`，行内 # 起注释。给"能跑通但
+#                             纯 CPU 很贵"的用例（如 4096 位模幂）单独放宽。
 
 set -uo pipefail
 
@@ -37,6 +40,7 @@ TIMEOUT="${UYA_EXEC_CENSUS_TIMEOUT:-300}"
 MEM_MB="${UYA_EXEC_CENSUS_MEM_MB:-2048}"
 REPORT="${UYA_EXEC_CENSUS_REPORT:-/tmp/uya_exec_vm_census.tsv}"
 SKIP_FILE="${UYA_EXEC_CENSUS_SKIP:-$SCRIPT_DIR/exec_vm_census_skip.txt}"
+TIMEOUT_FILE="${UYA_EXEC_CENSUS_TIMEOUTS:-$SCRIPT_DIR/exec_vm_census_timeouts.txt}"
 
 if [ ! -x "$COMPILER" ]; then
     echo "✗ 编译器不存在或不可执行: $COMPILER" >&2
@@ -62,11 +66,27 @@ if [ -f "$SKIP_FILE" ]; then
     done < "$SKIP_FILE"
 fi
 
+declare -A TIMEOUT_SET=()
+if [ -f "$TIMEOUT_FILE" ]; then
+    while IFS=$'\t' read -r t_name t_seconds; do
+        t_name="${t_name%%#*}"
+        t_name="${t_name//[[:space:]]/}"
+        if [ -n "$t_name" ] && [[ "$t_seconds" =~ ^[0-9]+$ ]]; then
+            TIMEOUT_SET["$t_name"]="$t_seconds"
+        fi
+    done < "$TIMEOUT_FILE"
+fi
+
 run_one() {
     local uya_file="$1"
     local results_dir="$2"
     local compiler="$3"
     local timeout_s="$4"
+    local base_name
+    base_name="$(basename "$uya_file")"
+    if [ -n "${TIMEOUT_SET[$base_name]:-}" ]; then
+        timeout_s="${TIMEOUT_SET[$base_name]}"
+    fi
     local base
     base="$(basename "$uya_file")"
     local out_file="$results_dir/${base}.txt"
