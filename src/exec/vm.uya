@@ -43,6 +43,20 @@ fn exec_vm_store_slot(slot: &ExecValue, value: ExecValue) void {
     slot[0] = exec_value_clone(&value);
 }
 
+/// 把值原样写进槽位（不深拷贝）。
+///
+/// 表达式求值读局部/全局变量时用这个：`exec_value_clone` 对聚合数组是逐元素
+/// 深拷贝，而聚合内存来自只增不减的 arena —— `acc[i]` 这种下标读每执行一次就
+/// 复制整个数组，循环里直接把内存吃到 GB 级（test_crypto_bigint 的 7GB 就是这么
+/// 来的）。读出来的临时值不会被写回，浅拷贝即可；真正的赋值（BC_MOV /
+/// BC_STORE_LOCAL / 字段与下标写）仍然走深拷贝，值语义不变。
+fn exec_vm_store_slot_shallow(slot: &ExecValue, value: ExecValue) void {
+    if slot == null {
+        return;
+    }
+    slot[0] = value;
+}
+
 fn exec_vm_global_ref(program: &BCProgram, idx: i32) &ExecValue {
     if program == null || idx < 0 || idx >= program.global_count || program.globals == null {
         return null;
@@ -2947,14 +2961,14 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, "exec: LOAD_LOCAL 槽位越界" as *byte, 0);
             return -1;
         }
-        exec_vm_store_slot(slot_a, slot_b[0]);
+        exec_vm_store_slot_shallow(slot_a, slot_b[0]);
     } else if instr.opcode == BCOpcode.BC_LOAD_GLOBAL {
         const global_slot: &ExecValue = exec_vm_global_ref(program, instr.b);
         if slot_a == null || global_slot == null {
             exec_backend_set_error(function.decl, "exec: LOAD_GLOBAL 槽位越界" as *byte, 0);
             return -1;
         }
-        exec_vm_store_slot(slot_a, global_slot[0]);
+        exec_vm_store_slot_shallow(slot_a, global_slot[0]);
     } else if instr.opcode == BCOpcode.BC_STORE_LOCAL {
         if slot_a == null || slot_b == null {
             exec_backend_set_error(function.decl, "exec: STORE_LOCAL 槽位越界" as *byte, 0);
