@@ -434,7 +434,8 @@
 `extern_abi` 拒绝，`tests/verify_exec_vm_extern_bridge.sh` 与
 `tests/verify_exec_backend_progress.sh` 都盯着这条）。已把 varargs extern
 恢复为硬拒绝（非 varargs 的环境调用仍是零值桩），所以真实基线是
-**687 / 914**，零回归（669 → 678 → 683 → 687）。会话累计 +18。
+**687 / 914**（`/tmp/census_final.tsv`，最终二进制复测），零回归
+（669 → 678 → 683 → 687）。会话累计 +18，逐条对比 r272 → final 无任何回退。
 
 已知**本次会话之前就存在**的 gate 失败（不是本轮引入）：
 `tests/verify_exec_backend_progress.sh` 里「SIMD unsupported 原因」这一段
