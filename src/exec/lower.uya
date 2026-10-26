@@ -438,6 +438,66 @@ fn exec_lower_match_host_call(fn_decl: &ASTNode, call_arg_count: i32) ExecHostCa
         // 内存 / 字符串族：protobuf、tflm、process 等模块只声明不带体的
         // `extern "libc"`，VM 必须自己按原生指针实现，否则这些模块整体不可用。
         // 带 Uya 体的版本（lib/libc/mem.uya）仍走解释执行，不受影响。
+        if fn_decl.fn_decl_param_count == 0 && call_arg_count == 0 &&
+            str_equals(fn_decl.fn_decl_name, "uya_pipeline_worker_main_if_requested" as &byte) != 0 {
+            return ExecHostCallId.EXEC_HOST_CALL_SYNTH_ZERO;
+        }
+        if fn_decl.fn_decl_param_count == 0 && call_arg_count == 0 &&
+            str_equals(fn_decl.fn_decl_name, "uya_pipeline_image_anchor" as &byte) != 0 {
+            return ExecHostCallId.EXEC_HOST_CALL_IMAGE_ANCHOR;
+        }
+        if str_equals(fn_decl.fn_decl_name, "isatty" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_ISATTY;
+        }
+        if str_equals(fn_decl.fn_decl_name, "pthread_sigmask" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SIGMASK;
+        }
+        if str_equals(fn_decl.fn_decl_name, "uya_interface_get_vtable" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_INTERFACE_GET_VTABLE;
+        }
+        if str_equals(fn_decl.fn_decl_name, "__atomic_load_n" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_LOAD_N;
+        }
+        if str_equals(fn_decl.fn_decl_name, "__atomic_store_n" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_STORE_N;
+        }
+        if str_equals(fn_decl.fn_decl_name, "__atomic_exchange_n" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_EXCHANGE_N;
+        }
+        if str_equals(fn_decl.fn_decl_name, "__atomic_add_fetch" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_ADD_FETCH;
+        }
+        if str_equals(fn_decl.fn_decl_name, "__atomic_fetch_add" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FETCH_ADD;
+        }
+        if str_equals(fn_decl.fn_decl_name, "__sync_fetch_and_add" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FETCH_ADD;
+        }
+        if str_equals(fn_decl.fn_decl_name, "__atomic_fetch_sub" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FETCH_SUB;
+        }
+        if str_equals(fn_decl.fn_decl_name, "__sync_fetch_and_sub" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FETCH_SUB;
+        }
+        if str_equals(fn_decl.fn_decl_name, "__sync_synchronize" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 0 && call_arg_count == 0 {
+            return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FENCE;
+        }
+        if str_equals(fn_decl.fn_decl_name, "__atomic_thread_fence" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FENCE;
+        }
         if str_equals(fn_decl.fn_decl_name, "malloc" as &byte) != 0 &&
             fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_MALLOC;
@@ -2463,6 +2523,53 @@ fn exec_lower_expr_list(ctx: &ExecLowerContext, exprs: & & ASTNode, count: i32) 
         i = i + 1;
     }
     return items;
+}
+
+/// `mod.f(args)` 里 `mod` 是模块名而不是值：把 callee 就地改写成标识符 `f`，
+/// 让后面的直接调用路径按文件名+导入关系解析。类型名/静态方法调用不受影响。
+///
+/// 参数：`ctx` lowering 上下文；`call_expr` 是 `AST_CALL_EXPR` 节点。
+/// 返回值：发生了改写返回 1，否则 0。
+fn exec_lower_rewrite_module_qualified_callee(ctx: &ExecLowerContext, call_expr: &ASTNode) i32 {
+    if ctx == null || call_expr == null || call_expr.type != ASTNodeType.AST_CALL_EXPR {
+        return 0;
+    }
+    const callee: &ASTNode = call_expr.call_expr_callee;
+    if callee == null || callee.type != ASTNodeType.AST_MEMBER_ACCESS {
+        return 0;
+    }
+    const object_ast: &ASTNode = callee.member_access_object;
+    const member_name: &byte = callee.member_access_field_name;
+    if object_ast == null || object_ast.type != ASTNodeType.AST_IDENTIFIER ||
+        object_ast.identifier_name == null || member_name == null {
+        return 0;
+    }
+    const qualifier: &byte = object_ast.identifier_name;
+    if find_struct_decl_from_program(ctx.checker.program_node, qualifier) != null {
+        return 0;
+    }
+    if find_union_decl_from_program(ctx.checker.program_node, qualifier) != null {
+        return 0;
+    }
+    if find_interface_decl_from_program(ctx.checker.program_node, qualifier) != null {
+        return 0;
+    }
+    if find_type_alias_from_program(ctx.checker.program_node, qualifier) != null {
+        return 0;
+    }
+    if exec_lower_find_slot(ctx, qualifier) >= 0 {
+        return 0;
+    }
+    var target_decl: &ASTNode = exec_lower_resolve_function_decl_from_file(ctx.checker, call_expr.filename, member_name);
+    if target_decl == null && call_expr.filename != null {
+        target_decl = exec_lower_resolve_imported_decl_from_file(ctx.checker, call_expr.filename, member_name, 10);
+    }
+    if target_decl == null || target_decl.type != ASTNodeType.AST_FN_DECL {
+        return 0;
+    }
+    callee.type = ASTNodeType.AST_IDENTIFIER;
+    callee.identifier_name = member_name;
+    return 1;
 }
 
 fn exec_lower_member_base_type(ctx: &ExecLowerContext, object: &ASTNode) Type {
@@ -6088,6 +6195,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if expr.call_expr_has_ellipsis_forward != 0 {
             return exec_lower_fail_expr(expr, "exec: 当前不支持 varargs 转发" as *byte);
         }
+        _ = exec_lower_rewrite_module_qualified_callee(ctx, expr);
         if expr.call_expr_type_arg_count > 0 &&
             expr.call_expr_callee != null && expr.call_expr_callee.type == ASTNodeType.AST_IDENTIFIER {
             const generic_call: &HIRExpr = exec_lower_generic_call_expr(ctx, expr, &expr_type);

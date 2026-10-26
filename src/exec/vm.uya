@@ -2304,6 +2304,54 @@ fn exec_vm_pointer_store_value(function: &BCFunction, ptr_value: &ExecValue, src
     return -1;
 }
 
+/// 原子读改写：读旧值 -> 按 op 算新值 -> 写回 -> 输出旧值或新值。
+///
+/// 参数：`op` 0=只读、1=加、2=减、3=写成第 2 个实参；
+///       `want_new` 非 0 时输出新值（add_fetch 语义），否则输出旧值。
+/// 返回值：0 成功；-1 失败（已设置错误）。
+fn exec_vm_atomic_update(function: &BCFunction, frame: &ExecFrame, arg_base: i32,
+    op: i32, want_new: i32, out_value: &ExecValue) i32 {
+    const ptr_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+    if ptr_arg == null {
+        exec_backend_set_error(function.decl, "exec: 原子操作参数槽位非法" as *byte, 0);
+        return -1;
+    }
+    var current: ExecValue = exec_make_void();
+    if exec_vm_pointer_load_value(function, ptr_arg, &current) != 0 {
+        return -1;
+    }
+    if op == 0 {
+        out_value[0] = exec_value_clone(&current);
+        return 0;
+    }
+    const operand_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+    if operand_arg == null {
+        exec_backend_set_error(function.decl, "exec: 原子操作操作数槽位非法" as *byte, 0);
+        return -1;
+    }
+    var updated_value: ExecValue = operand_arg[0];
+    if op == 1 || op == 2 {
+        const base_i64: i64 = exec_vm_numeric_to_i64(exec_value_clone(&current));
+        const operand_i64: i64 = exec_vm_numeric_to_i64(operand_arg[0]);
+        var new_i64: i64 = base_i64 +| operand_i64;
+        if op == 2 {
+            new_i64 = base_i64 -| operand_i64;
+        }
+        updated_value = exec_make_i64(new_i64);
+    }
+    const pointee_kind_atomic: i32 = exec_value_pointer_pointee_kind(&ptr_arg[0]);
+    const cast_updated: ExecValue = exec_vm_cast_value(updated_value, pointee_kind_atomic, 0);
+    if exec_vm_pointer_store_value(function, ptr_arg, cast_updated) != 0 {
+        return -1;
+    }
+    if want_new != 0 {
+        out_value[0] = cast_updated;
+    } else {
+        out_value[0] = exec_value_clone(&current);
+    }
+    return 0;
+}
+
 fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecFrame, arg_base: i32, arg_count: i32, out_value: &ExecValue) i32 {
     if function == null || site == null || frame == null || out_value == null {
         exec_backend_set_error(null, "exec: hostcall 输入无效" as *byte, 0);
@@ -2438,6 +2486,106 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             }
         }
         out_value[0] = mem_dst[0];
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_SYNTH_ZERO {
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_IMAGE_ANCHOR {
+        // 偏移都相对这个锚点做差，解释器里取任意固定常数即可。
+        out_value[0] = exec_make_usize(4096 as usize);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_ISATTY {
+        // 解释器输出总是被当管道读（与 C99 测试里 isatty 返回 0 一致）。
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SIGMASK {
+        // 解释器是单线程：屏蔽信号表只当占位，oldset 有值就清零。
+        if arg_count == 3 {
+            const mask_old: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
+            if mask_old != null && mask_old.ptr_value != null {
+                var mask_i: usize = 0;
+                while mask_i < 128 as usize {
+                    mask_old.ptr_value[mask_i] = 0;
+                    mask_i = mask_i + 1;
+                }
+            }
+        }
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_INTERFACE_GET_VTABLE {
+        if arg_count != 1 {
+            exec_backend_set_error(function.decl, "exec: uya_interface_get_vtable 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const iface_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        if iface_arg == null {
+            exec_backend_set_error(function.decl, "exec: uya_interface_get_vtable 参数槽位非法" as *byte, 0);
+            return -1;
+        }
+        var vtable_addr: usize = 0 as usize;
+        if iface_arg.kind == ExecValueKind.EXEC_VALUE_STRUCT {
+            const iface_agg: &ExecAggregate = exec_value_as_aggregate(&iface_arg[0]);
+            if iface_agg != null && iface_agg.values != null && iface_agg.count > 0 {
+                vtable_addr = @usize_from_ptr(&iface_agg.values[0] as &void);
+            }
+        }
+        out_value[0] = exec_make_pointer_with_kind(vtable_addr, TypeKind.TYPE_VOID as i32);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_ATOMIC_LOAD_N {
+        if arg_count != 2 {
+            exec_backend_set_error(function.decl, "exec: __atomic_load_n 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        return exec_vm_atomic_update(function, frame, arg_base, 0, 0, out_value);
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_ATOMIC_EXCHANGE_N {
+        if arg_count != 3 {
+            exec_backend_set_error(function.decl, "exec: __atomic_exchange_n 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        return exec_vm_atomic_update(function, frame, arg_base, 3, 0, out_value);
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_ATOMIC_ADD_FETCH {
+        if arg_count != 3 {
+            exec_backend_set_error(function.decl, "exec: __atomic_add_fetch 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        return exec_vm_atomic_update(function, frame, arg_base, 1, 1, out_value);
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FETCH_ADD {
+        return exec_vm_atomic_update(function, frame, arg_base, 1, 0, out_value);
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FETCH_SUB {
+        return exec_vm_atomic_update(function, frame, arg_base, 2, 0, out_value);
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_ATOMIC_STORE_N {
+        if arg_count != 3 {
+            exec_backend_set_error(function.decl, "exec: __atomic_store_n 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const store_ptr: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const store_val: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        if store_ptr == null || store_val == null {
+            exec_backend_set_error(function.decl, "exec: __atomic_store_n 参数槽位非法" as *byte, 0);
+            return -1;
+        }
+        const store_kind: i32 = exec_value_pointer_pointee_kind(&store_ptr[0]);
+        const store_cast: ExecValue = exec_vm_cast_value(store_val[0], store_kind, 0);
+        if exec_vm_pointer_store_value(function, store_ptr, store_cast) != 0 {
+            return -1;
+        }
+        out_value[0] = exec_make_void();
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FENCE {
+        // 解释器单线程执行，栅栏只需占位。
+        out_value[0] = exec_make_void();
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_MALLOC || site.id == ExecHostCallId.EXEC_HOST_CALL_CALLOC {
