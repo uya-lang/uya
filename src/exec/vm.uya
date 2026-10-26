@@ -3669,7 +3669,12 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, "exec: UNWRAP_OK 遇到错误值" as *byte, 0);
             return -1;
         }
-        slot_a[0] = exec_value_unwrap_ok(slot_b[0]);
+        // 不是错误联合的值本身就是载荷（宏展开体的 try 操作数可能直接是裸值）。
+        if slot_b[0].kind == ExecValueKind.EXEC_VALUE_ERROR_UNION {
+            slot_a[0] = exec_value_unwrap_ok(slot_b[0]);
+        } else {
+            slot_a[0] = slot_b[0];
+        }
     } else if instr.opcode == BCOpcode.BC_UNWRAP_ERR {
         if slot_a == null || slot_b == null {
             exec_backend_set_error(function.decl, "exec: UNWRAP_ERR 槽位越界" as *byte, 0);

@@ -378,6 +378,11 @@ fn exec_value_is_error_union_err(value: ExecValue) i32 {
     if value.kind == ExecValueKind.EXEC_VALUE_ERROR_UNION && value.i64_value != 0 {
         return 1;
     }
+    // 裸错误值（`error.Foo`、宏展开体里 `if overflow { error.Foo } else { value }`）
+    // 也必须被当成错误分支，否则 try/catch 会把错误吞成 void。
+    if value.kind == ExecValueKind.EXEC_VALUE_ERROR {
+        return 1;
+    }
     return 0;
 }
 

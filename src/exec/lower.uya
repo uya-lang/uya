@@ -620,6 +620,71 @@ fn exec_lower_expr_type(ctx: &ExecLowerContext, expr: &ASTNode) Type {
             return lowered_match_type;
         }
     }
+    if expr.type == ASTNodeType.AST_BLOCK && expr.block_stmts != null && expr.block_stmt_count > 0 {
+        // 块表达式的类型取尾语句的类型（宏展开产物常以 if 表达式收尾）。
+        const block_tail: &ASTNode = expr.block_stmts[expr.block_stmt_count - 1];
+        if block_tail != null {
+            const block_tail_type: Type = exec_lower_expr_type(ctx, block_tail);
+            if block_tail_type.kind != TypeKind.TYPE_VOID {
+                return block_tail_type;
+            }
+        }
+    }
+    if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null {
+        // 局部变量/参数直接取槽位记录的类型：符号表在 lowering 阶段未必完整
+        // （宏展开体、单态化体尤其明显），靠 checker_infer_type 容易退回 void。
+        const ident_slot: i32 = exec_lower_find_slot(ctx, expr.identifier_name);
+        if ident_slot >= 0 && ident_slot < EXEC_MAX_LOCALS {
+            return copy_type(&ctx.slot_types[ident_slot]);
+        }
+    }
+    if expr.type == ASTNodeType.AST_UNARY_EXPR &&
+        (expr.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND && expr.unary_expr_operand != null {
+        // 语言层 `& <切片值>` 不表示取地址（切片本身就是值），类型仍是该切片。
+        const amp_operand_type: Type = exec_lower_expr_type(ctx, expr.unary_expr_operand);
+        if amp_operand_type.kind == TypeKind.TYPE_SLICE {
+            return amp_operand_type;
+        }
+    }
+    if expr.type == ASTNodeType.AST_SLICE_EXPR && expr.slice_expr_base != null {
+        // 切片表达式按基表达式类型直接推出 `&[元素]`：checker_infer_type 依赖符号表，
+        // 在 lowering 阶段（尤其是宏展开体里）常常拿不到基变量类型而退回 void。
+        const slice_base_type: Type = exec_lower_expr_type(ctx, expr.slice_expr_base);
+        var slice_elem_type: &Type = null;
+        if slice_base_type.kind == TypeKind.TYPE_ARRAY {
+            slice_elem_type = slice_base_type.element_type;
+        } else if slice_base_type.kind == TypeKind.TYPE_SLICE {
+            slice_elem_type = slice_base_type.slice_element_type;
+        } else if slice_base_type.kind == TypeKind.TYPE_POINTER {
+            slice_elem_type = slice_base_type.pointer_to;
+        }
+        if slice_elem_type != null {
+            const slice_elem_ptr: &Type = compiler_arena_alloc(ctx.arena, @size_of(Type)) as &Type;
+            if slice_elem_ptr == null {
+                return make_void_type();
+            }
+            slice_elem_ptr[0] = copy_type(slice_elem_type);
+            return make_slice_type(ctx.arena, slice_elem_ptr);
+        }
+    }
+    if expr.type == ASTNodeType.AST_IF_STMT && expr.if_stmt_else_branch != null {
+        // `if cond { error.Foo } else { value }`：checker 只按 then 分支推断出 TYPE_ERROR，
+        // 但该表达式整体是错误联合 `!value`（宏展开的 to_json/from_json 体就是这种形状）。
+        const if_then_type: Type = exec_lower_expr_type(ctx, expr.if_stmt_then_branch);
+        if if_then_type.kind == TypeKind.TYPE_ERROR {
+            const if_else_type: Type = exec_lower_expr_type(ctx, expr.if_stmt_else_branch);
+            if if_else_type.kind != TypeKind.TYPE_ERROR &&
+                if_else_type.kind != TypeKind.TYPE_ERROR_UNION &&
+                if_else_type.kind != TypeKind.TYPE_VOID {
+                const if_else_ptr: &Type = compiler_arena_alloc(ctx.arena, @size_of(Type)) as &Type;
+                if if_else_ptr == null {
+                    return make_void_type();
+                }
+                if_else_ptr[0] = copy_type(&if_else_type);
+                return make_error_union_type(ctx.arena, if_else_ptr);
+            }
+        }
+    }
     const saved_scope_level: i32 = ctx.checker.scope_level;
     const prev_in_function: i32 = ctx.checker.in_function;
     const prev_function_decl: &ASTNode = ctx.checker.current_function_decl;
@@ -1943,7 +2008,10 @@ fn exec_lower_method_receiver_expr(ctx: &ExecLowerContext, object_expr: &ASTNode
 
 fn exec_lower_collect_interface_dispatch_decls(ctx: &ExecLowerContext, interface_type: &Type, concrete_type: &Type, out_decls: & & ASTNode, out_count: &i32) i32 {
     const struct_name: &byte = type_get_struct_name(concrete_type);
-    if ctx == null || ctx.checker == null || ctx.checker.program_node == null || struct_name == null || out_count == null {
+    if ctx == null || ctx.checker == null || ctx.checker.program_node == null || out_count == null {
+        return -1;
+    }
+    if struct_name == null {
         return -1;
     }
     var sigs: [&ASTNode: EXEC_MAX_INTERFACE_METHODS] = [];
@@ -2635,6 +2703,58 @@ fn exec_lower_make_for_array_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
     return result_stmt;
 }
 
+fn exec_lower_is_int_kind(kind: TypeKind) i32 {
+    if kind == TypeKind.TYPE_I8 || kind == TypeKind.TYPE_I16 || kind == TypeKind.TYPE_I32 ||
+        kind == TypeKind.TYPE_I64 || kind == TypeKind.TYPE_U8 || kind == TypeKind.TYPE_U16 ||
+        kind == TypeKind.TYPE_U32 || kind == TypeKind.TYPE_U64 || kind == TypeKind.TYPE_USIZE {
+        return 1;
+    }
+    return 0;
+}
+
+fn exec_lower_is_unsigned_int_kind(kind: TypeKind) i32 {
+    if kind == TypeKind.TYPE_U8 || kind == TypeKind.TYPE_U16 || kind == TypeKind.TYPE_U32 ||
+        kind == TypeKind.TYPE_U64 || kind == TypeKind.TYPE_USIZE {
+        return 1;
+    }
+    return 0;
+}
+
+/// 计算 for range 的迭代变量/边界类型。
+/// 参数：start_type - 起始边界类型；end_type - 结束边界类型。
+/// 返回：两侧都是 i32 时返回 i32；任一侧无符号时返回 usize；否则 i64。
+fn exec_lower_for_range_type(start_type: &Type, end_type: &Type) Type {
+    if start_type.kind == TypeKind.TYPE_I32 && end_type.kind == TypeKind.TYPE_I32 {
+        return make_i32_type();
+    }
+    if exec_lower_is_unsigned_int_kind(start_type.kind) != 0 ||
+        exec_lower_is_unsigned_int_kind(end_type.kind) != 0 {
+        return make_usize_type();
+    }
+    if start_type.kind == TypeKind.TYPE_I64 || end_type.kind == TypeKind.TYPE_I64 {
+        return make_i64_type();
+    }
+    return make_i32_type();
+}
+
+/// 把 for range 边界表达式转换成统一的迭代类型（必要时插入 CAST）。
+/// 参数：ctx - lowering 上下文；stmt_node - for 语句节点；bound - 边界表达式；target - 目标类型。
+/// 返回：转换后的表达式；分配失败返回 null。
+fn exec_lower_for_range_bound(ctx: &ExecLowerContext, stmt_node: &ASTNode, bound: &HIRExpr, target: &Type) &HIRExpr {
+    if ctx == null || bound == null || target == null {
+        return null;
+    }
+    if type_equals(bound.type_ref.type, target[0]) != 0 {
+        return bound;
+    }
+    const cast: &HIRExpr = exec_lower_alloc_expr(ctx, stmt_node, HIRExprKind.HIR_EXPR_CAST, target);
+    if cast == null {
+        return null;
+    }
+    cast.left = bound;
+    return cast;
+}
+
 fn exec_lower_make_for_range_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &HIRStmt {
     if stmt_node == null {
         return null;
@@ -2655,20 +2775,27 @@ fn exec_lower_make_for_range_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
         exec_backend_set_generic_unsupported_error(stmt_node, "exec: 当前不支持无上界 for range" as *byte);
         return null;
     }
-    const start_expr: &HIRExpr = exec_lower_expr(ctx, stmt_node.for_stmt_range_start);
-    const end_expr: &HIRExpr = exec_lower_expr(ctx, stmt_node.for_stmt_range_end);
+    var start_expr: &HIRExpr = exec_lower_expr(ctx, stmt_node.for_stmt_range_start);
+    var end_expr: &HIRExpr = exec_lower_expr(ctx, stmt_node.for_stmt_range_end);
     if start_expr == null || end_expr == null {
         return null;
     }
-    if start_expr.type_ref.type.kind != TypeKind.TYPE_I32 || end_expr.type_ref.type.kind != TypeKind.TYPE_I32 {
-        exec_backend_set_generic_unsupported_error(stmt_node, "exec: 当前仅支持 i32 for range" as *byte);
+    if exec_lower_is_int_kind(start_expr.type_ref.type.kind) == 0 ||
+        exec_lower_is_int_kind(end_expr.type_ref.type.kind) == 0 {
+        exec_backend_set_generic_unsupported_error(stmt_node, "exec: for range 边界须为整数类型" as *byte);
+        return null;
+    }
+    const range_type: Type = exec_lower_for_range_type(&start_expr.type_ref.type, &end_expr.type_ref.type);
+    start_expr = exec_lower_for_range_bound(ctx, stmt_node, start_expr, &range_type);
+    end_expr = exec_lower_for_range_bound(ctx, stmt_node, end_expr, &range_type);
+    if start_expr == null || end_expr == null {
         return null;
     }
 
     if exec_lower_push_scope(ctx, stmt_node, -1) == 0 {
         return null;
     }
-    const iter_type: Type = make_i32_type();
+    const iter_type: Type = copy_type(&range_type);
     const iter_slot: i32 = exec_lower_append_local(ctx, null, iter_bind_name, &iter_type, 0);
     const end_slot: i32 = exec_lower_append_local(ctx, null, "__exec_for_end" as *byte, &iter_type, 0);
     if iter_slot < 0 || end_slot < 0 {
@@ -3304,7 +3431,8 @@ fn exec_lower_mono_body_for_instance(checker: &TypeChecker, fn_decl: &ASTNode, i
 }
 
 fn exec_lower_generic_instances(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &ASTNode,
-    globals: &HIRGlobalSlot, global_count: i32, functions: & & HIRFunction, count: &i32) i32 {
+    globals: &HIRGlobalSlot, global_count: i32, functions: & & HIRFunction, count: &i32,
+    seed_decls: & & ASTNode, seed_count: &i32) i32 {
     if fn_decl == null || count == null || functions == null {
         return -1;
     }
@@ -3321,6 +3449,10 @@ fn exec_lower_generic_instances(arena: &CompilerArena, checker: &TypeChecker, fn
             const saved_active: i32 = checker.subst_active;
             const saved_name: &byte = checker.subst_name;
             const saved_type: Type = copy_type(&checker.subst_type);
+            const saved_params: &TypeParam = checker.current_type_params;
+            const saved_param_count: i32 = checker.current_type_param_count;
+            checker.current_type_params = fn_decl.fn_decl_type_params;
+            checker.current_type_param_count = fn_decl.fn_decl_type_param_count;
             checker.subst_active = 1;
             checker.subst_name = param_name;
             checker.subst_type = copy_type(&inst.type_args[0]);
@@ -3334,6 +3466,8 @@ fn exec_lower_generic_instances(arena: &CompilerArena, checker: &TypeChecker, fn
             checker.subst_active = saved_active;
             checker.subst_name = saved_name;
             checker.subst_type = copy_type(&saved_type);
+            checker.current_type_params = saved_params;
+            checker.current_type_param_count = saved_param_count;
             if lowered == null {
                 return -1;
             }
@@ -3341,6 +3475,12 @@ fn exec_lower_generic_instances(arena: &CompilerArena, checker: &TypeChecker, fn
             if count[0] < MAX_REACHABLE_FN_DECLS {
                 functions[count[0]] = lowered;
                 count[0] = count[0] +| 1;
+            }
+            // 单态体可能通过宏展开引入新的被调函数（to_json -> json_write_*），
+            // 这些声明必须登记成新的可达种子，否则下一轮不会为它们降级。
+            if lowered.body != null && seed_decls != null && seed_count != null {
+                exec_lower_collect_called_decls_from_block(lowered.body, seed_decls, seed_count);
+                exec_lower_collect_cleanup_decls_from_function(checker, lowered, seed_decls, seed_count);
             }
             seen = seen + 1;
         }
@@ -7097,28 +7237,19 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
                 exec_lower_pop_scope(ctx);
                 return null;
             }
-            const then_block: &HIRBlock = exec_lower_block(ctx, stmt_node.if_stmt_then_branch);
+            // 分支允许直接写表达式（宏展开产物常见 `if cond { return err } else { expr }`），
+            // 非 block 节点统一包一层单语句块。
+            const then_block: &HIRBlock = exec_lower_wrap_stmt_node_as_block(ctx, stmt_node.if_stmt_then_branch);
             if then_block == null {
                 exec_lower_pop_scope(ctx);
                 return null;
             }
             var else_block: &HIRBlock = null;
             if stmt_node.if_stmt_else_branch != null {
-                if stmt_node.if_stmt_else_branch.type == ASTNodeType.AST_BLOCK {
-                    else_block = exec_lower_block(ctx, stmt_node.if_stmt_else_branch);
-                    if else_block == null {
-                        exec_lower_pop_scope(ctx);
-                        return null;
-                    }
-                } else if stmt_node.if_stmt_else_branch.type == ASTNodeType.AST_IF_STMT {
-                    else_block = exec_lower_wrap_stmt_node_as_block(ctx, stmt_node.if_stmt_else_branch);
-                    if else_block == null {
-                        exec_lower_pop_scope(ctx);
-                        return null;
-                    }
-                } else {
+                else_block = exec_lower_wrap_stmt_node_as_block(ctx, stmt_node.if_stmt_else_branch);
+                if else_block == null {
                     exec_lower_pop_scope(ctx);
-                    return exec_lower_fail_block(stmt_node, "exec: 当前仅支持 block/else-if" as *byte);
+                    return null;
                 }
             }
             stmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_IF);
@@ -7574,7 +7705,8 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
         }
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null &&
             decl.fn_decl_type_param_count > 0 {
-            if exec_lower_generic_instances(arena, checker, decl, globals, global_count, functions, &count) != 0 {
+            if exec_lower_generic_instances(arena, checker, decl, globals, global_count, functions, &count,
+                    &exec_reachable[0] as & & ASTNode, &exec_reachable_count) != 0 {
                 if exec_backend_get_last_error() == null {
                     exec_backend_set_error(decl, "exec: 泛型实例 lowering 失败" as *byte, 0);
                 }

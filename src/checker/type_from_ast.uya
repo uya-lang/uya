@@ -174,6 +174,11 @@ fn type_from_ast_cache_store(checker: &TypeChecker, type_node: &ASTNode, result:
 
 // 从AST类型节点创建Type结构
 fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
+    // 单态化替换期间（subst_active）结果依赖当前替换目标，不能命中按节点缓存：
+    // 类型形参 `T` 在检查阶段已缓存成 TYPE_GENERIC_PARAM，直接复用会让替换失效。
+    if checker != null && checker.subst_active != 0 {
+        return type_from_ast_uncached(checker, type_node);
+    }
     const cached: &Type = type_from_ast_cache_lookup(checker, type_node);
     if cached != null {
         return copy_type(cached);

@@ -3228,13 +3228,16 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             }
             return dst;
         }
-        if expr.callee_decl == null {
+        if expr.callee_decl == null || expr.callee_name == null {
             exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: 无法解析被调用函数" as *byte);
             return -1;
         }
         const callee_index: i32 = exec_builder_find_function_index(ctx.module, expr.callee_decl, expr.callee_name);
         if callee_index < 0 {
-            exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: 无法解析被调用函数" as *byte);
+            var missing_callee_msg: [byte: 160] = [];
+            _ = snprintf(&missing_callee_msg[0] as *byte, 160,
+                "exec: 被调用函数未进入模块: %s" as *byte, expr.callee_name as *byte);
+            exec_backend_set_generic_unsupported_error(expr.ast_node, &missing_callee_msg[0]);
             return -1;
         }
         if exec_builder_emit(ctx, BCInstr {

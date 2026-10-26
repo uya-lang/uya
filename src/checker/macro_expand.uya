@@ -1880,6 +1880,10 @@ fn deep_copy_ast_simple(node: &ASTNode, arena: &CompilerArena, filename: &byte) 
         copy.int_limit_resolved_kind = node.int_limit_resolved_kind;
     } else if node.type == ASTNodeType.AST_IDENTIFIER {
         copy.identifier_name = node.identifier_name;
+    } else if node.type == ASTNodeType.AST_ERROR_VALUE {
+        // 错误值节点必须带上错误名：丢掉名字会让 `return error.Foo` 变成无名错误值，
+        // 下游拿到空的 error_value_name 后按 void 类型处理。
+        copy.error_value_name = node.error_value_name;
     } else if node.type == ASTNodeType.AST_BINARY_EXPR {
         copy.binary_expr_op = node.binary_expr_op;
         copy.binary_expr_left = deep_copy_ast_simple(node.binary_expr_left, arena, filename);
@@ -2362,6 +2366,19 @@ export fn deep_copy_ast_substitute_type_params(node: &ASTNode, type_params: &Typ
                 }
             }
         }
+    } else if node.type == ASTNodeType.AST_TYPE_POINTER {
+        // 指针/数组/切片类型节点必须保留内部结构：否则副本成了「没有 pointee 的指针」，
+        // type_from_ast 直接退化成 void，单态体里的 `&byte` 一类注解全部失类型。
+        copy.type_pointer_pointed_type = deep_copy_ast_substitute_type_params(node.type_pointer_pointed_type, type_params, type_param_count, type_args, type_arg_count, arena, filename);
+        copy.type_pointer_is_ffi_pointer = node.type_pointer_is_ffi_pointer;
+        copy.type_pointer_is_const = node.type_pointer_is_const;
+    } else if node.type == ASTNodeType.AST_TYPE_SLICE {
+        copy.type_slice_element_type = deep_copy_ast_substitute_type_params(node.type_slice_element_type, type_params, type_param_count, type_args, type_arg_count, arena, filename);
+        copy.type_slice_size_expr = deep_copy_ast_substitute_type_params(node.type_slice_size_expr, type_params, type_param_count, type_args, type_arg_count, arena, filename);
+        copy.type_slice_element_const = node.type_slice_element_const;
+    } else if node.type == ASTNodeType.AST_TYPE_ARRAY {
+        copy.type_array_element_type = deep_copy_ast_substitute_type_params(node.type_array_element_type, type_params, type_param_count, type_args, type_arg_count, arena, filename);
+        copy.type_array_size_expr = deep_copy_ast_substitute_type_params(node.type_array_size_expr, type_params, type_param_count, type_args, type_arg_count, arena, filename);
     } else if node.type == ASTNodeType.AST_TYPE_ERROR_UNION && node.type_error_union_payload_type != null {
         copy.type_error_union_payload_type = deep_copy_ast_substitute_type_params(node.type_error_union_payload_type, type_params, type_param_count, type_args, type_arg_count, arena, filename);
     } else if node.type == ASTNodeType.AST_STRUCT_INIT && node.struct_init_struct_name != null {
@@ -2403,6 +2420,8 @@ export fn deep_copy_ast_substitute_type_params(node: &ASTNode, type_params: &Typ
         if node.if_stmt_condition != null { copy.if_stmt_condition = deep_copy_ast_substitute_type_params(node.if_stmt_condition, type_params, type_param_count, type_args, type_arg_count, arena, filename); }
         if node.if_stmt_then_branch != null { copy.if_stmt_then_branch = deep_copy_ast_substitute_type_params(node.if_stmt_then_branch, type_params, type_param_count, type_args, type_arg_count, arena, filename); }
         if node.if_stmt_else_branch != null { copy.if_stmt_else_branch = deep_copy_ast_substitute_type_params(node.if_stmt_else_branch, type_params, type_param_count, type_args, type_arg_count, arena, filename); }
+    } else if node.type == ASTNodeType.AST_ERROR_VALUE {
+        copy.error_value_name = node.error_value_name;
     } else if node.type == ASTNodeType.AST_RETURN_STMT && node.return_stmt_expr != null {
         copy.return_stmt_expr = deep_copy_ast_substitute_type_params(node.return_stmt_expr, type_params, type_param_count, type_args, type_arg_count, arena, filename);
     } else if node.type == ASTNodeType.AST_SLICE_EXPR && node.slice_expr_base != null && node.slice_expr_start_expr != null && node.slice_expr_len_expr != null {
