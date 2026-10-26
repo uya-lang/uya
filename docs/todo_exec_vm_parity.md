@@ -429,7 +429,17 @@
 
 ### 第 272 轮末的 Top 阻塞（按可收割性排序，已更新）
 
-实测基线：`/tmp/census_r278.tsv`（该轮 688 里含 1 个**不该通过**的
+实测基线：`/tmp/census_r281.tsv`，**690 / 914 通过**，零回归（687 → 690）。
+本轮新增：`test_number_literals`、`test_int_limit_i8_nested`、`test_kernel_host`。
+
+census 的**内存**问题已定位并加门禁（`UYA_EXEC_CENSUS_MEM_MB`，默认 2048MB）：
+单个用例的内存峰值实测 `test_tls_sha256` 177MB、`test_https_local` 456MB、
+`test_kernel_sim` 548MB，而失控用例 `test_crypto_bigint` 会涨到 **7GB+** 并且
+只增不减，直到 300s 超时才被杀——16 路并行时峰值可达几十 GB。加了地址空间
+上限后它 20s 内就失败退出（原因记为 `mem`/普通失败），census 全量跑 6 路并行
+约 16 分钟、内存可控。
+
+历史基线：`/tmp/census_r278.tsv`（该轮 688 里含 1 个**不该通过**的
 `test_exec_vm_extern_decl_varargs_unsupported`：它是负例，必须被
 `extern_abi` 拒绝，`tests/verify_exec_vm_extern_bridge.sh` 与
 `tests/verify_exec_backend_progress.sh` 都盯着这条）。已把 varargs extern
