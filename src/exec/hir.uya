@@ -39,6 +39,7 @@ enum ExecHostCallId {
     EXEC_HOST_CALL_IMAGE_ANCHOR,
     EXEC_HOST_CALL_ISATTY,
     EXEC_HOST_CALL_EXIT,
+    EXEC_HOST_CALL_MEMCHR,
 }
 
 enum HIRStmtKind {

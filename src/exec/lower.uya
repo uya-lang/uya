@@ -558,158 +558,181 @@ fn exec_lower_match_host_call(fn_decl: &ASTNode, call_arg_count: i32) ExecHostCa
     if fn_decl.fn_decl_name == null || fn_decl.fn_decl_return_type == null {
         return ExecHostCallId.EXEC_HOST_CALL_NONE;
     }
-    if fn_decl.fn_decl_is_varargs == 0 {
+    if fn_decl.fn_decl_is_varargs != 0 {
+        return ExecHostCallId.EXEC_HOST_CALL_NONE;
+    }
+    return exec_lower_match_host_call_impl(fn_decl.fn_decl_name, fn_decl.fn_decl_param_count, call_arg_count);
+}
+
+/// 只有名字（没有声明）时的宿主调用匹配：`use std.mem.memcpy;` 这种
+/// 「名字来自 C 头文件」的隐式 libc 调用在 Uya 侧没有声明节点。
+///
+/// 参数：`fn_name` 函数名；`param_count` 期望参数个数；`call_arg_count` 实参个数。
+/// 返回值：命中的宿主调用 id；没命中返回 NONE。
+fn exec_lower_match_host_call_name(fn_name: &byte, param_count: i32, call_arg_count: i32) ExecHostCallId {
+    return exec_lower_match_host_call_impl(fn_name, param_count, call_arg_count);
+}
+
+fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_count: i32) ExecHostCallId {
+    if fn_name == null {
+        return ExecHostCallId.EXEC_HOST_CALL_NONE;
+    }
+    if 1 != 0 {
         // 内存 / 字符串族：protobuf、tflm、process 等模块只声明不带体的
         // `extern "libc"`，VM 必须自己按原生指针实现，否则这些模块整体不可用。
         // 带 Uya 体的版本（lib/libc/mem.uya）仍走解释执行，不受影响。
-        if fn_decl.fn_decl_param_count == 0 && call_arg_count == 0 &&
-            str_equals(fn_decl.fn_decl_name, "uya_pipeline_worker_main_if_requested" as &byte) != 0 {
+        if param_count == 0 && call_arg_count == 0 &&
+            str_equals(fn_name, "uya_pipeline_worker_main_if_requested" as &byte) != 0 {
             return ExecHostCallId.EXEC_HOST_CALL_SYNTH_ZERO;
         }
-        if fn_decl.fn_decl_param_count == 0 && call_arg_count == 0 &&
-            str_equals(fn_decl.fn_decl_name, "uya_pipeline_image_anchor" as &byte) != 0 {
+        if param_count == 0 && call_arg_count == 0 &&
+            str_equals(fn_name, "uya_pipeline_image_anchor" as &byte) != 0 {
             return ExecHostCallId.EXEC_HOST_CALL_IMAGE_ANCHOR;
         }
-        if str_equals(fn_decl.fn_decl_name, "exit" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "exit" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_EXIT;
         }
-        if str_equals(fn_decl.fn_decl_name, "isatty" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "isatty" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_ISATTY;
         }
-        if str_equals(fn_decl.fn_decl_name, "pthread_sigmask" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+        if str_equals(fn_name, "pthread_sigmask" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SIGMASK;
         }
-        if str_equals(fn_decl.fn_decl_name, "uya_interface_get_vtable" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "uya_interface_get_vtable" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_INTERFACE_GET_VTABLE;
         }
-        if str_equals(fn_decl.fn_decl_name, "__atomic_load_n" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 2 && call_arg_count == 2 {
+        if str_equals(fn_name, "__atomic_load_n" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_LOAD_N;
         }
-        if str_equals(fn_decl.fn_decl_name, "__atomic_store_n" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+        if str_equals(fn_name, "__atomic_store_n" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_STORE_N;
         }
-        if str_equals(fn_decl.fn_decl_name, "__atomic_exchange_n" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+        if str_equals(fn_name, "__atomic_exchange_n" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_EXCHANGE_N;
         }
-        if str_equals(fn_decl.fn_decl_name, "__atomic_add_fetch" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+        if str_equals(fn_name, "__atomic_add_fetch" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_ADD_FETCH;
         }
-        if str_equals(fn_decl.fn_decl_name, "__atomic_fetch_add" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+        if str_equals(fn_name, "__atomic_fetch_add" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FETCH_ADD;
         }
-        if str_equals(fn_decl.fn_decl_name, "__sync_fetch_and_add" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 2 && call_arg_count == 2 {
+        if str_equals(fn_name, "__sync_fetch_and_add" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FETCH_ADD;
         }
-        if str_equals(fn_decl.fn_decl_name, "__atomic_fetch_sub" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+        if str_equals(fn_name, "__atomic_fetch_sub" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FETCH_SUB;
         }
-        if str_equals(fn_decl.fn_decl_name, "__sync_fetch_and_sub" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 2 && call_arg_count == 2 {
+        if str_equals(fn_name, "__sync_fetch_and_sub" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FETCH_SUB;
         }
-        if str_equals(fn_decl.fn_decl_name, "__sync_synchronize" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 0 && call_arg_count == 0 {
+        if str_equals(fn_name, "__sync_synchronize" as &byte) != 0 &&
+            param_count == 0 && call_arg_count == 0 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FENCE;
         }
-        if str_equals(fn_decl.fn_decl_name, "__atomic_thread_fence" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "__atomic_thread_fence" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_FENCE;
         }
-        if str_equals(fn_decl.fn_decl_name, "malloc" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "malloc" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_MALLOC;
         }
-        if str_equals(fn_decl.fn_decl_name, "free" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "free" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_FREE;
         }
-        if str_equals(fn_decl.fn_decl_name, "calloc" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 2 && call_arg_count == 2 {
+        if str_equals(fn_name, "calloc" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_CALLOC;
         }
-        if str_equals(fn_decl.fn_decl_name, "realloc" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 2 && call_arg_count == 2 {
+        if str_equals(fn_name, "realloc" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_REALLOC;
         }
-        if str_equals(fn_decl.fn_decl_name, "memcpy" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+        if str_equals(fn_name, "memcpy" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_MEMCPY;
         }
-        if str_equals(fn_decl.fn_decl_name, "memmove" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+        if str_equals(fn_name, "memmove" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_MEMMOVE;
         }
-        if str_equals(fn_decl.fn_decl_name, "memset" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+        if str_equals(fn_name, "memset" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_MEMSET;
         }
-        if str_equals(fn_decl.fn_decl_name, "memcmp" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
+        if str_equals(fn_name, "memcmp" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_MEMCMP;
         }
-        if str_equals(fn_decl.fn_decl_name, "strlen" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "memchr" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_MEMCHR;
+        }
+        if str_equals(fn_name, "strlen" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_STRLEN;
         }
-        if str_equals(fn_decl.fn_decl_name, "puts" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "puts" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_PUTS;
         }
-        if str_equals(fn_decl.fn_decl_name, "atoi" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "atoi" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOI;
         }
-        if str_equals(fn_decl.fn_decl_name, "atoll" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "atoll" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOLL;
         }
-        if str_equals(fn_decl.fn_decl_name, "isqrt" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "isqrt" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_ISQRT;
         }
-        if str_equals(fn_decl.fn_decl_name, "strcmp" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 2 && call_arg_count == 2 {
+        if str_equals(fn_name, "strcmp" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_STRCMP;
         }
-        if str_equals(fn_decl.fn_decl_name, "llabs" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "llabs" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_LLABS;
         }
-        if str_equals(fn_decl.fn_decl_name, "mkdir" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 2 && call_arg_count == 2 {
+        if str_equals(fn_name, "mkdir" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_MKDIR;
         }
-        if str_equals(fn_decl.fn_decl_name, "rmdir" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+        if str_equals(fn_name, "rmdir" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_RMDIR;
         }
-        if str_equals(fn_decl.fn_decl_name, "__atomic_compare_exchange_n" as &byte) != 0 &&
-            fn_decl.fn_decl_param_count == 6 && call_arg_count == 6 {
+        if str_equals(fn_name, "__atomic_compare_exchange_n" as &byte) != 0 &&
+            param_count == 6 && call_arg_count == 6 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_COMPARE_EXCHANGE;
         }
         return ExecHostCallId.EXEC_HOST_CALL_NONE;
     }
-    if str_equals(fn_decl.fn_decl_name, "fprintf" as &byte) != 0 && call_arg_count >= 2 {
+    if str_equals(fn_name, "fprintf" as &byte) != 0 && call_arg_count >= 2 {
         return ExecHostCallId.EXEC_HOST_CALL_FPRINTF_FIXED;
     }
-    if str_equals(fn_decl.fn_decl_name, "printf" as &byte) != 0 && call_arg_count >= 1 {
+    if str_equals(fn_name, "printf" as &byte) != 0 && call_arg_count >= 1 {
         return ExecHostCallId.EXEC_HOST_CALL_PRINTF_FIXED;
     }
-    if str_equals(fn_decl.fn_decl_name, "sprintf" as &byte) != 0 && call_arg_count >= 2 {
+    if str_equals(fn_name, "sprintf" as &byte) != 0 && call_arg_count >= 2 {
         return ExecHostCallId.EXEC_HOST_CALL_SPRINTF_FIXED;
     }
-    if str_equals(fn_decl.fn_decl_name, "snprintf" as &byte) != 0 && call_arg_count >= 3 {
+    if str_equals(fn_name, "snprintf" as &byte) != 0 && call_arg_count >= 3 {
         return ExecHostCallId.EXEC_HOST_CALL_SNPRINTF_FIXED;
     }
     return ExecHostCallId.EXEC_HOST_CALL_NONE;
@@ -7125,6 +7148,37 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             return exec_lower_fail_expr(expr, "exec: 当前仅支持直接函数调用" as *byte);
         }
         const callee_decl: &ASTNode = exec_lower_resolve_function_decl_from_file(ctx.checker, expr.filename, expr.call_expr_callee.identifier_name);
+        // `use std.mem.memcpy;` 一类「名字来自 C 头文件」的隐式 libc 调用没有 Uya
+        // 声明节点，但 VM 对 memcpy/memset/strlen 这些有原生实现，按名字直接接上。
+        if callee_decl == null && expr.call_expr_callee.identifier_name != null {
+            const named_host_call: ExecHostCallId = exec_lower_match_host_call_name(
+                expr.call_expr_callee.identifier_name, expr.call_expr_arg_count, expr.call_expr_arg_count);
+            if named_host_call != ExecHostCallId.EXEC_HOST_CALL_NONE {
+                const named_args: & & HIRExpr = exec_lower_alloc_items(ctx, expr.call_expr_arg_count);
+                if expr.call_expr_arg_count > 0 && named_args == null {
+                    exec_backend_set_error(expr, "exec: 调用参数分配失败" as *byte, 0);
+                    return null;
+                }
+                var nai: i32 = 0;
+                while nai < expr.call_expr_arg_count {
+                    const lowered_named_arg: &HIRExpr = exec_lower_expr(ctx, expr.call_expr_args[nai]);
+                    if lowered_named_arg == null {
+                        return null;
+                    }
+                    named_args[nai] = lowered_named_arg;
+                    nai = nai + 1;
+                }
+                const named_call: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CALL, &expr_type);
+                if named_call == null {
+                    return null;
+                }
+                named_call.callee_name = expr.call_expr_callee.identifier_name;
+                named_call.call_host_id = named_host_call;
+                named_call.call_args = named_args;
+                named_call.call_arg_count = expr.call_expr_arg_count;
+                return named_call;
+            }
+        }
         // 编译器合成宿主符号：exec 侧没有 native worker 入口，语义与 C99 代码生成器
         // 内联的常量一致（entry.uya 用 `>= 0` 判断是否已被 worker 接管）。
         if callee_decl != null && callee_decl.type == ASTNodeType.AST_FN_DECL &&

@@ -2712,6 +2712,36 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
         out_value[0] = exec_make_i32(cmp_result);
         return 0;
     }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_MEMCHR {
+        if arg_count != 3 {
+            exec_backend_set_error(function.decl, "exec: memchr 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const mch_a: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const mch_byte: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        const mch_n: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
+        if mch_a == null || mch_byte == null || mch_n == null {
+            exec_backend_set_error(function.decl, "exec: memchr 参数槽位非法" as *byte, 0);
+            return -1;
+        }
+        const mch_count: usize = mch_n.i64_value as usize;
+        const mch_target: byte = mch_byte.i64_value as byte;
+        const mch_base: &byte = mch_a.ptr_value;
+        var mch_hit: &byte = null;
+        if mch_base != null {
+            var mchi: usize = 0;
+            while mchi < mch_count {
+                if mch_base[mchi] == mch_target {
+                    mch_hit = mch_base + mchi;
+                    mchi = mch_count;
+                } else {
+                    mchi = mchi + 1;
+                }
+            }
+        }
+        out_value[0] = exec_make_pointer_with_kind(mch_hit as usize, TypeKind.TYPE_BYTE as i32);
+        return 0;
+    }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_STRLEN {
         if arg_count != 1 {
             exec_backend_set_error(function.decl, "exec: strlen 参数数量非法" as *byte, 0);
