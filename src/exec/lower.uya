@@ -558,10 +558,8 @@ fn exec_lower_match_host_call(fn_decl: &ASTNode, call_arg_count: i32) ExecHostCa
     if fn_decl.fn_decl_name == null || fn_decl.fn_decl_return_type == null {
         return ExecHostCallId.EXEC_HOST_CALL_NONE;
     }
-    if fn_decl.fn_decl_is_varargs != 0 {
-        return ExecHostCallId.EXEC_HOST_CALL_NONE;
-    }
-    return exec_lower_match_host_call_impl(fn_decl.fn_decl_name, fn_decl.fn_decl_param_count, call_arg_count);
+    return exec_lower_match_host_call_impl(fn_decl.fn_decl_name, fn_decl.fn_decl_param_count,
+        call_arg_count, fn_decl.fn_decl_is_varargs);
 }
 
 /// 只有名字（没有声明）时的宿主调用匹配：`use std.mem.memcpy;` 这种
@@ -570,14 +568,15 @@ fn exec_lower_match_host_call(fn_decl: &ASTNode, call_arg_count: i32) ExecHostCa
 /// 参数：`fn_name` 函数名；`param_count` 期望参数个数；`call_arg_count` 实参个数。
 /// 返回值：命中的宿主调用 id；没命中返回 NONE。
 fn exec_lower_match_host_call_name(fn_name: &byte, param_count: i32, call_arg_count: i32) ExecHostCallId {
-    return exec_lower_match_host_call_impl(fn_name, param_count, call_arg_count);
+    return exec_lower_match_host_call_impl(fn_name, param_count, call_arg_count, 0);
 }
 
-fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_count: i32) ExecHostCallId {
+fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_count: i32,
+    is_varargs: i32) ExecHostCallId {
     if fn_name == null {
         return ExecHostCallId.EXEC_HOST_CALL_NONE;
     }
-    if 1 != 0 {
+    if is_varargs == 0 {
         // 内存 / 字符串族：protobuf、tflm、process 等模块只声明不带体的
         // `extern "libc"`，VM 必须自己按原生指针实现，否则这些模块整体不可用。
         // 带 Uya 体的版本（lib/libc/mem.uya）仍走解释执行，不受影响。
