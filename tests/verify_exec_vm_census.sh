@@ -19,7 +19,10 @@
 #   UYA_EXEC_CENSUS_MIN       最低通过用例数（默认 0，不设门禁）
 #   UYA_EXEC_CENSUS_JOBS      并行度（默认 CPU 核数）
 #   UYA_EXEC_CENSUS_TIMEOUT   单用例超时秒数（默认 300）
-#   UYA_EXEC_CENSUS_MEM_MB    单用例地址空间上限（MB，默认 2048；0 表示不限）
+#   UYA_EXEC_CENSUS_MEM_MB    单用例地址空间上限（MB，默认 1024；0 表示不限）
+#                             census 的峰值内存 ≈ JOBS × MEM_MB，跑之前先看一下
+#                             机器余量（实测单用例峰值：TLS 186MB / https 456MB
+#                             / kernel_sim 548MB，失控用例靠这个上限快速失败）
 #                             解释器里的失控用例（如 test_crypto_bigint 会一路
 #                             涨到 7GB+ 再被超时杀掉）只会在白等之前先把内存
 #                             吃光；设上限让它快速失败，并记为原因 mem。
@@ -37,7 +40,7 @@ COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
 export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 MIN_PASS="${UYA_EXEC_CENSUS_MIN:-0}"
 TIMEOUT="${UYA_EXEC_CENSUS_TIMEOUT:-300}"
-MEM_MB="${UYA_EXEC_CENSUS_MEM_MB:-2048}"
+MEM_MB="${UYA_EXEC_CENSUS_MEM_MB:-1024}"
 REPORT="${UYA_EXEC_CENSUS_REPORT:-/tmp/uya_exec_vm_census.tsv}"
 SKIP_FILE="${UYA_EXEC_CENSUS_SKIP:-$SCRIPT_DIR/exec_vm_census_skip.txt}"
 TIMEOUT_FILE="${UYA_EXEC_CENSUS_TIMEOUTS:-$SCRIPT_DIR/exec_vm_census_timeouts.txt}"
@@ -49,10 +52,17 @@ fi
 
 ulimit -s unlimited 2>/dev/null || ulimit -s 524288 2>/dev/null || true
 
+export TIMEOUT_FILE
 WORK_DIR="$(mktemp -d /tmp/uya_exec_census.XXXXXX)"
 RESULTS_DIR="$WORK_DIR/results"
 mkdir -p "$RESULTS_DIR"
-trap 'rm -rf "$WORK_DIR"' EXIT
+cleanup() {
+    # 被 Ctrl-C / kill 掐掉时，xargs 拉起的 timeout 与解释器会变成孤儿继续吃
+    # CPU 和内存（下一次 census 再叠加）。退出时按编译器路径清一遍。
+    pkill -f -- "$COMPILER test --vm" 2>/dev/null
+    rm -rf "$WORK_DIR"
+}
+trap cleanup EXIT INT TERM
 
 # 收集跳过表（只取非注释、非空行；匹配 basename）
 declare -A SKIP_SET=()
@@ -66,17 +76,6 @@ if [ -f "$SKIP_FILE" ]; then
     done < "$SKIP_FILE"
 fi
 
-declare -A TIMEOUT_SET=()
-if [ -f "$TIMEOUT_FILE" ]; then
-    while IFS=$'\t' read -r t_name t_seconds; do
-        t_name="${t_name%%#*}"
-        t_name="${t_name//[[:space:]]/}"
-        if [ -n "$t_name" ] && [[ "$t_seconds" =~ ^[0-9]+$ ]]; then
-            TIMEOUT_SET["$t_name"]="$t_seconds"
-        fi
-    done < "$TIMEOUT_FILE"
-fi
-
 run_one() {
     local uya_file="$1"
     local results_dir="$2"
@@ -84,8 +83,12 @@ run_one() {
     local timeout_s="$4"
     local base_name
     base_name="$(basename "$uya_file")"
-    if [ -n "${TIMEOUT_SET[$base_name]:-}" ]; then
-        timeout_s="${TIMEOUT_SET[$base_name]}"
+    local override_s=""
+    if [ -f "$TIMEOUT_FILE" ]; then
+        override_s="$(awk -F'\t' -v n="$base_name" '$1 == n { print $2; exit }' "$TIMEOUT_FILE" 2>/dev/null)"
+    fi
+    if [[ "$override_s" =~ ^[0-9]+$ ]]; then
+        timeout_s="$override_s"
     fi
     local base
     base="$(basename "$uya_file")"
