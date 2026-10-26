@@ -7438,6 +7438,93 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     return exec_lower_fail_expr(expr, &unsupported_expr_msg[0]);
 }
 
+/// `const (a, _, c) = (10, 20, 30);`：右值先降到临时局部，再逐项按元组下标取元素绑定名字。
+///
+/// 参数：`ctx` lowering 上下文；`stmt_node` 是 `AST_DESTRUCTURE_DECL`。
+/// 返回值：包住这些初始化语句的 `HIR_STMT_BLOCK`；失败返回 null（已设置错误）。
+fn exec_lower_make_destructure_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &HIRStmt {
+    if ctx == null || stmt_node == null || stmt_node.destructure_decl_init == null ||
+        stmt_node.destructure_decl_names == null || stmt_node.destructure_decl_name_count <= 0 {
+        exec_backend_set_error(stmt_node, "exec: 解构声明缺少右值或名字" as *byte, 0);
+        return null;
+    }
+    const init_type: Type = exec_lower_expr_type(ctx, stmt_node.destructure_decl_init);
+    if init_type.kind != TypeKind.TYPE_TUPLE || init_type.tuple_element_types == null {
+        exec_backend_set_error(stmt_node, "exec: 目前只支持元组解构" as *byte, 0);
+        return null;
+    }
+    var bind_count: i32 = 0;
+    var k: i32 = 0;
+    while k < stmt_node.destructure_decl_name_count {
+        const name_k: &byte = stmt_node.destructure_decl_names[k];
+        if name_k != null && str_equals(name_k, "_" as &byte) == 0 && k < init_type.tuple_count {
+            bind_count = bind_count +| 1;
+        }
+        k = k + 1;
+    }
+    const inner: &HIRBlock = exec_lower_alloc_scoped_block(ctx, stmt_node, bind_count +| 1);
+    if inner == null {
+        return null;
+    }
+    var temp_name_buf: [byte: 48] = [];
+    _ = snprintf(&temp_name_buf[0] as *byte, 48, "@destructure_%d" as *byte, stmt_node.line);
+    const temp_slot: i32 = exec_lower_append_local(ctx, stmt_node, &temp_name_buf[0] as &byte, &init_type, 0);
+    if temp_slot < 0 {
+        exec_backend_set_error(stmt_node, "exec: 解构临时槽位不足" as *byte, 0);
+        return null;
+    }
+    const init_expr: &HIRExpr = exec_lower_coerce_expr(ctx, stmt_node.destructure_decl_init, &init_type);
+    if init_expr == null {
+        return null;
+    }
+    const temp_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_VAR_INIT);
+    if temp_stmt == null {
+        return null;
+    }
+    temp_stmt.local_slot = temp_slot;
+    temp_stmt.expr = init_expr;
+    inner.stmts[1] = temp_stmt;
+    var out_idx: i32 = 2;
+    k = 0;
+    while k < stmt_node.destructure_decl_name_count {
+        const name: &byte = stmt_node.destructure_decl_names[k];
+        if name != null && str_equals(name, "_" as &byte) == 0 && k < init_type.tuple_count {
+            var elem_type: Type = copy_type(&init_type.tuple_element_types[k]);
+            const slot: i32 = exec_lower_append_local(ctx, stmt_node, name, &elem_type, 0);
+            if slot < 0 {
+                exec_backend_set_error(stmt_node, "exec: 解构绑定槽位不足" as *byte, 0);
+                return null;
+            }
+            const base_local: &HIRExpr = exec_lower_alloc_expr(ctx, stmt_node, HIRExprKind.HIR_EXPR_LOCAL, &init_type);
+            if base_local == null {
+                return null;
+            }
+            base_local.local_slot = temp_slot;
+            const field_expr: &HIRExpr = exec_lower_alloc_expr(ctx, stmt_node, HIRExprKind.HIR_EXPR_FIELD, &elem_type);
+            if field_expr == null {
+                return null;
+            }
+            field_expr.left = base_local;
+            field_expr.int_value = k as i64;
+            const bind_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_VAR_INIT);
+            if bind_stmt == null {
+                return null;
+            }
+            bind_stmt.local_slot = slot;
+            bind_stmt.expr = field_expr;
+            inner.stmts[out_idx] = bind_stmt;
+            out_idx = out_idx +| 1;
+        }
+        k = k + 1;
+    }
+    const block_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_BLOCK);
+    if block_stmt == null {
+        return null;
+    }
+    block_stmt.then_block = inner;
+    return block_stmt;
+}
+
 fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
     if ctx == null || block == null || block.type != ASTNodeType.AST_BLOCK {
         exec_backend_set_error(block, "exec: block lowering 失败" as *byte, 0);
@@ -7490,6 +7577,12 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
             }
             stmt.local_slot = slot;
             stmt.expr = init_expr;
+        } else if stmt_node.type == ASTNodeType.AST_DESTRUCTURE_DECL {
+            stmt = exec_lower_make_destructure_stmt(ctx, stmt_node);
+            if stmt == null {
+                exec_lower_pop_scope(ctx);
+                return null;
+            }
         } else if stmt_node.type == ASTNodeType.AST_ASSIGN {
             if stmt_node.assign_dest != null && stmt_node.assign_dest.type == ASTNodeType.AST_UNDERSCORE {
                 // `_ = expr;` keeps RHS side effects and explicitly discards the value.
