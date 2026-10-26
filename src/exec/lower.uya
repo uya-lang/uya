@@ -5306,9 +5306,86 @@ fn exec_lower_block_expr(ctx: &ExecLowerContext, expr: &ASTNode, block_type: &Ty
     return blk;
 }
 
+/// 把 `a |> f(x)` 链就地改写成嵌套调用 `f(a, x)`。
+///
+/// pipeline 链的每一段右侧都是一次普通调用，管道值作为该调用的**第一个**实参。
+/// 改写后节点类型变成 `AST_CALL_EXPR`，后续复用普通调用 lowering
+/// （泛型单态、方法调用、可变参数都在那里处理）。
+///
+/// 参数：`ctx` 用于 arena 分配；`expr` 是最外层 pipeline 节点。
+/// 返回值：改写后的最外层调用节点；结构不合法返回 null。
+fn exec_lower_desugar_pipeline(ctx: &ExecLowerContext, expr: &ASTNode) &ASTNode {
+    if ctx == null || expr == null || expr.type != ASTNodeType.AST_PIPELINE_EXPR {
+        return null;
+    }
+    var chain_len: i32 = 0;
+    var walk: &ASTNode = expr;
+    while walk != null && walk.type == ASTNodeType.AST_PIPELINE_EXPR {
+        chain_len = chain_len + 1;
+        walk = walk.pipeline_expr_left;
+    }
+    if walk == null || chain_len <= 0 {
+        return null;
+    }
+    const nodes: & & ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode) * (chain_len as usize)) as & & ASTNode;
+    const calls: & & ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode) * (chain_len as usize)) as & & ASTNode;
+    if nodes == null || calls == null {
+        return null;
+    }
+    var idx: i32 = 0;
+    walk = expr;
+    while walk != null && walk.type == ASTNodeType.AST_PIPELINE_EXPR && idx < chain_len {
+        nodes[idx] = walk;
+        calls[idx] = walk.pipeline_expr_right;
+        walk = walk.pipeline_expr_left;
+        idx = idx + 1;
+    }
+    if idx != chain_len {
+        return null;
+    }
+    var piped: &ASTNode = walk;
+    var k: i32 = chain_len - 1;
+    while k >= 0 {
+        const right_call: &ASTNode = calls[k];
+        if right_call == null || right_call.type != ASTNodeType.AST_CALL_EXPR {
+            return null;
+        }
+        const old_count: i32 = right_call.call_expr_arg_count;
+        const new_count: i32 = old_count +| 1;
+        const new_args: & & ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode) * (new_count as usize)) as & & ASTNode;
+        if new_args == null {
+            return null;
+        }
+        new_args[0] = piped;
+        var ai: i32 = 0;
+        while ai < old_count {
+            new_args[ai +| 1] = right_call.call_expr_args[ai];
+            ai = ai + 1;
+        }
+        const seg: &ASTNode = nodes[k];
+        seg.type = ASTNodeType.AST_CALL_EXPR;
+        seg.call_expr_callee = right_call.call_expr_callee;
+        seg.call_expr_args = new_args;
+        seg.call_expr_arg_count = new_count;
+        seg.call_expr_has_ellipsis_forward = right_call.call_expr_has_ellipsis_forward;
+        seg.call_expr_type_args = right_call.call_expr_type_args;
+        seg.call_expr_type_arg_count = right_call.call_expr_type_arg_count;
+        piped = seg;
+        k = k - 1;
+    }
+    return piped;
+}
+
 fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     if ctx == null || expr == null {
         return null;
+    }
+    if expr.type == ASTNodeType.AST_PIPELINE_EXPR {
+        const desugared_pipeline: &ASTNode = exec_lower_desugar_pipeline(ctx, expr);
+        if desugared_pipeline == null {
+            return exec_lower_fail_expr(expr, "exec: pipeline 表达式改写成调用失败" as *byte);
+        }
+        return exec_lower_expr(ctx, desugared_pipeline);
     }
     if expr.type == ASTNodeType.AST_TRY_EXPR {
         if expr.try_expr_is_checked_arith != 0 {

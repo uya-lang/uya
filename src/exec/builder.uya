@@ -726,6 +726,56 @@ fn exec_builder_compile_zero_value(ctx: &ExecFunctionBuildContext, ast_node: &AS
         }
         return dst_error_union;
     }
+    if ty.kind == TypeKind.TYPE_INTERFACE {
+        // 接口零值 = 方法表全 0（数据引用也为 0）的结构体；
+        // 对零接口调方法必然空指针，和 C 端一致。
+        const interface_name_zero: &byte = type_get_interface_name(ty);
+        if ctx.checker == null || ctx.checker.program_node == null || interface_name_zero == null {
+            exec_backend_set_generic_unsupported_error(ast_node, "exec: zero interface 缺少声明" as *byte);
+            return -1;
+        }
+        const interface_decl_zero: &ASTNode = find_interface_decl_from_program(ctx.checker.program_node, interface_name_zero);
+        if interface_decl_zero == null {
+            exec_backend_set_generic_unsupported_error(ast_node, "exec: zero interface 无法解析接口声明" as *byte);
+            return -1;
+        }
+        var iface_item_count: i32 = interface_decl_zero.interface_decl_method_sig_count +| 1;
+        if iface_item_count < 1 {
+            iface_item_count = 1;
+        }
+        if iface_item_count > 256 {
+            exec_backend_set_generic_unsupported_error(ast_node, "exec: zero interface 方法过多" as *byte);
+            return -1;
+        }
+        var iface_slots: [i32: 256] = [];
+        var ij: i32 = 0;
+        while ij < iface_item_count {
+            const zero_iface_item: i32 = exec_builder_emit_loaded_const_value(ctx, ast_node,
+                exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32));
+            if zero_iface_item < 0 {
+                return -1;
+            }
+            iface_slots[ij] = zero_iface_item;
+            ij = ij + 1;
+        }
+        const iface_item_base: i32 = exec_builder_pack_source_slots(ctx, ast_node, &iface_slots[0], iface_item_count);
+        const dst_iface_zero: i32 = exec_builder_new_temp(ctx);
+        if iface_item_base < 0 || dst_iface_zero < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MAKE_STRUCT,
+            a: dst_iface_zero,
+            b: iface_item_base,
+            c: iface_item_count,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return dst_iface_zero;
+    }
     if ty.kind == TypeKind.TYPE_ARRAY && ty.element_type != null {
         const zero_elem_slot: i32 = exec_builder_compile_zero_value(ctx, ast_node, &ty.element_type[0]);
         const dst_array: i32 = exec_builder_new_temp(ctx);
@@ -826,7 +876,9 @@ fn exec_builder_compile_zero_value(ctx: &ExecFunctionBuildContext, ast_node: &AS
         }
         return dst_struct;
     }
-    exec_backend_set_generic_unsupported_error(ast_node, "exec: 当前不支持该类型的零值初始化" as *byte);
+    var zero_kind_msg: [byte: 160] = [];
+    _ = snprintf(&zero_kind_msg[0] as *byte, 160, "exec: 当前不支持该类型的零值初始化(kind=%d)" as *byte, ty.kind as i32);
+    exec_backend_set_generic_unsupported_error(ast_node, &zero_kind_msg[0]);
     return -1;
 }
 
