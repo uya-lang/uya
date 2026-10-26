@@ -5448,15 +5448,21 @@ fn exec_lower_block_expr(ctx: &ExecLowerContext, expr: &ASTNode, block_type: &Ty
     if blk == null {
         return null;
     }
+    // 前缀块作用域状态是「本层」的：单语句块没有前缀，绝不能把外层 catch
+    // 还没收尾的 prefix 状态继承过来，否则会把外层作用域提前弹掉，
+    // 外层 catch 前缀里声明的局部变量就查不到了（`err_id` 一类）。
+    const saved_prefix_open: i32 = ctx.catch_prefix_scope_open;
+    var prefix_open: i32 = 0;
     if expr.block_stmt_count > 1 {
         blk.block = exec_lower_make_block_prefix(ctx, expr);
         if blk.block == null {
             return null;
         }
+        prefix_open = ctx.catch_prefix_scope_open;
     }
-    const prefix_open: i32 = ctx.catch_prefix_scope_open;
     const tail_expr: &HIRExpr = exec_lower_expr(ctx, tail_stmt);
     exec_lower_catch_exit_scopes(ctx, 0, prefix_open);
+    ctx.catch_prefix_scope_open = saved_prefix_open;
     if tail_expr == null {
         return null;
     }
@@ -7462,7 +7468,9 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
                 stmt.assign_target = assign_target;
                 stmt.assign_expr = value_expr;
             }
-        } else if stmt_node.type == ASTNodeType.AST_CALL_EXPR ||
+        } else if stmt_node.type == ASTNodeType.AST_CAST_EXPR ||
+            stmt_node.type == ASTNodeType.AST_PIPELINE_EXPR ||
+            stmt_node.type == ASTNodeType.AST_CALL_EXPR ||
             stmt_node.type == ASTNodeType.AST_PRINT ||
             stmt_node.type == ASTNodeType.AST_PRINTLN ||
             stmt_node.type == ASTNodeType.AST_VA_START ||
