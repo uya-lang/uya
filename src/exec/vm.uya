@@ -175,6 +175,77 @@ fn exec_vm_store_slot_shallow(slot: &ExecValue, value: ExecValue) void {
     }
 }
 
+// 解释器通过宿主 malloc/calloc/realloc 借出去的内存登记表。
+//
+// 程序里的 `use libc.malloc` / `free` 会直接落到宿主 malloc/free 上。而解释器
+// 自己也会把「VM 内部的假地址」（内部引用、旁路表地址、原生聚合元素地址）
+// 当成指针交给程序，程序一旦 free 这类地址，宿主堆就被写坏 —— 之后的任意一次
+// malloc 都可能段错误（实测 test_typed_pipeline_capability 崩在 tcache_count）。
+// 所以 free/realloc 前先按表核对：只有本解释器亲手分配过的地址才真正交还宿主。
+const EXEC_ALLOC_TRACK_MAX: i32 = 8192;
+
+var g_exec_alloc_keys: [usize: EXEC_ALLOC_TRACK_MAX] = [];
+var g_exec_alloc_sizes: [usize: EXEC_ALLOC_TRACK_MAX] = [];
+var g_exec_alloc_used: i32 = 0;
+
+fn exec_vm_alloc_hash(addr: usize) i32 {
+    var h: usize = addr >> 4;
+    h = h ^ (h >> 17);
+    return (h & ((EXEC_ALLOC_TRACK_MAX as usize) - 1 as usize)) as i32;
+}
+
+/// 登记一块解释器分配的宿主内存。
+/// 参数：`addr` 起始地址；`size` 字节数。
+/// 返回值：无。
+fn exec_vm_alloc_track(addr: usize, size: usize) void {
+    if addr == 0 as usize || g_exec_alloc_used >= EXEC_ALLOC_TRACK_MAX {
+        return;
+    }
+    var probe: i32 = 0;
+    while probe < EXEC_ALLOC_TRACK_MAX {
+        const idx: i32 = (exec_vm_alloc_hash(addr) +| probe) & (EXEC_ALLOC_TRACK_MAX -| 1);
+        if idx < 0 || idx >= EXEC_ALLOC_TRACK_MAX {
+            return;
+        }
+        if g_exec_alloc_keys[idx] == 0 as usize {
+            g_exec_alloc_keys[idx] = addr;
+            g_exec_alloc_sizes[idx] = size;
+            g_exec_alloc_used = g_exec_alloc_used +| 1;
+            return;
+        }
+        probe = probe +| 1;
+    }
+}
+
+/// 注销一块解释器分配过的宿主内存。
+/// 参数：`addr` 起始地址。
+/// 返回值：1 表示登记过（调用方可以真正释放）；0 表示不是解释器分配的。
+fn exec_vm_alloc_untrack(addr: usize) i32 {
+    if addr == 0 as usize {
+        return 0;
+    }
+    var probe: i32 = 0;
+    while probe < EXEC_ALLOC_TRACK_MAX {
+        const idx: i32 = (exec_vm_alloc_hash(addr) +| probe) & (EXEC_ALLOC_TRACK_MAX -| 1);
+        if idx < 0 || idx >= EXEC_ALLOC_TRACK_MAX {
+            return 0;
+        }
+        if g_exec_alloc_keys[idx] == addr {
+            g_exec_alloc_keys[idx] = 0 as usize;
+            g_exec_alloc_sizes[idx] = 0 as usize;
+            if g_exec_alloc_used > 0 {
+                g_exec_alloc_used = g_exec_alloc_used -| 1;
+            }
+            return 1;
+        }
+        if g_exec_alloc_keys[idx] == 0 as usize {
+            return 0;
+        }
+        probe = probe +| 1;
+    }
+    return 0;
+}
+
 fn exec_vm_global_ref(program: &BCProgram, idx: i32) &ExecValue {
     if program == null || idx < 0 || idx >= program.global_count || program.globals == null {
         return null;
@@ -1536,6 +1607,101 @@ fn exec_vm_native_agg_handle(base: usize) &ExecAggregate {
     return &g_native_agg_handles[slot];
 }
 
+/// 内存函数（memset/memcpy/memmove）目标/源的三态视图。
+///
+/// 解释器的内部引用（`&local`、`&global`、`&agg.field`）指向的是**宿主里的
+/// ExecValue 本体**，不是程序看到的那块数据。直接把内部引用当字节指针做
+/// `memset`/`memcpy`，会按程序的字节数覆盖到 ExecValue 之外，写坏编译器自己的
+/// 堆（实测 test_typed_pipeline_capability 崩在 tcache：tcache 指针被写成 0x16）。
+const EXEC_MEM_VIEW_HOST: i32 = 0;  // 普通宿主指针，按字节访问
+const EXEC_MEM_VIEW_VALUE: i32 = 1;  // 指向 VM 值本体，只能整体替换/清零
+const EXEC_MEM_VIEW_DATA: i32 = 2;   // 内部引用/切片，已还原成数据区起始地址
+
+/// 求一个指针值按字节访问时的起始地址与容量。
+/// 参数：`value` 指针值；`out_capacity` 输出可写字节数（0 表示未知）；`out_view` 输出视图类别。
+/// 返回值：起始地址；无法解析返回 null。
+fn exec_vm_mem_view(value: &ExecValue, out_capacity: &usize, out_view: &i32) &byte {
+    if out_capacity != null {
+        out_capacity[0] = 0 as usize;
+    }
+    if out_view != null {
+        out_view[0] = EXEC_MEM_VIEW_HOST;
+    }
+    if value == null {
+        return null;
+    }
+    if exec_vm_pointer_is_internal_ref(value) == 0 {
+        if out_view != null {
+            out_view[0] = EXEC_MEM_VIEW_HOST;
+        }
+        return value.ptr_value;
+    }
+    const target: &ExecValue = exec_vm_ref_target_value(value);
+    if target == null {
+        return null;
+    }
+    var data: &byte = null;
+    if exec_value_is_raw_array(target) != 0 && target.ptr_value != null {
+        data = target.ptr_value;
+        if out_capacity != null {
+            out_capacity[0] = exec_vm_type_kind_size(target.aux_i64_value as i32) * (target.i64_value as usize);
+        }
+    } else if target.kind == ExecValueKind.EXEC_VALUE_SLICE {
+        const slice_data: &ExecSliceData = exec_value_as_slice(target);
+        if slice_data != null && slice_data.raw_ptr != null {
+            data = slice_data.raw_ptr;
+            if out_capacity != null && slice_data.len > 0 {
+                out_capacity[0] = slice_data.len as usize;
+            }
+        }
+    }
+    if data != null {
+        if out_view != null {
+            out_view[0] = EXEC_MEM_VIEW_DATA;
+        }
+        return data;
+    }
+    if out_view != null {
+        out_view[0] = EXEC_MEM_VIEW_VALUE;
+    }
+    return null;
+}
+
+/// 把 VM 值原地清零（保留结构形状，等价于对底层字节 memset 0）。
+/// 参数：`target` 目标值。
+/// 返回值：无。
+fn exec_vm_zero_value_in_place(target: &ExecValue) void {
+    if target == null {
+        return;
+    }
+    if exec_value_is_raw_array(target) != 0 {
+        if target.ptr_value != null {
+            const bytes: usize = exec_vm_type_kind_size(target.aux_i64_value as i32) * (target.i64_value as usize);
+            _ = memset(target.ptr_value as *void, 0, bytes);
+        }
+        return;
+    }
+    const aggregate: &ExecAggregate = exec_value_as_aggregate(target);
+    if aggregate != null {
+        var i: i32 = 0;
+        while i < aggregate.count {
+            exec_vm_zero_value_in_place(&aggregate.values[i]);
+            i = i + 1;
+        }
+        target.i64_value = 0;
+        return;
+    }
+    if target.kind == ExecValueKind.EXEC_VALUE_UNION ||
+        target.kind == ExecValueKind.EXEC_VALUE_SLICE ||
+        target.kind == ExecValueKind.EXEC_VALUE_STRING ||
+        target.kind == ExecValueKind.EXEC_VALUE_ERROR_UNION {
+        target[0] = exec_make_void();
+        return;
+    }
+    target.i64_value = 0;
+    target.ptr_value = null;
+}
+
 fn exec_vm_pointer_element_ptr(function: &BCFunction, base: ExecValue, index_value: i64) ExecValue {
     if function == null {
         exec_backend_set_error(null, "exec: pointer addr 输入无效" as *byte, 0);
@@ -2311,6 +2477,17 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
         exec_backend_set_error(function.decl, "exec: 解释器不支持创建线程/进程(clone/fork)" as *byte, 0);
         return -1;
     }
+    // arch_prctl(158) / set_thread_area(205)：解释器与编译器共用同一个进程，
+    // 改 GS/FS 基址会把编译器自己的 TLS 换掉。Uya 的 libc 把线程堆缓存放在
+    // gs:8，一旦被换掉，编译器下一次 malloc 就会从垃圾指针里取 tcache
+    // （实测 test_typed_pipeline_capability 崩在 tcache_count，cache=0x16）。
+    // 调用方都忽略返回值，假成功即可。
+    if nr_value == 158 || nr_value == 205 {
+        const ignored_raw: ExecValue = exec_make_i64(0i64);
+        const ignored_cast: ExecValue = exec_vm_cast_value(ignored_raw, target_kind, target_pointee_kind);
+        out_value[0] = exec_make_error_union_ok(ignored_cast);
+        return 0;
+    }
     out_value[0] = exec_vm_dispatch_host_syscall(target_kind, target_pointee_kind, nr_value, &args[0], arg_count);
     if out_target != null && out_buffer != null {
         exec_vm_syscall_out_struct_apply(out_target, out_buffer, out_target.i64_value as i32);
@@ -2595,17 +2772,55 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             return -1;
         }
         const mem_count: usize = mem_n.i64_value as usize;
-        const mem_dst_ptr: &byte = mem_dst.ptr_value;
-        const mem_src_ptr: &byte = mem_second.ptr_value;
+        var mem_copy_len: usize = mem_count;
+        var dst_cap: usize = 0 as usize;
+        var dst_view: i32 = 0;
+        var src_cap: usize = 0 as usize;
+        var src_view: i32 = 0;
+        const mem_dst_ptr: &byte = exec_vm_mem_view(mem_dst, &dst_cap, &dst_view);
+        var mem_src_ptr: &byte = mem_second.ptr_value;
+        if site.id != ExecHostCallId.EXEC_HOST_CALL_MEMSET {
+            mem_src_ptr = exec_vm_mem_view(mem_second, &src_cap, &src_view);
+        }
+        // 目标是 VM 值本体（`&local`/`&field`）：不能按字节写，按语义整体处理。
+        if dst_view == EXEC_MEM_VIEW_VALUE && mem_count > 0 as usize {
+            if site.id == ExecHostCallId.EXEC_HOST_CALL_MEMSET && (mem_second.i64_value as byte) == 0 {
+                const dst_target: &ExecValue = exec_vm_ref_target_value(mem_dst);
+                exec_vm_zero_value_in_place(dst_target);
+                out_value[0] = mem_dst[0];
+                return 0;
+            }
+            if site.id != ExecHostCallId.EXEC_HOST_CALL_MEMSET && src_view == EXEC_MEM_VIEW_VALUE {
+                const dst_target2: &ExecValue = exec_vm_ref_target_value(mem_dst);
+                const src_target: &ExecValue = exec_vm_ref_target_value(mem_second);
+                exec_vm_store_slot(dst_target2, src_target[0]);
+                out_value[0] = mem_dst[0];
+                return 0;
+            }
+            exec_backend_set_error(function.decl, "exec: 内存函数目标是 VM 值，无法按字节写" as *byte, 0);
+            return -1;
+        }
         if mem_dst_ptr != null && mem_count > 0 as usize &&
             site.id == ExecHostCallId.EXEC_HOST_CALL_MEMSET {
             const mem_fill: byte = mem_second.i64_value as byte;
+            var memset_count: usize = mem_count;
+            if dst_cap > 0 as usize && memset_count > dst_cap {
+                memset_count = dst_cap;
+            }
             var mi: usize = 0;
-            while mi < mem_count {
+            while mi < memset_count {
                 mem_dst_ptr[mi] = mem_fill;
                 mi = mi + 1;
             }
         } else if mem_dst_ptr != null && mem_src_ptr != null && mem_count > 0 as usize {
+            var mem_copy_count: usize = mem_count;
+            if dst_cap > 0 as usize && mem_copy_count > dst_cap {
+                mem_copy_count = dst_cap;
+            }
+            if src_cap > 0 as usize && mem_copy_count > src_cap {
+                mem_copy_count = src_cap;
+            }
+            mem_copy_len = mem_copy_count;
             var mem_forward: i32 = 1;
             if site.id == ExecHostCallId.EXEC_HOST_CALL_MEMMOVE &&
                 @usize_from_ptr(mem_dst_ptr as &void) > @usize_from_ptr(mem_src_ptr as &void) {
@@ -2613,12 +2828,12 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             }
             if mem_forward != 0 {
                 var mi2: usize = 0;
-                while mi2 < mem_count {
+                while mi2 < mem_copy_len {
                     mem_dst_ptr[mi2] = mem_src_ptr[mi2];
                     mi2 = mi2 + 1;
                 }
             } else {
-                var mi3: usize = mem_count;
+                var mi3: usize = mem_copy_len;
                 while mi3 > 0 {
                     const idx3: usize = mi3 - 1;
                     mem_dst_ptr[idx3] = mem_src_ptr[idx3];
@@ -2779,6 +2994,7 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
                 alloc_block = malloc(alloc_total) as &byte;
             }
         }
+        exec_vm_alloc_track(@usize_from_ptr(alloc_block as &void), alloc_total);
         out_value[0] = exec_make_pointer_with_kind(@usize_from_ptr(alloc_block as &void), TypeKind.TYPE_VOID as i32);
         return 0;
     }
@@ -2794,7 +3010,13 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             return -1;
         }
         const realloc_bytes: usize = realloc_size.i64_value as usize;
-        const realloc_block: &byte = realloc(realloc_ptr.ptr_value as &void, realloc_bytes) as &byte;
+        // 只 realloc 解释器分配过的块；别人的地址原样忽略（返回 null），
+        // 否则宿主堆会被 realloc 的原地搬移写坏。
+        var realloc_block: &byte = null;
+        if exec_vm_alloc_untrack(@usize_from_ptr(realloc_ptr.ptr_value as &void)) != 0 {
+            realloc_block = realloc(realloc_ptr.ptr_value as &void, realloc_bytes) as &byte;
+            exec_vm_alloc_track(@usize_from_ptr(realloc_block as &void), realloc_bytes);
+        }
         out_value[0] = exec_make_pointer_with_kind(@usize_from_ptr(realloc_block as &void), TypeKind.TYPE_VOID as i32);
         return 0;
     }
@@ -2808,7 +3030,8 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             exec_backend_set_error(function.decl, "exec: free 参数槽位非法" as *byte, 0);
             return -1;
         }
-        if free_arg.ptr_value != null {
+        if free_arg.ptr_value != null &&
+            exec_vm_alloc_untrack(@usize_from_ptr(free_arg.ptr_value as &void)) != 0 {
             free(free_arg.ptr_value as &void);
         }
         out_value[0] = exec_make_void();

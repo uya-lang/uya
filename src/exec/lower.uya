@@ -528,6 +528,61 @@ fn exec_type_is_string_pointer_supported(type: Type) i32 {
     return 0;
 }
 
+/// 隐式 libc 常量（`use libc.WNOHANG;` 这类 C 宏）的解释器取值。
+///
+/// Uya 侧没有它们的声明节点：C99 后端把名字原样发射到 C 输出，靠 `<sys/wait.h>`
+/// 之类的头文件展开。解释器里得有一张表，否则 `WNOHANG | ...` 会以
+/// 「当前仅支持局部变量/参数/全局标识符」失败。取值按 Linux/POSIX；表里缺的
+/// 常量请连同目标平台一起补，不要用 0 兜底（0 会静默改变语义）。
+///
+/// 参数：`name` 标识符名字。
+/// 返回值：命中返回 1 并写入 `out_value`；未命中返回 0。
+fn exec_lower_libc_macro(name: &byte, out_value: &i64) i32 {
+    if name == null || out_value == null {
+        return 0;
+    }
+    if str_equals(name, "WNOHANG" as &byte) != 0 { out_value[0] = 1; return 1; }
+    if str_equals(name, "WUNTRACED" as &byte) != 0 { out_value[0] = 2; return 1; }
+    if str_equals(name, "WCONTINUED" as &byte) != 0 { out_value[0] = 8; return 1; }
+    if str_equals(name, "O_RDONLY" as &byte) != 0 { out_value[0] = 0; return 1; }
+    if str_equals(name, "O_WRONLY" as &byte) != 0 { out_value[0] = 1; return 1; }
+    if str_equals(name, "O_RDWR" as &byte) != 0 { out_value[0] = 2; return 1; }
+    if str_equals(name, "O_CREAT" as &byte) != 0 { out_value[0] = 64; return 1; }
+    if str_equals(name, "O_EXCL" as &byte) != 0 { out_value[0] = 128; return 1; }
+    if str_equals(name, "O_TRUNC" as &byte) != 0 { out_value[0] = 512; return 1; }
+    if str_equals(name, "O_APPEND" as &byte) != 0 { out_value[0] = 1024; return 1; }
+    if str_equals(name, "O_NONBLOCK" as &byte) != 0 { out_value[0] = 2048; return 1; }
+    if str_equals(name, "O_CLOEXEC" as &byte) != 0 { out_value[0] = 524288; return 1; }
+    if str_equals(name, "F_GETFL" as &byte) != 0 { out_value[0] = 3; return 1; }
+    if str_equals(name, "F_SETFL" as &byte) != 0 { out_value[0] = 4; return 1; }
+    if str_equals(name, "F_DUPFD_CLOEXEC" as &byte) != 0 { out_value[0] = 1030; return 1; }
+    if str_equals(name, "PROT_NONE" as &byte) != 0 { out_value[0] = 0; return 1; }
+    if str_equals(name, "PROT_READ" as &byte) != 0 { out_value[0] = 1; return 1; }
+    if str_equals(name, "PROT_WRITE" as &byte) != 0 { out_value[0] = 2; return 1; }
+    if str_equals(name, "PROT_EXEC" as &byte) != 0 { out_value[0] = 4; return 1; }
+    if str_equals(name, "MAP_SHARED" as &byte) != 0 { out_value[0] = 1; return 1; }
+    if str_equals(name, "MAP_PRIVATE" as &byte) != 0 { out_value[0] = 2; return 1; }
+    if str_equals(name, "MAP_ANONYMOUS" as &byte) != 0 { out_value[0] = 32; return 1; }
+    if str_equals(name, "MAP_ANON" as &byte) != 0 { out_value[0] = 32; return 1; }
+    if str_equals(name, "IPPROTO_TCP" as &byte) != 0 { out_value[0] = 6; return 1; }
+    if str_equals(name, "TCP_NODELAY" as &byte) != 0 { out_value[0] = 1; return 1; }
+    if str_equals(name, "SOL_SOCKET" as &byte) != 0 { out_value[0] = 1; return 1; }
+    if str_equals(name, "SO_REUSEADDR" as &byte) != 0 { out_value[0] = 2; return 1; }
+    if str_equals(name, "AF_INET" as &byte) != 0 { out_value[0] = 2; return 1; }
+    if str_equals(name, "AF_INET6" as &byte) != 0 { out_value[0] = 10; return 1; }
+    if str_equals(name, "SOCK_STREAM" as &byte) != 0 { out_value[0] = 1; return 1; }
+    if str_equals(name, "SOCK_DGRAM" as &byte) != 0 { out_value[0] = 2; return 1; }
+    if str_equals(name, "CLOCK_REALTIME" as &byte) != 0 { out_value[0] = 0; return 1; }
+    if str_equals(name, "CLOCK_MONOTONIC" as &byte) != 0 { out_value[0] = 1; return 1; }
+    if str_equals(name, "EINTR" as &byte) != 0 { out_value[0] = 4; return 1; }
+    if str_equals(name, "EAGAIN" as &byte) != 0 { out_value[0] = 11; return 1; }
+    if str_equals(name, "EWOULDBLOCK" as &byte) != 0 { out_value[0] = 11; return 1; }
+    if str_equals(name, "EPIPE" as &byte) != 0 { out_value[0] = 32; return 1; }
+    if str_equals(name, "SIG_IGN" as &byte) != 0 { out_value[0] = 1; return 1; }
+    if str_equals(name, "SIG_ERR" as &byte) != 0 { out_value[0] = 0 - 1; return 1; }
+    return 0;
+}
+
 fn exec_lower_is_supported_extern_lib(fn_decl: &ASTNode) i32 {
     if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
         return 0;
@@ -6720,6 +6775,14 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 }
                 const fn_addr_value: i64 = 4096 + (hash_string(expr.identifier_name) & 0xFFF) as i64;
                 return exec_lower_make_int_const_expr(ctx, expr, &fn_addr_type, fn_addr_value);
+            }
+            var libc_const: i64 = 0;
+            if exec_lower_libc_macro(expr.identifier_name, &libc_const) != 0 {
+                var libc_type: Type = copy_type(&expr_type);
+                if libc_type.kind == TypeKind.TYPE_VOID {
+                    libc_type = make_i32_type();
+                }
+                return exec_lower_make_int_const_expr(ctx, expr, &libc_type, libc_const);
             }
             var unknown_ident_msg: [byte: 192] = [];
             _ = snprintf(&unknown_ident_msg[0] as *byte, 192, "exec: 当前仅支持局部变量/参数/全局标识符(%s)" as *byte, expr.identifier_name as *byte);
