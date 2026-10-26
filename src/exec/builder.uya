@@ -467,6 +467,47 @@ fn exec_builder_new_temp(ctx: &ExecFunctionBuildContext) i32 {
     return slot;
 }
 
+/// 把 `slot` 适配成函数返回值的形态：返回类型是错误联合而值本身不是时，
+/// 自动包一层 ok（错误值则包 `err`）。
+///
+/// 参数：`slot` 已求出的值槽位；`value_type` 该值的 HIR 类型，可为 null；
+/// `ast_node` 用于报错与源码映射。
+/// 返回值：最终用于 return 的槽位；失败返回 -1。
+fn exec_builder_wrap_return_slot(ctx: &ExecFunctionBuildContext, slot: i32,
+    value_type: &Type, ast_node: &ASTNode) i32 {
+    if ctx == null || slot < 0 {
+        return slot;
+    }
+    if ctx.function.return_type.type.kind != TypeKind.TYPE_ERROR_UNION {
+        return slot;
+    }
+    if value_type != null && value_type[0].kind == TypeKind.TYPE_ERROR_UNION {
+        return slot;
+    }
+    const wrapped_slot: i32 = exec_builder_new_temp(ctx);
+    if wrapped_slot < 0 {
+        return -1;
+    }
+    var wrap_opcode: BCOpcode = BCOpcode.BC_MAKE_OK;
+    var wrap_imm: i64 = 0;
+    if value_type != null && value_type[0].kind == TypeKind.TYPE_ERROR {
+        wrap_opcode = BCOpcode.BC_MAKE_ERR;
+        wrap_imm = value_type[0].error_error_id as i64;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: wrap_opcode,
+        a: wrapped_slot,
+        b: slot,
+        c: 0,
+        imm: wrap_imm,
+        text: null,
+        source: exec_builder_make_source(ast_node),
+    }) < 0 {
+        return -1;
+    }
+    return wrapped_slot;
+}
+
 fn exec_builder_restore_temp_watermark(ctx: &ExecFunctionBuildContext, watermark: i32) void {
     if ctx == null {
         return;
@@ -2271,12 +2312,19 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             if return_slot_catch < 0 {
                 return -1;
             }
+            // `catch { return <非错误联合值> }`：返回值要按函数返回类型包成 ok/err，
+            // 否则调用方会对一个非错误联合值做 UNWRAP_OK 而拿到垃圾。
+            const catch_ret_slot: i32 = exec_builder_wrap_return_slot(ctx, return_slot_catch,
+                &expr.extra.type_ref.type, expr.ast_node);
+            if catch_ret_slot < 0 {
+                return -1;
+            }
             if exec_builder_emit_all_cleanup(ctx, 1) < 0 {
                 return -1;
             }
             if exec_builder_emit(ctx, BCInstr {
                 opcode: BCOpcode.BC_RET,
-                a: return_slot_catch,
+                a: catch_ret_slot,
                 b: 0,
                 c: 0,
                 imm: 0,
