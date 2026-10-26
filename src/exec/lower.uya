@@ -38,6 +38,11 @@ struct ExecLowerContext {
     scope_markers: [i32: EXEC_MAX_SCOPE_DEPTH],
     scope_ids: [i32: EXEC_MAX_SCOPE_DEPTH],
     scope_depth: i32,
+    // 指定某个 block 降完后**不弹出**自己的作用域（catch 前缀块专用：
+    // 尾语句要能看到前缀里声明的局部变量）。null 表示正常弹栈。
+    keep_scope_block: &ASTNode,
+    // 上一次 exec_lower_make_block_prefix 是否留下了未弹出的作用域。
+    catch_prefix_scope_open: i32,
 }
 
 fn exec_lower_set_unsupported(node: &ASTNode, reason: &byte) i32 {
@@ -1213,7 +1218,29 @@ fn exec_lower_try_make_returning_match_stmt(ctx: &ExecLowerContext, stmt_node: &
     return stmt;
 }
 
+/// catch lowering 收尾：按 LIFO 依次弹出前缀块作用域与 `|e|` 绑定作用域。
+///
+/// 前缀块为了保留局部变量给尾语句用，降完后没有自行弹栈，所以这里补弹。
+///
+/// 参数：`bind_scope` 非 0 表示开了 `|e|` 绑定作用域；
+/// `prefix_scope` 非 0 表示前缀块作用域仍未弹出。
+/// 返回值：无。
+fn exec_lower_catch_exit_scopes(ctx: &ExecLowerContext, bind_scope: i32, prefix_scope: i32) void {
+    if ctx == null {
+        return;
+    }
+    if prefix_scope != 0 {
+        exec_lower_pop_scope(ctx);
+    }
+    if bind_scope != 0 {
+        exec_lower_pop_scope(ctx);
+    }
+}
+
 fn exec_lower_make_block_prefix(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
+    if ctx != null {
+        ctx.catch_prefix_scope_open = 0;
+    }
     if ctx == null || block == null || block.type != ASTNodeType.AST_BLOCK || block.block_stmts == null {
         return null;
     }
@@ -1239,7 +1266,15 @@ fn exec_lower_make_block_prefix(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlo
         synthetic_stmts[i] = block.block_stmts[i];
         i = i + 1;
     }
-    return exec_lower_block(ctx, synthetic_block);
+    const saved_keep: &ASTNode = ctx.keep_scope_block;
+    ctx.keep_scope_block = synthetic_block;
+    const prefix_block: &HIRBlock = exec_lower_block(ctx, synthetic_block);
+    ctx.keep_scope_block = saved_keep;
+    if prefix_block != null {
+        // 前缀里声明的局部变量要留给尾语句用，作用域由 catch lowering 收尾时弹出。
+        ctx.catch_prefix_scope_open = 1;
+    }
+    return prefix_block;
 }
 
 fn exec_lower_make_bool_const_expr(ctx: &ExecLowerContext, ast_node: &ASTNode, value: i32) &HIRExpr {
@@ -3219,6 +3254,55 @@ fn exec_lower_mono_function_name(arena: &CompilerArena, generic_name: &byte, ind
     return buf;
 }
 
+/// 判断单态实例是否需要在 lowering 前先做 AST 级宏展开。
+///
+/// 只有「以类型形参作首实参、由 codegen 按具体类型内联展开」的泛型函数
+/// （`to_json` / `websocket_conn_write_json` / `async_compute`）属于这一类：
+/// checker 在泛型声明处刻意不展开，单态实例必须按具体类型实参重新展开一次。
+///
+/// 参数：`name` 为泛型函数名。
+/// 返回值：需要展开返回 1，否则返回 0。
+fn exec_lower_mono_body_needs_macro_expand(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "to_json" as *byte) == 0 ||
+        strcmp(name as *byte, "websocket_conn_write_json" as *byte) == 0 ||
+        strcmp(name as *byte, "async_compute" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+/// 为一个泛型单态实例准备要 lowering 的函数体。
+///
+/// 与 C99 后端单态分支保持一致：`from_json` 按具体结构体生成字段解码体，
+/// `to_json` 等宏型泛型按具体类型实参展开宏调用。
+///
+/// 参数：`checker` 类型检查器；`fn_decl` 泛型函数声明；`inst` 单态实例。
+/// 返回值：替换后的函数体；无需替换时返回 null。
+fn exec_lower_mono_body_for_instance(checker: &TypeChecker, fn_decl: &ASTNode, inst: &MonoInstance) &ASTNode {
+    if checker == null || fn_decl == null || inst == null || fn_decl.fn_decl_body == null ||
+        fn_decl.fn_decl_name == null || inst.type_arg_nodes == null || inst.type_arg_count <= 0 {
+        return null;
+    }
+    const arg0: &ASTNode = inst.type_arg_nodes[0];
+    if strcmp(fn_decl.fn_decl_name as *byte, "from_json" as *byte) == 0 && arg0 != null &&
+        arg0.type == ASTNodeType.AST_TYPE_NAMED && arg0.type_named_name != null {
+        var filename: &byte = null;
+        if fn_decl.filename != null {
+            filename = fn_decl.filename;
+        }
+        return build_from_json_reflect_body(checker, arg0, fn_decl.line, fn_decl.column, filename);
+    }
+    if exec_lower_mono_body_needs_macro_expand(fn_decl.fn_decl_name) == 0 {
+        return null;
+    }
+    return prepare_mono_body_expand_macros(checker, fn_decl.fn_decl_body,
+        fn_decl.fn_decl_type_params, fn_decl.fn_decl_type_param_count,
+        inst.type_arg_nodes, inst.type_arg_count);
+}
+
 fn exec_lower_generic_instances(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &ASTNode,
     globals: &HIRGlobalSlot, global_count: i32, functions: & & HIRFunction, count: &i32) i32 {
     if fn_decl == null || count == null || functions == null {
@@ -3240,7 +3324,13 @@ fn exec_lower_generic_instances(arena: &CompilerArena, checker: &TypeChecker, fn
             checker.subst_active = 1;
             checker.subst_name = param_name;
             checker.subst_type = copy_type(&inst.type_args[0]);
+            const saved_body: &ASTNode = fn_decl.fn_decl_body;
+            const mono_body: &ASTNode = exec_lower_mono_body_for_instance(checker, fn_decl, inst);
+            if mono_body != null {
+                fn_decl.fn_decl_body = mono_body;
+            }
             const lowered: &HIRFunction = exec_lower_function(arena, checker, fn_decl, globals, global_count);
+            fn_decl.fn_decl_body = saved_body;
             checker.subst_active = saved_active;
             checker.subst_name = saved_name;
             checker.subst_type = copy_type(&saved_type);
@@ -4577,6 +4667,8 @@ fn exec_lower_lower_global_init_exprs(arena: &CompilerArena, checker: &TypeCheck
                 scope_markers: [],
                 scope_ids: [],
                 scope_depth: 0,
+                keep_scope_block: null,
+                catch_prefix_scope_open: 0,
             };
             exec_lower_seed_globals(&ctx, globals, global_count);
             const lowered_init: &HIRExpr = exec_lower_coerce_expr(&ctx, init_expr_ast, &globals[i].type_ref.type);
@@ -5172,6 +5264,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             return hir_catch_early;
         }
         hir_catch_early.block = exec_lower_make_block_prefix(ctx, catch_block_early);
+        const catch_prefix_scope_early: i32 = ctx.catch_prefix_scope_open;
         if catch_last_stmt_early.type == ASTNodeType.AST_RETURN_STMT {
             const return_stmt_early: &ASTNode = catch_last_stmt_early;
             if return_stmt_early.return_stmt_expr != null {
@@ -5182,36 +5275,26 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                     hir_catch_early.extra = exec_lower_expr(ctx, return_stmt_early.return_stmt_expr);
                 }
                 if hir_catch_early.extra == null {
-                    if catch_bind_scope_early != 0 {
-                        exec_lower_pop_scope(ctx);
-                    }
+                    exec_lower_catch_exit_scopes(ctx, catch_bind_scope_early, catch_prefix_scope_early);
                     return null;
                 }
             } else {
                 hir_catch_early.extra = exec_lower_make_bare_return_expr(ctx, return_stmt_early);
                 if hir_catch_early.extra == null {
-                    if catch_bind_scope_early != 0 {
-                        exec_lower_pop_scope(ctx);
-                    }
+                    exec_lower_catch_exit_scopes(ctx, catch_bind_scope_early, catch_prefix_scope_early);
                     return null;
                 }
             }
-            if catch_bind_scope_early != 0 {
-                exec_lower_pop_scope(ctx);
-            }
+            exec_lower_catch_exit_scopes(ctx, catch_bind_scope_early, catch_prefix_scope_early);
             return hir_catch_early;
         }
         const fallback_expr_early: &HIRExpr = exec_lower_expr(ctx, catch_last_stmt_early);
         if fallback_expr_early == null {
-            if catch_bind_scope_early != 0 {
-                exec_lower_pop_scope(ctx);
-            }
+            exec_lower_catch_exit_scopes(ctx, catch_bind_scope_early, catch_prefix_scope_early);
             return null;
         }
         hir_catch_early.right = fallback_expr_early;
-        if catch_bind_scope_early != 0 {
-            exec_lower_pop_scope(ctx);
-        }
+        exec_lower_catch_exit_scopes(ctx, catch_bind_scope_early, catch_prefix_scope_early);
         return hir_catch_early;
     }
     const expr_type: Type = exec_lower_expr_type(ctx, expr);
@@ -7117,7 +7200,9 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
         hir_block.stmts[i + 1] = stmt;
         i = i + 1;
     }
-    exec_lower_pop_scope(ctx);
+    if ctx.keep_scope_block != block {
+        exec_lower_pop_scope(ctx);
+    }
     return hir_block;
 }
 
@@ -7179,6 +7264,8 @@ fn exec_lower_function(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &A
         scope_markers: [],
         scope_ids: [],
         scope_depth: 0,
+        keep_scope_block: null,
+        catch_prefix_scope_open: 0,
     };
     exec_lower_seed_globals(&ctx, globals, global_count);
     var i: i32 = 0;
