@@ -87,6 +87,8 @@ enum HIRExprKind {
     // `(a + b) catch { ... }`：left 是受检算术树，block/right 是 catch 分支。
     // 与 HIR_EXPR_CATCH 的区别是错误来源不是错误联合值，而是算术溢出。
     HIR_EXPR_CHECKED_CATCH,
+    // `{ ... }` 用作表达式（宏展开产物）：block 是前导语句，extra 是尾表达式的值。
+    HIR_EXPR_BLOCK,
 }
 
 struct HIRMatchArm {

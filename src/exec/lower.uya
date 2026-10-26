@@ -5117,6 +5117,42 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     return lowered;
 }
 
+/// 把 `{ ... }` 当表达式降级：前导语句照常执行，尾表达式的值就是块的值。
+///
+/// 宏展开（`encode_to_to_json` 一类）会把整个调用替换成这种语句表达式，
+/// 所以泛型单态体里必然遇到。
+///
+/// 参数：`expr` 是 `AST_BLOCK`；`block_type` 是块的值类型。
+/// 返回值：`HIR_EXPR_BLOCK`；失败返回 null。
+fn exec_lower_block_expr(ctx: &ExecLowerContext, expr: &ASTNode, block_type: &Type) &HIRExpr {
+    if expr == null || expr.block_stmts == null || expr.block_stmt_count <= 0 {
+        return exec_lower_make_zero_expr(ctx, expr, block_type);
+    }
+    const tail_stmt: &ASTNode = expr.block_stmts[expr.block_stmt_count - 1];
+    if tail_stmt == null {
+        return exec_lower_make_zero_expr(ctx, expr, block_type);
+    }
+    const blk: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_BLOCK, block_type);
+    if blk == null {
+        return null;
+    }
+    if expr.block_stmt_count > 1 {
+        blk.block = exec_lower_make_block_prefix(ctx, expr);
+        if blk.block == null {
+            return null;
+        }
+    }
+    const prefix_open: i32 = ctx.catch_prefix_scope_open;
+    const tail_expr: &HIRExpr = exec_lower_expr(ctx, tail_stmt);
+    exec_lower_catch_exit_scopes(ctx, 0, prefix_open);
+    if tail_expr == null {
+        return null;
+    }
+    blk.extra = tail_expr;
+    blk.type_ref = tail_expr.type_ref;
+    return blk;
+}
+
 fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     if ctx == null || expr == null {
         return null;
@@ -6809,6 +6845,9 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         hir_match.match_arms = arms;
         hir_match.match_arm_count = expr.match_expr_arm_count;
         return hir_match;
+    }
+    if expr.type == ASTNodeType.AST_BLOCK {
+        return exec_lower_block_expr(ctx, expr, &expr_type);
     }
     if expr.type == ASTNodeType.AST_ASM {
         return exec_lower_fail_expr_reason(expr, "exec: 当前不支持 inline asm" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_ASM);

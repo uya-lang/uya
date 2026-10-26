@@ -1853,6 +1853,36 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         }
         return dst_cast;
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_BLOCK {
+        const blk_dst: i32 = exec_builder_new_temp(ctx);
+        if blk_dst < 0 {
+            return -1;
+        }
+        if expr.block != null {
+            if exec_builder_compile_block(ctx, expr.block) < 0 {
+                return -1;
+            }
+        }
+        if expr.extra == null {
+            return blk_dst;
+        }
+        const blk_tail: i32 = exec_builder_compile_expr(ctx, expr.extra);
+        if blk_tail < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MOV,
+            a: blk_dst,
+            b: blk_tail,
+            c: 0,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return blk_dst;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_IF {
         if expr.left == null || expr.right == null || expr.items == null ||
             expr.item_count < 1 || expr.items[0] == null {
