@@ -3044,6 +3044,46 @@ fn exec_lower_union_variant_type(ctx: &ExecLowerContext, union_type: Type, varia
     return make_void_type();
 }
 
+/// `Kind.Closed` 这种「类型名.空载荷变体」取值形式（没有调用括号）。
+///
+/// 参数：`ctx` lowering 上下文；`expr` 成员访问节点；`expr_type` 推断出的类型。
+/// 返回值：联合体值表达式；不适用（非联合体类型、找不到该变体、载荷非空）返回 null。
+fn exec_lower_try_union_member_value(ctx: &ExecLowerContext, expr: &ASTNode, expr_type: &Type) &HIRExpr {
+    if ctx == null || expr == null || expr.type != ASTNodeType.AST_MEMBER_ACCESS ||
+        expr.member_access_object == null || expr.member_access_field_name == null ||
+        ctx.checker == null || ctx.checker.program_node == null {
+        return null;
+    }
+    const object: &ASTNode = expr.member_access_object;
+    var union_name: &byte = null;
+    if object.type == ASTNodeType.AST_IDENTIFIER && object.identifier_name != null {
+        union_name = object.identifier_name;
+    } else if object.type == ASTNodeType.AST_TYPE_NAMED && object.type_named_name != null {
+        union_name = object.type_named_name;
+    }
+    if union_name == null || find_union_decl_from_program(ctx.checker.program_node, union_name) == null {
+        return null;
+    }
+    var member_type: Type = expr_type[0];
+    if member_type.kind != TypeKind.TYPE_UNION {
+        member_type = make_named_type(TypeKind.TYPE_UNION, union_name);
+    }
+    const variant_index: i32 = exec_lower_union_variant_index(ctx, copy_type(&member_type), expr.member_access_field_name);
+    if variant_index < 0 {
+        return null;
+    }
+    const variant_type: Type = exec_lower_union_variant_type(ctx, copy_type(&member_type), expr.member_access_field_name);
+    if variant_type.kind != TypeKind.TYPE_VOID {
+        return null;
+    }
+    const hir_union: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_UNION_INIT, &member_type);
+    if hir_union == null {
+        return null;
+    }
+    hir_union.int_value = variant_index as i64;
+    return hir_union;
+}
+
 fn exec_lower_try_union_ctor_expr(ctx: &ExecLowerContext, expr: &ASTNode, expr_type: &Type) &HIRExpr {
     if ctx == null || expr == null || expr.type != ASTNodeType.AST_CALL_EXPR ||
         expr.call_expr_callee == null || expr.call_expr_callee.type != ASTNodeType.AST_MEMBER_ACCESS {
@@ -3064,16 +3104,22 @@ fn exec_lower_try_union_ctor_expr(ctx: &ExecLowerContext, expr: &ASTNode, expr_t
     if union_decl == null {
         return null;
     }
-    const variant_index: i32 = exec_lower_union_variant_index(ctx, expr_type[0], callee.member_access_field_name);
+    // `EventKind.Readable({})`：类型推断拿不到具体联合体类型（结果是 void）时，
+    // 按接收者类型名合成一个具名联合体类型，否则整条构造被当成未知方法调用。
+    var ctor_type: Type = expr_type[0];
+    if ctor_type.kind != TypeKind.TYPE_UNION &&
+        find_union_decl_from_program(ctx.checker.program_node, union_name) != null {
+        ctor_type = make_named_type(TypeKind.TYPE_UNION, union_name);
+    }
+    const variant_index: i32 = exec_lower_union_variant_index(ctx, copy_type(&ctor_type), callee.member_access_field_name);
     if variant_index < 0 {
         return null;
     }
-    const variant_type: Type = exec_lower_union_variant_type(ctx, expr_type[0], callee.member_access_field_name);
+    const variant_type: Type = exec_lower_union_variant_type(ctx, copy_type(&ctor_type), callee.member_access_field_name);
     var payload_expr: &HIRExpr = null;
     if variant_type.kind == TypeKind.TYPE_VOID {
-        if expr.call_expr_arg_count != 0 {
-            return exec_lower_fail_expr(expr, "exec: union void 变体当前仅支持空参数构造" as *byte);
-        }
+        // 空载荷变体允许带实参（`EventKind.Readable({})` 这种写法 checker 接受），
+        // 实参没有语义，直接忽略。
     } else {
         if expr.call_expr_arg_count != 1 || expr.call_expr_args == null {
             return exec_lower_fail_expr(expr, "exec: union 变体当前仅支持单参数构造" as *byte);
@@ -3083,7 +3129,7 @@ fn exec_lower_try_union_ctor_expr(ctx: &ExecLowerContext, expr: &ASTNode, expr_t
             return null;
         }
     }
-    const hir_union: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_UNION_INIT, expr_type);
+    const hir_union: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_UNION_INIT, &ctor_type);
     if hir_union == null {
         return null;
     }
@@ -6588,6 +6634,11 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         const enum_value: i32 = exec_lower_try_enum_member_const(ctx, expr, &enum_found);
         if enum_found != 0 {
             return exec_lower_make_int_const_expr(ctx, expr, &expr_type, enum_value as i64);
+        }
+        // `Kind.Closed`：类型名 + 空载荷变体 当作联合体值构造（无实参版本）。
+        const union_member_value: &HIRExpr = exec_lower_try_union_member_value(ctx, expr, &expr_type);
+        if union_member_value != null {
+            return union_member_value;
         }
     }
     if expr.type == ASTNodeType.AST_CAST_EXPR {
