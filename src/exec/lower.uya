@@ -734,6 +734,11 @@ fn exec_type_is_vm_value_supported(type: Type) i32 {
     if type.kind == TypeKind.TYPE_ERROR {
         return 1;
     }
+    // 未替换的泛型参数（泛型声明的签名 `!T` / `&T`）按占位类型放行：
+    // 单态实例里它会被具体类型替换，泛型声明本身不会被真正调用。
+    if type.kind == TypeKind.TYPE_GENERIC_PARAM {
+        return 1;
+    }
     if type.kind == TypeKind.TYPE_ERROR_UNION && type.error_union_payload_type != null {
         return exec_type_is_vm_value_supported(type.error_union_payload_type[0]);
     }
@@ -5680,11 +5685,24 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if operand_try_early == null {
             return null;
         }
-        if operand_try_early.type_ref.type.kind != TypeKind.TYPE_ERROR_UNION ||
-            operand_try_early.type_ref.type.error_union_payload_type == null {
-            return exec_lower_fail_expr_reason(expr, "exec: try 操作数不是错误联合" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_TRY_EXPR);
+        var try_payload_type: Type = make_void_type();
+        if operand_try_early.type_ref.type.kind == TypeKind.TYPE_ERROR_UNION &&
+            operand_try_early.type_ref.type.error_union_payload_type != null {
+            try_payload_type = copy_type(&operand_try_early.type_ref.type.error_union_payload_type[0]);
+        } else if expr.try_expr_operand.type == ASTNodeType.AST_MATCH_EXPR &&
+            operand_try_early.type_ref.type.kind != TypeKind.TYPE_VOID {
+            // `try match … { .obj(o) => 解码块, else => error.WrongType }`：
+            // JSON 解码宏把「载荷 / 错误值」写成 match 的两个分支，运行时的
+            // IS_ERR/UNWRAP_OK 本来就能区分裸错误值与载荷，这里只需把 match
+            // 的类型当作载荷类型。
+            try_payload_type = copy_type(&operand_try_early.type_ref.type);
+        } else {
+            var try_msg_early: [byte: 160] = [];
+            _ = snprintf(&try_msg_early[0] as *byte, 160,
+                "exec: try 操作数不是错误联合(kind=%d ast=%d)" as *byte,
+                operand_try_early.type_ref.type.kind as i32, expr.try_expr_operand.type as i32);
+            return exec_lower_fail_expr_reason(expr, &try_msg_early[0] as &byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_TRY_EXPR);
         }
-        const try_payload_type: Type = operand_try_early.type_ref.type.error_union_payload_type[0];
         const hir_try_early: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_TRY, &try_payload_type);
         if hir_try_early == null {
             return null;
@@ -7081,7 +7099,11 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             return null;
         }
         if operand.type_ref.type.kind != TypeKind.TYPE_ERROR_UNION {
-            return exec_lower_fail_expr_reason(expr, "exec: try 操作数不是错误联合" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_TRY_EXPR);
+            var try_msg: [byte: 160] = [];
+            _ = snprintf(&try_msg[0] as *byte, 160,
+                "exec: try 操作数不是错误联合(kind=%d ast=%d)" as *byte,
+                operand.type_ref.type.kind as i32, expr.try_expr_operand.type as i32);
+            return exec_lower_fail_expr_reason(expr, &try_msg[0] as &byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_TRY_EXPR);
         }
         const hir_try: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_TRY, &expr_type);
         if hir_try == null {
