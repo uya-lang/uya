@@ -1428,6 +1428,40 @@ fn exec_lower_find_drop_decl(ctx: &ExecLowerContext, decl: &ASTNode, type: &Type
     return null;
 }
 
+/// 单态副本的声明返回类型按实例实参替换后的具体类型。
+///
+/// `Vec<EnvOverlayOp>.get` 的声明返回类型是 `!T`，调用点若无替换上下文会
+/// 得到 `!T` 这种占位类型，`try` 之后就和函数签名的 `!EnvOverlayOp` 对不上。
+///
+/// 参数：`ctx` lowering 上下文；`decl` 方法声明（单态副本）；`owner_type` 接收者类型。
+/// 返回值：替换后的返回类型；不适用或不可表示时返回 void。
+fn exec_lower_resolve_mono_method_type(ctx: &ExecLowerContext, decl: &ASTNode, owner_type: &Type) Type {
+    if ctx == null || ctx.checker == null || decl == null || owner_type == null ||
+        decl.fn_decl_return_type == null {
+        return make_void_type();
+    }
+    const idx: i32 = exec_lower_mono_struct_index_of(decl);
+    if idx < 0 || idx >= EXEC_MAX_MONO_STRUCT_DECLS {
+        return make_void_type();
+    }
+    const saved_active: i32 = ctx.checker.subst_active;
+    const saved_name: &byte = ctx.checker.subst_name;
+    const saved_type: Type = copy_type(&ctx.checker.subst_type);
+    const saved_params: &TypeParam = ctx.checker.current_type_params;
+    const saved_param_count: i32 = ctx.checker.current_type_param_count;
+    exec_lower_install_mono_struct_subst(ctx.checker, idx);
+    const resolved: Type = type_from_ast(ctx.checker, decl.fn_decl_return_type);
+    ctx.checker.subst_active = saved_active;
+    ctx.checker.subst_name = saved_name;
+    ctx.checker.subst_type = copy_type(&saved_type);
+    ctx.checker.current_type_params = saved_params;
+    ctx.checker.current_type_param_count = saved_param_count;
+    if exec_type_is_vm_value_supported(resolved) == 0 {
+        return make_void_type();
+    }
+    return resolved;
+}
+
 /// 取 `Box<i32>.wrap(...)` 这类「类型名.静态方法」调用里接收者的具体类型。
 ///
 /// 参数：`ctx` lowering 上下文；`expr` 调用表达式（callee 是成员访问）。
@@ -6915,6 +6949,11 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 if specialized_decl != null && specialized_decl != method_decl {
                     method_decl = specialized_decl;
                 }
+                var call_return_type: Type = copy_type(&expr_type);
+                const mono_return_type: Type = exec_lower_resolve_mono_method_type(ctx, method_decl, &owner_type);
+                if mono_return_type.kind != TypeKind.TYPE_VOID {
+                    call_return_type = mono_return_type;
+                }
                 const generic_method_name: &byte = exec_lower_begin_generic_method(ctx, expr, method_decl);
                 const total_arg_count: i32 = expr.call_expr_arg_count + 1;
                 if total_arg_count > EXEC_MAX_CALL_ARGS {
@@ -6952,7 +6991,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                     ctx.checker.subst_active = 0;
                     ctx.checker.subst_name = null;
                 }
-                const call_method: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CALL, &expr_type);
+                const call_method: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CALL, &call_return_type);
                 if call_method == null {
                     return null;
                 }

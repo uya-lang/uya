@@ -4580,7 +4580,17 @@ fn exec_builder_return_type_matches(actual: &Type, expected: &Type) i32 {
     if actual.kind == TypeKind.TYPE_ERROR {
         return 1;
     }
-    if expected.kind == TypeKind.TYPE_ERROR_UNION && expected.error_union_payload_type != null {
+    // 残留的泛型参数说明静态替换没走到这里（解释器值本身是动态类型），
+    // 按兼容处理，避免把可运行的程序判成硬错误。
+    if actual.kind == TypeKind.TYPE_GENERIC_PARAM || expected.kind == TypeKind.TYPE_GENERIC_PARAM {
+        return 1;
+    }
+    if expected.kind == TypeKind.TYPE_ERROR_UNION {
+        if expected.error_union_payload_type == null {
+            // 载荷类型没带上（宏/单态展开的合成签名常见）：checker 已经验过，
+            // 这里不再卡。
+            return 1;
+        }
         return exec_builder_return_type_matches(actual, expected.error_union_payload_type);
     }
     if actual.kind == TypeKind.TYPE_SLICE && expected.kind == TypeKind.TYPE_SLICE &&
