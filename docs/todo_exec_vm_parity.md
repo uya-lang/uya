@@ -37,6 +37,13 @@
   http 6 例、drop/移动 2 例、指针算术 2 例、base64 1 例、protobuf_wire 1 例等；
   其余是 async 53、inline asm 52、泛型/varargs、extern 桥等结构性缺口。
 - `make check` 已全绿：1191 个测试，通过 1191，失败 0。
+- 本轮（inline asm 占位 / 管道 desugar / 接口零值 / print 切片 / libc `%g` /
+  malloc 一族 / 原子内建 / module-qualified 调用）普查：`test --vm` 通过
+  **648 / 914（70.9%）**，比上一基线 614 多 **+34**，零回归。
+  失败原因 Top：async 55、`仅支持局部变量/参数/全局标识符` 30、
+  `无法解析成员方法调用` 23、`catch 操作数不是错误联合` 22、
+  `这个泛型调用` 11、`编译期 builtin 折叠失败` 10、`return 类型与函数返回类型不一致` 8。
+  注：上表是 `dc90dee9` 时的快照，之后的原子/module-qualified 提交还要再普查一次。
 - 新增修复：放不进 i32 的无后缀整数字面量在 `BC_LOAD_CONST` 里会被截断成负数，
   `v > 922337203685477580` 这类守卫整条反掉。std.json 的数字解析因此恒返回
   `NumberOverflow`。改成超出 i32 范围就按 i64 发射后，json 全量 26 例中 17 例通过
@@ -396,6 +403,31 @@
 
 ## 下一轮起点（上下文压缩后从这里继续）
 
+### 第 264 轮末的 Top 阻塞（按可收割性排序）
+
+1. `exec: LOAD_FIELD/STORE_FIELD 字段越界(idx=N kind=K count=0 pointee=P)`（4 例）
+   —— 运行时缺陷，不是「没支持」。样本：`lib/tls/base/mpi.uya:53` 的
+   `mpi_init(&self)` 里 `self.n = 0`，`self` 是 `&Mpi`，STORE_FIELD 拿到的指针
+   `count=0 pointee=65554`（编码是垃圾），说明某处 `&<聚合字段>` 或参数传递把
+   指针的内部引用编码写坏了。`test_ec_p256_ecdh` 已经越过 lowering，卡在这里。
+2. `exec: 无法解析成员方法调用(kind=13/16 name=poll obj=inner)`（23 例）
+   —— `kind=13` 是 void（模块名/未知名当接收者），`kind=16` 是 struct。
+   样本 `tests/test_async_nested.uya:38:43`（`inner.poll(...)`，`inner` 是
+   `&Self`/泛型字段）。多数落在 async/TLS/bigint 家族。
+3. **泛型结构体方法单态化**：`@size_of(vec_get(…))` 一类通过，但
+   `lib/std/collections/vec.uya:22` 的 `@size_of(sample[0])` 现在拿到的是
+   `struct T`（`generic_param_name=T`、`struct_name` 为空），即方法体的单态
+   替换仍是「用 `Vec<T>` 实例而不是 `Vec<i32>`」。vec/hashmap/string_buf/std_env
+   一族 12+ 用例都在这里。需要给「泛型结构体方法实例」也建 `subst_*` 上下文。
+4. `exec: 当前仅支持局部变量/参数/全局标识符(name)`（30 例）
+   —— 样本：`lib/std/net/dns.uya:1126`（`catch |err|` 里的 `err_id` 常量）、
+   module 作用域的 `&fn as &void`（`tests/test_function_reachability_address_taken.uya`）。
+5. async 55 例（T9 状态机 lowering）、`catch 操作数不是错误联合` 22 例
+   （多来自 `@await expr catch ...`，与 T9 同源）、`这个泛型调用` 11 例。
+6. `%` 收尾：`test_printf_f` 只剩 `%.17g` 的 `DBL_MAX` 末位差 1；
+   `test_typed_pipeline_lowering_error` 差 drop 计数；`test_crypto_bigint` 是超时。
+
+
 1. 先跑基线：`UYA_EXEC_CENSUS_JOBS=16 bash tests/verify_exec_vm_census.sh`，
    报告在 `/tmp/uya_exec_vm_census.tsv`（列：文件、退出码、原因码、消息）。
 2. 按消息直方图取 Top：
@@ -465,6 +497,39 @@
 3. 每完成一项：`make uya` → 相关脚本 → census → 更新本文件勾选 → 单独提交。
 4. 收口（T11）前必须 `make check` 全绿且 `make exec-parity` 全绿，再
    `worktree finish` 合并到 main 并删除工作区。
+
+### T14 本轮落地（第 264 轮）
+
+- [x] inline `@asm` 语句不再让 lowering 失败：`AST_ASM` 降成
+  `HIR_STMT_EXPR` 包一个 void 零值（解释器没有「执行汇编」这回事，但纯 asm
+  包装的函数体在 VM 里等价于空操作）。18 个 `tests/test_asm_*.uya` 全部在
+  `--vm` 下通过。
+- [x] 管道表达式 `a |> f |> g.x`：`exec_lower_desugar_pipeline` 把链上每段就地
+  改写成 `AST_CALL_EXPR`（piped 值插到第 0 个实参），段数按
+  `pipeline_expr_left` 递归数出来；最左段推断成错误联合时套一层合成
+  `AST_TRY_EXPR` 做 try 透传（`test_typed_pipeline_try_forward_lowering` 的
+  `43690` 就是这个语义）。13 个 `test_typed_pipeline_*` 里 9 个转为通过。
+- [x] `mod.f(args)` module-qualified 自由函数调用：callee 就地改写成标识符，
+  复用直接调用路径（`test_typed_pipeline_module_qualified_positive`）。
+- [x] 接口类型的零值：`exec_builder_compile_zero_value` 加 `TYPE_INTERFACE` 分支，
+  按方法表长度 + 1 建零槽结构体。
+- [x] `print` 内建返回「写了多少字节」：`BC_PRINT`/`BC_PRINTLN` 的 `b` 是值、
+  `a` 是字节数；`ExecValueKind.EXEC_VALUE_SLICE` 的 byte/i8/u8 元素切片走
+  `exec_vm_print_byte_slice` 按字节打印（`test_println_bytes_ptr_slice` 10/10）。
+- [x] `@size_of`/`@alignof` 支持泛型参数与单态替换后的表达式目标
+  （`@size_of(sample[0])` 这类元素类型是 `T` 的写法）。
+- [x] `malloc`/`calloc`/`realloc`/`free` 四个 `extern "libc"` 声明走宿主调用，
+  `test_mem_allocator` 在 `--vm` 下通过。
+- [x] 原子内建 `__atomic_load_n`/`store_n`/`exchange_n`/`add_fetch`/`__atomic_fetch_*`/
+  `__sync_fetch_and_*`/栅栏：`add_fetch` 返新值、`fetch_*` 返旧值。
+- [x] POSIX/合成符号占位：`pthread_sigmask`（单线程，oldset 清零）、`isatty`（返 0，
+  解释器输出按管道看待）、`uya_interface_get_vtable`（返装箱接口方法表首地址）、
+  `uya_pipeline_image_anchor`（返固定锚点 4096）、
+  `uya_pipeline_worker_main_if_requested`（返 0）。
+- [x] `lib/libc/stdio.uya` 的 `_fmt_f64_to_buf`：`%g`/`%G` 去尾零（`#` 时保留）、
+  `%g` 先按有效位数预舍入、定点分支用整数缩放取小数位。VM 下 `3.50000`→`3.5`、
+  `3.14158`→`3.14159`。**已知残留**：`%.17g` 打 `DBL_MAX` 末位与 glibc 差 1
+  （VM 走同一份 Uya `snprintf`，`test_printf_f` 的 `snprintf_g_dbl_max` 仍未过）。
 
 ### T11 收口
 
