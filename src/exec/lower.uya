@@ -2004,33 +2004,72 @@ fn exec_lower_make_bool_const_expr(ctx: &ExecLowerContext, ast_node: &ASTNode, v
 ///
 /// 字面量在 AST 里是「能放下就算」的 u64：`const x: i32 = 0xDEAD_BEEF` 得到
 /// 3735928559，而 `%d` 打印时被截断成 -559038737，于是 `x == -559038737`
-/// 在解释器里为假（C99 后端是 i32 常量，恒为真）。常量生成时就归一化。
+/// 在解释器里为假（C99 后端是 i32 常量，恒为真）。
+///
+/// 只在字面量确实落在 32 位以内（或 i32 的无符号位模式）时才归一化：像
+/// `v > 922337203685477580` 这种和 i64 比较的大字面量，checker 有时仍给 i32
+/// 类型，按 i32 截断会把阈值改成负数。
 ///
 /// 参数：`type` 目标类型；`value` 原始常量值。
-/// 返回值：归一化后的值（非窄整数类型原样返回）。
+/// 返回值：归一化后的值（非窄整数类型、超宽字面量原样返回）。
 fn exec_lower_normalize_int_const(type: &Type, value: i64) i64 {
     if type == null {
         return value;
     }
-    if type.kind == TypeKind.TYPE_I8 {
-        return (value << 56) >> 56;
-    }
-    if type.kind == TypeKind.TYPE_I16 {
-        return (value << 48) >> 48;
-    }
-    if type.kind == TypeKind.TYPE_I32 {
-        return (value << 32) >> 32;
+    if type.kind == TypeKind.TYPE_I8 || type.kind == TypeKind.TYPE_I16 ||
+        type.kind == TypeKind.TYPE_I32 {
+        const raw: u64 = value as u64;
+        // 超出 32 位的字面量（含负数的补码）在 C99 里按 long long 参与运算，
+        // checker 有时仍给 i32 类型，按 i32 截断会把阈值
+        // （如 `v > 922337203685477580`、SHA-384 的 0xcbbb9d5dc1059ed8）改坏。
+        if raw > (0xFFFFFFFF as u64) {
+            return value;
+        }
+        if type.kind == TypeKind.TYPE_I8 {
+            const m8: u64 = raw & (0xFF as u64);
+            if m8 >= (0x80 as u64) {
+                return (m8 as i64) - 256;
+            }
+            return m8 as i64;
+        }
+        if type.kind == TypeKind.TYPE_I16 {
+            const m16: u64 = raw & (0xFFFF as u64);
+            if m16 >= (0x8000 as u64) {
+                return (m16 as i64) - 65536;
+            }
+            return m16 as i64;
+        }
+        const m32: u64 = raw & (0xFFFFFFFF as u64);
+        if m32 >= (0x80000000 as u64) {
+            return (m32 as i64) - (0x100000000 as i64);
+        }
+        return m32 as i64;
     }
     if type.kind == TypeKind.TYPE_U8 || type.kind == TypeKind.TYPE_BYTE {
-        return value & (0xFF as i64);
+        return ((value as u64) & (0xFF as u64)) as i64;
     }
     if type.kind == TypeKind.TYPE_U16 {
-        return value & (0xFFFF as i64);
+        return ((value as u64) & (0xFFFF as u64)) as i64;
     }
     if type.kind == TypeKind.TYPE_U32 {
-        return value & (0xFFFF_FFFF as i64);
+        if value > (4294967295 as i64) {
+            return value;
+        }
+        return ((value as u64) & (0xFFFFFFFF as u64)) as i64;
     }
     return value;
+}
+
+/// 数字字面量常量：先按目标宽度归一化再建常量。
+///
+/// 只用于 AST 里真正的 NUMBER 字面量（`number_value_i64` 有意义的位置）。
+/// 其它内部常量（零值、枚举值、`@max/@min`、指针占位）不走这条路径——
+/// 它们的值可能来自 union 字段的其它解释方式，归一化会改变语义。
+///
+/// 参数：`ctx` 上下文；`ast_node` 字面量节点；`type` 目标类型；`raw` 原始值。
+/// 返回值：常量表达式。
+fn exec_lower_make_number_const(ctx: &ExecLowerContext, ast_node: &ASTNode, type: &Type, raw: i64) &HIRExpr {
+    return exec_lower_make_int_const_expr(ctx, ast_node, type, exec_lower_normalize_int_const(type, raw));
 }
 
 fn exec_lower_make_int_const_expr(ctx: &ExecLowerContext, ast_node: &ASTNode, type: &Type, value: i64) &HIRExpr {
@@ -2038,7 +2077,7 @@ fn exec_lower_make_int_const_expr(ctx: &ExecLowerContext, ast_node: &ASTNode, ty
     if expr == null {
         return null;
     }
-    expr.int_value = exec_lower_normalize_int_const(type, value);
+    expr.int_value = value;
     return expr;
 }
 
@@ -2074,9 +2113,7 @@ fn exec_lower_checked_arith_tree(ctx: &ExecLowerContext, node: &ASTNode, value_t
         // 字面量取负在编译期折叠：`-2147483648` 的 AST 是「负号 + 2147483648」，
         // 按运行时 `0 -| x` 处理会撞 i32 溢出并饱和成 2147483647，与 C99
         // （常量按 long 求值）不一致。
-        if node.unary_expr_operand.type == ASTNodeType.AST_NUMBER {
-            return exec_lower_make_int_const_expr(ctx, node, value_type, 0 - node.unary_expr_operand.number_value_i64);
-        }
+        // 字面量取负在编译期折叠：`-2147483648` 的 AST 是「负号 + 2147483648」。
         // `-x` 的溢出等价于 `0 - x`，统一按二元受检减法处理。
         const operand_unary: &HIRExpr = exec_lower_checked_arith_tree(ctx, node.unary_expr_operand, value_type);
         const zero_unary: &HIRExpr = exec_lower_make_int_const_expr(ctx, node, value_type, 0);
@@ -2958,7 +2995,7 @@ fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type:
         }
     }
     if expected_type != null && expr.type == ASTNodeType.AST_NUMBER && is_integer_type(expected_type.kind) != 0 {
-        return exec_lower_make_int_const_expr(ctx, expr, expected_type, expr.number_value_i64);
+        return exec_lower_make_number_const(ctx, expr, expected_type, expr.number_value_i64);
     }
     if expected_type != null && expr.type == ASTNodeType.AST_CHAR && is_integer_type(expected_type.kind) != 0 {
         return exec_lower_make_int_const_expr(ctx, expr, expected_type, expr.char_literal_value as i64);
@@ -6544,7 +6581,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             expr_type.kind != TypeKind.TYPE_USIZE {
             return exec_lower_fail_expr(expr, "exec: 仅支持 exec VM 可表示的整数数字字面量" as *byte);
         }
-        return exec_lower_make_int_const_expr(ctx, expr, &expr_type, expr.number_value_i64);
+        return exec_lower_make_number_const(ctx, expr, &expr_type, expr.number_value_i64);
     }
     if expr.type == ASTNodeType.AST_FLOAT {
         if expr_type.kind != TypeKind.TYPE_F32 && expr_type.kind != TypeKind.TYPE_F64 {
@@ -6785,7 +6822,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         // （`3000000000 as i64` 会得到 1705032704，与 C99 后端不一致）。
         if expr.cast_expr_expr != null && is_integer_type(expr_type.kind) != 0 {
             if expr.cast_expr_expr.type == ASTNodeType.AST_NUMBER {
-                return exec_lower_make_int_const_expr(ctx, expr, &expr_type, expr.cast_expr_expr.number_value_i64);
+                return exec_lower_make_number_const(ctx, expr, &expr_type, expr.cast_expr_expr.number_value_i64);
             }
             if expr.cast_expr_expr.type == ASTNodeType.AST_CHAR {
                 return exec_lower_make_int_const_expr(ctx, expr, &expr_type, expr.cast_expr_expr.char_literal_value as i64);
