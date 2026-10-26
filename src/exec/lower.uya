@@ -861,7 +861,23 @@ fn exec_lower_expr_type(ctx: &ExecLowerContext, expr: &ASTNode) Type {
             local_i = local_i + 1;
         }
     }
-    const inferred: Type = exec_lower_checker_infer_type_quiet(ctx, expr);
+    var inferred: Type = exec_lower_checker_infer_type_quiet(ctx, expr);
+    if inferred.kind == TypeKind.TYPE_VOID && expr.type == ASTNodeType.AST_MEMBER_ACCESS &&
+        expr.member_access_object != null && expr.member_access_field_name != null {
+        // `(x as! T).value` / `.error_id`：`as!` 的结果是错误联合，但静默推断里
+        // 这种成员访问会退回 void，这里按基类型补一次。
+        var fix_parent: Type = exec_lower_expr_type(ctx, expr.member_access_object);
+        if fix_parent.kind == TypeKind.TYPE_POINTER && fix_parent.pointer_to != null {
+            fix_parent = fix_parent.pointer_to[0];
+        }
+        if fix_parent.kind == TypeKind.TYPE_ERROR_UNION && fix_parent.error_union_payload_type != null {
+            if str_equals(expr.member_access_field_name, "value" as *byte) != 0 {
+                inferred = fix_parent.error_union_payload_type[0];
+            } else if str_equals(expr.member_access_field_name, "error_id" as *byte) != 0 {
+                inferred = make_u32_type();
+            }
+        }
+    }
     while ctx.checker.scope_level > saved_scope_level {
         checker_exit_scope(ctx.checker);
     }
