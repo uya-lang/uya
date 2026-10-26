@@ -7365,6 +7365,21 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
                 return null;
             }
             stmt = nested_stmt;
+        } else if stmt_node.type == ASTNodeType.AST_ASM {
+            // 内联汇编在解释执行下按无副作用语句处理：不执行机器码，
+            // 输出操作数保持原值。汇编体由 C99 后端负责真正生成。
+            const asm_void: Type = make_void_type();
+            const asm_expr: &HIRExpr = exec_lower_make_zero_expr(ctx, stmt_node, &asm_void);
+            if asm_expr == null {
+                exec_lower_pop_scope(ctx);
+                return null;
+            }
+            stmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_EXPR);
+            if stmt == null {
+                exec_lower_pop_scope(ctx);
+                return null;
+            }
+            stmt.expr = asm_expr;
         } else if stmt_node.type == ASTNodeType.AST_MATCH_EXPR {
             stmt = exec_lower_try_make_returning_match_stmt(ctx, stmt_node);
             if stmt == null {
