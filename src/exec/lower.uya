@@ -3361,19 +3361,32 @@ fn exec_lower_generic_instances(arena: &CompilerArena, checker: &TypeChecker, fn
 }
 
 fn exec_lower_begin_generic_method(ctx: &ExecLowerContext, expr: &ASTNode, method_decl: &ASTNode) &byte {
-    if ctx == null || expr == null || method_decl == null ||
-        expr.call_expr_type_arg_count <= 0 || method_decl.fn_decl_type_param_count <= 0 ||
-        expr.call_expr_type_args == null {
+    if ctx == null || expr == null || method_decl == null || method_decl.fn_decl_type_param_count <= 0 {
         return null;
     }
-    const arg_count: i32 = expr.call_expr_type_arg_count;
+    // 类型实参可能挂在调用上（`f<i32>(...)`），也可能挂在接收者类型上
+    // （`Box<i32>.wrap(42)`）：后者是泛型类型的关联函数/静态方法调用。
+    var type_args: & & ASTNode = expr.call_expr_type_args;
+    var arg_count: i32 = expr.call_expr_type_arg_count;
+    if arg_count <= 0 && expr.call_expr_callee != null &&
+        expr.call_expr_callee.type == ASTNodeType.AST_MEMBER_ACCESS &&
+        expr.call_expr_callee.member_access_object != null {
+        const recv_ast: &ASTNode = expr.call_expr_callee.member_access_object;
+        if recv_ast.type == ASTNodeType.AST_TYPE_NAMED && recv_ast.type_named_type_arg_count > 0 {
+            type_args = recv_ast.type_named_type_args;
+            arg_count = recv_ast.type_named_type_arg_count;
+        }
+    }
+    if arg_count <= 0 || type_args == null {
+        return null;
+    }
     const arg_types: &Type = compiler_arena_alloc(ctx.arena, @size_of(Type) * arg_count as usize) as &Type;
     if arg_types == null {
         return null;
     }
     var ai: i32 = 0;
     while ai < arg_count {
-        arg_types[ai] = type_from_ast(ctx.checker, expr.call_expr_type_args[ai]);
+        arg_types[ai] = type_from_ast(ctx.checker, type_args[ai]);
         ai = ai + 1;
     }
     const inst_idx: i32 = exec_lower_find_mono_instance_index(ctx.checker, method_decl.fn_decl_name, arg_types, arg_count);
@@ -5786,8 +5799,12 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             // 静态方法调用 `TypeName.method(...)`：接收者是类型名而不是值，
             // 上面的类型推断会得到 void，这里按类型名找关联的静态方法当普通函数调用。
             if owner_type.kind == TypeKind.TYPE_VOID &&
-                object_ast.type == ASTNodeType.AST_IDENTIFIER && object_ast.identifier_name != null {
+                ((object_ast.type == ASTNodeType.AST_IDENTIFIER && object_ast.identifier_name != null) ||
+                 (object_ast.type == ASTNodeType.AST_TYPE_NAMED && object_ast.type_named_name != null)) {
                 var owner_name: &byte = object_ast.identifier_name;
+                if object_ast.type == ASTNodeType.AST_TYPE_NAMED {
+                    owner_name = object_ast.type_named_name;
+                }
                 const alias_decl: &ASTNode = find_type_alias_from_program(ctx.checker.program_node, owner_name);
                 if alias_decl != null && alias_decl.type_alias_target_type != null &&
                     alias_decl.type_alias_target_type.type == ASTNodeType.AST_TYPE_NAMED &&
