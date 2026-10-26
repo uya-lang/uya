@@ -3015,6 +3015,28 @@ fn exec_lower_union_variant_type(ctx: &ExecLowerContext, union_type: Type, varia
         if variant_decl != null && variant_decl.type == ASTNodeType.AST_VAR_DECL &&
             variant_decl.var_decl_name != null && str_equals(variant_decl.var_decl_name, variant_name) != 0 &&
             variant_decl.var_decl_type != null {
+            // `Option<Event>` 的 `.Some(evt)` 载荷声明是 `T`：按联合体实例的
+            // 类型实参替换后再解析，否则绑定变量拿到的是泛型占位类型。
+            if union_type.union_type_args != null && union_type.union_type_arg_count > 0 &&
+                union_decl.union_decl_type_params != null && union_decl.union_decl_type_param_count > 0 {
+                const saved_active: i32 = ctx.checker.subst_active;
+                const saved_name: &byte = ctx.checker.subst_name;
+                const saved_type: Type = copy_type(&ctx.checker.subst_type);
+                const saved_params: &TypeParam = ctx.checker.current_type_params;
+                const saved_param_count: i32 = ctx.checker.current_type_param_count;
+                ctx.checker.current_type_params = union_decl.union_decl_type_params;
+                ctx.checker.current_type_param_count = union_decl.union_decl_type_param_count;
+                ctx.checker.subst_active = 1;
+                ctx.checker.subst_name = union_decl.union_decl_type_params[0].name;
+                ctx.checker.subst_type = copy_type(&union_type.union_type_args[0]);
+                const resolved_payload: Type = type_from_ast(ctx.checker, variant_decl.var_decl_type);
+                ctx.checker.subst_active = saved_active;
+                ctx.checker.subst_name = saved_name;
+                ctx.checker.subst_type = copy_type(&saved_type);
+                ctx.checker.current_type_params = saved_params;
+                ctx.checker.current_type_param_count = saved_param_count;
+                return resolved_payload;
+            }
             return type_from_ast(ctx.checker, variant_decl.var_decl_type);
         }
         i = i + 1;
