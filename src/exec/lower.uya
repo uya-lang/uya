@@ -3270,6 +3270,32 @@ fn exec_lower_generic_instances(arena: &CompilerArena, checker: &TypeChecker, fn
     return 0;
 }
 
+fn exec_lower_begin_generic_method(ctx: &ExecLowerContext, expr: &ASTNode, method_decl: &ASTNode) &byte {
+    if ctx == null || expr == null || method_decl == null ||
+        expr.call_expr_type_arg_count <= 0 || method_decl.fn_decl_type_param_count <= 0 ||
+        expr.call_expr_type_args == null {
+        return null;
+    }
+    const arg_count: i32 = expr.call_expr_type_arg_count;
+    const arg_types: &Type = compiler_arena_alloc(ctx.arena, @size_of(Type) * arg_count as usize) as &Type;
+    if arg_types == null {
+        return null;
+    }
+    var ai: i32 = 0;
+    while ai < arg_count {
+        arg_types[ai] = type_from_ast(ctx.checker, expr.call_expr_type_args[ai]);
+        ai = ai + 1;
+    }
+    const inst_idx: i32 = exec_lower_find_mono_instance_index(ctx.checker, method_decl.fn_decl_name, arg_types, arg_count);
+    if inst_idx < 0 {
+        return null;
+    }
+    ctx.checker.subst_active = 1;
+    ctx.checker.subst_name = exec_lower_first_type_param_name(method_decl);
+    ctx.checker.subst_type = copy_type(&arg_types[0]);
+    return exec_lower_mono_function_name(ctx.arena, method_decl.fn_decl_name, inst_idx);
+}
+
 fn exec_lower_generic_call_expr(ctx: &ExecLowerContext, expr: &ASTNode, result_type: &Type) &HIRExpr {
     if ctx == null || expr == null || result_type == null {
         return null;
@@ -5615,7 +5641,8 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if expr.call_expr_has_ellipsis_forward != 0 {
             return exec_lower_fail_expr(expr, "exec: 当前不支持 varargs 转发" as *byte);
         }
-        if expr.call_expr_type_arg_count > 0 {
+        if expr.call_expr_type_arg_count > 0 &&
+            expr.call_expr_callee != null && expr.call_expr_callee.type == ASTNodeType.AST_IDENTIFIER {
             const generic_call: &HIRExpr = exec_lower_generic_call_expr(ctx, expr, &expr_type);
             if generic_call != null {
                 return generic_call;
@@ -5663,6 +5690,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                     }
                 }
                 if static_decl != null {
+                    const generic_static_name: &byte = exec_lower_begin_generic_method(ctx, expr, static_decl);
                     const static_args: & & HIRExpr = null;
                     var static_args_mut: & & HIRExpr = static_args;
                     if expr.call_expr_arg_count > 0 {
@@ -5694,7 +5722,14 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                     if static_call == null {
                         return null;
                     }
+                    if generic_static_name != null {
+                        ctx.checker.subst_active = 0;
+                        ctx.checker.subst_name = null;
+                    }
                     static_call.callee_name = static_decl.fn_decl_name;
+                    if generic_static_name != null {
+                        static_call.callee_name = generic_static_name;
+                    }
                     static_call.callee_decl = static_decl;
                     static_call.call_host_id = ExecHostCallId.EXEC_HOST_CALL_NONE;
                     static_call.call_args = static_args_mut;
@@ -5763,6 +5798,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 method_decl = find_instance_method_in_union(ctx.checker.program_node, owner_type.union_name, method_name);
             }
             if method_decl != null {
+                const generic_method_name: &byte = exec_lower_begin_generic_method(ctx, expr, method_decl);
                 const total_arg_count: i32 = expr.call_expr_arg_count + 1;
                 if total_arg_count > EXEC_MAX_CALL_ARGS {
                     return exec_lower_fail_expr(expr, "exec: 方法调用参数过多" as *byte);
@@ -5795,11 +5831,18 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                     args_method[ma + 1] = lowered_arg_method;
                     ma = ma + 1;
                 }
+                if generic_method_name != null {
+                    ctx.checker.subst_active = 0;
+                    ctx.checker.subst_name = null;
+                }
                 const call_method: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CALL, &expr_type);
                 if call_method == null {
                     return null;
                 }
                 call_method.callee_name = method_decl.fn_decl_name;
+                if generic_method_name != null {
+                    call_method.callee_name = generic_method_name;
+                }
                 call_method.callee_decl = method_decl;
                 call_method.call_host_id = ExecHostCallId.EXEC_HOST_CALL_NONE;
                 call_method.call_args = args_method;
