@@ -2170,6 +2170,12 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
         exec_backend_set_error(function.decl, "exec: syscall 参数数量非法" as *byte, 0);
         return -1;
     }
+    // 解释器只有一个执行流：clone/fork 出来的第二个流会持有另一套解释器状态，
+    // 语义无法保证（实际表现是父进程等待子线程而挂死）。直接报错更容易定位。
+    if nr_value == 56 || nr_value == 57 || nr_value == 58 || nr_value == 435 {
+        exec_backend_set_error(function.decl, "exec: 解释器不支持创建线程/进程(clone/fork)" as *byte, 0);
+        return -1;
+    }
     out_value[0] = exec_vm_dispatch_host_syscall(target_kind, target_pointee_kind, nr_value, &args[0], arg_count);
     if out_target != null && out_buffer != null {
         exec_vm_syscall_out_struct_apply(out_target, out_buffer, out_target.i64_value as i32);
