@@ -1428,6 +1428,40 @@ fn exec_lower_find_drop_decl(ctx: &ExecLowerContext, decl: &ASTNode, type: &Type
     return null;
 }
 
+/// 取 `Box<i32>.wrap(...)` 这类「类型名.静态方法」调用里接收者的具体类型。
+///
+/// 参数：`ctx` lowering 上下文；`expr` 调用表达式（callee 是成员访问）。
+/// 返回值：接收者类型（`Box<i32>`）；解析不出来返回 void 类型。
+fn exec_lower_static_receiver_type(ctx: &ExecLowerContext, expr: &ASTNode) Type {
+    var result: Type = make_void_type();
+    if ctx == null || expr == null || expr.call_expr_callee == null ||
+        expr.call_expr_callee.type != ASTNodeType.AST_MEMBER_ACCESS ||
+        expr.call_expr_callee.member_access_object == null {
+        return result;
+    }
+    const recv: &ASTNode = expr.call_expr_callee.member_access_object;
+    if recv.type != ASTNodeType.AST_TYPE_NAMED || recv.type_named_name == null {
+        return result;
+    }
+    var result2: Type = type_from_ast(ctx.checker, recv);
+    // parser 在某些上下文（如 `try f(Box<i32>.get(v), 21)`）里不会把 `<i32>`
+    // 记到接收者节点上；此时用第一个实参的类型（UFCS 的接收者）补出类型实参。
+    if result2.struct_type_arg_count <= 0 && expr.call_expr_arg_count > 0 &&
+        expr.call_expr_args != null && expr.call_expr_args[0] != null {
+        var arg_type: Type = exec_lower_expr_type(ctx, expr.call_expr_args[0]);
+        if arg_type.kind == TypeKind.TYPE_POINTER && arg_type.pointer_to != null {
+            arg_type = arg_type.pointer_to[0];
+        }
+        if arg_type.kind == TypeKind.TYPE_STRUCT && arg_type.struct_name != null &&
+            recv.type_named_name != null &&
+            str_equals(arg_type.struct_name, recv.type_named_name) != 0 &&
+            arg_type.struct_type_arg_count > 0 {
+            result2 = arg_type;
+        }
+    }
+    return result2;
+}
+
 /// 如果类型是带类型实参的泛型结构体，把方法声明换成对应实例的单态副本。
 ///
 /// 参数：`ctx` lowering 上下文；`method_decl` 原方法声明；`owner_name` 结构体/联合体名；
@@ -2605,10 +2639,12 @@ fn exec_lower_collect_interface_dispatch_decls(ctx: &ExecLowerContext, interface
         if sig == null || sig.fn_decl_name == null {
             return -1;
         }
-        const impl_decl: &ASTNode = find_instance_method_in_struct(ctx.checker.program_node, struct_name, sig.fn_decl_name);
+        var impl_decl: &ASTNode = find_instance_method_in_struct(ctx.checker.program_node, struct_name, sig.fn_decl_name);
         if impl_decl == null {
             return -1;
         }
+        // 具体类型是泛型结构体实例时，方法表里放的必须是该实例的单态副本。
+        impl_decl = exec_lower_specialize_struct_method(ctx, impl_decl, struct_name, concrete_type);
         out_decls[i] = impl_decl;
         i = i +| 1;
     }
@@ -6726,6 +6762,8 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             const object_ast: &ASTNode = expr.call_expr_callee.member_access_object;
             const method_name: &byte = expr.call_expr_callee.member_access_field_name;
             const owner_type: Type = exec_lower_member_base_type(ctx, object_ast);
+            if method_name != null && str_equals(method_name, "get" as &byte) != 0 {
+            }
             // 静态方法调用 `TypeName.method(...)`：接收者是类型名而不是值，
             // 上面的类型推断会得到 void，这里按类型名找关联的静态方法当普通函数调用。
             if owner_type.kind == TypeKind.TYPE_VOID &&
@@ -6756,6 +6794,12 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                     }
                 }
                 if static_decl != null {
+                    const static_owner_type: Type = exec_lower_static_receiver_type(ctx, expr);
+                    const static_specialized: &ASTNode = exec_lower_specialize_struct_method(
+                        ctx, static_decl, static_owner_type.struct_name, &static_owner_type);
+                    if static_specialized != null && static_specialized != static_decl {
+                        static_decl = static_specialized;
+                    }
                     const generic_static_name: &byte = exec_lower_begin_generic_method(ctx, expr, static_decl);
                     const static_args: & & HIRExpr = null;
                     var static_args_mut: & & HIRExpr = static_args;
