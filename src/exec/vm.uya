@@ -78,8 +78,77 @@ fn exec_vm_slot_ref(frame: &ExecFrame, idx: i32) &ExecValue {
     return null;
 }
 
+/// 判断某个值是否「自己拥有」它的聚合内存（可以原地复用）。
+///
+/// `error_id` 对聚合/原始数组没有其它含义：0 表示这块内存是当前槽位独占的
+/// （`exec_value_clone` / 构造时新建），非 0 表示它是从别的槽位浅拷贝借来的
+/// （`exec_vm_store_slot_shallow`），不能原地写，否则会改到别人。
+fn exec_vm_value_owns_buffer(value: &ExecValue) i32 {
+    if value == null {
+        return 0;
+    }
+    if value.kind != ExecValueKind.EXEC_VALUE_ARRAY &&
+        value.kind != ExecValueKind.EXEC_VALUE_STRUCT &&
+        value.kind != ExecValueKind.EXEC_VALUE_TUPLE {
+        return 0;
+    }
+    return (value.error_id == 0) as i32;
+}
+
+/// 尝试把 `src` 逐元素写进 `dst` 已有的聚合缓冲区（不重新分配）。
+///
+/// 参数：`dst` 目标槽位值；`src` 源值。
+/// 返回值：1 表示已就地完成（值语义与深拷贝一致）；0 表示需要走深拷贝。
+fn exec_vm_store_aggregate_in_place(dst: &ExecValue, src: &ExecValue) i32 {
+    if dst == null || src == null || exec_vm_value_owns_buffer(dst) == 0 {
+        return 0;
+    }
+    if dst.kind != src.kind {
+        return 0;
+    }
+    if exec_value_is_raw_array(src) != 0 {
+        if exec_value_is_raw_array(dst) == 0 || dst.i64_value != src.i64_value {
+            return 0;
+        }
+        if dst.aux_i64_value != src.aux_i64_value || dst.ptr_value == src.ptr_value {
+            return 0;
+        }
+        if dst.ptr_value == null || src.ptr_value == null {
+            return 0;
+        }
+        const elem_size: usize = exec_vm_type_kind_size(src.aux_i64_value as i32);
+        if elem_size == 0 as usize {
+            return 0;
+        }
+        _ = memcpy(dst.ptr_value as *void, src.ptr_value as *const void,
+            elem_size * (src.i64_value as usize));
+        return 1;
+    }
+    const dst_agg: &ExecAggregate = exec_value_as_aggregate(dst);
+    const src_agg: &ExecAggregate = exec_value_as_aggregate(src);
+    if dst_agg == null || src_agg == null || dst_agg.count != src_agg.count {
+        return 0;
+    }
+    if dst_agg.values == src_agg.values {
+        return 1;
+    }
+    var i: i32 = 0;
+    while i < dst_agg.count {
+        exec_vm_store_slot(&dst_agg.values[i], src_agg.values[i]);
+        i = i + 1;
+    }
+    dst.i64_value = src.i64_value;
+    return 1;
+}
+
 fn exec_vm_store_slot(slot: &ExecValue, value: ExecValue) void {
     if slot == null {
+        return;
+    }
+    // 目标槽位已经持有同形聚合时逐元素覆盖：循环里反复赋值 `[u64: N]` / 结构体
+    // 时不再每次都向 arena 申请整块内存（curve25519 这类纯计算用例原本会按
+    // 每秒几十 MB 一路上涨）。
+    if exec_vm_store_aggregate_in_place(&slot[0], &value) != 0 {
         return;
     }
     slot[0] = exec_value_clone(&value);
@@ -97,6 +166,13 @@ fn exec_vm_store_slot_shallow(slot: &ExecValue, value: ExecValue) void {
         return;
     }
     slot[0] = value;
+    // 标记为「借来的」聚合内存：后续若要往这个槽位写，必须另做深拷贝，
+    // 不能原地覆盖（那块内存还属于别人）。
+    if slot[0].kind == ExecValueKind.EXEC_VALUE_ARRAY ||
+        slot[0].kind == ExecValueKind.EXEC_VALUE_STRUCT ||
+        slot[0].kind == ExecValueKind.EXEC_VALUE_TUPLE {
+        slot[0].error_id = 1;
+    }
 }
 
 fn exec_vm_global_ref(program: &BCProgram, idx: i32) &ExecValue {
@@ -3710,7 +3786,9 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, &fld_msg[0] as &byte, 0);
             return -1;
         }
-        exec_vm_store_slot(slot_a, field_ref[0]);
+        // 读字段只用于后续表达式求值：浅拷贝，避免每次 `s.v[i]` 都把整个字段
+        // 数组深拷贝一遍（curve25519 的 `Gf.v` 一秒能读上万次，直接吃光内存）。
+        exec_vm_store_slot_shallow(slot_a, field_ref[0]);
     } else if instr.opcode == BCOpcode.BC_STORE_FIELD {
         if slot_a == null || slot_b == null {
             exec_backend_set_error(function.decl, "exec: STORE_FIELD 槽位越界" as *byte, 0);
@@ -3802,7 +3880,8 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 exec_backend_set_error(function.decl, "exec: LOAD_INDEX 越界" as *byte, 0);
                 return -1;
             }
-            exec_vm_store_slot(slot_a, exec_value_get_index(slot_b, index_value));
+            // 同上：下标读是纯读，浅拷贝即可。
+            exec_vm_store_slot_shallow(slot_a, exec_value_get_index(slot_b, index_value));
         }
     } else if instr.opcode == BCOpcode.BC_STORE_INDEX {
         if slot_a == null || slot_b == null || slot_c == null {
@@ -4503,6 +4582,7 @@ fn exec_vm_run_frame(program: &BCProgram, function: &BCFunction, args: &ExecValu
         }
         frame.vararg_count = vi;
     }
+
     while frame.ip < function.instr_count {
         const step_result: i32 = vm_step(program, &frame, trace_vm, out_value);
         if step_result < 0 {
