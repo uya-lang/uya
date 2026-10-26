@@ -2990,6 +2990,14 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             }
             slot_a[0] = raw_slice_ptr_value;
             handled_raw_addr = 1;
+        } else if slot_b.kind == ExecValueKind.EXEC_VALUE_STRING {
+            // `&"abc"[i]` / `&GREETING[i]`：字符串常量的数据指针在 i64_value 里。
+            const str_base: usize = slot_b.i64_value as usize;
+            const str_index: i64 = slot_c.i64_value;
+            if str_base != 0 && str_index >= 0 {
+                slot_a[0] = exec_make_pointer_with_kind(str_base +| (str_index as usize), TypeKind.TYPE_BYTE as i32);
+                handled_raw_addr = 1;
+            }
         } else if exec_vm_pointer_is_internal_ref(slot_b) != 0 {
             const base_target: &ExecValue = exec_vm_ref_target_value(slot_b);
             if exec_value_is_raw_array(base_target) != 0 {
