@@ -131,16 +131,23 @@ fn exec_builder_find_function_index(module: &HIRModule, callee_decl: &ASTNode, c
     if module == null {
         return -1;
     }
+    // 先按声明指针精确匹配，再退回按名字匹配：不同结构体的同名方法（`A.drop` /
+    // `B.drop`）名字完全相同，混在一趟里先撞名字会把调用全指向同一个实现
+    // （drop 顺序、drop 次数一类的用例静默跑错）。
     var i: i32 = 0;
     while i < module.function_count {
         const fn_hir: &HIRFunction = module.functions[i];
-        if fn_hir != null {
-            if callee_decl != null && fn_hir.decl == callee_decl {
-                return i;
-            }
-            if callee_name != null && fn_hir.name != null && str_equals(fn_hir.name, callee_name) != 0 {
-                return i;
-            }
+        if fn_hir != null && callee_decl != null && fn_hir.decl == callee_decl {
+            return i;
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while i < module.function_count {
+        const fn_hir: &HIRFunction = module.functions[i];
+        if fn_hir != null && callee_name != null && fn_hir.name != null &&
+            str_equals(fn_hir.name, callee_name) != 0 {
+            return i;
         }
         i = i + 1;
     }
