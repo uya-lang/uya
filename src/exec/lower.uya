@@ -7198,9 +7198,22 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             }
             if host_call_id == ExecHostCallId.EXEC_HOST_CALL_NONE &&
                 extern_can_run == 0 {
-                // 解释器里没有这条宿主实现的语义等价物（`sigaction`/`tcgetpgrp`
-                // 一类环境调用）：按「无副作用 + 返回零值」的桩处理。硬失败会让
-                // 整程序编译不过，而这些调用在解释器里本来也无法真做。
+                // varargs 且没有 body、也不在宿主桥登记表里：语义无法等价，
+                // 必须稳定拒绝（`tests/verify_exec_vm_extern_bridge.sh` 盯着
+                // 「原因码 extern_abi + 当前不支持 extern ABI」这条消息）。
+                if callee_decl.fn_decl_is_varargs != 0 {
+                    var extern_varargs_msg: [byte: 160] = [];
+                    if callee_decl.fn_decl_name != null {
+                        _ = snprintf(&extern_varargs_msg[0] as *byte, 160,
+                            "exec: 当前不支持 extern ABI: %s/%d" as *byte,
+                            callee_decl.fn_decl_name as *byte, callee_decl.fn_decl_param_count);
+                        return exec_lower_fail_expr_reason(expr, &extern_varargs_msg[0], ExecUnsupportedReason.EXEC_UNSUPPORTED_EXTERN_ABI);
+                    }
+                    return exec_lower_fail_expr_reason(expr, "exec: 当前不支持 extern ABI" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_EXTERN_ABI);
+                }
+                // 固定参数的环境调用（`sigaction`/`tcgetpgrp` 一类）：按
+                // 「无副作用 + 返回零值」的桩处理。硬失败会让整程序编译不过，
+                // 而这些调用在解释器里本来也无法真做。
                 return exec_lower_make_zero_expr(ctx, expr, &expr_type);
             }
         }
