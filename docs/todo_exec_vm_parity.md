@@ -40,10 +40,21 @@
 - 本轮（inline asm 占位 / 管道 desugar / 接口零值 / print 切片 / libc `%g` /
   malloc 一族 / 原子内建 / module-qualified 调用）普查：`test --vm` 通过
   **648 / 914（70.9%）**，比上一基线 614 多 **+34**，零回归。
-  失败原因 Top：async 55、`仅支持局部变量/参数/全局标识符` 30、
-  `无法解析成员方法调用` 23、`catch 操作数不是错误联合` 22、
-  `这个泛型调用` 11、`编译期 builtin 折叠失败` 10、`return 类型与函数返回类型不一致` 8。
-  注：上表是 `dc90dee9` 时的快照，之后的原子/module-qualified 提交还要再普查一次。
+- 继续修「错误信息骗人」的一类缺陷后：**655 / 914（71.7%）**，累计比 648 多 +7：
+  - `x as T;` 这种**转换表达式语句**不在语句分派白名单里，落到「尚未支持的语句节点」
+    分支时会先弹一层作用域再返回 null，把外层 catch 前缀的作用域连带弹掉，
+    于是报 `当前仅支持局部变量/参数/全局标识符(err_id)`——指向完全无关的标识符。
+    补上 `AST_CAST_EXPR` / `AST_PIPELINE_EXPR` 后 https 一族推进到下一个真实阻塞。
+  - `(x as! T).value` / `.error_id` 的**静默类型推断**退回 void，导致
+    `return (n as! usize).value;` 报 `return 类型与函数返回类型不一致
+    (actual=void expected=!usize)`；按基类型（错误联合）补一次载荷类型后
+    `test_https_local` 转通过。
+  - `&f` / 裸函数名当值用（`pthread_create(..., thread_main, arg)`）此前报
+    `仅支持局部变量/…`；现在给 `4096 + hash(name)` 的稳定非零占位指针，
+    `test_function_reachability_address_taken` 转通过。
+  失败原因 Top（655 那次普查）：async 54、`仅支持局部变量/参数/全局标识符` 23、
+  `无法解析成员方法调用` 14、`catch 操作数不是错误联合` 22、
+  `这个泛型调用` 11、`编译期 builtin 折叠失败` 10、`return 类型与函数返回类型不一致` 14。
 - 新增修复：放不进 i32 的无后缀整数字面量在 `BC_LOAD_CONST` 里会被截断成负数，
   `v > 922337203685477580` 这类守卫整条反掉。std.json 的数字解析因此恒返回
   `NumberOverflow`。改成超出 i32 范围就按 i64 发射后，json 全量 26 例中 17 例通过
@@ -403,7 +414,7 @@
 
 ## 下一轮起点（上下文压缩后从这里继续）
 
-### 第 264 轮末的 Top 阻塞（按可收割性排序）
+### 第 264 轮末的 Top 阻塞（按可收割性排序，已更新）
 
 1. `exec: LOAD_FIELD/STORE_FIELD 字段越界(idx=N kind=K count=0 pointee=P)`（4 例）
    —— 运行时缺陷，不是「没支持」。样本：`lib/tls/base/mpi.uya:53` 的
@@ -426,6 +437,13 @@
    （多来自 `@await expr catch ...`，与 T9 同源）、`这个泛型调用` 11 例。
 6. `%` 收尾：`test_printf_f` 只剩 `%.17g` 的 `DBL_MAX` 末位差 1；
    `test_typed_pipeline_lowering_error` 差 drop 计数；`test_crypto_bigint` 是超时。
+7. **本块（`[u64: 32]` 这类非字节定长数组）是 Mpi/TLS/crypto 一族的死结**：
+   `mem_set(&self.limbs[0] as &byte, 0, 256)` 在 VM 里没有原生字节布局，
+   写进去的 256 字节会把 `self` 槽位写成垃圾，随后 `self.n = 0` 报
+   `STORE_FIELD 字段越界(idx=1 kind=14 count=0 pointee=65554 aux=65554 isref=1)`。
+   要根治得让非字节定长数组也走原生缓冲 + 写时深拷贝（值语义），属独立大项。
+8. pthread/thread 用例（`test_pthread_api_*`、`test_method_call_in_callback_codegen`
+   等）现在能过 lowering，但解释器不真的起线程，跑到同步点就挂住 —— 不是编译期缺口。
 
 
 1. 先跑基线：`UYA_EXEC_CENSUS_JOBS=16 bash tests/verify_exec_vm_census.sh`，
@@ -530,6 +548,21 @@
   `%g` 先按有效位数预舍入、定点分支用整数缩放取小数位。VM 下 `3.50000`→`3.5`、
   `3.14158`→`3.14159`。**已知残留**：`%.17g` 打 `DBL_MAX` 末位与 glibc 差 1
   （VM 走同一份 Uya `snprintf`，`test_printf_f` 的 `snprintf_g_dbl_max` 仍未过）。
+
+#- [x] `x as T;` 这类**转换表达式语句**补进语句分派白名单
+  （`AST_CAST_EXPR` / `AST_PIPELINE_EXPR`）。这条不是「少支持一种语句」这么简单：
+  落到「尚未支持的语句节点」分支会先 `pop_scope` 再返回 null，把外层 catch 前缀的
+  作用域弹出，后续 `err_id` 查找失败，错误信息完全指向别处。
+  顺带收敛 `exec_lower_block_expr` 的作用域收尾：单语句块不能继承外层 catch 的
+  prefix 状态，否则同样会提前弹栈。
+- [x] `(x as! T).value` / `.error_id`：`as!` 的 checker 类型是错误联合，
+  但静默推断把成员访问退回 void，`return` 校验报「类型与函数返回类型不一致」。
+  在 `exec_lower_expr_type` 末尾按基类型补载荷类型。
+- [x] `&f` / 裸函数名当值用：给 `4096 + hash(name)` 稳定占位指针
+  （解释器没有可执行地址，这类值只用于注册/可达性）。
+- [x] `malloc`/`calloc`/`realloc`/`free` 之外的 POSIX 钩子继续补：
+  `pthread_sigmask`（占位）、`isatty`（返 0）、`uya_interface_get_vtable`、
+  `uya_pipeline_image_anchor`、`uya_pipeline_worker_main_if_requested`。
 
 ### T11 收口
 
