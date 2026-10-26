@@ -299,6 +299,35 @@ fn exec_lower_eval_size_align_builtin(ctx: &ExecLowerContext, expr: &ASTNode) i3
             target_type = make_named_type(TypeKind.TYPE_INTERFACE, target.identifier_name);
         }
     }
+    // 泛型参数（`@size_of(T)`）在表达式推断下会得到 void/泛型参数，
+    // 单态体里要按类型再解析一次才能拿到具体结构体。
+    if target.type == ASTNodeType.AST_IDENTIFIER && target.identifier_name != null {
+        var needs_type_form_size: i32 = 0;
+        if target_type.kind == TypeKind.TYPE_GENERIC_PARAM || target_type.kind == TypeKind.TYPE_VOID {
+            needs_type_form_size = 1;
+        }
+        if needs_type_form_size != 0 {
+            // 标识符按「类型名」再解析一次：合成一个 AST_TYPE_NAMED 节点，
+            // 让 type_from_ast 走泛型替换/结构体声明查找。
+            const named_target_node: &ASTNode = compiler_arena_alloc(ctx.arena, @size_of(ASTNode)) as &ASTNode;
+            var generic_target_type: Type = make_void_type();
+            if named_target_node != null {
+                named_target_node[0] = target[0];
+                named_target_node.type = ASTNodeType.AST_TYPE_NAMED;
+                named_target_node.type_named_name = target.identifier_name;
+                named_target_node.type_named_type_args = null;
+                named_target_node.type_named_type_arg_count = 0;
+                generic_target_type = type_from_ast(ctx.checker, named_target_node);
+            }
+            var generic_size_usable: i32 = 1;
+            if generic_target_type.kind == TypeKind.TYPE_VOID || generic_target_type.kind == TypeKind.TYPE_GENERIC_PARAM {
+                generic_size_usable = 0;
+            }
+            if generic_size_usable != 0 {
+                target_type = generic_target_type;
+            }
+        }
+    }
     // SIMD：向量按「元素尺寸 × 通道数」计大小，掩码按位集 i64 计。
     // 目标写成类型别名（`type V4 = @vector(i32,4)`）时，上面按表达式推断会得到
     // void，这里再按类型节点解析一次。
@@ -5585,7 +5614,19 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if folded_value < 0 {
             const fallback_value: i32 = checker_eval_const_expr(ctx.checker, expr);
             if fallback_value < 0 {
-                return exec_lower_fail_expr(expr, "exec: 编译期 builtin 折叠失败" as *byte);
+                var fold_fail_msg: [byte: 192] = [];
+                var fold_target_kind: i32 = -1;
+                var fold_target_name: &byte = "(none)" as &byte;
+                if expr.type == ASTNodeType.AST_SIZEOF && expr.sizeof_expr_target != null {
+                    fold_target_kind = expr.sizeof_expr_target.type as i32;
+                    if expr.sizeof_expr_target.identifier_name != null {
+                        fold_target_name = expr.sizeof_expr_target.identifier_name;
+                    }
+                }
+                _ = snprintf(&fold_fail_msg[0] as *byte, 192,
+                    "exec: 编译期 builtin 折叠失败(target=%d name=%s kind=%d)" as *byte,
+                    fold_target_kind, fold_target_name as *byte, expr_type.kind as i32);
+                return exec_lower_fail_expr(expr, &fold_fail_msg[0]);
             }
             return exec_lower_make_int_const_expr(ctx, expr, &expr_type, fallback_value as i64);
         }
