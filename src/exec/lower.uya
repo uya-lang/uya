@@ -3165,6 +3165,190 @@ fn exec_lower_find_function_decl_in_file(checker: &TypeChecker, filename: &byte,
     return null;
 }
 
+// ==== 泛型单态化（exec VM）====
+// checker 已把用到的实例登记在 mono_instances；这里按 (函数名, 类型实参) 找到
+// 实例序号，用 `名字$m<序号>` 作为 VM 内唯一的函数名。
+
+fn exec_lower_first_type_param_name(fn_decl: &ASTNode) &byte {
+    if fn_decl == null || fn_decl.fn_decl_type_params == null || fn_decl.fn_decl_type_param_count <= 0 {
+        return null;
+    }
+    return fn_decl.fn_decl_type_params[0].name;
+}
+
+fn exec_lower_find_mono_instance_index(checker: &TypeChecker, generic_name: &byte,
+    arg_types: &Type, arg_count: i32) i32 {
+    if checker == null || generic_name == null || arg_types == null {
+        return -1;
+    }
+    if checker.mono_instances == null {
+        return -1;
+    }
+    var idx: i32 = 0;
+    while idx < checker.mono_instance_count {
+        const inst: &MonoInstance = &checker.mono_instances[idx];
+        if inst.is_function != 0 && inst.generic_name != null &&
+            str_equals(inst.generic_name, generic_name) != 0 &&
+            inst.type_arg_count == arg_count && inst.type_args != null {
+            var same: i32 = 1;
+            var ai: i32 = 0;
+            while ai < arg_count {
+                if type_equals(inst.type_args[ai], arg_types[ai]) == 0 {
+                    same = 0;
+                }
+                ai = ai + 1;
+            }
+            if same != 0 {
+                return idx;
+            }
+        }
+        idx = idx + 1;
+    }
+    return -1;
+}
+
+fn exec_lower_mono_function_name(arena: &CompilerArena, generic_name: &byte, index: i32) &byte {
+    if arena == null || generic_name == null {
+        return generic_name;
+    }
+    const buf: &byte = compiler_arena_alloc(arena, strlen(generic_name as *byte) + 24) as &byte;
+    if buf == null {
+        return generic_name;
+    }
+    _ = sprintf(buf as *byte, "%s$m%d" as *byte, generic_name as *byte, index);
+    return buf;
+}
+
+fn exec_lower_generic_instances(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &ASTNode,
+    globals: &HIRGlobalSlot, global_count: i32, functions: & & HIRFunction, count: &i32) i32 {
+    if fn_decl == null || count == null || functions == null {
+        return -1;
+    }
+    const param_name: &byte = exec_lower_first_type_param_name(fn_decl);
+    if param_name == null || checker.mono_instances == null || fn_decl.fn_decl_name == null {
+        return 0;
+    }
+    var idx: i32 = 0;
+    var seen: i32 = 0;
+    while idx < checker.mono_instance_count {
+        const inst: &MonoInstance = &checker.mono_instances[idx];
+        if inst.is_function != 0 && inst.generic_name != null && inst.type_args != null &&
+            inst.type_arg_count > 0 && str_equals(inst.generic_name, fn_decl.fn_decl_name) != 0 {
+            const saved_active: i32 = checker.subst_active;
+            const saved_name: &byte = checker.subst_name;
+            const saved_type: Type = copy_type(&checker.subst_type);
+            checker.subst_active = 1;
+            checker.subst_name = param_name;
+            checker.subst_type = copy_type(&inst.type_args[0]);
+            const lowered: &HIRFunction = exec_lower_function(arena, checker, fn_decl, globals, global_count);
+            checker.subst_active = saved_active;
+            checker.subst_name = saved_name;
+            checker.subst_type = copy_type(&saved_type);
+            if lowered == null {
+                return -1;
+            }
+            lowered.name = exec_lower_mono_function_name(arena, fn_decl.fn_decl_name, idx);
+            if count[0] < MAX_REACHABLE_FN_DECLS {
+                functions[count[0]] = lowered;
+                count[0] = count[0] +| 1;
+            }
+            seen = seen + 1;
+        }
+        idx = idx + 1;
+    }
+    if seen == 0 {
+        // 没有登记实例（例如只有声明）：按非泛型路径降一次，避免缺函数。
+        const lowered_plain: &HIRFunction = exec_lower_function(arena, checker, fn_decl, globals, global_count);
+        if lowered_plain == null {
+            return -1;
+        }
+        if count[0] < MAX_REACHABLE_FN_DECLS {
+            functions[count[0]] = lowered_plain;
+            count[0] = count[0] +| 1;
+        }
+    }
+    return 0;
+}
+
+fn exec_lower_generic_call_expr(ctx: &ExecLowerContext, expr: &ASTNode, result_type: &Type) &HIRExpr {
+    if ctx == null || expr == null || result_type == null {
+        return null;
+    }
+    if expr.call_expr_callee == null || expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+        expr.call_expr_callee.identifier_name == null {
+        return null;
+    }
+    const fn_name: &byte = expr.call_expr_callee.identifier_name;
+    const fn_decl: &ASTNode = exec_lower_resolve_function_decl_from_file(ctx.checker, expr.filename, fn_name);
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || fn_decl.fn_decl_type_param_count <= 0 {
+        return null;
+    }
+    const arg_count: i32 = expr.call_expr_type_arg_count;
+    if arg_count <= 0 || expr.call_expr_type_args == null {
+        return null;
+    }
+    const arg_types: &Type = compiler_arena_alloc(ctx.arena, @size_of(Type) * arg_count as usize) as &Type;
+    if arg_types == null {
+        return null;
+    }
+    var ai: i32 = 0;
+    while ai < arg_count {
+        arg_types[ai] = type_from_ast(ctx.checker, expr.call_expr_type_args[ai]);
+        ai = ai + 1;
+    }
+    const inst_idx: i32 = exec_lower_find_mono_instance_index(ctx.checker, fn_name, arg_types, arg_count);
+    if inst_idx < 0 {
+        return null;
+    }
+    const mangled: &byte = exec_lower_mono_function_name(ctx.arena, fn_name, inst_idx);
+    const saved_active: i32 = ctx.checker.subst_active;
+    const saved_name: &byte = ctx.checker.subst_name;
+    const saved_type: Type = ctx.checker.subst_type;
+    ctx.checker.subst_active = 1;
+    ctx.checker.subst_name = exec_lower_first_type_param_name(fn_decl);
+    ctx.checker.subst_type = copy_type(&arg_types[0]);
+    const args: & & HIRExpr = compiler_arena_alloc(ctx.arena, @size_of(&HIRExpr) * expr.call_expr_arg_count as usize) as & & HIRExpr;
+    var ok: i32 = 1;
+    if expr.call_expr_arg_count > 0 && args == null {
+        ok = 0;
+    }
+    var i: i32 = 0;
+    while ok != 0 && i < expr.call_expr_arg_count {
+        var arg_expr: &HIRExpr = null;
+        if fn_decl.fn_decl_params != null && i < fn_decl.fn_decl_param_count &&
+            fn_decl.fn_decl_params[i] != null &&
+            fn_decl.fn_decl_params[i].type == ASTNodeType.AST_VAR_DECL &&
+            fn_decl.fn_decl_params[i].var_decl_type != null {
+            const expected: Type = type_from_ast(ctx.checker, fn_decl.fn_decl_params[i].var_decl_type);
+            arg_expr = exec_lower_coerce_expr(ctx, expr.call_expr_args[i], &expected);
+        } else {
+            arg_expr = exec_lower_expr(ctx, expr.call_expr_args[i]);
+        }
+        if arg_expr == null {
+            ok = 0;
+        } else {
+            args[i] = arg_expr;
+        }
+        i = i + 1;
+    }
+    ctx.checker.subst_active = saved_active;
+    ctx.checker.subst_name = saved_name;
+    ctx.checker.subst_type = saved_type;
+    if ok == 0 {
+        return null;
+    }
+    const hir: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CALL, result_type);
+    if hir == null {
+        return null;
+    }
+    hir.callee_name = mangled;
+    hir.callee_decl = fn_decl;
+    hir.call_host_id = ExecHostCallId.EXEC_HOST_CALL_NONE;
+    hir.call_args = args;
+    hir.call_arg_count = expr.call_expr_arg_count;
+    return hir;
+}
+
 fn exec_lower_resolve_function_decl_from_file(checker: &TypeChecker, filename: &byte, callee_name: &byte) &ASTNode {
     if checker == null || callee_name == null {
         return null;
@@ -5428,8 +5612,15 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             hir_vec.call_arg_count = expr.call_expr_arg_count;
             return hir_vec;
         }
-        if expr.call_expr_type_arg_count > 0 || expr.call_expr_has_ellipsis_forward != 0 {
-            return exec_lower_fail_expr(expr, "exec: 当前不支持泛型调用或 varargs 转发" as *byte);
+        if expr.call_expr_has_ellipsis_forward != 0 {
+            return exec_lower_fail_expr(expr, "exec: 当前不支持 varargs 转发" as *byte);
+        }
+        if expr.call_expr_type_arg_count > 0 {
+            const generic_call: &HIRExpr = exec_lower_generic_call_expr(ctx, expr, &expr_type);
+            if generic_call != null {
+                return generic_call;
+            }
+            return exec_lower_fail_expr(expr, "exec: 当前不支持这个泛型调用" as *byte);
         }
         if expr.call_expr_arg_count > EXEC_MAX_CALL_ARGS {
             return exec_lower_fail_expr(expr, "exec: 调用参数过多" as *byte);
@@ -7192,6 +7383,17 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
             if exec_lower_collect_file_globals(checker, decl.filename, globals, &global_count) != 0 {
                 return null;
             }
+        }
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null &&
+            decl.fn_decl_type_param_count > 0 {
+            if exec_lower_generic_instances(arena, checker, decl, globals, global_count, functions, &count) != 0 {
+                if exec_backend_get_last_error() == null {
+                    exec_backend_set_error(decl, "exec: 泛型实例 lowering 失败" as *byte, 0);
+                }
+                return null;
+            }
+            i = i + 1;
+            continue;
         }
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null {
             const lowered: &HIRFunction = exec_lower_function(arena, checker, decl, globals, global_count);

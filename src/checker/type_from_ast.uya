@@ -581,6 +581,11 @@ fn type_from_ast_uncached(checker: &TypeChecker, type_node: &ASTNode) Type {
             while i < checker.current_type_param_count {
                 if checker.current_type_params[i].name != null &&
                     str_equals(checker.current_type_params[i].name, type_name) != 0 {
+                    // 单态化 lowering 期间：直接把类型参数替换成具体类型。
+                    if checker.subst_active != 0 && checker.subst_name != null &&
+                        str_equals(checker.subst_name, type_name) != 0 {
+                        return copy_type(&checker.subst_type);
+                    }
                     result.kind = TypeKind.TYPE_GENERIC_PARAM;
                     result.generic_param_name = type_name;
                     type_set_generic_param(&result, type_name);

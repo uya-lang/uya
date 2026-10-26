@@ -148,6 +148,9 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     
     // 初始化泛型相关字段
     checker.current_type_params = null;
+    checker.subst_active = 0;
+    checker.subst_name = null;
+    checker.subst_type = make_void_type();
     checker.current_type_param_count = 0;
     checker.mono_instances = null;
     checker.mono_instance_count = 0;
