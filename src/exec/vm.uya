@@ -20,6 +20,8 @@ use libc.malloc;
 use libc.calloc;
 use libc.realloc;
 use libc.free;
+use libc.exit;
+use libc.fflush;
 
 const EXEC_VM_REF_KIND_BASE: i32 = 65536;
 const EXEC_VM_REF_KIND_INDEX_BASE: i32 = 131072;
@@ -2502,6 +2504,18 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
     if site.id == ExecHostCallId.EXEC_HOST_CALL_IMAGE_ANCHOR {
         // 偏移都相对这个锚点做差，解释器里取任意固定常数即可。
         out_value[0] = exec_make_usize(4096 as usize);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_EXIT {
+        const exit_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        if exit_arg == null || arg_count != 1 {
+            exec_backend_set_error(function.decl, "exec: exit 参数非法" as *byte, 0);
+            return -1;
+        }
+        // `exit` 的语义就是立刻结束进程：先冲掉宿主缓冲，再照搬退出码。
+        _ = fflush(null as &FILE);
+        exit(exit_arg.i64_value as i32);
+        out_value[0] = exec_make_void();
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_ISATTY {

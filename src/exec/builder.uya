@@ -353,9 +353,41 @@ fn exec_builder_local_desc(ctx: &ExecFunctionBuildContext, slot: i32) &HIRLocalS
     return &locals[slot];
 }
 
+/// 在程序级方法块里找 `fn drop`（`S { fn drop(self: S) … }` 写法）。
+///
+/// 参数：`method_block` 形如 `AST_METHOD_BLOCK` 的节点（可为 null）。
+/// 返回值：drop 方法声明；没有返回 null。
+fn exec_builder_find_drop_in_method_block(method_block: &ASTNode) &ASTNode {
+    if method_block == null || method_block.type != ASTNodeType.AST_METHOD_BLOCK ||
+        method_block.method_block_methods == null {
+        return null;
+    }
+    var mi: i32 = 0;
+    while mi < method_block.method_block_method_count {
+        const method: &ASTNode = method_block.method_block_methods[mi];
+        if method != null && method.type == ASTNodeType.AST_FN_DECL &&
+            method.fn_decl_name != null &&
+            str_equals(method.fn_decl_name, "drop" as *byte) != 0 {
+            return method;
+        }
+        mi = mi + 1;
+    }
+    return null;
+}
+
 fn exec_builder_find_named_drop_decl(ctx: &ExecFunctionBuildContext, named_type: &byte) &ASTNode {
     if ctx == null || ctx.checker == null || ctx.checker.program_node == null || named_type == null {
         return null;
+    }
+    var from_block: &ASTNode = exec_builder_find_drop_in_method_block(
+        find_method_block_for_struct(ctx.checker.program_node, named_type));
+    if from_block != null {
+        return from_block;
+    }
+    from_block = exec_builder_find_drop_in_method_block(
+        find_method_block_for_union(ctx.checker.program_node, named_type));
+    if from_block != null {
+        return from_block;
     }
     const struct_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node, named_type);
     if struct_decl != null && struct_decl.struct_decl_methods != null {
@@ -422,6 +454,11 @@ fn exec_builder_stmt_drop_decl(ctx: &ExecFunctionBuildContext, stmt: &HIRStmt) &
         stmt.ast_node.var_decl_type.type != ASTNodeType.AST_TYPE_NAMED ||
         stmt.ast_node.var_decl_type.type_named_name == null {
         return null;
+    }
+    // lowering 解析好的 drop 声明优先（含程序级方法块写法）。
+    const slot_local: &HIRLocalSlot = exec_builder_local_desc(ctx, stmt.local_slot);
+    if slot_local != null && slot_local.drop_decl != null {
+        return slot_local.drop_decl;
     }
     return exec_builder_find_named_drop_decl(ctx, stmt.ast_node.var_decl_type.type_named_name);
 }

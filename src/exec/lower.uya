@@ -496,6 +496,10 @@ fn exec_lower_match_host_call(fn_decl: &ASTNode, call_arg_count: i32) ExecHostCa
             str_equals(fn_decl.fn_decl_name, "uya_pipeline_image_anchor" as &byte) != 0 {
             return ExecHostCallId.EXEC_HOST_CALL_IMAGE_ANCHOR;
         }
+        if str_equals(fn_decl.fn_decl_name, "exit" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_EXIT;
+        }
         if str_equals(fn_decl.fn_decl_name, "isatty" as &byte) != 0 &&
             fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_ISATTY;
@@ -1046,6 +1050,28 @@ fn exec_lower_seed_globals(ctx: &ExecLowerContext, globals: &HIRGlobalSlot, glob
     ctx.global_count = i;
 }
 
+/// 在程序级方法块里找 `fn drop`（`S { fn drop(self: S) … }` 写法，规范 §12）。
+///
+/// 参数：`method_block` 形如 `AST_METHOD_BLOCK` 的节点（可为 null）。
+/// 返回值：drop 方法声明；没有返回 null。
+fn exec_lower_find_drop_in_method_block(method_block: &ASTNode) &ASTNode {
+    if method_block == null || method_block.type != ASTNodeType.AST_METHOD_BLOCK ||
+        method_block.method_block_methods == null {
+        return null;
+    }
+    var mi: i32 = 0;
+    while mi < method_block.method_block_method_count {
+        const method: &ASTNode = method_block.method_block_methods[mi];
+        if method != null && method.type == ASTNodeType.AST_FN_DECL &&
+            method.fn_decl_name != null &&
+            str_equals(method.fn_decl_name, "drop" as *byte) != 0 {
+            return method;
+        }
+        mi = mi + 1;
+    }
+    return null;
+}
+
 fn exec_lower_find_named_drop_decl(checker: &TypeChecker, named_type: &byte) &ASTNode {
     if checker == null || checker.program_node == null || named_type == null {
         return null;
@@ -1075,6 +1101,17 @@ fn exec_lower_find_named_drop_decl(checker: &TypeChecker, named_type: &byte) &AS
             }
             ui = ui + 1;
         }
+    }
+    // `S { fn drop(self: S) … }`：drop 挂在程序级方法块里，不在结构体声明内。
+    var from_block: &ASTNode = exec_lower_find_drop_in_method_block(
+        find_method_block_for_struct(checker.program_node, named_type));
+    if from_block != null {
+        return from_block;
+    }
+    from_block = exec_lower_find_drop_in_method_block(
+        find_method_block_for_union(checker.program_node, named_type));
+    if from_block != null {
+        return from_block;
     }
     return null;
 }
