@@ -3636,6 +3636,7 @@ fn exec_builder_emit_drop_local(ctx: &ExecFunctionBuildContext, local: &HIRLocal
     }
     const callee_index: i32 = exec_builder_find_function_index(ctx.module, drop_decl, drop_decl.fn_decl_name);
     if callee_index < 0 {
+
         exec_backend_set_error(local.decl, "exec: drop 方法未进入可执行函数集" as *byte, 0);
         return -1;
     }

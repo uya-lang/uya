@@ -10,6 +10,18 @@ const EXEC_MAX_GLOBALS: i32 = 1024;
 const EXEC_MAX_SCOPE_DEPTH: i32 = 512;
 const EXEC_MAX_INTERFACE_METHODS: i32 = 64;
 const EXEC_MAX_MODULE_GLOBAL_REQUESTS: i32 = 256;
+// 泛型结构体方法的单态副本缓存：解释器按「方法声明 + 类型实参」生成一份
+// 带具体类型的函数体，调用点按接收者的类型实参取同名副本。
+const EXEC_MAX_MONO_STRUCT_DECLS: i32 = 128;
+var g_mono_struct_src: [&ASTNode: EXEC_MAX_MONO_STRUCT_DECLS] = [];
+var g_mono_struct_out: [&ASTNode: EXEC_MAX_MONO_STRUCT_DECLS] = [];
+var g_mono_struct_owner: [&ASTNode: EXEC_MAX_MONO_STRUCT_DECLS] = [];
+var g_mono_struct_arg: [Type: EXEC_MAX_MONO_STRUCT_DECLS] = [];
+var g_mono_struct_count: i32 = 0;
+var g_mono_struct_pending: i32 = 0;
+// 正在降级的单态副本序号：方法体里的 `self.grow_if_needed()` 这类调用
+// receiver 类型是 `&Self`（没有类型实参），需要继承当前副本的实例。
+var g_mono_struct_current: i32 = -1;
 
 struct ExecLowerContext {
     arena: &CompilerArena,
@@ -275,6 +287,61 @@ fn exec_lower_named_decl_align_bytes(checker: &TypeChecker, name: &byte, program
     return -1;
 }
 
+/// 求某个类型的字节数或对齐（结构体带类型实参时先装好替换上下文）。
+///
+/// 参数：`ctx` lowering 上下文；`target_type` 目标类型；`want_size` 1 求字节数、0 求对齐。
+/// 返回值：字节数/对齐；无法确定返回 -1。
+fn exec_lower_size_align_of_type(ctx: &ExecLowerContext, target_type: Type, want_size: i32) i32 {
+    if ctx == null || ctx.checker == null {
+        return -1;
+    }
+    // 泛型结构体实例 `Box<i32>`：字段类型里的 `T` 要靠 current_type_params +
+    // subst 才能换成具体类型，否则算不出字段尺寸。
+    var struct_name: &byte = null;
+    if target_type.kind == TypeKind.TYPE_STRUCT {
+        struct_name = target_type.struct_name;
+    } else if target_type.kind == TypeKind.TYPE_UNION {
+        struct_name = target_type.union_name;
+    }
+    if struct_name == null || target_type.struct_type_args == null ||
+        target_type.struct_type_arg_count <= 0 {
+        if want_size != 0 {
+            return get_type_size_bytes_v2(ctx.checker, &target_type, ctx.checker.program_node);
+        }
+        return get_type_align_bytes_v2(ctx.checker, &target_type, ctx.checker.program_node);
+    }
+    const struct_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node, struct_name);
+    if struct_decl == null || struct_decl.struct_decl_type_params == null ||
+        struct_decl.struct_decl_type_param_count <= 0 {
+        if want_size != 0 {
+            return get_type_size_bytes_v2(ctx.checker, &target_type, ctx.checker.program_node);
+        }
+        return get_type_align_bytes_v2(ctx.checker, &target_type, ctx.checker.program_node);
+    }
+    const saved_params: &TypeParam = ctx.checker.current_type_params;
+    const saved_param_count: i32 = ctx.checker.current_type_param_count;
+    const saved_active: i32 = ctx.checker.subst_active;
+    const saved_name: &byte = ctx.checker.subst_name;
+    const saved_type: Type = copy_type(&ctx.checker.subst_type);
+    ctx.checker.current_type_params = struct_decl.struct_decl_type_params;
+    ctx.checker.current_type_param_count = struct_decl.struct_decl_type_param_count;
+    ctx.checker.subst_active = 1;
+    ctx.checker.subst_name = struct_decl.struct_decl_type_params[0].name;
+    ctx.checker.subst_type = copy_type(&target_type.struct_type_args[0]);
+    var result: i32 = -1;
+    if want_size != 0 {
+        result = get_type_size_bytes_v2(ctx.checker, &target_type, ctx.checker.program_node);
+    } else {
+        result = get_type_align_bytes_v2(ctx.checker, &target_type, ctx.checker.program_node);
+    }
+    ctx.checker.current_type_params = saved_params;
+    ctx.checker.current_type_param_count = saved_param_count;
+    ctx.checker.subst_active = saved_active;
+    ctx.checker.subst_name = saved_name;
+    ctx.checker.subst_type = copy_type(&saved_type);
+    return result;
+}
+
 fn exec_lower_eval_size_align_builtin(ctx: &ExecLowerContext, expr: &ASTNode) i32 {
     if ctx == null || expr == null {
         return -1;
@@ -287,6 +354,15 @@ fn exec_lower_eval_size_align_builtin(ctx: &ExecLowerContext, expr: &ASTNode) i3
     if expr.type == ASTNodeType.AST_ALIGNOF {
         target = expr.alignof_expr_target;
         is_type_expr = expr.alignof_expr_is_type;
+    }
+    // `@size_of(Box<i32>)`：带类型实参的类型写法在 parser 里不会标 is_type，
+    // 但节点本身就是类型节点，按类型形态解析。
+    if target != null && (target.type == ASTNodeType.AST_TYPE_NAMED ||
+        target.type == ASTNodeType.AST_TYPE_POINTER ||
+        target.type == ASTNodeType.AST_TYPE_ARRAY ||
+        target.type == ASTNodeType.AST_TYPE_SLICE ||
+        target.type == ASTNodeType.AST_TYPE_ERROR_UNION) {
+        is_type_expr = 1;
     }
     if target == null {
         return -1;
@@ -421,10 +497,8 @@ fn exec_lower_eval_size_align_builtin(ctx: &ExecLowerContext, expr: &ASTNode) i3
         }
         return 1;
     }
-    if expr.type == ASTNodeType.AST_SIZEOF {
-        return get_type_size_bytes_v2(ctx.checker, &target_type, ctx.checker.program_node);
-    }
-    return get_type_align_bytes_v2(ctx.checker, &target_type, ctx.checker.program_node);
+    const want_size: i32 = (expr.type == ASTNodeType.AST_SIZEOF) as i32;
+    return exec_lower_size_align_of_type(ctx, target_type, want_size);
 }
 
 fn exec_lower_checker_infer_type_quiet(ctx: &ExecLowerContext, expr: &ASTNode) Type {
@@ -1050,6 +1124,218 @@ fn exec_lower_seed_globals(ctx: &ExecLowerContext, globals: &HIRGlobalSlot, glob
     ctx.global_count = i;
 }
 
+/// 判断某个函数声明是否是「泛型结构体/联合体的方法」。
+///
+/// 这类方法体里的 `T` 只有拿到具体类型实参才能折叠（`@size_of` 一类），
+/// 所以只能按单态副本降级，原声明不单独降级。
+///
+/// 参数：`checker` 类型检查器；`decl` 函数声明。
+/// 返回值：是泛型结构体方法返回 1，否则 0。
+fn exec_lower_is_generic_struct_method(checker: &TypeChecker, decl: &ASTNode) i32 {
+    if checker == null || decl == null || decl.type != ASTNodeType.AST_FN_DECL ||
+        checker.program_node == null {
+        return 0;
+    }
+    var owner_is_union: i32 = 0;
+    const owner_name: &byte = checker_fn_decl_owner_type_name(checker, decl, &owner_is_union);
+    if owner_name == null {
+        return 0;
+    }
+    if owner_is_union != 0 {
+        const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, owner_name);
+        if union_decl != null && union_decl.union_decl_type_param_count > 0 {
+            return 1;
+        }
+        return 0;
+    }
+    const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, owner_name);
+    if struct_decl != null && struct_decl.struct_decl_type_param_count > 0 {
+        return 1;
+    }
+    return 0;
+}
+
+/// 在 checker 登记的结构体单态实例里，按结构体名 + 类型实参找实例序号。
+///
+/// 参数：`checker` 类型检查器；`struct_name` 结构体名；`type_args` 实参类型；
+/// `arg_count` 实参个数。
+/// 返回值：实例序号；没有登记返回 -1。
+fn exec_lower_mono_struct_instance_index(checker: &TypeChecker, struct_name: &byte,
+    type_args: &Type, arg_count: i32) i32 {
+    if checker == null || struct_name == null || type_args == null || arg_count <= 0 ||
+        checker.mono_instances == null {
+        return -1;
+    }
+    var idx: i32 = 0;
+    while idx < checker.mono_instance_count {
+        const inst: &MonoInstance = &checker.mono_instances[idx];
+        if inst.is_function == 0 && inst.generic_name != null &&
+            str_equals(inst.generic_name, struct_name) != 0 &&
+            inst.type_arg_count == arg_count && inst.type_args != null {
+            var same: i32 = 1;
+            var ai: i32 = 0;
+            while ai < arg_count {
+                if type_equals(inst.type_args[ai], type_args[ai]) == 0 {
+                    same = 0;
+                }
+                ai = ai + 1;
+            }
+            if same != 0 {
+                return idx;
+            }
+        }
+        idx = idx + 1;
+    }
+    return -1;
+}
+
+/// 按 `结构体名_方法名$s<序号>` 生成单态副本名。
+///
+/// 参数：`arena` 分配器；`struct_name` 结构体名；`method_name` 方法名；`index` 实例序号。
+/// 返回值：新名字（arena 内）；分配失败时退回方法名。
+fn exec_lower_mono_struct_name(arena: &CompilerArena, struct_name: &byte, method_name: &byte, index: i32) &byte {
+    if arena == null || method_name == null {
+        return method_name;
+    }
+    const base_len: i32 = strlen(method_name as *byte) as i32;
+    var prefix_len: i32 = 0;
+    if struct_name != null {
+        prefix_len = strlen(struct_name as *byte) as i32 +| 1;
+    }
+    const buf: &byte = compiler_arena_alloc(arena, (base_len +| prefix_len +| 24) as usize) as &byte;
+    if buf == null {
+        return method_name;
+    }
+    if struct_name != null {
+        _ = sprintf(buf as *byte, "%s_%s$s%d" as *byte, struct_name as *byte, method_name as *byte, index);
+    } else {
+        _ = sprintf(buf as *byte, "%s$s%d" as *byte, method_name as *byte, index);
+    }
+    return buf;
+}
+
+/// 取（或新建）某个泛型结构体方法的单态副本声明。
+///
+/// 参数：`arena` 分配器；`method_decl` 原方法声明；`struct_decl` 结构体声明；
+/// `inst_idx` 实例序号；`type_args` 类型实参；`arg_count` 实参个数。
+/// 返回值：副本声明（同名同序号的调用点共享同一个指针）。
+fn exec_lower_mono_struct_method_decl(arena: &CompilerArena, method_decl: &ASTNode,
+    struct_decl: &ASTNode, inst_idx: i32, type_args: &Type, arg_count: i32) &ASTNode {
+    if arena == null || method_decl == null || struct_decl == null || type_args == null || arg_count <= 0 {
+        return method_decl;
+    }
+    var i: i32 = 0;
+    while i < g_mono_struct_count {
+        if i >= 0 && i < EXEC_MAX_MONO_STRUCT_DECLS {
+            if g_mono_struct_src[i] == method_decl && g_mono_struct_owner[i] == struct_decl &&
+                type_equals(g_mono_struct_arg[i], type_args[0]) != 0 {
+                return g_mono_struct_out[i];
+            }
+        }
+        i = i + 1;
+    }
+    if g_mono_struct_count >= EXEC_MAX_MONO_STRUCT_DECLS {
+        return method_decl;
+    }
+    const copy: &ASTNode = compiler_arena_alloc(arena, @size_of(ASTNode)) as &ASTNode;
+    if copy == null {
+        return method_decl;
+    }
+    copy[0] = method_decl[0];
+    var owner_name: &byte = null;
+    if struct_decl.type == ASTNodeType.AST_STRUCT_DECL {
+        owner_name = struct_decl.struct_decl_name;
+    } else {
+        owner_name = struct_decl.union_decl_name;
+    }
+    copy.fn_decl_name = exec_lower_mono_struct_name(arena, owner_name, method_decl.fn_decl_name, inst_idx);
+    const idx: i32 = g_mono_struct_count;
+    if idx < 0 || idx >= EXEC_MAX_MONO_STRUCT_DECLS {
+        return copy;
+    }
+    g_mono_struct_src[idx] = method_decl;
+    g_mono_struct_out[idx] = copy;
+    g_mono_struct_owner[idx] = struct_decl;
+    g_mono_struct_arg[idx] = copy_type(&type_args[0]);
+    g_mono_struct_count = idx +| 1;
+    if g_mono_struct_pending < g_mono_struct_count {
+        g_mono_struct_pending = g_mono_struct_count;
+    }
+    return copy;
+}
+
+/// 按副本声明指针查副本序号。
+///
+/// 参数：`decl` 函数声明。
+/// 返回值：副本序号；不是副本返回 -1。
+fn exec_lower_mono_struct_index_of(decl: &ASTNode) i32 {
+    if decl == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < g_mono_struct_count {
+        if i >= 0 && i < EXEC_MAX_MONO_STRUCT_DECLS && g_mono_struct_out[i] == decl {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+/// 装上某个单态副本的类型参数替换上下文。
+///
+/// 参数：`checker` 类型检查器；`idx` 副本序号。
+/// 返回值：无。
+fn exec_lower_install_mono_struct_subst(checker: &TypeChecker, idx: i32) void {
+    if checker == null || idx < 0 || idx >= g_mono_struct_count {
+        return;
+    }
+    var struct_decl: &ASTNode = null;
+    if idx >= 0 && idx < EXEC_MAX_MONO_STRUCT_DECLS {
+        struct_decl = g_mono_struct_owner[idx];
+    }
+    if struct_decl == null || struct_decl.struct_decl_type_params == null ||
+        struct_decl.struct_decl_type_param_count <= 0 {
+        return;
+    }
+    checker.current_type_params = struct_decl.struct_decl_type_params;
+    checker.current_type_param_count = struct_decl.struct_decl_type_param_count;
+    if idx < 0 || idx >= EXEC_MAX_MONO_STRUCT_DECLS {
+        return;
+    }
+    checker.subst_active = 1;
+    checker.subst_name = struct_decl.struct_decl_type_params[0].name;
+    checker.subst_type = copy_type(&g_mono_struct_arg[idx]);
+}
+
+/// 把还没进可达集合的单态副本补进去。
+///
+/// 参数：`out_decls` 可达声明数组；`out_count` 当前数量。
+/// 返回值：0 成功，-1 超出上限。
+fn exec_lower_drain_pending_mono_struct_decls(out_decls: & & ASTNode, out_count: &i32) i32 {
+    if out_count == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < g_mono_struct_count {
+        var copy: &ASTNode = null;
+        if i >= 0 && i < EXEC_MAX_MONO_STRUCT_DECLS {
+            copy = g_mono_struct_out[i];
+        }
+        if copy != null && copy.fn_decl_body != null &&
+            exec_lower_decl_index(out_decls, out_count[0], copy) < 0 {
+            if out_count[0] >= MAX_REACHABLE_FN_DECLS {
+                return -1;
+            }
+            out_decls[out_count[0]] = copy;
+            out_count[0] = out_count[0] +| 1;
+        }
+        i = i + 1;
+    }
+    g_mono_struct_pending = 0;
+    return 0;
+}
+
 /// 在程序级方法块里找 `fn drop`（`S { fn drop(self: S) … }` 写法，规范 §12）。
 ///
 /// 参数：`method_block` 形如 `AST_METHOD_BLOCK` 的节点（可为 null）。
@@ -1116,26 +1402,78 @@ fn exec_lower_find_named_drop_decl(checker: &TypeChecker, named_type: &byte) &AS
     return null;
 }
 
-fn exec_lower_find_drop_decl(checker: &TypeChecker, decl: &ASTNode, type: &Type) &ASTNode {
-    if checker == null || checker.program_node == null || type == null {
+fn exec_lower_find_drop_decl(ctx: &ExecLowerContext, decl: &ASTNode, type: &Type) &ASTNode {
+    if ctx == null || ctx.checker == null || ctx.checker.program_node == null || type == null {
         return null;
     }
+    const checker: &TypeChecker = ctx.checker;
     if decl != null && decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_type != null &&
         decl.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED && decl.var_decl_type.type_named_name != null {
         const by_decl: &ASTNode = exec_lower_find_named_drop_decl(checker, decl.var_decl_type.type_named_name);
         if by_decl != null {
-            return by_decl;
+            // 泛型结构体（`Vec<i32>`）的 drop 也要换成对应实例的单态副本。
+            return exec_lower_specialize_struct_method(ctx, by_decl, decl.var_decl_type.type_named_name, type);
         }
     }
     const struct_name: &byte = type_get_struct_name(type);
     if struct_name != null {
-        return exec_lower_find_named_drop_decl(checker, struct_name);
+        const drop_decl2: &ASTNode = exec_lower_find_named_drop_decl(checker, struct_name);
+        return exec_lower_specialize_struct_method(ctx, drop_decl2, struct_name, type);
     }
     const union_name: &byte = type_get_union_name(type);
     if union_name != null {
-        return exec_lower_find_named_drop_decl(checker, union_name);
+        const drop_decl3: &ASTNode = exec_lower_find_named_drop_decl(checker, union_name);
+        return exec_lower_specialize_struct_method(ctx, drop_decl3, union_name, type);
     }
     return null;
+}
+
+/// 如果类型是带类型实参的泛型结构体，把方法声明换成对应实例的单态副本。
+///
+/// 参数：`ctx` lowering 上下文；`method_decl` 原方法声明；`owner_name` 结构体/联合体名；
+/// `owner_type` 带类型实参的接收者类型。
+/// 返回值：单态副本声明；不适用时返回原声明。
+fn exec_lower_specialize_struct_method(ctx: &ExecLowerContext, method_decl: &ASTNode,
+    owner_name: &byte, owner_type: &Type) &ASTNode {
+    if ctx == null || method_decl == null || owner_name == null || owner_type == null {
+        return method_decl;
+    }
+    var type_args: &Type = null;
+    var arg_count: i32 = 0;
+    var struct_decl: &ASTNode = null;
+    var receiver_type: Type = owner_type[0];
+    if receiver_type.kind == TypeKind.TYPE_POINTER && receiver_type.pointer_to != null {
+        receiver_type = receiver_type.pointer_to[0];
+    }
+    if receiver_type.kind == TypeKind.TYPE_STRUCT && receiver_type.struct_type_args != null {
+        type_args = receiver_type.struct_type_args;
+        arg_count = receiver_type.struct_type_arg_count;
+        struct_decl = find_struct_decl_from_program(ctx.checker.program_node, owner_name);
+    } else if receiver_type.kind == TypeKind.TYPE_UNION && receiver_type.union_type_args != null {
+        type_args = receiver_type.union_type_args;
+        arg_count = receiver_type.union_type_arg_count;
+        struct_decl = find_union_decl_from_program(ctx.checker.program_node, owner_name);
+    }
+    if struct_decl == null && owner_name != null {
+        struct_decl = find_struct_decl_from_program(ctx.checker.program_node, owner_name);
+    }
+    if type_args == null || arg_count <= 0 || struct_decl == null ||
+        struct_decl.struct_decl_type_params == null || struct_decl.struct_decl_type_param_count <= 0 {
+        // `self: &Self` 上的方法调用没有类型实参：继承当前正在降级的单态副本。
+        if struct_decl != null && g_mono_struct_current >= 0 &&
+            g_mono_struct_current < EXEC_MAX_MONO_STRUCT_DECLS &&
+            g_mono_struct_owner[g_mono_struct_current] == struct_decl {
+            const inherit_args: &Type = &g_mono_struct_arg[g_mono_struct_current] as &Type;
+            return exec_lower_mono_struct_method_decl(ctx.arena, method_decl, struct_decl,
+                g_mono_struct_current, inherit_args, 1);
+        }
+        return method_decl;
+    }
+    const inst_idx: i32 = exec_lower_mono_struct_instance_index(ctx.checker, owner_name, type_args, arg_count);
+    if inst_idx < 0 {
+        return method_decl;
+    }
+    return exec_lower_mono_struct_method_decl(ctx.arena, method_decl, struct_decl, inst_idx, type_args, arg_count);
 }
 
 fn exec_lower_append_local(ctx: &ExecLowerContext, decl: &ASTNode, name: &byte, type: &Type, is_param: i32) i32 {
@@ -1148,7 +1486,7 @@ fn exec_lower_append_local(ctx: &ExecLowerContext, decl: &ASTNode, name: &byte, 
     var drop_decl: &ASTNode = null;
     if is_param == 0 {
         scope_id = exec_lower_current_scope_id(ctx);
-        drop_decl = exec_lower_find_drop_decl(ctx.checker, decl, type);
+        drop_decl = exec_lower_find_drop_decl(ctx, decl, type);
         if checker_type_has_drop_method(ctx.checker, type) != 0 &&
             (decl == null || decl.var_decl_was_moved == 0) {
             needs_drop = 1;
@@ -6526,6 +6864,13 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 method_decl = find_instance_method_in_union(ctx.checker.program_node, owner_type.union_name, method_name);
             }
             if method_decl != null {
+                // 泛型结构体实例上的方法：换成该实例的单态副本（`@size_of(T)` 一类
+                // 需要具体类型才能折叠）。
+                const specialized_decl: &ASTNode = exec_lower_specialize_struct_method(
+                    ctx, method_decl, owner_type.struct_name, &owner_type);
+                if specialized_decl != null && specialized_decl != method_decl {
+                    method_decl = specialized_decl;
+                }
                 const generic_method_name: &byte = exec_lower_begin_generic_method(ctx, expr, method_decl);
                 const total_arg_count: i32 = expr.call_expr_arg_count + 1;
                 if total_arg_count > EXEC_MAX_CALL_ARGS {
@@ -7985,7 +8330,16 @@ fn exec_lower_function(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &A
     const saved_self_type_name: &byte = checker.current_self_type_name;
     const saved_self_is_union: i32 = checker.current_self_is_union;
     var owner_is_union: i32 = 0;
-    const owner_type_name: &byte = checker_fn_decl_owner_type_name(checker, fn_decl, &owner_is_union);
+    var owner_type_name: &byte = checker_fn_decl_owner_type_name(checker, fn_decl, &owner_is_union);
+    // 单态副本不是原方法声明，按声明找 owner 找不到，改用副本登记的结构体名，
+    // 否则 `self: &Self` 里的 `Self` 解析不成结构体。
+    const mono_owner_idx: i32 = exec_lower_mono_struct_index_of(fn_decl);
+    if owner_type_name == null && mono_owner_idx >= 0 && mono_owner_idx < EXEC_MAX_MONO_STRUCT_DECLS {
+        const mono_owner_decl: &ASTNode = g_mono_struct_owner[mono_owner_idx];
+        if mono_owner_decl != null {
+            owner_type_name = mono_owner_decl.struct_decl_name;
+        }
+    }
     if owner_type_name != null {
         checker.current_self_type_name = owner_type_name;
         checker.current_self_is_union = owner_is_union;
@@ -8290,8 +8644,33 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
             i = i + 1;
             continue;
         }
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null &&
+            exec_lower_mono_struct_index_of(decl) < 0 &&
+            exec_lower_is_generic_struct_method(checker, decl) != 0 {
+            // 泛型结构体的原方法声明不单独降级：它在具体类型实参下才有意义，
+            // 调用点用的是 `结构体名_方法名$s<序号>` 的单态副本。
+            i = i + 1;
+            continue;
+        }
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null {
+            const mono_idx: i32 = exec_lower_mono_struct_index_of(decl);
+            const saved_mono_active: i32 = checker.subst_active;
+            const saved_mono_name: &byte = checker.subst_name;
+            const saved_mono_type: Type = copy_type(&checker.subst_type);
+            const saved_mono_params: &TypeParam = checker.current_type_params;
+            const saved_mono_param_count: i32 = checker.current_type_param_count;
+            const saved_mono_current: i32 = g_mono_struct_current;
+            if mono_idx >= 0 {
+                exec_lower_install_mono_struct_subst(checker, mono_idx);
+                g_mono_struct_current = mono_idx;
+            }
             const lowered: &HIRFunction = exec_lower_function(arena, checker, decl, globals, global_count);
+            checker.subst_active = saved_mono_active;
+            checker.subst_name = saved_mono_name;
+            checker.subst_type = copy_type(&saved_mono_type);
+            checker.current_type_params = saved_mono_params;
+            checker.current_type_param_count = saved_mono_param_count;
+            g_mono_struct_current = saved_mono_current;
             if lowered == null {
                 if exec_backend_get_last_error() == null {
                     exec_backend_set_error(decl, "exec: 函数 lowering 失败但未设置错误信息" as *byte, 0);
@@ -8317,6 +8696,11 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
             }
             exec_lower_collect_cleanup_decls_from_function(checker, lowered, &exec_reachable[0] as & & ASTNode, &exec_reachable_count);
             count = count + 1;
+        }
+        // 本轮 lowering 新登记的单态结构体方法副本要补进可达集合，下一轮继续降级。
+        if exec_lower_drain_pending_mono_struct_decls(&exec_reachable[0] as & & ASTNode, &exec_reachable_count) != 0 {
+            exec_backend_set_error(program, "exec: 单态结构体方法超出可达上限" as *byte, 0);
+            return null;
         }
         i = i + 1;
     }
