@@ -819,7 +819,14 @@ fn exec_builder_emit_const(ctx: &ExecFunctionBuildContext, dst: i32, expr: &HIRE
     } else if kind_code == TypeKind.TYPE_POINTER as i32 {
         const_value = exec_make_pointer_with_kind(expr.int_value as usize, exec_builder_pointer_pointee_kind_code(expr.type_ref.type));
     } else if kind_code == TypeKind.TYPE_I32 as i32 {
-        const_value = exec_make_i32(expr.int_value as i32);
+        // 未加后缀的整数字面量在 exec 侧可能被标成 i32，但值本身放不进 i32
+        // （如 `v > 922337203685477580`）。此时按 i64 发射，否则会被截断成负数，
+        // 比较结果直接反掉。
+        if expr.int_value > 2147483647 as i64 || expr.int_value < (-2147483647 as i64) - 1 as i64 {
+            const_value = exec_make_i64(expr.int_value);
+        } else {
+            const_value = exec_make_i32(expr.int_value as i32);
+        }
     }
     const const_idx: i32 = exec_builder_intern_const(ctx, const_value);
     if const_idx < 0 {
