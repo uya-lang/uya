@@ -429,7 +429,28 @@
 
 ### 第 272 轮末的 Top 阻塞（按可收割性排序，已更新）
 
-实测基线：`/tmp/census_r274.tsv`，**678 / 914 通过**，零回归（673 → 678）。
+实测基线：`/tmp/census_r278.tsv`，**688 / 914 通过**，零回归（669 → 678 → 683 →
+687 → 688）。会话累计 +19，每轮 census 都是零回归。
+
+第 275~278 轮的新增（都是「静默变成 0/空值」或「结构合法但没降级路径」）：
+
+- `&T` 装箱成 interface（`vec_new<byte>(get_allocator())`）只认 `TYPE_STRUCT`，
+  指针实参被当 interface 值直接传 → `LOAD_FIELD 字段越界(kind=14 count=0)`。
+  强制转换先解一层指针，装箱数据直接用该指针。
+- 字符串字面量隐式转 `&[const byte]`（变量初始化、实参）没构造 `{ptr,0,len}`，
+  `.len` 读成 0 —— `test_string_buf`/`test_std_env` 里「写进去读出来全是 0」的
+  根因。与 `as &[const byte]` 共用 `exec_lower_make_string_literal_slice`。
+- union 变体构造：空载荷变体带实参（`EventKind.Readable({})`）被拒；
+  `Kind.Closed` 这种「类型名.空载荷变体」没有降级路径（对象被当普通变量）。
+  现在两者都生成 `HIR_EXPR_UNION_INIT`。
+- `&"字面量"[i]` / `&全局字符串[i]`：`BC_ADDR_INDEX` 只认数组/切片/指针，
+  STRING 常量直接报 `ADDR_INDEX 越界`。
+- union match 载荷绑定类型按实例实参替换（`Option<Event>` 的 `.Some(evt)`）。
+- 隐式 libc 调用按**名字**接宿主实现（`use std.mem.memcpy;` 在 Uya 侧没有声明
+  节点）：`exec_lower_match_host_call` 拆成包装层 + `_impl(name, param_count,
+  arg_count, is_varargs)`，新增 `EXEC_HOST_CALL_MEMCHR`。
+- 修 `exec_lower_match_host_call` 重构时误伤的 varargs 分支（`printf` 家族回归，
+  已在同一轮修好）。
 
 第 274 轮又修掉两处「值悄悄变成 0」的 lowering 缺陷：
 - `&T` 装箱成 interface（`vec_new<byte>(get_allocator())` 这类）只认
