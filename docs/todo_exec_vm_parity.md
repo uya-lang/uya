@@ -429,8 +429,39 @@
 
 ### 第 272 轮末的 Top 阻塞（按可收割性排序，已更新）
 
-实测基线：`/tmp/census_r281.tsv`，**690 / 914 通过**，零回归（687 → 690）。
-本轮新增：`test_number_literals`、`test_int_limit_i8_nested`、`test_kernel_host`。
+实测基线：`/tmp/census_r284.tsv`，**700 / 914 通过**，零回归（690 → 700，
+整轮 census 从 16 分钟降到 8.5 分钟）。新增：`test_crypto_bigint`、
+`test_crypto_bigint_modexp4096`、`test_crypto_curve25519`、`test_crypto_sha512`、
+`test_crypto_sha256_stream`，以及 3 个 async 边界用例。
+
+### 解释器的内存/性能（GPU 那台机器上尤其明显）
+
+`exec_value_alloc_bytes` 是**直接 malloc、没有回收**，所以「每次操作深拷贝多少」
+直接决定内存曲线。三个乘数级浪费：
+
+1. **每次调用 393KB**：`ExecFrame.slots` 是 `[ExecValue: 8192]`，每个调用都清零
+   一遍（1M 次空调用 = 212 秒）。改成从共享槽位栈按 `function.slot_count`
+   切一段（`exec_vm_slot_pool_push/pop`，LIFO，递归安全）→ 1M 次调用 1.0 秒。
+2. **读变量深拷贝**：`BC_LOAD_LOCAL/LOAD_GLOBAL` 原来是 `exec_value_clone`，
+   `acc[i]` 这种下标读每执行一次就复制整个数组（`test_crypto_bigint` 涨到 7GB）。
+   读路径统一改浅拷贝（写路径仍深拷贝，值语义不变）。
+3. **读字段/元素深拷贝**：`BC_LOAD_FIELD` / 聚合数组的 `BC_LOAD_INDEX` 同病。
+   curve25519 的 `Gf` 是「结构体嵌 `[i64: 16]`」，`s.v[i]` 一次 ~456 字节，
+   一秒上万次 → 8.8GB 且单条向量跑不完。改浅拷贝后 8 个用例 16 秒、
+   峰值 ~190MB。
+
+另外 `exec_vm_store_slot` 在目标槽位已有同形聚合时逐元素原地覆盖
+（`exec_vm_store_aggregate_in_place`），循环里反复赋值结构体/数组不再持续申请。
+
+### census 自身
+
+- `UYA_EXEC_CENSUS_MEM_MB`（默认 1024）**之前从来没生效**：`run_one` 由 xargs
+  在子 shell 里跑，`MEM_MB` 没 export，子进程里是空的，`ulimit` 分支被静默跳过。
+  现在 export，单用例超限会快速失败（不再有 4.9GB 的失控用例）。
+- 新增 `UYA_EXEC_CENSUS_GLOB`（分片跑）与 `tests/exec_vm_census_timeouts.txt`
+  （给「语义已对齐但纯 CPU 很贵」的用例单独放宽，目前只有 4096 位模幂 900s）。
+- 启动前按编译器路径清理上一轮被 SIGKILL 留下的孤儿 xargs/解释器（它们会继续
+  吃 CPU 和内存，是「越跑越涨」的一个来源）。
 
 census 的**内存**问题已定位并加门禁（`UYA_EXEC_CENSUS_MEM_MB`，默认 2048MB）：
 单个用例的内存峰值实测 `test_tls_sha256` 177MB、`test_https_local` 456MB、
