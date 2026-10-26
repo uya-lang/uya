@@ -1972,6 +1972,28 @@ fn exec_lower_resolve_exact_type(ctx: &ExecLowerContext, expr: &ASTNode) Type {
     return resolved;
 }
 
+/// `&f` 且 f 是函数声明时，产出一个非零常量指针（解释器没有机器码地址）。
+///
+/// 参数：`ctx` lowering 上下文；`unary_ast` 取地址表达式；`operand` 被取地址的操作数。
+/// 返回值：命中函数标识符时返回指针常量表达式；否则返回 null（调用方继续走普通取址）。
+fn exec_lower_make_fn_addr_expr(ctx: &ExecLowerContext, unary_ast: &ASTNode, operand: &ASTNode) &HIRExpr {
+    if ctx == null || unary_ast == null || operand == null ||
+        operand.type != ASTNodeType.AST_IDENTIFIER || operand.identifier_name == null {
+        return null;
+    }
+    if exec_lower_find_slot(ctx, operand.identifier_name) >= 0 ||
+        exec_lower_find_global_slot(ctx, operand.identifier_name) >= 0 {
+        return null;
+    }
+    const fn_decl: &ASTNode = exec_lower_resolve_function_decl_from_file(ctx.checker, operand.filename, operand.identifier_name);
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
+        return null;
+    }
+    const void_pointee: Type = make_void_type();
+    const ptr_type: Type = make_pointer_type(ctx.arena, &void_pointee, 0);
+    return exec_lower_make_int_const_expr(ctx, unary_ast, &ptr_type, 4096);
+}
+
 fn exec_lower_make_addr_expr(ctx: &ExecLowerContext, ast_node: &ASTNode, pointee_type: &Type) &HIRExpr {
     if pointee_type == null {
         return null;
@@ -5969,6 +5991,20 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             return exec_lower_make_zero_expr(ctx, expr, &null_type);
         }
         if expr.identifier_name != null {
+            // 裸函数名当值用（`pthread_create(..., thread_main, arg)` 一类）：
+            // 解释器里没有可执行地址，给一个稳定的非零占位指针。
+            const bare_fn_decl: &ASTNode = exec_lower_resolve_function_decl_from_file(ctx.checker, expr.filename, expr.identifier_name);
+            if bare_fn_decl != null && bare_fn_decl.type == ASTNodeType.AST_FN_DECL {
+                var fn_addr_type: Type = copy_type(&expr_type);
+                if (exec_type_is_vm_value_supported(fn_addr_type) == 0 ||
+                    fn_addr_type.kind == TypeKind.TYPE_VOID) &&
+                    str_equals(expr.identifier_name, "null" as *byte) == 0 {
+                    const fn_void_pointee: Type = make_void_type();
+                    fn_addr_type = make_pointer_type(ctx.arena, &fn_void_pointee, 0);
+                }
+                const fn_addr_value: i64 = 4096 + (hash_string(expr.identifier_name) & 0xFFF) as i64;
+                return exec_lower_make_int_const_expr(ctx, expr, &fn_addr_type, fn_addr_value);
+            }
             var unknown_ident_msg: [byte: 192] = [];
             _ = snprintf(&unknown_ident_msg[0] as *byte, 192, "exec: 当前仅支持局部变量/参数/全局标识符(%s)" as *byte, expr.identifier_name as *byte);
             return exec_lower_fail_expr(expr, &unknown_ident_msg[0]);
@@ -6108,6 +6144,12 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     }
     if expr.type == ASTNodeType.AST_UNARY_EXPR {
         if (expr.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND {
+            // `&f`（f 是函数）：解释器里没有可执行地址，给个非零占位指针即可，
+            // 语义上只用于「取到函数地址」这类可达性/注册场景。
+            const fn_addr_expr: &HIRExpr = exec_lower_make_fn_addr_expr(ctx, expr, expr.unary_expr_operand);
+            if fn_addr_expr != null {
+                return fn_addr_expr;
+            }
             return exec_lower_make_ref_expr(ctx, expr.unary_expr_operand);
         }
         if (expr.unary_expr_op as TokenType) == TokenType.TOKEN_ASTERISK {
