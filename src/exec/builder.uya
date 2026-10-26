@@ -2020,7 +2020,9 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         } else if expr.kind == HIRExprKind.HIR_EXPR_TUPLE_INIT {
             op_init = BCOpcode.BC_MAKE_TUPLE;
         }
-        if item_base < 0 {
+        // 零字段结构体 / 空数组字面量没有元素槽位，item_base 为 -1 是正常的：
+        // 元素个数为 0 时 VM 不会去解引用 b。
+        if item_base < 0 && expr.item_count > 0 {
             return -1;
         }
         if exec_builder_emit(ctx, BCInstr {

@@ -6065,7 +6065,9 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             return exec_lower_fail_expr(expr, "exec: 结构体字面量不完整" as *byte);
         }
         const struct_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node, expr.struct_init_struct_name);
-        if struct_decl == null || struct_decl.struct_decl_fields == null {
+        // 零字段结构体（`HeapAllocator{}`、`Empty{}`）的 struct_decl_fields 是 null，
+        // 字段数以 struct_decl_field_count 为准，不能当成「声明解析失败」。
+        if struct_decl == null {
             return exec_lower_fail_expr(expr, "exec: 无法解析结构体声明" as *byte);
         }
         const items: & & HIRExpr = exec_lower_alloc_items(ctx, struct_decl.struct_decl_field_count);
