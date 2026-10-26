@@ -2170,9 +2170,10 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
         exec_backend_set_error(function.decl, "exec: syscall 参数数量非法" as *byte, 0);
         return -1;
     }
-    // 解释器只有一个执行流：clone/fork 出来的第二个流会持有另一套解释器状态，
-    // 语义无法保证（实际表现是父进程等待子线程而挂死）。直接报错更容易定位。
-    if nr_value == 56 || nr_value == 57 || nr_value == 58 || nr_value == 435 {
+    // clone 出来的线程与父线程共享地址空间，却会各自持有解释器状态，
+    // 父线程等待子线程就永远等不到（普查里表现为整例超时）。fork/vfork 是
+    // 写时复制的独立副本，解释器状态自洽，保持放行。
+    if nr_value == 56 || nr_value == 435 {
         exec_backend_set_error(function.decl, "exec: 解释器不支持创建线程/进程(clone/fork)" as *byte, 0);
         return -1;
     }
