@@ -16,6 +16,10 @@ use libc.snprintf;
 use libc.write;
 use libc.strlen;
 use libc.fflush;
+use libc.malloc;
+use libc.calloc;
+use libc.realloc;
+use libc.free;
 
 const EXEC_VM_REF_KIND_BASE: i32 = 65536;
 const EXEC_VM_REF_KIND_INDEX_BASE: i32 = 131072;
@@ -2434,6 +2438,79 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             }
         }
         out_value[0] = mem_dst[0];
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_MALLOC || site.id == ExecHostCallId.EXEC_HOST_CALL_CALLOC {
+        const want_one_arg: i32 = (site.id == ExecHostCallId.EXEC_HOST_CALL_MALLOC) as i32;
+        if arg_count != 1 && want_one_arg != 0 {
+            exec_backend_set_error(function.decl, "exec: malloc 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        if arg_count != 2 && want_one_arg == 0 {
+            exec_backend_set_error(function.decl, "exec: calloc 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const alloc_first: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        if alloc_first == null {
+            exec_backend_set_error(function.decl, "exec: 分配参数槽位非法" as *byte, 0);
+            return -1;
+        }
+        var alloc_total: usize = alloc_first.i64_value as usize;
+        if want_one_arg == 0 {
+            const alloc_second: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+            if alloc_second == null {
+                exec_backend_set_error(function.decl, "exec: calloc 参数槽位非法" as *byte, 0);
+                return -1;
+            }
+            const alloc_count: usize = alloc_second.i64_value as usize;
+            if alloc_count > 0 as usize && alloc_total > 0 as usize &&
+                alloc_total < (1073741824 as usize) / alloc_count {
+                alloc_total = alloc_total * alloc_count;
+            } else {
+                alloc_total = 0 as usize;
+            }
+        }
+        var alloc_block: &byte = null;
+        if alloc_total > 0 as usize {
+            if want_one_arg == 0 {
+                alloc_block = calloc(alloc_total, 1 as usize) as &byte;
+            } else {
+                alloc_block = malloc(alloc_total) as &byte;
+            }
+        }
+        out_value[0] = exec_make_pointer_with_kind(@usize_from_ptr(alloc_block as &void), TypeKind.TYPE_VOID as i32);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_REALLOC {
+        if arg_count != 2 {
+            exec_backend_set_error(function.decl, "exec: realloc 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const realloc_ptr: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const realloc_size: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        if realloc_ptr == null || realloc_size == null {
+            exec_backend_set_error(function.decl, "exec: realloc 参数槽位非法" as *byte, 0);
+            return -1;
+        }
+        const realloc_bytes: usize = realloc_size.i64_value as usize;
+        const realloc_block: &byte = realloc(realloc_ptr.ptr_value as &void, realloc_bytes) as &byte;
+        out_value[0] = exec_make_pointer_with_kind(@usize_from_ptr(realloc_block as &void), TypeKind.TYPE_VOID as i32);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_FREE {
+        if arg_count != 1 {
+            exec_backend_set_error(function.decl, "exec: free 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const free_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        if free_arg == null {
+            exec_backend_set_error(function.decl, "exec: free 参数槽位非法" as *byte, 0);
+            return -1;
+        }
+        if free_arg.ptr_value != null {
+            free(free_arg.ptr_value as &void);
+        }
+        out_value[0] = exec_make_void();
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_MEMCMP {

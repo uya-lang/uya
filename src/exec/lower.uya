@@ -301,6 +301,13 @@ fn exec_lower_eval_size_align_builtin(ctx: &ExecLowerContext, expr: &ASTNode) i3
     }
     // 泛型参数（`@size_of(T)`）在表达式推断下会得到 void/泛型参数，
     // 单态体里要按类型再解析一次才能拿到具体结构体。
+    // `@size_of(sample[0])` 这类元素类型是泛型参数的表达式：单态化期间按当前替换取具体类型。
+    if target_type.kind == TypeKind.TYPE_GENERIC_PARAM && ctx.checker.subst_active != 0 &&
+        ctx.checker.subst_name != null && target_type.generic_param_name != null {
+        if str_equals(target_type.generic_param_name, ctx.checker.subst_name) != 0 {
+            target_type = copy_type(&ctx.checker.subst_type);
+        }
+    }
     if target.type == ASTNodeType.AST_IDENTIFIER && target.identifier_name != null {
         var needs_type_form_size: i32 = 0;
         if target_type.kind == TypeKind.TYPE_GENERIC_PARAM || target_type.kind == TypeKind.TYPE_VOID {
@@ -431,6 +438,22 @@ fn exec_lower_match_host_call(fn_decl: &ASTNode, call_arg_count: i32) ExecHostCa
         // 内存 / 字符串族：protobuf、tflm、process 等模块只声明不带体的
         // `extern "libc"`，VM 必须自己按原生指针实现，否则这些模块整体不可用。
         // 带 Uya 体的版本（lib/libc/mem.uya）仍走解释执行，不受影响。
+        if str_equals(fn_decl.fn_decl_name, "malloc" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_MALLOC;
+        }
+        if str_equals(fn_decl.fn_decl_name, "free" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_FREE;
+        }
+        if str_equals(fn_decl.fn_decl_name, "calloc" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_CALLOC;
+        }
+        if str_equals(fn_decl.fn_decl_name, "realloc" as &byte) != 0 &&
+            fn_decl.fn_decl_param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_REALLOC;
+        }
         if str_equals(fn_decl.fn_decl_name, "memcpy" as &byte) != 0 &&
             fn_decl.fn_decl_param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_MEMCPY;
@@ -5614,7 +5637,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if folded_value < 0 {
             const fallback_value: i32 = checker_eval_const_expr(ctx.checker, expr);
             if fallback_value < 0 {
-                var fold_fail_msg: [byte: 192] = [];
+                var fold_fail_msg: [byte: 224] = [];
                 var fold_target_kind: i32 = -1;
                 var fold_target_name: &byte = "(none)" as &byte;
                 if expr.type == ASTNodeType.AST_SIZEOF && expr.sizeof_expr_target != null {
@@ -5623,9 +5646,22 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                         fold_target_name = expr.sizeof_expr_target.identifier_name;
                     }
                 }
-                _ = snprintf(&fold_fail_msg[0] as *byte, 192,
-                    "exec: 编译期 builtin 折叠失败(target=%d name=%s kind=%d)" as *byte,
-                    fold_target_kind, fold_target_name as *byte, expr_type.kind as i32);
+                var fold_target_type_kind: i32 = -1;
+                var fold_target_param: &byte = "(none)" as &byte;
+                if expr.type == ASTNodeType.AST_SIZEOF && expr.sizeof_expr_target != null {
+                    const fold_probe_type: Type = exec_lower_expr_type(ctx, expr.sizeof_expr_target);
+                    fold_target_type_kind = fold_probe_type.kind as i32;
+                    if fold_probe_type.generic_param_name != null {
+                        fold_target_param = fold_probe_type.generic_param_name;
+                    }
+                    if fold_probe_type.struct_name != null {
+                        fold_target_param = fold_probe_type.struct_name;
+                    }
+                }
+                _ = snprintf(&fold_fail_msg[0] as *byte, 224,
+                    "exec: 编译期 builtin 折叠失败(target=%d name=%s kind=%d tkind=%d tparam=%s)" as *byte,
+                    fold_target_kind, fold_target_name as *byte, expr_type.kind as i32,
+                    fold_target_type_kind, fold_target_param as *byte);
                 return exec_lower_fail_expr(expr, &fold_fail_msg[0]);
             }
             return exec_lower_make_int_const_expr(ctx, expr, &expr_type, fallback_value as i64);
