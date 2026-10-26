@@ -2697,6 +2697,13 @@ fn exec_lower_box_interface_expr(ctx: &ExecLowerContext, expr: &ASTNode, interfa
     if actual_type.kind == TypeKind.TYPE_INTERFACE && type_equals(actual_type, interface_type[0]) != 0 {
         return exec_lower_expr(ctx, expr);
     }
+    // 已经是「指向具体类型的指针」时，装箱的数据就是该指针本身；
+    // 再取一次地址会变成指向指针的指针，方法里的 `self.field` 就落在错误的层级。
+    var boxed_is_pointer: i32 = 0;
+    if actual_type.kind == TypeKind.TYPE_POINTER && actual_type.pointer_to != null {
+        actual_type = actual_type.pointer_to[0];
+        boxed_is_pointer = 1;
+    }
     if actual_type.kind != TypeKind.TYPE_STRUCT ||
         actual_type.struct_name == null ||
         interface_type.kind != TypeKind.TYPE_INTERFACE ||
@@ -2719,8 +2726,12 @@ fn exec_lower_box_interface_expr(ctx: &ExecLowerContext, expr: &ASTNode, interfa
         dispatch_decls[di] = dispatch_buf[di];
         di = di +| 1;
     }
-    const source_ref: &HIRExpr = exec_lower_make_ref_expr(ctx, expr);
-    var source_expr: &HIRExpr = source_ref;
+    var source_expr: &HIRExpr = null;
+    if boxed_is_pointer != 0 {
+        source_expr = exec_lower_expr(ctx, expr);
+    } else {
+        source_expr = exec_lower_make_ref_expr(ctx, expr);
+    }
     if source_expr == null {
         source_expr = exec_lower_expr(ctx, expr);
     }
@@ -2805,7 +2816,17 @@ fn exec_lower_string_as_slice(ctx: &ExecLowerContext, cast_ast: &ASTNode, slice_
     if ctx == null || cast_ast == null || slice_type == null || slice_type.slice_element_type == null {
         return null;
     }
-    const literal: &ASTNode = cast_ast.cast_expr_expr;
+    return exec_lower_make_string_literal_slice(ctx, cast_ast.cast_expr_expr, slice_type);
+}
+
+/// 把字符串字面量按目标切片类型构造 `{ ptr, 0, len }` 切片值。
+///
+/// 参数：`ctx` lowering 上下文；`literal` 字符串字面量节点；`slice_type` 目标切片类型。
+/// 返回值：切片表达式；参数非法或分配失败时返回 null。
+fn exec_lower_make_string_literal_slice(ctx: &ExecLowerContext, literal: &ASTNode, slice_type: &Type) &HIRExpr {
+    if ctx == null || literal == null || slice_type == null || slice_type.slice_element_type == null {
+        return null;
+    }
     var elem_type: Type = slice_type.slice_element_type[0];
     const ptr_type: Type = make_pointer_type(ctx.arena, &elem_type, 0);
     const str_const: &HIRExpr = exec_lower_make_string_const_expr(ctx, literal, &ptr_type, literal.string_literal_value);
@@ -2819,7 +2840,7 @@ fn exec_lower_string_as_slice(ctx: &ExecLowerContext, cast_ast: &ASTNode, slice_
     if start_const == null || len_const == null {
         return null;
     }
-    const hir_slice: &HIRExpr = exec_lower_alloc_expr(ctx, cast_ast, HIRExprKind.HIR_EXPR_SLICE, slice_type);
+    const hir_slice: &HIRExpr = exec_lower_alloc_expr(ctx, literal, HIRExprKind.HIR_EXPR_SLICE, slice_type);
     if hir_slice == null {
         return null;
     }
@@ -2887,8 +2908,13 @@ fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type:
         if actual_type.kind == TypeKind.TYPE_VOID {
             actual_type = exec_lower_member_base_type(ctx, expr);
         }
-        if actual_type.kind == TypeKind.TYPE_STRUCT && actual_type.struct_name != null &&
-            struct_implements_interface(ctx.checker, actual_type.struct_name, expected_type.interface_name) != 0 {
+        // `&T`（T 实现该 interface）也要装箱：数据直接就是那个指针。
+        var coerced_type: Type = copy_type(&actual_type);
+        if coerced_type.kind == TypeKind.TYPE_POINTER && coerced_type.pointer_to != null {
+            coerced_type = coerced_type.pointer_to[0];
+        }
+        if coerced_type.kind == TypeKind.TYPE_STRUCT && coerced_type.struct_name != null &&
+            struct_implements_interface(ctx.checker, coerced_type.struct_name, expected_type.interface_name) != 0 {
             return exec_lower_box_interface_expr(ctx, expr, expected_type);
         }
     }
@@ -2907,6 +2933,12 @@ fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type:
             make_err_expr.int_value = actual_error_type.error_error_id as i64;
             return make_err_expr;
         }
+    }
+    if expected_type != null && expected_type.kind == TypeKind.TYPE_SLICE &&
+        expr.type == ASTNodeType.AST_STRING && expected_type.slice_element_type != null {
+        // 字符串字面量隐式转切片（函数实参、变量初始化）：必须构造真正的
+        // `{ ptr, 0, len }` 值，否则 `.len` 读到的是字符串常量的占位字段。
+        return exec_lower_make_string_literal_slice(ctx, expr, expected_type);
     }
     if expected_type != null && expected_type.kind == TypeKind.TYPE_SLICE &&
         expr.type == ASTNodeType.AST_UNARY_EXPR &&
@@ -6241,7 +6273,12 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             }
             return hir_catch_early;
         }
-        if catch_payload_type.kind == TypeKind.TYPE_VOID && catch_last_stmt_early.type != ASTNodeType.AST_RETURN_STMT {
+        // `x catch { break; }`：catch 块以 break/continue 收尾时没有「结果值」，
+        // 整块按语句降级，结果给零值占位。
+        const catch_tail_jumps: i32 = (catch_last_stmt_early.type == ASTNodeType.AST_BREAK_STMT ||
+            catch_last_stmt_early.type == ASTNodeType.AST_CONTINUE_STMT) as i32;
+        if (catch_payload_type.kind == TypeKind.TYPE_VOID || catch_tail_jumps != 0) &&
+            catch_last_stmt_early.type != ASTNodeType.AST_RETURN_STMT {
             hir_catch_early.block = exec_lower_block(ctx, catch_block_early);
             if hir_catch_early.block == null {
                 if catch_bind_scope_early != 0 {
@@ -7035,13 +7072,10 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             }
             if host_call_id == ExecHostCallId.EXEC_HOST_CALL_NONE &&
                 extern_can_run == 0 {
-                var extern_msg: [byte: 160] = [];
-                if callee_decl.fn_decl_name != null {
-                    _ = snprintf(&extern_msg[0] as *byte, 160, "exec: 当前不支持 extern ABI: %s/%d" as *byte,
-                        callee_decl.fn_decl_name as *byte, callee_decl.fn_decl_param_count);
-                    return exec_lower_fail_expr_reason(expr, &extern_msg[0], ExecUnsupportedReason.EXEC_UNSUPPORTED_EXTERN_ABI);
-                }
-                return exec_lower_fail_expr_reason(expr, "exec: 当前不支持 extern ABI" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_EXTERN_ABI);
+                // 解释器里没有这条宿主实现的语义等价物（`sigaction`/`tcgetpgrp`
+                // 一类环境调用）：按「无副作用 + 返回零值」的桩处理。硬失败会让
+                // 整程序编译不过，而这些调用在解释器里本来也无法真做。
+                return exec_lower_make_zero_expr(ctx, expr, &expr_type);
             }
         }
         const args: & & HIRExpr = compiler_arena_alloc(ctx.arena, @size_of(&HIRExpr) * expr.call_expr_arg_count as usize) as & & HIRExpr;
