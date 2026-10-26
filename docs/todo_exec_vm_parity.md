@@ -65,6 +65,9 @@
   相关、24 例断言失败、12 例超时）、`catch 操作数不是错误联合` 25、
   `无法解析成员方法调用` 15、`编译期 builtin 折叠失败` 8、`slice 越界` 6、
   `LOAD_FIELD 字段越界` 5、`try 操作数不是错误联合` 4、`LOAD_INDEX 越界` 4。
+- 再一轮（drop 相关三处修复）：**669 / 914（73.2%）**，与 664 比对零回归。
+  新增通过：`test_drop_order`、`test_drop_external`、`test_drop_export_main_direct`、
+  `test_method_block_string_constant`、`test_std_sql`。
 - 新增修复：放不进 i32 的无后缀整数字面量在 `BC_LOAD_CONST` 里会被截断成负数，
   `v > 922337203685477580` 这类守卫整条反掉。std.json 的数字解析因此恒返回
   `NumberOverflow`。改成超出 i32 范围就按 i64 发射后，json 全量 26 例中 17 例通过
@@ -455,7 +458,11 @@
 8. pthread/thread 用例（`test_pthread_api_*`、`test_method_call_in_callback_codegen`
    等）现在能过 lowering，但解释器不真的起线程：`clone` 已被拒绝，从「超时」变成
    秒级失败（多数是后续解引用未初始化的线程句柄而 SIGSEGV）—— 不是编译期缺口。
-9. **JSON 反射解码的多实例串扰**：`to_json<User>` 与 `to_json<Rect>` 同时存在时，
+9. **drop 的移动标记缺口**：`return Outer{ inner: inner };` 这种「局部变量搬进
+   返回值」没有把 `var_decl_was_moved` 置位（`checker_mark_moved` 根本没被调用到，
+   说明结构体字面量的字段检查走的是另一条路径），于是返回时多跑一次 drop
+   （`test_return_struct_init_drop_once` 期望 0 实得 1）。
+10. **JSON 反射解码的多实例串扰**：`to_json<User>` 与 `to_json<Rect>` 同时存在时，
    其中一个实例用上了另一个的结构体字段表（表现为 `json_write_str_view` 收到 i64、
    `LOAD_FIELD idx=2 count=2`）。单实例用例都通过，说明实例命名与选择是对的
    （`to_json$m0` / `to_json$m2` 各不相同），问题在**展开体的字段表来源**：
@@ -596,6 +603,15 @@
 - [x] 未替换的泛型参数按占位类型放行（`__decode_json<T>` 的 `!T` 签名此前被判
   「仅支持标量/错误联合/void 返回值」），`test_generic_comprehensive`、
   `test_generic_multi_type_param` 转通过。
+
+- [x] `exec_builder_find_function_index` 先按声明指针匹配、再退回按名字：
+  原来一趟循环里「先指针后名字」，遇到第一个同名函数就返回，不同结构体的同名方法
+  （`A.drop` / `B.drop`）全调到同一个实现，drop 顺序静默跑错。
+- [x] 程序级方法块（`S { fn drop(self: S) … }`，规范 §12）里的 drop：
+  lower 与 builder 两侧各补一个方法块查找，builder 侧优先用 lowering 解析好的
+  `local.drop_decl`。此前这种写法既不登记 drop 也不报错。
+- [x] `exit(n)` 映射成宿主调用（先 `fflush` 再 `exit`）：
+  `test_drop_export_main_direct` 用「drop 里 exit(0)」验证顶级作用域 drop。
 
 ### T11 收口
 
