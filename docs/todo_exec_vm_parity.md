@@ -55,6 +55,16 @@
   失败原因 Top（655 那次普查）：async 54、`仅支持局部变量/参数/全局标识符` 23、
   `无法解析成员方法调用` 14、`catch 操作数不是错误联合` 22、
   `这个泛型调用` 11、`编译期 builtin 折叠失败` 10、`return 类型与函数返回类型不一致` 14。
+- 再一轮（元组解构 / 空结构体尺寸 / clone 拒绝 / `try match` / 泛型参数占位）后：
+  **664 / 914（72.6%）**，与 648 基线比对**零回归**，累计 +16。新增通过：
+  `test_underscore`、`test_tuple`、`test_empty_struct`、`test_struct_layout`、
+  `test_va_list_builtin`、`test_function_reachability_address_taken`、
+  `test_json_from_json_slice`、`test_generic_comprehensive`、
+  `test_generic_multi_type_param`、`test_https_local` 等。
+  失败原因 Top（664 那次普查）：async 59、空消息 76（其中 39 例是 pthread/clone
+  相关、24 例断言失败、12 例超时）、`catch 操作数不是错误联合` 25、
+  `无法解析成员方法调用` 15、`编译期 builtin 折叠失败` 8、`slice 越界` 6、
+  `LOAD_FIELD 字段越界` 5、`try 操作数不是错误联合` 4、`LOAD_INDEX 越界` 4。
 - 新增修复：放不进 i32 的无后缀整数字面量在 `BC_LOAD_CONST` 里会被截断成负数，
   `v > 922337203685477580` 这类守卫整条反掉。std.json 的数字解析因此恒返回
   `NumberOverflow`。改成超出 i32 范围就按 i64 发射后，json 全量 26 例中 17 例通过
@@ -443,7 +453,16 @@
    `STORE_FIELD 字段越界(idx=1 kind=14 count=0 pointee=65554 aux=65554 isref=1)`。
    要根治得让非字节定长数组也走原生缓冲 + 写时深拷贝（值语义），属独立大项。
 8. pthread/thread 用例（`test_pthread_api_*`、`test_method_call_in_callback_codegen`
-   等）现在能过 lowering，但解释器不真的起线程，跑到同步点就挂住 —— 不是编译期缺口。
+   等）现在能过 lowering，但解释器不真的起线程：`clone` 已被拒绝，从「超时」变成
+   秒级失败（多数是后续解引用未初始化的线程句柄而 SIGSEGV）—— 不是编译期缺口。
+9. **JSON 反射解码的多实例串扰**：`to_json<User>` 与 `to_json<Rect>` 同时存在时，
+   其中一个实例用上了另一个的结构体字段表（表现为 `json_write_str_view` 收到 i64、
+   `LOAD_FIELD idx=2 count=2`）。单实例用例都通过，说明实例命名与选择是对的
+   （`to_json$m0` / `to_json$m2` 各不相同），问题在**展开体的字段表来源**：
+   `prepare_mono_body_expand_macros` 每次都深拷贝并替换类型实参，需要检查
+   `expand_macros_in_node_simple` 是否从 checker 的全局「当前类型实参」取字段表
+   （而不是用传进来的 `type_args`）。修好它可解锁 `test_json_from_json_reflect`、
+   `test_json_struct_collections`。
 
 
 1. 先跑基线：`UYA_EXEC_CENSUS_JOBS=16 bash tests/verify_exec_vm_census.sh`，
@@ -563,6 +582,20 @@
 - [x] `malloc`/`calloc`/`realloc`/`free` 之外的 POSIX 钩子继续补：
   `pthread_sigmask`（占位）、`isatty`（返 0）、`uya_interface_get_vtable`、
   `uya_pipeline_image_anchor`、`uya_pipeline_worker_main_if_requested`。
+
+- [x] `const (a, _, c) = tuple;` 元组解构（`AST_DESTRUCTURE_DECL`）：右值降临时局部，
+  逐项按元组下标取字段绑定名字，`_` 跳过；整组包成 HIR 块语句。
+- [x] 零字段结构体的 `@size_of`/`@align_of` 取 1（共享 layout 原本返回 -1），
+  `[Empty: N]` 按元素个数，`@size_of(va_list)` 按 x86-64 SysV 取 24/8。
+- [x] 解释器拒绝 `clone`/`clone3`（线程共享地址空间、各自持有解释器状态，
+  父线程永远等不到子线程 → 普查整例超时）；`fork`/`vfork` 继续放行
+  （写时复制的独立副本，`test_http_server` 依赖它）。
+- [x] `try match … { .obj(o) => 解码块, else => error.WrongType }`：JSON 解码宏把
+  「载荷 / 错误值」写成 match 两臂，match 归一到载荷导致 try 报「操作数不是错误联合」；
+  运行时 IS_ERR/UNWRAP_OK 本就能分辨裸错误值与裸载荷，操作数是 match 时按载荷放行。
+- [x] 未替换的泛型参数按占位类型放行（`__decode_json<T>` 的 `!T` 签名此前被判
+  「仅支持标量/错误联合/void 返回值」），`test_generic_comprehensive`、
+  `test_generic_multi_type_param` 转通过。
 
 ### T11 收口
 
