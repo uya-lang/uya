@@ -28,6 +28,9 @@
 #                             吃光；设上限让它快速失败，并记为原因 mem。
 #   UYA_EXEC_CENSUS_REPORT    明细 TSV 落盘路径（默认 /tmp/uya_exec_vm_census.tsv）
 #   UYA_EXEC_CENSUS_SKIP      跳过表路径（默认 tests/exec_vm_census_skip.txt）
+#   UYA_EXEC_CENSUS_GLOB      只跑匹配该 bash 通配的用例（默认全部），例如
+#                             UYA_EXEC_CENSUS_GLOB='test_a*'；用于分片跑，避免一次
+#                             连续占用机器几十分钟
 #   UYA_EXEC_CENSUS_TIMEOUTS  单用例超时覆盖表（默认 tests/exec_vm_census_timeouts.txt）
 #                             格式：`用例名<TAB>秒数`，行内 # 起注释。给"能跑通但
 #                             纯 CPU 很贵"的用例（如 4096 位模幂）单独放宽。
@@ -44,6 +47,7 @@ MEM_MB="${UYA_EXEC_CENSUS_MEM_MB:-1024}"
 REPORT="${UYA_EXEC_CENSUS_REPORT:-/tmp/uya_exec_vm_census.tsv}"
 SKIP_FILE="${UYA_EXEC_CENSUS_SKIP:-$SCRIPT_DIR/exec_vm_census_skip.txt}"
 TIMEOUT_FILE="${UYA_EXEC_CENSUS_TIMEOUTS:-$SCRIPT_DIR/exec_vm_census_timeouts.txt}"
+GLOB_FILTER="${UYA_EXEC_CENSUS_GLOB:-}"
 
 if [ ! -x "$COMPILER" ]; then
     echo "✗ 编译器不存在或不可执行: $COMPILER" >&2
@@ -53,6 +57,10 @@ fi
 ulimit -s unlimited 2>/dev/null || ulimit -s 524288 2>/dev/null || true
 
 export TIMEOUT_FILE
+# 上一次 census 若被 SIGKILL 掐掉（timeout/trap 都来不及跑），xargs 会留下孤儿
+# 解释器继续吃 CPU 和内存，下一轮再叠加。这里先按编译器路径清一遍。
+pkill -f -- "$COMPILER test --vm" 2>/dev/null || true
+
 WORK_DIR="$(mktemp -d /tmp/uya_exec_census.XXXXXX)"
 RESULTS_DIR="$WORK_DIR/results"
 mkdir -p "$RESULTS_DIR"
@@ -132,6 +140,9 @@ FILES=()
 SKIPPED=0
 while IFS= read -r f; do
     base="$(basename "$f")"
+    if [ -n "$GLOB_FILTER" ] && [[ "$base" != $GLOB_FILTER ]]; then
+        continue
+    fi
     if [ -n "${SKIP_SET[$base]:-}" ]; then
         SKIPPED=$((SKIPPED + 1))
         continue
