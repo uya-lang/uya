@@ -2000,12 +2000,45 @@ fn exec_lower_make_bool_const_expr(ctx: &ExecLowerContext, ast_node: &ASTNode, v
     return expr;
 }
 
+/// 把整数字面量按目标整数宽度归一化（符号扩展 / 截断）。
+///
+/// 字面量在 AST 里是「能放下就算」的 u64：`const x: i32 = 0xDEAD_BEEF` 得到
+/// 3735928559，而 `%d` 打印时被截断成 -559038737，于是 `x == -559038737`
+/// 在解释器里为假（C99 后端是 i32 常量，恒为真）。常量生成时就归一化。
+///
+/// 参数：`type` 目标类型；`value` 原始常量值。
+/// 返回值：归一化后的值（非窄整数类型原样返回）。
+fn exec_lower_normalize_int_const(type: &Type, value: i64) i64 {
+    if type == null {
+        return value;
+    }
+    if type.kind == TypeKind.TYPE_I8 {
+        return (value << 56) >> 56;
+    }
+    if type.kind == TypeKind.TYPE_I16 {
+        return (value << 48) >> 48;
+    }
+    if type.kind == TypeKind.TYPE_I32 {
+        return (value << 32) >> 32;
+    }
+    if type.kind == TypeKind.TYPE_U8 || type.kind == TypeKind.TYPE_BYTE {
+        return value & (0xFF as i64);
+    }
+    if type.kind == TypeKind.TYPE_U16 {
+        return value & (0xFFFF as i64);
+    }
+    if type.kind == TypeKind.TYPE_U32 {
+        return value & (0xFFFF_FFFF as i64);
+    }
+    return value;
+}
+
 fn exec_lower_make_int_const_expr(ctx: &ExecLowerContext, ast_node: &ASTNode, type: &Type, value: i64) &HIRExpr {
     const expr: &HIRExpr = exec_lower_alloc_expr(ctx, ast_node, HIRExprKind.HIR_EXPR_CONST, type);
     if expr == null {
         return null;
     }
-    expr.int_value = value;
+    expr.int_value = exec_lower_normalize_int_const(type, value);
     return expr;
 }
 
@@ -2038,6 +2071,12 @@ fn exec_lower_checked_arith_tree(ctx: &ExecLowerContext, node: &ASTNode, value_t
     }
     if node.type == ASTNodeType.AST_UNARY_EXPR && node.unary_expr_operand != null &&
         node.unary_expr_op == TokenType.TOKEN_MINUS as i32 {
+        // 字面量取负在编译期折叠：`-2147483648` 的 AST 是「负号 + 2147483648」，
+        // 按运行时 `0 -| x` 处理会撞 i32 溢出并饱和成 2147483647，与 C99
+        // （常量按 long 求值）不一致。
+        if node.unary_expr_operand.type == ASTNodeType.AST_NUMBER {
+            return exec_lower_make_int_const_expr(ctx, node, value_type, 0 - node.unary_expr_operand.number_value_i64);
+        }
         // `-x` 的溢出等价于 `0 - x`，统一按二元受检减法处理。
         const operand_unary: &HIRExpr = exec_lower_checked_arith_tree(ctx, node.unary_expr_operand, value_type);
         const zero_unary: &HIRExpr = exec_lower_make_int_const_expr(ctx, node, value_type, 0);

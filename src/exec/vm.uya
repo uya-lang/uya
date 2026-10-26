@@ -3408,7 +3408,19 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         } else if exec_vm_value_kind_is_unsigned(neg_kind) != 0 {
             slot_a[0] = exec_vm_make_integer_by_kind(neg_kind, 0, (0 as u64) - (slot_b.i64_value as u64));
         } else {
-            slot_a[0] = exec_vm_make_integer_by_kind(neg_kind, 0 -| slot_b.i64_value, 0);
+            // 取负必须按目标宽度回绕（C 语义）：i32 的 -2147483648 取负仍是
+            // -2147483648，直接交给 `as i32` 会饱和成 2147483647。
+            // `0` 是 i32 字面量，不显式转 i64 会让整条减法在 i32 上饱和
+            // （0 -| -2147483648 → 2147483647）。
+            var neg_wrapped: i64 = (0 as i64) -| slot_b.i64_value;
+            if neg_kind == ExecValueKind.EXEC_VALUE_I8 {
+                neg_wrapped = (neg_wrapped << 56) >> 56;
+            } else if neg_kind == ExecValueKind.EXEC_VALUE_I16 {
+                neg_wrapped = (neg_wrapped << 48) >> 48;
+            } else if neg_kind == ExecValueKind.EXEC_VALUE_I32 {
+                neg_wrapped = (neg_wrapped << 32) >> 32;
+            }
+            slot_a[0] = exec_vm_make_integer_by_kind(neg_kind, neg_wrapped, 0);
         }
     } else if instr.opcode == BCOpcode.BC_NOT {
         if slot_a == null || slot_b == null {
