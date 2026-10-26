@@ -28,6 +28,14 @@
     调用方对非错误联合值做 UNWRAP_OK，拿到垃圾值；
   - `==`/`!=` 对结构体恒为「相等」，因为 exec_vm_compare_values 只看
     i64_value，而结构体的该字段恒为 0。
+- 本轮（单态宏展开 + 结构体默认值 + 错误 id 语义）普查：`test --vm` 通过
+  **597 / 914（65.3%）**，失败 317。此前普查 589，本轮 +8 中已确认的新增通过：
+  `test_json_array`（含 json/yaml 全 17 例）、`test_protobuf_dynamic`、
+  `test_tls_x509`、`test_struct_default`、`test_error_id_builtin`、
+  `test_return_catch_err_pointer`。
+  剩余失败里 **`失败: N`（跑起来了但断言挂）22 例** 才是语义缺口：
+  http 6 例、drop/移动 2 例、指针算术 2 例、base64 1 例、protobuf_wire 1 例等；
+  其余是 async 53、inline asm 52、泛型/varargs、extern 桥等结构性缺口。
 - `make check` 已全绿：1191 个测试，通过 1191，失败 0。
 - 新增修复：放不进 i32 的无后缀整数字面量在 `BC_LOAD_CONST` 里会被截断成负数，
   `v > 922337203685477580` 这类守卫整条反掉。std.json 的数字解析因此恒返回
@@ -374,10 +382,17 @@
   null_check、std_net_addr、tls_dtls、tls_store、wchar、unary_operators
   （`*ptr` 取整个 struct）、pointer_array_field_access（`&arr[0] as &T` 后
   `ptr[i].field` 读写——指针转换不能再把引用编码替换成裸元素类型）。
-- [ ] 余下 3 个：`test_crypto_bigint`（超时，疑似 VM 死循环）、
-  `test_protobuf_dynamic`（`lib/std/protobuf/dynamic.uya:86` 仍是
-  `当前不支持该指针元素类型`）、`test_tls_x509`
-  （`lib/tls/x509/cert.uya:468` `LOAD_FIELD 字段越界`）。
+- [x] `test_protobuf_dynamic`、`test_tls_x509` 已转通过：
+  - protobuf_dynamic 是 T13 双指针修复的连带收益；
+  - tls_x509 的真因不是指针元素类型，而是 `@syscall(SYS_gettimeofday, tv as i64, …)`
+    把 `&TimeVal` 的 ExecValue 地址直接交给内核，内核按原生 `{ i64, i64 }` 写 16 字节，
+    把 ExecValue 头写成垃圾（`LOAD_FIELD idx=0 kind=1792989222`）。现在 syscall
+    元数据里带「出参聚合体」掩码，命中的参数换成原生 i64 缓冲区，跑完再按字段写回。
+- [ ] 余下 1 个：`test_crypto_bigint`（census 超时）。单独计时显示
+  `bigint_modexp_*_2048` 之前的 6 个用例都在秒级通过，卡在 2048 位 modexp
+  （4096 次 mont_mul × 每轮 32×32 次 u64 乘），解释器下是**慢**而不是死循环：
+  降序 `while bit >= 0` 这类循环形状已单独验证语义正确。要么给 census 提高
+  单例超时，要么给 VM 的 u64 乘法/循环加快速路径（独立大项）。
 
 ## 下一轮起点（上下文压缩后从这里继续）
 
@@ -391,7 +406,7 @@
      库函数标识符（如 `strtod`）或 match 绑定；先看 `file:line` 再定位。
    - `尚未支持的语句节点(type=79)`（约 39）= inline asm，属 T8 原生桥。
    - `catch 操作数不是错误联合`（约 29）：样本多为 `@await expr catch ...`，属 T9。
-   - `test_error_id_builtin` 的 `@error_id` 语义差异（已定位、未修）：VM 里
+   - [x] `test_error_id_builtin` 的 `@error_id` 语义差异（已修，见下）：VM 里
      `3096688242u32` 的 `i64_value` 是**符号扩展**的 `-1198279054`，
      `as i64` / `as u64` / `as usize` 三条转换都原样输出 `-1198279054`，
      而 C99 后端输出 `3096688242`。镜像用例（常量 vs 常量）`==` 为真，
@@ -411,6 +426,13 @@
      说明「结果槽 `slot_a` 与 `BC_JMP_IF_FALSE` 读取的条件槽不是同一个」或
      该 `if` 的条件另有来源 —— 下一步应校验 `HIR_EXPR_IF` 里
      `if_cond_slot` 与 `BC_CMP_EQ` 的 `a` 是否一致（插桩输出 `instr.a/b/c` 与帧内槽号）。
+     **真正原因**：`BC_ERROR_ID` 发的是 `exec_make_i32(...)`，而 `@error_id(x)` 的
+     类型是 **u32**。常量那侧是 u32（零扩展 `3096688242`），运行时这侧是 i32
+     （符号扩展 `-1198279054`），`i64_value` 看上去相同只是插桩把两侧都按同宽度打印。
+     改成 `exec_make_u32(exec_value_error_id(...) as u32)` 后 `i64_value` 归一，
+     `test_error_id_builtin` 通过。同一轮还把 `catch |err| { return err; }` 的
+     `BC_MAKE_ERR` 改成 imm 为 0 时取运行时错误 id（此前恒为 0），
+     `test_return_catch_err_pointer` 通过。
    - **`@usize_from_ptr(&arr)` 与 `&arr[0]` 不等价（已修，byte/u8/i8/bool 数组）**：
      ```uya
      var buf: [byte: 8] = [0, 0, 0, 0, 0, 0, 0, 0];
