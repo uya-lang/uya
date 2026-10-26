@@ -2062,9 +2062,9 @@ fn exec_lower_normalize_int_const(type: &Type, value: i64) i64 {
 
 /// 数字字面量常量：先按目标宽度归一化再建常量。
 ///
-/// 只用于 AST 里真正的 NUMBER 字面量（`number_value_i64` 有意义的位置）。
-/// 其它内部常量（零值、枚举值、`@max/@min`、指针占位）不走这条路径——
-/// 它们的值可能来自 union 字段的其它解释方式，归一化会改变语义。
+/// 只在「有明确声明类型」的位置使用（`const x: i32 = 0xDEAD_BEEF`）。普通
+/// 表达式里的 NUMBER 不走这条路径：checker 常把和 u64 比较的大字面量也标成
+/// i32，按 i32 截断会把 `g == 4000000000` 判假。
 ///
 /// 参数：`ctx` 上下文；`ast_node` 字面量节点；`type` 目标类型；`raw` 原始值。
 /// 返回值：常量表达式。
@@ -6581,7 +6581,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             expr_type.kind != TypeKind.TYPE_USIZE {
             return exec_lower_fail_expr(expr, "exec: 仅支持 exec VM 可表示的整数数字字面量" as *byte);
         }
-        return exec_lower_make_number_const(ctx, expr, &expr_type, expr.number_value_i64);
+        return exec_lower_make_int_const_expr(ctx, expr, &expr_type, expr.number_value_i64);
     }
     if expr.type == ASTNodeType.AST_FLOAT {
         if expr_type.kind != TypeKind.TYPE_F32 && expr_type.kind != TypeKind.TYPE_F64 {
@@ -6822,7 +6822,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         // （`3000000000 as i64` 会得到 1705032704，与 C99 后端不一致）。
         if expr.cast_expr_expr != null && is_integer_type(expr_type.kind) != 0 {
             if expr.cast_expr_expr.type == ASTNodeType.AST_NUMBER {
-                return exec_lower_make_number_const(ctx, expr, &expr_type, expr.cast_expr_expr.number_value_i64);
+                return exec_lower_make_int_const_expr(ctx, expr, &expr_type, expr.cast_expr_expr.number_value_i64);
             }
             if expr.cast_expr_expr.type == ASTNodeType.AST_CHAR {
                 return exec_lower_make_int_const_expr(ctx, expr, &expr_type, expr.cast_expr_expr.char_literal_value as i64);

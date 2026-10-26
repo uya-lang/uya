@@ -19,6 +19,10 @@
 #   UYA_EXEC_CENSUS_MIN       最低通过用例数（默认 0，不设门禁）
 #   UYA_EXEC_CENSUS_JOBS      并行度（默认 CPU 核数）
 #   UYA_EXEC_CENSUS_TIMEOUT   单用例超时秒数（默认 300）
+#   UYA_EXEC_CENSUS_MEM_MB    单用例地址空间上限（MB，默认 2048；0 表示不限）
+#                             解释器里的失控用例（如 test_crypto_bigint 会一路
+#                             涨到 7GB+ 再被超时杀掉）只会在白等之前先把内存
+#                             吃光；设上限让它快速失败，并记为原因 mem。
 #   UYA_EXEC_CENSUS_REPORT    明细 TSV 落盘路径（默认 /tmp/uya_exec_vm_census.tsv）
 #   UYA_EXEC_CENSUS_SKIP      跳过表路径（默认 tests/exec_vm_census_skip.txt）
 
@@ -30,6 +34,7 @@ COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
 export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 MIN_PASS="${UYA_EXEC_CENSUS_MIN:-0}"
 TIMEOUT="${UYA_EXEC_CENSUS_TIMEOUT:-300}"
+MEM_MB="${UYA_EXEC_CENSUS_MEM_MB:-2048}"
 REPORT="${UYA_EXEC_CENSUS_REPORT:-/tmp/uya_exec_vm_census.tsv}"
 SKIP_FILE="${UYA_EXEC_CENSUS_SKIP:-$SCRIPT_DIR/exec_vm_census_skip.txt}"
 
@@ -66,7 +71,13 @@ run_one() {
     base="$(basename "$uya_file")"
     local out_file="$results_dir/${base}.txt"
     local err
-    err="$(timeout "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
+    local limit_kb=$((MEM_MB * 1024))
+    if [ "$MEM_MB" -gt 0 ]; then
+        err="$(bash -c 'ulimit -v "$1" 2>/dev/null; shift; exec timeout "$@"' _ \
+            "$limit_kb" "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
+    else
+        err="$(timeout "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
+    fi
     local st=$?
 
     local reason=""
@@ -76,6 +87,9 @@ run_one() {
     fi
     if [ -z "$reason" ] && printf '%s' "$err" | grep -q 'exec backend 失败'; then
         reason="build"
+    fi
+    if [ -z "$reason" ] && printf '%s' "$err" | grep -qiE '内存不足|out of memory|bad_alloc|Cannot allocate memory'; then
+        reason="mem"
     fi
     if [ -z "$reason" ] && [ "$st" -eq 124 ]; then
         reason="timeout"
