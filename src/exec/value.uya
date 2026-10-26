@@ -981,12 +981,25 @@ fn exec_value_is_pointer_like(value: ExecValue) i32 {
     return 0;
 }
 
+/// 指针元素的 TypeKind 编码。
+///
+/// 解释器把「内部引用」编码进 aux（`65536 + 真实 kind`、`131072 + 真实 kind`），
+/// 这里还原成真实 kind，否则按元素尺寸做指针算术/下标一律算成 0。
+/// 参数：`value` 指针值。
+/// 返回值：元素类型的 TypeKind 编码。
 fn exec_value_pointer_pointee_kind(value: &ExecValue) i32 {
     if value == null {
         return TypeKind.TYPE_VOID as i32;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_POINTER {
-        return value.aux_i64_value as i32;
+        const raw_kind: i32 = value.aux_i64_value as i32;
+        if raw_kind >= 131072 {
+            return raw_kind - 131072;
+        }
+        if raw_kind >= 65536 {
+            return raw_kind - 65536;
+        }
+        return raw_kind;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_STRING {
         return TypeKind.TYPE_BYTE as i32;
