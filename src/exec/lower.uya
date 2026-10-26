@@ -6408,8 +6408,10 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 call_method.call_arg_count = total_arg_count;
                 return call_method;
             }
-            var method_msg: [byte: 160] = [];
-            _ = snprintf(&method_msg[0] as *byte, 160, "exec: 无法解析成员方法调用(kind=%d)" as *byte, owner_type.kind as i32);
+            var method_msg: [byte: 224] = [];
+            _ = snprintf(&method_msg[0] as *byte, 224, "exec: 无法解析成员方法调用(kind=%d name=%s obj=%s)" as *byte,
+                owner_type.kind as i32, method_name as *byte,
+                object_ast.identifier_name as *byte);
             return exec_lower_fail_expr(expr, &method_msg[0]);
         }
         if expr.call_expr_callee == null || expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER {

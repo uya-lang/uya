@@ -3591,19 +3591,22 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         }
         const field_ref2: &ExecValue = exec_vm_field_ref_store(slot_a, instr.imm as i32);
         if field_ref2 == null {
-            var stf_msg: [byte: 160] = [];
+            var stf_msg: [byte: 224] = [];
             var stf_count: i32 = -1;
             var stf_pointee: i32 = -1;
             const stf_agg: &ExecAggregate = exec_vm_aggregate_ref_from_value(slot_a);
             if stf_agg != null {
                 stf_count = stf_agg.count;
             }
+            var stf_isref: i32 = -1;
             if slot_a.kind == ExecValueKind.EXEC_VALUE_POINTER {
                 stf_pointee = exec_value_pointer_pointee_kind(&slot_a[0]);
+                stf_isref = exec_vm_pointer_is_internal_ref(slot_a);
             }
-            _ = snprintf(&stf_msg[0] as *byte, 160,
-                "exec: STORE_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d)" as *byte,
-                instr.imm as i32, slot_a.kind as i32, stf_count, stf_pointee);
+            _ = snprintf(&stf_msg[0] as *byte, 224,
+                "exec: STORE_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d aux=%d isref=%d)" as *byte,
+                instr.imm as i32, slot_a.kind as i32, stf_count, stf_pointee,
+                slot_a.aux_i64_value as i32, stf_isref);
             exec_backend_set_error(function.decl, &stf_msg[0] as &byte, 0);
             return -1;
         }
