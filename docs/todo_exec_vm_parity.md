@@ -427,7 +427,9 @@
 
 ## 下一轮起点（上下文压缩后从这里继续）
 
-### 第 264 轮末的 Top 阻塞（按可收割性排序，已更新）
+### 第 272 轮末的 Top 阻塞（按可收割性排序，已更新）
+
+实测基线：`/tmp/census_r273.tsv`，**673 / 914 通过**，零回归。
 
 1. `exec: LOAD_FIELD/STORE_FIELD 字段越界(idx=N kind=K count=0 pointee=P)`（4 例）
    —— 运行时缺陷，不是「没支持」。样本：`lib/tls/base/mpi.uya:53` 的
@@ -438,31 +440,44 @@
    —— `kind=13` 是 void（模块名/未知名当接收者），`kind=16` 是 struct。
    样本 `tests/test_async_nested.uya:38:43`（`inner.poll(...)`，`inner` 是
    `&Self`/泛型字段）。多数落在 async/TLS/bigint 家族。
-3. **泛型结构体方法单态化**：`@size_of(vec_get(…))` 一类通过，但
-   `lib/std/collections/vec.uya:22` 的 `@size_of(sample[0])` 现在拿到的是
-   `struct T`（`generic_param_name=T`、`struct_name` 为空），即方法体的单态
-   替换仍是「用 `Vec<T>` 实例而不是 `Vec<i32>`」。vec/hashmap/string_buf/std_env
-   一族 12+ 用例都在这里。需要给「泛型结构体方法实例」也建 `subst_*` 上下文。
-4. `exec: 当前仅支持局部变量/参数/全局标识符(name)`（30 例）
+3. ~~**泛型结构体方法单态化**~~ **已解决（第 272 轮）**：按「方法声明 + 类型实参」
+   生成 `结构体名_方法名$s<实例序号>` 单态副本，副本降级时装 `subst_*` +
+   `current_type_params`，`Self` 按副本登记的结构体名解析，`&Self` 接收者的
+   `self.foo()` 继承当前实例；静态方法 `Box<i32>.wrap(..)`、UFCS
+   `Box<i32>.get(b)`、接口方法表也一律走副本；泛型结构体的**原方法声明不再单独
+   降级**。`test_vec`、`test_vec_helper`、`test_string_buf_vec_field`、
+   `test_generic_lookahead`、`test_static_method_generic_struct`、
+   `test_async_future_interface_box` 转通过（census 669 → 673，零回归）。
+   新暴露的后续问题：`Vec<byte>.len()` 在 `StringBuf` 里返回 0（`test_string_buf`
+   的 `sb.len()` 全为 0）、`test_hashmap` 的 `hashmap_values_vec_contains`、
+   `test_std_env` 的 `actual[i]` 全 0 —— 都是「单态副本写入的值读不回来」，
+   疑似副本里对 `&Self` 字段的 STORE/LOAD 落到了不同槽位，待查。
+4. ~~`exec: 当前不支持 extern ABI`（12 例）~~ **已改为零值桩（第 272 轮）**：
+   解释器没有宿主等价物的 extern 调用（`sigaction`/`tcgetpgrp`/`wait4` 一类）
+   不再硬失败，按「无副作用 + 返回零值」处理。单条 `use libc.WNOHANG`（C 宏常量，
+   Uya 侧无声明）这条链路仍然报「当前仅支持局部变量/参数/全局标识符」，
+   连带 `test_typed_pipeline_*` / `test_std_script_pipeline_facade` 卡在
+   `lib/std/process.uya`。
+5. `exec: 当前仅支持局部变量/参数/全局标识符(name)`（30 例）
    —— 样本：`lib/std/net/dns.uya:1126`（`catch |err|` 里的 `err_id` 常量）、
    module 作用域的 `&fn as &void`（`tests/test_function_reachability_address_taken.uya`）。
-5. async 55 例（T9 状态机 lowering）、`catch 操作数不是错误联合` 22 例
+6. async 55 例（T9 状态机 lowering）、`catch 操作数不是错误联合` 22 例
    （多来自 `@await expr catch ...`，与 T9 同源）、`这个泛型调用` 11 例。
-6. `%` 收尾：`test_printf_f` 只剩 `%.17g` 的 `DBL_MAX` 末位差 1；
+7. `%` 收尾：`test_printf_f` 只剩 `%.17g` 的 `DBL_MAX` 末位差 1；
    `test_typed_pipeline_lowering_error` 差 drop 计数；`test_crypto_bigint` 是超时。
-7. **本块（`[u64: 32]` 这类非字节定长数组）是 Mpi/TLS/crypto 一族的死结**：
+8. **本块（`[u64: 32]` 这类非字节定长数组）是 Mpi/TLS/crypto 一族的死结**：
    `mem_set(&self.limbs[0] as &byte, 0, 256)` 在 VM 里没有原生字节布局，
    写进去的 256 字节会把 `self` 槽位写成垃圾，随后 `self.n = 0` 报
    `STORE_FIELD 字段越界(idx=1 kind=14 count=0 pointee=65554 aux=65554 isref=1)`。
    要根治得让非字节定长数组也走原生缓冲 + 写时深拷贝（值语义），属独立大项。
-8. pthread/thread 用例（`test_pthread_api_*`、`test_method_call_in_callback_codegen`
+9. pthread/thread 用例（`test_pthread_api_*`、`test_method_call_in_callback_codegen`
    等）现在能过 lowering，但解释器不真的起线程：`clone` 已被拒绝，从「超时」变成
    秒级失败（多数是后续解引用未初始化的线程句柄而 SIGSEGV）—— 不是编译期缺口。
-9. **drop 的移动标记缺口**：`return Outer{ inner: inner };` 这种「局部变量搬进
+10. **drop 的移动标记缺口**：`return Outer{ inner: inner };` 这种「局部变量搬进
    返回值」没有把 `var_decl_was_moved` 置位（`checker_mark_moved` 根本没被调用到，
    说明结构体字面量的字段检查走的是另一条路径），于是返回时多跑一次 drop
    （`test_return_struct_init_drop_once` 期望 0 实得 1）。
-10. **JSON 反射解码的多实例串扰**：`to_json<User>` 与 `to_json<Rect>` 同时存在时，
+11. **JSON 反射解码的多实例串扰**：`to_json<User>` 与 `to_json<Rect>` 同时存在时，
    其中一个实例用上了另一个的结构体字段表（表现为 `json_write_str_view` 收到 i64、
    `LOAD_FIELD idx=2 count=2`）。单实例用例都通过，说明实例命名与选择是对的
    （`to_json$m0` / `to_json$m2` 各不相同），问题在**展开体的字段表来源**：
