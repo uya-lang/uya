@@ -5669,6 +5669,11 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             }
             return exec_lower_make_zero_expr(ctx, expr, &null_type);
         }
+        if expr.identifier_name != null {
+            var unknown_ident_msg: [byte: 192] = [];
+            _ = snprintf(&unknown_ident_msg[0] as *byte, 192, "exec: 当前仅支持局部变量/参数/全局标识符(%s)" as *byte, expr.identifier_name as *byte);
+            return exec_lower_fail_expr(expr, &unknown_ident_msg[0]);
+        }
         return exec_lower_fail_expr(expr, "exec: 当前仅支持局部变量/参数/全局标识符" as *byte);
     }
     if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
