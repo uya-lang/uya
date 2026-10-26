@@ -429,8 +429,18 @@
 
 ### 第 272 轮末的 Top 阻塞（按可收割性排序，已更新）
 
-实测基线：`/tmp/census_r278.tsv`，**688 / 914 通过**，零回归（669 → 678 → 683 →
-687 → 688）。会话累计 +19，每轮 census 都是零回归。
+实测基线：`/tmp/census_r278.tsv`（该轮 688 里含 1 个**不该通过**的
+`test_exec_vm_extern_decl_varargs_unsupported`：它是负例，必须被
+`extern_abi` 拒绝，`tests/verify_exec_vm_extern_bridge.sh` 与
+`tests/verify_exec_backend_progress.sh` 都盯着这条）。已把 varargs extern
+恢复为硬拒绝（非 varargs 的环境调用仍是零值桩），所以真实基线是
+**687 / 914**，零回归（669 → 678 → 683 → 687）。会话累计 +18。
+
+已知**本次会话之前就存在**的 gate 失败（不是本轮引入）：
+`tests/verify_exec_backend_progress.sh` 里「SIMD unsupported 原因」这一段
+现在会失败——`tests/test_exec_vm_simd_unsupported.uya` 在 `--vm` 下**能跑通**
+（用本会话更早的二进制 r272/r274 复现同样结果），说明 SIMD 已经实现、gate 过期，
+需要单独更新该负例/gate。
 
 第 275~278 轮的新增（都是「静默变成 0/空值」或「结构合法但没降级路径」）：
 
