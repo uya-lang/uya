@@ -56,7 +56,11 @@ fi
 
 ulimit -s unlimited 2>/dev/null || ulimit -s 524288 2>/dev/null || true
 
+# run_one 由 xargs 在子 shell 里跑：用到的变量都必须导出，否则子进程里
+# MEM_MB 是空的 —— ulimit 分支会被静默跳过（内存上限从来没生效过）。
 export TIMEOUT_FILE
+export MEM_MB
+export TIMEOUT
 # 上一次 census 若被 SIGKILL 掐掉（timeout/trap 都来不及跑），xargs 会留下孤儿
 # 解释器继续吃 CPU 和内存，下一轮再叠加。这里先按编译器路径清一遍。
 pkill -f -- "$COMPILER test --vm" 2>/dev/null || true
@@ -102,8 +106,9 @@ run_one() {
     base="$(basename "$uya_file")"
     local out_file="$results_dir/${base}.txt"
     local err
-    local limit_kb=$((MEM_MB * 1024))
-    if [ "$MEM_MB" -gt 0 ]; then
+    local mem_mb="${MEM_MB:-0}"
+    local limit_kb=$((mem_mb * 1024))
+    if [ "$mem_mb" -gt 0 ]; then
         err="$(bash -c 'ulimit -v "$1" 2>/dev/null; shift; exec timeout "$@"' _ \
             "$limit_kb" "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
     else
