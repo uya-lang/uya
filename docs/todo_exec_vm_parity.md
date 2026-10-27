@@ -433,6 +433,29 @@
 
 ## 下一轮起点（上下文压缩后从这里继续）
 
+### 第 273 轮：剩余 194 条的点因归类（可收割的都收完了）
+
+按失败信息聚类（`/tmp/census_r289.tsv`），194 条全部落在四个架构项上，没有
+「一条一改」的散点了：
+
+| 条数 | 失败信息 | 真因（架构项） |
+| --- | --- | --- |
+| 85 | `当前不支持 async` | A. async/`@await` 状态机 |
+| 29+5 | `LOAD_FIELD/STORE_FIELD 字段越界` | B. 原生内存按结构体布局字节读写 |
+| 8 | `仅支持局部变量/参数/全局标识符`（`_uya_async_frame_*`） | A |
+| 4 | `不支持这个泛型调用`（dns/mqtt async 封装） | A |
+| 4 | `不支持未初始化局部变量`（async frame） | A |
+| 3 | `不支持 @c_import` | C. 运行期编译并加载 C |
+| 2 | `LOAD_INDEX 越界`（`test_mem` 重叠 memmove、`test_std_env`） | B |
+| 13 | 断言失败（`pthread_*`） | D. 线程模型（VM 单线程） |
+| 3-4 | 断言失败（`*_drop_once`、`nested_field_move`、`string_buf`） | B 的移动置零语义 |
+| 1 | `test_printf_f`（`%#.17g` DBL_MAX） | 常量/格式化末位差 1-2 ULP |
+| 1 | `test_kernel_sim` | 真跑 x86 机器码，VM 无法支持 |
+
+结论：`make exec-parity` 全绿（T11）必须等 A/B/D 之一先落地，本轮把能独立
+验证的语义缺陷（byte 截断、受检整除的 Overflow/除零 id、`@params`、
+`dns`/`kernel/sim` 切片长度）全部收掉，并保持 707 → 715 零回归。
+
 ### 第 272 轮末的 Top 阻塞（按可收割性排序，已更新）
 
 实测基线：`/tmp/census_r289.tsv`，**715 / 909 通过**（跳过表 5 条），零回归。
