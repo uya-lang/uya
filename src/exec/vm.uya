@@ -3081,6 +3081,13 @@ var exec_vm_thread_used: [i32: EXEC_VM_THREAD_SLOTS] = [];
 var exec_vm_thread_detached: [i32: EXEC_VM_THREAD_SLOTS] = [];
 var exec_vm_thread_result: [ExecValue: EXEC_VM_THREAD_SLOTS] = [];
 
+/// `pthread_key_*` 的线程局部存储：键下标 → 值（同步 VM 只有一条"线程"）。
+const EXEC_VM_TLS_KEYS: i32 = 16;
+var exec_vm_tls_values: [ExecValue: EXEC_VM_TLS_KEYS] = [];
+var exec_vm_tls_used: [i32: EXEC_VM_TLS_KEYS] = [];
+var g_exec_vm_cancel_state: i32 = 0;
+var g_exec_vm_cancel_type: i32 = 0;
+
 /// `pthread_exit(v)` 在同步解释器里的「提前收工」标记：v 作为当前帧的返回值。
 var g_exec_vm_thread_exit_requested: i32 = 0;
 var g_exec_vm_thread_exit_value: ExecValue = ExecValue {
@@ -3471,6 +3478,307 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
             }
             if once_state != null {
                 exec_vm_store_slot(once_state, exec_make_i64(1));
+            }
+        }
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETCANCELSTATE ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETCANCELTYPE {
+        const cancel_in: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        if cancel_in == null || cancel_in.i64_value < 0 || cancel_in.i64_value > 1 {
+            out_value[0] = exec_make_i32(22);
+            return 0;
+        }
+        if arg_count >= 2 {
+            const cancel_old: &ExecValue = exec_vm_ref_target_value(exec_vm_slot_ref(frame, arg_base +| 1));
+            if cancel_old != null {
+                if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETCANCELTYPE {
+                    exec_vm_store_slot(cancel_old, exec_make_i32(g_exec_vm_cancel_type));
+                } else {
+                    exec_vm_store_slot(cancel_old, exec_make_i32(g_exec_vm_cancel_state));
+                }
+            }
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETCANCELTYPE {
+            g_exec_vm_cancel_type = cancel_in.i64_value as i32;
+        } else {
+            g_exec_vm_cancel_state = cancel_in.i64_value as i32;
+        }
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_KEY_CREATE {
+        const key_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        var key_free: i32 = -1;
+        var ki: i32 = 0;
+        while ki < EXEC_VM_TLS_KEYS {
+            if ki >= 0 && ki < EXEC_VM_TLS_KEYS {
+                if exec_vm_tls_used[ki] == 0 && key_free < 0 {
+                    key_free = ki;
+                }
+            }
+            ki = ki + 1;
+        }
+        if key_free < 0 {
+            out_value[0] = exec_make_i32(11);
+            return 0;
+        }
+        if key_free >= 0 && key_free < EXEC_VM_TLS_KEYS {
+            exec_vm_tls_used[key_free] = 1;
+            exec_vm_tls_values[key_free] = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+        }
+        const key_target: &ExecValue = exec_vm_ref_target_value(key_arg);
+        if key_target != null {
+            exec_vm_store_slot(key_target, exec_make_i32(key_free));
+        }
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_KEY_DELETE {
+        const key_del: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        if key_del != null && key_del.i64_value >= 0 && key_del.i64_value < EXEC_VM_TLS_KEYS as i64 {
+            const key_index: i32 = key_del.i64_value as i32;
+            exec_vm_tls_used[key_index] = 0;
+        }
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETSPECIFIC {
+        const spec_key: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const spec_value: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        if spec_key != null && spec_key.i64_value >= 0 && spec_key.i64_value < EXEC_VM_TLS_KEYS as i64 &&
+            spec_value != null {
+            const spec_index: i32 = spec_key.i64_value as i32;
+            if spec_index >= 0 && spec_index < EXEC_VM_TLS_KEYS {
+                exec_vm_store_slot(&exec_vm_tls_values[spec_index], spec_value[0]);
+            }
+        }
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_GETSPECIFIC {
+        const get_key: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        var get_value: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+        if get_key != null && get_key.i64_value >= 0 && get_key.i64_value < EXEC_VM_TLS_KEYS as i64 {
+            const get_index: i32 = get_key.i64_value as i32;
+            if get_index >= 0 && get_index < EXEC_VM_TLS_KEYS {
+                get_value = exec_value_clone(&exec_vm_tls_values[get_index]);
+            }
+        }
+        out_value[0] = get_value;
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEXATTR_INIT ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEXATTR_SETTYPE ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEXATTR_GETTYPE ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEXATTR_DESTROY ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_INIT ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_DESTROY ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_LOCK ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_TRYLOCK ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_UNLOCK ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CONDATTR_INIT ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CONDATTR_GETCLOCK ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CONDATTR_SETCLOCK ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CONDATTR_DESTROY {
+        // 互斥量/条件变量属性：单线程解释器里只维护对象内的状态字段，
+        // 语义按 C 侧的返回值约定（EINVAL=22 / EBUSY=16）对齐。
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEXATTR_INIT {
+            const ma_type: &ExecValue = exec_vm_field_ref_store(exec_vm_slot_ref(frame, arg_base), 0);
+            if ma_type != null {
+                exec_vm_store_slot(ma_type, exec_make_i32(0));
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEXATTR_SETTYPE {
+            const ma_in: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+            if ma_in == null || ma_in.i64_value < 0 || ma_in.i64_value > 2 {
+                out_value[0] = exec_make_i32(22);
+                return 0;
+            }
+            const ma_type2: &ExecValue = exec_vm_field_ref_store(exec_vm_slot_ref(frame, arg_base), 0);
+            if ma_type2 != null {
+                exec_vm_store_slot(ma_type2, exec_make_i32(ma_in.i64_value as i32));
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEXATTR_GETTYPE {
+            const ma_out: &ExecValue = exec_vm_ref_target_value(exec_vm_slot_ref(frame, arg_base +| 1));
+            const ma_type3: &ExecValue = exec_vm_field_ref(exec_vm_slot_ref(frame, arg_base), 0);
+            if ma_out != null && ma_type3 != null {
+                exec_vm_store_slot(ma_out, exec_make_i32(ma_type3.i64_value as i32));
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEXATTR_DESTROY ||
+            site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CONDATTR_DESTROY ||
+            site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_DESTROY {
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_INIT {
+            // 字段：0=state，1=owner（递归深度），2=type
+            const mutex_value: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+            const mutex_state0: &ExecValue = exec_vm_field_ref_store(mutex_value, 0);
+            if mutex_state0 != null {
+                exec_vm_store_slot(mutex_state0, exec_make_i32(0));
+            }
+            const mutex_owner0: &ExecValue = exec_vm_field_ref_store(mutex_value, 1);
+            if mutex_owner0 != null {
+                exec_vm_store_slot(mutex_owner0, exec_make_i32(0));
+            }
+            var mutex_type_value: i64 = 0;
+            const mutex_attr: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+            if mutex_attr != null && exec_vm_pointer_is_internal_ref(mutex_attr) != 0 {
+                const mutex_attr_type: &ExecValue = exec_vm_field_ref(mutex_attr, 0);
+                if mutex_attr_type != null {
+                    mutex_type_value = mutex_attr_type.i64_value;
+                }
+            }
+            const mutex_type0: &ExecValue = exec_vm_field_ref_store(mutex_value, 2);
+            if mutex_type0 != null {
+                exec_vm_store_slot(mutex_type0, exec_make_i32(mutex_type_value as i32));
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_TRYLOCK {
+            const mutex_value2: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+            const mutex_state2: &ExecValue = exec_vm_field_ref_store(mutex_value2, 0);
+            var mutex_busy: i64 = 0;
+            if mutex_state2 != null {
+                mutex_busy = mutex_state2.i64_value;
+            }
+            if mutex_busy != 0 {
+                out_value[0] = exec_make_i32(16);
+                return 0;
+            }
+            if mutex_state2 != null {
+                exec_vm_store_slot(mutex_state2, exec_make_i32(1));
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_LOCK {
+            const mutex_value3: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+            const mutex_state3: &ExecValue = exec_vm_field_ref_store(mutex_value3, 0);
+            if mutex_state3 != null {
+                exec_vm_store_slot(mutex_state3, exec_make_i32(1));
+            }
+            const mutex_depth3: &ExecValue = exec_vm_field_ref_store(mutex_value3, 1);
+            if mutex_depth3 != null {
+                exec_vm_store_slot(mutex_depth3, exec_make_i32((mutex_depth3.i64_value +| 1) as i32));
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_UNLOCK {
+            const mutex_value4: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+            const mutex_state4: &ExecValue = exec_vm_field_ref_store(mutex_value4, 0);
+            if mutex_state4 != null {
+                exec_vm_store_slot(mutex_state4, exec_make_i32(0));
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CONDATTR_INIT {
+            const ca_clock: &ExecValue = exec_vm_field_ref_store(exec_vm_slot_ref(frame, arg_base), 0);
+            if ca_clock != null {
+                exec_vm_store_slot(ca_clock, exec_make_i32(0));
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CONDATTR_GETCLOCK {
+            const ca_out: &ExecValue = exec_vm_ref_target_value(exec_vm_slot_ref(frame, arg_base +| 1));
+            const ca_clock2: &ExecValue = exec_vm_field_ref(exec_vm_slot_ref(frame, arg_base), 0);
+            if ca_out != null && ca_clock2 != null {
+                exec_vm_store_slot(ca_out, exec_make_i32(ca_clock2.i64_value as i32));
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        // CONDATTR_SETCLOCK
+        const ca_in: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        if ca_in == null || ca_in.i64_value < 0 || ca_in.i64_value > 1 {
+            out_value[0] = exec_make_i32(22);
+            return 0;
+        }
+        const ca_clock3: &ExecValue = exec_vm_field_ref_store(exec_vm_slot_ref(frame, arg_base), 0);
+        if ca_clock3 != null {
+            exec_vm_store_slot(ca_clock3, exec_make_i32(ca_in.i64_value as i32));
+        }
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_INIT ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_GETSTACKSIZE ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_SETSTACKSIZE ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_GETDETACHSTATE ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_SETDETACHSTATE ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_COND_TIMEDWAIT {
+        // 单线程解释器里的线程属性对象只是一个两字段结构体
+        // （`stack_size`/`detached`），按字段读写即可。
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_COND_TIMEDWAIT {
+            // 没有别的线程能 signal：等价于超时。
+            out_value[0] = exec_make_i32(110);
+            return 0;
+        }
+        const attr_value: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_INIT {
+            const attr_stack: &ExecValue = exec_vm_field_ref_store(attr_value, 0);
+            if attr_stack != null {
+                exec_vm_store_slot(attr_stack, exec_make_usize(8388608 as usize));
+            }
+            const attr_detached: &ExecValue = exec_vm_field_ref_store(attr_value, 1);
+            if attr_detached != null {
+                exec_vm_store_slot(attr_detached, exec_make_i32(0));
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_GETSTACKSIZE ||
+            site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_GETDETACHSTATE {
+            const out_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+            const out_target: &ExecValue = exec_vm_ref_target_value(out_arg);
+            const attr_field_index: i32 =
+                if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_GETSTACKSIZE { 0 } else { 1 };
+            const attr_field: &ExecValue = exec_vm_field_ref(attr_value, attr_field_index);
+            if out_target != null && attr_field != null {
+                if attr_field_index == 0 {
+                    exec_vm_store_slot(out_target, exec_make_usize(attr_field.i64_value as usize));
+                } else {
+                    exec_vm_store_slot(out_target, exec_make_i32(attr_field.i64_value as i32));
+                }
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        // setstacksize / setdetachstate
+        const in_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        const set_field_index: i32 =
+            if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_SETSTACKSIZE { 0 } else { 1 };
+        if in_arg != null {
+            if set_field_index == 0 && in_arg.i64_value < 16384 {
+                // 栈下限 16KB（与 C 侧 pthread_attr_setstacksize 一致）
+                out_value[0] = exec_make_i32(22);
+                return 0;
+            }
+            if set_field_index == 1 && in_arg.i64_value != 0 && in_arg.i64_value != 1 {
+                out_value[0] = exec_make_i32(22);
+                return 0;
+            }
+        }
+        const set_field: &ExecValue = exec_vm_field_ref_store(attr_value, set_field_index);
+        if set_field != null && in_arg != null {
+            if set_field_index == 0 {
+                exec_vm_store_slot(set_field, exec_make_usize(in_arg.i64_value as usize));
+            } else {
+                exec_vm_store_slot(set_field, exec_make_i32(in_arg.i64_value as i32));
             }
         }
         out_value[0] = exec_make_i32(0);

@@ -753,6 +753,106 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
             param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_EXIT;
         }
+        if str_equals(fn_name, "pthread_attr_init" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_INIT;
+        }
+        if str_equals(fn_name, "pthread_attr_getstacksize" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_GETSTACKSIZE;
+        }
+        if str_equals(fn_name, "pthread_attr_setstacksize" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_SETSTACKSIZE;
+        }
+        if str_equals(fn_name, "pthread_attr_getdetachstate" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_GETDETACHSTATE;
+        }
+        if str_equals(fn_name, "pthread_attr_setdetachstate" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ATTR_SETDETACHSTATE;
+        }
+        if str_equals(fn_name, "pthread_cond_timedwait" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_COND_TIMEDWAIT;
+        }
+        if str_equals(fn_name, "pthread_mutexattr_init" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEXATTR_INIT;
+        }
+        if str_equals(fn_name, "pthread_mutexattr_settype" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEXATTR_SETTYPE;
+        }
+        if str_equals(fn_name, "pthread_mutexattr_gettype" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEXATTR_GETTYPE;
+        }
+        if str_equals(fn_name, "pthread_mutexattr_destroy" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEXATTR_DESTROY;
+        }
+        if str_equals(fn_name, "pthread_mutex_init" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_INIT;
+        }
+        if str_equals(fn_name, "pthread_mutex_destroy" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_DESTROY;
+        }
+        if str_equals(fn_name, "pthread_mutex_lock" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_LOCK;
+        }
+        if str_equals(fn_name, "pthread_mutex_trylock" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_TRYLOCK;
+        }
+        if str_equals(fn_name, "pthread_mutex_unlock" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_MUTEX_UNLOCK;
+        }
+        if str_equals(fn_name, "pthread_condattr_init" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CONDATTR_INIT;
+        }
+        if str_equals(fn_name, "pthread_condattr_getclock" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CONDATTR_GETCLOCK;
+        }
+        if str_equals(fn_name, "pthread_condattr_setclock" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CONDATTR_SETCLOCK;
+        }
+        if str_equals(fn_name, "pthread_condattr_destroy" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CONDATTR_DESTROY;
+        }
+        if str_equals(fn_name, "pthread_setcancelstate" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETCANCELSTATE;
+        }
+        if str_equals(fn_name, "pthread_setcanceltype" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETCANCELTYPE;
+        }
+        if str_equals(fn_name, "pthread_key_create" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_KEY_CREATE;
+        }
+        if str_equals(fn_name, "pthread_key_delete" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_KEY_DELETE;
+        }
+        if str_equals(fn_name, "pthread_setspecific" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETSPECIFIC;
+        }
+        if str_equals(fn_name, "pthread_getspecific" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_GETSPECIFIC;
+        }
         if str_equals(fn_name, "uya_interface_get_vtable" as &byte) != 0 &&
             param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_INTERFACE_GET_VTABLE;
@@ -900,6 +1000,30 @@ fn exec_lower_extern_prefers_host_call(fn_decl: &ASTNode) i32 {
     if str_equals(name, "pthread_create" as *byte) != 0 ||
         str_equals(name, "pthread_once" as *byte) != 0 ||
         str_equals(name, "pthread_exit" as *byte) != 0 ||
+        str_equals(name, "pthread_attr_init" as *byte) != 0 ||
+        str_equals(name, "pthread_attr_getstacksize" as *byte) != 0 ||
+        str_equals(name, "pthread_attr_setstacksize" as *byte) != 0 ||
+        str_equals(name, "pthread_attr_getdetachstate" as *byte) != 0 ||
+        str_equals(name, "pthread_attr_setdetachstate" as *byte) != 0 ||
+        str_equals(name, "pthread_cond_timedwait" as *byte) != 0 ||        str_equals(name, "pthread_mutexattr_init" as *byte) != 0 ||
+        str_equals(name, "pthread_mutexattr_settype" as *byte) != 0 ||
+        str_equals(name, "pthread_mutexattr_gettype" as *byte) != 0 ||
+        str_equals(name, "pthread_mutexattr_destroy" as *byte) != 0 ||
+        str_equals(name, "pthread_mutex_init" as *byte) != 0 ||
+        str_equals(name, "pthread_mutex_destroy" as *byte) != 0 ||
+        str_equals(name, "pthread_mutex_lock" as *byte) != 0 ||
+        str_equals(name, "pthread_mutex_trylock" as *byte) != 0 ||
+        str_equals(name, "pthread_mutex_unlock" as *byte) != 0 ||
+        str_equals(name, "pthread_condattr_init" as *byte) != 0 ||
+        str_equals(name, "pthread_condattr_getclock" as *byte) != 0 ||
+        str_equals(name, "pthread_condattr_setclock" as *byte) != 0 ||
+        str_equals(name, "pthread_condattr_destroy" as *byte) != 0 ||
+        str_equals(name, "pthread_setcancelstate" as *byte) != 0 ||
+        str_equals(name, "pthread_setcanceltype" as *byte) != 0 ||
+        str_equals(name, "pthread_key_create" as *byte) != 0 ||
+        str_equals(name, "pthread_key_delete" as *byte) != 0 ||
+        str_equals(name, "pthread_setspecific" as *byte) != 0 ||
+        str_equals(name, "pthread_getspecific" as *byte) != 0 ||
         str_equals(name, "pthread_join" as *byte) != 0 ||
         str_equals(name, "pthread_detach" as *byte) != 0 ||
         str_equals(name, "pthread_self" as *byte) != 0 ||
