@@ -3308,6 +3308,151 @@ fn exec_lower_struct_field_index(ctx: &ExecLowerContext, struct_type: Type, fiel
     return -1;
 }
 
+/// 取出 `Future<T>` 结构体实例里的 `state: Poll<T>` 字段类型。
+/// 参数：`ctx` 上下文；`future_type` Future 结构体类型。
+/// 返回值：Poll 联合类型；解析不出来返回 void 类型。
+fn exec_lower_future_state_type(ctx: &ExecLowerContext, future_type: Type) Type {
+    if ctx == null || ctx.checker == null || ctx.checker.program_node == null ||
+        future_type.kind != TypeKind.TYPE_STRUCT || future_type.struct_name == null {
+        return make_void_type();
+    }
+    const future_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node, future_type.struct_name);
+    if future_decl == null || future_decl.struct_decl_fields == null || future_decl.struct_decl_field_count <= 0 {
+        return make_void_type();
+    }
+    const state_field: &ASTNode = future_decl.struct_decl_fields[0];
+    if state_field == null || state_field.var_decl_type == null {
+        return make_void_type();
+    }
+    return exec_lower_subst_struct_field_type(ctx.checker, future_type, future_decl, state_field);
+}
+
+/// 把 `@async_fn` 里的返回值包成 `Future{ state: Poll.Ready(<值>) }`。
+///
+/// VM 把 async 函数当成同步函数执行，所以返回的 Future 一定是 Ready 状态；
+/// 调用方的 `@await` 直接取载荷即可（见 BC_AWAIT）。
+/// 参数：`ctx` 上下文；`ast_node` 返回语句节点；`value` 返回值 HIR；
+///       `fn_return_type` 函数声明的返回类型。
+/// 返回值：包装后的 HIR；不需要/无法包装时原样返回 `value`。
+/// 判断 `@async_fn` 的返回语句是否还需要包成 `Future{ state: Poll.Ready(..) }`。
+///
+/// async 函数有两种写法：一种是直接返回 Future（`return Future<T>{..}`），
+/// 另一种是返回载荷（`return x`，x 的类型是 T）。只有后者需要包装。
+/// 参数：`ctx` 上下文；`return_expr` 返回表达式；`fn_return_type` 函数声明的返回类型。
+/// 返回值：1 需要包装，0 已经是 Future。
+fn exec_lower_async_return_needs_wrap(ctx: &ExecLowerContext, return_expr: &ASTNode,
+    fn_return_type: Type) i32 {
+    if ctx == null || return_expr == null {
+        return 0;
+    }
+    const raw_type: Type = exec_lower_expr_type(ctx, return_expr);
+    if type_equals(raw_type, fn_return_type) != 0 {
+        return 0;
+    }
+    if fn_return_type.kind == TypeKind.TYPE_ERROR_UNION && fn_return_type.error_union_payload_type != null &&
+        type_equals(raw_type, fn_return_type.error_union_payload_type[0]) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn exec_lower_wrap_async_return(ctx: &ExecLowerContext, ast_node: &ASTNode, value: &HIRExpr,
+    fn_return_type: Type) &HIRExpr {
+    if ctx == null || value == null {
+        return value;
+    }
+    var declared: Type = copy_type(&fn_return_type);
+    var interface_type: Type = make_void_type();
+    var needs_box: i32 = 0;
+    if declared.kind == TypeKind.TYPE_ERROR_UNION && declared.error_union_payload_type != null {
+        declared = copy_type(&declared.error_union_payload_type[0]);
+    }
+    // `Future<T>` 同时是接口名与结构体名：checker 解析成接口，实现类型是结构体。
+    // 这里把接口类型「转写」成同名结构体类型，装箱时再包回接口。
+    if declared.kind == TypeKind.TYPE_INTERFACE && declared.interface_name != null &&
+        declared.interface_type_arg_count == 1 && declared.interface_type_args != null {
+        interface_type = copy_type(&declared);
+        declared.kind = TypeKind.TYPE_STRUCT;
+        declared.struct_name = interface_type.interface_name;
+        declared.struct_type_args = interface_type.interface_type_args;
+        declared.struct_type_arg_count = interface_type.interface_type_arg_count;
+        declared.decl_node = find_struct_decl_from_program(ctx.checker.program_node, declared.struct_name);
+        needs_box = 1;
+    }
+    if declared.kind != TypeKind.TYPE_STRUCT || declared.struct_name == null ||
+        declared.struct_type_arg_count < 1 || declared.struct_type_args == null {
+        return value;
+    }
+    const poll_type: Type = exec_lower_future_state_type(ctx, copy_type(&declared));
+    if poll_type.kind != TypeKind.TYPE_UNION {
+        return value;
+    }
+    const ready_index: i32 = exec_lower_union_variant_index(ctx, copy_type(&poll_type), "Ready" as &byte);
+    if ready_index < 0 {
+        return value;
+    }
+    // 返回语句可能已经写的是 `!T`（错误联合，正好是 Future 的载荷）；
+    // 也可能写的是裸 `T`，需要先包一层 ok()。
+    var payload: &HIRExpr = value;
+    const expect_type: Type = copy_type(&declared.struct_type_args[0]);
+    if type_equals(payload.type_ref.type, expect_type) == 0 &&
+        expect_type.kind == TypeKind.TYPE_ERROR_UNION && expect_type.error_union_payload_type != null &&
+        type_equals(payload.type_ref.type, expect_type.error_union_payload_type[0]) != 0 {
+        const ok_expr: &HIRExpr = exec_lower_alloc_expr(ctx, ast_node, HIRExprKind.HIR_EXPR_MAKE_OK, &expect_type);
+        if ok_expr == null {
+            return value;
+        }
+        ok_expr.left = payload;
+        payload = ok_expr;
+    }
+    const union_expr: &HIRExpr = exec_lower_alloc_expr(ctx, ast_node, HIRExprKind.HIR_EXPR_UNION_INIT, &poll_type);
+    if union_expr == null {
+        return value;
+    }
+    union_expr.int_value = ready_index as i64;
+    union_expr.left = payload;
+    const items: & & HIRExpr = exec_lower_alloc_items(ctx, 1);
+    if items == null {
+        return value;
+    }
+    items[0] = union_expr;
+    const future_expr: &HIRExpr = exec_lower_alloc_expr(ctx, ast_node, HIRExprKind.HIR_EXPR_STRUCT_INIT, &declared);
+    if future_expr == null {
+        return value;
+    }
+    future_expr.items = items;
+    future_expr.item_count = 1;
+    if needs_box == 0 {
+        return future_expr;
+    }
+    // 装箱：接口值 = [方法入口下标…, 数据指针]。数据用结构体值本身，
+    // 方法里的 `self` 由 VM 的字段访问自动解引用。
+    var dispatch_buf: [&ASTNode: EXEC_MAX_INTERFACE_METHODS] = [];
+    var dispatch_count: i32 = 0;
+    if exec_lower_collect_interface_dispatch_decls(ctx, &interface_type, &declared,
+            &dispatch_buf[0] as & & ASTNode, &dispatch_count) != 0 {
+        return value;
+    }
+    const dispatch_decls: & & ASTNode = compiler_arena_alloc(ctx.arena,
+        @size_of(&ASTNode) * dispatch_count as usize) as & & ASTNode;
+    if dispatch_count > 0 && dispatch_decls == null {
+        return value;
+    }
+    var di: i32 = 0;
+    while di < dispatch_count {
+        dispatch_decls[di] = dispatch_buf[di];
+        di = di +| 1;
+    }
+    const boxed: &HIRExpr = exec_lower_alloc_expr(ctx, ast_node, HIRExprKind.HIR_EXPR_INTERFACE_BOX, &interface_type);
+    if boxed == null {
+        return value;
+    }
+    boxed.left = future_expr;
+    boxed.dispatch_decls = dispatch_decls;
+    boxed.dispatch_decl_count = dispatch_count;
+    return boxed;
+}
+
 fn exec_lower_union_variant_index(ctx: &ExecLowerContext, union_type: Type, variant_name: &byte) i32 {
     const union_name: &byte = type_get_union_name(&union_type);
     if ctx == null || ctx.checker == null || ctx.checker.program_node == null ||
@@ -8506,6 +8651,20 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     if expr.type == ASTNodeType.AST_PARAMS {
         return exec_lower_params_tuple_expr(ctx, expr, &expr_type);
     }
+    if expr.type == ASTNodeType.AST_AWAIT_EXPR && expr.await_expr_operand != null {
+        // `@await f`：VM 里 async 函数同步执行到完成，所以只需要从 Future 的
+        // `state: Poll<T>` 里取出 Ready 载荷（builder 发 BC_AWAIT）。
+        const await_operand: &HIRExpr = exec_lower_expr(ctx, expr.await_expr_operand);
+        if await_operand == null {
+            return null;
+        }
+        const hir_await: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_AWAIT, &expr_type);
+        if hir_await == null {
+            return null;
+        }
+        hir_await.left = await_operand;
+        return hir_await;
+    }
     var unsupported_expr_msg: [byte: 128] = [];
     _ = snprintf(&unsupported_expr_msg[0] as *byte, 128, "exec: 尚未支持的表达式节点(type=%d)" as *byte, expr.type as i32);
     if expr.type == ASTNodeType.AST_MC_SOURCE {
@@ -8976,22 +9135,36 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
                 exec_lower_mark_moved_locals(ctx, stmt_node.return_stmt_expr);
                 if ctx.function_decl != null && ctx.function_decl.fn_decl_return_type != null {
                     const return_type: Type = type_from_ast(ctx.checker, ctx.function_decl.fn_decl_return_type);
-                    stmt.expr = exec_lower_coerce_expr(ctx, stmt_node.return_stmt_expr, &return_type);
-                    if stmt.expr == null {
+                    // async 函数体里写的是载荷 T（而不是 Future<T>）：先按载荷类型降级，
+                    // 之后再包成 `Future{ state: Poll.Ready(..) }`。
+                    var coerce_target: Type = copy_type(&return_type);
+                    if ctx.function_decl.fn_decl_is_async != 0 &&
+                        return_type.kind == TypeKind.TYPE_STRUCT && return_type.struct_type_arg_count >= 1 &&
+                        return_type.struct_type_args != null {
+                        coerce_target = copy_type(&return_type.struct_type_args[0]);
+                    }
+                    var return_value: &HIRExpr = exec_lower_coerce_expr(ctx, stmt_node.return_stmt_expr, &coerce_target);
+                    if return_value == null {
                         exec_lower_pop_scope(ctx);
                         return null;
                     }
-                    if return_type.kind != TypeKind.TYPE_ERROR_UNION &&
-                        type_equals(stmt.expr.type_ref.type, return_type) == 0 &&
+                    if ctx.function_decl.fn_decl_is_async == 0 && return_type.kind != TypeKind.TYPE_ERROR_UNION &&
+                        type_equals(return_value.type_ref.type, return_type) == 0 &&
                         exec_type_is_vm_value_supported(return_type) != 0 {
                         const cast_return: &HIRExpr = exec_lower_alloc_expr(ctx, stmt_node.return_stmt_expr, HIRExprKind.HIR_EXPR_CAST, &return_type);
                         if cast_return == null {
                             exec_lower_pop_scope(ctx);
                             return null;
                         }
-                        cast_return.left = stmt.expr;
-                        stmt.expr = cast_return;
+                        cast_return.left = return_value;
+                        return_value = cast_return;
                     }
+                    if ctx.function_decl.fn_decl_is_async != 0 && exec_lower_async_return_needs_wrap(
+                            ctx, stmt_node.return_stmt_expr, copy_type(&return_type)) != 0 {
+                        return_value = exec_lower_wrap_async_return(ctx, stmt_node.return_stmt_expr,
+                            return_value, copy_type(&return_type));
+                    }
+                    stmt.expr = return_value;
                 } else {
                     stmt.expr = exec_lower_expr(ctx, stmt_node.return_stmt_expr);
                     if stmt.expr == null {
@@ -9079,10 +9252,9 @@ fn exec_lower_function(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &A
     if arena == null || checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
         return null;
     }
-    if fn_decl.fn_decl_is_async != 0 {
-        exec_lower_set_unsupported_reason(fn_decl, "exec: 当前不支持 async" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_ASYNC);
-        return null;
-    }
+    // `@async_fn`：VM 按「同步执行到完成」降级——函数体当普通函数跑，
+    // 返回值包成 `Future{ state: Poll.Ready(...) }`，`@await` 直接取载荷。
+    // 真正需要挂起/交错让出执行权的场景仍不支持。
     if fn_decl.fn_decl_is_extern != 0 && exec_lower_extern_can_run_in_vm(checker, fn_decl) == 0 {
         exec_lower_set_unsupported_reason(fn_decl, "exec: 当前不支持 extern ABI" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_EXTERN_ABI);
         return null;

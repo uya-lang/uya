@@ -2433,6 +2433,28 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
     if expr.kind == HIRExprKind.HIR_EXPR_CHECKED_ARITH {
         return exec_builder_compile_checked_arith(ctx, expr, 0, 0);
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_AWAIT {
+        const await_src: i32 = exec_builder_compile_expr(ctx, expr.left);
+        if await_src < 0 {
+            return -1;
+        }
+        const await_dst: i32 = exec_builder_new_temp(ctx);
+        if await_dst < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_AWAIT,
+            a: await_dst,
+            b: await_src,
+            c: 0,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return await_dst;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_CATCH {
         const union_slot2: i32 = exec_builder_compile_expr(ctx, expr.left);
         if union_slot2 < 0 {
@@ -4623,7 +4645,8 @@ fn exec_builder_validate_function(module: &HIRModule, fn_hir: &HIRFunction, out_
             instr.opcode == BCOpcode.BC_MAKE_OK || instr.opcode == BCOpcode.BC_MAKE_ERR ||
             instr.opcode == BCOpcode.BC_IS_ERR || instr.opcode == BCOpcode.BC_UNWRAP_OK ||
             instr.opcode == BCOpcode.BC_UNWRAP_ERR ||
-            instr.opcode == BCOpcode.BC_ERROR_ID || instr.opcode == BCOpcode.BC_ERROR_NAME {
+            instr.opcode == BCOpcode.BC_ERROR_ID || instr.opcode == BCOpcode.BC_ERROR_NAME ||
+            instr.opcode == BCOpcode.BC_AWAIT {
             if exec_builder_validate_slot_read(fn_hir, instr.b, out_fn.slot_count, &slot_written[0], "exec: 一元指令源槽位非法" as *byte) != 0 {
                 return -1;
             }

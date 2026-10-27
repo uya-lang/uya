@@ -82,6 +82,8 @@ enum BCOpcode {
     BC_VECTOR_OP,
     BC_ERROR_ID,
     BC_ERROR_NAME,
+    // `@await f`：从 Future 的 `state: Poll<T>` 里取出 Ready 载荷。
+    BC_AWAIT,
 }
 
 struct BCErrorNameEntry {

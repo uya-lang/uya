@@ -107,6 +107,8 @@ enum HIRExprKind {
     HIR_EXPR_CHECKED_CATCH,
     // `{ ... }` 用作表达式（宏展开产物）：block 是前导语句，extra 是尾表达式的值。
     HIR_EXPR_BLOCK,
+    // `@await f`：left 是 Future 值；结果是 Ready 里的载荷。
+    HIR_EXPR_AWAIT,
 }
 
 struct HIRMatchArm {

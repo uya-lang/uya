@@ -792,6 +792,53 @@ fn exec_vm_syscall_out_struct_target(arg_slot: &ExecValue, raw_address: i64) &Ex
     return null;
 }
 
+/// 在 `@await` 的操作数里找出 `state: Poll<T>` 那个联合值。
+///
+/// 操作数可能是：裸的 `Future` 结构体值、装箱成接口的 `Future`
+/// （`[方法入口下标…, 数据]`）、或者指向上面这些的引用，所以按「联合值在
+/// 哪一层」递归找，找到即返回。
+/// 参数：`value` 当前层的值；`depth` 递归深度（上限 4）。
+/// 返回值：找到的联合值数据；没找到返回 null。
+fn exec_vm_await_find_poll(value: &ExecValue, depth: i32) &ExecUnionData {
+    if value == null || depth > 4 {
+        return null;
+    }
+    if value.kind == ExecValueKind.EXEC_VALUE_UNION {
+        return exec_value_as_union(value);
+    }
+    if value.kind == ExecValueKind.EXEC_VALUE_ERROR_UNION && value.i64_value == 0 {
+        // `!Future<T>`：ok 分支的载荷就存在 aux 三元组里，拆出来继续找。
+        const inner: ExecValue = exec_value_unwrap_ok(value[0]);
+        return exec_vm_await_find_poll(&inner, depth +| 1);
+    }
+    if value.kind == ExecValueKind.EXEC_VALUE_STRUCT || value.kind == ExecValueKind.EXEC_VALUE_TUPLE {
+        const aggregate: &ExecAggregate = value.ptr_value as &ExecAggregate;
+        if aggregate == null || aggregate.values == null {
+            return null;
+        }
+        var i: i32 = 0;
+        while i < aggregate.count {
+            const found: &ExecUnionData = exec_vm_await_find_poll(&aggregate.values[i], depth +| 1);
+            if found != null {
+                return found;
+            }
+            i = i +| 1;
+        }
+        return null;
+    }
+    if exec_value_is_pointer_like(value[0]) != 0 {
+        const target: &ExecValue = exec_vm_ref_target_value(value);
+        if target != null && target != value {
+            return exec_vm_await_find_poll(target, depth +| 1);
+        }
+        const addr: usize = exec_vm_pointer_address(value);
+        if addr != 0 as usize && exec_vm_address_is_vm_resident(addr) {
+            return exec_vm_await_find_poll(@ptr_from_usize(addr) as &ExecValue, depth +| 1);
+        }
+    }
+    return null;
+}
+
 fn exec_vm_syscall_arg_to_i64(value: ExecValue) i64 {
     if exec_value_is_pointer_like(value) != 0 {
         return value.i64_value;
@@ -4900,6 +4947,25 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return -1;
         }
         slot_a[0] = exec_make_string(exec_vm_lookup_error_name(program, exec_value_error_id(slot_b[0])));
+    } else if instr.opcode == BCOpcode.BC_AWAIT {
+        if slot_a == null || slot_b == null {
+            exec_backend_set_error(function.decl, "exec: AWAIT 槽位越界" as *byte, 0);
+            return -1;
+        }
+        // `@await f`：Future 只有 `state: Poll<T>` 一个字段；Poll 的 Ready 变体下标是 1
+        // （`union Poll<T> { Pending: void, Ready: T }`）。
+        // VM 里 async 函数同步执行到完成，所以这里只会见到 Ready。
+        const poll_data: &ExecUnionData = exec_vm_await_find_poll(slot_b, 0);
+        if poll_data == null {
+            exec_backend_set_error(function.decl, "exec: @await 操作数不是 Future" as *byte, 0);
+            return -1;
+        }
+        if poll_data.tag != 1 {
+            exec_backend_set_error(function.decl,
+                "exec: async 尚未就绪（VM 只支持同步完成的 Future）" as *byte, 0);
+            return -1;
+        }
+        slot_a[0] = exec_value_clone(&poll_data.payload);
     } else if instr.opcode == BCOpcode.BC_JMP {
         exec_vm_trace_jump(trace_vm, function.name, frame.ip, instr.imm as i32, "jmp" as *byte);
         frame.ip = instr.imm as i32;
