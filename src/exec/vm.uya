@@ -732,10 +732,16 @@ fn exec_vm_syscall_out_struct_prepare(target: &ExecValue, out_count: &i32) &i64 
         return null;
     }
     const field_count: i32 = aggregate.count;
-    if field_count <= 0 || field_count > 16 {
+    if field_count <= 0 || field_count > 64 {
         return null;
     }
-    const buffer: &i64 = exec_value_alloc_bytes((@size_of(i64) * field_count as usize)) as &i64;
+    // 内核按原生布局写整块（struct stat 是 144 字节），缓冲区至少留 256 字节，
+    // 否则字段数少但结构体大的会越界。
+    var buffer_bytes: usize = (@size_of(i64) as usize) * (field_count as usize);
+    if buffer_bytes < 256 as usize {
+        buffer_bytes = 256 as usize;
+    }
+    const buffer: &i64 = exec_value_alloc_bytes(buffer_bytes) as &i64;
     if buffer == null {
         return null;
     }
