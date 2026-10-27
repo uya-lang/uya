@@ -835,23 +835,32 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
                 pos = pos + 1;
             }
         }
-        // 输出指数值（至少两位）
-        if exp >= 100 {
-            buf[pos] = (48 + exp / 100) as byte;
-            pos = pos + 1;
-            exp = exp % 100;
+        // 输出指数值：至少两位，最多四位（`%a` 的十六进制指数能到 1023，
+        // 逐级 `exp / 100` 的写法会把 1023 打成 ':' + "23"）。
+        var exp_digits: [byte: 4] = [];
+        var exp_n: i32 = 0;
+        var exp_tmp: i32 = exp;
+        while exp_tmp > 0 && exp_n < 4 {
+            if exp_n >= 0 && exp_n < 4 {
+                exp_digits[exp_n] = (48 +| (exp_tmp % 10)) as byte;
+            }
+            exp_tmp = exp_tmp / 10;
+            exp_n = exp_n + 1;
         }
-        if exp >= 10 {
-            buf[pos] = (48 + exp / 10) as byte;
-            pos = pos + 1;
-            exp = exp % 10;
-        } else if pos > buf_pos + 1 {
-            // 补零：e+05 而非 e+5
-            buf[pos] = 48;
-            pos = pos + 1;
+        if exp_n < 2 {
+            if exp_n >= 0 && exp_n < 4 {
+                exp_digits[exp_n] = 48;
+            }
+            exp_n = exp_n + 1;
         }
-        buf[pos] = (48 +| exp) as byte;
-        pos = pos + 1;
+        var exp_w: i32 = exp_n - 1;
+        while exp_w >= 0 {
+            if exp_w >= 0 && exp_w < 4 {
+                buf[pos] = exp_digits[exp_w];
+            }
+            pos = pos + 1;
+            exp_w = exp_w - 1;
+        }
     } else {
         // 普通格式输出：固定小数位
         var int_part: i64 = x as i64;
@@ -1070,15 +1079,34 @@ fn _fmt_f64_hex_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, pre
     } else {
         if pos < buf_max { buf[pos] = 43; pos = pos + 1; }
     }
-    if exp >= 100 {
-        if pos < buf_max { buf[pos] = (48 + exp / 100) as byte; pos = pos + 1; }
-        exp = exp % 100;
+    // 同 `_fmt_f64_to_buf`：指数至少两位、最多四位，逐级取模的写法会把
+    // 1023 打成 ':' + "23"。
+    var exp_digits2: [byte: 4] = [];
+    var exp_n2: i32 = 0;
+    var exp_tmp2: i32 = exp;
+    while exp_tmp2 > 0 && exp_n2 < 4 {
+        if exp_n2 >= 0 && exp_n2 < 4 {
+            exp_digits2[exp_n2] = (48 +| (exp_tmp2 % 10)) as byte;
+        }
+        exp_tmp2 = exp_tmp2 / 10;
+        exp_n2 = exp_n2 + 1;
     }
-    if exp >= 10 {
-        if pos < buf_max { buf[pos] = (48 + exp / 10) as byte; pos = pos + 1; }
-        exp = exp % 10;
+    if exp_n2 < 2 {
+        if exp_n2 >= 0 && exp_n2 < 4 {
+            exp_digits2[exp_n2] = 48;
+        }
+        exp_n2 = exp_n2 + 1;
     }
-    if pos < buf_max { buf[pos] = (48 +| exp) as byte; pos = pos + 1; }
+    var exp_w2: i32 = exp_n2 - 1;
+    while exp_w2 >= 0 {
+        if pos < buf_max {
+            if exp_w2 >= 0 && exp_w2 < 4 {
+                buf[pos] = exp_digits2[exp_w2];
+            }
+            pos = pos + 1;
+        }
+        exp_w2 = exp_w2 - 1;
+    }
     return pos;
 }
 // 支持 %s、%d、%ld、%u、%x、%X、%p、%c、%zu、%g、%%、%*s、%.Ng
