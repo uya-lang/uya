@@ -1020,6 +1020,19 @@ census 的**内存**问题已定位并加门禁（`UYA_EXEC_CENSUS_MEM_MB`，默
 - [x] `exit(n)` 映射成宿主调用（先 `fflush` 再 `exit`）：
   `test_drop_export_main_direct` 用「drop 里 exit(0)」验证顶级作用域 drop。
 
+### 第 279 轮末：`make exec-parity` 实测（parity 门禁现状）
+
+跑了一遍真正的门禁脚本（`UYA_PARITY_JOBS=6`，报告 `/tmp/parity_r275.tsv`）：
+
+```
+用例 914，OK 741，STATUS_MISMATCH 173（STDOUT_MISMATCH / TIMEOUT / CRASH 均为 0）
+```
+
+`STATUS_MISMATCH` 里绝大多数是 async（C99=0 / VM=1），其余是本文档里已经归类的
+assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**parity 与 census 的口径不同**
+（parity 比的是 C99 vs VM 的退出码/stdout，两端都失败算 OK），所以
+「census 745/909」与「parity 741/914 OK」是同一处的两种视图。
+
 ### T11 收口
 
 - [ ] `uya test --vm` 全量通过（跳过表只保留 C99 侧同样不适用的用例）
