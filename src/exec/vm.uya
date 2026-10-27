@@ -11,6 +11,7 @@ use libc.mkdir;
 use libc.rmdir;
 use libc.fprintf;
 use libc.clock;
+use std.runtime.saved_envp;
 use libc.printf;
 use libc.sprintf;
 use libc.snprintf;
@@ -5355,6 +5356,13 @@ export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
     // 补成 1（只有程序名），让 `get_argc`/`get_argv` 在 VM 里也自洽。
     if program.saved_argc_global_index >= 0 && program.saved_argc_global_index < program.global_count {
         program.globals[program.saved_argc_global_index] = exec_make_i32(1);
+    }
+    // `saved_envp: &&byte` 指向**编译器进程自己的**环境表（`std.runtime.saved_envp`
+    // 由编译器入口填好）。解释器与 C99 子进程继承同一份环境，语义一致。
+    if program.saved_envp_global_index >= 0 && program.saved_envp_global_index < program.global_count &&
+        saved_envp != null {
+        program.globals[program.saved_envp_global_index] = exec_make_pointer_with_kind(
+            @usize_from_ptr(saved_envp as &void), TypeKind.TYPE_POINTER as i32);
     }
     // 顶层 test "..." 块：与 C99 侧 uya_run_tests() 的输出格式保持一致。
     // - 没有用户 main 时（测试文件），先打印 "=== Running N tests ==="，最后打印汇总并

@@ -5231,6 +5231,16 @@ export fn exec_build_bytecode(arena: &CompilerArena, checker: &TypeChecker, modu
         }
         argc_global_i = argc_global_i + 1;
     }
+    program.saved_envp_global_index = -1;
+    var envp_global_i: i32 = 0;
+    while envp_global_i < module.global_count {
+        if module.globals != null && module.globals[envp_global_i].name != null &&
+            str_equals(module.globals[envp_global_i].name, "saved_envp" as &byte) != 0 {
+            program.saved_envp_global_index = envp_global_i;
+            break;
+        }
+        envp_global_i = envp_global_i + 1;
+    }
     if const_pool_builder.count > 0 {
         const const_values: &ExecValue = compiler_arena_alloc(arena, @size_of(ExecValue) * const_pool_builder.count as usize) as &ExecValue;
         if const_values == null {
