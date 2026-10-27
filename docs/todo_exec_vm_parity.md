@@ -1484,6 +1484,35 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 （parity 比的是 C99 vs VM 的退出码/stdout，两端都失败算 OK），所以
 「census 745/909」与「parity 741/914 OK」是同一处的两种视图。
 
+### 第 317 轮：`async_event` 的注册链路打通了一半（卡在 native 结构体字段访问）
+
+在 VM 的 `exec_vm_exec_syscall` 里给 nr∈{232,233} 打点后可以确认**注册是真的发生了**：
+
+```
+epoll_wait(epfd=5, buf, maxevents=1024, 0)
+epoll_ctl (epfd=5, op=1 ADD, fd=6, …)
+```
+
+也就是说 `create_ok.register(read_fd, ...)` 走到了内核。`ready_n == 0` 的两层原因：
+
+1. `epoll_ctl` 的第 4 个实参（`struct epoll_event *`）在 VM 里是**本地聚合**
+   （wrapper 内存），内核读到的兴趣掩码是垃圾 → 注册进去的事件掩码无效。
+   按 C 布局把它拷成原生缓冲区再传（写了 `exec_vm_syscall_struct_to_native`：
+   按字段宽度 + 自然对齐逐字段写 u8/u16/u32/u64），注册就**生效**了。
+2. 但生效之后立刻撞上第二层：
+   `lib/libc/syscall.uya:1876: exec: LOAD_FIELD 字段越界(idx=1 kind=14 count=-1 pointee=16)`
+   —— 库代码从「内核写好的原生 `EpollEvent` 数组」里读 `data_lo` 时，
+   VM 走不到原生字段通道（`exec_vm_field_native_base` 拿不到可用的基址 /
+   缺 C 布局字段元数据），只能退回聚合字段访问而失败。
+
+这个第二层和 **io 簇是同一个缺口**：native 结构体的字段访问
+（`FILE.buffer`、`EpollEvent.data_lo` 都是它）。修它是「让 native/C 布局的结构体
+有字段视图」这一件事，能同时推进 io（3 例）+ async_event 系（3 例）。
+
+第 1 步的 `exec_vm_syscall_struct_to_native` 因为当前只服务 `epoll_ctl`、
+且第 2 步没通就整体收益为零，本轮回滚（避免半截代码留在主路径），
+结论与形状都记在这里，下一轮直接从「native 结构体字段视图」入手。
+
 ### 第 316 轮：`async_event` 的「静默退出」根因修掉（出参结构体判定太严）
 
 第 312 轮定位到的「`BC_SYSCALL` 里静默退出」，真正的原因找到了：
