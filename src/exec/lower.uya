@@ -627,6 +627,19 @@ fn exec_lower_libc_macro(name: &byte, out_value: &i64) i32 {
     if str_equals(name, "CLOCK_REALTIME" as &byte) != 0 { out_value[0] = 0; return 1; }
     if str_equals(name, "CLOCK_MONOTONIC" as &byte) != 0 { out_value[0] = 1; return 1; }
     if str_equals(name, "EINTR" as &byte) != 0 { out_value[0] = 4; return 1; }
+    // libc 头文件里的 `errno` 常量在 Uya 侧常写成 `libc_EAGAIN` 这种全名前缀形式，
+    // C99 后端靠头文件展开；解释器按同值补上。
+    if str_equals(name, "libc_EAGAIN" as &byte) != 0 { out_value[0] = 11; return 1; }
+    if str_equals(name, "libc_EWOULDBLOCK" as &byte) != 0 { out_value[0] = 11; return 1; }
+    if str_equals(name, "libc_EINPROGRESS" as &byte) != 0 { out_value[0] = 115; return 1; }
+    if str_equals(name, "libc_EALREADY" as &byte) != 0 { out_value[0] = 114; return 1; }
+    if str_equals(name, "libc_EINTR" as &byte) != 0 { out_value[0] = 4; return 1; }
+    if str_equals(name, "libc_ECONNRESET" as &byte) != 0 { out_value[0] = 104; return 1; }
+    if str_equals(name, "libc_ECONNREFUSED" as &byte) != 0 { out_value[0] = 111; return 1; }
+    if str_equals(name, "libc_AGAIN" as &byte) != 0 { out_value[0] = 11; return 1; }
+    // 编译器注入的编译期开关：`--async-frame-heap=on` 时 C99 才发成 1，
+    // 默认和解释器里的取值都是 0。
+    if str_equals(name, "_uya_async_frame_heap_fallback" as &byte) != 0 { out_value[0] = 0; return 1; }
     if str_equals(name, "EAGAIN" as &byte) != 0 { out_value[0] = 11; return 1; }
     if str_equals(name, "EWOULDBLOCK" as &byte) != 0 { out_value[0] = 11; return 1; }
     if str_equals(name, "EPIPE" as &byte) != 0 { out_value[0] = 32; return 1; }
@@ -7256,6 +7269,23 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                     libc_type = make_i32_type();
                 }
                 return exec_lower_make_int_const_expr(ctx, expr, &libc_type, libc_const);
+            }
+            // `extern var` 全局：C99 里由链接器/编译器提供存储（例如 async_frame 的
+            // descriptor 表）。解释器没有对应存储，按「零值」处理——表为空、
+            // 计数为 0、指针为 null，正好等于「运行期没有注册任何异步帧」。
+            var extern_var_decl: &ASTNode = null;
+            const extern_symbol: &Symbol = symbol_table_lookup(ctx.checker, expr.identifier_name);
+            if extern_symbol != null {
+                extern_var_decl = extern_symbol.decl_node;
+            }
+            if extern_var_decl != null && extern_var_decl.type == ASTNodeType.AST_EXTERN_VAR_DECL {
+                const extern_type_ast: &ASTNode = exec_lower_global_type_ast(extern_var_decl);
+                if extern_type_ast != null {
+                    var extern_type: Type = type_from_ast(ctx.checker, extern_type_ast);
+                    if exec_type_is_vm_value_supported(extern_type) != 0 {
+                        return exec_lower_make_zero_expr(ctx, expr, &extern_type);
+                    }
+                }
             }
             var unknown_ident_msg: [byte: 192] = [];
             _ = snprintf(&unknown_ident_msg[0] as *byte, 192, "exec: 当前仅支持局部变量/参数/全局标识符(%s)" as *byte, expr.identifier_name as *byte);
