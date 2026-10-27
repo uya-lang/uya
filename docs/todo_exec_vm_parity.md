@@ -1015,10 +1015,23 @@ loop { _ = iter.next() catch { break; }; const v: T = iter.value(); <body> }
    `exec_lower_coerce_expr` 里对「期望接口 / 实参结构体且实现该接口」补
    `exec_lower_box_interface_expr`。`test_async_poll_inline_struct_init` 转绿。
 
-**本轮实测**：`/tmp/census_r321.tsv` = **808 / 909（88.9%）**，与 r319(802) 相比
-**+6 / 0 回归**；随后 9 条改动又各自带了 2～3 条转绿（`test_for_iterator` 系、
-`async_frame_*`、`poll_inline_struct_init`、`async_param_capacity_dynamic`），
-末尾全量复测见 `/tmp/census_r324.tsv`。
+**本轮实测**：**808 → 813 / 909（89.4%）**，两段普查合计 **+11 / 0 回归**：
+- `r319(802) → r321(808)`：`test_async_await_capacity_dynamic`、
+  `test_async_await_limits_and_segments`、`test_async_for_await`、
+  `test_async_for_iterator_ref_await`、`test_for_iterator`、
+  `test_generic_struct_array_future_method`；
+- `r321(808) → r324(813)`：`test_async_frame_stack_ok`、`test_async_frame_type`、
+  `test_async_param_capacity_dynamic`、`test_async_poll_inline_struct_init`、
+  `test_crypto_bigint`（放宽超时后跑完）。
+
+**剩余 96 例的构成**（r324 失败清单）：
+- 线程语义 10 例：`test_pthread*`、`test_libc_heap_*`、`test_osal*`、`test_kernel_sim`、
+  `test_method_call_in_callback_codegen`（`pthread_join` 在 VM 里返回 `EINVAL(22)`）；
+- async 帧布局 ~15 例：`LOAD_UNION_TAG`/`LOAD_FIELD 越界`（帧结构体的 union 状态字段，
+  目前退化成空结构体，需要把 `@frame` 的布局也合成进 VM）；
+- 超长函数 4 例：`cleanup scope 嵌套过深` → 即使放宽到 4096 也撞
+  `bytecode 指令超出上限`（`lib/std/async_scheduler.uya` 的单函数体量超出 VM 上限）；
+- `@c_import` 3 例；其余为各模块的零散语义缺口。
 
 **仍然红的大簇**（重新归类后）：
 - **41 例「静默失败」（测试内部 `ERROR`，无 stderr）**：根子在 `@async_fn` 的返回值被
@@ -1381,7 +1394,7 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 ### T11 收口
 
 - [ ] `uya test --vm` 全量通过（跳过表只保留 C99 侧同样不适用的用例）
-      —— 现状 **808/909（88.9%）**（第 302 轮末），剩余缺口集中在
+      —— 现状 **813/909（89.4%）**（第 302 轮末），剩余缺口集中在
       async 帧布局（41 例静默失败）、线程（pthread/堆/OSAL 约 10 例，
       同步 VM 无并发语义）、`@c_import`（3 例）与超长函数（`bytecode 指令超出上限`）；
       这些不是「再来几轮」能收口的量级。
