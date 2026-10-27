@@ -692,6 +692,15 @@ fwrite(&wbuf[0], 1, 2, f)  →  syscall write(fd, addr=0x6253dc0, 2)
 「指向静态槽位」的指针。同一类症状还有 `pb_f32_to_bits`（`memcpy` 的源目标是一个
 值为 0 的 F64 槽位，而不是 `f32` 参数槽）。
 
+**进展（同轮后续试验）**：按「地址是否在竞技场里」重写 `exec_vm_field_native_base`
+后，堆代码里的 `&chunk.header`（`aux=65552`，引用目标是原生内存）能正确判定为原生，
+VM 的 `fwrite` 不再往文件里写 `\f\0`，但随即发现**判据还不够**：局部变量的槽位在
+编译器静态区（`g_exec_vm_slot_pool`），全局槽在 `program.globals`，两者都**不在**
+VM 值竞技场里，于是「引用指向 VM 局部结构体」被误判成原生 → `test_string` /
+`test_stdio` / `fmt_parser` / `json_struct_collections` 一起回归。
+结论：`exec_vm_address_is_value` 必须把「竞技场 + slot pool + globals 数组」三者都算作
+VM 值，再打开原生回落。这条已记在下面，下一轮照此实现即可。
+
 下一步：在 `ADDR_LOCAL`/`ADDR_INDEX`/CAST 里断言「产出的指针要么是引用编码，
 要么落在竞技场或栈上，不允许指向 slot pool」，把这几个用例的产出点直接打出来。
 
