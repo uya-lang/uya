@@ -612,6 +612,15 @@ VM 的 `[T: N]` 是「ExecValue 聚合」，元素之间隔着 `@size_of(ExecVal
   一起挂；
 - 只判「目标 kind 是不是 STRUCT」：堆里的野内存经常恰好长得像 STRUCT。
 
+补充（同轮第 4 次试验）：换成「ADDR_FIELD 对**普通宿主指针**直接产出
+`base + 字段偏移` 的原生指针 + LOAD/STORE_FIELD 只在聚合路径失败后回落」这一最小组合后，
+`test_string` / `test_stdio` / `test_stdlib` / `test_libc_heap_bins` 都能真正跑进堆逻辑
+（不再报 `LOAD_FIELD 字段越界`），但随即**段错误**——说明还有别的调用点把原生指针当
+VM 引用用（`mem_set` 字面量写、`STORE_INDEX`、或结构体字段整体读写）。
+下一轮从这里接着查：先在 `STORE_FIELD`/`LOAD_INDEX`/`STORE_INDEX`/内存函数视图里
+加上「原生指针」断点式校验（地址落在 VM 值之外的都按字节处理），把最后一个
+混合语义点找出来，这条簇（29+5 例）就能收。
+
 结论：这条路要走通，必须先有**确定性判据**，建议按这个顺序做：
 1. `exec_value_alloc_bytes` 分配时写块头魔数（或维护 [base,end) 区间表），提供
    `exec_vm_address_is_value(addr)`；
