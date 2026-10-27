@@ -3598,7 +3598,10 @@ fn exec_builder_register_drop_local(ctx: &ExecFunctionBuildContext, stmt: &HIRSt
     if local == null || drop_decl == null {
         return 0;
     }
-    local.needs_drop = 1;
+    if local.needs_drop == 0 {
+        // lowering 已经判定这个局部被移动过（返回值/结构体初始化按值取走），不要重复登记 drop。
+        return 0;
+    }
     if local.drop_decl == null {
         local.drop_decl = drop_decl;
     }
@@ -3661,7 +3664,92 @@ fn exec_builder_emit_drop_local(ctx: &ExecFunctionBuildContext, local: &HIRLocal
     }) < 0 {
         return -1;
     }
+    return exec_builder_emit_field_drops(ctx, local);
+}
+
+/// 给结构体局部变量的字段补 drop：用户 `drop` 之后按字段顺序清理还带 drop 的字段。
+/// C99 侧对「外层结构体 drop 感知不到字段已被移走」的处理依赖这种字段级清理，
+/// VM 侧走同一套语义（结构体局部出作用域时字段各自 drop）。
+/// 参数：`ctx` 构建上下文；`local` 局部变量描述。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_field_drops(ctx: &ExecFunctionBuildContext, local: &HIRLocalSlot) i32 {
+    if ctx == null || local == null || local.decl == null || ctx.checker == null ||
+        ctx.checker.program_node == null {
+        return 0;
+    }
+    const type_node: &ASTNode = local.decl.var_decl_type;
+    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_NAMED ||
+        type_node.type_named_name == null {
+        return 0;
+    }
+    const struct_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node,
+        type_node.type_named_name);
+    if struct_decl == null || struct_decl.struct_decl_fields == null {
+        return 0;
+    }
+    var fi: i32 = 0;
+    while fi < struct_decl.struct_decl_field_count {
+        const field_decl: &ASTNode = struct_decl.struct_decl_fields[fi];
+        if field_decl != null && field_decl.var_decl_type != null &&
+            field_decl.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED &&
+            field_decl.var_decl_type.type_named_name != null &&
+            exec_builder_emit_single_field_drop(ctx, local, field_decl, fi) < 0 {
+            return -1;
+        }
+        fi = fi + 1;
+    }
     return 0;
+}
+
+/// 对单个结构体字段发射一次 drop 调用（字段类型没有 drop 方法时什么也不做）。
+/// 参数：`ctx` 构建上下文；`local` 宿主局部变量；`field_decl` 字段声明；`field_index` 字段下标。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_single_field_drop(ctx: &ExecFunctionBuildContext, local: &HIRLocalSlot,
+    field_decl: &ASTNode, field_index: i32) i32 {
+    const field_drop_decl: &ASTNode = exec_builder_find_named_drop_decl(ctx,
+        field_decl.var_decl_type.type_named_name);
+    if field_drop_decl == null {
+        return 0;
+    }
+    const callee_index: i32 = exec_builder_find_function_index(ctx.module, field_drop_decl,
+        field_drop_decl.fn_decl_name);
+    if callee_index < 0 {
+        return 0;
+    }
+    const field_slot: i32 = exec_builder_new_temp(ctx);
+    if field_slot < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_LOAD_FIELD,
+        a: field_slot,
+        b: local.slot,
+        c: 0,
+        imm: field_index as i64,
+        text: null,
+        source: exec_builder_make_source(local.decl),
+    }) < 0 {
+        return -1;
+    }
+    var arg_sources: [i32: EXEC_MAX_CALL_ARGS] = [];
+    arg_sources[0] = field_slot;
+    const arg_base: i32 = exec_builder_pack_source_slots(ctx, local.decl, &arg_sources[0], 1);
+    if arg_base < 0 {
+        return -1;
+    }
+    const dst: i32 = exec_builder_new_temp(ctx);
+    if dst < 0 {
+        return -1;
+    }
+    return exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_CALL,
+        a: dst,
+        b: arg_base,
+        c: 1,
+        imm: callee_index as i64,
+        text: field_drop_decl.fn_decl_name,
+        source: exec_builder_make_source(local.decl),
+    });
 }
 
 fn exec_builder_emit_cleanup_scope(ctx: &ExecFunctionBuildContext, scope_idx: i32, include_errdefer: i32) i32 {

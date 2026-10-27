@@ -8488,6 +8488,76 @@ fn exec_lower_make_destructure_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode)
     return block_stmt;
 }
 
+/// 按名字找一个在用局部变量的槽位（参数不算，参数不参与 drop）。
+/// 参数：`ctx` 上下文；`name` 变量名。
+/// 返回值：槽位下标；找不到或该名字是参数返回 -1。
+fn exec_lower_find_local_slot_by_name(ctx: &ExecLowerContext, name: &byte) i32 {
+    if ctx == null || name == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < ctx.active_local_count {
+        if ctx.local_names[i] != null && str_equals(ctx.local_names[i], name) != 0 {
+            if ctx.local_is_param[i] != 0 {
+                return -1;
+            }
+            return ctx.local_slots[i];
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+/// 递归扫描「按值取走」的表达式，把其中出现的局部变量标记成已移动。
+/// 只在构造新值的位置调用（return 表达式、结构体/数组/元组字面量、调用实参），
+/// 这样 `return Outer{ inner: inner }` 里的 `inner` 出作用域时不会再 drop 一次。
+/// 参数：`ctx` 上下文；`node` 表达式 AST 节点。
+/// 返回值：无。
+fn exec_lower_mark_moved_locals(ctx: &ExecLowerContext, node: &ASTNode) void {
+    if ctx == null || node == null {
+        return;
+    }
+    if node.type == ASTNodeType.AST_IDENTIFIER {
+        const slot: i32 = exec_lower_find_local_slot_by_name(ctx, node.identifier_name);
+        if slot >= 0 && slot < EXEC_MAX_LOCALS {
+            ctx.slot_needs_drop[slot] = 0;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_STRUCT_INIT {
+        var i: i32 = 0;
+        while i < node.struct_init_field_count {
+            exec_lower_mark_moved_locals(ctx, node.struct_init_field_values[i]);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_ARRAY_LITERAL {
+        var ai: i32 = 0;
+        while ai < node.array_literal_element_count {
+            exec_lower_mark_moved_locals(ctx, node.array_literal_elements[ai]);
+            ai = ai + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_TUPLE_LITERAL {
+        var ti: i32 = 0;
+        while ti < node.tuple_literal_element_count {
+            exec_lower_mark_moved_locals(ctx, node.tuple_literal_elements[ti]);
+            ti = ti + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        var ci: i32 = 0;
+        while ci < node.call_expr_arg_count {
+            exec_lower_mark_moved_locals(ctx, node.call_expr_args[ci]);
+            ci = ci + 1;
+        }
+        return;
+    }
+}
+
 fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
     if ctx == null || block == null || block.type != ASTNodeType.AST_BLOCK {
         exec_backend_set_error(block, "exec: block lowering 失败" as *byte, 0);
@@ -8730,6 +8800,8 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
                 return null;
             }
             if stmt_node.return_stmt_expr != null {
+                // 返回值是「按值取走」：里面的局部变量已经移动，出作用域不能再 drop。
+                exec_lower_mark_moved_locals(ctx, stmt_node.return_stmt_expr);
                 if ctx.function_decl != null && ctx.function_decl.fn_decl_return_type != null {
                     const return_type: Type = type_from_ast(ctx.checker, ctx.function_decl.fn_decl_return_type);
                     stmt.expr = exec_lower_coerce_expr(ctx, stmt_node.return_stmt_expr, &return_type);
