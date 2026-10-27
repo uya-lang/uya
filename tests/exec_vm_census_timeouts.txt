@@ -6,3 +6,7 @@
 # test_crypto_bigint_modexp4096：4096 位私钥指数模幂 = 6144 次 64×64 Montgomery
 # 乘法，解释器实测约 343s（C99 侧约 1s）。内存稳定在 40MB 级别。
 test_crypto_bigint_modexp4096.uya	900
+# test_crypto_bigint / test_crypto_ed25519：同类纯 Uya 大数运算，解释器比 C99
+# 慢两个数量级，默认 120s 会被误判成失败（内容已对齐）。
+test_crypto_bigint.uya	300
+test_crypto_ed25519.uya	300
