@@ -663,6 +663,22 @@ fn exec_builder_array_element_kind_code(type: Type) i32 {
     return exec_builder_effective_kind_code(&type.element_type[0]);
 }
 
+/// 判断类型名是否以给定前缀开头（`@frame` 合成的 `uya_async_*` 用）。
+/// 参数：`name` 类型名；`prefix` 前缀。返回值：1 命中；0 不命中。
+fn exec_builder_type_name_has_prefix(name: &byte, prefix: &byte) i32 {
+    if name == null || prefix == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while prefix[i] != 0 {
+        if name[i] != prefix[i] {
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
 fn exec_builder_compile_zero_value(ctx: &ExecFunctionBuildContext, ast_node: &ASTNode, ty: &Type) i32 {
     if ctx == null || ty == null {
         return -1;
@@ -892,6 +908,27 @@ fn exec_builder_compile_zero_value(ctx: &ExecFunctionBuildContext, ast_node: &AS
             return -1;
         }
         const struct_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node, type_get_struct_name(ty));
+        // `@frame(fn)` 的结构体由 C99 codegen 合成，AST 里没有声明。
+        // VM 侧按空结构体零值处理（布局未对齐，字段访问会照常报错）。
+        if (struct_decl == null || struct_decl.struct_decl_fields == null) &&
+            exec_builder_type_name_has_prefix(type_get_struct_name(ty), "uya_async_" as &byte) != 0 {
+            const dst_frame: i32 = exec_builder_new_temp(ctx);
+            if dst_frame < 0 {
+                return -1;
+            }
+            if exec_builder_emit(ctx, BCInstr {
+                opcode: BCOpcode.BC_MAKE_STRUCT,
+                a: dst_frame,
+                b: -1,
+                c: 0,
+                imm: 0,
+                text: null,
+                source: exec_builder_make_source(ast_node),
+            }) < 0 {
+                return -1;
+            }
+            return dst_frame;
+        }
         if struct_decl == null || struct_decl.struct_decl_fields == null {
             var zero_struct_msg: [byte: 192] = [];
             _ = snprintf(&zero_struct_msg[0] as *byte, 192,
