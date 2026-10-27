@@ -851,6 +851,26 @@ exec 侧加兜底无效，两个改动都已回滚。
 `exec_builder_syscall_arg_out_struct_bit` 里探测不到（同一形状的 `&action` 能探测到），
 说明那个 HIR 节点的类型信息不一样，需要单独查。
 
+### 第 286 轮：`for iter |v|` 迭代器协议（改到一半，已回滚）
+
+做法（留给下一轮）：在 `exec_lower_make_for_array_stmt` 的非数组/切片分支里，
+如果迭代对象是带 `next()`/`value()` 的结构体，就手工搭这段 HIR：
+
+```
+loop { _ = iter.next() catch { break; }; const v: T = iter.value(); <body> }
+```
+
+已经能写出来的部分：取 `find_instance_method_in_struct(program, 类型名, "next"/"value")`、
+用 `HIR_EXPR_CALL` + `HIR_EXPR_ADDR(&iter)` 造调用、`HIR_EXPR_CATCH` 配
+`exec_lower_make_break_block`、`HIR_STMT_LOOP` 包三层语句。
+**卡点**：builder 报 `bytecode 函数构建失败`（无具体信息的 `return -1` 路径），
+说明这段手工 HIR 里有某个不满足 builder 约束的地方（最可疑是
+`HIR_EXPR_CATCH` 里嵌 `HIR_STMT_BREAK` 的循环标签栈，或者 `HIR_EXPR_ADDR`
+对「结构体局部变量」的取址约束）。下一轮先把 `exec_builder_build_function`
+所有静默 `return -1` 补上错误信息，再逐条对齐。
+
+（本轮无净变化，基线 **748 / 909（82.3%）**。）
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
