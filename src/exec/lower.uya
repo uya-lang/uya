@@ -3237,6 +3237,24 @@ fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type:
             return exec_lower_make_array_literal_slice_expr(ctx, expr, expected_type);
         }
     }
+    // 具体结构体值隐式转接口（`Future<T>` 这类同名接口/结构体最常见）：
+    // 接口值 = [方法入口…, 数据指针]，不装箱的话后续接口分派会按错误布局取字段。
+    if expected_type != null {
+        var iface_target: Type = expected_type[0];
+        if iface_target.kind == TypeKind.TYPE_ERROR_UNION && iface_target.error_union_payload_type != null {
+            iface_target = iface_target.error_union_payload_type[0];
+        }
+        if iface_target.kind == TypeKind.TYPE_INTERFACE && iface_target.interface_name != null {
+            const actual_type: Type = exec_lower_expr_type(ctx, expr);
+            if actual_type.kind == TypeKind.TYPE_STRUCT && actual_type.struct_name != null &&
+                struct_implements_interface(ctx.checker, actual_type.struct_name, iface_target.interface_name) != 0 {
+                const boxed_iface: &HIRExpr = exec_lower_box_interface_expr(ctx, expr, &iface_target);
+                if boxed_iface != null {
+                    return boxed_iface;
+                }
+            }
+        }
+    }
     return exec_lower_expr(ctx, expr);
 }
 
