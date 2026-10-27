@@ -1520,11 +1520,20 @@ C 后端打出 `0 0 128 63`，VM 直接 `LOAD_INDEX 越界`。也就是说缺的
 取回**整个值**、index≥1 才落到 `exec_vm_index_ref` 报越界）。
 
 本轮按这个位置写了「标量位模式 + 按字节移位」的读/写（含
-`exec_vm_scalar_bits_of` / `exec_vm_store_scalar_bits` 两个 helper）：
-越界消失了，但读出来的四个字节全是 0（期望 `0 0 128 63`），说明
-`exec_vm_ref_target_value(slot_b)` 在这个场景下拿到的不是那个 `f32` 参数值本身
-（可能是指向参数的引用/指针层）。下一步只需确认这一点，就能把位模式取对。
-代码已回滚，只留结论与落点。
+`exec_vm_scalar_bits_of` / `exec_vm_store_scalar_bits` 两个 helper），
+越界消失，但读出来全是 0。打点把真因钉住了：
+
+```
+DBG bidx pkind=14 pointee=10 idx=0 tgtkind=10 tgti64=0
+                     ↑ pointee=byte        ↑ 目标竟然是 **BYTE** 值，值是 0
+```
+
+也就是说 `&f as &const byte` 生成的内部引用**指向了一个新装箱的 BYTE 值**
+（`BC_BOX_VALUE` 按新类型重新装箱），而不是指向那个 `f32` 参数。
+所以问题不在「取位模式」，而在「指针→指针转换时被重新装箱」这一步：
+修法是让 `&T as &U`（同为指针/引用）**复用原引用**（只改 pointee kind），
+不要新建装箱值。修好这一处，`memcpy(&u,&f,4)` 这类位重解释
+（protobuf 等库）才会真正可用。代码已回滚，只留结论与落点。
 
 ### 第 317 轮：`async_event` 的注册链路打通了一半（卡在 native 结构体字段访问）
 
