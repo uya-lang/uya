@@ -1515,11 +1515,16 @@ fn direct(f: f32) i32 {
 
 C 后端打出 `0 0 128 63`，VM 直接 `LOAD_INDEX 越界`。也就是说缺的是
 **「标量的字节视图」**：`&scalar as &byte` 之后的下标读要取该标量**位模式**里的第 i 字节。
-可行的落点已经找好：`exec_vm_load_pointer_index` 里
-「内引用 + pointee 是 byte/u8 + 目标不是聚合」时，用 `i64_value`（F32/F64 走
-`exec_f32_to_bits`/`exec_f64_to_bits`）右移 `8*i` 取一字节即可；
-`STORE_INDEX` 做对称实现就能覆盖 `memcpy` 的位重解释。本轮试写时只加在
-`load_pointer_index` 里没被命中（`p[0]` 走的分支还需要确认），代码已回滚只留结论。
+落点已确认在 **`BC_LOAD_INDEX`/`BC_STORE_INDEX` 处理器的「内引用」分支**里
+（不是 `exec_vm_load_pointer_index` —— `p[0]` 先走内引用分支，index=0 时按 `*ref`
+取回**整个值**、index≥1 才落到 `exec_vm_index_ref` 报越界）。
+
+本轮按这个位置写了「标量位模式 + 按字节移位」的读/写（含
+`exec_vm_scalar_bits_of` / `exec_vm_store_scalar_bits` 两个 helper）：
+越界消失了，但读出来的四个字节全是 0（期望 `0 0 128 63`），说明
+`exec_vm_ref_target_value(slot_b)` 在这个场景下拿到的不是那个 `f32` 参数值本身
+（可能是指向参数的引用/指针层）。下一步只需确认这一点，就能把位模式取对。
+代码已回滚，只留结论与落点。
 
 ### 第 317 轮：`async_event` 的注册链路打通了一半（卡在 native 结构体字段访问）
 
