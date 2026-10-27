@@ -3475,7 +3475,7 @@ export fn main() i32 {
                 fprintf(libc.stderr, "失败: %d\n" as *byte, failed_exec);
                 fprintf(libc.stderr, "================================\n" as *byte);
             }
-            if child_exit_exec != 0 {
+            if child_exit_exec != 0 && vm_exit_requested() == 0 {
                 const exec_run_err: &byte = exec_backend_get_last_error();
                 if exec_run_err != null {
                     fprintf(libc.stderr, "exec runtime: %s\n" as *byte, exec_run_err as *byte);

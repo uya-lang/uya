@@ -6719,6 +6719,41 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
 ///
 /// 参数：`expr` 是 `AST_BLOCK`；`block_type` 是块的值类型。
 /// 返回值：`HIR_EXPR_BLOCK`；失败返回 null。
+/// 把单条语句包成一个 `AST_BLOCK`，方便复用「块当表达式」的降级路径。
+/// 参数：`ctx` 上下文；`stmt` 语句节点。返回值：合成块；失败返回 null。
+fn exec_lower_single_stmt_block(ctx: &ExecLowerContext, stmt: &ASTNode) &ASTNode {
+    if ctx == null || stmt == null {
+        return null;
+    }
+    const block: &ASTNode = compiler_arena_alloc(ctx.arena, @size_of(ASTNode)) as &ASTNode;
+    const stmts: & & ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode)) as & & ASTNode;
+    if block == null || stmts == null {
+        return null;
+    }
+    _ = memset(block as *byte, 0, @size_of(ASTNode));
+    block.type = ASTNodeType.AST_BLOCK;
+    block.line = stmt.line;
+    block.column = stmt.column;
+    block.filename = stmt.filename;
+    block.block_stmts = stmts;
+    block.block_stmt_count = 1;
+    stmts[0] = stmt;
+    return block;
+}
+
+/// 分支值节点是不是跳转语句（`return` / `break` / `continue`）。
+/// 参数：`node` 分支值节点。返回值：1 是，0 不是。
+fn exec_lower_node_is_jump_stmt(node: &ASTNode) i32 {
+    if node == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT || node.type == ASTNodeType.AST_BREAK_STMT ||
+        node.type == ASTNodeType.AST_CONTINUE_STMT {
+        return 1;
+    }
+    return 0;
+}
+
 fn exec_lower_block_expr(ctx: &ExecLowerContext, expr: &ASTNode, block_type: &Type) &HIRExpr {
     if expr == null || expr.block_stmts == null || expr.block_stmt_count <= 0 {
         return exec_lower_make_zero_expr(ctx, expr, block_type);
@@ -6730,6 +6765,22 @@ fn exec_lower_block_expr(ctx: &ExecLowerContext, expr: &ASTNode, block_type: &Ty
     const blk: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_BLOCK, block_type);
     if blk == null {
         return null;
+    }
+    if tail_stmt.type == ASTNodeType.AST_RETURN_STMT || tail_stmt.type == ASTNodeType.AST_BREAK_STMT ||
+        tail_stmt.type == ASTNodeType.AST_CONTINUE_STMT {
+        // 块尾是 `return` / `break` / `continue`：块没有「值」（控制流已经跳走），
+        // 整块按语句降级，值位置补零。
+        const jump_zero: &HIRExpr = exec_lower_make_zero_expr(ctx, expr, block_type);
+        if jump_zero == null {
+            return null;
+        }
+        blk.block = exec_lower_block(ctx, expr);
+        if blk.block == null {
+            return null;
+        }
+        blk.extra = jump_zero;
+        blk.type_ref = jump_zero.type_ref;
+        return blk;
     }
     // 前缀块作用域状态是「本层」的：单语句块没有前缀，绝不能把外层 catch
     // 还没收尾的 prefix 状态继承过来，否则会把外层作用域提前弹掉，
@@ -8828,7 +8879,16 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if then_value_node == null {
             return exec_lower_fail_expr(expr, "exec: if 表达式 then 分支没有值" as *byte);
         }
-        const then_value_expr: &HIRExpr = exec_lower_coerce_expr(ctx, then_value_node, &expr_type);
+        var then_value_expr: &HIRExpr = null;
+        if exec_lower_node_is_jump_stmt(then_value_node) != 0 {
+            const then_block: &ASTNode = exec_lower_single_stmt_block(ctx, then_value_node);
+            if then_block == null {
+                return null;
+            }
+            then_value_expr = exec_lower_block_expr(ctx, then_block, &expr_type);
+        } else {
+            then_value_expr = exec_lower_coerce_expr(ctx, then_value_node, &expr_type);
+        }
         if then_value_expr == null {
             return null;
         }
@@ -8836,7 +8896,16 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if else_value_node == null {
             return exec_lower_fail_expr(expr, "exec: if 表达式 else 分支没有值" as *byte);
         }
-        const else_value_expr: &HIRExpr = exec_lower_coerce_expr(ctx, else_value_node, &expr_type);
+        var else_value_expr: &HIRExpr = null;
+        if exec_lower_node_is_jump_stmt(else_value_node) != 0 {
+            const else_block: &ASTNode = exec_lower_single_stmt_block(ctx, else_value_node);
+            if else_block == null {
+                return null;
+            }
+            else_value_expr = exec_lower_block_expr(ctx, else_block, &expr_type);
+        } else {
+            else_value_expr = exec_lower_coerce_expr(ctx, else_value_node, &expr_type);
+        }
         if else_value_expr == null {
             return null;
         }

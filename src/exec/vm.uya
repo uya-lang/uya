@@ -3266,11 +3266,13 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             exec_backend_set_error(function.decl, "exec: exit 参数非法" as *byte, 0);
             return -1;
         }
-        // `exit` 的语义就是立刻结束进程：先冲掉宿主缓冲，再照搬退出码。
+        // 解释器跑在编译器进程里，不能真的 `exit()`（那样连测试汇总都打不出来）。
+        // 记下退出码并让 VM 立刻收工，`vm_run_program` 会把它当作程序返回值。
         _ = fflush(null as &FILE);
-        exit(exit_arg.i64_value as i32);
+        g_exec_vm_exit_requested = 1;
+        g_exec_vm_exit_code = exit_arg.i64_value as i32;
         out_value[0] = exec_make_void();
-        return 0;
+        return -1;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_ISATTY {
         // 解释器输出总是被当管道读（与 C99 测试里 isatty 返回 0 一致）。
@@ -5314,6 +5316,15 @@ fn exec_vm_run_frame(program: &BCProgram, function: &BCFunction, args: &ExecValu
 /// 运行已经构建好的 bytecode 程序。
 /// 参数：`program` 为 exec backend 构建产物；`trace_vm` 控制是否打印逐条 VM trace。
 /// 返回值：成功时返回程序 `main` 的退出码；失败时返回非 0，并通过 exec backend 错误状态说明原因。
+/// `exit()` 在解释器里的「提前收工」标记与退出码。
+var g_exec_vm_exit_requested: i32 = 0;
+var g_exec_vm_exit_code: i32 = 0;
+
+/// `exit()` 是否已经被调用过（用于区分「程序正常结束」和「运行时错误」）。
+export fn vm_exit_requested() i32 {
+    return g_exec_vm_exit_requested;
+}
+
 export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
     if program == null {
         exec_backend_set_error(null, "exec: VM 程序为空" as *byte, 0);
@@ -5329,6 +5340,9 @@ export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
     if program.global_init_function_index >= 0 {
         var init_result: ExecValue = exec_make_void();
         if exec_vm_call_function(program, program.global_init_function_index, null, 0, trace_vm, &init_result) != 0 {
+            if g_exec_vm_exit_requested != 0 {
+                return g_exec_vm_exit_code;
+            }
             return 1;
         }
     }
@@ -5358,6 +5372,9 @@ export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
             _ = fflush(libc.stdout);
             var test_result: ExecValue = exec_make_void();
             if exec_vm_call_function(program, program.test_function_indices[test_i], null, 0, trace_vm, &test_result) != 0 {
+                if g_exec_vm_exit_requested != 0 {
+                    return g_exec_vm_exit_code;
+                }
                 return 1;
             }
             if exec_value_is_error_union_err(test_result) != 0 {
@@ -5383,7 +5400,13 @@ export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
     }
     var result: ExecValue = exec_make_void();
     if exec_vm_call_function(program, program.entry_function_index, null, 0, trace_vm, &result) != 0 {
+        if g_exec_vm_exit_requested != 0 {
+            return g_exec_vm_exit_code;
+        }
         return 1;
+    }
+    if g_exec_vm_exit_requested != 0 {
+        return g_exec_vm_exit_code;
     }
     if result.kind == ExecValueKind.EXEC_VALUE_I32 ||
         result.kind == ExecValueKind.EXEC_VALUE_I8 ||
