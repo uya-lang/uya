@@ -669,6 +669,14 @@ guard/A/B 布局），VM 里 mmap 是模拟的，布局不可能一致——属�
 当前剩余 167 条：async 97、断言类 40（pthread ~12 + 堆页布局 4 + 其余）、
 泛型调用 4（async）、`@c_import` 3、`LOAD_INDEX 越界` 3、for 迭代器 2、杂项 8。
 
+### `test_std_env` / `test_typed_pipeline_cmd_argv` 的 `LOAD_INDEX 越界`（3 例）
+
+两例都倒在「合成 env/argv 块」上：`base_envp: &(&const byte)` 由测试侧自己拼出来，
+VM 里那个字段里装的是**字节数组**（`[byte: N]` 一类），于是 `self.base_envp[i]`
+按元素取出来是 `byte`（kind=12, aux=0），再 `entry[i]` 就 `LOAD_INDEX 越界`。
+根因是「`[byte: N]` 与 `&&const byte` 的表示不一致」，不是索引实现的问题。
+优先级低（3 例），要做得先把 env/argv 的合成块统一成原生指针数组。
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
