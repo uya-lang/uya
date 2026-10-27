@@ -2969,6 +2969,22 @@ fn exec_lower_collect_interface_dispatch_decls(ctx: &ExecLowerContext, interface
     return 0;
 }
 
+/// 判断名字是否以给定前缀开头（`@frame` 合成的 `uya_async_*` 类型用）。
+/// 参数：`name` 名字；`prefix` 前缀。返回值：1 命中；0 不命中。
+fn exec_lower_name_has_prefix(name: &byte, prefix: &byte) i32 {
+    if name == null || prefix == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while prefix[i] != 0 {
+        if name[i] != prefix[i] {
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
 fn exec_lower_box_interface_expr(ctx: &ExecLowerContext, expr: &ASTNode, interface_type: &Type) &HIRExpr {
     if ctx == null || expr == null {
         return null;
@@ -8079,6 +8095,13 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 call_method.call_args = args_method;
                 call_method.call_arg_count = total_arg_count;
                 return call_method;
+            }
+            // `@frame(fn)` 的合成帧在 VM 里已经同步执行完：`stop()` 这类帧控制方法
+            // 没有 AST 声明，按空操作处理（返回 void 零值）。
+            if owner_type.kind == TypeKind.TYPE_STRUCT && owner_type.struct_name != null &&
+                exec_lower_name_has_prefix(owner_type.struct_name, "uya_async_" as &byte) != 0 {
+                const frame_noop_type: Type = make_void_type();
+                return exec_lower_make_zero_expr(ctx, expr, &frame_noop_type);
             }
             var method_msg: [byte: 224] = [];
             _ = snprintf(&method_msg[0] as *byte, 224, "exec: 无法解析成员方法调用(kind=%d name=%s obj=%s)" as *byte,
