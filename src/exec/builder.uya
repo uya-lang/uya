@@ -3752,6 +3752,51 @@ fn exec_builder_emit_single_field_drop(ctx: &ExecFunctionBuildContext, local: &H
     });
 }
 
+/// 取字段访问表达式本体（初始化表达式可能被 coerce 包了一层 cast）。
+/// 参数：`expr` HIR 表达式。
+/// 返回值：字段访问节点；不是字段访问返回 null。
+fn exec_builder_unwrap_field_expr(expr: &HIRExpr) &HIRExpr {
+    var cursor: &HIRExpr = expr;
+    var guard: i32 = 0;
+    while cursor != null && cursor.kind == HIRExprKind.HIR_EXPR_CAST && guard < 8 {
+        cursor = cursor.left;
+        guard = guard + 1;
+    }
+    if cursor == null || cursor.kind != HIRExprKind.HIR_EXPR_FIELD {
+        return null;
+    }
+    return cursor;
+}
+
+/// 移动源字段清零：`const moved: Buf = h.buf;` 之后把 `h.buf` 置零，
+/// 让外层结构体的字段 drop 变成空操作（对齐 C99 的 gen_moved_field_source_clear）。
+/// 参数：`ctx` 构建上下文；`stmt` 变量初始化语句（读 `var_decl_moved_field_src`）。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_moved_field_clear(ctx: &ExecFunctionBuildContext, stmt: &HIRStmt) i32 {
+    if ctx == null || stmt == null || stmt.ast_node == null ||
+        stmt.ast_node.var_decl_moved_field_src == null {
+        return 0;
+    }
+    const field_expr: &HIRExpr = exec_builder_unwrap_field_expr(stmt.expr);
+    if field_expr == null || field_expr.left == null {
+        return 0;
+    }
+    const zero_slot: i32 = exec_builder_compile_zero_value(ctx, stmt.ast_node, &field_expr.type_ref.type);
+    const base_slot: i32 = exec_builder_compile_addressable_expr_slot(ctx, field_expr.left, stmt.ast_node);
+    if zero_slot < 0 || base_slot < 0 {
+        return -1;
+    }
+    return exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_STORE_FIELD,
+        a: base_slot,
+        b: zero_slot,
+        c: 0,
+        imm: field_expr.int_value,
+        text: null,
+        source: exec_builder_make_source(stmt.ast_node),
+    });
+}
+
 fn exec_builder_emit_cleanup_scope(ctx: &ExecFunctionBuildContext, scope_idx: i32, include_errdefer: i32) i32 {
     const scope: &ExecCleanupScope = exec_builder_cleanup_scope_ref(ctx, scope_idx);
     if ctx == null || scope == null {
@@ -3852,6 +3897,9 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                 return -1;
             }
             if exec_builder_register_drop_local(ctx, stmt) < 0 {
+                return -1;
+            }
+            if exec_builder_emit_moved_field_clear(ctx, stmt) < 0 {
                 return -1;
             }
         } else if stmt.kind == HIRStmtKind.HIR_STMT_ASSIGN {
