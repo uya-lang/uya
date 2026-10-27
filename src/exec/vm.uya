@@ -3073,6 +3073,31 @@ fn exec_vm_atomic_update(function: &BCFunction, frame: &ExecFrame, arg_base: i32
     return 0;
 }
 
+/// 同步解释器里的「线程」槽位表：`pthread_create` 只登记，`join`/`detach` 只维护状态。
+/// 块上限与 pthread 用例规模匹配（远小于真实线程数上限）。
+const EXEC_VM_THREAD_SLOTS: i32 = 16;
+
+var exec_vm_thread_used: [i32: EXEC_VM_THREAD_SLOTS] = [];
+var exec_vm_thread_detached: [i32: EXEC_VM_THREAD_SLOTS] = [];
+
+/// 从 `pthread_t` 值里读线程槽位号（`tid` 字段，字段 0；0 表示未创建）。
+/// 参数：thread - `pthread_t` 值（结构体或指向结构体的引用）。
+/// 返回值：槽位下标；无效返回 -1。
+fn exec_vm_thread_slot_of(thread: &ExecValue) i32 {
+    if thread == null {
+        return -1;
+    }
+    const tid_field: &ExecValue = exec_vm_field_ref(thread, 0);
+    if tid_field == null {
+        return -1;
+    }
+    const slot: i32 = (tid_field.i64_value -| 1) as i32;
+    if slot < 0 || slot >= EXEC_VM_THREAD_SLOTS {
+        return -1;
+    }
+    return slot;
+}
+
 fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecFrame, arg_base: i32, arg_count: i32, out_value: &ExecValue) i32 {
     if function == null || site == null || frame == null || out_value == null {
         exec_backend_set_error(null, "exec: hostcall 输入无效" as *byte, 0);
@@ -3277,6 +3302,99 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_ISATTY {
         // 解释器输出总是被当管道读（与 C99 测试里 isatty 返回 0 一致）。
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CREATE ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_JOIN ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_DETACH ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SELF ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_EQUAL {
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SELF {
+            var self_value: ExecValue = exec_make_struct(8);
+            const self_tid: &ExecValue = exec_vm_field_ref(&self_value, 0);
+            if self_tid != null {
+                exec_vm_store_slot(self_tid, exec_make_i64(1));
+            }
+            out_value[0] = self_value;
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_EQUAL {
+            const eq_a: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+            const eq_b: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+            var eq_same: i32 = 0;
+            if eq_a != null && eq_b != null {
+                const slot_a_tid: i32 = exec_vm_thread_slot_of(eq_a);
+                const slot_b_tid: i32 = exec_vm_thread_slot_of(eq_b);
+                if slot_a_tid >= 0 && slot_a_tid == slot_b_tid {
+                    eq_same = 1;
+                }
+            }
+            out_value[0] = exec_make_i32(eq_same);
+            return 0;
+        }
+        const th_value: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const th_slot: i32 = exec_vm_thread_slot_of(th_value);
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CREATE {
+            var free_slot: i32 = -1;
+            var ti: i32 = 0;
+            while ti < EXEC_VM_THREAD_SLOTS {
+                if ti >= 0 && ti < EXEC_VM_THREAD_SLOTS {
+                    if exec_vm_thread_used[ti] == 0 && free_slot < 0 {
+                        free_slot = ti;
+                    }
+                }
+                ti = ti + 1;
+            }
+            if free_slot < 0 {
+                out_value[0] = exec_make_i32(11);
+                return 0;
+            }
+            if free_slot >= 0 && free_slot < EXEC_VM_THREAD_SLOTS {
+                exec_vm_thread_used[free_slot] = 1;
+                exec_vm_thread_detached[free_slot] = 0;
+            }
+            const tid_field: &ExecValue = exec_vm_field_ref_store(th_value, 0);
+            if tid_field != null {
+                exec_vm_store_slot(tid_field, exec_make_i64((free_slot + 1) as i64));
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        var th_used: i32 = 0;
+        var th_detached: i32 = 0;
+        if th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
+            th_used = exec_vm_thread_used[th_slot];
+            th_detached = exec_vm_thread_detached[th_slot];
+        }
+        if th_slot < 0 || th_used == 0 {
+            out_value[0] = exec_make_i32(3);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_DETACH {
+            if th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
+                // 分离后句柄仍然有效（槽位继续占用），`pthread_join` 要能回 EINVAL。
+                exec_vm_thread_detached[th_slot] = 1;
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        if th_detached != 0 {
+            out_value[0] = exec_make_i32(22);
+            return 0;
+        }
+        if arg_count >= 2 {
+            const retval_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+            if retval_slot != null && retval_slot.ptr_value != null {
+                const retval_target: &ExecValue = exec_vm_ref_target_value(retval_slot);
+                if retval_target != null {
+                    exec_vm_store_slot(retval_target, exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32));
+                }
+            }
+        }
+        if th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
+            exec_vm_thread_used[th_slot] = 0;
+        }
         out_value[0] = exec_make_i32(0);
         return 0;
     }

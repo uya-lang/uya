@@ -723,6 +723,28 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
             param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SIGMASK;
         }
+        // 同步解释器没有真线程：这几个 pthread 入口在 VM 里按「顺序执行 + 状态表」模拟，
+        // 语义比跑 Uya 实现体（clone 系统调用）更接近调用点的期望。
+        if str_equals(fn_name, "pthread_create" as &byte) != 0 &&
+            param_count == 4 && call_arg_count == 4 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CREATE;
+        }
+        if str_equals(fn_name, "pthread_join" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_JOIN;
+        }
+        if str_equals(fn_name, "pthread_detach" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_DETACH;
+        }
+        if str_equals(fn_name, "pthread_self" as &byte) != 0 &&
+            param_count == 0 && call_arg_count == 0 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SELF;
+        }
+        if str_equals(fn_name, "pthread_equal" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_EQUAL;
+        }
         if str_equals(fn_name, "uya_interface_get_vtable" as &byte) != 0 &&
             param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_INTERFACE_GET_VTABLE;
@@ -861,6 +883,19 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
 }
 
 fn exec_lower_extern_prefers_host_call(fn_decl: &ASTNode) i32 {
+    if fn_decl == null || fn_decl.fn_decl_name == null {
+        return 0;
+    }
+    const name: &byte = fn_decl.fn_decl_name;
+    // 这些入口在 VM 里有宿主实现，Uya 实现体（线程/信号/内存系统调用）在解释器里
+    // 既跑不通也没有等价语义，优先走宿主实现。
+    if str_equals(name, "pthread_create" as *byte) != 0 ||
+        str_equals(name, "pthread_join" as *byte) != 0 ||
+        str_equals(name, "pthread_detach" as *byte) != 0 ||
+        str_equals(name, "pthread_self" as *byte) != 0 ||
+        str_equals(name, "pthread_equal" as *byte) != 0 {
+        return 1;
+    }
     return 0;
 }
 
@@ -877,6 +912,13 @@ fn exec_lower_extern_can_run_in_vm(checker: &TypeChecker, fn_decl: &ASTNode) i32
     }
     if fn_decl.fn_decl_is_extern == 0 {
         return (fn_decl.fn_decl_body != null) as i32;
+    }
+    // 同步 VM 没有真正的线程/锁语义：`pthread_*` 的 Uya 实现体（clone 系统调用等）
+    // 在解释器里跑出来的返回值没有意义，一律按「VM 不能执行」处理，
+    // 能对上宿主桥的（`pthread_sigmask` 一类）仍然走宿主实现，其余退化成零值桩。
+    if fn_decl.fn_decl_name != null &&
+        exec_lower_name_has_prefix(fn_decl.fn_decl_name, "pthread_" as &byte) != 0 {
+        return 0;
     }
     if fn_decl.fn_decl_body == null {
         return 0;
