@@ -1517,6 +1517,12 @@ test_async_compute_types         rc: 1 → 11
 census `/tmp/census_r336.tsv` 仍是 **823 / 909**（无增无减、无回归），
 但这一轮把「静默退出」这个反复误导排查的现象消灭了。
 
+第 316 轮末又试了一版 `epoll_ctl` 的「入参结构体按 C 布局拷成原生缓冲区」
+（写了一个按字段宽度+自然对齐的小 `exec_vm_syscall_struct_to_native`），
+`ready_n` 仍是 0，说明注册链路另有断点（`register` 未必走到这个 syscall，
+或者 `linux_epoll_lookup_capacity`/slot 表在 VM 里读不到），遂回滚，只留结论：
+**下一步要先确认 `create_ok.register(read_fd, ...)` 到底有没有真的 syscall 到内核**。
+
 ### 第 315 轮：为什么不能直接把 `strtod` 交给宿主（`--nostdlib`）+ 自举两趟的坑
 
 试过把 `lib/libc/stdlib.uya` 的 `strtod` 改成不带体的 `extern "libc"`（映射 glibc），
