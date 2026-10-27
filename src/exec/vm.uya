@@ -3495,6 +3495,33 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         out_value[0] = exec_make_i32(0);
         return 0;
     }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_SETJMP ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_SIGSETJMP {
+        // `jmp_buf.data` 是 `[u64: 8]`（`sigjmp_buf` 是 16）：解释器没有寄存器现场，
+        // 但调用方（以及 `longjmp` 的占位实现）只要求「保存过且能识别」，
+        // 这里写入递增标记，`data[6..7]`（rsp/rip）保持非零。
+        const env_value: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        // 实参是 `&jmp_buf`：内部引用时先解到结构体本体，再取 `data` 字段。
+        var env_struct: &ExecValue = env_value;
+        if env_value != null && env_value.kind == ExecValueKind.EXEC_VALUE_POINTER {
+            const env_target: &ExecValue = exec_vm_ref_target_value(env_value);
+            if env_target != null {
+                env_struct = env_target;
+            }
+        }
+        const env_data: &ExecValue = exec_vm_field_ref_store(env_struct, 0);
+        if env_data != null {
+            // `data` 是标量数组（原生 raw array），按下标逐个写标记值。
+            var env_i: i32 = 0;
+            while env_i < 8 {
+                var env_fill: ExecValue = exec_make_u64((env_i + 1) as u64);
+                _ = exec_value_set_index(env_data, env_i, &env_fill);
+                env_i = env_i + 1;
+            }
+        }
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_BARRIER_INIT ||
         site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_BARRIER_WAIT ||
         site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_BARRIER_DESTROY {

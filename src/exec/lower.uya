@@ -849,6 +849,17 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
             param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_BARRIER_DESTROY;
         }
+        // `setjmp`/`sigsetjmp` 是 `@naked_fn` 的内联汇编（保存 rbx/rbp/r12-r15/rsp/rip），
+        // 解释器没有寄存器现场；宿主实现写一组非零标记，调用方只关心「保存过」。
+        if (str_equals(fn_name, "setjmp" as &byte) != 0 ||
+            str_equals(fn_name, "_setjmp" as &byte) != 0) &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_SETJMP;
+        }
+        if str_equals(fn_name, "sigsetjmp" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_SIGSETJMP;
+        }
         if str_equals(fn_name, "pthread_key_create" as &byte) != 0 &&
             param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_KEY_CREATE;
@@ -1035,6 +1046,9 @@ fn exec_lower_extern_prefers_host_call(fn_decl: &ASTNode) i32 {
         str_equals(name, "pthread_barrier_init" as *byte) != 0 ||
         str_equals(name, "pthread_barrier_wait" as *byte) != 0 ||
         str_equals(name, "pthread_barrier_destroy" as *byte) != 0 ||
+        str_equals(name, "setjmp" as *byte) != 0 ||
+        str_equals(name, "_setjmp" as *byte) != 0 ||
+        str_equals(name, "sigsetjmp" as *byte) != 0 ||
         str_equals(name, "pthread_key_create" as *byte) != 0 ||
         str_equals(name, "pthread_key_delete" as *byte) != 0 ||
         str_equals(name, "pthread_setspecific" as *byte) != 0 ||
@@ -8396,11 +8410,29 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             return exec_lower_make_int_const_expr(ctx, expr, &worker_type, -1 as i64);
         }
         var host_call_id: ExecHostCallId = ExecHostCallId.EXEC_HOST_CALL_NONE;
+        // `setjmp`/`sigsetjmp` 是 `@naked_fn`（内联汇编保存寄存器现场），不是 extern，
+        // 但解释器同样没有寄存器/栈现场可用，按宿主实现处理。
+        var naked_host_call: i32 = 0;
+        if callee_decl != null && callee_decl.type == ASTNodeType.AST_FN_DECL &&
+            callee_decl.fn_decl_name != null &&
+            (str_equals(callee_decl.fn_decl_name, "setjmp" as *byte) != 0 ||
+             str_equals(callee_decl.fn_decl_name, "_setjmp" as *byte) != 0 ||
+             str_equals(callee_decl.fn_decl_name, "sigsetjmp" as *byte) != 0) {
+            naked_host_call = 1;
+        }
         if callee_decl != null &&
             callee_decl.type == ASTNodeType.AST_FN_DECL &&
-            callee_decl.fn_decl_is_extern != 0 {
-            const extern_can_run: i32 = exec_lower_extern_can_run_in_vm(ctx.checker, callee_decl);
-            const matched_host_call: ExecHostCallId = exec_lower_match_host_call(callee_decl, expr.call_expr_arg_count);
+            (callee_decl.fn_decl_is_extern != 0 || naked_host_call != 0) {
+            var extern_can_run: i32 = exec_lower_extern_can_run_in_vm(ctx.checker, callee_decl);
+            if naked_host_call != 0 {
+                extern_can_run = 0;
+            }
+            var matched_host_call: ExecHostCallId =
+                exec_lower_match_host_call(callee_decl, expr.call_expr_arg_count);
+            if naked_host_call != 0 {
+                matched_host_call = exec_lower_match_host_call_name(callee_decl.fn_decl_name,
+                    callee_decl.fn_decl_param_count, expr.call_expr_arg_count);
+            }
             if extern_can_run == 0 || exec_lower_host_call_overrides_body(callee_decl, matched_host_call) != 0 {
                 host_call_id = matched_host_call;
             }
