@@ -965,6 +965,49 @@ loop { _ = iter.next() catch { break; }; const v: T = iter.value(); <body> }
 - `test_async_await_capacity_dynamic` / `test_async_await_limits_and_segments`
   报 `局部变量槽位不足`：它们的 `test` 块局部变量数超过了 builder 的局部槽位上限。
 
+### 第 306–308 轮：pthread 同步语义 + 函数地址回调（814 → 822 / 909，90.4%）
+
+线程用例（10 例）此前全军覆没，根因不是「少几个 API」，而是两件事：
+
+1. **`extern "libc"` shim 的 Uya 实现体在解释器里跑不通**。`lib/libc/pthread.uya`
+   里的 `pthread_create` 会走 `clone` 系统调用，VM 执行出来是垃圾返回值
+   （`pthread_join` 回 `EINVAL(22)`）。修法是给 `exec_lower_extern_can_run_in_vm`
+   加线程前缀判定：`pthread_*` 一律视为「VM 不能执行 Uya 实现体」，
+   能对上宿主桥的走宿主实现，其余退化成零值桩。
+2. **`&fn` 只是占位常量 4096**，宿主调用没法回调。
+   - 构建期把 `&fn` 换成 `EXEC_FN_REF_BASE(0x40000000) + 模块内函数下标`；
+     可达性收集器也补上 `HIR_EXPR_CONST + callee_decl`，否则被引用的函数
+     根本不进可执行函数集（这是最容易踩空的一步）。
+   - 解释器侧 `exec_vm_fn_ref_index` 解出下标，用
+     `exec_vm_call_function` 直接回调。`pthread_once` / `pthread_create`
+     的回调、`pthread_exit(v)`（提前收工标记 + 帧返回值）都靠它。
+
+宿主实现（同步语义，状态放在 `EXEC_VM_THREAD_SLOTS` / `EXEC_VM_TLS_KEYS` 表里）：
+
+- `pthread_create`：登记槽位 → **当场串行执行** `routine(arg)` → 记住返回值；
+  `attr.detached == 1` 时线程创建即为分离态。
+- `pthread_join`：分离态回 `22`；否则把 `create` 记住的返回值写进 `*retval`。
+- `pthread_detach` / `pthread_once` / `pthread_exit` / `pthread_self` / `pthread_equal`。
+- `pthread_attr_*`（`stack_size`/`detached`，含 16KB 栈下限与非法 detachstate → `22`）、
+  `pthread_mutex*`（`state`/`owner`/`type`，trylock 已被占用回 `16`）、
+  `pthread_mutexattr_*`、`pthread_condattr_*`、`pthread_cond_timedwait`（单线程 → `110` 超时）、
+  `pthread_setcancelstate`/`setcanceltype`（非法值 → `22`）、
+  `pthread_key_*`/`pthread_setspecific`/`pthread_getspecific`（`pthread_key_t` 是
+  `{seq, destructor}`，按 `seq` 索引 TLS 表，无效键 → `22`）、`pthread_barrier_*`。
+
+**本轮实测**：`/tmp/census_r331.tsv` = **822 / 909（90.4%）**，
+`r325(814) → 822`，**+8 / 0 回归**（`test_pthread`、`test_pthread_api`、
+`test_pthread_api_create_join`、`test_pthread_create_join`、`test_pthread_detach`、
+`test_pthread_cancel`、`test_pthread_join_stack_reuse`、`test_method_call_in_callback_codegen`）。
+
+**踩过的坑**（后续别重复）：
+
+- `pthread_create` 的 `attr` 必须读 `detached` 字段，否则
+  `test_pthread_attr_detached` / `test_pthread_api_detach` 会从绿变红（已修）。
+- `test_pthread_heap_cache_identity` / `test_pthread_heap_concurrency` 现在会
+  **挂死到超时**（同步执行下它们在自旋等锁），普查按超时记为失败，属已知代价。
+- `&fn` 的可达性收集漏了就会退化成 4096 占位常量（回调查不到下标 → 静默不回调）。
+
 ### 第 303–304 轮：字段级 drop 特化 + 接口装箱（813 → 814 / 909，89.5%）
 
 本轮在 r321(808) 基础上继续收口，两段普查合计 **+11 / 0 回归**，其中本轮新增：
