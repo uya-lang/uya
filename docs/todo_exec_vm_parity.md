@@ -1522,9 +1522,26 @@ epoll_ctl (epfd=5, op=1 ADD, fd=6, …)
   但 `epoll_event_fd(event: &EpollEvent)` 里的 `event.data_lo` 仍然走不到原生字段
   通道 —— 报错还是 `LOAD_FIELD 字段越界(idx=1 kind=14 count=-1 pointee=16)`。
   也就是说**卡点已经缩小到 builder 这一侧**：`&Struct` 上的成员访问没有把
-  `offset/kind` 打进 `LOAD_FIELD` 的 imm（HIR 里有 `binary_op`/`int_value`
-  两个打包位，lowering 的 `exec_lower_native_field_layout` 也已经算了），
-  下一轮顺着这条线检查 packing/解包即可。
+  `kind` 打进 `LOAD_FIELD` 的 imm。
+
+  直接 dump 出来看得很清楚 —— `lib/libc/syscall.uya: epoll_event_fd`：
+
+  ```
+  fn[147] epoll_event_fd slots=4 params=1 varargs=0
+    0: BC_LOAD_LOCAL a=1 b=0
+    1: BC_LOAD_FIELD a=2 b=1 c=4 imm=1      ← c=4 是字段字节偏移（data_lo 正确），
+                                              但 imm=1 只有字段下标，没有 kind
+    2: BC_CAST a=3 b=2 imm=2
+    3: BC_RET a=3
+  ```
+
+  VM 侧判据是 `exec_vm_field_imm_kind(imm, 32) -| 1 > 0`，imm=1 取出来是 0，
+  于是原生字段通道被跳过 → `exec_vm_field_ref` 在裸指针上失败
+  → `LOAD_FIELD 字段越界(idx=1 kind=14 count=-1 pointee=16)`。
+  lowering 里 `hir_field.binary_op = native_kind | (native_pointee << 8)`
+  明明设置了（u32 字段应当是 7），说明这条赋值在这个访问上没有落到 builder
+  用的那份 HIR 节点上（或者中途被复制丢了）—— 下一轮从
+  `exec_builder_pack_field_imm` 的输入侧继续查即可。
 
 ### 第 316 轮：`async_event` 的「静默退出」根因修掉（出参结构体判定太严）
 
