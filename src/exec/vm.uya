@@ -1881,7 +1881,7 @@ fn exec_vm_load_pointer_index(function: &BCFunction, base: ExecValue, index_valu
         out_value[0] = exec_make_u16(ptr_u16[0]);
         return 0;
     }
-    if pointee_kind == TypeKind.TYPE_I32 as i32 {
+    if pointee_kind == TypeKind.TYPE_I32 as i32 || pointee_kind == TypeKind.TYPE_ENUM as i32 {
         const ptr_i32: &i32 = @ptr_from_usize(addr) as &i32;
         out_value[0] = exec_make_i32(ptr_i32[0]);
         return 0;
@@ -1988,7 +1988,7 @@ fn exec_vm_store_pointer_index(function: &BCFunction, base: ExecValue, index_val
         ptr_u16[0] = src_value.i64_value as u16;
         return 0;
     }
-    if pointee_kind == TypeKind.TYPE_I32 as i32 {
+    if pointee_kind == TypeKind.TYPE_I32 as i32 || pointee_kind == TypeKind.TYPE_ENUM as i32 {
         const ptr_i32: &i32 = @ptr_from_usize(addr) as &i32;
         ptr_i32[0] = src_value.i64_value as i32;
         return 0;
