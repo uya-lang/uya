@@ -594,6 +594,14 @@ VM 的 `[T: N]` 是「ExecValue 聚合」，元素之间隔着 `@size_of(ExecVal
 - 结构体按类型名查 decl 会撞同名类型（`WebSocketConn` 23 字段 vs 运行期 3 字段），
   字段-drop 这类按名字解析的路径要加保守护栏。
 
+### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
+
+两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
+和 `test_tls_x25519_pure`、`test_crypto_ed25519` 是同一簇：2048 位模幂在解释器里
+是 ~10^8 条字节码量级，C99 侧是原生乘加。定长 u64 数组改原生内存后单次 limb
+拷贝已经变成 memcpy，但整体指令数没变，所以仍然超时。要么做 AST/HIR 级常量折叠
+与循环特化，要么接受这一簇继续红（不影响 parity 判定口径之外的用例）。
+
 ### 解释器的内存/性能（GPU 那台机器上尤其明显）
 
 `exec_value_alloc_bytes` 是**直接 malloc、没有回收**，所以「每次操作深拷贝多少」
