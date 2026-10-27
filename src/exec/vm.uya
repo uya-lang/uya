@@ -839,6 +839,53 @@ fn exec_vm_await_find_poll(value: &ExecValue, depth: i32) &ExecUnionData {
     return null;
 }
 
+/// 轮询一个「真实」Future（自己实现 poll、可能返回 Pending）。
+///
+/// VM 不能挂起，所以这里同步忙等：反复调用接口方法表里的 `poll`，直到不再是
+/// Pending（或达到次数上限）。接口值布局是 `[方法入口下标…, 数据]`，
+/// `interface Future<T>` 的方法顺序是 `poll` / `release`，所以 poll 在下标 0。
+/// 参数：`program` 正在运行的程序；`value` `@await` 的操作数；`out_value` 结果载荷。
+/// 返回值：0 成功，-1 失败/尚未就绪。
+fn exec_vm_await_poll_interface(program: &BCProgram, value: &ExecValue, out_value: &ExecValue) i32 {
+    if program == null || value == null || out_value == null {
+        return -1;
+    }
+    if value.kind != ExecValueKind.EXEC_VALUE_STRUCT && value.kind != ExecValueKind.EXEC_VALUE_TUPLE {
+        return -1;
+    }
+    const aggregate: &ExecAggregate = value.ptr_value as &ExecAggregate;
+    if aggregate == null || aggregate.values == null || aggregate.count < 2 {
+        return -1;
+    }
+    const poll_slot_index: i32 = aggregate.count - 1;
+    const poll_fn_value: ExecValue = aggregate.values[0];
+    if exec_vm_value_kind_is_integer(poll_fn_value.kind) == 0 {
+        return -1;
+    }
+    const poll_fn_index: i32 = poll_fn_value.i64_value as i32;
+    var args: [ExecValue: 2] = [];
+    args[0] = aggregate.values[poll_slot_index];
+    args[1] = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+    var attempt: i32 = 0;
+    while attempt < 10000 {
+        const rc: i32 = exec_vm_call_function(program, poll_fn_index, &args[0], 2, 0, out_value);
+        if rc < 0 {
+            return -1;
+        }
+        const poll_data: &ExecUnionData = exec_value_as_union(out_value);
+        if poll_data != null {
+            if poll_data.tag != 0 {
+                out_value[0] = exec_value_clone(&poll_data.payload);
+                return 0;
+            }
+        } else {
+            return -1;
+        }
+        attempt = attempt + 1;
+    }
+    return -1;
+}
+
 fn exec_vm_syscall_arg_to_i64(value: ExecValue) i64 {
     if exec_value_is_pointer_like(value) != 0 {
         return value.i64_value;
@@ -4956,16 +5003,18 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         // （`union Poll<T> { Pending: void, Ready: T }`）。
         // VM 里 async 函数同步执行到完成，所以这里只会见到 Ready。
         const poll_data: &ExecUnionData = exec_vm_await_find_poll(slot_b, 0);
-        if poll_data == null {
-            exec_backend_set_error(function.decl, "exec: @await 操作数不是 Future" as *byte, 0);
-            return -1;
+        if poll_data != null && poll_data.tag == 1 {
+            slot_a[0] = exec_value_clone(&poll_data.payload);
+        } else {
+            // 自己实现 poll 的 Future：同步忙等直到不再是 Pending。
+            var awaited: ExecValue = exec_make_void();
+            if exec_vm_await_poll_interface(program, slot_b, &awaited) != 0 {
+                exec_backend_set_error(function.decl,
+                    "exec: @await 操作数不是 Future 或始终 Pending" as *byte, 0);
+                return -1;
+            }
+            slot_a[0] = awaited;
         }
-        if poll_data.tag != 1 {
-            exec_backend_set_error(function.decl,
-                "exec: async 尚未就绪（VM 只支持同步完成的 Future）" as *byte, 0);
-            return -1;
-        }
-        slot_a[0] = exec_value_clone(&poll_data.payload);
     } else if instr.opcode == BCOpcode.BC_JMP {
         exec_vm_trace_jump(trace_vm, function.name, frame.ip, instr.imm as i32, "jmp" as *byte);
         frame.ip = instr.imm as i32;
