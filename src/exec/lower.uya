@@ -7755,6 +7755,23 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                     }
                 }
             } else {
+                // `std.host_os` / `std.target_arch` 这类 cfg 选择器：C99 后端直接
+                // 发对应的内置枚举常量（`HostOS.hos_linux`），这里照同样口径取变体值。
+                if (str_equals(module_access_name, "std" as &byte) != 0) {
+                    const cfg_variant: &byte = std_cfg_current_value(expr.member_access_field_name);
+                    const cfg_enum: &byte = std_cfg_selector_enum_name(expr.member_access_field_name);
+                    if (cfg_variant != null && cfg_enum != null) {
+                        const cfg_enum_decl: &ASTNode =
+                            find_enum_decl_from_program(ctx.checker.program_node, cfg_enum);
+                        if (cfg_enum_decl != null) {
+                            const cfg_value: i32 =
+                                exec_lower_find_enum_variant_value(cfg_enum_decl, cfg_variant);
+                            if (cfg_value >= 0) {
+                                return exec_lower_make_int_const_expr(ctx, expr, &expr_type, cfg_value as i64);
+                            }
+                        }
+                    }
+                }
                 var missing_msg: [byte: 192] = [];
                 _ = snprintf(&missing_msg[0] as *byte, 192, "exec: 无法解析模块导出全局: %s.%s" as *byte,
                     module_access_name as *byte, expr.member_access_field_name as *byte);
