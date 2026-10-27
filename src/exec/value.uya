@@ -842,6 +842,11 @@ fn exec_value_load_native_scalar(type_kind: i32, addr: &byte) ExecValue {
         const p: *u64 = addr as *u64;
         return exec_make_f64_bits(p[0]);
     }
+    if type_kind == TypeKind.TYPE_POINTER as i32 {
+        // 原生内存里的指针元素：取回地址，pointee 未知时按 void 处理。
+        const p: *usize = addr as *usize;
+        return exec_make_pointer_with_kind(p[0], TypeKind.TYPE_VOID as i32);
+    }
     return exec_make_void();
 }
 
@@ -877,7 +882,8 @@ fn exec_value_store_native_scalar(type_kind: i32, addr: &byte, value: &ExecValue
         return 0;
     }
     if type_kind == TypeKind.TYPE_I64 as i32 || type_kind == TypeKind.TYPE_U64 as i32 ||
-        type_kind == TypeKind.TYPE_USIZE as i32 || type_kind == TypeKind.TYPE_F64 as i32 {
+        type_kind == TypeKind.TYPE_USIZE as i32 || type_kind == TypeKind.TYPE_F64 as i32 ||
+        type_kind == TypeKind.TYPE_POINTER as i32 {
         const p: *u64 = addr as *u64;
         p[0] = value.i64_value as u64;
         return 0;

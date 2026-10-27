@@ -3403,6 +3403,14 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 slot_a[0] = exec_make_pointer_with_kind(str_base +| (str_index as usize), TypeKind.TYPE_BYTE as i32);
                 handled_raw_addr = 1;
             }
+        } else if slot_b.kind == ExecValueKind.EXEC_VALUE_POINTER &&
+            exec_vm_pointer_is_internal_ref(slot_b) == 0 {
+            // 原生指针算术：`&p[i]` 就是 `p + i * elem_size`（`slice.ptr` / `@ptr_from_usize` 来的指针）。
+            const plain_elem_ptr: ExecValue = exec_vm_pointer_element_ptr(function, slot_b[0], slot_c.i64_value);
+            if plain_elem_ptr.kind == ExecValueKind.EXEC_VALUE_POINTER {
+                slot_a[0] = plain_elem_ptr;
+                handled_raw_addr = 1;
+            }
         } else if exec_vm_pointer_is_internal_ref(slot_b) != 0 {
             const base_target: &ExecValue = exec_vm_ref_target_value(slot_b);
             if exec_value_is_raw_array(base_target) != 0 {
@@ -3833,6 +3841,14 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         }
         if slot_b.kind == ExecValueKind.EXEC_VALUE_SLICE {
             slot_a[0] = exec_vm_slice_ptr_value(slot_b, instr.c);
+        } else if exec_value_is_raw_array(slot_b) != 0 {
+            // 原生数组（定长标量数组）：`.ptr` 就是数据区首地址。
+            const raw_ptr_first: ExecValue = exec_vm_raw_array_element_ptr(slot_b, 0);
+            if raw_ptr_first.kind == ExecValueKind.EXEC_VALUE_POINTER {
+                slot_a[0] = raw_ptr_first;
+            } else {
+                slot_a[0] = exec_make_pointer_with_kind(0 as usize, instr.c as i32);
+            }
         } else if slot_b.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
             slot_b.kind == ExecValueKind.EXEC_VALUE_TUPLE ||
             slot_b.kind == ExecValueKind.EXEC_VALUE_STRUCT {
