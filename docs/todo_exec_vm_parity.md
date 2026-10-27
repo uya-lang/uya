@@ -594,6 +594,34 @@ VM 的 `[T: N]` 是「ExecValue 聚合」，元素之间隔着 `@size_of(ExecVal
 - 结构体按类型名查 decl 会撞同名类型（`WebSocketConn` 23 字段 vs 运行期 3 字段），
   字段-drop 这类按名字解析的路径要加保守护栏。
 
+### 第 277 轮：原生结构体字段访问第三次试验（关键进展 + 仍缺判据）
+
+这次把「字段偏移/kind/字段数」打包进 `LOAD_FIELD`/`STORE_FIELD` 的 `imm`
+（低 32 位下标、32..39 字段 kind+1、40..47 pointee kind+1、48..55 字段数+1，
+`c` 放偏移），运行时按需回落到 `exec_vm_native_field_load/store`。
+
+**关键进展**：打开严格回落（目标不是形状成立的结构体就走原生）后，
+`test_string` / `test_stdio` / `test_stdlib` 全部**冲过了 `lib/libc/heap.uya:209`
+的 `hdr.size`**——说明这条路线本身是对的，`ChunkHeader{magic,size}` 的偏移计算正确。
+
+**仍缺的判据**：运行时无法稳定区分「VM 值引用」和「`@ptr_from_usize(addr) as &T`」。
+试过的两种启发式都不行：
+- 只比结构体字段数（`count == 声明字段数`）：同名结构体跨模块撞名，`fmt_parser` 的
+  `Token` 一类会误判成原生内存 → 读到垃圾；
+- 只比「下标处元素的 kind 是否等于字段声明 kind」：同样误判，且 `json_struct_collections`
+  一起挂；
+- 只判「目标 kind 是不是 STRUCT」：堆里的野内存经常恰好长得像 STRUCT。
+
+结论：这条路要走通，必须先有**确定性判据**，建议按这个顺序做：
+1. `exec_value_alloc_bytes` 分配时写块头魔数（或维护 [base,end) 区间表），提供
+   `exec_vm_address_is_value(addr)`；
+2. 有了它，`exec_vm_field_aggregate_usable` 变成「目标地址是 VM value ⇒ 聚合路径，
+   否则原生」，不再依赖形状启发式；
+3. 再打开严格回落并跑 census 验证 `test_libc_heap_*` / `test_stdio` / `test_string` /
+   `test_stdlib`（29+5 例）。
+
+当前基线保持 **730 / 909（80.3%）**，本轮三次试验代码均已回滚（工作树干净）。
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
