@@ -429,7 +429,35 @@
 
 ### 第 272 轮末的 Top 阻塞（按可收割性排序，已更新）
 
-实测基线：`/tmp/census_r284.tsv`，**700 / 914 通过**，零回归（690 → 700，
+实测基线：`/tmp/census_r288.tsv`，**707 / 910 通过**（跳过表 4 条），零回归
+（700 → 707，其中 4 条经核实「C99 侧链接期就失败」移入跳过表：`test_simple_cast`
+`test_pointer_cast` `test_comprehensive_cast` `test_abi_calling_convention`，
+都报 undefined reference）。本轮新增：`test_tls_aes_gcm`、`test_tls_record`、
+`test_try_overflow_div`、`test_type_conversion_comprehensive`。
+
+### exec VM 安全加固（本轮）
+
+解释器与编译器同进程，任何「把 VM 里的地址当宿主内存用」的路径都会写坏编译器
+自己的堆（表现为随机段错误、崩在 tcache/malloc 里）：
+
+- `arch_prctl(158)` / `set_thread_area(205)` 直接假成功 —— 被解释程序一改 GS
+  就把编译器的 TLS 换掉（Uya libc 的线程堆缓存在 gs:8）；
+- `memset`/`memcpy`/`memmove` 目标是 VM 值本体时不再按字节写：`memset 0` 走
+  形状保留的原地清零，`memcpy` 走整体赋值，其它情况干净报错；
+- 宿主 malloc/calloc/realloc 结果登记成表，`free`/`realloc` 只处理登记过的地址；
+- `use libc.WNOHANG` 这类 C 宏常量补了解释器取值表（此前直接报「仅支持局部
+  变量/参数/全局标识符」）；
+- 指针元素类型解码内部引用编码（`65536 + kind`），指针算术的步长不再算成 0。
+
+### 已知最大剩余簇（33 条 `LOAD_FIELD 字段越界`）
+
+程序自带堆实现（`lib/libc/heap.uya` 的 `morecore`/`ChunkHeader`）在 VM 里对
+**原生指针做结构体字段访问**：`hdr.size` 之类的语义要求按 C 结构体布局读写真实
+内存，而 VM 目前只能把字段映射到 ExecValue 旁路表，字节级语义对不上。
+`test_libc_heap_*`、`test_typed_pipeline_*`、`test_os*` 一族都在这里。要做的是
+「原生结构体字段偏移 + 真实字节读写」这块（需要 checker 提供 layout）。
+
+历史基线：`/tmp/census_r284.tsv`，**700 / 914 通过**，零回归（690 → 700，
 整轮 census 从 16 分钟降到 8.5 分钟）。新增：`test_crypto_bigint`、
 `test_crypto_bigint_modexp4096`、`test_crypto_curve25519`、`test_crypto_sha512`、
 `test_crypto_sha256_stream`，以及 3 个 async 边界用例。
