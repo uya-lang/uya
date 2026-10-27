@@ -287,6 +287,58 @@ fn exec_lower_named_decl_align_bytes(checker: &TypeChecker, name: &byte, program
     return -1;
 }
 
+/// 求泛型结构体实例某个字段的**具体类型**。
+///
+/// `FutureSlot<i32>` 的声明里字段写的是 `slot: [T: 1]`，直接用
+/// `type_from_ast` 只会得到未替换的 `T`（后续按名字找结构体必然失败）。
+/// 这里在解析期间装好 `current_type_params` + `subst`，和
+/// `exec_lower_size_align_of_type` 用的是同一套上下文。
+///
+/// 参数：`checker` 类型检查器；`struct_type` 结构体实例类型（带类型实参）；
+///       `struct_decl` 结构体声明；`field_decl` 字段声明。
+/// 返回值：字段的具体类型。
+fn exec_lower_subst_struct_field_type(checker: &TypeChecker, struct_type: &Type,
+    struct_decl: &ASTNode, field_decl: &ASTNode) Type {
+    if checker == null || field_decl == null || field_decl.var_decl_type == null {
+        return make_void_type();
+    }
+    if struct_type == null || struct_decl == null ||
+        struct_type.struct_type_args == null || struct_type.struct_type_arg_count <= 0 ||
+        struct_decl.struct_decl_type_params == null || struct_decl.struct_decl_type_param_count <= 0 {
+        return type_from_ast(checker, field_decl.var_decl_type);
+    }
+    var replacements: i32 = struct_type.struct_type_arg_count;
+    if replacements > struct_decl.struct_decl_type_param_count {
+        replacements = struct_decl.struct_decl_type_param_count;
+    }
+    const saved_params: &TypeParam = checker.current_type_params;
+    const saved_param_count: i32 = checker.current_type_param_count;
+    const saved_active: i32 = checker.subst_active;
+    const saved_name: &byte = checker.subst_name;
+    const saved_type: Type = copy_type(&checker.subst_type);
+    checker.current_type_params = struct_decl.struct_decl_type_params;
+    checker.current_type_param_count = struct_decl.struct_decl_type_param_count;
+    checker.subst_active = 1;
+    checker.subst_name = struct_decl.struct_decl_type_params[0].name;
+    checker.subst_type = copy_type(&struct_type.struct_type_args[0]);
+    var result: Type = type_from_ast(checker, field_decl.var_decl_type);
+    // 多类型参数：当前 subst 上下文只有一个槽位，其余实参按名字逐个替换。
+    var ri: i32 = 1;
+    while ri < replacements {
+        if result.kind == TypeKind.TYPE_GENERIC_PARAM && result.generic_param_name != null &&
+            str_equals(result.generic_param_name, struct_decl.struct_decl_type_params[ri].name) != 0 {
+            result = copy_type(&struct_type.struct_type_args[ri]);
+        }
+        ri = ri + 1;
+    }
+    checker.current_type_params = saved_params;
+    checker.current_type_param_count = saved_param_count;
+    checker.subst_active = saved_active;
+    checker.subst_name = saved_name;
+    checker.subst_type = copy_type(&saved_type);
+    return result;
+}
+
 /// 求某个类型的字节数或对齐（结构体带类型实参时先装好替换上下文）。
 ///
 /// 参数：`ctx` lowering 上下文；`target_type` 目标类型；`want_size` 1 求字节数、0 求对齐。

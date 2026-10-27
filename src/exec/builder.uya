@@ -894,7 +894,7 @@ fn exec_builder_compile_zero_value(ctx: &ExecFunctionBuildContext, ast_node: &AS
                 exec_backend_set_error(ast_node, "exec: zero struct 字段类型缺失" as *byte, 0);
                 return -1;
             }
-            const field_type: Type = type_from_ast(ctx.checker, field_decl.var_decl_type);
+            const field_type: Type = exec_lower_subst_struct_field_type(ctx.checker, ty, struct_decl, field_decl);
             const zero_struct_slot: i32 = exec_builder_compile_zero_value(ctx, field_decl, &field_type);
             if zero_struct_slot < 0 {
                 return -1;
