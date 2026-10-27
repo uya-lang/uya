@@ -3916,6 +3916,180 @@ fn exec_lower_make_break_block(ctx: &ExecLowerContext, ast_node: &ASTNode) &HIRB
     return block;
 }
 
+/// 合成一个零初始化的 AST 节点（位置信息抄自 `like`）。
+/// 参数：`ctx` 上下文；`like` 位置模板（可为 null）；`node_type` 节点类型。
+/// 返回值：新节点；失败返回 null。
+fn exec_lower_alloc_synth_ast(ctx: &ExecLowerContext, like: &ASTNode, node_type: ASTNodeType) &ASTNode {
+    const node: &ASTNode = compiler_arena_alloc(ctx.arena, @size_of(ASTNode)) as &ASTNode;
+    if node == null {
+        return null;
+    }
+    _ = memset(node as *byte, 0, @size_of(ASTNode));
+    node.type = node_type;
+    if like != null {
+        node.line = like.line;
+        node.column = like.column;
+        node.filename = like.filename;
+    }
+    return node;
+}
+
+/// 合成 `__exec_iter.next()` / `__exec_iter.value()` 这类零参方法调用。
+/// 参数：`ctx` 上下文；`like` 位置模板；`method` 方法名。返回值：调用节点。
+fn exec_lower_synth_iter_call(ctx: &ExecLowerContext, like: &ASTNode, method: &byte) &ASTNode {
+    const recv: &ASTNode = exec_lower_alloc_synth_ast(ctx, like, ASTNodeType.AST_IDENTIFIER);
+    const member: &ASTNode = exec_lower_alloc_synth_ast(ctx, like, ASTNodeType.AST_MEMBER_ACCESS);
+    const call: &ASTNode = exec_lower_alloc_synth_ast(ctx, like, ASTNodeType.AST_CALL_EXPR);
+    if recv == null || member == null || call == null {
+        return null;
+    }
+    recv.identifier_name = "__exec_iter" as &byte;
+    member.member_access_object = recv;
+    member.member_access_field_name = method;
+    call.call_expr_callee = member;
+    call.call_expr_arg_count = 0;
+    return call;
+}
+
+/// 合成 `const <name> = <init>;` 声明。
+/// 参数：`ctx` 上下文；`like` 位置模板；`name` 变量名；`init` 初始值表达式。
+/// 返回值：声明节点。
+fn exec_lower_synth_const_decl(ctx: &ExecLowerContext, like: &ASTNode, name: &byte, init: &ASTNode) &ASTNode {
+    const decl: &ASTNode = exec_lower_alloc_synth_ast(ctx, like, ASTNodeType.AST_VAR_DECL);
+    if decl == null {
+        return null;
+    }
+    decl.var_decl_name = name;
+    decl.var_decl_init = init;
+    decl.var_decl_is_const = 1;
+    return decl;
+}
+
+/// 合成一个 `AST_BLOCK`，语句数组按参数给定的顺序排列。
+/// 参数：`ctx` 上下文；`like` 位置模板；`stmts` 语句数组；`count` 语句条数。
+/// 返回值：块节点。
+fn exec_lower_synth_block(ctx: &ExecLowerContext, like: &ASTNode, stmts: & & ASTNode, count: i32) &ASTNode {
+    const block: &ASTNode = exec_lower_alloc_synth_ast(ctx, like, ASTNodeType.AST_BLOCK);
+    const stmt_list: & & ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode) * (count as usize)) as & & ASTNode;
+    if block == null || (count > 0 && stmt_list == null) {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < count {
+        stmt_list[i] = stmts[i];
+        i = i + 1;
+    }
+    block.block_stmts = stmt_list;
+    block.block_stmt_count = count;
+    return block;
+}
+
+/// 把 `for iter |v| { ... }` 改写成等价的 while 形状（迭代器协议）。
+///
+/// 协议来自 checker：迭代器类型有 `next(self: &Self) !void` 和
+/// `value(self: &Self) T`；`next` 返回错误表示迭代结束。等价写法是
+/// ```
+/// const __exec_iter = <iter>;
+/// while true {
+///     const __exec_ok = __exec_iter.next() catch { break; };
+///     const v = __exec_iter.value();
+///     <body>
+/// }
+/// ```
+/// 参数：`ctx` 上下文；`stmt_node` 是 `AST_FOR_STMT`。
+/// 返回值：改写后的 `AST_BLOCK` 节点；失败返回 null。
+fn exec_lower_desugar_iterator_for(ctx: &ExecLowerContext, stmt_node: &ASTNode, value_is_pointer: i32) &ASTNode {
+    if ctx == null || stmt_node == null || stmt_node.for_stmt_array == null {
+        return null;
+    }
+    const iter_decl: &ASTNode = exec_lower_synth_const_decl(ctx, stmt_node, "__exec_iter" as &byte,
+        stmt_node.for_stmt_array);
+    const break_stmt: &ASTNode = exec_lower_alloc_synth_ast(ctx, stmt_node, ASTNodeType.AST_BREAK_STMT);
+    if iter_decl == null || break_stmt == null {
+        return null;
+    }
+    const break_stmts: & & ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode)) as & & ASTNode;
+    if break_stmts == null {
+        return null;
+    }
+    break_stmts[0] = break_stmt;
+    const catch_block: &ASTNode = exec_lower_synth_block(ctx, stmt_node, &break_stmts[0], 1);
+    const next_call: &ASTNode = exec_lower_synth_iter_call(ctx, stmt_node, "next" as &byte);
+    const catch_expr: &ASTNode = exec_lower_alloc_synth_ast(ctx, stmt_node, ASTNodeType.AST_CATCH_EXPR);
+    if catch_block == null || next_call == null || catch_expr == null {
+        return null;
+    }
+    catch_expr.catch_expr_operand = next_call;
+    catch_expr.catch_expr_catch_block = catch_block;
+    const ok_decl: &ASTNode = exec_lower_synth_const_decl(ctx, stmt_node, "__exec_ok" as &byte, catch_expr);
+    if ok_decl == null {
+        return null;
+    }
+    var loop_stmts: [&ASTNode: 4] = [];
+    var loop_count: i32 = 1;
+    loop_stmts[0] = ok_decl;
+    var bind_name: &byte = stmt_node.for_stmt_var_name;
+    if bind_name != null && str_equals(bind_name, "_" as &byte) != 0 {
+        bind_name = null;
+    }
+    if bind_name != null {
+        const value_call: &ASTNode = exec_lower_synth_iter_call(ctx, stmt_node, "value" as &byte);
+        if value_call == null {
+            return null;
+        }
+        if stmt_node.for_stmt_is_ref != 0 && value_is_pointer != 0 {
+            // `value()` 已经返回指针：`|&item|` 直接绑定它。
+            const ptr_decl: &ASTNode = exec_lower_synth_const_decl(ctx, stmt_node, bind_name, value_call);
+            if ptr_decl == null {
+                return null;
+            }
+            loop_stmts[1] = ptr_decl;
+            loop_count = 2;
+        } else if stmt_node.for_stmt_is_ref != 0 {
+            // `|&item|`：先落到一个每轮新建的临时，再绑定它的地址。
+            const tmp_decl: &ASTNode = exec_lower_synth_const_decl(ctx, stmt_node,
+                "__exec_item" as &byte, value_call);
+            const addr: &ASTNode = exec_lower_alloc_synth_ast(ctx, stmt_node, ASTNodeType.AST_UNARY_EXPR);
+            const tmp_ident: &ASTNode = exec_lower_alloc_synth_ast(ctx, stmt_node, ASTNodeType.AST_IDENTIFIER);
+            if tmp_decl == null || addr == null || tmp_ident == null {
+                return null;
+            }
+            tmp_ident.identifier_name = "__exec_item" as &byte;
+            addr.unary_expr_op = TokenType.TOKEN_AMPERSAND;
+            addr.unary_expr_operand = tmp_ident;
+            const ref_decl: &ASTNode = exec_lower_synth_const_decl(ctx, stmt_node, bind_name, addr);
+            if ref_decl == null {
+                return null;
+            }
+            loop_stmts[1] = tmp_decl;
+            loop_stmts[2] = ref_decl;
+            loop_count = 3;
+        } else {
+            const bind_decl: &ASTNode = exec_lower_synth_const_decl(ctx, stmt_node, bind_name, value_call);
+            if bind_decl == null {
+                return null;
+            }
+            loop_stmts[1] = bind_decl;
+            loop_count = 2;
+        }
+    }
+    loop_stmts[loop_count] = stmt_node.for_stmt_body;
+    loop_count = loop_count +| 1;
+    const loop_block: &ASTNode = exec_lower_synth_block(ctx, stmt_node, &loop_stmts[0], loop_count);
+    const cond: &ASTNode = exec_lower_alloc_synth_ast(ctx, stmt_node, ASTNodeType.AST_BOOL);
+    const while_node: &ASTNode = exec_lower_alloc_synth_ast(ctx, stmt_node, ASTNodeType.AST_WHILE_STMT);
+    if loop_block == null || cond == null || while_node == null {
+        return null;
+    }
+    cond.bool_literal_value = 1;
+    while_node.while_stmt_condition = cond;
+    while_node.while_stmt_body = loop_block;
+    var outer_stmts: [&ASTNode: 2] = [];
+    outer_stmts[0] = iter_decl;
+    outer_stmts[1] = while_node;
+    return exec_lower_synth_block(ctx, stmt_node, &outer_stmts[0], 2);
+}
+
 fn exec_lower_make_for_array_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &HIRStmt {
     if ctx == null || stmt_node == null || stmt_node.for_stmt_array == null {
         return null;
@@ -3931,6 +4105,30 @@ fn exec_lower_make_for_array_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
         element_type = array_type.element_type[0];
     } else if array_type.kind == TypeKind.TYPE_SLICE && array_type.slice_element_type != null {
         element_type = array_type.slice_element_type[0];
+    } else if array_type.kind == TypeKind.TYPE_STRUCT &&
+        !(array_type.struct_name != null &&
+          find_instance_method_in_struct(ctx.checker.program_node, array_type.struct_name, "next" as *byte) == null) {
+        // 迭代器协议（`for iter |v|`）：改写成 while + next/value 调用复用普通降级。
+        var value_is_pointer: i32 = 0;
+        if array_type.struct_name != null && ctx.checker.program_node != null {
+            const value_method: &ASTNode = find_instance_method_in_struct(ctx.checker.program_node,
+                array_type.struct_name, "value" as *byte);
+            if value_method != null && value_method.fn_decl_return_type != null {
+                const value_ret_type: Type = type_from_ast(ctx.checker, value_method.fn_decl_return_type);
+                if value_ret_type.kind == TypeKind.TYPE_POINTER {
+                    value_is_pointer = 1;
+                }
+            }
+        }
+        const desugared: &ASTNode = exec_lower_desugar_iterator_for(ctx, stmt_node, value_is_pointer);
+        if desugared == null {
+            return null;
+        }
+        const desugared_block: &HIRBlock = exec_lower_wrap_stmt_node_as_block(ctx, desugared);
+        if desugared_block == null {
+            return null;
+        }
+        return exec_lower_wrap_block_as_stmt(ctx, stmt_node, desugared_block);
     } else {
         exec_backend_set_generic_unsupported_error(stmt_node, "exec: for 迭代对象必须是数组或切片" as *byte);
         return null;
