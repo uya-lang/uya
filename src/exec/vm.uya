@@ -3831,11 +3831,24 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, "exec: LOAD_SLICE_PTR 槽位越界" as *byte, 0);
             return -1;
         }
-        if slot_b.kind != ExecValueKind.EXEC_VALUE_SLICE {
+        if slot_b.kind == ExecValueKind.EXEC_VALUE_SLICE {
+            slot_a[0] = exec_vm_slice_ptr_value(slot_b, instr.c);
+        } else if slot_b.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
+            slot_b.kind == ExecValueKind.EXEC_VALUE_TUPLE ||
+            slot_b.kind == ExecValueKind.EXEC_VALUE_STRUCT {
+            // 结构体字段声明成 `&[T]`、运行时却装着 VM 数组（`from_json` 一类
+            // 直接把数组塞进切片字段）时，`.ptr` 要指向第 0 个元素；
+            // 空数组给空指针，和 C 里 `slice.ptr` 对 len==0 的行为一致。
+            const slice_agg: &ExecAggregate = exec_vm_aggregate_ref_from_value(slot_b);
+            if slice_agg != null && slice_agg.count > 0 && slice_agg.values != null {
+                slot_a[0] = exec_vm_make_index_value_ref(&slice_agg.values[0], instr.c as i32);
+            } else {
+                slot_a[0] = exec_make_pointer_with_kind(0 as usize, instr.c as i32);
+            }
+        } else {
             exec_backend_set_error(function.decl, "exec: LOAD_SLICE_PTR 目标不是 slice" as *byte, 0);
             return -1;
         }
-        slot_a[0] = exec_vm_slice_ptr_value(slot_b, instr.c);
     } else if instr.opcode == BCOpcode.BC_MAKE_STRUCT ||
         instr.opcode == BCOpcode.BC_MAKE_ARRAY ||
         instr.opcode == BCOpcode.BC_MAKE_ARRAY_REPEAT ||
