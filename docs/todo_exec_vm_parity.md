@@ -1484,6 +1484,32 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 （parity 比的是 C99 vs VM 的退出码/stdout，两端都失败算 OK），所以
 「census 745/909」与「parity 741/914 OK」是同一处的两种视图。
 
+### 第 315 轮：为什么不能直接把 `strtod` 交给宿主（`--nostdlib`）+ 自举两趟的坑
+
+试过把 `lib/libc/stdlib.uya` 的 `strtod` 改成不带体的 `extern "libc"`（映射 glibc），
+并给镜像 TU 补原型。结果在**链接**阶段失败：
+
+```
+types.c:(.text+0x1a24): undefined reference to `strtod'
+vm.c:(.text+0x9abd): undefined reference to `strtod'
+```
+
+原因是自举编译器用 `RUNTIME_MODE=nostdlib LINK_MODE=static` 构建（零依赖静态），
+**根本没有 glibc 可链接** —— 所以 `strtod` 必须是 Uya 实现。想让编译器侧的
+浮点字面量精确，只能把 Uya 版 `strtod` 做成正确舍入（需要一个小的十进制 big-int：
+约 40 个 u32 limb + 一次四舍五入取 54 位尾数），不能靠"调宿主"绕过去。
+
+另外记两个自举流程的坑（都会让人误以为改动没生效）：
+
+1. **codegen 改动要两趟**：`make uya` 用的是**当前** `bin/uya` 去编译 `src/`，
+   所以 `src/codegen/c99/*` 的改动只影响"再下一趟"生成的 C。
+2. **生成缓存按模块源码做键**：改完 codegen 后如果直接 `make uya`，
+   镜像 .c 会命中旧缓存不重写；必须 `rm -rf src/.uyacache` 再编，
+   否则你会看到"明明改了却还是旧输出"。
+3. 把 `bin/uya` 弄成"会发某条原型"的状态后，若同时改了对应 lib 函数签名，
+   会陷入"新种子编不出旧签名"的死循环；用 `make from-c` 回到 `bin/uya.c` 种子
+   再 `make uya` 可以脱困。
+
 ### 第 314 轮：`%a` 指数位真 bug 修好（`1023` 被打成 `:23`）+ 字面量精度的真源头
 
 顺着第 313 轮的「`0` 变成 `:`」痕迹找到真 bug：`lib/libc/stdio.uya` 里两处
