@@ -617,6 +617,12 @@ VM 的 `[T: N]` 是「ExecValue 聚合」，元素之间隔着 `@size_of(ExecVal
 `test_string` / `test_stdio` / `test_stdlib` / `test_libc_heap_bins` 都能真正跑进堆逻辑
 （不再报 `LOAD_FIELD 字段越界`），但随即**段错误**——说明还有别的调用点把原生指针当
 VM 引用用（`mem_set` 字面量写、`STORE_INDEX`、或结构体字段整体读写）。
+
+（第 5 次试验）把判据收窄成「只对**不带引用编码**的普通宿主指针走原生」后不再段错误，
+但 `lib/libc/heap.uya` 里的 `hdr` 恰恰是**带引用编码**的（`aux=65552`），所以 heap 仍红；
+而 `fmt_parser` 里 `@usize_from_ptr` 往返出来的普通指针又可能指向真正的 VM 值，
+把合法结构体字段写丢（`file.use_count` 变 0）。两条事实合起来说明：
+**没有 VM 值分配登记就无法给出可靠判据**，这是唯一该先做的事。
 下一轮从这里接着查：先在 `STORE_FIELD`/`LOAD_INDEX`/`STORE_INDEX`/内存函数视图里
 加上「原生指针」断点式校验（地址落在 VM 值之外的都按字节处理），把最后一个
 混合语义点找出来，这条簇（29+5 例）就能收。
