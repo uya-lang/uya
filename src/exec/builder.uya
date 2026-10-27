@@ -999,6 +999,9 @@ fn exec_builder_vector_lane_count(ty: &Type) i32 {
     return ty.array_size;
 }
 
+/// 函数地址指针的基址：`&fn` 的值 = 基址 + 模块内函数下标，宿主调用据此回调。
+const EXEC_FN_REF_BASE: i64 = 0x40000000;
+
 fn exec_builder_emit_const(ctx: &ExecFunctionBuildContext, dst: i32, expr: &HIRExpr) i32 {
     var const_value: ExecValue = exec_make_void();
     const kind_code: i32 = exec_builder_effective_kind_code(&expr.type_ref.type);
@@ -2017,6 +2020,22 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         const dst: i32 = exec_builder_new_temp(ctx);
         if dst < 0 {
             return -1;
+        }
+        // `&fn`：把函数声明换成「基址 + 模块内下标」的指针值，
+        // 宿主调用（`pthread_once`/`pthread_create` 的回调）据此查表执行。
+        if expr.callee_decl != null && expr.callee_decl.type == ASTNodeType.AST_FN_DECL {
+            const fn_ref_index: i32 = exec_builder_find_function_index(ctx.module, expr.callee_decl,
+                expr.callee_decl.fn_decl_name);
+            _ = fprintf(stderr, "DBG fnref name=%s idx=%d count=%d\n" as *byte,
+                expr.callee_decl.fn_decl_name as *byte, fn_ref_index, ctx.module.function_count);
+            if fn_ref_index >= 0 {
+                var fn_ref_expr: HIRExpr = expr[0];
+                fn_ref_expr.int_value = EXEC_FN_REF_BASE +| fn_ref_index as i64;
+                if exec_builder_emit_const(ctx, dst, &fn_ref_expr) < 0 {
+                    return -1;
+                }
+                return dst;
+            }
         }
         if exec_builder_emit_const(ctx, dst, expr) < 0 {
             return -1;

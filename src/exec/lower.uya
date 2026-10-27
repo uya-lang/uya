@@ -745,6 +745,14 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
             param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_EQUAL;
         }
+        if str_equals(fn_name, "pthread_once" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ONCE;
+        }
+        if str_equals(fn_name, "pthread_exit" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_EXIT;
+        }
         if str_equals(fn_name, "uya_interface_get_vtable" as &byte) != 0 &&
             param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_INTERFACE_GET_VTABLE;
@@ -890,6 +898,8 @@ fn exec_lower_extern_prefers_host_call(fn_decl: &ASTNode) i32 {
     // 这些入口在 VM 里有宿主实现，Uya 实现体（线程/信号/内存系统调用）在解释器里
     // 既跑不通也没有等价语义，优先走宿主实现。
     if str_equals(name, "pthread_create" as *byte) != 0 ||
+        str_equals(name, "pthread_once" as *byte) != 0 ||
+        str_equals(name, "pthread_exit" as *byte) != 0 ||
         str_equals(name, "pthread_join" as *byte) != 0 ||
         str_equals(name, "pthread_detach" as *byte) != 0 ||
         str_equals(name, "pthread_self" as *byte) != 0 ||
@@ -2822,7 +2832,14 @@ fn exec_lower_make_fn_addr_expr(ctx: &ExecLowerContext, unary_ast: &ASTNode, ope
     }
     const void_pointee: Type = make_void_type();
     const ptr_type: Type = make_pointer_type(ctx.arena, &void_pointee, 0);
-    return exec_lower_make_int_const_expr(ctx, unary_ast, &ptr_type, 4096);
+    const fn_addr_expr: &HIRExpr = exec_lower_make_int_const_expr(ctx, unary_ast, &ptr_type, 4096);
+    if fn_addr_expr == null {
+        return null;
+    }
+    // 把声明带到构建期：构建期才知道函数在模块里的下标，`&fn` 会被换成
+    // 「函数下标 + 基址」的指针值，宿主调用（pthread_once 一类）据此回调。
+    fn_addr_expr.callee_decl = fn_decl;
+    return fn_addr_expr;
 }
 
 fn exec_lower_make_addr_expr(ctx: &ExecLowerContext, ast_node: &ASTNode, pointee_type: &Type) &HIRExpr {
@@ -6372,6 +6389,16 @@ fn exec_lower_collect_called_decls_from_expr(expr: &HIRExpr, out_decls: & & ASTN
         expr.callee_decl.type == ASTNodeType.AST_FN_DECL &&
         expr.callee_decl.fn_decl_body != null &&
         expr.call_host_id == ExecHostCallId.EXEC_HOST_CALL_NONE &&
+        exec_lower_decl_index(out_decls, out_count[0], expr.callee_decl) < 0 {
+        if out_count[0] < MAX_REACHABLE_FN_DECLS {
+            out_decls[out_count[0]] = expr.callee_decl;
+            out_count[0] = out_count[0] +| 1;
+        }
+    }
+    // `&fn`（函数地址常量）：被引用的函数必须进入可执行函数集，否则回调查不到下标。
+    if expr.kind == HIRExprKind.HIR_EXPR_CONST && expr.callee_decl != null &&
+        expr.callee_decl.type == ASTNodeType.AST_FN_DECL &&
+        expr.callee_decl.fn_decl_body != null &&
         exec_lower_decl_index(out_decls, out_count[0], expr.callee_decl) < 0 {
         if out_count[0] < MAX_REACHABLE_FN_DECLS {
             out_decls[out_count[0]] = expr.callee_decl;

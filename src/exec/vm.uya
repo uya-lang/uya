@@ -3079,6 +3079,34 @@ const EXEC_VM_THREAD_SLOTS: i32 = 16;
 
 var exec_vm_thread_used: [i32: EXEC_VM_THREAD_SLOTS] = [];
 var exec_vm_thread_detached: [i32: EXEC_VM_THREAD_SLOTS] = [];
+var exec_vm_thread_result: [ExecValue: EXEC_VM_THREAD_SLOTS] = [];
+
+/// `pthread_exit(v)` 在同步解释器里的「提前收工」标记：v 作为当前帧的返回值。
+var g_exec_vm_thread_exit_requested: i32 = 0;
+var g_exec_vm_thread_exit_value: ExecValue = ExecValue {
+    kind: ExecValueKind.EXEC_VALUE_VOID,
+    i64_value: 0,
+    ptr_value: null,
+    aux_kind: ExecValueKind.EXEC_VALUE_VOID,
+    aux_i64_value: 0,
+    aux_ptr_value: null,
+    error_id: 0,
+};
+
+/// `&fn` 产出的指针值基址（与构建期 `EXEC_FN_REF_BASE` 保持一致）。
+const EXEC_VM_FN_REF_BASE: i64 = 0x40000000;
+
+/// 把 `&fn` 指针值解成模块内函数下标。
+/// 参数：`value` 指针值。返回值：函数下标；不是函数地址返回 -1。
+fn exec_vm_fn_ref_index(value: &ExecValue) i32 {
+    if value == null || value.kind != ExecValueKind.EXEC_VALUE_POINTER {
+        return -1;
+    }
+    if value.i64_value < EXEC_VM_FN_REF_BASE {
+        return -1;
+    }
+    return (value.i64_value - EXEC_VM_FN_REF_BASE) as i32;
+}
 
 /// 从 `pthread_t` 值里读线程槽位号（`tid` 字段，字段 0；0 表示未创建）。
 /// 参数：thread - `pthread_t` 值（结构体或指向结构体的引用）。
@@ -3098,7 +3126,7 @@ fn exec_vm_thread_slot_of(thread: &ExecValue) i32 {
     return slot;
 }
 
-fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecFrame, arg_base: i32, arg_count: i32, out_value: &ExecValue) i32 {
+fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCallSite, frame: &ExecFrame, arg_base: i32, arg_count: i32, out_value: &ExecValue) i32 {
     if function == null || site == null || frame == null || out_value == null {
         exec_backend_set_error(null, "exec: hostcall 输入无效" as *byte, 0);
         return -1;
@@ -3353,10 +3381,29 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             if free_slot >= 0 && free_slot < EXEC_VM_THREAD_SLOTS {
                 exec_vm_thread_used[free_slot] = 1;
                 exec_vm_thread_detached[free_slot] = 0;
+                exec_vm_thread_result[free_slot] = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
             }
             const tid_field: &ExecValue = exec_vm_field_ref_store(th_value, 0);
             if tid_field != null {
                 exec_vm_store_slot(tid_field, exec_make_i64((free_slot + 1) as i64));
+            }
+            // 同步执行线程体：解释器没有并发，`create` 当场把 routine(arg) 跑完，
+            // `join` 再把返回值交给调用点（等价于串行调度）。
+            if arg_count >= 4 && free_slot >= 0 && free_slot < EXEC_VM_THREAD_SLOTS {
+                const routine_value: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
+                const routine_index: i32 = exec_vm_fn_ref_index(routine_value);
+                if routine_index >= 0 {
+                    var thread_args: [ExecValue: 1] = [];
+                    const thread_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 3);
+                    if thread_arg != null {
+                        thread_args[0] = thread_arg[0];
+                    }
+                    var thread_ret: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+                    const thread_rc2: i32 = exec_vm_call_function(program, routine_index, &thread_args[0], 1, 0, &thread_ret);
+                    if thread_rc2 == 0 {
+                        exec_vm_thread_result[free_slot] = thread_ret;
+                    }
+                }
             }
             out_value[0] = exec_make_i32(0);
             return 0;
@@ -3388,13 +3435,55 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             if retval_slot != null && retval_slot.ptr_value != null {
                 const retval_target: &ExecValue = exec_vm_ref_target_value(retval_slot);
                 if retval_target != null {
-                    exec_vm_store_slot(retval_target, exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32));
+                    var join_result: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+                    if th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
+                        join_result = exec_vm_thread_result[th_slot];
+                    }
+                    exec_vm_store_slot(retval_target, join_result);
                 }
             }
         }
         if th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
             exec_vm_thread_used[th_slot] = 0;
         }
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ONCE {
+        if arg_count != 2 {
+            exec_backend_set_error(function.decl, "exec: pthread_once 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const once_value: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const once_state: &ExecValue = exec_vm_field_ref_store(once_value, 0);
+        var once_done: i64 = 0;
+        if once_state != null {
+            once_done = once_state.i64_value;
+        }
+        if once_done == 0 {
+            const once_routine: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+            const once_index: i32 = exec_vm_fn_ref_index(once_routine);
+            if once_index >= 0 {
+                var once_ret: ExecValue = exec_make_void();
+                if exec_vm_call_function(program, once_index, null, 0, 0, &once_ret) != 0 {
+                    return -1;
+                }
+            }
+            if once_state != null {
+                exec_vm_store_slot(once_state, exec_make_i64(1));
+            }
+        }
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_EXIT {
+        if arg_count == 1 {
+            const exit_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+            if exit_arg != null {
+                g_exec_vm_thread_exit_value = exit_arg[0];
+            }
+        }
+        g_exec_vm_thread_exit_requested = 1;
         out_value[0] = exec_make_i32(0);
         return 0;
     }
@@ -5237,7 +5326,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return -1;
         }
         var host_result: ExecValue = exec_make_void();
-        if exec_vm_call_host(function, host_site, frame, instr.b, instr.c, &host_result) != 0 {
+        if exec_vm_call_host(program, function, host_site, frame, instr.b, instr.c, &host_result) != 0 {
             return -1;
         }
         if slot_a == null {
@@ -5425,6 +5514,12 @@ fn exec_vm_run_frame(program: &BCProgram, function: &BCFunction, args: &ExecValu
             return -1;
         }
         if step_result > 0 {
+            return 0;
+        }
+        // `pthread_exit(v)`：当前帧直接带 v 返回（C 语义里它不返回）。
+        if g_exec_vm_thread_exit_requested != 0 {
+            g_exec_vm_thread_exit_requested = 0;
+            exec_vm_store_slot(out_value, exec_value_clone(&g_exec_vm_thread_exit_value));
             return 0;
         }
     }
