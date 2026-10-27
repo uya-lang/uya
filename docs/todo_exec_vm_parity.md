@@ -558,6 +558,36 @@ VM 的 `[T: N]` 是「ExecValue 聚合」，元素之间隔着 `@size_of(ExecVal
 要做的是让定长标量数组在 VM 里有真实连续内存（raw array），或者让
 `@usize_from_ptr`/指针算术对 VM 聚合元素产出可还原的句柄。
 
+### 第 276 轮：定长标量数组改原生内存 + drop/移动语义（+10，零回归）
+
+**基线：718 / 909（79.0%）→ 728 / 909（80.1%）**，`/tmp/census_r299.tsv`。
+相对 r292 净增 10、零回归：
+
+1. **定长标量数组改用原生连续内存**（`exec_value_is_raw_array_element_type` 放行
+   所有标量 kind，`exec_value_get_index`/`set_index` 与原生 slice 读写都按元素宽度走）。
+   一口气解决三件事：`&arr[0]` 的裸指针算术、`mem_set(&arr[0] as *byte, …)` 字节
+   punning、`@usize_from_ptr` 步进——都是 C99 语义。收益：
+   `test_ptr_arithmetic`、`test_mem`、`test_tls_mpi`、`test_crypto_ed25519`、
+   `test_ec_p256_ecdh`、`test_ec_p384_ecdh`、`test_std_runtime_simple`。
+2. **`.ptr` / `&p[i]`**：`LOAD_SLICE_PTR` 对原生数组返回数据区首地址，`ADDR_INDEX`
+   对宿主指针走 `p + i * elem_size`；顺带修好 `test_std_jpeg_encode/decode` 的回归。
+3. **drop / 移动语义**（对齐 C99 的 `gen_moved_field_source_clear` 与字段递归 drop）：
+   - 返回值/结构体初始化按值取走的局部变量不再重复 drop（`exec_lower_mark_moved_locals`）；
+   - 结构体局部出作用域时补字段 drop（`exec_builder_emit_field_drops`，>8 字段跳过）；
+   - `const moved = h.buf` 之后把源字段清零（`exec_builder_emit_moved_field_clear`）；
+   - union 局部出作用域先 drop 活跃变体（`exec_builder_emit_union_variant_drops`），
+     变体 drop 声明登记为可达种子。
+   收益：`test_nested_field_move`、`test_return_struct_init_drop_once`、
+   `test_union_drop_auto_variant`。
+4. drop 登记的 scope 编号不一致不再让函数降级失败（以当前作用域为准登记）。
+
+踩坑记录（避免重复）：
+- `HIRExpr` 的 `item_count` 被可达性扫描当成元素个数，携带旁路信息会崩；要用
+  `unary_op`/`binary_op` 这类 kind-specific 字段。
+- 自举编译器里 `while`/`if` 的多行 `&&` 条件超过两行续行会解析失败，需要拆成嵌套 if。
+- 结构体按类型名查 decl 会撞同名类型（`WebSocketConn` 23 字段 vs 运行期 3 字段），
+  字段-drop 这类按名字解析的路径要加保守护栏。
+
 ### 解释器的内存/性能（GPU 那台机器上尤其明显）
 
 `exec_value_alloc_bytes` 是**直接 malloc、没有回收**，所以「每次操作深拷贝多少」
