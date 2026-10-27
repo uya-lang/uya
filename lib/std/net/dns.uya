@@ -690,7 +690,7 @@ fn dns_parse_hosts_first_ipv4(host: &[byte]) !DnsAddress {
                 const ip_slice: &[byte] = line[0: i];
                 var rest: &[byte] = line[i: line.len - i];
                 while rest.len > 0 && dns_is_space(rest.ptr[0]) {
-                    rest = rest[1: rest.len - 1 + 1];
+                    rest = rest[1: rest.len - 1];
                 }
                 var ip: [byte: 4] = [0:4];
                 if dns_parse_ipv4(ip_slice, &ip[0]) {

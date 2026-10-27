@@ -848,7 +848,7 @@ fn sim_apply_hosted_call_gate_relative_relocs(k: &SimKernel, cid: u32, hdr: &Ima
     if hdr.reloc_offset > image_bytes.len as u32 {
         return error.ImgRelocInvalid;
     }
-    const reloc_bytes: &[byte] = image_bytes[hdr.reloc_offset as usize: image_bytes.len];
+    const reloc_bytes: &[byte] = image_bytes[hdr.reloc_offset as usize: image_bytes.len - hdr.reloc_offset as usize];
     const expected_len: u32 = hdr.reloc_count * 8u32;
     if reloc_bytes.len < expected_len as usize {
         return error.ImgRelocInvalid;
