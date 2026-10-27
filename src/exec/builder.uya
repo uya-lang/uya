@@ -3691,6 +3691,11 @@ fn exec_builder_emit_field_drops(ctx: &ExecFunctionBuildContext, local: &HIRLoca
     if struct_decl == null || struct_decl.struct_decl_fields == null {
         return 0;
     }
+    if struct_decl.struct_decl_field_count > 8 {
+        // 字段太多的类型（连接句柄一类）多半另有专门的 drop 逻辑，也容易和
+        // 别的模块同名结构体撞名；这里保守跳过，行为退回「只调用户 drop」。
+        return 0;
+    }
     var fi: i32 = 0;
     while fi < struct_decl.struct_decl_field_count {
         const field_decl: &ASTNode = struct_decl.struct_decl_fields[fi];
