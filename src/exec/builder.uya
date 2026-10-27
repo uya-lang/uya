@@ -893,7 +893,10 @@ fn exec_builder_compile_zero_value(ctx: &ExecFunctionBuildContext, ast_node: &AS
         }
         const struct_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node, type_get_struct_name(ty));
         if struct_decl == null || struct_decl.struct_decl_fields == null {
-            exec_backend_set_error(ast_node, "exec: zero struct 无法解析结构体声明" as *byte, 0);
+            var zero_struct_msg: [byte: 192] = [];
+            _ = snprintf(&zero_struct_msg[0] as *byte, 192,
+                "exec: zero struct 无法解析结构体声明(name=%s)" as *byte, type_get_struct_name(ty) as *byte);
+            exec_backend_set_error(ast_node, &zero_struct_msg[0] as &byte, 0);
             return -1;
         }
         var struct_slots: [i32: 256] = [];

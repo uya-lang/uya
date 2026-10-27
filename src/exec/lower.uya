@@ -8246,7 +8246,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 if field_decl.var_decl_type == null {
                     return exec_lower_fail_expr(expr, "exec: 结构体字面量字段缺失且字段类型未知" as *byte);
                 }
-                const missing_field_type: Type = type_from_ast(ctx.checker, field_decl.var_decl_type);
+                const missing_field_type: Type = exec_lower_subst_struct_field_type(ctx.checker, &expr_type, struct_decl, field_decl);
                 var missing_field_expr: &HIRExpr = null;
                 if field_decl.var_decl_init != null {
                     // 字段带默认值（`port: i32 = 8080`）：字面量省略该字段时取默认值，
@@ -8265,7 +8265,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             var field_expr: &HIRExpr = null;
             const field_value_node: &ASTNode = exec_lower_unwrap_typed_init(expr.struct_init_field_values[src_idx]);
             if field_decl.var_decl_type != null {
-                const expected_field_type: Type = type_from_ast(ctx.checker, field_decl.var_decl_type);
+                const expected_field_type: Type = exec_lower_subst_struct_field_type(ctx.checker, &expr_type, struct_decl, field_decl);
                 field_expr = exec_lower_coerce_expr(ctx, field_value_node, &expected_field_type);
             } else {
                 field_expr = exec_lower_expr(ctx, field_value_node);
