@@ -419,11 +419,17 @@
     把 `&TimeVal` 的 ExecValue 地址直接交给内核，内核按原生 `{ i64, i64 }` 写 16 字节，
     把 ExecValue 头写成垃圾（`LOAD_FIELD idx=0 kind=1792989222`）。现在 syscall
     元数据里带「出参聚合体」掩码，命中的参数换成原生 i64 缓冲区，跑完再按字段写回。
-- [ ] 余下 1 个：`test_crypto_bigint`（census 超时）。单独计时显示
+- [x] 余下 1 个：`test_crypto_bigint` —— 已通过（见下）。census 里仍靠
+  `tests/exec_vm_census_timeouts.txt` 把它放宽到 900s。单独计时显示
   `bigint_modexp_*_2048` 之前的 6 个用例都在秒级通过，卡在 2048 位 modexp
   （4096 次 mont_mul × 每轮 32×32 次 u64 乘），解释器下是**慢**而不是死循环：
   降序 `while bit >= 0` 这类循环形状已单独验证语义正确。要么给 census 提高
   单例超时，要么给 VM 的 u64 乘法/循环加快速路径（独立大项）。
+  **已解决**：真因不是慢，而是 `exec_vm_store_slot` 每次读局部变量都把整个
+  `[u64: 32]` 数组深拷贝（`acc[i]` 一读就是 256 字节 × 每轮上千次），峰值
+  7 GB、超时。改成局部/全局/字段/下标读一律「浅装入槽位」+ 聚合原地复用
+  缓冲后，整份用例 41 MB、数秒内通过（`test_crypto_curve25519` 同类问题，
+  8.8 GB/不结束 → 190 MB/16s）。
 
 ## 下一轮起点（上下文压缩后从这里继续）
 
