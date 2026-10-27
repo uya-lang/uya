@@ -560,8 +560,8 @@ VM 的 `[T: N]` 是「ExecValue 聚合」，元素之间隔着 `@size_of(ExecVal
 
 ### 第 276 轮：定长标量数组改原生内存 + drop/移动语义（+10，零回归）
 
-**基线：718 / 909（79.0%）→ 728 / 909（80.1%）**，`/tmp/census_r299.tsv`。
-相对 r292 净增 10、零回归：
+**基线：718 / 909（79.0%）→ 730 / 909（80.3%）**，`/tmp/census_r300.tsv`。
+相对 r292 净增 12、零回归：
 
 1. **定长标量数组改用原生连续内存**（`exec_value_is_raw_array_element_type` 放行
    所有标量 kind，`exec_value_get_index`/`set_index` 与原生 slice 读写都按元素宽度走）。
@@ -580,6 +580,12 @@ VM 的 `[T: N]` 是「ExecValue 聚合」，元素之间隔着 `@size_of(ExecVal
    收益：`test_nested_field_move`、`test_return_struct_init_drop_once`、
    `test_union_drop_auto_variant`。
 4. drop 登记的 scope 编号不一致不再让函数降级失败（以当前作用域为准登记）。
+
+5. **VM 进程参数与位转换**：VM 启动后给 `std.runtime.saved_argc` 补 1（C99 由
+   `uya_rt_init(argc, argv)` 注入，VM 没有），`get_argc`/`get_argv` 才自洽；
+   `memcpy(&u64, &f64, 8)` 这类同宽标量位转换按「保留目标 kind、只搬位」处理；
+   `*void` 的 `p[i]` 按字节走（`mem.uya` 的 `dst[i]` 循环依赖这一点）。
+   收益：`test_std_runtime`、`test_async_frame_stack_limit_env`。
 
 踩坑记录（避免重复）：
 - `HIRExpr` 的 `item_count` 被可达性扫描当成元素个数，携带旁路信息会崩；要用
