@@ -540,6 +540,24 @@
 `test_std_mqtt_async`（4 例）的报错从「未初始化局部变量」收敛成「当前不支持 async」，
 归入 async 大簇，等 async 落地后一起变绿。
 
+### 第 275 轮：`manager.registry.entries[i].state` 一类「写入丢失」的根因
+
+`test_capability_runtime_compat`、`test_std_script_pipeline_facade`、
+`test_typed_pipeline_*` 这些用例的断言 `...entries[index].state == Active` 失败，
+根因不在嵌套字段写入本身（最小复现 `m.registry.entries[i].state = 7` 在 VM 上是对的），
+而在库里取元素指针的写法：
+
+```uya
+return (@usize_from_ptr(&registry.entries[0] as &void) + idx * @size_of(Entry)) as &Entry;
+```
+
+VM 的 `[T: N]` 是「ExecValue 聚合」，元素之间隔着 `@size_of(ExecValue)`，
+按 `@size_of(Entry)` 步进的裸指针算术必然指到聚合内存中间，随后 `entry.state = ...`
+写进无人读取的位置。这是**数组原生布局**簇（和上面 `[u64: 32]` 字节 punning、
+`test_ptr_arithmetic`、`test_tls_x25519_pure` 同一个根），不是字段 lowering 的 bug。
+要做的是让定长标量数组在 VM 里有真实连续内存（raw array），或者让
+`@usize_from_ptr`/指针算术对 VM 聚合元素产出可还原的句柄。
+
 ### 解释器的内存/性能（GPU 那台机器上尤其明显）
 
 `exec_value_alloc_bytes` 是**直接 malloc、没有回收**，所以「每次操作深拷贝多少」
