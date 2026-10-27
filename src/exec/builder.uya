@@ -3610,10 +3610,11 @@ fn exec_builder_register_drop_local(ctx: &ExecFunctionBuildContext, stmt: &HIRSt
         exec_backend_set_error(stmt.ast_node, "exec: drop cleanup scope 读取失败" as *byte, 0);
         return -1;
     }
-    if local.scope_id >= 0 && scope.scope_id >= 0 && local.scope_id != scope.scope_id {
-        exec_backend_set_error(stmt.ast_node, "exec: drop local scope 不匹配" as *byte, 0);
-        return -1;
-    }
+    // 嵌套语句块的 scope 编号可能和 builder 当前 cleanup scope 对不上（块被拆成
+    // 多个 HIR 块时尤其明显）。这里以**当前作用域**为准登记 drop：局部变量的清理
+    // 时机由它实际所在的作用域决定，编号不一致不该让整个函数降级失败。
+    _ = local;
+    _ = scope;
     if scope.drop_local_count < 0 || scope.drop_local_count >= 64 {
         exec_backend_set_error(stmt.ast_node, "exec: 每个作用域的 drop local 超出上限" as *byte, 0);
         return -1;

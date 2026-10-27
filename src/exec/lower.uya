@@ -8860,6 +8860,17 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
                 exec_lower_pop_scope(ctx);
                 return null;
             }
+        } else if stmt_node.type == ASTNodeType.AST_BLOCK {
+            // 嵌套 `{ ... }` 语句块：必须按「语句块 + 独立作用域」降级，
+            // 否则块内局部变量的 drop 作用域和 builder 的 cleanup scope 对不上。
+            const nested_body: &HIRBlock = exec_lower_block(ctx, stmt_node);
+            const nested_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_BLOCK);
+            if nested_body == null || nested_stmt == null {
+                exec_lower_pop_scope(ctx);
+                return null;
+            }
+            nested_stmt.then_block = nested_body;
+            stmt = nested_stmt;
         } else if stmt_node.type == ASTNodeType.AST_BREAK_STMT {
             stmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_BREAK);
         } else if stmt_node.type == ASTNodeType.AST_CONTINUE_STMT {
