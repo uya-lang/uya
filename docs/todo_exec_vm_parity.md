@@ -1484,6 +1484,28 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 （parity 比的是 C99 vs VM 的退出码/stdout，两端都失败算 OK），所以
 「census 745/909」与「parity 741/914 OK」是同一处的两种视图。
 
+### 第 318 轮：`memcpy` 位重解释（`test_protobuf_wire` 的 30 号返回）也卡在同一处
+
+`test_protobuf_wire` 返回 30 的位置是 `pb_bits_to_f32(pb_f32_to_bits(1.0)) != 1.0`，
+两个 helper 都是 `memcpy(&u as &void, &f as &const void, 4)`。逐层验下来：
+
+- `lib/libc/mem.uya` 的 `memcpy` 是 Uya 循环 `dest[i] = src[i]`，在 `&local`
+  上会 `LOAD_INDEX 越界`；把它强制走宿主桥（`exec_lower_extern_can_run_in_vm`
+  里对 mem* 返回 0）之后不再报错，但**结果仍是 0**。
+- 在 `exec_vm_mem_view` 前打点看到：`dstv=1（VALUE）srcv=0（HOST）`、
+  `dk=sk=14（POINTER）` —— 目标 `&u` 是正常内引用，**源 `&f as &const void`
+  既不是内引用、地址也不在 VM 值竞技场里**，于是按宿主内存处理，
+  `memcpy` 从错误的地址搬了 4 字节，`u` 永远是 0。
+- 对照实验：`fn setp(p: &i32)` / `fn setv(p: &void)` 写 `&x`（x 是参数）
+  两个后端都是 42/43 ✓ —— 所以「`&param` 能写」没问题，
+  问题专属于 **`&param as &void` 这种再转换后丢失引用编码**的值。
+
+补过两处（`mem_view` 把「VM 驻留地址的裸指针」也算 VALUE、
+`exec_vm_value_semantic_target` 从地址还原目标）都没能让它命中（地址不在竞技场里），
+已回滚。真正的修法是让 `&T as &void` / `*T as *void` 这类转换**保留内引用编码**
+（在 `exec_vm_cast_value` 的 POINTER 分支里，源是内引用时不要退化成裸地址），
+下一轮从这里下手即可，收益是 `memcpy` 位重解释这一类（protobuf 等库）全部可用。
+
 ### 第 317 轮：`async_event` 的注册链路打通了一半（卡在 native 结构体字段访问）
 
 在 VM 的 `exec_vm_exec_syscall` 里给 nr∈{232,233} 打点后可以确认**注册是真的发生了**：
