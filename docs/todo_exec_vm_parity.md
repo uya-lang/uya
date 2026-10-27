@@ -897,6 +897,16 @@ loop { _ = iter.next() catch { break; }; const v: T = iter.value(); <body> }
 - 需要先确认 checker 给 `@await` 节点的类型（`Poll<T>` 还是 `T`）以及
   `Future<T>{...}` 构造在 VM 里是否已支持（泛型结构体字面量 + 联合变体）。
 
+**第 287 轮实测**（已经验过）：
+- `Future{ state: Poll<T>.Ready(v) }` 构造 + `f.poll(&w)` + `match` 在 VM 里**全都能跑**
+  （最小用例 `/tmp/t_fut.uya` 两个后端 rc 都是 0）→ 同步路线的基础没问题；
+- 把 `exec_lower_function` 里 async 的硬门禁拿掉之后，
+  `test_async_await_ready` 的第一个卡点就是 **`AST_AWAIT_EXPR`（节点类型 62）**
+  尚未支持（`尚未支持的表达式节点(type=62)`），没有更深的坑。
+- 进一步简化：`Future` 只有 `state: Poll<T>` 一个字段，所以 `@await f` 完全可以
+  直接按「读 `f.state`（LOAD_FIELD 0）+ 对 `Poll` 联合做 tag 分支」降级，
+  根本不需要泛型方法 `poll` 的返回类型装配（那是这条路线上最容易卡的地方）。
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
