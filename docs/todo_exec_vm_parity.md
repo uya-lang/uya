@@ -775,6 +775,23 @@ BYTE 分支或 `@ptr_from_usize` 得到的指针值）。下一步在 `exec_vm_l
 要动它必须同时改读、写、ADDR_INDEX 三处并让旁路表退出该路径，属于一次结构性改动，
 单点补丁只会换来回归或崩溃。
 
+### 第 282 轮：结构体字段 drop 播种被一个 `self` 类型解析坑挡住
+
+`test_string_buf`（`StringBuf { buf: Vec<byte> }` 出作用域应 free 一次）失败原因是
+**字段 drop 声明不在可执行集合里**。把「结构体字段的 drop 也播种」加上后：
+
+- `test_string_buf` 仍红（另有原因）；
+- `test_std_sql` 直接回归：`lib/std/http/types.uya:210` 的
+  `Conn.drop` 里 `self.fd` 报 `无法解析成员访问字段(kind=15)`——`self` 被当成接口。
+
+但单独写一个用 `Conn` 的小程序（`var c: Conn = Conn{fd:-1}`）**能正常降级**，
+说明 `Conn.drop` 本身没问题，问题出在「播种进来的函数」这条路径上：它和局部变量
+触发的 drop 走的是同一份 `exec_lower_function`，但 checker 的 self 类型上下文不同。
+下一步：在 `exec_lower_function` 开头打印 `checker.current_self_type_name` /
+`fn_decl_owner_type_name`，对比两条路径的差异。
+
+（本轮无净变化，基线与回滚后一致：**745 / 909（82.0%）**。）
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
