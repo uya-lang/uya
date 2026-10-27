@@ -43,6 +43,9 @@ struct ExecLowerContext {
     slot_scope_ids: [i32: EXEC_MAX_LOCALS],
     slot_needs_drop: [i32: EXEC_MAX_LOCALS],
     slot_drop_decls: [&ASTNode: EXEC_MAX_LOCALS],
+    slot_field_drop_indices: [i32: EXEC_MAX_LOCALS * 4],
+    slot_field_drop_decls: [&ASTNode: EXEC_MAX_LOCALS * 4],
+    slot_field_drop_count: [i32: EXEC_MAX_LOCALS],
     active_local_count: i32,
     next_slot: i32,
     max_slot_count: i32,
@@ -1716,6 +1719,34 @@ fn exec_lower_append_local(ctx: &ExecLowerContext, decl: &ASTNode, name: &byte, 
         ctx.slot_scope_ids[slot] = scope_id;
         ctx.slot_needs_drop[slot] = needs_drop;
         ctx.slot_drop_decls[slot] = drop_decl;
+        // 字段级 drop 的单态声明：`Vec<byte>` 这类实例的 drop 必须在 lowering
+        // 阶段就换成对应实参的特化副本，构建期只剩指针匹配。
+        var fdc: i32 = 0;
+        if is_param == 0 && needs_drop != 0 && type != null && type.kind == TypeKind.TYPE_STRUCT &&
+            type.struct_name != null {
+            const fdc_struct: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node, type.struct_name);
+            if fdc_struct != null && fdc_struct.struct_decl_fields != null &&
+                fdc_struct.struct_decl_field_count <= 4 {
+                var fdi: i32 = 0;
+                while fdi < fdc_struct.struct_decl_field_count {
+                    const fdc_field: &ASTNode = fdc_struct.struct_decl_fields[fdi];
+                    if fdc_field != null && fdc_field.var_decl_type != null {
+                        var fdc_type: Type = exec_lower_subst_struct_field_type(ctx.checker, type, fdc_struct, fdc_field);
+                        if fdc_type.kind == TypeKind.TYPE_VOID {
+                            fdc_type = type_from_ast(ctx.checker, fdc_field.var_decl_type);
+                        }
+                        const fdc_drop: &ASTNode = exec_lower_find_drop_decl(ctx, fdc_field, &fdc_type);
+                        if fdc_drop != null && fdc < 4 && slot * 4 + fdc < EXEC_MAX_LOCALS * 4 {
+                            ctx.slot_field_drop_indices[slot * 4 + fdc] = fdi;
+                            ctx.slot_field_drop_decls[slot * 4 + fdc] = fdc_drop;
+                            fdc = fdc + 1;
+                        }
+                    }
+                    fdi = fdi + 1;
+                }
+            }
+        }
+        ctx.slot_field_drop_count[slot] = fdc;
     }
     ctx.active_local_count = ctx.active_local_count + 1;
     ctx.next_slot = slot + 1;
@@ -6509,6 +6540,9 @@ fn exec_lower_lower_global_init_exprs(arena: &CompilerArena, checker: &TypeCheck
                 slot_scope_ids: [],
                 slot_needs_drop: [],
                 slot_drop_decls: [],
+                slot_field_drop_indices: [],
+                slot_field_drop_decls: [],
+                slot_field_drop_count: [],
                 active_local_count: 0,
                 next_slot: 0,
                 max_slot_count: 0,
@@ -9764,6 +9798,9 @@ fn exec_lower_function(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &A
         slot_scope_ids: [],
         slot_needs_drop: [],
         slot_drop_decls: [],
+        slot_field_drop_indices: [],
+        slot_field_drop_decls: [],
+        slot_field_drop_count: [],
         active_local_count: 0,
         next_slot: 0,
         max_slot_count: 0,
@@ -9838,6 +9875,15 @@ fn exec_lower_function(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &A
             locals[i].is_param = ctx.slot_is_param[i];
             locals[i].needs_drop = ctx.slot_needs_drop[i];
             locals[i].drop_decl = ctx.slot_drop_decls[i];
+            var fdci: i32 = 0;
+            while fdci < 4 {
+                if i * 4 + fdci < EXEC_MAX_LOCALS * 4 {
+                    locals[i].field_drop_indices[fdci] = ctx.slot_field_drop_indices[i * 4 + fdci];
+                    locals[i].field_drop_decls[fdci] = ctx.slot_field_drop_decls[i * 4 + fdci];
+                }
+                fdci = fdci + 1;
+            }
+            locals[i].field_drop_count = ctx.slot_field_drop_count[i];
             i = i + 1;
         }
         hir_fn.locals = locals;

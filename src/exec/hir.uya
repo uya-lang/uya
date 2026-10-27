@@ -133,6 +133,11 @@ struct HIRLocalSlot {
     is_param: i32,
     needs_drop: i32,
     drop_decl: &ASTNode,
+    // 字段级 drop：lowering 阶段就已按实例化类型实参选好单态 drop 声明，
+    // 构建期没法再做特化（`Vec<byte>` 的 `drop` ≠ 泛型 `Vec<T>.drop`）。
+    field_drop_indices: [i32: 4],
+    field_drop_decls: [&ASTNode: 4],
+    field_drop_count: i32,
 }
 
 struct HIRGlobalSlot {

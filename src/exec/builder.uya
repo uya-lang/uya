@@ -3777,6 +3777,21 @@ fn exec_builder_emit_field_drops(ctx: &ExecFunctionBuildContext, local: &HIRLoca
         ctx.checker.program_node == null {
         return 0;
     }
+    // lowering 已经按实例化类型实参挑好单态 drop 声明时直接用它：
+    // `Vec<byte>` 的字段 drop 不能退化成泛型 `Vec<T>.drop` 的名字匹配。
+    if local.field_drop_count > 0 {
+        var fdi0: i32 = 0;
+        while fdi0 < local.field_drop_count && fdi0 < 4 {
+            const fdi_decl: &ASTNode = local.field_drop_decls[fdi0];
+            if fdi_decl != null {
+                if exec_builder_emit_field_drop_decl(ctx, local, local.field_drop_indices[fdi0], fdi_decl) < 0 {
+                    return -1;
+                }
+            }
+            fdi0 = fdi0 + 1;
+        }
+        return 0;
+    }
     const type_node: &ASTNode = local.decl.var_decl_type;
     if type_node == null || type_node.type != ASTNodeType.AST_TYPE_NAMED ||
         type_node.type_named_name == null {
@@ -3814,6 +3829,17 @@ fn exec_builder_emit_single_field_drop(ctx: &ExecFunctionBuildContext, local: &H
     const field_drop_decl: &ASTNode = exec_builder_find_named_drop_decl(ctx,
         field_decl.var_decl_type.type_named_name);
     if field_drop_decl == null {
+        return 0;
+    }
+    return exec_builder_emit_field_drop_decl(ctx, local, field_index, field_drop_decl);
+}
+
+/// 按已确认的 drop 声明，对宿主局部变量的第 `field_index` 个字段发一次 drop 调用。
+/// 参数：`ctx` 构建上下文；`local` 宿主局部变量；`field_index` 字段下标；`field_drop_decl` 字段类型的 drop 声明。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_field_drop_decl(ctx: &ExecFunctionBuildContext, local: &HIRLocalSlot,
+    field_index: i32, field_drop_decl: &ASTNode) i32 {
+    if ctx == null || local == null || field_drop_decl == null {
         return 0;
     }
     const callee_index: i32 = exec_builder_find_function_index(ctx.module, field_drop_decl,
