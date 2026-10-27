@@ -3612,6 +3612,25 @@ fn exec_lower_make_assign_stmt(ctx: &ExecLowerContext, ast_node: &ASTNode, slot:
     return stmt;
 }
 
+/// `字段: [T: N] = 值` 这种「带类型的初始化」在 AST 里是 assign 形态（dest 是类型标注，
+/// 不是真正的写目标）。这类节点取右值即可，否则会被当成非法赋值目标。
+/// 参数：`ast_node` 待检查的 AST 节点。
+/// 返回值：真正的值节点（普通赋值原样返回）。
+fn exec_lower_unwrap_typed_init(ast_node: &ASTNode) &ASTNode {
+    if ast_node == null || ast_node.type != ASTNodeType.AST_ASSIGN || ast_node.assign_dest == null {
+        return ast_node;
+    }
+    const dest: &ASTNode = ast_node.assign_dest;
+    if dest.type == ASTNodeType.AST_IDENTIFIER || dest.type == ASTNodeType.AST_MEMBER_ACCESS ||
+        dest.type == ASTNodeType.AST_ARRAY_ACCESS || dest.type == ASTNodeType.AST_UNARY_EXPR {
+        return ast_node;
+    }
+    if ast_node.assign_src != null {
+        return ast_node.assign_src;
+    }
+    return ast_node;
+}
+
 fn exec_lower_make_dest_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     if ctx == null || expr == null {
         return null;
@@ -7740,11 +7759,12 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 continue;
             }
             var field_expr: &HIRExpr = null;
+            const field_value_node: &ASTNode = exec_lower_unwrap_typed_init(expr.struct_init_field_values[src_idx]);
             if field_decl.var_decl_type != null {
                 const expected_field_type: Type = type_from_ast(ctx.checker, field_decl.var_decl_type);
-                field_expr = exec_lower_coerce_expr(ctx, expr.struct_init_field_values[src_idx], &expected_field_type);
+                field_expr = exec_lower_coerce_expr(ctx, field_value_node, &expected_field_type);
             } else {
-                field_expr = exec_lower_expr(ctx, expr.struct_init_field_values[src_idx]);
+                field_expr = exec_lower_expr(ctx, field_value_node);
             }
             if field_expr == null {
                 return null;
