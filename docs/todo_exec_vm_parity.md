@@ -1555,7 +1555,14 @@ DBG lidx refaddr=110613224 pointee=10 idx=0 tgtkind=10 tgti64=0
 结合「同一函数里 `printf("f=%d", f)` 打出 2」可以判断：`f` 的槽在取址之后
 被某个**临时槽**覆盖了（VM 的槽分配/生命周期问题，不是 cast 问题）。
 下一轮的入口很明确：查 `chk`/`two_step` 这类「参数取址 + 后续临时」的函数里
-frame 槽位分配（`exec_builder_new_temp` 是否回收/复用了参数槽）。
+frame 槽位分配。已经排掉的两个可能：
+
+- `exec_builder_new_temp` 从 `fn_hir.local_count` 起分配 ✓ 临时槽不会落在参数槽上；
+- `exec_builder_restore_temp_watermark` 只回收**临时**槽，参数/局部不受影响 ✓。
+
+所以嫌疑集中到运行期：`exec_vm_new_frame` 是否为函数一次性分配 `slot_count` 个槽
+（若按需增长，取址后又扩容就会让内引用悬空 —— 与 io 簇里
+`&stream.buffer[0]` 的写回丢失是同一类现象）。
 
 代码全部回滚，只留结论与落点。
 
