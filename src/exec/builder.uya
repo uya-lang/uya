@@ -3632,6 +3632,9 @@ fn exec_builder_emit_drop_local(ctx: &ExecFunctionBuildContext, local: &HIRLocal
     if ctx == null || local == null {
         return 0;
     }
+    if exec_builder_emit_union_variant_drops(ctx, local) < 0 {
+        return -1;
+    }
     const drop_decl: &ASTNode = exec_builder_find_drop_decl_for_local(ctx, local);
     if drop_decl == null {
         exec_backend_set_error(local.decl, "exec: 未能解析 local drop 方法" as *byte, 0);
@@ -3795,6 +3798,133 @@ fn exec_builder_emit_moved_field_clear(ctx: &ExecFunctionBuildContext, stmt: &HI
         text: null,
         source: exec_builder_make_source(stmt.ast_node),
     });
+}
+
+/// 给 union 局部变量补「活跃变体 drop」：只有标签命中的变体才调用它自己的 drop。
+/// 参数：`ctx` 构建上下文；`local` 局部变量描述。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_union_variant_drops(ctx: &ExecFunctionBuildContext, local: &HIRLocalSlot) i32 {
+    if ctx == null || local == null || local.decl == null || ctx.checker == null ||
+        ctx.checker.program_node == null {
+        return 0;
+    }
+    const type_node: &ASTNode = local.decl.var_decl_type;
+    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_NAMED ||
+        type_node.type_named_name == null {
+        return 0;
+    }
+    const union_decl: &ASTNode = find_union_decl_from_program(ctx.checker.program_node,
+        type_node.type_named_name);
+    if union_decl == null || union_decl.union_decl_variants == null {
+        return 0;
+    }
+    var vi: i32 = 0;
+    while vi < union_decl.union_decl_variant_count {
+        const variant_decl: &ASTNode = union_decl.union_decl_variants[vi];
+        if variant_decl != null && variant_decl.type == ASTNodeType.AST_VAR_DECL &&
+            variant_decl.var_decl_type != null &&
+            variant_decl.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED &&
+            variant_decl.var_decl_type.type_named_name != null {
+            if exec_builder_emit_single_variant_drop(ctx, local, variant_decl, vi) < 0 {
+                return -1;
+            }
+        }
+        vi = vi + 1;
+    }
+    return 0;
+}
+
+/// 对单个 union 变体发射「标签命中才 drop」的分支。
+/// 参数：`ctx` 构建上下文；`local` union 局部变量；`variant_decl` 变体声明；`variant_index` 变体标签。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_single_variant_drop(ctx: &ExecFunctionBuildContext, local: &HIRLocalSlot,
+    variant_decl: &ASTNode, variant_index: i32) i32 {
+    const variant_drop_decl: &ASTNode = exec_builder_find_named_drop_decl(ctx,
+        variant_decl.var_decl_type.type_named_name);
+    if variant_drop_decl == null {
+        return 0;
+    }
+    const callee_index: i32 = exec_builder_find_function_index(ctx.module, variant_drop_decl,
+        variant_drop_decl.fn_decl_name);
+    if callee_index < 0 {
+        return 0;
+    }
+    const tag_slot: i32 = exec_builder_new_temp(ctx);
+    const cmp_slot: i32 = exec_builder_new_temp(ctx);
+    const payload_slot: i32 = exec_builder_new_temp(ctx);
+    if tag_slot < 0 || cmp_slot < 0 || payload_slot < 0 {
+        return -1;
+    }
+    const tag_const_slot: i32 = exec_builder_emit_loaded_const_value(ctx, local.decl,
+        exec_make_i32(variant_index));
+    if tag_const_slot < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_LOAD_UNION_TAG,
+        a: tag_slot,
+        b: local.slot,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(local.decl),
+    }) < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_CMP_EQ,
+        a: cmp_slot,
+        b: tag_slot,
+        c: tag_const_slot,
+        imm: TypeKind.TYPE_I32 as i64,
+        text: null,
+        source: exec_builder_make_source(local.decl),
+    }) < 0 {
+        return -1;
+    }
+    const skip_jump: i32 = exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_JMP_IF_FALSE,
+        a: cmp_slot,
+        b: 0,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(local.decl),
+    });
+    if skip_jump < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_LOAD_UNION_PAYLOAD,
+        a: payload_slot,
+        b: local.slot,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(local.decl),
+    }) < 0 {
+        return -1;
+    }
+    var arg_sources: [i32: EXEC_MAX_CALL_ARGS] = [];
+    arg_sources[0] = payload_slot;
+    const arg_base: i32 = exec_builder_pack_source_slots(ctx, local.decl, &arg_sources[0], 1);
+    const dst: i32 = exec_builder_new_temp(ctx);
+    if arg_base < 0 || dst < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_CALL,
+        a: dst,
+        b: arg_base,
+        c: 1,
+        imm: callee_index as i64,
+        text: variant_drop_decl.fn_decl_name,
+        source: exec_builder_make_source(local.decl),
+    }) < 0 {
+        return -1;
+    }
+    exec_builder_patch_jump(ctx, skip_jump, ctx.instr_count);
+    return 0;
 }
 
 fn exec_builder_emit_cleanup_scope(ctx: &ExecFunctionBuildContext, scope_idx: i32, include_errdefer: i32) i32 {
