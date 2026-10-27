@@ -429,7 +429,12 @@
 
 ### 第 272 轮末的 Top 阻塞（按可收割性排序，已更新）
 
-实测基线：`/tmp/census_r288.tsv`，**707 / 910 通过**（跳过表 4 条），零回归
+实测基线：`/tmp/census_r289.tsv`，**715 / 909 通过**（跳过表 5 条），零回归。
+本轮新增：`test_varargs*`（`@params` 降级）、`test_https_*`(4)、`test_raw_tls`、
+`test_https_debug`（`lib/std/net/dns.uya` 切片长度写错）、以及 `test_kernel_sim`
+的切片修正（该用例另有「真跑 x86 机器码」部分，VM 无法支持，仍红）。
+
+历史基线：`/tmp/census_r288.tsv`，**707 / 910 通过**（跳过表 4 条），零回归
 （700 → 707，其中 4 条经核实「C99 侧链接期就失败」移入跳过表：`test_simple_cast`
 `test_pointer_cast` `test_comprehensive_cast` `test_abi_calling_convention`，
 都报 undefined reference）。本轮新增：`test_tls_aes_gcm`、`test_tls_record`、
