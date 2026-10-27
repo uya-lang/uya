@@ -1560,9 +1560,15 @@ frame 槽位分配。已经排掉的两个可能：
 - `exec_builder_new_temp` 从 `fn_hir.local_count` 起分配 ✓ 临时槽不会落在参数槽上；
 - `exec_builder_restore_temp_watermark` 只回收**临时**槽，参数/局部不受影响 ✓。
 
-所以嫌疑集中到运行期：`exec_vm_new_frame` 是否为函数一次性分配 `slot_count` 个槽
-（若按需增长，取址后又扩容就会让内引用悬空 —— 与 io 簇里
-`&stream.buffer[0]` 的写回丢失是同一类现象）。
+所以嫌疑集中到运行期。查过 `vm.uya` 的 `exec_vm_run_frame`：帧槽来自
+`exec_vm_slot_pool_push(function.slot_count)` 的**槽位池**（push/pop 成对，
+被调帧在调用者之上），一次性把 `slot_count` 个槽清成 void，之后不再扩容 ——
+所以「帧扩容导致内引用悬空」这条也不成立。
+
+剩下的可能：`exec_vm_ref_target_value` 用 `i64_value` 当地址，而某种构造下
+引用值把**编码后的 kind** 或别的东西放进了 `i64_value`（于是解出来落在
+一个恰好是 BYTE 0 的槽上）。下一轮直接把 `ADDR_LOCAL` 产出的
+`i64_value` 与 `exec_vm_slot_ref(frame, 0)` 的地址做一次等值打印即可定案。
 
 代码全部回滚，只留结论与落点。
 
