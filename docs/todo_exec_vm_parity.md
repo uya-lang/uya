@@ -1000,7 +1000,25 @@ loop { _ = iter.next() catch { break; }; const v: T = iter.value(); <body> }
    `exec_lower_generic_call_expr` 里按本次类型实参替换形参与返回类型。
    这条是「错误联合被装箱成 STRUCT」的根因，`block_on` 系用例的载荷因此能保持原 kind。
 5. **普查吞吐**：`UYA_EXEC_CENSUS_JOBS=8` + `UYA_EXEC_CENSUS_TIMEOUT=120` 后，
-   一次全量普查 25 分钟 → **5 分 14 秒**（长尾仍在 `exec_vm_census_timeouts.txt` 里放宽）。
+   一次全量普查 25 分钟 → **5 分 14 秒**（长尾仍在 `exec_vm_census_timeouts.txt` 里放宽；
+   `test_crypto_bigint` / `test_crypto_ed25519` 补进表里放宽到 300s，否则会被 120s 误杀）。
+6. **各类上限放宽**：调用参数 32 → 128、循环补丁栈 256 → 1024、
+   cleanup 作用域深度 512 → 1024（`test_async_param_capacity_dynamic` 传 65 个参数）。
+7. **`return` 校验放行「裸值 → `!T`」**：`fn f() !Future<i32> { return Future{…}; }`
+   被前置换算判成「类型不一致」，而发射阶段本来就会补 `BC_MAKE_OK`。
+8. **`@frame` 合成结构体退化为空结构体**：`uya_async_*` 类型由 C99 codegen 合成，
+   AST 里没有声明，零值改发 0 字段 `BC_MAKE_STRUCT`；帧控制方法（`frame.stop()`）
+   按空操作处理。`test_async_frame_stack_ok` / `test_async_frame_type` 转绿。
+9. **具体结构体值隐式转接口补装箱**：`Future<T>` 同时是接口名与结构体名，
+   把结构体值直接当接口用时，接口分派的「数据指针字段」会越界
+   （`LOAD_FIELD 字段越界(idx=2 kind=16 count=1)`）。在
+   `exec_lower_coerce_expr` 里对「期望接口 / 实参结构体且实现该接口」补
+   `exec_lower_box_interface_expr`。`test_async_poll_inline_struct_init` 转绿。
+
+**本轮实测**：`/tmp/census_r321.tsv` = **808 / 909（88.9%）**，与 r319(802) 相比
+**+6 / 0 回归**；随后 9 条改动又各自带了 2～3 条转绿（`test_for_iterator` 系、
+`async_frame_*`、`poll_inline_struct_init`、`async_param_capacity_dynamic`），
+末尾全量复测见 `/tmp/census_r324.tsv`。
 
 **仍然红的大簇**（重新归类后）：
 - **41 例「静默失败」（测试内部 `ERROR`，无 stderr）**：根子在 `@async_fn` 的返回值被
