@@ -2408,6 +2408,48 @@ fn exec_lower_named_error_literal(expr: &ASTNode) &ASTNode {
     return null;
 }
 
+/// `@params`（函数体内取当前函数的参数元组）。
+///
+/// 参数在 `exec_lower_function` 里最先入槽，所以第 i 个参数的槽位就是 i；
+/// 按声明顺序取槽位就能拼出与 C99 后端一致的元组值。
+/// 参数：`ctx` 降级上下文；`ast_node` AST 节点；`type` 元组类型。
+/// 返回值：`HIR_EXPR_TUPLE_INIT` 表达式；失败返回 null。
+fn exec_lower_params_tuple_expr(ctx: &ExecLowerContext, ast_node: &ASTNode, type: &Type) &HIRExpr {
+    const fn_decl: &ASTNode = ctx.function_decl;
+    var param_count: i32 = 0;
+    if fn_decl != null && fn_decl.type == ASTNodeType.AST_FN_DECL {
+        param_count = fn_decl.fn_decl_param_count;
+    }
+    if param_count < 0 {
+        param_count = 0;
+    }
+    const items: & & HIRExpr = compiler_arena_alloc(ctx.arena,
+        @size_of(&HIRExpr) * param_count) as & & HIRExpr;
+    if param_count > 0 && items == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < param_count {
+        var elem_type: Type = make_void_type();
+        if i < EXEC_MAX_LOCALS {
+            elem_type = ctx.slot_types[i];
+        }
+        const item_expr: &HIRExpr = exec_lower_make_local_expr(ctx, ast_node, i, &elem_type);
+        if item_expr == null {
+            return null;
+        }
+        items[i] = item_expr;
+        i = i + 1;
+    }
+    const hir_tuple: &HIRExpr = exec_lower_alloc_expr(ctx, ast_node, HIRExprKind.HIR_EXPR_TUPLE_INIT, type);
+    if hir_tuple == null {
+        return null;
+    }
+    hir_tuple.items = items;
+    hir_tuple.item_count = param_count;
+    return hir_tuple;
+}
+
 fn exec_lower_make_local_expr(ctx: &ExecLowerContext, ast_node: &ASTNode, slot: i32, type: &Type) &HIRExpr {
     const expr: &HIRExpr = exec_lower_alloc_expr(ctx, ast_node, HIRExprKind.HIR_EXPR_LOCAL, type);
     if expr == null {
@@ -8213,6 +8255,9 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     }
     if expr.type == ASTNodeType.AST_ASM {
         return exec_lower_fail_expr_reason(expr, "exec: 当前不支持 inline asm" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_ASM);
+    }
+    if expr.type == ASTNodeType.AST_PARAMS {
+        return exec_lower_params_tuple_expr(ctx, expr, &expr_type);
     }
     var unsupported_expr_msg: [byte: 128] = [];
     _ = snprintf(&unsupported_expr_msg[0] as *byte, 128, "exec: 尚未支持的表达式节点(type=%d)" as *byte, expr.type as i32);
