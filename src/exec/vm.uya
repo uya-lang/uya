@@ -1411,12 +1411,53 @@ fn exec_vm_field_imm_kind(imm: i64, shift: i32) i32 {
     return bits as i32;
 }
 
+/// 解码原生数组字段的元素个数（打包的是 `个数-1`，占高 16 位）。
+/// 参数：`imm` 指令立即数。
+/// 返回值：元素个数（未打包时返回 1）。
+fn exec_vm_field_imm_count(imm: i64) i32 {
+    var bits: i64 = imm >> 48;
+    bits = bits & (0xFFFF as i64);
+    return (bits as i32) +| 1;
+}
+
 /// 沿引用链找「原生结构体基址」。
 /// `&local`（local 是 `&T`）会产出「指向指针槽的引用」，沿引用解到最后一个指针值
 /// 就能拿到真正的宿主地址。地址落在 VM 值竞技场里说明它其实是 VM 值（走聚合语义），
 /// 只有落在竞技场之外才是 `malloc`/`mmap` 回来的原生结构体。
 /// 参数：`object` 字段访问的基值。
 /// 返回值：宿主基址；不是原生结构体访问返回 0。
+// VM 值驻留区的额外范围：全局槽数组（值竞技场由 value.uya 自己判断）。
+var g_exec_vm_globals_base: usize = 0;
+var g_exec_vm_globals_end: usize = 0;
+
+/// 判断地址是否属于「VM 值驻留区」：值竞技场、帧槽位池、全局槽数组、原生聚合旁路表。
+/// 原生结构体字段访问只在地址**不**驻留于 VM 时才启用；这个判据必须完整，
+/// 漏掉任何一个范围都会让「引用指向 VM 自己的内存」被误判成原生内存。
+/// 参数：`addr` 绝对地址。
+/// 返回值：true 表示这是 VM 自己的内存。
+fn exec_vm_address_is_vm_resident(addr: usize) bool {
+    if addr == 0 as usize {
+        return false;
+    }
+    if exec_vm_address_is_value(addr) {
+        return true;
+    }
+    const pool_base: usize = @usize_from_ptr(&g_exec_vm_slot_pool[0] as &void);
+    const pool_size: usize = (@size_of(ExecValue) as usize) * (EXEC_MAX_FRAME_SLOTS as usize);
+    if addr >= pool_base && addr < pool_base +| pool_size {
+        return true;
+    }
+    if g_exec_vm_globals_base != 0 && addr >= g_exec_vm_globals_base && addr < g_exec_vm_globals_end {
+        return true;
+    }
+    const agg_base: usize = @usize_from_ptr(&g_native_agg_values[0][0] as &void);
+    const agg_size: usize = (@size_of(ExecValue) as usize) * (512 as usize) * (EXEC_NATIVE_AGG_MAX_BASES as usize);
+    if addr >= agg_base && addr < agg_base +| agg_size {
+        return true;
+    }
+    return false;
+}
+
 fn exec_vm_field_native_base(object: &ExecValue) usize {
     var cursor: &ExecValue = object;
     var depth: i32 = 0;
@@ -1424,15 +1465,31 @@ fn exec_vm_field_native_base(object: &ExecValue) usize {
         if cursor.kind != ExecValueKind.EXEC_VALUE_POINTER {
             return 0 as usize;
         }
+        const addr: usize = exec_vm_pointer_address(cursor);
+        if addr == 0 as usize {
+            return 0 as usize;
+        }
         if exec_vm_pointer_is_internal_ref(cursor) == 0 {
-            const addr: usize = exec_vm_pointer_address(cursor);
-            if addr == 0 as usize || exec_vm_address_is_value(addr) {
+            if exec_vm_address_is_vm_resident(addr) {
                 return 0 as usize;
             }
             return addr;
         }
-        cursor = exec_vm_ref_target_value(cursor);
-        depth = depth + 1;
+        const target: &ExecValue = exec_vm_ref_target_value(cursor);
+        if target == null {
+            return 0 as usize;
+        }
+        if exec_vm_address_is_vm_resident(addr) {
+            // 引用目标是 VM 值：只有「指向指针槽」时才继续沿链。
+            if target.kind != ExecValueKind.EXEC_VALUE_POINTER {
+                return 0 as usize;
+            }
+            cursor = target;
+            depth = depth + 1;
+            continue;
+        }
+        // 引用目标不在 VM 驻留区里：这块内存是原生的，直接当基址。
+        return addr;
     }
     return 0 as usize;
 }
@@ -1441,8 +1498,19 @@ fn exec_vm_field_native_base(object: &ExecValue) usize {
 /// 参数：`kind_code` 字段 TypeKind；`pointee_kind_code` 指针字段的 pointee TypeKind（<=0 未知）；
 /// `addr` 字段绝对地址。
 /// 返回值：字段值；kind 不支持返回 VOID。
-fn exec_vm_native_field_load(kind_code: i32, pointee_kind_code: i32, addr: usize) ExecValue {
+fn exec_vm_native_field_load(kind_code: i32, pointee_kind_code: i32, elem_count: i32, addr: usize) ExecValue {
     if addr == 0 as usize {
+        return exec_make_void();
+    }
+    if kind_code == TypeKind.TYPE_ARRAY as i32 {
+        // 原生结构体里的定长数组字段：给出指向数据区的数组视图（不拷贝）。
+        // 只对**标量元素**生成视图：指针元素的 VM 值可能带引用编码，写进原生槽位
+        // 再读回来就是野指针（实测会段错误），那类字段继续走 VM 聚合语义。
+        if pointee_kind_code > 0 && elem_count > 0 &&
+            exec_value_is_raw_array_element_type(pointee_kind_code) != 0 {
+            return exec_value_make_raw_array_view(elem_count, pointee_kind_code,
+                @ptr_from_usize(addr) as &byte);
+        }
         return exec_make_void();
     }
     if kind_code == TypeKind.TYPE_I8 as i32 {
@@ -4235,8 +4303,9 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         const fld_native_base: usize = exec_vm_field_native_base(slot_b);
         if fld_native_kind > 0 && fld_native_base != 0 as usize {
             const fld_pointee0: i32 = exec_vm_field_imm_kind(instr.imm, 40) -| 1;
+            const fld_count0: i32 = exec_vm_field_imm_count(instr.imm);
             const fld_addr0: usize = fld_native_base +| (instr.c as usize);
-            const fld_value0: ExecValue = exec_vm_native_field_load(fld_native_kind, fld_pointee0, fld_addr0);
+            const fld_value0: ExecValue = exec_vm_native_field_load(fld_native_kind, fld_pointee0, fld_count0, fld_addr0);
             if fld_value0.kind != ExecValueKind.EXEC_VALUE_VOID {
                 exec_vm_store_slot_shallow(slot_a, fld_value0);
                 fld_native_done = 1;
@@ -5092,6 +5161,8 @@ export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
         exec_backend_set_error(null, "exec: VM 程序为空" as *byte, 0);
         return 1;
     }
+    g_exec_vm_globals_base = @usize_from_ptr(program.globals as &void);
+    g_exec_vm_globals_end = g_exec_vm_globals_base +| ((@size_of(ExecValue) as usize) * (program.global_count as usize));
     var gi: i32 = 0;
     while gi < program.global_count {
         program.globals[gi] = exec_make_void();

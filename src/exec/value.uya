@@ -581,6 +581,26 @@ fn exec_value_make_raw_array(count: i32, elem_kind_code: i32) ExecValue {
     };
 }
 
+/// 用已有的原生内存构造「原生数组视图」（不拷贝数据）。
+/// 参数：`count` 元素个数；`elem_kind_code` 元素 TypeKind；`data` 数据区地址。
+/// 返回值：指向该数据区的数组值。
+fn exec_value_make_raw_array_view(count: i32, elem_kind_code: i32, data: &byte) ExecValue {
+    // aux_kind 兼作「原生数组」标志位，必须是非 VOID。
+    var view_aux_kind: ExecValueKind = exec_value_scalar_kind_from_type_kind(elem_kind_code);
+    if view_aux_kind == ExecValueKind.EXEC_VALUE_VOID {
+        view_aux_kind = ExecValueKind.EXEC_VALUE_POINTER;
+    }
+    return ExecValue {
+        kind: ExecValueKind.EXEC_VALUE_ARRAY,
+        i64_value: count as i64,
+        ptr_value: data,
+        aux_kind: view_aux_kind,
+        aux_i64_value: elem_kind_code as i64,
+        aux_ptr_value: null,
+        error_id: 0,
+    };
+}
+
 fn exec_value_aggregate_kind(type: Type) ExecValueKind {
     if type.kind == TypeKind.TYPE_STRUCT {
         return ExecValueKind.EXEC_VALUE_STRUCT;

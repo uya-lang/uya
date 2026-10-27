@@ -1432,6 +1432,10 @@ fn exec_builder_compile_addressable_expr_slot(ctx: &ExecFunctionBuildContext, ex
         }
         var addr_field_imm: i64 = expr.int_value & (0xFFFFFFFF as i64);
         addr_field_imm = addr_field_imm | ((expr.unary_op as i64) << 32);
+        if expr.bool_value > 0 {
+            const arr_count: i64 = ((expr.bool_value - 1) as i64) & (0xFFFF as i64);
+            addr_field_imm = addr_field_imm | (arr_count << 48);
+        }
         if exec_builder_emit(ctx, BCInstr {
             opcode: BCOpcode.BC_ADDR_FIELD,
             a: dst_field_addr,
@@ -1882,6 +1886,10 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             }
             var addr_field_imm2: i64 = expr.int_value & (0xFFFFFFFF as i64);
             addr_field_imm2 = addr_field_imm2 | ((expr.unary_op as i64) << 32);
+            if expr.bool_value > 0 {
+                const arr_count2: i64 = ((expr.bool_value - 1) as i64) & (0xFFFF as i64);
+                addr_field_imm2 = addr_field_imm2 | (arr_count2 << 48);
+            }
             if exec_builder_emit(ctx, BCInstr {
                 opcode: BCOpcode.BC_ADDR_FIELD,
                 a: dst_addr,
@@ -3779,6 +3787,10 @@ fn exec_builder_pack_field_imm(expr: &HIRExpr) i64 {
         const field_kind: i64 = (expr.binary_op & 0xFF) as i64;
         const pointee_kind: i64 = ((expr.binary_op >> 8) & 0xFF) as i64;
         packed = packed | (field_kind << 32) | (pointee_kind << 40);
+    }
+    if expr.bool_value > 0 {
+        const arr_count: i64 = ((expr.bool_value - 1) as i64) & (0xFFFF as i64);
+        packed = packed | (arr_count << 48);
     }
     return packed;
 }
