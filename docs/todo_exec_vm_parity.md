@@ -954,6 +954,17 @@ loop { _ = iter.next() catch { break; }; const v: T = iter.value(); <body> }
 - **`zero struct 无法解析结构体声明` 3 个**：泛型结构体单态化缺失；
 - **`@c_import` 3 个**、`LOAD_INDEX 越界` 4 个、`局部变量槽位不足` 2 个 等。
 
+**下一轮入口（已定位到具体形状）**：
+- `test_std_env` 的 `LOAD_INDEX 越界` 里插桩看到 `base kind=12(BYTE) count=0`：
+  `entry[i]`（`entry: &const byte`）的降级把指针**先解引用成 byte** 再取下标，
+  于是 VM 在标量上做下标。应该改成直接对指针做 `LOAD_INDEX`；
+  同类还有 `test_typed_pipeline_*`（`lib/std/process.uya:845`）。
+- `for iter |v|` 的迭代器协议（4 个用例）之前写好的 HIR 手排版本仍卡在
+  `exec: bytecode 函数构建失败`（builder 静默 `return -1`），定位方法：
+  在 `exec_builder_compile_stmt` 的失败返回点逐个加 `fprintf` 计数。
+- `test_async_await_capacity_dynamic` / `test_async_await_limits_and_segments`
+  报 `局部变量槽位不足`：它们的 `test` 块局部变量数超过了 builder 的局部槽位上限。
+
 ### 第 288–291 轮：async 同步语义落地（748 → 791 / 909，87.0%）
 
 把 async 从「完全不支持」推到 **92 个 async 用例里 53 个通过**（整机 748 → 791，
