@@ -1484,6 +1484,39 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 （parity 比的是 C99 vs VM 的退出码/stdout，两端都失败算 OK），所以
 「census 745/909」与「parity 741/914 OK」是同一处的两种视图。
 
+### 第 314 轮：`%a` 指数位真 bug 修好（`1023` 被打成 `:23`）+ 字面量精度的真源头
+
+顺着第 313 轮的「`0` 变成 `:`」痕迹找到真 bug：`lib/libc/stdio.uya` 里两处
+指数输出都写成
+
+```
+if exp >= 100 { buf[pos] = '0' + exp / 100; exp = exp % 100; }   // 1023/100 = 10 → ':'
+```
+
+`exp / 100` 可能是两位数（`%a` 的十六进制指数到 1023），直接 `'0' + 10` 就落成
+`':'`。两处都改成「先按位取到 `[byte: 4]` 再倒序输出、不足两位补零」，`%a` 现在
+两个后端都打 `0x1.fffffffffffffp+1023` ✓（十进制指数 ≤ 308 的行为不变，
+`1e+05` 这种仍补零）。
+
+顺带把 `%#.17g` 的最后一段也钉死了：**值和格式化器都没问题，问题在字面量精度** ——
+
+- 用 `%a`（现在可信）看 `1.0e308`：VM 是 `0x1.1ccf385ebc89fp+1023`，
+  C 后端是 `0x1.1ccf385ebc8a3p+1023`，**差 4 ULP**；而 `1.7976931348623157e308`
+  两边都是 `0x1.fffffffffffffp+1023` ✓。
+- 原因：C 后端把浮点字面量**按文本重新发射**（`%#.17g` 或 DBL_MAX 专用字面），
+  由 C 编译器精确解析；VM 用的是编译器里 `parse_float_literal_with_suffix`
+  调 `strtod` 得到的值，而那个 `strtod` 是 **Uya 实现**（`lib/libc/stdlib.uya`），
+  十进制累乘路径在 308 这种指数上会差几 ULP。DBL_MAX 因为写了位模式的快速路径
+  才是准的。
+- 想把这条路彻底修好，得让编译期浮点字面量用宿主 `strtod`：把
+  `lib/libc/stdlib.uya` 的 `strtod` 改成不带体的 `extern "libc"` 即可映射到 glibc，
+  但生成文件里还要补一条 `extern double strtod(const char*, char**)` 原型
+  （`has_stdlib_conflicts` 时不会包含 `<stdlib.h>`；自举构建也不包含），
+  本次试到这一步因为原型没落到对应 TU 而回滚，代码只留记录。
+
+**本轮实测**：census `/tmp/census_r335.tsv` = **823 / 909（90.5%）**（与上轮持平，
+纯修正格式化 bug）；`make check` 复测 **1191 / 1191 通过**。
+
 ### 第 313 轮：`%#.17g` 的锅不在「浮点值」也不在「va_list」
 
 把 `test_printf_f` 的 `snprintf_g_dbl_max` 一路二分到底，结论和之前记的都不一样：
