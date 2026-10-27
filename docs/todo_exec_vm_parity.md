@@ -637,6 +637,38 @@ VM 引用用（`mem_set` 字面量写、`STORE_INDEX`、或结构体字段整体
 
 当前基线保持 **730 / 909（80.3%）**，本轮三次试验代码均已回滚（工作树干净）。
 
+### 第 278 轮：VM 值竞技场 + 原生结构体字段访问落地 —— 730 → 745（82.0%）
+
+**基线：730 / 909（80.3%）→ 745 / 909（82.0%）**，`/tmp/census_r301.tsv`，**+15 零回归**。
+
+关键是把上一轮卡住的「判据」补上了：
+
+1. **VM 值竞技场**：`exec_value_alloc_bytes` 统一从一块 200 MB 的固定区间分配
+   （16 字节对齐、耗尽后回落普通 malloc），于是有了 O(1) 判据
+   `exec_vm_address_is_value(addr)`——地址在区间里就是 VM 值，否则就是
+   `malloc`/`mmap` 回来的原生内存。这是整条路线的前提。
+2. **原生结构体字段访问**：lowering 算好字段偏移/kind/pointee 打包进
+   `LOAD_FIELD`/`STORE_FIELD`/`ADDR_FIELD`（`c` 放偏移、`imm` 高位放 kind 与 pointee），
+   运行时先沿引用链求「原生基址」（`exec_vm_field_native_base`：链尾的普通指针 + 不在
+   竞技场里才算原生），命中就按 C99 布局读写真字节，否则照旧走 VM 聚合。
+3. 三个坑（都已修）：`ADDR_FIELD` 有**两个**发射点（`&p.field` 走 `HIR_EXPR_ADDR`
+   那条，光改 `compile_addressable_expr_slot` 不够）；ADDR 节点也要携带原生布局信息
+   （lowering 在 `exec_lower_make_ref_expr` 里补）；`exec_lower_struct_field_index`
+   会 move `base_type`，算布局前要先用 `copy_type` 留一份。
+
+收益（15 例）：`test_string` / `test_stdio` / `test_stdlib` / `test_std_stdlib*`、
+`test_libc_heap_{find_chunk_cross_bin,find_chunk_footer_fit,large_path,tcache_metrics}`，
+另外 5 个 `test_async_*`（它们此前是卡在堆/原生结构体上而不是 async 本身）。
+
+仍然红的堆用例（`test_libc_heap_bins` 的 split-remainder bin、
+`test_libc_heap_coalescing_adjacent`、`test_libc_heap_realloc_in_place`、
+`test_libc_heap_tcache`）需要**精确的页级布局**（用例靠探测地址连续性来 carve
+guard/A/B 布局），VM 里 mmap 是模拟的，布局不可能一致——属「分配器页布局」簇，
+优先级低于 async。
+
+当前剩余 167 条：async 97、断言类 40（pthread ~12 + 堆页布局 4 + 其余）、
+泛型调用 4（async）、`@c_import` 3、`LOAD_INDEX 越界` 3、for 迭代器 2、杂项 8。
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
