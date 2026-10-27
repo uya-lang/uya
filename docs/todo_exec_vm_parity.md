@@ -1565,10 +1565,22 @@ frame 槽位分配。已经排掉的两个可能：
 被调帧在调用者之上），一次性把 `slot_count` 个槽清成 void，之后不再扩容 ——
 所以「帧扩容导致内引用悬空」这条也不成立。
 
-剩下的可能：`exec_vm_ref_target_value` 用 `i64_value` 当地址，而某种构造下
-引用值把**编码后的 kind** 或别的东西放进了 `i64_value`（于是解出来落在
-一个恰好是 BYTE 0 的槽上）。下一轮直接把 `ADDR_LOCAL` 产出的
-`i64_value` 与 `exec_vm_slot_ref(frame, 0)` 的地址做一次等值打印即可定案。
+又打了一轮点，**定案了**：
+
+```
+DBG mkref addr=110613224 kind=11(F32) tgtkind=10(BYTE) tgti64=0
+DBG lidx  refaddr=110613224 idx=0    tgtkind=10(BYTE) tgti64=0
+```
+
+引用地址没错（`ADDR_LOCAL` 出来的就是那个槽），**但进函数时那个参数槽里就已经是
+BYTE 0，不是 f32 2.5**。而同一形状的对照用例（`fn show(x: f32)` 里
+`(x*2.0) as i32`）在 VM 里是**正确**的 5 —— 差别只有「callee 里对参数取了地址
+并转成 `&const byte`」。
+
+也就是说：**callee 内部对参数取址+改 pointee 的写法，反作用到了调用点的实参传递**
+（参数槽被按 byte 装箱/清零）。下一轮从这个方向查：caller 的
+`LOAD_CONST(imm=0)` 在 `chk` 这个程序里取到的常量到底是 f32 2.5 还是 byte 0
+（可能是常量池/参数 kind 被 callee 的 cast 反向污染）。
 
 代码全部回滚，只留结论与落点。
 
