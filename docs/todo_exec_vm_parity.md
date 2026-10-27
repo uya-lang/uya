@@ -677,6 +677,24 @@ VM 里那个字段里装的是**字节数组**（`[byte: N]` 一类），于是 
 根因是「`[byte: N]` 与 `&&const byte` 的表示不一致」，不是索引实现的问题。
 优先级低（3 例），要做得先把 env/argv 的合成块统一成原生指针数组。
 
+### 文件 IO / 位转换一簇（4-5 例）：`&local` 落到竞技场外的地址
+
+有了 VM 值竞技场之后可以精确定位这一类问题了。`test_std_io`（以及
+`test_std_io_buffering` / `test_stdio_file_buffering` / `test_std_stdlib_malloc`）
+读回来的内容不对，实测：
+
+```
+fwrite(&wbuf[0], 1, 2, f)  →  syscall write(fd, addr=0x6253dc0, 2)
+```
+`0x6253dc0` **不在**竞技场里（`exec_vm_address_is_value` 返回 0），而是编译器静态区
+（slot pool / 旁路聚合表一类）。同样的 `[byte: N]` 数组在别处（`/tmp/t_addr.uya`）
+是正常的竞技场地址（`0x7fca…`），所以是某条 `&local[i]` / `&param` 路径产出了
+「指向静态槽位」的指针。同一类症状还有 `pb_f32_to_bits`（`memcpy` 的源目标是一个
+值为 0 的 F64 槽位，而不是 `f32` 参数槽）。
+
+下一步：在 `ADDR_LOCAL`/`ADDR_INDEX`/CAST 里断言「产出的指针要么是引用编码，
+要么落在竞技场或栈上，不允许指向 slot pool」，把这几个用例的产出点直接打出来。
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
