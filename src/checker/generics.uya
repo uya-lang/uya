@@ -525,6 +525,15 @@ fn substitute_generic_type(checker: &TypeChecker, type: Type,
 }
 
 // 替换泛型类型参数为具体 Type，供接口实例等已经完成类型推断的场景复用。
+/// 用实参类型替换类型里的泛型参数（供 exec 降级复用）。
+/// 参数：`checker` 检查器；`type` 待替换类型；`type_params`/`type_param_count` 形参表；
+/// `type_args`/`type_arg_count` 实参类型表。返回值：替换后的类型。
+export fn substitute_generic_type_for_exec(checker: &TypeChecker, type: Type,
+                                           type_params: &TypeParam, type_param_count: i32,
+                                           type_args: &Type, type_arg_count: i32) Type {
+    return substitute_generic_type_with_types(checker, type, type_params, type_param_count, type_args, type_arg_count);
+}
+
 fn substitute_generic_type_with_types(checker: &TypeChecker, type: Type,
                                       type_params: &TypeParam, type_param_count: i32,
                                       type_args: &Type, type_arg_count: i32) Type {

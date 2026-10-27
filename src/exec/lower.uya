@@ -5164,7 +5164,11 @@ fn exec_lower_generic_call_expr(ctx: &ExecLowerContext, expr: &ASTNode, result_t
             fn_decl.fn_decl_params[i] != null &&
             fn_decl.fn_decl_params[i].type == ASTNodeType.AST_VAR_DECL &&
             fn_decl.fn_decl_params[i].var_decl_type != null {
-            const expected: Type = type_from_ast(ctx.checker, fn_decl.fn_decl_params[i].var_decl_type);
+            // 形参类型里的泛型参数也要按本次实参替换：`ok<i32>(3)` 的形参是 `T`，
+            // 不替换就会把实参当成名为 `T` 的结构体去转换。
+            const expected_raw: Type = type_from_ast(ctx.checker, fn_decl.fn_decl_params[i].var_decl_type);
+            const expected: Type = substitute_generic_type_for_exec(ctx.checker, copy_type(&expected_raw),
+                fn_decl.fn_decl_type_params, fn_decl.fn_decl_type_param_count, arg_types, arg_count);
             arg_expr = exec_lower_coerce_expr(ctx, expr.call_expr_args[i], &expected);
         } else {
             arg_expr = exec_lower_expr(ctx, expr.call_expr_args[i]);
@@ -5182,7 +5186,16 @@ fn exec_lower_generic_call_expr(ctx: &ExecLowerContext, expr: &ASTNode, result_t
     if ok == 0 {
         return null;
     }
-    const hir: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CALL, result_type);
+    // 返回类型里的泛型参数要按本次实参替换（`!T` → `!i32`），
+    // 否则调用结果会带着未替换的 `T` 继续在降级里传播。
+    var call_result_type: Type = copy_type(result_type);
+    if fn_decl.fn_decl_return_type != null && fn_decl.fn_decl_type_params != null &&
+        fn_decl.fn_decl_type_param_count > 0 {
+        const declared_ret: Type = type_from_ast(ctx.checker, fn_decl.fn_decl_return_type);
+        call_result_type = substitute_generic_type_for_exec(ctx.checker, copy_type(&declared_ret),
+            fn_decl.fn_decl_type_params, fn_decl.fn_decl_type_param_count, arg_types, arg_count);
+    }
+    const hir: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CALL, &call_result_type);
     if hir == null {
         return null;
     }
