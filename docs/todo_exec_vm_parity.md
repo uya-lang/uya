@@ -825,6 +825,11 @@ exec 侧加兜底无效，两个改动都已回滚。
   （该地址读出来的 kind 不是 STRUCT/ARRAY/TUPLE）；
 - 因为 `out_target == null`，`out_buffer` 没建，内核直接写进了 VM 槽位。
 
+（同轮试过）在 `exec_vm_syscall_out_struct_target` 里加「出参地址多解一层」的
+循环（每层都要求落在 VM 值驻留区）——三个用例仍然红，且行为没变化，说明那层地址
+读出来根本不是聚合值，**不是解析层数问题**。真正的修法是让 syscall 参数在 lowering
+阶段就保留「VM 值引用」而不是提前退化成 I64 裸地址（见下）。
+
 修法方向：`exec_vm_syscall_out_struct_target` 需要用
 `exec_vm_address_is_vm_resident(raw_address)` 判断这个 I64 地址是不是 VM 值，
 是就按 ExecValue 解释成出参目标；同时 syscall 参数在 lowering 里应保留
