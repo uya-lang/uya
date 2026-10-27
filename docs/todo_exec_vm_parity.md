@@ -1504,9 +1504,22 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 2. 即使走宿主，`%f` 的四个用例全绿、`%#.17g` 仍差 —— 因为格式化实际落在
    `exec_format_printf_like` 上，没有直接落到 glibc。
 
-**下一步入口**：在 `src/exec/format.uya` 的 `exec_format_snprintf_typed`
-浮点分支里，把传给宿主 `snprintf` 的 `spec` 和 `exec_value_as_f64(arg)` 打出来，
-确认是 spec 被重建错了，还是 arg 索引错位一格。
+**下一步入口（第 313 轮又缩小了一圈）**：用 `printf`（它本来就走
+`EXEC_HOST_CALL_PRINTF_FIXED` → `exec_format_printf_like`）打 DBL_MAX：
+
+```
+printf("%#.17g", dmax)  → 1.7976931348623159e+308     ← 差 2 ULP
+printf("%.17g",  dmax)  → 1.7976931348623159e+308     ← 差 2 ULP
+printf("%a",     dmax)  → 0x1.fffffffffffffp+:23      ← 尾数全 f（值是对的），
+                                                        但指数 "1023" 被写坏成 ":23"
+```
+
+`%a` 的尾数正好是 `0x1.fffffffffffffp`，说明**值本身没问题**；而指数里
+`1` 消失、`0` 变成 `:`（'0' + 10）这种痕迹，指向前面的**渲染/拷贝环节把输出字符写坏了**
+（`exec_format_render` → `exec_format_append_value` → 局部缓冲 `local[512]`
+→ `exec_format_buffer_append` 这条链上的下标/长度算错）。
+`%g` 的 2 ULP 差很可能是同一个写坏问题的另一种表现。
+下一步就在这条链上找下标错误，而不是继续怀疑浮点值或 va_list。
 
 ### 第 312 轮：`test_std_async_event` 卡在 `BC_SYSCALL` 里静默退出（线索已定位）
 
