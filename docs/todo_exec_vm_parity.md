@@ -1502,9 +1502,24 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 
 补过两处（`mem_view` 把「VM 驻留地址的裸指针」也算 VALUE、
 `exec_vm_value_semantic_target` 从地址还原目标）都没能让它命中（地址不在竞技场里），
-已回滚。真正的修法是让 `&T as &void` / `*T as *void` 这类转换**保留内引用编码**
-（在 `exec_vm_cast_value` 的 POINTER 分支里，源是内引用时不要退化成裸地址），
-下一轮从这里下手即可，收益是 `memcpy` 位重解释这一类（protobuf 等库）全部可用。
+已回滚。
+
+更小的复现（第 319 轮）：**根本不需要 memcpy** ——
+
+```uya
+fn direct(f: f32) i32 {
+    const p: &const byte = &f as &const byte;
+    _ = printf("d=%d %d %d %d\n", p[0] as i32, …);   // VM: LOAD_INDEX 越界
+}
+```
+
+C 后端打出 `0 0 128 63`，VM 直接 `LOAD_INDEX 越界`。也就是说缺的是
+**「标量的字节视图」**：`&scalar as &byte` 之后的下标读要取该标量**位模式**里的第 i 字节。
+可行的落点已经找好：`exec_vm_load_pointer_index` 里
+「内引用 + pointee 是 byte/u8 + 目标不是聚合」时，用 `i64_value`（F32/F64 走
+`exec_f32_to_bits`/`exec_f64_to_bits`）右移 `8*i` 取一字节即可；
+`STORE_INDEX` 做对称实现就能覆盖 `memcpy` 的位重解释。本轮试写时只加在
+`load_pointer_index` 里没被命中（`p[0]` 走的分支还需要确认），代码已回滚只留结论。
 
 ### 第 317 轮：`async_event` 的注册链路打通了一半（卡在 native 结构体字段访问）
 
