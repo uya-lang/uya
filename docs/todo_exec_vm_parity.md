@@ -965,6 +965,56 @@ loop { _ = iter.next() catch { break; }; const v: T = iter.value(); <body> }
 - `test_async_await_capacity_dynamic` / `test_async_await_limits_and_segments`
   报 `局部变量槽位不足`：它们的 `test` 块局部变量数超过了 builder 的局部槽位上限。
 
+### 第 303–304 轮：字段级 drop 特化 + 接口装箱（813 → 814 / 909，89.5%）
+
+本轮在 r321(808) 基础上继续收口，两段普查合计 **+11 / 0 回归**，其中本轮新增：
+
+1. **槽位/深度上限**：调用参数 32 → 128、循环补丁栈 256 → 1024、
+   cleanup 作用域深度 512 → 1024（`test_async_param_capacity_dynamic` 传 65 个实参）。
+2. **`return` 校验放行「裸值 → `!T`」**：`fn f() !Future<i32> { return Future{…}; }`
+   被前置校验判成类型不一致，而发射阶段本来就会补 `BC_MAKE_OK`。
+3. **`@frame` 合成结构体**（`uya_async_*`）：AST 里没有声明，零值退化为 0 字段
+   `BC_MAKE_STRUCT`；未知帧控制方法（`frame.stop()`）按空操作处理。
+   `test_async_frame_stack_ok` / `test_async_frame_type` 转绿。
+4. **具体结构体值隐式转接口补装箱**：`Future<T>` 同时是接口名与结构体名，
+   把结构体值当接口用时接口分派的「数据指针字段」会越界
+   （`LOAD_FIELD 字段越界(idx=2 kind=16 count=1)`）。在 `exec_lower_coerce_expr`
+   里对「期望接口 / 实参结构体且实现该接口」补 `exec_lower_box_interface_expr`。
+   `test_async_poll_inline_struct_init` 转绿。
+5. **字段级 drop 按实例化类型特化**：`HIRLocalSlot` 增加
+   `field_drop_indices` / `field_drop_decls` / `field_drop_count`，由 lowering
+   用 `exec_lower_find_drop_decl` 在**有类型实参的上下文**里选好单态 drop
+   （`Vec<byte>.drop` ≠ 泛型 `Vec<T>.drop`），构建期只做指针匹配。
+   此前 `StringBuf.drop`（函数体为空，靠后端逐字段清理）在 VM 里什么也没释放。
+   `test_string_buf` 转绿。
+
+**本轮实测**：`/tmp/census_r325.tsv` = **814 / 909（89.5%）**，`r321(808) → 814`，
+逐条对比 `regress = 0`。
+
+### 第 305 轮起：剩余 95 例的根因归类（重要，避免重复摸索）
+
+- **内存模型（约 20 例，最大一块）**：VM 没有「局部变量真实内存」，
+  `&local` 产出的是指向 `ExecValue` 的内部引用。凡是把地址**转成整数再转回来**
+  或**跨结构体保存后按字节写**的写法都会静默丢写：
+  - `@usize_from_ptr(@ptr_from_usize)` 往返 + 字节偏移（`capability_registry_entry_ptr`
+    的 `entry_idx * @size_of(Entry)`）：VM 元素步长是 `sizeof(ExecValue)`，
+    与 C 布局不等价，**无法仅靠指针算术修**；10 个 capability manager/loader 用例卡这里。
+  - `fread(&buf[0], …)` 写进的是副本（`test_std_io`，返回码 7）。
+  - `memcpy(&u32, &f32, 4)` 位转换：Uya 版 `memcpy` 是逐字节循环，
+    目标是指向标量值的视图时会 `LOAD_INDEX 越界`；把它改走宿主实现
+    （`exec_lower_extern_prefers_host_call` 白名单）后不再报错，但**结果仍然不对**
+    （`test_protobuf_wire` 卡在 `pb_bits_to_f32(1.0)`），已回退该改动。
+  → 这一块要动就得给「取过地址的局部变量」建立真实内存（boxing），属于设计级改动。
+- **线程语义（10 例）**：`test_pthread*` / `test_libc_heap_*` / `test_osal` / `test_kernel_sim`，
+  `pthread_join` 在 VM 里返回 `EINVAL(22)`，同步 VM 没有并发语义。
+- **async 帧布局（约 15 例）**：`LOAD_UNION_TAG 目标不是 union`、
+  `STORE_FIELD 字段越界`——`@frame` 的 union 状态字段目前是空结构体。
+- **超长函数（4 例）**：`cleanup scope 嵌套过深` → 放宽到 4096 后撞
+  `bytecode 指令超出上限`（`lib/std/async_scheduler.uya` 单函数体量超 VM 上限）。
+- **异步 pending 语义（5 例）**：`pending_seen == 1` 一类断言要求 Future 先 Pending，
+  同步 VM 一旦执行就是 Ready，属语义不可对齐，不是缺陷。
+- **`@c_import`（3 例）、f64 `%#.17g` 精度（`test_printf_f`）、其余零散模块缺口。**
+
 ### 第 301–302 轮：迭代器协议落地 + 槽位/泛型收口（802 → 待测 / 909）
 
 这一轮把「下一轮入口」里能确定形状的三条全部做完，另外顺手修掉泛型类型泄漏。
