@@ -1927,6 +1927,45 @@ parity 口径下仍不匹配的是 **30 个用例文件**，按下表归类—�
 | 管道脚手架 | `test_std_script_pipeline_facade`、`test_typed_pipeline_lowering_error`、`test_http_websocket_reconnect` | `pipeline_execute_basic` 内部的 fork/exec 与错误路径 drop，缺口在 lowering 的临时值 drop 与 fork 语义交界处 |
 | 格式化 | `test_printf_f` | `%#.17g` 打 `DBL_MAX`：根因是**编译期浮点字面量**经 Uya 版 `strtod` 落库时差几 ULP（`1.0e308` 实测差 4 ULP，第 314/315 轮）；`--nostdlib` 下不能借宿主 `strtod`，要精确得在 Uya 侧做「尾数×10^k 的整数长除」 |
 
+### 第 321 轮：原生结构体数组字段（`FILE.buffer` / `EpollEvent`）实验记录
+
+把「io 3 例 + epoll 事件回读」这一簇拆到最小复现：
+
+```uya
+struct S { n: usize, buf: [byte: 8] }
+const s: &S = malloc(@size_of(S)) as &S;
+s.buf[0] = 72; s.buf[1] = 101;
+_ = printf("%d %d | %d %d\n", s.buf[0] as i32, s.buf[1] as i32,
+           (&s.buf[0] as &const byte)[0] as i32, (&s.buf[0] as &const byte)[1] as i32);
+```
+
+VM 现状（本轮起点）：`0 0 | 72 101` —— **写确实落到原生内存了**（指针路径读得到），
+但 `s.buf[i]` 这条「LOAD_FIELD + LOAD_INDEX」读回来是 0。逐层打点结论：
+
+1. `LOAD_FIELD` 的 `imm` 里其实**带了**字段 kind/pointee/count（`kind=20`、`pointee=10`、
+   `count=8`），`exec_vm_native_field_load` 也确实造出了 raw array 视图（`vkind=17`）。
+   dump 里看到的 `imm=1` 是 `debug.uya` 用 `%ld`（32 位）打印 **截断**后的假象 ——
+   第 317 轮据此下的「imm 缺 kind」结论是错的，这里更正。
+2. 真正断掉的是 **`ADDR_FIELD` 的 pointee kind**：`s.buf[i]` 的基址指针带的是
+   `ARRAY(19)`，而 `exec_vm_type_kind_size(19) == 0`，原生路径算不出元素步长。
+3. 改成「数组字段取址时按 C 语义退化为元素 kind（`[byte: N]` → `BYTE`）」后，
+   `s.buf[0] = 72` 立刻不再报 `LOAD_INDEX 越界`，`&s.buf[0]` 也能读到 `72`。
+4. 但 `s.buf[i]` 的**读**仍然是 0：打点显示 `LOAD_FIELD` 看到的是
+   `base=0 / i64_value=<32 位截断>` 而 `ptr_value=<真实地址>` —— 同一个
+   `ExecValue` 里 `i64_value` 和 `ptr_value` 不一致，`exec_vm_pointer_address`
+   只读前者，于是原生基址判定失败、退回 VM 聚合语义。
+5. 试过把 `exec_vm_pointer_address` 改成「优先 `ptr_value`」：语义上更对，但
+   一批用例立刻段错误 —— 说明确实有路径**只写 `i64_value`、`ptr_value` 是脏的**，
+   必须先把「谁在写半截指针」找出来，不能只改读取端。
+6. 另试过在 `flush_buffer`/`write_to_buffer`/`fread` 里经原生临时缓冲区中转
+   （`malloc` + 逐字节拷），能把写出来的「wrapper 字节」变成真正的字节流，
+   但读回路径没通，`test_std_io` 仍是断言失败，故一并回滚。
+
+**下一轮入口**：在 `exec_make_pointer_with_kind` 之外找「谁构造了
+`i64_value` 32 位截断的 POINTER 值」（怀疑是 `usize`↔`i32` 的
+`exec_vm_numeric_to_u64` 路径或 `as` 转换链），修好构造端后
+再开「数组字段退化为元素 kind」这一刀。
+
 `tests/exec_vm_parity_skip.txt` **不能**收这 30 个：该表的纪律是「只登记 C99 侧
 同样跑不了的用例，exec VM 自身的未实现不能写在这里」。所以 `make exec-parity`
 在本轮仍是红的，红的范围就是上表。
