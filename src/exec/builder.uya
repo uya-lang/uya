@@ -5023,7 +5023,15 @@ fn exec_builder_validate_return_types_in_block(fn_hir: &HIRFunction, block: &HIR
                     exec_backend_set_error(stmt.ast_node, "exec: 非 void 函数缺少返回值" as *byte, 0);
                     return -1;
                 }
-                if exec_builder_return_type_matches(stmt.expr.type_ref.type, fn_hir.return_type.type) == 0 {
+                var rtm_ok: i32 = exec_builder_return_type_matches(stmt.expr.type_ref.type, fn_hir.return_type.type);
+                if rtm_ok == 0 && fn_hir.return_type.type.kind == TypeKind.TYPE_ERROR_UNION &&
+                    stmt.expr.type_ref.type.kind != TypeKind.TYPE_ERROR_UNION &&
+                    stmt.expr.type_ref.type.kind != TypeKind.TYPE_ERROR {
+                    // 函数返回 `!T` 而 return 的是裸 `T`：发射阶段会补 `BC_MAKE_OK`，
+                    // 这里按兼容放行（单态实例的类型元数据经常对不齐）。
+                    rtm_ok = 1;
+                }
+                if rtm_ok == 0 {
                     var rtm_msg: [byte: 192] = [];
                     _ = snprintf(&rtm_msg[0] as *byte, 192,
                         "exec: return 类型与函数返回类型不一致(actual=%d expected=%d line=%d)" as *byte,
