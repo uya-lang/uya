@@ -1513,6 +1513,19 @@ epoll_ctl (epfd=5, op=1 ADD, fd=6, …)
 且第 2 步没通就整体收益为零，本轮回滚（避免半截代码留在主路径），
 结论与形状都记在这里，下一轮直接从「native 结构体字段视图」入手。
 
+**同一轮里又验了两件事**（都回滚了，但把范围缩到最小）：
+
+- 第 1 步（`epoll_ctl` 事件结构原生化）确实能把事件真正注册进内核：加回这段后
+  报错点从「`ready_n == 0`」变成 `epoll_event_fd` 里的字段访问，说明注册生效了。
+- 第 2 步给 `ADDR_INDEX` 加了「元素字节数」通道（`imm` 高 32 位，lowering 用
+  `@size_of(结构体)` 填，VM 对**原生指针**按 C 布局步进并返回裸指针），
+  但 `epoll_event_fd(event: &EpollEvent)` 里的 `event.data_lo` 仍然走不到原生字段
+  通道 —— 报错还是 `LOAD_FIELD 字段越界(idx=1 kind=14 count=-1 pointee=16)`。
+  也就是说**卡点已经缩小到 builder 这一侧**：`&Struct` 上的成员访问没有把
+  `offset/kind` 打进 `LOAD_FIELD` 的 imm（HIR 里有 `binary_op`/`int_value`
+  两个打包位，lowering 的 `exec_lower_native_field_layout` 也已经算了），
+  下一轮顺着这条线检查 packing/解包即可。
+
 ### 第 316 轮：`async_event` 的「静默退出」根因修掉（出参结构体判定太严）
 
 第 312 轮定位到的「`BC_SYSCALL` 里静默退出」，真正的原因找到了：
