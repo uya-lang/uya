@@ -2026,8 +2026,6 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         if expr.callee_decl != null && expr.callee_decl.type == ASTNodeType.AST_FN_DECL {
             const fn_ref_index: i32 = exec_builder_find_function_index(ctx.module, expr.callee_decl,
                 expr.callee_decl.fn_decl_name);
-            _ = fprintf(stderr, "DBG fnref name=%s idx=%d count=%d\n" as *byte,
-                expr.callee_decl.fn_decl_name as *byte, fn_ref_index, ctx.module.function_count);
             if fn_ref_index >= 0 {
                 var fn_ref_expr: HIRExpr = expr[0];
                 fn_ref_expr.int_value = EXEC_FN_REF_BASE +| fn_ref_index as i64;
