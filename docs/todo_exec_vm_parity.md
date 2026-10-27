@@ -512,14 +512,23 @@
   的 `hdr.size` 能读出来，但读到的常是 `0xDEADBEEF` 之类填充值，随后
   `STORE_FIELD` 往低地址写（`0x6975xxx`）直接段错误。`test_libc_heap_*`、
   `test_string`、`test_stdio`、`test_stdlib` 全部崩在同一个点。
+- 第二轮试验（加了 `ADDR_FIELD` 原生回落、`LOAD_FIELD`/`STORE_FIELD` 失败后回落、
+  builder 打包偏移）确认了**真正的根因链**：原生指针一旦经过 `ADDR_FIELD`
+  就被包装成 VM 值引用（`exec_vm_make_value_ref`），此后整条链路上的
+  `&chunk.header` / `hdr.size` 都落在 VM 旁路聚合上，字节语义丢失。
+  用「目标聚合是否成立」当判据不够：堆内存随便几个字节就能凑出 `count >= 0`
+  的假聚合，于是原生回落不触发，行为还是错的（`test_string` 读到 `0xDEADBEEF`）。
 - 下一轮的正确做法（按优先级）：
-  1. 让 cast 到指针时**保留「这是原生地址」的信息**（例如原生指针用 aux=pointee，
-     VM 值引用仍用 65536+），把 `exec_vm_pointer_is_internal_ref` 的判据收敛到只
-     表示 VM 值引用；这一步是后续所有原生布局工作的前提；
-  2. 给 `exec_value_alloc_bytes` 的分配登记区间，用地址是否落在 VM value 堆里做
-     兜底判据（现在没有任何区间信息）；
-  3. 之后才能安全打开 `LOAD_FIELD`/`STORE_FIELD` 的原生回落，并在 census 上验证
-     `test_libc_heap_*`（29 例）、`test_stdio`/`test_string`/`test_stdlib`（5 例）。
+  1. **指针来源（provenance）必须在创建处决定**：`@ptr_from_usize`/整数 cast 造出的
+     指针、以及任何从它派生出来的 `ADDR_FIELD`/`ADDR_INDEX`/cast，都保持「原生指针」
+     编码（`aux = pointee kind`，不带 65536），只有 `ADDR_LOCAL`/`ADDR_GLOBAL`/
+     `ADDR_FIELD`(对 VM 聚合)/`ADDR_INDEX`(对 VM 聚合) 才产 65536+ 的值引用。
+     要做到这一点，`ADDR_FIELD`/`ADDR_INDEX` 必须先判断基值是不是原生指针——
+     所以还需要第 2 条；
+  2. 给 `exec_value_alloc_bytes` 加**分配标记**（每个块前 8 字节写魔数，或维护区间表），
+     提供 `exec_vm_address_is_value(addr)` 作为确定性判据（现在是纯启发式，必然误判）；
+  3. 以上两步落地后，`LOAD_FIELD`/`STORE_FIELD` 的原生回落才能安全打开，再在 census 上
+     验证 `test_libc_heap_*`（29 例）与 `test_stdio`/`test_string`/`test_stdlib`（5 例）。
 - 顺带确认的两件事（已修，见下条）：`.ptr` 现在是 `LOAD_SLICE_PTR` 支持「运行时
   装着 VM 数组的切片字段」，`test_json_struct_collections` 由红转绿。
 
