@@ -627,17 +627,31 @@ fn exec_builder_syscall_arg_out_struct_bit(arg: &HIRExpr, bit_index: i32) i32 {
         return 0;
     }
     var probe: &HIRExpr = arg;
-    if probe.kind == HIRExprKind.HIR_EXPR_CAST && probe.left != null {
+    var unwrap_guard: i32 = 0;
+    while probe != null && probe.kind == HIRExprKind.HIR_EXPR_CAST && probe.left != null &&
+        unwrap_guard < 4 {
         probe = probe.left;
+        unwrap_guard = unwrap_guard + 1;
     }
-    const arg_type: Type = copy_type(&probe.type_ref.type);
-    if arg_type.kind != TypeKind.TYPE_POINTER || arg_type.pointer_to == null {
+    if probe == null {
         return 0;
     }
-    const pointee_kind: TypeKind = arg_type.pointer_to[0].kind;
-    if pointee_kind == TypeKind.TYPE_STRUCT || pointee_kind == TypeKind.TYPE_UNION ||
-        pointee_kind == TypeKind.TYPE_ARRAY || pointee_kind == TypeKind.TYPE_TUPLE {
-        return 1 << bit_index;
+    const arg_type: Type = copy_type(&probe.type_ref.type);
+    if arg_type.kind == TypeKind.TYPE_POINTER && arg_type.pointer_to != null {
+        const pointee_kind: TypeKind = arg_type.pointer_to[0].kind;
+        if pointee_kind == TypeKind.TYPE_STRUCT || pointee_kind == TypeKind.TYPE_UNION ||
+            pointee_kind == TypeKind.TYPE_ARRAY || pointee_kind == TypeKind.TYPE_TUPLE {
+            return 1 << bit_index;
+        }
+    }
+    // 类型信息丢了（例如 `&obj as i64` 的内层被折成整数类型）时，退回看取地址的操作数：
+    // `&聚合体` 一律按出参结构体处理，内核写的是原生内存。
+    if probe.kind == HIRExprKind.HIR_EXPR_ADDR && probe.left != null {
+        const operand_type: Type = copy_type(&probe.left.type_ref.type);
+        if operand_type.kind == TypeKind.TYPE_STRUCT || operand_type.kind == TypeKind.TYPE_UNION ||
+            operand_type.kind == TypeKind.TYPE_ARRAY || operand_type.kind == TypeKind.TYPE_TUPLE {
+            return 1 << bit_index;
+        }
     }
     return 0;
 }
