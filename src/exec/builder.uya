@@ -3427,7 +3427,7 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         }
         var syscall_out_mask: i32 = 0;
         var out_idx: i32 = 0;
-        while out_idx < expr.item_count && out_idx < 2 {
+        while out_idx < expr.item_count && out_idx < 6 {
             syscall_out_mask = syscall_out_mask |
                 exec_builder_syscall_arg_out_struct_bit(expr.items[out_idx], out_idx);
             out_idx = out_idx + 1;

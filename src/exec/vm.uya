@@ -2687,29 +2687,40 @@ fn exec_vm_dispatch_host_syscall(target_kind: i32, target_pointee_kind: i32, nr:
 /// 参数：function - 当前函数；frame - 当前帧；meta 各字段见 exec_vm_decode_*；
 ///       args - 参数数组（会被就地改写为缓冲区地址）；out_target - 输出出参聚合值。
 /// 返回：0 成功，-1 失败。
-fn exec_vm_syscall_marshal_out_struct(function: &BCFunction, frame: &ExecFrame, arg_base: i32, arg_count: i32,
-    out_mask: i32, args: &i64, out_target: & & ExecValue) &i64 {
-    out_target[0] = null;
-    if out_mask == 0 || args == null {
-        return null;
+/// 出参结构体：把标记过的参数换成原生缓冲区（内核按原生布局写入），
+/// 调完 syscall 再按字段顺序写回 VM 的聚合值。
+/// 参数：function/frame/arg_base/arg_count/out_mask 见调用方；args 参数数组（会被就地改写）；
+///       out_targets/out_buffers/out_fields 输出数组；out_count 输出的出参个数。
+/// 返回：0 成功，-1 失败。
+fn exec_vm_syscall_marshal_out_struct(function: &BCFunction, frame: &ExecFrame, arg_base: i32,
+    arg_count: i32, out_mask: i32, args: &i64, out_targets: & & ExecValue, out_buffers: & & i64,
+    out_fields: &i32, out_count: &i32) i32 {
+    if out_count == null {
+        return -1;
+    }
+    out_count[0] = 0;
+    if out_mask == 0 || args == null || out_targets == null || out_buffers == null || out_fields == null {
+        return 0;
     }
     var oi: i32 = 0;
-    while oi < arg_count && oi < 2 {
+    while oi < arg_count && oi < 6 {
         if (out_mask & (1 << oi)) != 0 {
             const arg_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base + oi);
             const target: &ExecValue = exec_vm_syscall_out_struct_target(arg_slot, args[oi]);
             var field_count: i32 = 0;
             const buffer: &i64 = exec_vm_syscall_out_struct_prepare(target, &field_count);
-            if buffer != null {
-                out_target[0] = target;
-                args[oi] = buffer as i64;
-                return buffer;
+            if buffer == null {
+                return -1;
             }
-            return null;
+            out_targets[out_count[0]] = target;
+            out_buffers[out_count[0]] = buffer;
+            out_fields[out_count[0]] = field_count;
+            out_count[0] = out_count[0] +| 1;
+            args[oi] = buffer as i64;
         }
         oi = oi + 1;
     }
-    return null;
+    return 0;
 }
 
 fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &ExecValue, syscall_meta: i64, out_value: &ExecValue) i32 {
@@ -2734,9 +2745,14 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
         ai = ai + 1;
     }
     const nr_value: i64 = exec_vm_syscall_arg_to_i64(nr_slot[0]);
-    var out_target: &ExecValue = null;
-    const out_buffer: &i64 = exec_vm_syscall_marshal_out_struct(function, frame, arg_base, arg_count,
-        out_mask, &args[0], &out_target);
+    var out_targets: [&ExecValue: 6] = [];
+    var out_buffers: [&i64: 6] = [];
+    var out_fields: [i32: 6] = [];
+    var out_count2: i32 = 0;
+    if exec_vm_syscall_marshal_out_struct(function, frame, arg_base, arg_count, out_mask, &args[0],
+        &out_targets[0] as & & ExecValue, &out_buffers[0] as & & i64, &out_fields[0], &out_count2) != 0 {
+        return -1;
+    }
     if arg_count > 6 {
         exec_backend_set_error(function.decl, "exec: syscall 参数数量非法" as *byte, 0);
         return -1;
@@ -2760,8 +2776,11 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
         return 0;
     }
     out_value[0] = exec_vm_dispatch_host_syscall(target_kind, target_pointee_kind, nr_value, &args[0], arg_count);
-    if out_target != null && out_buffer != null {
-        exec_vm_syscall_out_struct_apply(out_target, out_buffer, out_target.i64_value as i32);
+    var out_apply_i: i32 = 0;
+    while out_apply_i < out_count2 {
+        exec_vm_syscall_out_struct_apply(out_targets[out_apply_i], out_buffers[out_apply_i],
+            out_fields[out_apply_i]);
+        out_apply_i = out_apply_i +| 1;
     }
     return 0;
 }
