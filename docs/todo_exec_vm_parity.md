@@ -1841,12 +1841,14 @@ parity 口径下仍不匹配的是 **30 个用例文件**，按下表归类—�
 
 | 类 | 用例 | 根因 |
 | --- | --- | --- |
-| 内存模型（聚合布局） | `test_libc_heap_bins`、`test_libc_heap_coalescing_adjacent`、`test_libc_heap_realloc_in_place`、`test_libc_heap_tcache`、`test_std_stdlib_malloc`、`test_protobuf_wire`、`test_capability_runtime_compat` | 这些用例用 `@usize_from_ptr`/`@ptr_from_usize` 做字节偏移切页、`memcpy` 位级重解释；VM 的聚合元素步长是 `sizeof(ExecValue)` 而不是 C 布局步长，`&local` 拿到的是 `ExecValue` 自身的内引用 |
-| 文件 IO 写回 | `test_std_io`、`test_std_io_buffering`、`test_stdio_file_buffering` | `fread(&buf[0], …)` 形式的写回落到「取地址时的副本」，宿主写穿不到 VM 槽位 |
+| 内存模型（聚合布局） | `test_libc_heap_bins`、`test_libc_heap_coalescing_adjacent`、`test_libc_heap_realloc_in_place`、`test_libc_heap_tcache`、`test_std_stdlib_malloc`、`test_capability_runtime_compat` | 用 `@usize_from_ptr`/`@ptr_from_usize` 做字节偏移切页；VM 的聚合元素步长是 `sizeof(ExecValue)` 而不是 C 布局步长 |
+| 字节重解释 | `test_protobuf_wire` | `memcpy(&u32, &f32, 4)` 位级重解释：`&T as &U` 会**重新装箱**成一个新值（第 319 轮打点确认），引用不再指向原标量；修法是让指针→指针转换复用原引用 |
+| 文件 IO / native 结构体 | `test_std_io`、`test_std_io_buffering`、`test_stdio_file_buffering` | `FILE` 是 `malloc` 出来的原生结构体：字段偏移与 `[byte: 65536]` 缓冲区都要 C 布局视图，VM 的 `&Struct.field` 缺 `LOAD_FIELD` 的 kind 元数据（第 312/317 轮 dump 证据） |
 | 异步 pending 语义 | `test_async_macro_expand`、`test_async_compound_try_await`、`test_async_state_machine`、`test_std_thread`、`test_std_thread_async_boundary`、`test_async_thread_pool_dynamic_growth`、`test_async_compute_dynamic_resource_pressure`、`test_tls_async_runtime_io` | 用例要求 `pending_seen == 1` / `pool.pending_capacity > MAX_PENDING`：VM 里 async 函数是「一次跑到底」，永远观察不到 `Pending` 这一拍 |
-| OS 仿真 | `test_osal`、`test_kernel_sim`、`test_setjmp`、`test_std_async_event`、`test_std_async_event_fd_reuse`、`test_async_compute_types`、`test_async_compute_generic_wrapper` | 依赖 epoll/execve 重定向/`setjmp` 保存寄存器现场/私有栈切换，解释器没有对应物 |
+| OS 仿真 | `test_osal`、`test_kernel_sim` | 依赖 execve 重定向与私有栈切换（`setjmp` 已在第 310 轮用宿主实现补上，`test_setjmp` 转绿） |
+| epoll 事件回读 | `test_std_async_event`、`test_std_async_event_fd_reuse`、`test_async_compute_types`、`test_async_compute_generic_wrapper` | 注册链路已通（第 316/317 轮），卡在「内核写好的原生 `EpollEvent` 数组」的 C 布局字段回读（与文件 IO 同源：native 结构体字段访问） |
 | 管道脚手架 | `test_std_script_pipeline_facade`、`test_typed_pipeline_lowering_error`、`test_http_websocket_reconnect` | `pipeline_execute_basic` 内部的 fork/exec 与错误路径 drop，缺口在 lowering 的临时值 drop 与 fork 语义交界处 |
-| 格式化 | `test_printf_f` | `%#.17g` 打 `DBL_MAX`：`x / 1.0e308` 归一化丢 1–2 ULP，末位与 glibc 差 1；要精确得做「尾数×10^k 的整数长除」 |
+| 格式化 | `test_printf_f` | `%#.17g` 打 `DBL_MAX`：根因是**编译期浮点字面量**经 Uya 版 `strtod` 落库时差几 ULP（`1.0e308` 实测差 4 ULP，第 314/315 轮）；`--nostdlib` 下不能借宿主 `strtod`，要精确得在 Uya 侧做「尾数×10^k 的整数长除」 |
 
 `tests/exec_vm_parity_skip.txt` **不能**收这 30 个：该表的纪律是「只登记 C99 侧
 同样跑不了的用例，exec VM 自身的未实现不能写在这里」。所以 `make exec-parity`
