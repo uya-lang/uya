@@ -871,6 +871,32 @@ loop { _ = iter.next() catch { break; }; const v: T = iter.value(); <body> }
 
 （本轮无净变化，基线 **748 / 909（82.3%）**。）
 
+### 第 287 轮：async 的「同步实现」路线（剩余 170 条里 94 条是 async）
+
+读了 `lib/std/async.uya` 后发现关键事实：`Future<T>` 只是个
+`struct Future<T> { state: Poll<T> }`，而它的 `poll()` 直接 `return self.state`——
+**没有函数指针、没有帧恢复逻辑**。也就是说 VM 可以先用「同步语义」把 async 跑起来：
+
+1. `@async_fn fn f(...) -> Future<T>`：把函数体按**普通函数**降级，每个 `return x`
+   改成 `return Future<T>{ state: Poll<T>.Ready(x) }`（错误联合同理）；
+2. `@await child` / `try @await child`：
+   - 求值 child 得到 `Future<T>`；
+   - 调 `child.poll(&waker)` 拿 `Poll<T>`；`Ready(v)` 就取 v，`Pending` 就**忙等**
+     （循环重试，加次数上限防止死循环）；
+   - `try` 版本在 v 是错误联合的 err 时按 `try` 语义提前返回。
+3. 这样所有「子 future 立即完成」的用例（`test_async_await_ready`、
+   channel/event/scheduler 里不真正挂起的那批）都能跑通；真正需要挂起/交错的
+   仍然红（总线语义），但那是少数。
+
+实现落点：
+- `exec_lower_function` 去掉 `fn_decl_is_async != 0` 的硬失败；
+- `exec_lower_expr` 增加 `AST_AWAIT_EXPR`（type 51/52 附近的 `@await` 节点）分支，
+  产出「poll + 忙等 + 取载荷」的 HIR（可以用 `HIR_EXPR_CATCH`/`HIR_EXPR_IMETHOD_CALL`
+  组合）；
+- `return` 降级处按函数是否 async 决定是否包 `Future{ state: Ready(...) }`；
+- 需要先确认 checker 给 `@await` 节点的类型（`Poll<T>` 还是 `T`）以及
+  `Future<T>{...}` 构造在 VM 里是否已支持（泛型结构体字面量 + 联合变体）。
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
