@@ -1532,8 +1532,23 @@ DBG bidx pkind=14 pointee=10 idx=0 tgtkind=10 tgti64=0
 （`BC_BOX_VALUE` 按新类型重新装箱），而不是指向那个 `f32` 参数。
 所以问题不在「取位模式」，而在「指针→指针转换时被重新装箱」这一步：
 修法是让 `&T as &U`（同为指针/引用）**复用原引用**（只改 pointee kind），
-不要新建装箱值。修好这一处，`memcpy(&u,&f,4)` 这类位重解释
-（protobuf 等库）才会真正可用。代码已回滚，只留结论与落点。
+不要新建装箱值。
+
+但**单次转换**的 dump 看又是干净的：
+
+```
+0: BC_ADDR_LOCAL a=3 b=0 c=11     ← 参数槽 0 的内引用，pointee=f32(11)
+3: BC_CAST      a=4 b=3 c=10 imm=18  ← 转成 pointee=byte(10)，仍是内引用
+8: BC_LOAD_INDEX a=7 b=5 c=6      ← p[0]
+```
+
+也就是说 `&f` 本身没问题、转换也保留了内引用，问题在 `LOAD_INDEX` 里
+`exec_vm_ref_target_value` 拿到的那个值（实测 `kind=byte value=0`，
+而不是 f32）。下一轮只需要在 `exec_vm_make_value_ref` → `CAST` → `LOAD_INDEX`
+这条链上把「引用指向哪个 ExecValue」逐段打出来（本轮时间用完了），
+定位到底是 `make_value_ref` 的地址算错还是 cast 重建。
+
+代码全部回滚，只留结论与落点。
 
 ### 第 317 轮：`async_event` 的注册链路打通了一半（卡在 native 结构体字段访问）
 
