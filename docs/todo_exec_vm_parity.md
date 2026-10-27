@@ -812,6 +812,24 @@ exec 侧加兜底无效，两个改动都已回滚。
 不是替换函数的问题；后来加的递归替换（数组/指针/切片元素位置的 `T`）
 对这条没用，已回滚。要做这条得先补「泛型结构体的按需单态化」。
 
+### 第 284 轮：syscall 出参结构体（`test_syscall_dir` / `test_std_path_module` / `test_signal`）
+
+三个用例都死在「内核把数据写进了 VM 槽位」：`sys_stat(path, &stat_buf)` 之后
+`stat_buf` 变成 `kind=6 i64=5`——内核的 stat 数据覆盖了 ExecValue 头部。
+实测打点结论：
+
+- syscall 元数据里的出参掩码是**对的**（`nr=4 args=2 mask=2`，第二位标记出参）；
+- 但 `exec_vm_syscall_out_struct_target` 拿到的参数槽是 **I64 原始地址**
+  （`k=2 aux=0 raw=110578232`），不是引用值，所以函数里
+  `resolved.kind` 判定失败、`raw_address as &ExecValue` 这一段也没命中
+  （该地址读出来的 kind 不是 STRUCT/ARRAY/TUPLE）；
+- 因为 `out_target == null`，`out_buffer` 没建，内核直接写进了 VM 槽位。
+
+修法方向：`exec_vm_syscall_out_struct_target` 需要用
+`exec_vm_address_is_vm_resident(raw_address)` 判断这个 I64 地址是不是 VM 值，
+是就按 ExecValue 解释成出参目标；同时 syscall 参数在 lowering 里应保留
+「这是 VM 值引用」的信息，而不是提前退化成裸地址。
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
