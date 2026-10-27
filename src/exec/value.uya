@@ -439,17 +439,58 @@ fn exec_value_scalar_kind_from_type_kind(type_kind: i32) ExecValueKind {
     if type_kind == TypeKind.TYPE_BYTE as i32 {
         return ExecValueKind.EXEC_VALUE_BYTE;
     }
+    if type_kind == TypeKind.TYPE_I16 as i32 {
+        return ExecValueKind.EXEC_VALUE_I16;
+    }
+    if type_kind == TypeKind.TYPE_U16 as i32 {
+        return ExecValueKind.EXEC_VALUE_U16;
+    }
+    if type_kind == TypeKind.TYPE_I32 as i32 || type_kind == TypeKind.TYPE_ENUM as i32 {
+        return ExecValueKind.EXEC_VALUE_I32;
+    }
+    if type_kind == TypeKind.TYPE_U32 as i32 {
+        return ExecValueKind.EXEC_VALUE_U32;
+    }
+    if type_kind == TypeKind.TYPE_I64 as i32 {
+        return ExecValueKind.EXEC_VALUE_I64;
+    }
+    if type_kind == TypeKind.TYPE_U64 as i32 {
+        return ExecValueKind.EXEC_VALUE_U64;
+    }
+    if type_kind == TypeKind.TYPE_USIZE as i32 {
+        return ExecValueKind.EXEC_VALUE_USIZE;
+    }
+    if type_kind == TypeKind.TYPE_F32 as i32 {
+        return ExecValueKind.EXEC_VALUE_F32;
+    }
+    if type_kind == TypeKind.TYPE_F64 as i32 {
+        return ExecValueKind.EXEC_VALUE_F64;
+    }
     return ExecValueKind.EXEC_VALUE_VOID;
 }
 
+/// 判断元素类型能否存进原生内存（定长数组用连续字节表示）。
+/// 只要不是需要附带 aux 编码/聚合语义的类型（指针、切片、字符串、结构体…），
+/// 标量一律走原生连续内存，这样 `&arr[0]` 的指针算术和字节 punning 才和 C99 一致。
+/// 参数：`type_kind` 元素 TypeKind。
+/// 返回值：1 表示可以作为原生数组元素；0 表示必须用 VM 聚合表示。
 fn exec_value_is_raw_array_element_type(type_kind: i32) i32 {
-    if type_kind == TypeKind.TYPE_BOOL as i32 ||
-        type_kind == TypeKind.TYPE_I8 as i32 ||
-        type_kind == TypeKind.TYPE_U8 as i32 ||
-        type_kind == TypeKind.TYPE_BYTE as i32 {
-        return 1;
+    if type_kind == TypeKind.TYPE_POINTER as i32 ||
+        type_kind == TypeKind.TYPE_SLICE as i32 ||
+        type_kind == TypeKind.TYPE_VOID as i32 ||
+        type_kind == TypeKind.TYPE_STRUCT as i32 ||
+        type_kind == TypeKind.TYPE_UNION as i32 ||
+        type_kind == TypeKind.TYPE_TUPLE as i32 ||
+        type_kind == TypeKind.TYPE_ARRAY as i32 ||
+        type_kind == TypeKind.TYPE_INTERFACE as i32 ||
+        type_kind == TypeKind.TYPE_ERROR_UNION as i32 ||
+        type_kind == TypeKind.TYPE_ERROR as i32 {
+        return 0;
     }
-    return 0;
+    if exec_vm_type_kind_size(type_kind) == 0 as usize {
+        return 0;
+    }
+    return 1;
 }
 
 fn exec_value_is_raw_array(value: &ExecValue) i32 {
@@ -745,6 +786,105 @@ fn exec_value_count(value: &ExecValue) i32 {
     return 0;
 }
 
+/// 按 TypeKind 从原生内存读出一个标量值（定长数组元素用）。
+/// 参数：`type_kind` 元素 TypeKind；`addr` 元素起始地址。
+/// 返回值：元素值；不支持的类型返回 VOID。
+fn exec_value_load_native_scalar(type_kind: i32, addr: &byte) ExecValue {
+    if addr == null {
+        return exec_make_void();
+    }
+    if type_kind == TypeKind.TYPE_BOOL as i32 {
+        return exec_make_bool((addr[0] != 0) as i32);
+    }
+    if type_kind == TypeKind.TYPE_BYTE as i32 {
+        return exec_make_byte(addr[0] as i32);
+    }
+    if type_kind == TypeKind.TYPE_U8 as i32 {
+        return exec_make_u8(addr[0]);
+    }
+    if type_kind == TypeKind.TYPE_I8 as i32 {
+        const p: *i8 = addr as *i8;
+        return exec_make_i8(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_I16 as i32 {
+        const p: *i16 = addr as *i16;
+        return exec_make_i16(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_U16 as i32 {
+        const p: *u16 = addr as *u16;
+        return exec_make_u16(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_I32 as i32 || type_kind == TypeKind.TYPE_ENUM as i32 {
+        const p: *i32 = addr as *i32;
+        return exec_make_i32(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_U32 as i32 {
+        const p: *u32 = addr as *u32;
+        return exec_make_u32(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_F32 as i32 {
+        const p: *u32 = addr as *u32;
+        return exec_make_f32_bits(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_I64 as i32 {
+        const p: *i64 = addr as *i64;
+        return exec_make_i64(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_U64 as i32 {
+        const p: *u64 = addr as *u64;
+        return exec_make_u64(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_USIZE as i32 {
+        const p: *usize = addr as *usize;
+        return exec_make_usize(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_F64 as i32 {
+        const p: *u64 = addr as *u64;
+        return exec_make_f64_bits(p[0]);
+    }
+    return exec_make_void();
+}
+
+/// 按 TypeKind 把一个标量值写进原生内存（定长数组元素用）。
+/// 参数：`type_kind` 元素 TypeKind；`addr` 元素起始地址；`value` 待写入的值。
+/// 返回值：0 写入成功；-1 表示类型不支持。
+fn exec_value_store_native_scalar(type_kind: i32, addr: &byte, value: &ExecValue) i32 {
+    if addr == null || value == null {
+        return -1;
+    }
+    if type_kind == TypeKind.TYPE_BOOL as i32 {
+        addr[0] = (value.i64_value != 0) as byte;
+        return 0;
+    }
+    if type_kind == TypeKind.TYPE_BYTE as i32 || type_kind == TypeKind.TYPE_U8 as i32 {
+        addr[0] = value.i64_value as byte;
+        return 0;
+    }
+    if type_kind == TypeKind.TYPE_I8 as i32 {
+        const p: *i8 = addr as *i8;
+        p[0] = value.i64_value as i8;
+        return 0;
+    }
+    if type_kind == TypeKind.TYPE_I16 as i32 || type_kind == TypeKind.TYPE_U16 as i32 {
+        const p: *u16 = addr as *u16;
+        p[0] = value.i64_value as u16;
+        return 0;
+    }
+    if type_kind == TypeKind.TYPE_I32 as i32 || type_kind == TypeKind.TYPE_U32 as i32 ||
+        type_kind == TypeKind.TYPE_ENUM as i32 || type_kind == TypeKind.TYPE_F32 as i32 {
+        const p: *u32 = addr as *u32;
+        p[0] = value.i64_value as u32;
+        return 0;
+    }
+    if type_kind == TypeKind.TYPE_I64 as i32 || type_kind == TypeKind.TYPE_U64 as i32 ||
+        type_kind == TypeKind.TYPE_USIZE as i32 || type_kind == TypeKind.TYPE_F64 as i32 {
+        const p: *u64 = addr as *u64;
+        p[0] = value.i64_value as u64;
+        return 0;
+    }
+    return -1;
+}
+
 fn exec_value_get_index(value: &ExecValue, idx: i32) ExecValue {
     if value == null {
         return exec_make_void();
@@ -755,21 +895,12 @@ fn exec_value_get_index(value: &ExecValue, idx: i32) ExecValue {
             return exec_make_void();
         }
         const raw_kind: i32 = exec_value_raw_array_element_kind(value);
-        const raw_ptr: &byte = value.ptr_value + idx;
-        if raw_kind == TypeKind.TYPE_BOOL as i32 {
-            return exec_make_bool((raw_ptr[0] != 0) as i32);
+        const raw_elem_size: usize = exec_vm_type_kind_size(raw_kind);
+        if raw_elem_size == 0 as usize {
+            return exec_make_void();
         }
-        if raw_kind == TypeKind.TYPE_I8 as i32 {
-            const raw_i8: &i8 = raw_ptr as &i8;
-            return exec_make_i8(raw_i8[0]);
-        }
-        if raw_kind == TypeKind.TYPE_U8 as i32 {
-            return exec_make_u8(raw_ptr[0]);
-        }
-        if raw_kind == TypeKind.TYPE_BYTE as i32 {
-            return exec_make_byte(raw_ptr[0] as i32);
-        }
-        return exec_make_void();
+        const raw_addr: usize = @usize_from_ptr(value.ptr_value as &void) + raw_elem_size * (idx as usize);
+        return exec_value_load_native_scalar(raw_kind, @ptr_from_usize(raw_addr) as &byte);
     }
     if value.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
         value.kind == ExecValueKind.EXEC_VALUE_TUPLE ||
@@ -819,18 +950,12 @@ fn exec_value_set_index(dst: &ExecValue, idx: i32, value: &ExecValue) i32 {
             return -1;
         }
         const raw_kind: i32 = exec_value_raw_array_element_kind(dst);
-        const raw_ptr: &byte = dst.ptr_value + idx;
-        if raw_kind == TypeKind.TYPE_BOOL as i32 {
-            raw_ptr[0] = (value.i64_value != 0) as byte;
-            return 0;
+        const raw_elem_size: usize = exec_vm_type_kind_size(raw_kind);
+        if raw_elem_size == 0 as usize {
+            return -1;
         }
-        if raw_kind == TypeKind.TYPE_I8 as i32 {
-            const raw_i8: &i8 = raw_ptr as &i8;
-            raw_i8[0] = value.i64_value as i8;
-            return 0;
-        }
-        raw_ptr[0] = value.i64_value as byte;
-        return 0;
+        const raw_addr: usize = @usize_from_ptr(dst.ptr_value as &void) + raw_elem_size * (idx as usize);
+        return exec_value_store_native_scalar(raw_kind, @ptr_from_usize(raw_addr) as &byte, value);
     }
     if dst.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
         dst.kind == ExecValueKind.EXEC_VALUE_TUPLE ||
