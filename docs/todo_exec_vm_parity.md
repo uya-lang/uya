@@ -526,6 +526,11 @@
 当前基线：**718 / 909 通过（79.0%）**，`/tmp/census_r291.tsv`；相对 r289/r290 的
 715 净增 3（`test_json_struct_collections` 等），零回归。
 
+本轮另修：`var x: T;`（无初值，只有 async 状态机会合成这种声明）现在按类型给零值，
+`test_async_frame_type` / `test_async_frame_stack_ok` / `test_async_frame_methods` /
+`test_std_mqtt_async`（4 例）的报错从「未初始化局部变量」收敛成「当前不支持 async」，
+归入 async 大簇，等 async 落地后一起变绿。
+
 ### 解释器的内存/性能（GPU 那台机器上尤其明显）
 
 `exec_value_alloc_bytes` 是**直接 malloc、没有回收**，所以「每次操作深拷贝多少」
