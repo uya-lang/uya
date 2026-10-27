@@ -8505,9 +8505,11 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
         const stmt_node: &ASTNode = block.block_stmts[i];
         var stmt: &HIRStmt = null;
         if stmt_node.type == ASTNodeType.AST_VAR_DECL {
-            if stmt_node.var_decl_init == null {
+            // `var x: T;` 没有初值：按类型给零值（和 C99 侧 uya 的默认初始化一致），
+            // 这样 async 状态机里「先声明后赋值」的局部变量也能降级。
+            if stmt_node.var_decl_init == null && stmt_node.var_decl_type == null {
                 exec_lower_pop_scope(ctx);
-                return exec_lower_fail_block(stmt_node, "exec: 当前不支持未初始化局部变量" as *byte);
+                return exec_lower_fail_block(stmt_node, "exec: 未初始化局部变量缺少类型" as *byte);
             }
             var local_type: Type = make_void_type();
             if stmt_node.var_decl_type != null {
@@ -8528,7 +8530,12 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
                 exec_backend_set_error(stmt_node, "exec: 局部变量槽位不足" as *byte, 0);
                 return null;
             }
-            const init_expr: &HIRExpr = exec_lower_coerce_expr(ctx, stmt_node.var_decl_init, &local_type);
+            var init_expr: &HIRExpr = null;
+            if stmt_node.var_decl_init == null {
+                init_expr = exec_lower_make_zero_expr(ctx, stmt_node, &local_type);
+            } else {
+                init_expr = exec_lower_coerce_expr(ctx, stmt_node.var_decl_init, &local_type);
+            }
             if init_expr == null {
                 exec_lower_pop_scope(ctx);
                 return null;
