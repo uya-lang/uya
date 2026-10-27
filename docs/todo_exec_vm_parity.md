@@ -907,6 +907,53 @@ loop { _ = iter.next() catch { break; }; const v: T = iter.value(); <body> }
   直接按「读 `f.state`（LOAD_FIELD 0）+ 对 `Poll` 联合做 tag 分支」降级，
   根本不需要泛型方法 `poll` 的返回类型装配（那是这条路线上最容易卡的地方）。
 
+### 第 292–300 轮：async 错误路径 + 泛型内层调用 + 解释器杂项（791 → 802 / 909，88.2%）
+
+这批全是「卡在同一个死胡同里的整簇用例」，每修一处带出 2–4 个：
+
+1. **async 函数里的 `try` 降级成 catch 形状**（`exec_lower_make_async_try_catch`）：
+   `try x` 普通语义是「err 时原样返回错误联合」，但 async 函数返回的是 Future，
+   直接把裸错误返回给调用方会让调用方在 `!Future` 上做 `LOAD_FIELD`。
+   现在改写成 `x catch { return wrap(err) }`：`HIR_EXPR_CATCH` 用 `int_value=1`
+   表示「绑定整个错误联合，不要 UNWRAP_ERR」，`extra` 是
+   `exec_lower_wrap_async_return` 造好的 Future 表达式。
+2. **catch 分支里的 `return` 也要包 Future**（`exec_lower_wrap_catch_return`），
+   否则 `x catch |e| { return 999; }` 会把裸 `999` 当返回值得调用方炸掉。
+3. **async 错误返回补跑 errdefer**：值被包成 Future 后 builder 已看不出「这是错误返回」，
+   lowering 用 `HIRStmt.int_value = 1` 打标，builder 见到就走 `emit_all_cleanup(1)`
+   （`HIRStmt` 因此新增 `int_value` 字段）。
+4. **libc 常量与编译器注入全局**：`libc_EAGAIN` 这类「带模块前缀的 errno」
+   和 `_uya_async_frame_heap_fallback`（`--async-frame-heap=on` 才为 1）
+   补进了 `exec_lower_libc_macro`。
+5. **`extern var` 全局按零值占位**：`_uya_async_frame_descriptors` 这类由 C 侧
+   链接器提供存储的全局，解释器里没有对应物；读它时给「空表/计数 0/指针 null」，
+   正好等于「运行期没有任何异步帧注册」。
+6. **泛型函数体内再调泛型函数**：checker 只登记了以类型参数（`TYPE_GENERIC_PARAM`）
+   为实参的实例，而单态体降级时外层类型参数已替换成具体类型，于是找不到实例
+   （`当前不支持这个泛型调用`）。降级时按替换后的具体类型调用
+   `register_mono_instance_by_types()` 补登记，后续单态体循环会把它生成出来。
+7. **`@await` 忙等按 CPU 时间收敛**：纯计次（10000 次）在毫秒内就放弃，
+   「deadline 到期才 Ready」的 Future 永远等不到；改用 `clock()` 的
+   1.5 CPU 秒预算，`Waker` 参数给一块 64 字段的占位聚合（传 null 会在
+   `w.clear_cancelled()` 处越界）。
+8. **`exit()` 不再杀宿主进程**：解释器跑在编译器进程里，真 `exit()` 连测试汇总
+   都打不出来；改成记录退出码 + `vm_run_program` 立刻收工并把它当程序返回值。
+9. **builder 上限放宽**：loop patch 栈 32 → 256（`defer` 嵌在循环里会让
+   HIR 层数远大于源码层数）。
+10. **分支值支持 `return` / `break` / `continue`**：`if` 表达式、
+    块表达式（`exec_lower_block_expr`）以前把跳转语句当表达式降级，
+    报 `尚未支持的表达式节点(type=20)`（20 = `AST_RETURN_STMT`）；
+    现在合成单语句块走语句路径，值位置补零。
+
+**仍然红的大簇**（108 个）：
+- **运行期崩溃/无输出 52 个**：`@frame(…)` 异步帧（uyagin/http 系）、
+  `test_async_compute_*` 的段错误、`test_epoll_server` 超时等；
+- **`@await 操作数不是 Future` 10 个**：要么挂在 `@frame` 上，要么是
+  「事件循环 + 真实 I/O」组合，同步 VM 无法推进；
+- **`for 迭代对象必须是数组或切片` 4 个**：迭代器协议（`IntoIterator`）仍未实现；
+- **`zero struct 无法解析结构体声明` 3 个**：泛型结构体单态化缺失；
+- **`@c_import` 3 个**、`LOAD_INDEX 越界` 4 个、`局部变量槽位不足` 2 个 等。
+
 ### 第 288–291 轮：async 同步语义落地（748 → 791 / 909，87.0%）
 
 把 async 从「完全不支持」推到 **92 个 async 用例里 53 个通过**（整机 748 → 791，
