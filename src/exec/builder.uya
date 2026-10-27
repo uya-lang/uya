@@ -1440,6 +1440,30 @@ fn exec_builder_emit_store_local(ctx: &ExecFunctionBuildContext, ast_node: &ASTN
     });
 }
 
+/// 求字段地址（`ADDR_FIELD`）产出的 pointee kind。
+///
+/// 定长数组字段在 C 里按「指向元素」退化：`s.buf[i]` 的基址指针必须带元素 kind，
+/// 否则 VM 原生路径算不出元素步长（`exec_vm_type_kind_size(ARRAY) == 0`），
+/// `FILE` / `EpollEvent` 这类原生结构体的数组字段完全读写不动。
+/// 降级侧把「元素 kind + 1」放在 `binary_op` 的 8..15 位，元素个数放在 `bool_value`。
+///
+/// 参数：`expr` 字段访问 HIR；`fallback_kind` 按表达式类型算出的 pointee kind。
+/// 返回值：该写进指令 `c` 低字节的 pointee kind。
+fn exec_builder_field_addr_element_kind(expr: &HIRExpr) i32 {
+    if expr == null {
+        return 0;
+    }
+    // 元素 kind 交给 VM 在**确认基址是原生内存**之后再用来覆盖 pointee
+    // （见 `BC_ADDR_FIELD` 的 c 第 16..23 位）。这里只负责把值带过去：
+    // 编译期直接改 pointee 会让 VM 聚合结构的下标访问走 C 布局步进，
+    // 实测 yaml/http/jpeg 会成片崩。
+    const native_pointee: i32 = (expr.binary_op >> 8) & 0xFF;
+    if native_pointee > 0 && expr.bool_value > 0 {
+        return native_pointee - 1;
+    }
+    return 0;
+}
+
 fn exec_builder_compile_addressable_expr_slot(ctx: &ExecFunctionBuildContext, expr: &HIRExpr, ast_node: &ASTNode) i32 {
     if ctx == null || expr == null {
         return -1;
@@ -1487,19 +1511,20 @@ fn exec_builder_compile_addressable_expr_slot(ctx: &ExecFunctionBuildContext, ex
         if base_slot_addr < 0 || dst_field_addr < 0 {
             return -1;
         }
-        var addr_field_imm: i64 = expr.int_value & (0xFFFFFFFF as i64);
-        addr_field_imm = addr_field_imm | ((expr.unary_op as i64) << 32);
-        if expr.bool_value > 0 {
-            const arr_count: i64 = ((expr.bool_value - 1) as i64) & (0xFFFF as i64);
-            addr_field_imm = addr_field_imm | (arr_count << 48);
-        }
+        // imm 低 32 位是字段下标，32..63 位是原生字节偏移。
+        // **不要**再把元素个数塞进高 16 位：VM 侧是整体 `imm >> 32` 取偏移，
+        // 混进个数会让偏移变成 `off + ((count-1) << 16)`（实测 `[byte: 8]`
+        // 字段的偏移被算成 458760，写入直接落到结构体外面）。
+        const addr_field_imm: i64 = (expr.int_value & (0xFFFFFFFF as i64)) |
+            ((expr.unary_op as i64) << 32);
         if exec_builder_emit(ctx, BCInstr {
             opcode: BCOpcode.BC_ADDR_FIELD,
             a: dst_field_addr,
             b: base_slot_addr,
             // c 的低 8 位是结果指针 pointee kind，8..15 位是字段 kind+1（原生布局用）；
             // imm 低 32 位字段下标，高 32 位原生字节偏移。
-            c: pointee_kind | ((expr.binary_op & 0xFF) << 8),
+            c: pointee_kind | ((expr.binary_op & 0xFF) << 8) |
+                (exec_builder_field_addr_element_kind(expr) << 16),
             imm: addr_field_imm,
             text: null,
             source: exec_builder_make_source(ast_node),
@@ -1941,17 +1966,15 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             if base_slot_addr2 < 0 {
                 return -1;
             }
-            var addr_field_imm2: i64 = expr.int_value & (0xFFFFFFFF as i64);
-            addr_field_imm2 = addr_field_imm2 | ((expr.unary_op as i64) << 32);
-            if expr.bool_value > 0 {
-                const arr_count2: i64 = ((expr.bool_value - 1) as i64) & (0xFFFF as i64);
-                addr_field_imm2 = addr_field_imm2 | (arr_count2 << 48);
-            }
+            // 同上一处：imm 只放「字段下标 + 原生偏移」，不要混元素个数。
+            const addr_field_imm2: i64 = (expr.int_value & (0xFFFFFFFF as i64)) |
+                ((expr.unary_op as i64) << 32);
             if exec_builder_emit(ctx, BCInstr {
                 opcode: BCOpcode.BC_ADDR_FIELD,
                 a: dst_addr,
                 b: base_slot_addr2,
-                c: pointee_kind | ((expr.binary_op & 0xFF) << 8),
+                c: pointee_kind | ((expr.binary_op & 0xFF) << 8) |
+                    (exec_builder_field_addr_element_kind(expr) << 16),
                 imm: addr_field_imm2,
                 text: null,
                 source: exec_builder_make_source(expr.ast_node),

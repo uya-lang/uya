@@ -637,17 +637,23 @@ export extern "libc" fn fgetc(stream: &FILE) i32 {
         return 0 - 1;  // EOF
     }
     
-    var ch: byte = 0 as byte;
-    const result: !isize = sys_read(fd as i32, &ch, 1);
+    // 经原生临时缓冲区读：解释器里 `&ch` 指向的是 VM 槽位（ExecValue），
+    // 让内核直接往里写会覆盖掉 wrapper 头字节，`ch` 读回来就是垃圾。
+    const ch_buf: &byte = malloc(1 as usize) as &byte;
+    if ch_buf == null {
+        return 0 - 1;  // EOF
+    }
+    const result: !isize = sys_read(fd as i32, ch_buf, 1);
     const bytes_read: isize = result catch {
+        free(ch_buf as &void);
         return 0 - 1;  // EOF
     };
-    
+    var ch: i32 = 0 - 1;
     if bytes_read == 1 as isize {
-        return ch as i32;
+        ch = ch_buf[0] as i32;
     }
-    
-    return 0 - 1;  // EOF
+    free(ch_buf as &void);
+    return ch;
 }
 
 // _fmt_f64_to_buf - 将 f64 格式化为字符串追加到 buf，返回新的 buf_pos
