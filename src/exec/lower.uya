@@ -3340,6 +3340,56 @@ fn exec_lower_future_state_type(ctx: &ExecLowerContext, future_type: Type) Type 
 /// 另一种是返回载荷（`return x`，x 的类型是 T）。只有后者需要包装。
 /// 参数：`ctx` 上下文；`return_expr` 返回表达式；`fn_return_type` 函数声明的返回类型。
 /// 返回值：1 需要包装，0 已经是 Future。
+/// 把 async 函数里的 `try x` 降级成「错误提前返回」的 catch 形状。
+///
+/// `try x` 在普通函数里等于「err 时原样返回错误联合」，但 async 函数返回的是
+/// `Future`，必须包成 `Future{ state: Poll.Ready(err) }` 才能和正常返回一致。
+/// 所以这里造 `x catch { return <wrap(err_union)> }` 的 HIR：
+/// `local_slot` 绑定整个错误联合（`int_value=1` 让 builder 跳过 UNWRAP_ERR），
+/// `extra` 是包装后的 Future 表达式。
+/// 参数：`ctx` 上下文；`ast_node` try 节点；`operand` 降级后的错误联合；
+///       `payload_type` try 表达式的结果类型。
+/// 返回值：catch 形态的 HIR；失败返回 null。
+fn exec_lower_make_async_try_catch(ctx: &ExecLowerContext, ast_node: &ASTNode, operand: &HIRExpr,
+    payload_type: Type) &HIRExpr {
+    if ctx == null || ast_node == null || operand == null {
+        return null;
+    }
+    const union_type: Type = copy_type(&operand.type_ref.type);
+    if exec_lower_push_scope(ctx, ast_node, -1) == 0 {
+        return null;
+    }
+    const err_slot: i32 = exec_lower_append_local(ctx, null, "__exec_try_err" as &byte, &union_type, 0);
+    if err_slot < 0 {
+        exec_lower_pop_scope(ctx);
+        exec_backend_set_error(ast_node, "exec: async try 错误槽位不足" as *byte, 0);
+        return null;
+    }
+    const err_local: &HIRExpr = exec_lower_make_local_expr(ctx, ast_node, err_slot, &union_type);
+    if err_local == null {
+        exec_lower_pop_scope(ctx);
+        return null;
+    }
+    const return_type: Type = type_from_ast(ctx.checker, ctx.function_decl.fn_decl_return_type);
+    const wrapped: &HIRExpr = exec_lower_wrap_async_return(ctx, ast_node, err_local, return_type);
+    if wrapped == null {
+        exec_lower_pop_scope(ctx);
+        return null;
+    }
+    var catch_type: Type = copy_type(&payload_type);
+    const hir_catch: &HIRExpr = exec_lower_alloc_expr(ctx, ast_node, HIRExprKind.HIR_EXPR_CATCH, &catch_type);
+    if hir_catch == null {
+        exec_lower_pop_scope(ctx);
+        return null;
+    }
+    hir_catch.left = operand;
+    hir_catch.local_slot = err_slot;
+    hir_catch.int_value = 1;
+    hir_catch.extra = wrapped;
+    exec_lower_pop_scope(ctx);
+    return hir_catch;
+}
+
 fn exec_lower_async_return_needs_wrap(ctx: &ExecLowerContext, return_expr: &ASTNode,
     fn_return_type: Type) i32 {
     if ctx == null || return_expr == null {
@@ -6806,6 +6856,10 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 operand_try_early.type_ref.type.kind as i32, expr.try_expr_operand.type as i32);
             return exec_lower_fail_expr_reason(expr, &try_msg_early[0] as &byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_TRY_EXPR);
         }
+        if ctx.function_decl != null && ctx.function_decl.fn_decl_is_async != 0 {
+            // async 函数里的 `try`：错误要提前返回，且返回的是包装成 Future 的值。
+            return exec_lower_make_async_try_catch(ctx, expr, operand_try_early, copy_type(&try_payload_type));
+        }
         const hir_try_early: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_TRY, &try_payload_type);
         if hir_try_early == null {
             return null;
@@ -8315,6 +8369,14 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 "exec: try 操作数不是错误联合(kind=%d ast=%d)" as *byte,
                 operand.type_ref.type.kind as i32, expr.try_expr_operand.type as i32);
             return exec_lower_fail_expr_reason(expr, &try_msg[0] as &byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_TRY_EXPR);
+        }
+        if ctx.function_decl != null && ctx.function_decl.fn_decl_is_async != 0 {
+            // async 函数里的 `try`：错误要提前返回——而且返回的是
+            // `Future{ state: Poll.Ready(err) }`（接口装箱后的形态），
+            // 所以这里降级成 `catch { return <包装后的错误联合> }` 的形状：
+            // HIR_EXPR_CATCH 绑定整个错误联合（int_value=1 表示不要 UNWRAP_ERR），
+            // extra 是「把这个错误联合包成 Future」的表达式。
+            return exec_lower_make_async_try_catch(ctx, expr, operand, copy_type(&expr_type));
         }
         const hir_try: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_TRY, &expr_type);
         if hir_try == null {

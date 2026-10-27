@@ -2488,7 +2488,13 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         if ok_jump < 0 {
             return -1;
         }
-        if expr.local_slot >= 0 {
+        if expr.local_slot >= 0 && expr.int_value != 0 {
+            // `int_value != 0`：绑定**整个错误联合**（async 的 try 提前返回要用它
+            // 重新包成 Future），而不是拆成裸错误值。
+            if exec_builder_emit_store_local(ctx, expr.ast_node, expr.local_slot, union_slot2) < 0 {
+                return -1;
+            }
+        } else if expr.local_slot >= 0 {
             const err_value_slot: i32 = exec_builder_new_temp(ctx);
             if err_value_slot < 0 {
                 return -1;
