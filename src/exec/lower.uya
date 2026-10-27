@@ -2859,8 +2859,17 @@ fn exec_lower_make_ref_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     }
     if expr.type == ASTNodeType.AST_ARRAY_ACCESS && expr.array_access_array != null && expr.array_access_index != null {
         const array_raw_type: Type = exec_lower_resolve_exact_type(ctx, expr.array_access_array);
+        // `resolve_exact_type` 对 `&const byte` 这类带限定符的指针会退化成标量，
+        // 于是 `p[i]` 被降成「对指针变量本身取下标」。用表达式类型兜一层。
+        var array_index_type: Type = copy_type(&array_raw_type);
+        if array_index_type.kind != TypeKind.TYPE_POINTER {
+            const fallback_type: Type = exec_lower_expr_type(ctx, expr.array_access_array);
+            if fallback_type.kind == TypeKind.TYPE_POINTER {
+                array_index_type = copy_type(&fallback_type);
+            }
+        }
         var base_expr: &HIRExpr = null;
-        if array_raw_type.kind == TypeKind.TYPE_POINTER {
+        if array_index_type.kind == TypeKind.TYPE_POINTER {
             base_expr = exec_lower_expr(ctx, expr.array_access_array);
         } else {
             base_expr = exec_lower_make_ref_expr(ctx, expr.array_access_array);
