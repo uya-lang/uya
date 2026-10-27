@@ -5808,6 +5808,12 @@ fn exec_lower_seed_drop_decl(checker: &TypeChecker, named_type: &byte,
     if checker == null || named_type == null || out_decls == null || out_count == null {
         return;
     }
+    // 只给真正的 struct/union 播种 drop：接口名同样能查到同名方法，但那个方法的
+    // `self` 是接口，降级它会把成员访问解析成接口字段而失败。
+    if find_struct_decl_from_program(checker.program_node, named_type) == null &&
+        find_union_decl_from_program(checker.program_node, named_type) == null {
+        return;
+    }
     const drop_decl: &ASTNode = exec_lower_find_named_drop_decl(checker, named_type);
     if (drop_decl == null || drop_decl.type != ASTNodeType.AST_FN_DECL || drop_decl.fn_decl_body == null) {
         return;
@@ -5822,43 +5828,30 @@ fn exec_lower_seed_drop_decl(checker: &TypeChecker, named_type: &byte,
     out_count[0] = out_count[0] +| 1;
 }
 
-/// 登记「嵌套 drop」：结构体字段与联合变体各自的 drop 方法也要进可执行集合，
-/// 否则 builder 在作用域退出时生成的字段/变体 drop 调用会因为函数不在集合里而被跳过。
+/// 登记 union 变体的 drop 方法：作用域退出时 builder 会为活跃变体生成 drop 调用，
+/// 那些声明必须先在可执行函数集合里，否则调用会被跳过（资源不释放）。
+/// 只处理 union：结构体字段的 drop 走它自己的可达路径，接口/泛型实参名不参与。
 /// 参数：`checker` 检查器；`named_type` 类型名；`out_decls`/`out_count` 种子集合。
 /// 返回值：无。
-fn exec_lower_seed_nested_drop_decls(checker: &TypeChecker, named_type: &byte,
+fn exec_lower_seed_union_variant_drop_decls(checker: &TypeChecker, named_type: &byte,
     out_decls: & & ASTNode, out_count: &i32) void {
     if checker == null || checker.program_node == null || named_type == null || out_count == null {
         return;
     }
-    const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, named_type);
-    if struct_decl != null && struct_decl.struct_decl_fields != null {
-        var fi: i32 = 0;
-        while fi < struct_decl.struct_decl_field_count {
-            const field_decl: &ASTNode = struct_decl.struct_decl_fields[fi];
-            if field_decl != null && field_decl.var_decl_type != null {
-                if field_decl.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED &&
-                    field_decl.var_decl_type.type_named_name != null {
-                    exec_lower_seed_drop_decl(checker, field_decl.var_decl_type.type_named_name, out_decls, out_count);
-                }
-            }
-            fi = fi + 1;
-        }
+    const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, named_type);
+    if union_decl == null || union_decl.union_decl_variants == null {
         return;
     }
-    const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, named_type);
-    if union_decl != null && union_decl.union_decl_variants != null {
-        var vi: i32 = 0;
-        while vi < union_decl.union_decl_variant_count {
-            const variant_decl: &ASTNode = union_decl.union_decl_variants[vi];
-            if variant_decl != null && variant_decl.var_decl_type != null {
-                if variant_decl.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED &&
-                    variant_decl.var_decl_type.type_named_name != null {
-                    exec_lower_seed_drop_decl(checker, variant_decl.var_decl_type.type_named_name, out_decls, out_count);
-                }
+    var vi: i32 = 0;
+    while vi < union_decl.union_decl_variant_count {
+        const variant_decl: &ASTNode = union_decl.union_decl_variants[vi];
+        if variant_decl != null && variant_decl.var_decl_type != null {
+            if variant_decl.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED &&
+                variant_decl.var_decl_type.type_named_name != null {
+                exec_lower_seed_drop_decl(checker, variant_decl.var_decl_type.type_named_name, out_decls, out_count);
             }
-            vi = vi + 1;
         }
+        vi = vi + 1;
     }
 }
 
@@ -5890,8 +5883,8 @@ fn exec_lower_collect_cleanup_decls_from_function(checker: &TypeChecker, fn_hir:
             if local.decl.type == ASTNodeType.AST_VAR_DECL && local.decl.var_decl_type != null {
                 if local.decl.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED &&
                     local.decl.var_decl_type.type_named_name != null {
-                    exec_lower_seed_nested_drop_decls(checker, local.decl.var_decl_type.type_named_name,
-                        out_decls, out_count);
+                    exec_lower_seed_union_variant_drop_decls(checker,
+                        local.decl.var_decl_type.type_named_name, out_decls, out_count);
                 }
             }
         }
@@ -8619,14 +8612,8 @@ fn exec_lower_mark_moved_locals(ctx: &ExecLowerContext, node: &ASTNode) void {
         }
         return;
     }
-    if node.type == ASTNodeType.AST_CALL_EXPR {
-        var ci: i32 = 0;
-        while ci < node.call_expr_arg_count {
-            exec_lower_mark_moved_locals(ctx, node.call_expr_args[ci]);
-            ci = ci + 1;
-        }
-        return;
-    }
+    // 调用实参不在这里标记：VM 的参数副本本身不参与 drop（和 C99 的按值传参
+    // 各有各的 drop 点），把实参标成「已移动」会让资源两边都不释放。
 }
 
 fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
@@ -8860,17 +8847,6 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
                 exec_lower_pop_scope(ctx);
                 return null;
             }
-        } else if stmt_node.type == ASTNodeType.AST_BLOCK {
-            // 嵌套 `{ ... }` 语句块：必须按「语句块 + 独立作用域」降级，
-            // 否则块内局部变量的 drop 作用域和 builder 的 cleanup scope 对不上。
-            const nested_body: &HIRBlock = exec_lower_block(ctx, stmt_node);
-            const nested_stmt: &HIRStmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_BLOCK);
-            if nested_body == null || nested_stmt == null {
-                exec_lower_pop_scope(ctx);
-                return null;
-            }
-            nested_stmt.then_block = nested_body;
-            stmt = nested_stmt;
         } else if stmt_node.type == ASTNodeType.AST_BREAK_STMT {
             stmt = exec_lower_alloc_stmt(ctx, stmt_node, HIRStmtKind.HIR_STMT_BREAK);
         } else if stmt_node.type == ASTNodeType.AST_CONTINUE_STMT {
