@@ -965,6 +965,60 @@ loop { _ = iter.next() catch { break; }; const v: T = iter.value(); <body> }
 - `test_async_await_capacity_dynamic` / `test_async_await_limits_and_segments`
   报 `局部变量槽位不足`：它们的 `test` 块局部变量数超过了 builder 的局部槽位上限。
 
+### 第 301–302 轮：迭代器协议落地 + 槽位/泛型收口（802 → 待测 / 909）
+
+这一轮把「下一轮入口」里能确定形状的三条全部做完，另外顺手修掉泛型类型泄漏。
+
+1. **`for iter |v|` 迭代器协议（4 例 → 全绿）**：
+   上一轮手排 HIR 卡在 builder 静默 `return -1`。改成**合成 AST 再复用整条降级链**
+   （`exec_lower_desugar_iterator_for`）：把
+   ```
+   for iter |v| { body }
+   ```
+   改写成
+   ```
+   const __exec_iter = <iter>;
+   while true {
+       const __exec_ok = __exec_iter.next() catch { break; };
+       const v = __exec_iter.value();
+       body
+   }
+   ```
+   合成节点走 `exec_lower_block`，作用域/cleanup/`break`/`continue` 全部沿用现成逻辑。
+   `|&item|` 有两种情况：`value()` 返回指针就直接绑定，返回值就每轮建临时再取地址
+   （用 `type_from_ast` 读 `value` 方法返回类型区分）。
+   `test_for_iterator` / `test_async_for_await` / `test_async_for_iterator_ref_await` 转绿。
+2. **`局部变量槽位不足`（2 例）**：`EXEC_MAX_LOCALS` 256 → 1024。
+   `test_async_await_capacity_dynamic` / `test_async_await_limits_and_segments` 转绿。
+3. **泛型结构体字面量的字段类型**：`FutureSlot<i32>{ ready: false }` 里省略的
+   `slot: [T: 1]` 字段补零时用的是**未替换**的 `T`，报
+   `zero struct 无法解析结构体声明(name=T)`。补零/赋值两处都改走
+   `exec_lower_subst_struct_field_type`。`test_generic_struct_array_future_method` 转绿。
+4. **泛型调用的形参/返回类型替换**：`ok<i32>(3)` 的形参声明是 `T`，实参被当成
+   「名为 T 的结构体」装箱；返回值同理。新增
+   `substitute_generic_type_for_exec`（`src/checker/generics.uya`），在
+   `exec_lower_generic_call_expr` 里按本次类型实参替换形参与返回类型。
+   这条是「错误联合被装箱成 STRUCT」的根因，`block_on` 系用例的载荷因此能保持原 kind。
+5. **普查吞吐**：`UYA_EXEC_CENSUS_JOBS=8` + `UYA_EXEC_CENSUS_TIMEOUT=120` 后，
+   一次全量普查 25 分钟 → **5 分 14 秒**（长尾仍在 `exec_vm_census_timeouts.txt` 里放宽）。
+
+**仍然红的大簇**（重新归类后）：
+- **41 例「静默失败」（测试内部 `ERROR`，无 stderr）**：根子在 `@async_fn` 的返回值被
+  包成 **3 字段结构体** `{frame, …, Future}`（`exec_lower_wrap_async_return`），
+  而 `Future.poll` 只按 1 字段结构体取 `state`，于是 `Poll` 的标签/载荷全错位。
+  这一块要对齐 C99 的 async frame 布局，不是单点修复。
+- **`@await 操作数不是 Future` 10 例**：同上，事件循环 + 真实 I/O 组合。
+- **`@frame(…)` 2 例**：`@frame` 结构体由 C99 codegen 合成，AST 里没有声明，
+   VM 侧 `zero struct` 解析不到；需要按异步函数局部表合成帧结构体。
+- **`@c_import` 3 例、`LOAD_INDEX 越界` 4 例**：见下方入口。
+
+**下一轮入口**：
+- `LOAD_INDEX 越界`：`entry[i]`（`entry: &const byte`）降级时先把指针解引用成 byte
+  再取下标，应该在指针上直接 `LOAD_INDEX`（`lib/std/process.uya:845` 同类）。
+- `@c_import` 3 例：`test_c_import_*` 需要 VM 侧声明宿主函数占位。
+- async frame 布局：`exec_lower_wrap_async_return` 现在塞了 3 个字段，
+  要么让 `Future_poll` 认这个布局，要么改成只包 `Future` 本体。
+
 ### 第 288–291 轮：async 同步语义落地（748 → 791 / 909，87.0%）
 
 把 async 从「完全不支持」推到 **92 个 async 用例里 53 个通过**（整机 748 → 791，
