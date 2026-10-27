@@ -4929,9 +4929,21 @@ fn exec_lower_generic_call_expr(ctx: &ExecLowerContext, expr: &ASTNode, result_t
     var ai: i32 = 0;
     while ai < arg_count {
         arg_types[ai] = type_from_ast(ctx.checker, expr.call_expr_type_args[ai]);
+        // 泛型函数体内再调泛型函数：类型实参可能写成外层函数的类型参数 `T`，
+        // 单态化期间要按当前替换换成具体类型，否则找不到实例。
+        if arg_types[ai].kind == TypeKind.TYPE_GENERIC_PARAM && ctx.checker.subst_active != 0 &&
+            ctx.checker.subst_name != null && arg_types[ai].generic_param_name != null &&
+            str_equals(arg_types[ai].generic_param_name, ctx.checker.subst_name) != 0 {
+            arg_types[ai] = copy_type(&ctx.checker.subst_type);
+        }
         ai = ai + 1;
     }
-    const inst_idx: i32 = exec_lower_find_mono_instance_index(ctx.checker, fn_name, arg_types, arg_count);
+    var inst_idx: i32 = exec_lower_find_mono_instance_index(ctx.checker, fn_name, arg_types, arg_count);
+    if inst_idx < 0 {
+        // 泛型函数体里的内层泛型调用：checker 只登记了以类型参数为实参的实例，
+        // 这里按当前替换后的具体类型补登记，后续单态体降级会把它生成出来。
+        inst_idx = register_mono_instance_by_types(ctx.checker, fn_name, arg_types, arg_count, 1);
+    }
     if inst_idx < 0 {
         return null;
     }

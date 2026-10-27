@@ -10,6 +10,7 @@ use libc.llabs;
 use libc.mkdir;
 use libc.rmdir;
 use libc.fprintf;
+use libc.clock;
 use libc.printf;
 use libc.sprintf;
 use libc.snprintf;
@@ -799,6 +800,11 @@ fn exec_vm_syscall_out_struct_target(arg_slot: &ExecValue, raw_address: i64) &Ex
 /// 哪一层」递归找，找到即返回。
 /// 参数：`value` 当前层的值；`depth` 递归深度（上限 4）。
 /// 返回值：找到的联合值数据；没找到返回 null。
+/// `@await` 忙等真实 Future 的 CPU 时间上限（`clock()` 单位，1e6 = 1 秒）。
+const EXEC_AWAIT_BUSY_CLOCKS: i64 = 1500000;
+/// `@await` 忙等时给 `Waker` 参数用的占位聚合字段数（够覆盖 Waker 的全部字段）。
+const EXEC_AWAIT_WAKER_FIELDS: i32 = 64;
+
 fn exec_vm_await_find_poll(value: &ExecValue, depth: i32) &ExecUnionData {
     if value == null || depth > 4 {
         return null;
@@ -865,9 +871,22 @@ fn exec_vm_await_poll_interface(program: &BCProgram, value: &ExecValue, out_valu
     const poll_fn_index: i32 = poll_fn_value.i64_value as i32;
     var args: [ExecValue: 2] = [];
     args[0] = aggregate.values[poll_slot_index];
-    args[1] = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
-    var attempt: i32 = 0;
-    while attempt < 10000 {
+    // waker 参数给一块「全是 void 字段」的聚合占位：忙等期间事件循环注册
+    // 会往 `Waker` 的字段里写，字段数按上限给足，传 null 会让
+    // `w.clear_cancelled()` 之类的调用在解释器里直接越界。
+    var waker_addr: usize = 0 as usize;
+    const waker_cell: &ExecValue = exec_value_alloc_bytes(@size_of(ExecValue)) as &ExecValue;
+    if waker_cell != null {
+        waker_cell[0] = exec_value_make_aggregate(ExecValueKind.EXEC_VALUE_STRUCT, EXEC_AWAIT_WAKER_FIELDS);
+        waker_addr = waker_cell as usize;
+    }
+    args[1] = exec_make_pointer_with_kind(waker_addr, TypeKind.TYPE_STRUCT as i32);
+    // 忙等要按**真实时间**收敛：像「deadline 到期」这种 Future 只有等到
+    // 时钟越过 deadline 才会返回 Ready，纯计次循环可能在毫秒内就放弃。
+    // `clock()` 给的是 CPU 时间（CLOCKS_PER_SEC = 1e6），忙等时同样在走。
+    const wait_clocks: i64 = EXEC_AWAIT_BUSY_CLOCKS;
+    const start_clocks: i64 = clock();
+    while clock() - start_clocks < wait_clocks {
         const rc: i32 = exec_vm_call_function(program, poll_fn_index, &args[0], 2, 0, out_value);
         if rc < 0 {
             return -1;
@@ -881,7 +900,6 @@ fn exec_vm_await_poll_interface(program: &BCProgram, value: &ExecValue, out_valu
         } else {
             return -1;
         }
-        attempt = attempt + 1;
     }
     return -1;
 }

@@ -326,6 +326,73 @@ fn register_mono_instance(checker: &TypeChecker, generic_name: &byte,
     return 0;
 }
 
+/// 按「已解析的具体类型」登记函数单态实例。
+///
+/// `register_mono_instance` 的入参是 AST 类型节点，只能在检查期用；
+/// exec 降级在泛型函数体里遇到「外层类型参数已替换成具体类型」的内层泛型调用时，
+/// 只有 `Type`，需要补登记一个实例，让后续的单态体降级能生成对应函数。
+/// 参数：`checker` 类型检查器；`generic_name` 泛型函数名；`arg_types` 具体类型实参；
+///       `arg_count` 实参个数；`is_function` 1 表示函数实例。
+/// 返回值：实例序号；失败返回 -1（已存在时返回已有序号）。
+export fn register_mono_instance_by_types(checker: &TypeChecker, generic_name: &byte,
+    arg_types: &Type, arg_count: i32, is_function: i32) i32 {
+    if checker == null || generic_name == null || arg_types == null || arg_count <= 0 {
+        return -1;
+    }
+    var idx: i32 = 0;
+    while idx < checker.mono_instance_count && checker.mono_instances != null {
+        const inst: &MonoInstance = &checker.mono_instances[idx];
+        if inst.is_function == is_function && inst.generic_name != null &&
+            str_equals(inst.generic_name, generic_name) != 0 &&
+            inst.type_arg_count == arg_count && inst.type_args != null {
+            var same: i32 = 1;
+            var ai: i32 = 0;
+            while ai < arg_count {
+                if type_equals(inst.type_args[ai], arg_types[ai]) == 0 {
+                    same = 0;
+                }
+                ai = ai + 1;
+            }
+            if same != 0 {
+                return idx;
+            }
+        }
+        idx = idx + 1;
+    }
+    if checker_ensure_mono_instance_capacity(checker, checker.mono_instance_count + 1) != 0 {
+        return -1;
+    }
+    const new_idx: i32 = checker.mono_instance_count;
+    checker.mono_instance_count = new_idx +| 1;
+    var name_len: i32 = 0;
+    while generic_name[name_len] != 0 {
+        name_len = name_len + 1;
+    }
+    const name_copy: &byte = compiler_arena_alloc(checker.arena, (name_len + 1) as usize) as &byte;
+    const type_args_mem: &Type = compiler_arena_alloc(checker.arena,
+        (@size_of(Type)) * (arg_count as usize)) as &Type;
+    if name_copy == null || type_args_mem == null || checker.mono_instances == null {
+        checker.mono_instance_count = new_idx;
+        return -1;
+    }
+    var ni: i32 = 0;
+    while ni <= name_len {
+        name_copy[ni] = generic_name[ni];
+        ni = ni + 1;
+    }
+    var k: i32 = 0;
+    while k < arg_count {
+        type_args_mem[k] = copy_type(&arg_types[k]);
+        k = k + 1;
+    }
+    checker.mono_instances[new_idx].generic_name = name_copy;
+    checker.mono_instances[new_idx].is_function = is_function;
+    checker.mono_instances[new_idx].type_args = type_args_mem;
+    checker.mono_instances[new_idx].type_arg_count = arg_count;
+    checker.mono_instances[new_idx].type_arg_nodes = null;
+    return new_idx;
+}
+
 // ===== 泛型类型替换 =====
 
 // 替换泛型类型参数为具体类型
