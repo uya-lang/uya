@@ -4169,6 +4169,26 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                     }
                 }
             }
+            if ctx.function.return_type.type.kind != TypeKind.TYPE_ERROR_UNION && stmt.int_value != 0 {
+                // async 函数的错误返回：值已经是包好的 Future，但 errdefer 仍要跑。
+                if exec_builder_emit_all_cleanup(ctx, 1) < 0 {
+                    return -1;
+                }
+                if exec_builder_emit(ctx, BCInstr {
+                    opcode: BCOpcode.BC_RET,
+                    a: ret_slot,
+                    b: 0,
+                    c: 0,
+                    imm: 0,
+                    text: null,
+                    source: exec_builder_make_source(stmt.ast_node),
+                }) < 0 {
+                    return -1;
+                }
+                exec_builder_restore_temp_watermark(ctx, stmt_temp_base);
+                i = i + 1;
+                continue;
+            }
             if ctx.function.return_type.type.kind == TypeKind.TYPE_ERROR_UNION && ret_slot >= 0 {
                 const ret_is_err_slot: i32 = exec_builder_new_temp(ctx);
                 if ret_is_err_slot < 0 {

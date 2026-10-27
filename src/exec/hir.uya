@@ -185,6 +185,7 @@ struct HIRStmt {
     else_block: &HIRBlock,
     loop_body: &HIRBlock,
     cleanup_block: &HIRBlock,
+    int_value: i64,
 }
 
 struct HIRBlock {

@@ -3350,43 +3350,55 @@ fn exec_lower_future_state_type(ctx: &ExecLowerContext, future_type: Type) Type 
 /// 参数：`ctx` 上下文；`ast_node` try 节点；`operand` 降级后的错误联合；
 ///       `payload_type` try 表达式的结果类型。
 /// 返回值：catch 形态的 HIR；失败返回 null。
+/// `catch { return v }` 的返回值在 async 函数里也要包成 Future。
+///
+/// async 函数体内任何 `return` 都必须返回 `Future{ state: Poll.Ready(..) }`，
+/// 包括 catch 分支里的提前返回，否则调用方拿到的是裸值。
+/// 参数：`ctx` 上下文；`ast_node` catch 节点；`value` 已按返回类型 coerce 的值；
+///       `return_type` 函数声明的返回类型。
+/// 返回值：包装后的表达式（不需要包装时原样返回）。
+fn exec_lower_wrap_catch_return(ctx: &ExecLowerContext, ast_node: &ASTNode, value: &HIRExpr,
+    return_type: Type) &HIRExpr {
+    if ctx == null || value == null || ctx.function_decl == null {
+        return value;
+    }
+    if ctx.function_decl.fn_decl_is_async == 0 {
+        return value;
+    }
+    return exec_lower_wrap_async_return(ctx, ast_node, value, return_type);
+}
+
 fn exec_lower_make_async_try_catch(ctx: &ExecLowerContext, ast_node: &ASTNode, operand: &HIRExpr,
     payload_type: Type) &HIRExpr {
     if ctx == null || ast_node == null || operand == null {
         return null;
     }
+    // 不额外开作用域：这个槽位只是把错误联合原样带进 catch 分支，
+    // 多开一层会让 errdefer/清理列表的作用域层级错位。
     const union_type: Type = copy_type(&operand.type_ref.type);
-    if exec_lower_push_scope(ctx, ast_node, -1) == 0 {
-        return null;
-    }
     const err_slot: i32 = exec_lower_append_local(ctx, null, "__exec_try_err" as &byte, &union_type, 0);
     if err_slot < 0 {
-        exec_lower_pop_scope(ctx);
         exec_backend_set_error(ast_node, "exec: async try 错误槽位不足" as *byte, 0);
         return null;
     }
     const err_local: &HIRExpr = exec_lower_make_local_expr(ctx, ast_node, err_slot, &union_type);
     if err_local == null {
-        exec_lower_pop_scope(ctx);
         return null;
     }
     const return_type: Type = type_from_ast(ctx.checker, ctx.function_decl.fn_decl_return_type);
     const wrapped: &HIRExpr = exec_lower_wrap_async_return(ctx, ast_node, err_local, return_type);
     if wrapped == null {
-        exec_lower_pop_scope(ctx);
         return null;
     }
     var catch_type: Type = copy_type(&payload_type);
     const hir_catch: &HIRExpr = exec_lower_alloc_expr(ctx, ast_node, HIRExprKind.HIR_EXPR_CATCH, &catch_type);
     if hir_catch == null {
-        exec_lower_pop_scope(ctx);
         return null;
     }
     hir_catch.left = operand;
     hir_catch.local_slot = err_slot;
     hir_catch.int_value = 1;
     hir_catch.extra = wrapped;
-    exec_lower_pop_scope(ctx);
     return hir_catch;
 }
 
@@ -6985,7 +6997,9 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             if return_stmt_early.return_stmt_expr != null {
                 if ctx.function_decl != null && ctx.function_decl.fn_decl_return_type != null {
                     const catch_return_type_early: Type = type_from_ast(ctx.checker, ctx.function_decl.fn_decl_return_type);
-                    hir_catch_early.extra = exec_lower_coerce_expr(ctx, return_stmt_early.return_stmt_expr, &catch_return_type_early);
+                    hir_catch_early.extra = exec_lower_wrap_catch_return(ctx, expr,
+                        exec_lower_coerce_expr(ctx, return_stmt_early.return_stmt_expr, &catch_return_type_early),
+                        copy_type(&catch_return_type_early));
                 } else {
                     hir_catch_early.extra = exec_lower_expr(ctx, return_stmt_early.return_stmt_expr);
                 }
@@ -8486,7 +8500,9 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             if return_stmt.return_stmt_expr != null {
                 if ctx.function_decl != null && ctx.function_decl.fn_decl_return_type != null {
                     const catch_return_type: Type = type_from_ast(ctx.checker, ctx.function_decl.fn_decl_return_type);
-                    hir_catch.extra = exec_lower_coerce_expr(ctx, return_stmt.return_stmt_expr, &catch_return_type);
+                    hir_catch.extra = exec_lower_wrap_catch_return(ctx, expr,
+                        exec_lower_coerce_expr(ctx, return_stmt.return_stmt_expr, &catch_return_type),
+                        copy_type(&catch_return_type));
                 } else {
                     hir_catch.extra = exec_lower_expr(ctx, return_stmt.return_stmt_expr);
                 }
@@ -9220,6 +9236,13 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
                         }
                         cast_return.left = return_value;
                         return_value = cast_return;
+                    }
+                    if ctx.function_decl.fn_decl_is_async != 0 &&
+                        (return_value.type_ref.type.kind == TypeKind.TYPE_ERROR ||
+                         return_value.type_ref.type.kind == TypeKind.TYPE_ERROR_UNION) {
+                        // async 里的错误返回：值被包成 Future 之后 builder 已经看不出
+                        // 「这是错误返回」，用 int_value 提醒它跑 errdefer。
+                        stmt.int_value = 1;
                     }
                     if ctx.function_decl.fn_decl_is_async != 0 && exec_lower_async_return_needs_wrap(
                             ctx, stmt_node.return_stmt_expr, copy_type(&return_type)) != 0 {
