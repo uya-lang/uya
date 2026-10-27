@@ -704,6 +704,28 @@ VM 值，再打开原生回落。这条已记在下面，下一轮照此实现�
 下一步：在 `ADDR_LOCAL`/`ADDR_INDEX`/CAST 里断言「产出的指针要么是引用编码，
 要么落在竞技场或栈上，不允许指向 slot pool」，把这几个用例的产出点直接打出来。
 
+### 第 279 轮：原生字段访问第二版（竞技场驻留判据）——差一步，已回滚
+
+按上一轮的结论把判据改成「VM 值驻留区」，实测**四个范围都得算**，少一个就回归：
+
+1. 值竞技场（`exec_vm_address_is_value`）；
+2. 帧槽位池 `g_exec_vm_slot_pool`（局部变量住这儿，**不在**竞技场里）；
+3. 全局槽数组 `program.globals`（编译器自己的 arena）；
+4. 原生聚合旁路表 `g_native_agg_values`（静态区，也存 ExecValue 槽）。
+
+四条齐了之后：`test_fmt_parser` / `json_struct_collections` / `mem` 这些没再回归，
+`test_string` **第一次真正通过**（`hdr.size`、`chunk.header` 全走原生）。
+但同批的 `test_stdio` / `test_libc_heap_bins` 变成了**段错误**，于是整批回滚。
+
+段错误的来源基本锁定在「原生结构体里的**指针元素数组**」：
+`tcache.bins: [&ChunkHeader: N]` 这类字段现在会生成「原生数组视图」
+（`exec_value_make_raw_array_view`），元素按裸地址读写；而 VM 里的指针可能带
+引用编码（65536+kind），把这种值写进原生槽位再读回来就是野指针。
+下一轮的做法：视图只给**非指针元素**（标量）的数组字段；指针元素数组继续走
+旁路聚合表，或者显式做「编码↔裸地址」的转换。
+
+（本轮改动全部回滚，基线仍是 **745 / 909（82.0%）**。）
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
