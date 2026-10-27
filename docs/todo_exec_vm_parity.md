@@ -1484,13 +1484,35 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 （parity 比的是 C99 vs VM 的退出码/stdout，两端都失败算 OK），所以
 「census 745/909」与「parity 741/914 OK」是同一处的两种视图。
 
+### 第 309 轮：`make check` 复核 + 剩余 30 例的阻塞归类
+
+`make check`（本机 `UYA_TEST_JOBS=44`）**1191 / 1191 通过**，`src/exec` 的
+这一串改动没有影响 C99 侧门禁。
+
+census 复测（`/tmp/census_r331.tsv`）：**822 / 909（90.4%）**。
+parity 口径下仍不匹配的是 **30 个用例文件**，按下表归类——**全部需要改动解释器
+的内存/执行模型，不是「再补几个 API」能收口的**：
+
+| 类 | 用例 | 根因 |
+| --- | --- | --- |
+| 内存模型（聚合布局） | `test_libc_heap_bins`、`test_libc_heap_coalescing_adjacent`、`test_libc_heap_realloc_in_place`、`test_libc_heap_tcache`、`test_std_stdlib_malloc`、`test_protobuf_wire`、`test_capability_runtime_compat` | 这些用例用 `@usize_from_ptr`/`@ptr_from_usize` 做字节偏移切页、`memcpy` 位级重解释；VM 的聚合元素步长是 `sizeof(ExecValue)` 而不是 C 布局步长，`&local` 拿到的是 `ExecValue` 自身的内引用 |
+| 文件 IO 写回 | `test_std_io`、`test_std_io_buffering`、`test_stdio_file_buffering` | `fread(&buf[0], …)` 形式的写回落到「取地址时的副本」，宿主写穿不到 VM 槽位 |
+| 异步 pending 语义 | `test_async_macro_expand`、`test_async_compound_try_await`、`test_async_state_machine`、`test_std_thread`、`test_std_thread_async_boundary`、`test_async_thread_pool_dynamic_growth`、`test_async_compute_dynamic_resource_pressure`、`test_tls_async_runtime_io` | 用例要求 `pending_seen == 1` / `pool.pending_capacity > MAX_PENDING`：VM 里 async 函数是「一次跑到底」，永远观察不到 `Pending` 这一拍 |
+| OS 仿真 | `test_osal`、`test_kernel_sim`、`test_setjmp`、`test_std_async_event`、`test_std_async_event_fd_reuse`、`test_async_compute_types`、`test_async_compute_generic_wrapper` | 依赖 epoll/execve 重定向/`setjmp` 保存寄存器现场/私有栈切换，解释器没有对应物 |
+| 管道脚手架 | `test_std_script_pipeline_facade`、`test_typed_pipeline_lowering_error`、`test_http_websocket_reconnect` | `pipeline_execute_basic` 内部的 fork/exec 与错误路径 drop，缺口在 lowering 的临时值 drop 与 fork 语义交界处 |
+| 格式化 | `test_printf_f` | `%#.17g` 打 `DBL_MAX`：`x / 1.0e308` 归一化丢 1–2 ULP，末位与 glibc 差 1；要精确得做「尾数×10^k 的整数长除」 |
+
+`tests/exec_vm_parity_skip.txt` **不能**收这 30 个：该表的纪律是「只登记 C99 侧
+同样跑不了的用例，exec VM 自身的未实现不能写在这里」。所以 `make exec-parity`
+在本轮仍是红的，红的范围就是上表。
+
 ### T11 收口
 
 - [ ] `uya test --vm` 全量通过（跳过表只保留 C99 侧同样不适用的用例）
-      —— 现状 **813/909（89.4%）**（第 302 轮末），剩余缺口集中在
+      —— 现状 **822/909（90.4%）**（第 309 轮末，见上表归类），剩余缺口集中在
       async 帧布局（41 例静默失败）、线程（pthread/堆/OSAL 约 10 例，
       同步 VM 无并发语义）、`@c_import`（3 例）与超长函数（`bytecode 指令超出上限`）；
       这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿
-- [x] `make check` 全绿（1191 个测试，通过 1191，失败 0）
+- [ ] `make exec-parity` 全绿（阻塞：即上方 30 例，需改解释器内存/执行模型）
+- [x] `make check` 全绿（1191 个测试，通过 1191，失败 0；第 309 轮复测仍绿）
 - [ ] 合并到 main 并删除工作区
