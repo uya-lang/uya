@@ -790,6 +790,12 @@ BYTE 分支或 `@ptr_from_usize` 得到的指针值）。下一步在 `exec_vm_l
 下一步：在 `exec_lower_function` 开头打印 `checker.current_self_type_name` /
 `fn_decl_owner_type_name`，对比两条路径的差异。
 
+（同轮补充定位）在 `exec_lower_function` 里加「从 `self` 形参反推 owner 类型」的兜底后，
+`Conn.drop` 的 self 类型确实变成 `Conn` 了，但 **`self.fd` 的基类型仍然是接口（kind=15）**
+——说明问题不在 self 名字，而在 `type_from_ast` 解析该形参类型时被 checker 的
+类型替换状态（`subst_active`/接口上下文）污染了。这条只能从 checker 侧查，
+exec 侧加兜底无效，两个改动都已回滚。
+
 （本轮无净变化，基线与回滚后一致：**745 / 909（82.0%）**。）
 
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
