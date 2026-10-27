@@ -1484,6 +1484,35 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 （parity 比的是 C99 vs VM 的退出码/stdout，两端都失败算 OK），所以
 「census 745/909」与「parity 741/914 OK」是同一处的两种视图。
 
+### 第 312 轮：`test_std_async_event` 卡在 `BC_SYSCALL` 里静默退出（线索已定位）
+
+`test_std_async_event` 的 `main` 第一句就是 `linux_epoll_create(0) catch { return 1 }`，
+所以「rc=1、一行输出都没有」一直被当成「建 epoll 失败」。逐层剥下来结论不是这样：
+
+- `linux_epoll_create_config(0, N, N)` 在 N=4…65536 全部成功（`epfd=5`）；
+- `@syscall(291)` / `@syscall(232, epfd, buf, 4, 0)` 直接写在用例里都正常；
+- 但只要调用**库里的** `lib/libc/syscall.uya: sys_epoll_wait`，
+  `--trace-vm` 的最后一帧就是该函数的 `BC_SYSCALL`，进程随即以 1 退出，
+  既没有 `exec runtime:` 报错，也没有 `catch` 分支的输出 —— 说明不是用户态
+  `return`，而是 `BC_SYSCALL` 处理里直接结束了。
+- 同一调用点用 DBG 打出来的四个实参是对的
+  （`epfd=5`、缓冲区是完整 64 位地址、`maxevents=4`、`timeout=0`），
+  所以不是上一次怀疑的「`&buf[0] as i64` 被截断成 32 位」（那个是另一回事，
+  见下）。
+
+**下一步入口**：在 `exec_vm_exec_syscall` 里给 `exec_vm_dispatch_host_syscall`
+前后加返回值/`out_mask` 打点，看是 4 参 syscall 返回错误后被吞掉，
+还是 `exec_vm_syscall_marshal_out_struct` 这类旁路在 `arg_count == 4` 时直接 `-1`。
+`test_std_async_event_fd_reuse`、`test_async_compute_types`（`thread_test_epoll`）
+都堵在同一个点上，修通它是 3 个用例。
+
+**顺带发现（独立问题）**：把值竞技场推高到 2 GiB 以上后
+（先分配 `[i64: 20971520]` 再取 `&buf[0] as i64`），
+`&buf[0] as i64` 会拿到符号扩展过的负数地址，而同一处
+`@usize_from_ptr(&buf[0] as &void)` 是正常的 64 位地址 ——
+两条路径对「内部引用的地址」取值口径不一致，需要统一（这条会影响所有
+把数组元素地址交给 syscall/宿主的地方）。
+
 ### 第 311 轮：pipeline / io / f64 三处根因再确认（无新增通过）
 
 这轮没有新增用例，但把三条「看起来像 lowering bug」的线全部钉到了内存模型上，
