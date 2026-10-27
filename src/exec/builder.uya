@@ -1430,12 +1430,16 @@ fn exec_builder_compile_addressable_expr_slot(ctx: &ExecFunctionBuildContext, ex
         if base_slot_addr < 0 || dst_field_addr < 0 {
             return -1;
         }
+        var addr_field_imm: i64 = expr.int_value & (0xFFFFFFFF as i64);
+        addr_field_imm = addr_field_imm | ((expr.unary_op as i64) << 32);
         if exec_builder_emit(ctx, BCInstr {
             opcode: BCOpcode.BC_ADDR_FIELD,
             a: dst_field_addr,
             b: base_slot_addr,
-            c: pointee_kind,
-            imm: expr.int_value,
+            // c 的低 8 位是结果指针 pointee kind，8..15 位是字段 kind+1（原生布局用）；
+            // imm 低 32 位字段下标，高 32 位原生字节偏移。
+            c: pointee_kind | ((expr.binary_op & 0xFF) << 8),
+            imm: addr_field_imm,
             text: null,
             source: exec_builder_make_source(ast_node),
         }) < 0 {
@@ -1493,8 +1497,8 @@ fn exec_builder_compile_lvalue_store(ctx: &ExecFunctionBuildContext, target: &HI
             opcode: BCOpcode.BC_STORE_FIELD,
             a: base_slot,
             b: src_slot,
-            c: 0,
-            imm: target.int_value,
+            c: target.unary_op,
+            imm: exec_builder_pack_field_imm(target),
             text: null,
             source: exec_builder_make_source(ast_node),
         });
@@ -1876,12 +1880,14 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             if base_slot_addr2 < 0 {
                 return -1;
             }
+            var addr_field_imm2: i64 = expr.int_value & (0xFFFFFFFF as i64);
+            addr_field_imm2 = addr_field_imm2 | ((expr.unary_op as i64) << 32);
             if exec_builder_emit(ctx, BCInstr {
                 opcode: BCOpcode.BC_ADDR_FIELD,
                 a: dst_addr,
                 b: base_slot_addr2,
-                c: pointee_kind,
-                imm: expr.int_value,
+                c: pointee_kind | ((expr.binary_op & 0xFF) << 8),
+                imm: addr_field_imm2,
                 text: null,
                 source: exec_builder_make_source(expr.ast_node),
             }) < 0 {
@@ -2285,8 +2291,8 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             opcode: BCOpcode.BC_LOAD_FIELD,
             a: dst_field,
             b: base_slot_field,
-            c: 0,
-            imm: expr.int_value,
+            c: expr.unary_op,
+            imm: exec_builder_pack_field_imm(expr),
             text: null,
             source: exec_builder_make_source(expr.ast_node),
         }) < 0 {
@@ -3759,6 +3765,22 @@ fn exec_builder_emit_single_field_drop(ctx: &ExecFunctionBuildContext, local: &H
         text: field_drop_decl.fn_decl_name,
         source: exec_builder_make_source(local.decl),
     });
+}
+
+/// 把字段下标与原生布局信息打包进 LOAD_FIELD/STORE_FIELD 的 imm。
+/// 参数：`expr` 字段访问 HIR 节点。
+/// 返回值：低 32 位字段下标，32..39 位字段 kind+1，40..47 位 pointee kind+1。
+fn exec_builder_pack_field_imm(expr: &HIRExpr) i64 {
+    if expr == null {
+        return 0;
+    }
+    var packed: i64 = expr.int_value & (0xFFFFFFFF as i64);
+    if expr.binary_op > 0 {
+        const field_kind: i64 = (expr.binary_op & 0xFF) as i64;
+        const pointee_kind: i64 = ((expr.binary_op >> 8) & 0xFF) as i64;
+        packed = packed | (field_kind << 32) | (pointee_kind << 40);
+    }
+    return packed;
 }
 
 /// 取字段访问表达式本体（初始化表达式可能被 coerce 包了一层 cast）。

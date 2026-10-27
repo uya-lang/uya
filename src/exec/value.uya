@@ -417,13 +417,54 @@ fn exec_value_unwrap_err(value: ExecValue) ExecValue {
     return exec_make_error(value.error_id);
 }
 
+// VM 值竞技场：所有 VM 值（ExecValue / 聚合 / 字节缓冲）都从这里分配。
+// 有了固定地址区间，就能 O(1) 判断「某个地址是不是 VM 值」，这是原生结构体
+// 字段访问（`hdr.size` 一类）唯一可靠的判据。
+var g_exec_value_arena_base: &byte = null;
+var g_exec_value_arena_used: usize = 0;
+const EXEC_VALUE_ARENA_BYTES: usize = 209715200;   // 200 MB
+
 fn exec_value_alloc_bytes(size: usize) &byte {
-    const mem: &byte = malloc(size) as &byte;
-    if mem == null {
+    if size == 0 as usize {
         return null;
     }
+    if g_exec_value_arena_base == null {
+        g_exec_value_arena_base = malloc(EXEC_VALUE_ARENA_BYTES) as &byte;
+        g_exec_value_arena_used = 0 as usize;
+    }
+    // 每个块按 16 字节对齐；多留 16 字节给对齐与尾部余量。
+    var total: usize = size +| 16 as usize;
+    const slack: usize = total % 16 as usize;
+    if slack != 0 as usize {
+        total = total +| (16 as usize - slack);
+    }
+    if g_exec_value_arena_base == null || g_exec_value_arena_used +| total > EXEC_VALUE_ARENA_BYTES {
+        // 竞技场耗尽：回落到普通 malloc，保证程序还能继续跑（只是这些块不再算 VM 值）。
+        const fallback: &byte = malloc(size) as &byte;
+        if fallback == null {
+            return null;
+        }
+        _ = memset(fallback as *byte, 0, size);
+        return fallback;
+    }
+    const mem: &byte = g_exec_value_arena_base + g_exec_value_arena_used;
+    g_exec_value_arena_used = g_exec_value_arena_used +| total;
     _ = memset(mem as *byte, 0, size);
     return mem;
+}
+
+/// 判断一个地址是否落在 VM 值竞技场里（VM 值引用一定在内，宿主指针一定在外）。
+/// 参数：`addr` 绝对地址。
+/// 返回值：true 表示这是 VM 值内存。
+fn exec_vm_address_is_value(addr: usize) bool {
+    if g_exec_value_arena_base == null || addr == 0 as usize {
+        return false;
+    }
+    const base: usize = @usize_from_ptr(g_exec_value_arena_base as &void);
+    if addr < base {
+        return false;
+    }
+    return addr < base +| g_exec_value_arena_used;
 }
 
 fn exec_value_scalar_kind_from_type_kind(type_kind: i32) ExecValueKind {

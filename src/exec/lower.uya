@@ -2801,6 +2801,7 @@ fn exec_lower_make_ref_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if base_type.kind == TypeKind.TYPE_POINTER && base_type.pointer_to != null {
             base_type = base_type.pointer_to[0];
         }
+        var addr_base_type: Type = copy_type(&base_type);
         var field_index: i32 = -1;
         if base_type.kind == TypeKind.TYPE_TUPLE {
             field_index = atoi(expr.member_access_field_name as *byte);
@@ -2822,12 +2823,23 @@ fn exec_lower_make_ref_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if base_ref == null {
             return null;
         }
+        // 原生布局信息也要挂在 ADDR 节点上（builder 的 `&p.field` 走 ADDR_FIELD，
+        // 需要偏移与字段 kind 才能按 C99 布局算出字段地址）。
+        var addr_native_offset: i32 = 0;
+        var addr_native_kind: i32 = 0;
+        var addr_native_pointee: i32 = 0;
+        if addr_base_type.kind == TypeKind.TYPE_STRUCT {
+            _ = exec_lower_native_field_layout(ctx, copy_type(&addr_base_type), field_index,
+                &addr_native_offset, &addr_native_kind, &addr_native_pointee);
+        }
         const addr_field: &HIRExpr = exec_lower_make_addr_expr(ctx, expr, &field_type);
         if addr_field == null {
             return null;
         }
         addr_field.left = base_ref;
         addr_field.int_value = field_index as i64;
+        addr_field.unary_op = addr_native_offset;
+        addr_field.binary_op = addr_native_kind | (addr_native_pointee << 8);
         return addr_field;
     }
     if expr.type == ASTNodeType.AST_ARRAY_ACCESS && expr.array_access_array != null && expr.array_access_index != null {
@@ -3202,6 +3214,64 @@ fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type:
         }
     }
     return exec_lower_expr(ctx, expr);
+}
+
+/// 计算结构体字段在原生（C99 布局）内存里的字节偏移与类型信息。
+/// 参数：`ctx` 上下文；`struct_type` 结构体类型；`field_index` 字段下标。
+/// 输出：`out_offset` 字段字节偏移；`out_kind` 字段 kind+1；`out_pointee` 指针字段 pointee kind+1。
+/// 返回值：1 解析成功；0 无法解析（调用方沿用纯 VM 聚合语义）。
+fn exec_lower_native_field_layout(ctx: &ExecLowerContext, struct_type: Type, field_index: i32,
+    out_offset: &i32, out_kind: &i32, out_pointee: &i32) i32 {
+    if ctx == null || ctx.checker == null || ctx.checker.program_node == null || field_index < 0 {
+        return 0;
+    }
+    if out_offset == null || out_kind == null || out_pointee == null {
+        return 0;
+    }
+    var struct_copy: Type = copy_type(&struct_type);
+    const struct_name: &byte = type_get_struct_name(&struct_copy);
+    if struct_name == null {
+        return 0;
+    }
+    const struct_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node, struct_name);
+    if struct_decl == null || struct_decl.struct_decl_fields == null {
+        return 0;
+    }
+    if field_index >= struct_decl.struct_decl_field_count {
+        return 0;
+    }
+    var offset: i32 = 0;
+    var fi: i32 = 0;
+    while fi < struct_decl.struct_decl_field_count {
+        const field_decl: &ASTNode = struct_decl.struct_decl_fields[fi];
+        if field_decl == null {
+            return 0;
+        }
+        const field_type: Type = exec_lower_subst_struct_field_type(ctx.checker, &struct_copy, struct_decl, field_decl);
+        const field_size: i32 = exec_lower_size_align_of_type(ctx, copy_type(&field_type), 1);
+        const field_align: i32 = exec_lower_size_align_of_type(ctx, copy_type(&field_type), 0);
+        if field_size <= 0 {
+            return 0;
+        }
+        if field_align > 1 {
+            const rem: i32 = offset % field_align;
+            if rem != 0 {
+                offset = offset +| (field_align -| rem);
+            }
+        }
+        if fi == field_index {
+            out_offset[0] = offset;
+            out_kind[0] = (field_type.kind as i32) +| 1;
+            out_pointee[0] = 0;
+            if field_type.kind == TypeKind.TYPE_POINTER && field_type.pointer_to != null {
+                out_pointee[0] = (field_type.pointer_to[0].kind as i32) +| 1;
+            }
+            return 1;
+        }
+        offset = offset +| field_size;
+        fi = fi + 1;
+    }
+    return 0;
 }
 
 fn exec_lower_struct_field_index(ctx: &ExecLowerContext, struct_type: Type, field_name: &byte) i32 {
@@ -7938,12 +8008,21 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             }
             return exec_lower_fail_expr(expr, &member_msg[0]);
         }
+        var native_offset: i32 = 0;
+        var native_kind: i32 = 0;
+        var native_pointee: i32 = 0;
+        if base_type.kind == TypeKind.TYPE_STRUCT {
+            _ = exec_lower_native_field_layout(ctx, copy_type(&base_type), field_index,
+                &native_offset, &native_kind, &native_pointee);
+        }
         const hir_field: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_FIELD, &expr_type);
         if hir_field == null {
             return null;
         }
         hir_field.left = base_expr;
         hir_field.int_value = field_index as i64;
+        hir_field.unary_op = native_offset;
+        hir_field.binary_op = native_kind | (native_pointee << 8);
         return hir_field;
     }
     if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
