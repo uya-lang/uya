@@ -10,3 +10,11 @@
 #
 # 示例（暂未启用，保留格式说明）：
 # test_macos_kqueue_only.uya    # 仅 macOS 的 kqueue 用例，Linux 宿主 C99 侧同样跳过
+
+# --- C99 侧同样不适用（宿主链接阶段就失败，无法产生可运行程序） ---
+# 这四个用例依赖未定义的外部符号（proc / process_data / pt / c_small_struct_param），
+# C99 后端起链接直接 undefined reference 失败，exec VM 侧自然也无从对齐。
+test_simple_cast.uya              # C99: undefined reference to `proc'
+test_pointer_cast.uya             # C99: undefined reference to `process_data'
+test_comprehensive_cast.uya       # C99: undefined reference to `pt' / `tn'
+test_abi_calling_convention.uya   # C99: undefined reference to `c_small_struct_param'

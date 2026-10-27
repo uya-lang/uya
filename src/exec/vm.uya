@@ -399,6 +399,26 @@ fn exec_vm_checked_arith_in_unsigned_range(kind: ExecValueKind, value: u64) i32 
     return 1;
 }
 
+/// `error.Overflow` 的错误 id。
+///
+/// 必须与 `src/checker/symbols.uya` 的 `hash_error_name`（djb2：h=5381，h*33+c）
+/// 完全一致 —— catch 分支拿这个 id 和程序里的 `error.Overflow` 比较。
+/// 参数：无。
+/// 返回值：Overflow 的 id。
+fn exec_vm_error_id_of_overflow() i32 {
+    var h: u32 = 5381;
+    var i: i32 = 0;
+    const name: &byte = "Overflow" as &byte;
+    while name[i] != 0 {
+        h = ((h * 32) + h) + ((name[i] as byte) as u32);
+        i = i + 1;
+    }
+    if h == 0 {
+        return 1;
+    }
+    return h as i32;
+}
+
 /// 执行一个溢出受检的整数二元运算。
 /// 参数：opcode 受检运算 opcode；type_code 结果类型的 TypeKind 编码；
 ///       left/right 左右操作数。
@@ -467,12 +487,12 @@ fn exec_vm_checked_arith(opcode: BCOpcode, type_code: i32, err_id: i32, left: Ex
         var lo_div: [i64: 1] = [0i64];
         var hi_div: [i64: 1] = [0i64];
         exec_vm_sat_bounds_signed(kind, &lo_div[0], &hi_div[0]);
-        // 最小值 / -1 是唯一的除法溢出；最小值 % -1 定义为 0。
+        // `MIN / -1` 与 `MIN % -1` 都是溢出：C 里二者都属于未定义行为，Uya 的
+        // 受检算术统一报 error.Overflow（C99 后端同样在两种运算上都进 catch）。
+        // 错误 id 不能复用检查指令里带的除零 id —— 它是名字的 djb2 哈希，
+        // 这里按同一算法现算，和 checker 的 get_or_add_error_id("Overflow") 一致。
         if rhs == (0 - 1) && lhs == lo_div[0] {
-            if opcode == BCOpcode.BC_DIV_CHECK {
-                return exec_make_error_union_err(err_id);
-            }
-            return exec_make_error_union_ok(exec_vm_make_integer_by_kind(kind, 0, 0u64));
+            return exec_make_error_union_err(exec_vm_error_id_of_overflow());
         }
         var value_d: i64 = 0;
         if opcode == BCOpcode.BC_DIV_CHECK {

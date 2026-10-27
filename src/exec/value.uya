@@ -261,10 +261,14 @@ fn exec_make_bool(value: i32) ExecValue {
     };
 }
 
+/// 构造 byte 值。byte 是 C 的 `unsigned char`：`256 as byte` 必须截成 0，
+/// 这里按 8 位截断（其它 make_* 的入参本来就是窄类型，由 C 自己截断）。
+/// 参数：`value` 原始整数。
+/// 返回值：byte 值。
 fn exec_make_byte(value: i32) ExecValue {
     return ExecValue {
         kind: ExecValueKind.EXEC_VALUE_BYTE,
-        i64_value: value as i64,
+        i64_value: ((value as i64) & (0xFF as i64)),
         ptr_value: null,
         aux_kind: ExecValueKind.EXEC_VALUE_VOID,
         aux_i64_value: 0,
