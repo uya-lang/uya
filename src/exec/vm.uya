@@ -2823,7 +2823,11 @@ fn exec_vm_syscall_marshal_out_struct(function: &BCFunction, frame: &ExecFrame, 
             var field_count: i32 = 0;
             const buffer: &i64 = exec_vm_syscall_out_struct_prepare(target, &field_count);
             if buffer == null {
-                return -1;
+                // 目标不是能解析出来的单块结构体（例如 `&EpollEvent` 这类
+                // 「指向结构体数组元素」的指针）：保留原指针继续调 syscall，
+                // 不能因为出参准备失败就把整次系统调用判死（否则解释器会静默退出）。
+                oi = oi + 1;
+                continue;
             }
             out_targets[out_count[0]] = target;
             out_buffers[out_count[0]] = buffer;
