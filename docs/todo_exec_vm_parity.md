@@ -798,6 +798,20 @@ exec 侧加兜底无效，两个改动都已回滚。
 
 （本轮无净变化，基线与回滚后一致：**745 / 909（82.0%）**。）
 
+### 第 283 轮：结构体字面量里的「带类型初始化」（745 → 746）
+
+`arr: [Inner: 2] = []` 这种「字段名 + 类型 + 值」的写法在 AST 里是 **assign 形态**
+（`assign_dest` 是类型标注、`assign_src` 才是值）。结构体字面量的字段值原本直接
+按 assign 降级，于是被 `exec_lower_make_dest_expr` 判成非法赋值目标。
+加 `exec_lower_unwrap_typed_init()` 在字段值处取右值即可。
+收益：`test_struct_array_field_typed_empty_init`（census 745 → **746，82.1%**，零回归）。
+
+同轮未成的：`test_generic_struct_array_future_method` 的
+`zero struct 无法解析结构体声明(name=T)`，根因是**泛型结构体实例没有单态化**
+（降级时拿到的仍是声明本身，`struct_type_args` 就是类型参数 `T`），
+不是替换函数的问题；后来加的递归替换（数组/指针/切片元素位置的 `T`）
+对这条没用，已回滚。要做这条得先补「泛型结构体的按需单态化」。
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
