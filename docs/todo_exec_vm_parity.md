@@ -1484,6 +1484,30 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 （parity 比的是 C99 vs VM 的退出码/stdout，两端都失败算 OK），所以
 「census 745/909」与「parity 741/914 OK」是同一处的两种视图。
 
+### 第 313 轮：`%#.17g` 的锅不在「浮点值」也不在「va_list」
+
+把 `test_printf_f` 的 `snprintf_g_dbl_max` 一路二分到底，结论和之前记的都不一样：
+
+- **浮点字面量是准的**。`%.17e` 那些「差 11 ULP」的读数全都是 Uya 侧
+  `_fmt_f64_to_buf` 自己缩放出来的假象；改用宿主 `%a` 直接看十六进制，
+  `1.7976931348623157e308` 的字面量正好是 `0x1.fffffffffffffp+1023`（即 DBL_MAX）。
+- **va_list 里的实参也是准的**：给 `vsnprintf` 加一层宿主实现后，
+  在 VM 里打 `exec_value_as_f64(&vsn_args[0])` 的 `%a` 同样是 `0x1.fffffffffffffp+1023`。
+- 但同一次调用交给 `exec_format_printf_like` 之后，`%#.17g` 落盘成了
+  `1.7976931348623146e+308`。也就是说**误差在 `src/exec/format.uya` 的
+  逐转换路径里**（`exec_format_snprintf_typed` 对 `g` 的处理），不在值、不在变参。
+
+顺带完成的两件事（都不改变普查结果，`r333 → r334` 无增无减，已回滚代码只留记录）：
+
+1. `vsnprintf` 走宿主实现是可行的：匹配要放在 `is_varargs == 0` 分支**之外**
+   （`va_list` 形参会让 checker 把它标成 varargs），否则永远匹配不上。
+2. 即使走宿主，`%f` 的四个用例全绿、`%#.17g` 仍差 —— 因为格式化实际落在
+   `exec_format_printf_like` 上，没有直接落到 glibc。
+
+**下一步入口**：在 `src/exec/format.uya` 的 `exec_format_snprintf_typed`
+浮点分支里，把传给宿主 `snprintf` 的 `spec` 和 `exec_value_as_f64(arg)` 打出来，
+确认是 spec 被重建错了，还是 arg 索引错位一格。
+
 ### 第 312 轮：`test_std_async_event` 卡在 `BC_SYSCALL` 里静默退出（线索已定位）
 
 `test_std_async_event` 的 `main` 第一句就是 `linux_epoll_create(0) catch { return 1 }`，
