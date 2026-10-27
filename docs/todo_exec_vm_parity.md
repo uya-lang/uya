@@ -1484,6 +1484,46 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 （parity 比的是 C99 vs VM 的退出码/stdout，两端都失败算 OK），所以
 「census 745/909」与「parity 741/914 OK」是同一处的两种视图。
 
+### 第 310 轮：`setjmp` 宿主实现（822 → 823 / 909，90.5%）
+
+`test_setjmp` 卡在 `env.data[7] != 0`：`lib/libc/setjmp.uya` 的 `setjmp` 是
+`@naked_fn` 的内联汇编（`movq %%rbx, 0(%%rdi)` … 保存 rbx/rbp/r12-r15/rsp/rip），
+解释器没有寄存器现场，零值桩让 `jmp_buf.data` 全是 0。
+
+改法（三处，都是「宿主实现」这条既有通道）：
+
+1. 承载宿主调用的判定原来只认 `fn_decl_is_extern != 0`，`setjmp` 不是 extern，
+   永远进不了宿主桥。现在对 `setjmp`/`_setjmp`/`sigsetjmp` 三个名字放行
+   （`naked_host_call`），并用 `exec_lower_match_host_call_name` 直接按名字匹配。
+2. `EXEC_HOST_CALL_SETJMP` / `_SIGSETJMP`：实参是 `&jmp_buf`，先
+   `exec_vm_ref_target_value` 解到结构体本体，再取 `data` 字段，
+   `exec_value_set_index` 逐项写 1..8（`data[6]`/`data[7]` 即 rsp/rip 标记）。
+3. 关键坑：`jmp_buf.data` 是 `[u64: 8]`，解释器把它建成**原生 raw array**
+   （`exec_value_is_raw_array` 为真），`exec_value_as_aggregate` 直接返回 null，
+   走 `exec_vm_index_ref` 一律拿不到元素 —— 标量数组必须用
+   `exec_value_set_index` 写，不能按聚合取元素引用。
+
+**本轮实测**：`/tmp/census_r333.tsv` = **823 / 909（90.5%）**，`r331(822) → 823`，
++1 / 0 回归。
+
+### 第 310 轮附：io 簇（`test_std_io*`）的根因再定位
+
+追到 `write_to_buffer`/`flush_buffer` 之后可以确定两件事，都属内存模型：
+
+- `FILE` 是 `malloc` 出来的**原生结构体**（`stdlib` 池），字段偏移必须按 C 布局算；
+  `stream.buffer`（`[byte: 65536]`）落在原生指针的聚合旁路表里，而该表
+  （`EXEC_NATIVE_AGG_MAX_ELEMS = 512`，`g_native_agg_values` 为静态
+  `[ExecValue: 512] × 256`）既装不下 64 KiB，偏移也不是 C 布局 ——
+  写文件时内核读到的是 `ExecValue` wrapper 的字节
+  （实测文件内容 `\f\0\0\0\0\0\0\0H\0\0`：`kind=12` 后跟 `i64_value='H'`）。
+- 曾试着在 `@syscall` 的 `read`/`write` 前把「地址落在值竞技场里」的缓冲区
+  逐元素 gather/scatter 到原生临时缓冲区；实测 census 完全无变化
+  （指针进 syscall 时已经是裸 `i64`，`exec_vm_pointer_is_internal_ref` 认不出来），
+  按最小改动原则回滚，不留死代码。
+
+要把这一簇做绿，得让「原生结构体字段」有真正的 C 布局视图（或把 64 KiB 数组
+改成原生内存块），不是补 API 能解决的。
+
 ### 第 309 轮：`make check` 复核 + 剩余 30 例的阻塞归类
 
 `make check`（本机 `UYA_TEST_JOBS=44`）**1191 / 1191 通过**，`src/exec` 的
@@ -1509,10 +1549,10 @@ parity 口径下仍不匹配的是 **30 个用例文件**，按下表归类—�
 ### T11 收口
 
 - [ ] `uya test --vm` 全量通过（跳过表只保留 C99 侧同样不适用的用例）
-      —— 现状 **822/909（90.4%）**（第 309 轮末，见上表归类），剩余缺口集中在
+      —— 现状 **823/909（90.5%）**（第 310 轮末，见上表归类），剩余缺口集中在
       async 帧布局（41 例静默失败）、线程（pthread/堆/OSAL 约 10 例，
       同步 VM 无并发语义）、`@c_import`（3 例）与超长函数（`bytecode 指令超出上限`）；
       这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿（阻塞：即上方 30 例，需改解释器内存/执行模型）
+- [ ] `make exec-parity` 全绿（阻塞：即上方 29 例，需改解释器内存/执行模型）
 - [x] `make check` 全绿（1191 个测试，通过 1191，失败 0；第 309 轮复测仍绿）
 - [ ] 合并到 main 并删除工作区
