@@ -907,6 +907,37 @@ loop { _ = iter.next() catch { break; }; const v: T = iter.value(); <body> }
   直接按「读 `f.state`（LOAD_FIELD 0）+ 对 `Poll` 联合做 tag 分支」降级，
   根本不需要泛型方法 `poll` 的返回类型装配（那是这条路线上最容易卡的地方）。
 
+### 第 288–291 轮：async 同步语义落地（748 → 791 / 909，87.0%）
+
+把 async 从「完全不支持」推到 **92 个 async 用例里 53 个通过**（整机 748 → 791，
+零回归，两次全量普查确认）：
+
+1. **`exec_lower_function` 去掉 async 硬门禁**：`@async_fn` 按普通函数降级。
+2. **`BC_AWAIT` 新指令**（`bytecode.uya` / `builder.uya` / `vm.uya`）+
+   `HIR_EXPR_AWAIT`：`@await f` 求值出 Future 后取 Ready 载荷。
+   `exec_vm_await_find_poll()` 递归找 `state: Poll<T>` 那个联合值——
+   能穿透接口装箱（`[方法入口…, 数据]`）、`!Future<T>` 的 ok 载荷、指针引用。
+3. **async 返回值自动包装**：`exec_lower_wrap_async_return()` 把 `return x`
+   包成 `Future{ state: Poll.Ready(ok(x)) }`；返回类型是接口时再走
+   `HIR_EXPR_INTERFACE_BOX` 装箱。`exec_lower_async_return_needs_wrap()` 负责
+   区分「返回 Future」和「返回载荷」两种写法。
+4. **自实现 poll 的 Future**：`exec_vm_await_poll_interface()` 用
+   `exec_vm_call_function()` 递归调用接口方法表里的 `poll`，同步忙等到非 Pending。
+
+**仍然红（39 个 async）的主要簇**：
+- `_uya_async_frame_heap_fallback` / `libc_EAGAIN` 一类 **C99 运行时符号**
+  （`当前仅支持局部变量/参数/全局标识符(...)`）——这些是 codegen 侧注入的
+  全局，VM 里没有对应物，需要补一套 VM 版 async frame 运行时（约 12 个用例）；
+- `LOAD_FIELD 字段越界(kind=21/22)`：async 函数里 `try` 的错误提前返回
+  走的是 builder 的 TRY 快路径，绕过了 lowering 的 Future 包装，于是调用方
+  拿到裸错误值。试过在 builder 侧用 `exec_builder_wrap_async_future()` +
+  `exec_builder_box_async_future()` 补包装（把接口方法表通过 `hir_try.extra`
+  传下去），但两个用例随即**整例超时（rc=124）**、`test_async_error_propagation`
+  仍红，已回滚。下一轮应该改成「async 函数里的 try 在 lowering 阶段就展开成
+  catch + 显式 return」，而不是在 builder 里补。
+- 真正需要挂起/重放的用例（如 `test_async_compound_try_await` 断言
+  `pending_seen == 1`）在同步 VM 下不可能满足，属于设计限制。
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
