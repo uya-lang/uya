@@ -1543,10 +1543,19 @@ DBG bidx pkind=14 pointee=10 idx=0 tgtkind=10 tgti64=0
 ```
 
 也就是说 `&f` 本身没问题、转换也保留了内引用，问题在 `LOAD_INDEX` 里
-`exec_vm_ref_target_value` 拿到的那个值（实测 `kind=byte value=0`，
-而不是 f32）。下一轮只需要在 `exec_vm_make_value_ref` → `CAST` → `LOAD_INDEX`
-这条链上把「引用指向哪个 ExecValue」逐段打出来（本轮时间用完了），
-定位到底是 `make_value_ref` 的地址算错还是 cast 重建。
+`exec_vm_ref_target_value` 拿到的那个值。本轮把这条链打了一遍点，结论是：
+
+```
+DBG vref addr=<slot 地址> kind=16 …            ← ADDR_LOCAL 正常
+DBG lidx refaddr=110613224 pointee=10 idx=0 tgtkind=10 tgti64=0
+                                        ↑ 槽地址处的值竟然是 **BYTE 0**
+```
+
+即「引用地址是对的，但那个槽上已经不是 `f32` 参数，而是一个 BYTE 0」。
+结合「同一函数里 `printf("f=%d", f)` 打出 2」可以判断：`f` 的槽在取址之后
+被某个**临时槽**覆盖了（VM 的槽分配/生命周期问题，不是 cast 问题）。
+下一轮的入口很明确：查 `chk`/`two_step` 这类「参数取址 + 后续临时」的函数里
+frame 槽位分配（`exec_builder_new_temp` 是否回收/复用了参数槽）。
 
 代码全部回滚，只留结论与落点。
 
