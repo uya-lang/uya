@@ -746,6 +746,26 @@ globals + 原生聚合旁路表），`exec_vm_field_native_base` 改成基于它
 `fresh` 变成 `aux=65552` 的引用（实测 ref 目标落在 slot pool），需要在
 「原生指针存进局部变量再取地址」这条链上保留原生性。
 
+### 第 281 轮：文件 IO 簇的最后一次定位（写对、读回 0）
+
+用最小复现 `/tmp/t_nf3.uya`（`struct S { a: i64, b: [byte: 8] }` + `malloc`）逐字节打点，
+得到两个确定事实：
+
+1. **写是对的**：`p.b[0] = 'X'` 落到 `p+8`（`DBGSPI addr=…038 v=88`），
+   `p.a = 7` 也对（原生字段访问在 malloc 出来的结构体上工作正常）。
+2. **读回是 0**：同一轮里 `raw[0]`（`@ptr_from_usize(paddr+8)`）和 `p.b[0]`
+   都读到 0，而地址与写入地址完全一致。
+
+也就是说问题不在字段偏移/写入，而在**读路径**（`exec_vm_load_pointer_index` 的
+BYTE 分支或 `@ptr_from_usize` 得到的指针值）。下一步在 `exec_vm_load_pointer_index`
+的 BYTE/U8 分支打点，和写侧地址对比一次即可收敛。
+
+另外试过并**回滚**的一个改动：把「数组字段取地址」的结果指针 pointee 从 ARRAY 改成
+元素类型（希望 `&struct.arr[i]` 按元素步进）。census 从 745 掉到 **727（-18）**，
+说明现有语义（ARRAY pointee → 旁路聚合）被不少用例依赖，不能这么改。
+
+（本轮无净变化，基线仍 **745 / 909（82.0%）**。）
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
