@@ -3483,6 +3483,43 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         out_value[0] = exec_make_i32(0);
         return 0;
     }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_BARRIER_INIT ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_BARRIER_WAIT ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_BARRIER_DESTROY {
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_BARRIER_WAIT {
+            // 单线程：永远是自己「最后一个到达」，直接拿到序列化令牌。
+            out_value[0] = exec_make_i32(1);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_BARRIER_DESTROY {
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        const barrier_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const barrier_count: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
+        if barrier_arg == null || barrier_arg.i64_value == 0 {
+            out_value[0] = exec_make_i32(22);
+            return 0;
+        }
+        if barrier_count == null || barrier_count.i64_value == 0 {
+            out_value[0] = exec_make_i32(22);
+            return 0;
+        }
+        const barrier_count_field: &ExecValue = exec_vm_field_ref_store(barrier_arg, 0);
+        if barrier_count_field != null {
+            exec_vm_store_slot(barrier_count_field, exec_make_i32(barrier_count.i64_value as i32));
+        }
+        const barrier_arrived_field: &ExecValue = exec_vm_field_ref_store(barrier_arg, 1);
+        if barrier_arrived_field != null {
+            exec_vm_store_slot(barrier_arrived_field, exec_make_i32(0));
+        }
+        const barrier_gen_field: &ExecValue = exec_vm_field_ref_store(barrier_arg, 2);
+        if barrier_gen_field != null {
+            exec_vm_store_slot(barrier_gen_field, exec_make_i32(0));
+        }
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETCANCELSTATE ||
         site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETCANCELTYPE {
         const cancel_in: &ExecValue = exec_vm_slot_ref(frame, arg_base);
@@ -3510,6 +3547,10 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_KEY_CREATE {
         const key_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        if key_arg == null || key_arg.i64_value == 0 {
+            out_value[0] = exec_make_i32(22);
+            return 0;
+        }
         var key_free: i32 = -1;
         var ki: i32 = 0;
         while ki < EXEC_VM_TLS_KEYS {
@@ -3528,18 +3569,26 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
             exec_vm_tls_used[key_free] = 1;
             exec_vm_tls_values[key_free] = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
         }
-        const key_target: &ExecValue = exec_vm_ref_target_value(key_arg);
-        if key_target != null {
-            exec_vm_store_slot(key_target, exec_make_i32(key_free));
+        // `pthread_key_t` 是 `{seq, destructor}`：seq 从 1 开始（0 表示无效键）。
+        const key_seq_field: &ExecValue = exec_vm_field_ref_store(key_arg, 0);
+        if key_seq_field != null {
+            exec_vm_store_slot(key_seq_field, exec_make_i32(key_free + 1));
         }
         out_value[0] = exec_make_i32(0);
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_KEY_DELETE {
         const key_del: &ExecValue = exec_vm_slot_ref(frame, arg_base);
-        if key_del != null && key_del.i64_value >= 0 && key_del.i64_value < EXEC_VM_TLS_KEYS as i64 {
-            const key_index: i32 = key_del.i64_value as i32;
-            exec_vm_tls_used[key_index] = 0;
+        if key_del == null || key_del.i64_value == 0 {
+            out_value[0] = exec_make_i32(22);
+            return 0;
+        }
+        const key_del_seq: &ExecValue = exec_vm_field_ref(key_del, 0);
+        if key_del_seq != null {
+            const key_del_index: i32 = (key_del_seq.i64_value -| 1) as i32;
+            if key_del_index >= 0 && key_del_index < EXEC_VM_TLS_KEYS {
+                exec_vm_tls_used[key_del_index] = 0;
+            }
         }
         out_value[0] = exec_make_i32(0);
         return 0;
@@ -3547,12 +3596,22 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
     if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETSPECIFIC {
         const spec_key: &ExecValue = exec_vm_slot_ref(frame, arg_base);
         const spec_value: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
-        if spec_key != null && spec_key.i64_value >= 0 && spec_key.i64_value < EXEC_VM_TLS_KEYS as i64 &&
-            spec_value != null {
-            const spec_index: i32 = spec_key.i64_value as i32;
+        if spec_key == null || spec_key.i64_value == 0 {
+            out_value[0] = exec_make_i32(22);
+            return 0;
+        }
+        const spec_seq: &ExecValue = exec_vm_field_ref(spec_key, 0);
+        if spec_seq != null && spec_value != null {
+            const spec_index: i32 = (spec_seq.i64_value -| 1) as i32;
             if spec_index >= 0 && spec_index < EXEC_VM_TLS_KEYS {
-                exec_vm_store_slot(&exec_vm_tls_values[spec_index], spec_value[0]);
+                if exec_vm_tls_used[spec_index] != 0 {
+                    exec_vm_store_slot(&exec_vm_tls_values[spec_index], spec_value[0]);
+                    out_value[0] = exec_make_i32(0);
+                    return 0;
+                }
             }
+            out_value[0] = exec_make_i32(22);
+            return 0;
         }
         out_value[0] = exec_make_i32(0);
         return 0;
@@ -3560,8 +3619,9 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
     if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_GETSPECIFIC {
         const get_key: &ExecValue = exec_vm_slot_ref(frame, arg_base);
         var get_value: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
-        if get_key != null && get_key.i64_value >= 0 && get_key.i64_value < EXEC_VM_TLS_KEYS as i64 {
-            const get_index: i32 = get_key.i64_value as i32;
+        const get_seq: &ExecValue = exec_vm_field_ref(get_key, 0);
+        if get_seq != null {
+            const get_index: i32 = (get_seq.i64_value -| 1) as i32;
             if get_index >= 0 && get_index < EXEC_VM_TLS_KEYS {
                 get_value = exec_value_clone(&exec_vm_tls_values[get_index]);
             }

@@ -837,6 +837,18 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
             param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETCANCELTYPE;
         }
+        if str_equals(fn_name, "pthread_barrier_init" as &byte) != 0 &&
+            param_count == 3 && call_arg_count == 3 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_BARRIER_INIT;
+        }
+        if str_equals(fn_name, "pthread_barrier_wait" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_BARRIER_WAIT;
+        }
+        if str_equals(fn_name, "pthread_barrier_destroy" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_BARRIER_DESTROY;
+        }
         if str_equals(fn_name, "pthread_key_create" as &byte) != 0 &&
             param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_KEY_CREATE;
@@ -1020,6 +1032,9 @@ fn exec_lower_extern_prefers_host_call(fn_decl: &ASTNode) i32 {
         str_equals(name, "pthread_condattr_destroy" as *byte) != 0 ||
         str_equals(name, "pthread_setcancelstate" as *byte) != 0 ||
         str_equals(name, "pthread_setcanceltype" as *byte) != 0 ||
+        str_equals(name, "pthread_barrier_init" as *byte) != 0 ||
+        str_equals(name, "pthread_barrier_wait" as *byte) != 0 ||
+        str_equals(name, "pthread_barrier_destroy" as *byte) != 0 ||
         str_equals(name, "pthread_key_create" as *byte) != 0 ||
         str_equals(name, "pthread_key_delete" as *byte) != 0 ||
         str_equals(name, "pthread_setspecific" as *byte) != 0 ||
