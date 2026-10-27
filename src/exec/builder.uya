@@ -7,7 +7,7 @@ const EXEC_MAX_BYTECODE_INSTRS: i32 = 16384;
 const EXEC_MAX_CONST_POOL_VALUES: i32 = 8192;
 const EXEC_MAX_HOST_CALL_SITES: i32 = 64;
 // 保持与 lowering 侧一致，避免深 `else if` 链在 cleanup scope 栈上过早撞限。
-const EXEC_MAX_CLEANUP_SCOPE_DEPTH: i32 = 512;
+const EXEC_MAX_CLEANUP_SCOPE_DEPTH: i32 = 1024;
 
 struct ExecConstPoolBuilder {
     values: [ExecValue: EXEC_MAX_CONST_POOL_VALUES],
@@ -48,7 +48,7 @@ struct ExecFunctionBuildContext {
     instr_count: i32,
     next_temp_slot: i32,
     max_slot_count: i32,
-    loop_stack: [ExecLoopPatch: 256],
+    loop_stack: [ExecLoopPatch: 1024],
     loop_depth: i32,
     cleanup_scopes: [ExecCleanupScope: EXEC_MAX_CLEANUP_SCOPE_DEPTH],
     cleanup_depth: i32,
@@ -246,10 +246,10 @@ fn exec_builder_sort_error_names(entries: &BCErrorNameEntry, count: i32) void {
 }
 
 fn exec_builder_loop_patch_ref(ctx: &ExecFunctionBuildContext, idx: i32) &ExecLoopPatch {
-    if ctx == null || idx < 0 || idx >= 256 {
+    if ctx == null || idx < 0 || idx >= 1024 {
         return null;
     }
-    if idx >= 0 && idx < 256 {
+    if idx >= 0 && idx < 1024 {
         return &ctx.loop_stack[idx];
     }
     return null;
@@ -4309,7 +4309,7 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                 exec_builder_patch_jump(ctx, jmp_false, ctx.instr_count);
             }
         } else if stmt.kind == HIRStmtKind.HIR_STMT_LOOP {
-            if ctx.loop_depth >= 256 {
+            if ctx.loop_depth >= 1024 {
                 exec_backend_set_error(stmt.ast_node, "exec: loop 嵌套过深" as *byte, 0);
                 return -1;
             }

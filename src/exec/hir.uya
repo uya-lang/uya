@@ -1,6 +1,6 @@
 // exec/hir.uya - Exec backend HIR definitions
 
-const EXEC_MAX_CALL_ARGS: i32 = 32;
+const EXEC_MAX_CALL_ARGS: i32 = 128;
 
 enum ExecHostCallId {
     EXEC_HOST_CALL_NONE,
