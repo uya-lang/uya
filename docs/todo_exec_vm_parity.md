@@ -496,6 +496,36 @@
 `test_crypto_bigint_modexp4096`、`test_crypto_curve25519`、`test_crypto_sha512`、
 `test_crypto_sha256_stream`，以及 3 个 async 边界用例。
 
+### 第 274 轮：原生结构体字段访问的试验结论（未落地，已回滚）
+
+这一轮试了「结构体字段按 C99 布局读原生内存」，实现完整但**验证不过，已整体回滚**，
+结论和后续做法记在这里，避免下一轮重复踩坑：
+
+- 落地过的部分：`exec_lower_native_field_layout()`（按对齐累加算出字段字节偏移与
+  kind/pointee kind）、`HIR_EXPR_FIELD` 用 `unary_op`=偏移、`binary_op`=kind+1|pointee+1<<8
+  携带布局、builder 打包进 `LOAD_FIELD`/`STORE_FIELD`（`c`=偏移，`imm` 高 32/40 位放
+  kind 与 pointee kind）、运行时 `exec_vm_native_field_load/store`（i8..u64/usize/f32/f64/
+  pointer）。聚合路径失败后回落到原生布局。
+- 阻塞点：**运行时无法区分「VM 值引用」和「`@ptr_from_usize(addr) as &T` 造出来的
+  引用」**。指针 cast 会把 typed pointer 一律编码成 `65536+pointee` 的内部引用，
+  于是两者形状完全一样。按「聚合句柄是否成立」判定的结果是：`lib/libc/heap.uya`
+  的 `hdr.size` 能读出来，但读到的常是 `0xDEADBEEF` 之类填充值，随后
+  `STORE_FIELD` 往低地址写（`0x6975xxx`）直接段错误。`test_libc_heap_*`、
+  `test_string`、`test_stdio`、`test_stdlib` 全部崩在同一个点。
+- 下一轮的正确做法（按优先级）：
+  1. 让 cast 到指针时**保留「这是原生地址」的信息**（例如原生指针用 aux=pointee，
+     VM 值引用仍用 65536+），把 `exec_vm_pointer_is_internal_ref` 的判据收敛到只
+     表示 VM 值引用；这一步是后续所有原生布局工作的前提；
+  2. 给 `exec_value_alloc_bytes` 的分配登记区间，用地址是否落在 VM value 堆里做
+     兜底判据（现在没有任何区间信息）；
+  3. 之后才能安全打开 `LOAD_FIELD`/`STORE_FIELD` 的原生回落，并在 census 上验证
+     `test_libc_heap_*`（29 例）、`test_stdio`/`test_string`/`test_stdlib`（5 例）。
+- 顺带确认的两件事（已修，见下条）：`.ptr` 现在是 `LOAD_SLICE_PTR` 支持「运行时
+  装着 VM 数组的切片字段」，`test_json_struct_collections` 由红转绿。
+
+当前基线：**718 / 909 通过（79.0%）**，`/tmp/census_r291.tsv`；相对 r289/r290 的
+715 净增 3（`test_json_struct_collections` 等），零回归。
+
 ### 解释器的内存/性能（GPU 那台机器上尤其明显）
 
 `exec_value_alloc_bytes` 是**直接 malloc、没有回收**，所以「每次操作深拷贝多少」
