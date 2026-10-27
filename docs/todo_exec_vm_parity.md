@@ -1153,6 +1153,9 @@ census 的**内存**问题已定位并加门禁（`UYA_EXEC_CENSUS_MEM_MB`，默
 用例 914，OK 741，STATUS_MISMATCH 173（STDOUT_MISMATCH / TIMEOUT / CRASH 均为 0）
 ```
 
+第 285 轮后复测（`/tmp/parity_r282.tsv`）：**OK 744 / STATUS_MISMATCH 170**，
+与 census `748 / 909（82.3%）` 同步前进。
+
 `STATUS_MISMATCH` 里绝大多数是 async（C99=0 / VM=1），其余是本文档里已经归类的
 assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**parity 与 census 的口径不同**
 （parity 比的是 C99 vs VM 的退出码/stdout，两端都失败算 OK），所以
