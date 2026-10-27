@@ -1484,6 +1484,39 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 （parity 比的是 C99 vs VM 的退出码/stdout，两端都失败算 OK），所以
 「census 745/909」与「parity 741/914 OK」是同一处的两种视图。
 
+### 第 316 轮：`async_event` 的「静默退出」根因修掉（出参结构体判定太严）
+
+第 312 轮定位到的「`BC_SYSCALL` 里静默退出」，真正的原因找到了：
+
+- `@syscall` 元数据里带一个 `out_mask`（哪些实参是内核回写的结构体）。
+  `sys_epoll_wait` 的第 2 个实参类型是 `&EpollEvent`，builder 就把它标成了出参；
+- 运行期 `exec_vm_syscall_marshal_out_struct` 找不到「能解析成单块结构体」的目标
+  （实参实际是**结构体数组**的原生首地址），`prepare` 返回 null，
+  于是直接 `return -1` 把整次系统调用判死；
+- 这个 `-1` 一路冒泡成「解释器失败」，但没有任何 message，表现出来就是
+  **进程 rc=1、一行日志都没有**（和 `main` 里 `catch { return 1 }` 完全同样的现场，
+  所以前面几轮一直被误判成 `linux_epoll_create` 失败）。
+
+修法：出参准备失败时**保留原指针继续调 syscall**（`continue`），不要把整次调用判死。
+
+修完的效果：
+
+```
+local err=0
+field err=0        ← sys_epoll_wait 正常返回
+test_std_async_event             rc: 1 → 11（卡在 ready_n == 1）
+test_std_async_event_fd_reuse    rc: 1 → 4 （卡在 n1 == 1）
+test_async_compute_types         rc: 1 → 11
+```
+
+也就是这三个用例从「第一句就静默死」推进到了「真的在等事件」。剩下的
+`ready_n == 1` 是新问题：`linux_epoll_alloc_events` 用 `calloc` 拿到的是**原生**内存
+（✓ 内核能写），但 VM 侧读 `self.events[i].data` 走的是自己的字段偏移，
+需要和内核的 `struct epoll_event`（packed，12 字节）对齐 —— 这是下一个入口。
+
+census `/tmp/census_r336.tsv` 仍是 **823 / 909**（无增无减、无回归），
+但这一轮把「静默退出」这个反复误导排查的现象消灭了。
+
 ### 第 315 轮：为什么不能直接把 `strtod` 交给宿主（`--nostdlib`）+ 自举两趟的坑
 
 试过把 `lib/libc/stdlib.uya` 的 `strtod` 改成不带体的 `extern "libc"`（映射 glibc），
