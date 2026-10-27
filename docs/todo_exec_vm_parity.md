@@ -726,6 +726,26 @@ VM 值，再打开原生回落。这条已记在下面，下一轮照此实现�
 
 （本轮改动全部回滚，基线仍是 **745 / 909（82.0%）**。）
 
+### 第 280 轮：驻留判据 + 原生数组字段视图落地（census 仍 745，但地基补齐）
+
+按上一轮的四个范围实现 `exec_vm_address_is_vm_resident`（竞技场 + slot pool +
+globals + 原生聚合旁路表），`exec_vm_field_native_base` 改成基于它的链式解析；
+另外给「原生结构体里的**标量元素**定长数组字段」生成原生数组视图
+（`exec_value_make_raw_array_view`，`LOAD_FIELD`/`STORE_FIELD`/`ADDR_FIELD` 的
+`imm` 高位打包元素 kind 与「元素个数-1」，16 位）。指针元素数组继续走 VM 聚合
+（上一轮段错误的根因）。
+
+整轮 census 实测 **745 / 909（82.0%）**，与基线完全一致（零回归零新增）。
+文件 IO 那一簇（`test_std_io*`、`t_write` 复现）**仍未解决**，新定位到的事实：
+`fwrite(&data[0], 1, 2, f)` 里 `data` 自己的地址正确（竞技场 `0x7f84…`、字节 72/105），
+但 `write(2)` 的 `*buf` 参数拿到的是**旁路表地址**（`0x6253dc0`，即
+`g_native_agg_values` 的基址），也就是说 `flush_buffer` 里
+`&stream.buffer[0] as *const byte` 这一步把整个 FILE 认成了旁路聚合。
+下一步直接从 `stream` 的来源查：`stdio_file_pool_acquire` 里
+`malloc(@size_of(FILE)) as &FILE` 之后 `fresh.fd = 0` 这类**原生字段写**会把
+`fresh` 变成 `aux=65552` 的引用（实测 ref 目标落在 slot pool），需要在
+「原生指针存进局部变量再取地址」这条链上保留原生性。
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
