@@ -5124,6 +5124,16 @@ export fn exec_build_bytecode(arena: &CompilerArena, checker: &TypeChecker, modu
         }
         test_global_i = test_global_i + 1;
     }
+    program.saved_argc_global_index = -1;
+    var argc_global_i: i32 = 0;
+    while argc_global_i < module.global_count {
+        if module.globals != null && module.globals[argc_global_i].name != null &&
+            str_equals(module.globals[argc_global_i].name, "saved_argc" as &byte) != 0 {
+            program.saved_argc_global_index = argc_global_i;
+            break;
+        }
+        argc_global_i = argc_global_i + 1;
+    }
     if const_pool_builder.count > 0 {
         const const_values: &ExecValue = compiler_arena_alloc(arena, @size_of(ExecValue) * const_pool_builder.count as usize) as &ExecValue;
         if const_values == null {

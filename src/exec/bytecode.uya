@@ -146,4 +146,6 @@ struct BCProgram {
     has_user_main: i32,
     // std.testing 的 _test_passed 全局槽位；未导入时为 -1
     test_passed_global_index: i32,
+    // std.runtime 的 saved_argc 全局槽位；未导入时为 -1（VM 没有 C 运行时的 argc 注入）
+    saved_argc_global_index: i32,
 }

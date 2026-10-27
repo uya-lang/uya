@@ -1637,6 +1637,30 @@ const EXEC_MEM_VIEW_HOST: i32 = 0;  // 普通宿主指针，按字节访问
 const EXEC_MEM_VIEW_VALUE: i32 = 1;  // 指向 VM 值本体，只能整体替换/清零
 const EXEC_MEM_VIEW_DATA: i32 = 2;   // 内部引用/切片，已还原成数据区起始地址
 
+/// 把源值按位「重新解释」成目标 kind（`memcpy(&u64, &f64, 8)` 这类位转换）。
+/// 参数：`src` 源值；`dst_kind` 目标 ExecValueKind。
+/// 返回值：kind 换成目标的同位数副本。
+fn exec_vm_bitcast_value(src: &ExecValue, dst_kind: ExecValueKind) ExecValue {
+    if src == null {
+        return exec_make_void();
+    }
+    if dst_kind == ExecValueKind.EXEC_VALUE_F64 {
+        return exec_make_f64_bits(src.i64_value as u64);
+    }
+    if dst_kind == ExecValueKind.EXEC_VALUE_F32 {
+        return exec_make_f32_bits(src.i64_value as u32);
+    }
+    if dst_kind == ExecValueKind.EXEC_VALUE_POINTER {
+        return exec_make_pointer_with_kind(src.i64_value as usize, src.aux_i64_value as i32);
+    }
+    var out: ExecValue = src[0];
+    out.kind = dst_kind;
+    out.aux_kind = ExecValueKind.EXEC_VALUE_VOID;
+    out.aux_ptr_value = null;
+    out.error_id = 0;
+    return out;
+}
+
 /// 求一个指针值按字节访问时的起始地址与容量。
 /// 参数：`value` 指针值；`out_capacity` 输出可写字节数（0 表示未知）；`out_view` 输出视图类别。
 /// 返回值：起始地址；无法解析返回 null。
@@ -1747,8 +1771,13 @@ fn exec_vm_pointer_element_ptr(function: &BCFunction, base: ExecValue, index_val
         const value_ref_kind: i32 = exec_vm_decode_ref_kind(base.aux_i64_value as i32);
         return exec_vm_make_index_ref_from_addr(exec_vm_index_ref_element_addr(&base, index_value), value_ref_kind);
     }
-    const pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
-    const elem_size: usize = exec_vm_type_kind_size(pointee_kind);
+    var pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
+    var elem_size: usize = exec_vm_type_kind_size(pointee_kind);
+    if pointee_kind == TypeKind.TYPE_VOID as i32 {
+        // `*void` 的下标按字节走（和 `mem.uya` 里 `dst[i]` 的用法一致）。
+        pointee_kind = TypeKind.TYPE_BYTE as i32;
+        elem_size = 1 as usize;
+    }
     if elem_size == 0 as usize {
         const agg_slot: &ExecValue = exec_vm_native_agg_slot(base_addr, index_value);
         if agg_slot == null {
@@ -1840,8 +1869,12 @@ fn exec_vm_load_pointer_index(function: &BCFunction, base: ExecValue, index_valu
         out_value[0] = exec_value_clone(value_elem);
         return 0;
     }
-    const pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
-    const elem_size: usize = exec_vm_type_kind_size(pointee_kind);
+    var pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
+    var elem_size: usize = exec_vm_type_kind_size(pointee_kind);
+    if pointee_kind == TypeKind.TYPE_VOID as i32 {
+        pointee_kind = TypeKind.TYPE_BYTE as i32;
+        elem_size = 1 as usize;
+    }
     if elem_size == 0 as usize {
         const agg_slot: &ExecValue = exec_vm_native_agg_slot(base_addr, index_value);
         if agg_slot == null {
@@ -1951,8 +1984,12 @@ fn exec_vm_store_pointer_index(function: &BCFunction, base: ExecValue, index_val
         value_elem2[0] = exec_value_clone(&src_value);
         return 0;
     }
-    const pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
-    const elem_size: usize = exec_vm_type_kind_size(pointee_kind);
+    var pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
+    var elem_size: usize = exec_vm_type_kind_size(pointee_kind);
+    if pointee_kind == TypeKind.TYPE_VOID as i32 {
+        pointee_kind = TypeKind.TYPE_BYTE as i32;
+        elem_size = 1 as usize;
+    }
     if elem_size == 0 as usize {
         const agg_slot: &ExecValue = exec_vm_native_agg_slot(base_addr, index_value);
         if agg_slot == null {
@@ -2813,7 +2850,12 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             if site.id != ExecHostCallId.EXEC_HOST_CALL_MEMSET && src_view == EXEC_MEM_VIEW_VALUE {
                 const dst_target2: &ExecValue = exec_vm_ref_target_value(mem_dst);
                 const src_target: &ExecValue = exec_vm_ref_target_value(mem_second);
-                exec_vm_store_slot(dst_target2, src_target[0]);
+                if dst_target2 != null && src_target != null && dst_target2.kind != src_target.kind {
+                    // 位转换（`memcpy(&u64, &f64, 8)`）：保留目标的 kind，只搬位。
+                    exec_vm_store_slot(dst_target2, exec_vm_bitcast_value(src_target, dst_target2.kind));
+                } else {
+                    exec_vm_store_slot(dst_target2, src_target[0]);
+                }
                 out_value[0] = mem_dst[0];
                 return 0;
             }
@@ -4886,6 +4928,11 @@ export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
         if exec_vm_call_function(program, program.global_init_function_index, null, 0, trace_vm, &init_result) != 0 {
             return 1;
         }
+    }
+    // VM 没有 C 运行时的 `uya_rt_init(argc, argv)`：把 `std.runtime.saved_argc`
+    // 补成 1（只有程序名），让 `get_argc`/`get_argv` 在 VM 里也自洽。
+    if program.saved_argc_global_index >= 0 && program.saved_argc_global_index < program.global_count {
+        program.globals[program.saved_argc_global_index] = exec_make_i32(1);
     }
     // 顶层 test "..." 块：与 C99 侧 uya_run_tests() 的输出格式保持一致。
     // - 没有用户 main 时（测试文件），先打印 "=== Running N tests ==="，最后打印汇总并
