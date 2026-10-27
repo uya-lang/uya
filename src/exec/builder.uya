@@ -4340,6 +4340,25 @@ fn exec_builder_validate_function(module: &HIRModule, fn_hir: &HIRFunction, out_
             if dst_slot5 >= 0 && dst_slot5 < EXEC_MAX_FRAME_SLOTS {
                 slot_written[dst_slot5] = 1;
             }
+        } else if instr.opcode == BCOpcode.BC_STRING_INTERP {
+            // 插值：b 起连续的 c 个实参槽位是输入，a 是渲染结果的输出槽位。
+            var interp_vi: i32 = 0;
+            while interp_vi < instr.c {
+                if exec_builder_validate_slot_read_with_source(fn_hir, instr.b + interp_vi,
+                        out_fn.slot_count, &slot_written[0],
+                        "exec: STRING_INTERP 源槽位非法" as *byte, instr.source) != 0 {
+                    return -1;
+                }
+                interp_vi = interp_vi + 1;
+            }
+            if instr.a < 0 || instr.a >= out_fn.slot_count {
+                exec_backend_set_error(fn_hir.decl, "exec: STRING_INTERP 目标槽位非法" as *byte, 0);
+                return -1;
+            }
+            const interp_dst_slot: i32 = instr.a;
+            if interp_dst_slot >= 0 && interp_dst_slot < EXEC_MAX_FRAME_SLOTS {
+                slot_written[interp_dst_slot] = 1;
+            }
         } else if instr.opcode == BCOpcode.BC_VECTOR_OP {
             var vec_vi: i32 = 0;
             while vec_vi < instr.c {
