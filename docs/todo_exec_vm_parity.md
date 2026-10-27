@@ -835,6 +835,22 @@ exec 侧加兜底无效，两个改动都已回滚。
 是就按 ExecValue 解释成出参目标；同时 syscall 参数在 lowering 里应保留
 「这是 VM 值引用」的信息，而不是提前退化成裸地址。
 
+### 第 285 轮：syscall 出参结构体两处修复（746 → 748，82.3%）
+
+1. **字段数上限 16 → 64、缓冲区至少 256 字节**：`struct stat` 之类有近 20 个字段、
+   原生 144 字节，原来的上限让 `exec_vm_syscall_out_struct_prepare` 直接返回 null，
+   内核于是把数据写进 VM 槽位（`stat_buf` 变成 `kind=6 i64=5`）。
+   收益：`test_syscall_dir`、`test_std_path_module`。
+2. **多个出参结构体**：`exec_vm_syscall_marshal_out_struct` 原来只能处理一个出参
+   （`out_target`/`out_buffer` 单值），而且参数探测只扫前 2 个参数。
+   现在按位掩码逐个换缓冲区（最多 6 个），出参个数与字段数用数组带回。
+   `@syscall(rt_sigaction, signum, &action, &old_action, 8)` 这类双出参调用
+   才对得上；census 确认零回归。
+
+仍未解决：`test_signal` 的第二个出参（`&old_action`，参数下标 2）在
+`exec_builder_syscall_arg_out_struct_bit` 里探测不到（同一形状的 `&action` 能探测到），
+说明那个 HIR 节点的类型信息不一样，需要单独查。
+
 ### 解释器性能：`test_tls_ecdsa` / `test_tls_rsa` 超时（200s 起）
 
 两个大整数密码学用例在 VM 里跑不完（`timeout 240` 仍是 rc=124），
