@@ -1484,6 +1484,31 @@ assertion 簇（pthread、堆页布局、文件 IO、大整数超时）。**pari
 （parity 比的是 C99 vs VM 的退出码/stdout，两端都失败算 OK），所以
 「census 745/909」与「parity 741/914 OK」是同一处的两种视图。
 
+### 第 311 轮：pipeline / io / f64 三处根因再确认（无新增通过）
+
+这轮没有新增用例，但把三条「看起来像 lowering bug」的线全部钉到了内存模型上，
+免得后续再重复挖：
+
+1. **`test_std_script_pipeline_facade`（`result.stage_count == 0`）**：
+   `lib/std/process.uya:1926` 的 `pipeline_read_startup_record` 用 C 布局做字节偏移 ——
+   `@ptr_from_usize(@usize_from_ptr(record) + received)` 然后
+   `read(fd, target, @size_of(PipelineStartupRecord) -| received)` 把内核字节直接
+   灌进结构体。解释器里 `record` 是「指向 `ExecValue` 的内引用」，`read()` 写的是
+   wrapper 内存，把结构体聚合头写坏（实测随后 `report.kind` 报
+   `LOAD_FIELD 字段越界(idx=0 kind=16 count=0)`，`count=0` 就是聚合头被覆盖）。
+   同一模式下 `test_typed_pipeline_lowering_error` 也是「C 侧 codegen 独有」的
+   `pipeline_drop` 清理（`src/codegen/c99/expr.uya` 里插入，AST 里没有），
+   exec 侧要补得先有临时值 move 语义。
+2. **io 簇**：见第 310 轮附；另确认逐元素 gather/scatter 的思路在 `@syscall`
+   路径上无效（缓冲区进 syscall 时已是裸 `i64`，内引用标记丢失）。
+3. **`test_printf_f`（`%#.17g` 打 DBL_MAX）**：`*((&x as *const u64) as *const f64)`
+   这类**位重解释在解释器里拿不到位模式**（内引用解出来是 `ExecValue`，转 u64 走的是
+   数值转换），所以 `lib/libc/stdlib.uya` 的 `strtod_f64_from_bits` 在 VM 里返回
+   `9.218e18` 而不是 DBL_MAX，DBL_MAX 的快速路径整体失效；再叠加
+   `_fmt_f64_to_buf` 用 `x / 1.0e308` 归一化引入的 1–2 ULP，末位必然对不上。
+   要修得先让「标量位重解释」在 VM 里有等价路径（`@bit_cast` 之类），
+   而不是继续在格式化器里打补丁。
+
 ### 第 310 轮：`setjmp` 宿主实现（822 → 823 / 909，90.5%）
 
 `test_setjmp` 卡在 `env.data[7] != 0`：`lib/libc/setjmp.uya` 的 `setjmp` 是
