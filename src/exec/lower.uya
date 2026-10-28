@@ -6815,6 +6815,146 @@ fn exec_lower_lower_global_init_exprs(arena: &CompilerArena, checker: &TypeCheck
     return 0;
 }
 
+/// 判断表达式是否引用了「尚未初始化」的全局槽位。
+/// 参数：`expr` 表达式；`globals` 全局槽表；`global_count` 槽数；
+///       `emitted` 已初始化标记；`self_slot` 当前正在初始化的槽（自引用不算依赖）。
+/// 返回值：1 存在未初始化依赖；0 没有。
+fn exec_lower_expr_needs_unemitted_global(expr: &HIRExpr, globals: &HIRGlobalSlot,
+    global_count: i32, emitted: &i32, self_slot: i32) i32 {
+    if expr == null {
+        return 0;
+    }
+    if expr.kind == HIRExprKind.HIR_EXPR_GLOBAL {
+        const slot: i32 = expr.global_slot;
+        if slot >= 0 && slot < global_count && slot != self_slot &&
+            globals[slot].init_expr != null && emitted[slot] == 0 {
+            return 1;
+        }
+    }
+    if expr.left != null &&
+        exec_lower_expr_needs_unemitted_global(expr.left, globals, global_count, emitted, self_slot) != 0 {
+        return 1;
+    }
+    if expr.right != null &&
+        exec_lower_expr_needs_unemitted_global(expr.right, globals, global_count, emitted, self_slot) != 0 {
+        return 1;
+    }
+    if expr.extra != null &&
+        exec_lower_expr_needs_unemitted_global(expr.extra, globals, global_count, emitted, self_slot) != 0 {
+        return 1;
+    }
+    if expr.block != null &&
+        exec_lower_block_needs_unemitted_global(expr.block, globals, global_count, emitted, self_slot) != 0 {
+        return 1;
+    }
+    var i: i32 = 0;
+    while i < expr.call_arg_count {
+        if exec_lower_expr_needs_unemitted_global(expr.call_args[i], globals, global_count, emitted, self_slot) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while i < expr.item_count {
+        if exec_lower_expr_needs_unemitted_global(expr.items[i], globals, global_count, emitted, self_slot) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while i < expr.match_arm_count {
+        if expr.match_arms[i].result_block != null &&
+            exec_lower_block_needs_unemitted_global(expr.match_arms[i].result_block, globals, global_count, emitted, self_slot) != 0 {
+            return 1;
+        }
+        if exec_lower_expr_needs_unemitted_global(expr.match_arms[i].result_expr, globals, global_count, emitted, self_slot) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn exec_lower_stmt_needs_unemitted_global(stmt: &HIRStmt, globals: &HIRGlobalSlot,
+    global_count: i32, emitted: &i32, self_slot: i32) i32 {
+    if stmt == null {
+        return 0;
+    }
+    if stmt.expr != null &&
+        exec_lower_expr_needs_unemitted_global(stmt.expr, globals, global_count, emitted, self_slot) != 0 {
+        return 1;
+    }
+    if stmt.assign_expr != null &&
+        exec_lower_expr_needs_unemitted_global(stmt.assign_expr, globals, global_count, emitted, self_slot) != 0 {
+        return 1;
+    }
+    if stmt.assign_target != null &&
+        exec_lower_expr_needs_unemitted_global(stmt.assign_target, globals, global_count, emitted, self_slot) != 0 {
+        return 1;
+    }
+    if stmt.then_block != null &&
+        exec_lower_block_needs_unemitted_global(stmt.then_block, globals, global_count, emitted, self_slot) != 0 {
+        return 1;
+    }
+    if stmt.else_block != null &&
+        exec_lower_block_needs_unemitted_global(stmt.else_block, globals, global_count, emitted, self_slot) != 0 {
+        return 1;
+    }
+    if stmt.loop_body != null &&
+        exec_lower_block_needs_unemitted_global(stmt.loop_body, globals, global_count, emitted, self_slot) != 0 {
+        return 1;
+    }
+    if stmt.cleanup_block != null &&
+        exec_lower_block_needs_unemitted_global(stmt.cleanup_block, globals, global_count, emitted, self_slot) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn exec_lower_block_needs_unemitted_global(block: &HIRBlock, globals: &HIRGlobalSlot,
+    global_count: i32, emitted: &i32, self_slot: i32) i32 {
+    if block == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < block.stmt_count {
+        if exec_lower_stmt_needs_unemitted_global(block.stmts[i], globals, global_count, emitted, self_slot) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+/// 把第 `slot` 个全局的初始化表达式包成一条赋值语句写进 `body`。
+/// 参数：`arena` 编译器 arena；`body` 初始化函数体；`stmt_idx` 目标语句下标；
+///       `globals` 全局槽表；`slot` 全局槽位。
+/// 返回值：无。
+fn exec_lower_emit_global_init_stmt(arena: &CompilerArena, body: &HIRBlock, stmt_idx: i32,
+    globals: &HIRGlobalSlot, slot: i32) void {
+    if (arena == null || body == null || globals == null || stmt_idx < 0) {
+        return;
+    }
+    const stmt: &HIRStmt = compiler_arena_alloc(arena, @size_of(HIRStmt)) as &HIRStmt;
+    const target: &HIRExpr = compiler_arena_alloc(arena, @size_of(HIRExpr)) as &HIRExpr;
+    if stmt == null || target == null {
+        exec_backend_set_error(globals[slot].decl, "exec: global init stmt 分配失败" as *byte, 0);
+        return;
+    }
+    _ = memset(stmt as *byte, 0, @size_of(HIRStmt));
+    _ = memset(target as *byte, 0, @size_of(HIRExpr));
+    stmt.kind = HIRStmtKind.HIR_STMT_ASSIGN;
+    stmt.ast_node = globals[slot].decl;
+    target.kind = HIRExprKind.HIR_EXPR_GLOBAL;
+    target.ast_node = globals[slot].decl;
+    target.type_ref = exec_lower_make_type_ref(&globals[slot].type_ref.type);
+    target.local_slot = -1;
+    target.global_slot = globals[slot].slot;
+    stmt.assign_target = target;
+    stmt.assign_expr = globals[slot].init_expr;
+    body.stmts[stmt_idx] = stmt;
+}
+
 fn exec_lower_build_global_init_function(arena: &CompilerArena, globals: &HIRGlobalSlot, global_count: i32) &HIRFunction {
     if arena == null || globals == null || global_count <= 0 {
         return null;
@@ -6837,31 +6977,44 @@ fn exec_lower_build_global_init_function(arena: &CompilerArena, globals: &HIRGlo
         return null;
     }
     _ = memset(fn_hir as *byte, 0, @size_of(HIRFunction));
-    var stmt_idx: i32 = 0;
-    i = 0;
-    while i < global_count {
-        if globals[i].init_expr != null {
-            const stmt: &HIRStmt = compiler_arena_alloc(arena, @size_of(HIRStmt)) as &HIRStmt;
-            const target: &HIRExpr = compiler_arena_alloc(arena, @size_of(HIRExpr)) as &HIRExpr;
-            if stmt == null || target == null {
-                exec_backend_set_error(globals[i].decl, "exec: global init stmt 分配失败" as *byte, 0);
-                return null;
+    // 按**依赖顺序**发射初始化语句：`const M = A | B` 必须排在 A、B 之后，
+    // 否则 M 读到的还是零。槽位编号是「首次出现」顺序而不是声明顺序，实测
+    // heap.uya 里 `CHUNK_STATE_MASK` 的槽位比它依赖的两个 flag 更小，按槽位
+    // 顺序初始化会让 mask 恒为 0（FREE 位永远清不掉，free() 静默丢块）。
+    var emitted: [i32: EXEC_MAX_GLOBALS] = [];
+    var emitted_count: i32 = 0;
+    var stmt_idx: i32 = 1;
+    var rounds: i32 = 0;
+    while emitted_count < stmt_count && rounds <= global_count && stmt_idx <= stmt_count {
+        var progress: i32 = 0;
+        i = 0;
+        while i < global_count {
+            if globals[i].init_expr != null && emitted[i] == 0 &&
+                exec_lower_expr_needs_unemitted_global(globals[i].init_expr, globals, global_count,
+                    &emitted[0], i) == 0 {
+                exec_lower_emit_global_init_stmt(arena, body, stmt_idx, globals, i);
+                emitted[i] = 1;
+                emitted_count = emitted_count +| 1;
+                stmt_idx = stmt_idx + 1;
+                progress = 1;
             }
-            _ = memset(stmt as *byte, 0, @size_of(HIRStmt));
-            _ = memset(target as *byte, 0, @size_of(HIRExpr));
-            stmt.kind = HIRStmtKind.HIR_STMT_ASSIGN;
-            stmt.ast_node = globals[i].decl;
-            target.kind = HIRExprKind.HIR_EXPR_GLOBAL;
-            target.ast_node = globals[i].decl;
-            target.type_ref = exec_lower_make_type_ref(&globals[i].type_ref.type);
-            target.local_slot = -1;
-            target.global_slot = globals[i].slot;
-            stmt.assign_target = target;
-            stmt.assign_expr = globals[i].init_expr;
-            body.stmts[stmt_idx + 1] = stmt;
-            stmt_idx = stmt_idx + 1;
+            i = i + 1;
         }
-        i = i + 1;
+        if progress == 0 {
+            // 出现环（`const A = B; const B = A` 这类非法/病态输入）：退回槽位
+            // 顺序，避免构造阶段死循环。
+            i = 0;
+            while i < global_count {
+                if globals[i].init_expr != null && emitted[i] == 0 {
+                    exec_lower_emit_global_init_stmt(arena, body, stmt_idx, globals, i);
+                    emitted[i] = 1;
+                    emitted_count = emitted_count +| 1;
+                    stmt_idx = stmt_idx + 1;
+                }
+                i = i + 1;
+            }
+        }
+        rounds = rounds +| 1;
     }
     const void_type: Type = make_void_type();
     fn_hir.name = "__exec_global_init" as &byte;
