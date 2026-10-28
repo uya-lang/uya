@@ -1545,7 +1545,10 @@ fn exec_builder_compile_addressable_expr_slot(ctx: &ExecFunctionBuildContext, ex
             a: dst_index_addr,
             b: base_slot_index_addr,
             c: index_slot_addr,
-            imm: pointee_kind as i64,
+            // imm 低 32 位是结果指针 pointee kind，高 32 位是元素字节数：
+            // 原生指针（`&EpollEvent` 之类）做下标时 VM 拿不到 C 布局步长，
+            // 只能靠编译期带过去的元素尺寸。
+            imm: (pointee_kind as i64) | (expr.int_value << 32),
             text: null,
             source: exec_builder_make_source(ast_node),
         }) < 0 {
@@ -1600,7 +1603,8 @@ fn exec_builder_compile_lvalue_store(ctx: &ExecFunctionBuildContext, target: &HI
             a: base_slot2,
             b: index_slot,
             c: src_slot,
-            imm: 0,
+            // imm = 元素字节数（原生指针下标时 VM 只有靠它才知道 C 布局步长）。
+            imm: target.int_value,
             text: null,
             source: exec_builder_make_source(ast_node),
         });
@@ -1948,12 +1952,19 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             if base_slot_addr < 0 || index_slot_addr < 0 {
                 return -1;
             }
+            // 元素字节数来自降级侧写的 bool_value（见 `&arr[i]` 的 ADDR 构造）：
+            // ADDR 节点的 int_value 是字段下标，不能拿来当步长。
+            var elem_size_hint: i64 = 0;
+            if expr.bool_value > 0 {
+                elem_size_hint = expr.bool_value as i64;
+            }
             if exec_builder_emit(ctx, BCInstr {
                 opcode: BCOpcode.BC_ADDR_INDEX,
                 a: dst_addr,
                 b: base_slot_addr,
                 c: index_slot_addr,
-                imm: pointee_kind as i64,
+                // 同上：低 32 位 pointee kind，高 32 位元素字节数。
+                imm: (pointee_kind as i64) | (elem_size_hint << 32),
                 text: null,
                 source: exec_builder_make_source(expr.ast_node),
             }) < 0 {
@@ -2414,7 +2425,8 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             a: dst_index,
             b: base_slot_index,
             c: index_slot2,
-            imm: 0,
+            // imm = 元素字节数（同上：给原生指针下标提供 C 布局步长）。
+            imm: expr.int_value,
             text: null,
             source: exec_builder_make_source(expr.ast_node),
         }) < 0 {

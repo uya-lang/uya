@@ -3130,6 +3130,9 @@ fn exec_lower_make_ref_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         }
         addr_index.left = base_expr;
         addr_index.right = index_expr;
+        // `&p[i]` 的元素字节数（ADDR 节点的 bool_value 专用于此）：
+        // 原生结构体指针做下标时 VM 只能靠它拿到 C 布局步长。
+        addr_index.bool_value = exec_lower_size_align_of_type(ctx, copy_type(&expr_type), 1);
         return addr_index;
     }
     const source_expr: &HIRExpr = exec_lower_expr(ctx, expr);
@@ -8025,6 +8028,9 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             }
             deref_expr.left = base_expr;
             deref_expr.right = zero_index_expr;
+            // `*p` 的元素字节数：原生指针（`&EpollEvent`、`&FILE`）解引用时 VM 靠它
+            // 才知道 C 布局步长，否则会退化成旁路表槽位引用，字段访问拿不到原生基址。
+            deref_expr.int_value = exec_lower_size_align_of_type(ctx, copy_type(&expr_type), 1) as i64;
             return deref_expr;
         }
         if exec_type_is_scalar_supported(expr_type) == 0 {
@@ -8886,8 +8892,16 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         var native_kind: i32 = 0;
         var native_pointee: i32 = 0;
         var native_count: i32 = 0;
-        if base_type.kind == TypeKind.TYPE_STRUCT {
-            _ = exec_lower_native_field_layout(ctx, copy_type(&base_type), field_index,
+        // `p.field` / `ptr->field`（自动解引用）：基类型是指针，结构体布局要在
+        // 被指向的类型上算，否则这条字段访问拿不到原生偏移，运行时只能退回
+        // VM 聚合路径，对 `&EpollEvent` 这种原生结构体就是
+        // `LOAD_FIELD 字段越界(idx=1 kind=14 pointee=16)`。
+        var native_layout_type: Type = copy_type(&base_type);
+        if native_layout_type.kind == TypeKind.TYPE_POINTER && native_layout_type.pointer_to != null {
+            native_layout_type = copy_type(&native_layout_type.pointer_to[0]);
+        }
+        if native_layout_type.kind == TypeKind.TYPE_STRUCT {
+            _ = exec_lower_native_field_layout(ctx, native_layout_type, field_index,
                 &native_offset, &native_kind, &native_pointee, &native_count);
         }
         const hir_field: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_FIELD, &expr_type);
@@ -8913,6 +8927,10 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         }
         hir_index.left = base_expr2;
         hir_index.right = index_expr;
+        // 元素字节数：原生指针（`&EpollEvent`、`&FILE` 这类）做下标时，
+        // VM 拿不到 C 布局步长（`exec_vm_type_kind_size(STRUCT) == 0`），
+        // 只能由编译期把元素尺寸带过去。
+        hir_index.int_value = exec_lower_size_align_of_type(ctx, copy_type(&expr_type), 1) as i64;
         return hir_index;
     }
     if expr.type == ASTNodeType.AST_SLICE_EXPR {
