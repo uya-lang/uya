@@ -1225,6 +1225,21 @@ fn exec_lower_expr_type(ctx: &ExecLowerContext, expr: &ASTNode) Type {
             }
         }
     }
+    if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_target_type != null {
+        if expr.cast_expr_is_force_cast == 0 {
+            // `x as &const void`：checker 的静默推断在 `extern "libc"` 带函数体
+            // 这类上下文里会把这个 cast 的目标类型推成 `i64`，于是 lowering 发射
+            // `BC_CAST imm=3`（TYPE_I64），指针被 `exec_vm_numeric_to_i64` 转成
+            // 整数 —— 后续 syscall 出参结构体就定位不到，裸的槽地址被交给内核，
+            // 内核按原生布局写到 ExecValue 头上（`rt_sigaction` 的 `&old_action`
+            // 就是这样把 `slots[5].kind` 写没的）。这里直接按 AST 上的目标类型
+            // 节点解析。
+            const cast_declared: Type = type_from_ast(ctx.checker, expr.cast_expr_target_type);
+            if cast_declared.kind != TypeKind.TYPE_VOID {
+                return cast_declared;
+            }
+        }
+    }
     if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null {
         // 局部变量/参数直接取槽位记录的类型：符号表在 lowering 阶段未必完整
         // （宏展开体、单态化体尤其明显），靠 checker_infer_type 容易退回 void。

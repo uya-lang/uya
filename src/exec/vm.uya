@@ -150,10 +150,15 @@ fn exec_vm_store_slot(slot: &ExecValue, value: ExecValue) void {
     // 目标槽位已经持有同形聚合时逐元素覆盖：循环里反复赋值 `[u64: N]` / 结构体
     // 时不再每次都向 arena 申请整块内存（curve25519 这类纯计算用例原本会按
     // 每秒几十 MB 一路上涨）。
+    const before_kind: i32 = slot[0].kind as i32;
     if exec_vm_store_aggregate_in_place(&slot[0], &value) != 0 {
         return;
     }
-    slot[0] = exec_value_clone(&value);
+    const cloned: ExecValue = exec_value_clone(&value);
+    if before_kind != -1 && value.kind == ExecValueKind.EXEC_VALUE_ERROR_UNION {
+        const cl_agg: &ExecAggregate = exec_value_as_aggregate(&cloned);
+    }
+    slot[0] = cloned;
 }
 
 /// 把值原样写进槽位（不深拷贝）。
@@ -785,13 +790,50 @@ fn exec_vm_syscall_out_struct_target(arg_slot: &ExecValue, raw_address: i64) &Ex
     if raw_address <= 0 {
         return null;
     }
-    const by_address: &ExecValue = raw_address as &ExecValue;
+    var probe: &ExecValue = raw_address as &ExecValue;
+    var by_address: &ExecValue = probe;
+    if by_address.kind != ExecValueKind.EXEC_VALUE_STRUCT &&
+        by_address.kind != ExecValueKind.EXEC_VALUE_ARRAY &&
+        by_address.kind != ExecValueKind.EXEC_VALUE_TUPLE {
+        // 地址可能落在共享槽池里但**没有对齐到槽起始**：lowering 阶段生成的
+        // `&slot` 经 `CAST` 到 `&const void` 时，地址偶尔带 `@size_of(i64)` 的
+        // 偏移（实测 `rt_sigaction` 的 `&old_action` 是 `slots[5] + 8`）。直接用
+        // 这个错位地址读 `kind` 得到垃圾值，出参结构体就判不出来，裸地址被原样
+        // 交给内核 —— 内核按原生 `struct sigaction` 布局写 32 字节，把 ExecValue
+        // 的头（kind）覆盖成 0，之后 `LOAD_FIELD` 全部报「字段越界」。
+        const realigned: &ExecValue = exec_vm_realign_to_slot(raw_address as usize);
+        if realigned != null {
+            by_address = realigned;
+        }
+    }
     if by_address.kind == ExecValueKind.EXEC_VALUE_STRUCT ||
         by_address.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
         by_address.kind == ExecValueKind.EXEC_VALUE_TUPLE {
         return by_address;
     }
     return null;
+}
+
+/// 把落在共享槽池里的地址按 `@size_of(ExecValue)` 向下对齐到槽起始。
+///
+/// 参数：`addr` 待对齐地址。
+/// 返回值：对齐后的槽地址；不在槽池范围内返回 null。
+fn exec_vm_realign_to_slot(addr: usize) &ExecValue {
+    if addr == 0 as usize {
+        return null;
+    }
+    const base: usize = @usize_from_ptr(&g_exec_vm_slot_pool[0] as &void);
+    const slot_bytes: usize = @size_of(ExecValue) as usize;
+    if slot_bytes == 0 as usize {
+        return null;
+    }
+    const total: usize = slot_bytes *| (EXEC_MAX_FRAME_SLOTS as usize);
+    if addr < base || addr >= (base +| total) {
+        return null;
+    }
+    const delta: usize = addr -| base;
+    const aligned: usize = base +| ((delta / slot_bytes) *| slot_bytes);
+    return @ptr_from_usize(aligned) as &ExecValue;
 }
 
 /// 在 `@await` 的操作数里找出 `state: Poll<T>` 那个联合值。
@@ -3256,6 +3298,22 @@ fn exec_vm_host_syscall3(target_kind: i32, target_pointee_kind: i32, nr: i64, a1
     return exec_vm_wrap_syscall_result(@syscall(nr, a1, a2, a3), target_kind, target_pointee_kind);
 }
 
+/// 判断系统调用号是否属于「信号」这一族（解释器里必须走桩）。
+///
+/// 参数：`nr` 系统调用号。
+/// 返回值：1 是；0 否。
+fn exec_vm_is_signal_syscall(nr: i64) i32 {
+    // rt_sigaction=13、rt_sigprocmask=14、kill=62、tgkill=234、tkill=200、
+    // rt_sigreturn=15、rt_sigsuspend=130、sigaltstack=131。
+    if nr == 13 || nr == 14 || nr == 15 || nr == 62 || nr == 130 {
+        return 1;
+    }
+    if nr == 131 || nr == 200 || nr == 234 {
+        return 1;
+    }
+    return 0;
+}
+
 fn exec_vm_host_syscall4(target_kind: i32, target_pointee_kind: i32, nr: i64, a1: i64, a2: i64, a3: i64, a4: i64) ExecValue {
     return exec_vm_wrap_syscall_result(@syscall(nr, a1, a2, a3, a4), target_kind, target_pointee_kind);
 }
@@ -3277,6 +3335,16 @@ fn exec_vm_error_id_from_value(value: ExecValue) i64 {
 }
 
 fn exec_vm_dispatch_host_syscall(target_kind: i32, target_pointee_kind: i32, nr: i64, args: &i64, arg_count: i32) ExecValue {
+    // 信号相关系统调用在解释器里必须降级成桩：VM 没有真实线程/信号语义，
+    // 真把 `rt_sigaction` 交给宿主会给**解释器进程自己**装上信号处理器，
+    // 后续 `raise`/`kill` 直接把解释器打死（test_signal 实测在注册 SIGUSR1
+    // 之后被信号终止，返回码 138）。按 `pthread_*` 的既有处理方式一律返回
+    // 「调用成功、什么都没发生」。**必须放在 `arg_count` 分支之前**：
+    // `tgkill`/`kill` 是 3 参数，会先命中 `arg_count == 3` 直接真发信号。
+    if exec_vm_is_signal_syscall(nr) != 0 {
+        const stub_raw: ExecValue = exec_make_i64(0 as i64);
+        return exec_make_error_union_ok(exec_vm_cast_value(stub_raw, target_kind, target_pointee_kind));
+    }
     if arg_count == 0 {
         return exec_vm_host_syscall0(target_kind, target_pointee_kind, nr);
     }
@@ -3300,6 +3368,64 @@ fn exec_vm_dispatch_host_syscall(target_kind: i32, target_pointee_kind: i32, nr:
     }
     return exec_make_void();
 }
+
+/// 把落在 VM 槽位池里的 syscall 参数地址换成原生缓冲区。
+///
+/// 内核按自己认得的结构体布局读写用户内存。VM 的槽位里放的是 `ExecValue`，
+/// 一旦把槽地址直接交给内核，内核写的几十上百字节就会把 `ExecValue` 的头
+/// （`kind` 字段）覆盖成垃圾 —— `test_signal` 的 `rt_sigaction` 正是这样把
+/// `old_action` 所在的槽写坏，之后所有 `LOAD_FIELD` 都报「字段越界」。
+///
+/// 参数：`frame` 当前帧；`arg_base`/`arg_count` 参数槽范围；`out_mask` 出参位图；
+///       `args` 参数数组（就地改写）。
+/// 返回值：0 成功。
+fn exec_vm_syscall_shield_vm_addresses(frame: &ExecFrame, arg_base: i32, arg_count: i32,
+    out_mask: i32, args: &i64) i32 {
+    if frame == null || args == null || arg_count <= 0 {
+        return 0;
+    }
+    var si: i32 = 0;
+    while si < arg_count && si < 6 {
+        const addr: usize = args[si] as usize;
+        if addr == 0 as usize {
+            si = si + 1;
+            continue;
+        }
+        const slot: &ExecValue = exec_vm_realign_to_slot(addr);
+        if slot == null {
+            si = si + 1;
+            continue;
+        }
+        const is_out: i32 = if (out_mask & (1 << si)) != 0 { 1 } else { 0 };
+        var shield_bytes: usize = 256 as usize;
+        var field_count2: i32 = 0;
+        const field_probe: &ExecAggregate = slot.ptr_value as &ExecAggregate;
+        if field_probe != null && field_probe.values != null && field_probe.count > 0 {
+            field_count2 = field_probe.count;
+            const need: usize = (@size_of(i64) as usize) * (field_probe.count as usize);
+            if need > shield_bytes {
+                shield_bytes = need;
+            }
+        }
+        const scratch2: &i64 = exec_value_alloc_bytes(shield_bytes) as &i64;
+        if scratch2 == null {
+            si = si + 1;
+            continue;
+        }
+        _ = memset(scratch2 as *void, 0, shield_bytes);
+        if is_out == 0 && field_probe != null && field_probe.values != null {
+            var fi: i32 = 0;
+            while fi < field_count2 && fi < 64 {
+                scratch2[fi] = exec_vm_numeric_to_i64(field_probe.values[fi]);
+                fi = fi + 1;
+            }
+        }
+        args[si] = scratch2 as i64;
+        si = si + 1;
+    }
+    return 0;
+}
+
 
 /// 出参结构体：把标记过的参数换成原生缓冲区（内核按原生布局写入），
 /// 调完 syscall 再按字段顺序写回 VM 的聚合值。
@@ -3329,9 +3455,17 @@ fn exec_vm_syscall_marshal_out_struct(function: &BCFunction, frame: &ExecFrame, 
             var field_count: i32 = 0;
             const buffer: &i64 = exec_vm_syscall_out_struct_prepare(target, &field_count);
             if buffer == null {
-                // 目标不是能解析出来的单块结构体（例如 `&EpollEvent` 这类
-                // 「指向结构体数组元素」的指针）：保留原指针继续调 syscall，
-                // 不能因为出参准备失败就把整次系统调用判死（否则解释器会静默退出）。
+                // 目标不是能解析出来的单块结构体。**绝不能把原地址继续交给内核**：
+                // 那个地址多半落在 VM 的槽位池里（`&old_action` 就是 `slots[5]`），
+                // 内核按原生 `struct` 布局往里写会把 ExecValue 的头（`kind`）覆盖掉，
+                // 之后所有 `LOAD_FIELD` 都报「字段越界」（test_signal 的
+                // `rt_sigaction` 就这么坏的）。改成给一块等大的原生缓冲区，
+                // 内核写进缓冲区即可；解析不出字段结构，所以不回填。
+                const scratch: &i64 = exec_value_alloc_bytes(256 as usize) as &i64;
+                if scratch != null {
+                    _ = memset(scratch as *void, 0, 256 as usize);
+                    args[oi] = scratch as i64;
+                }
                 oi = oi + 1;
                 continue;
             }
@@ -3418,6 +3552,10 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
     var out_buffers: [&i64: 6] = [];
     var out_fields: [i32: 6] = [];
     var out_count2: i32 = 0;
+    // 任何指向 VM 槽位池的裸地址参数都要换成原生缓冲区：内核按原生 `struct`
+    // 布局读写，直接拿槽地址过去会把 ExecValue 的头（`kind`）覆盖掉。入参先把
+    // 现有字段值填进缓冲区，出参（`out_mask` 里标过的）由 marshal 负责回填。
+    _ = exec_vm_syscall_shield_vm_addresses(frame, arg_base, arg_count, out_mask, &args[0]);
     if exec_vm_syscall_marshal_out_struct(function, frame, arg_base, arg_count, out_mask, &args[0],
         &out_targets[0] as & & ExecValue, &out_buffers[0] as & & i64, &out_fields[0], &out_count2) != 0 {
         return -1;
