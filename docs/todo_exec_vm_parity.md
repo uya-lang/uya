@@ -2334,10 +2334,25 @@ cleanup scope」再发一遍，自我递归直到 `cleanup scope 嵌套过深`�
 **结论**：`emit_all_cleanup` 需要「跳到哪个 scope 为止」的信息，而单靠
 `emitting_cleanup_scope_plus1` 一个下标表达不了 —— `break` 要发的是**外层
 loop scope**，不是「所有比当前深的 scope」。真正的修法是给 `ExecLoopPatch`
-记录 `cleanup_depth_at_loop_entry`，`break`/`continue` 只发到那个深度为止。
-这是结构性改动（`lower.uya` 的 loop lowering + `builder.uya` 的 patch 栈都要动），
-不适合在收口阶段硬塞。
+记录 `cleanup_depth_at_entry`，`break`/`continue` 只发到那个深度为止。
 
-代码已 `git checkout -- src/exec/builder.uya` 回退，回归确认消失
-（`test_std_async_scheduler` 恢复为快速失败的 `cleanup scope 嵌套过深`，
-不再死循环）。
+**第 5 次尝试（成功，提交 `c14d8d1e`）**：按上面的结论做了结构性改动。
+
+- `ExecLoopPatch` 新增 `cleanup_depth_at_entry`，在 `HIR_STMT_LOOP` 里用
+  `ctx.cleanup_depth` 初始化。
+- 新增 `exec_builder_emit_cleanup_down_to(ctx, stop_depth, include_errdefer)`：
+  从 `cleanup_depth - 1` 倒着发到 `stop_depth` 为止；floor 会被
+  `emitting_cleanup_scope_plus1` 抬高到「正在发射的那个 scope」，避免把栈上的
+  body 再发一遍。
+- `HIR_STMT_BREAK` / `HIR_STMT_CONTINUE` 改用它，`stop_depth` 取
+  `loop_patch.cleanup_depth_at_entry`。
+
+**实测**：`test_std_async_scheduler` 从「整个文件编译失败」→ **前 14 个用例通过**；
+`test_async_scheduler_event_loop_ptr_compile` **转绿**；`make check` 1191/1191 全绿。
+
+剩余 4 个 async 用例（`test_async_multi_fd_concurrent`、`test_async_runtime_shared_dns`、
+`test_std_dns_async_transport`、`test_async_shared_runtime_semantics`）现在**编译通过**，
+运行期卡在 `EventLoop.poll()` → `sys_epoll_wait`。`@syscall` 在 VM 里是「无副作用 +
+返回零值」的桩（实测 `/tmp/t_ep.uya` 得到 `-999`），所以 poll 永远返回 0，
+`while completed < queue.len` 永不退出。这是同步 VM 没有真实 IO 就绪的模型级缺口，
+不是 cleanup 的问题 —— 修它要让 VM 的 `epoll_wait` 真的等到事件或超时。
