@@ -1970,13 +1970,76 @@ VM 现状（本轮起点）：`0 0 | 72 101` —— **写确实落到原生内�
 同样跑不了的用例，exec VM 自身的未实现不能写在这里」。所以 `make exec-parity`
 在本轮仍是红的，红的范围就是上表。
 
+### 第 322 轮：原生结构体指针下标 / 内部引用字节视图 / 浮点隐式窄化
+
+本轮把第 321 轮留下的「谁在写半截指针」问题绕开，直接从**编译期补元信息**入手，
+一次收掉 6 个用例（`test_std_io`、`test_std_io_buffering`、
+`test_stdio_file_buffering`、`test_std_async_event`、`test_std_async_event_fd_reuse`、
+`test_protobuf_wire`）。三个根因：
+
+1. **原生结构体指针下标没有 C 布局步长。** VM 的 `exec_vm_type_kind_size(STRUCT)`
+   恒为 0，`&EpollEvent[i]`、`&FILE[i]` 这类下标只能退回「旁路表槽位引用」，
+   而旁路表是按 `ExecValue` 步进、且槽位常常是零值（kind=VOID），于是字段访问
+   报 `LOAD_FIELD 字段越界(idx=1 kind=14 pointee=16)`。
+   现在 `BC_ADDR_INDEX` / `BC_LOAD_INDEX` / `BC_STORE_INDEX` 的 `imm` 都带上
+   **元素字节数**（`ADDR_INDEX` 低 32 位仍是 pointee kind，高 32 位是元素尺寸），
+   VM 在「基址不在 VM 内存里」时按真实步长算出元素地址；三个降级点补齐来源：
+   `ARRAY_ACCESS` 的 INDEX 节点（`int_value`）、`&arr[i]` 的 ADDR 节点
+   （`bool_value`，ADDR 的 `int_value` 是字段下标不能混用）、`*p` 解引用节点。
+2. **`p.field`（基类型是 `&T`）算不出原生字段布局。** `epoll_event_fd(event: &EpollEvent)`
+   里的 `event.data_lo` 因为基类型是指针而不是结构体，`exec_lower_native_field_layout`
+   直接跳过，运行时又退回 VM 聚合语义 → 字段越界。现在先解一层指针再算布局。
+3. **内部引用的字节视图下标不成立。** `lib/libc/mem.uya` 的 `memcpy` 是 Uya 字节
+   循环（`dest[i] = src[i]`），走不到宿主 `memcpy` 特化；而 `&u64 as &byte` 这类
+   内部引用指向的是 VM 槽里的标量本身，按下标访问会按 `ExecValue` 步进越界。
+   新增「标量字节视图」：pointee 为 byte/u8/i8/void 且目标槽里是多字节标量时，
+   `LOAD_INDEX`/`STORE_INDEX` 直接拆/拼该标量的原始位。`pb_f32_to_bits` 这类
+   `memcpy(&bits, &f, 4)` 位重解释因此成立。
+4. **`var f: f32 = 1.0` 存进去的是 f64 位模式。** C 侧靠赋值隐式转换，VM 的值自带
+   kind，必须显式插 CAST；`exec_lower_coerce_expr` 补了浮点（f32/f64/整数 → f32/f64）
+   的强制转换。少了这一条，即使字节视图正确，`memcpy(&bits, &f, 4)` 也只有读到
+   低 4 字节全 0（f64 1.0 的位模式低半是 0）。
+
+另修 `syscall` 指针实参一律以 `ptr_value` 为准（`i64_value` 在部分数值转换路径上
+会被截成 32 位，把半截地址交给内核），以及 `epoll_ctl` 的 `&EpollEvent` 入参按
+packed 12 字节 C 布局转写进原生缓冲区。
+
+**本轮实测**（只跑受影响 + 原失败清单，未跑全量普查）：
+`test --vm` 侧 `test_std_io` / `test_std_io_buffering` / `test_stdio_file_buffering` /
+`test_std_async_event` / `test_std_async_event_fd_reuse` / `test_protobuf_wire` 全绿；
+`test_std_mem`、`test_math`、`test_std_stdlib_malloc` 等相邻用例无回归。
+原 29 例失败清单实测剩 **23 例**（C 侧全部 rc=0）：
+
+| 类别 | 用例（VM 退出码） |
+| --- | --- |
+| 聚合/堆按 C 布局裸指针算术 | `test_capability_runtime_compat`(11)、`test_libc_heap_bins`(2)、`test_libc_heap_coalescing_adjacent`(2)、`test_libc_heap_realloc_in_place`(1)、`test_libc_heap_tcache`(44)、`test_std_stdlib_malloc`(9) |
+| async 状态机（VM 同步执行到完成） | `test_async_macro_expand`(1)、`test_async_compound_try_await`(2)、`test_async_state_machine`(3)、`test_async_compute_types`(11)、`test_async_compute_generic_wrapper`(2)、`test_async_frame_pool_full`(1)、`test_async_compute_dynamic_resource_pressure`(1) |
+| 线程/线程池 | `test_std_thread`(23)、`test_std_thread_async_boundary`(3)、`test_async_thread_pool_dynamic_growth`(5)、`test_tls_async_runtime_io`(1) |
+| fork/execve + 管道 | `test_osal`(3)、`test_std_script_pipeline_facade`(1) |
+| x86 call gate / 内核模拟 | `test_kernel_sim`(5) |
+| pipeline 错误路径 drop | `test_typed_pipeline_lowering_error`(2) |
+| 浮点格式化 | `test_printf_f`(1) |
+| websocket 重连 | `test_http_websocket_reconnect`(1) |
+
+**下一轮入口**：
+- 堆一族里 `test_libc_heap_realloc_in_place` 已定位为**状态残留**：单独跑第二个
+  test 通过，连跑时 carve 8 次都找不到连续的 A/B/guard 布局 —— 需要用
+  `heap_debug_bin_length` 对比「第 1 个 test 收尾后」的 bin 分布（C 侧 vs VM 侧）。
+- `test_capability_runtime_compat` 的 `capability_registry_entry_ptr` 用
+  `@size_of(T)` 在**VM 聚合**上做裸指针算术（VM 侧元素步长是 `sizeof(ExecValue)`），
+  这是「C 布局假设」类，必须先把聚合的 VM 表示改成原生布局，不是局部补丁能修的。
+- async 一族要的是真正的状态机（VM 目前「async 函数同步执行到完成」，
+  `poll()` 永远返回 Ready），属结构性缺口。
+
 ### T11 收口
 
 - [ ] `uya test --vm` 全量通过（跳过表只保留 C99 侧同样不适用的用例）
-      —— 现状 **823/909（90.5%）**（第 320 轮末复测 `census_r340`，见上表归类 + 第 311–319 轮根因），剩余缺口集中在
+      —— 现状 **≈829/909（91.2%）**（第 320 轮末普查 823 + 第 322 轮收口 6 例；
+      第 322 轮只跑了受影响用例与失败清单，未重跑全量普查），剩余缺口集中在
       async 帧布局（41 例静默失败）、线程（pthread/堆/OSAL 约 10 例，
       同步 VM 无并发语义）、`@c_import`（3 例）与超长函数（`bytecode 指令超出上限`）；
       这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿（阻塞：即上方 29 例，需改解释器内存/执行模型）
+- [ ] `make exec-parity` 全绿（阻塞：第 322 轮后剩 23 例，见上方分类表；其中
+      聚合裸指针算术与 async 状态机属模型级改动）
 - [x] `make check` 全绿（1191 个测试，通过 1191，失败 0；第 309/314/317/320 轮复测均绿）
 - [ ] 合并到 main 并删除工作区
