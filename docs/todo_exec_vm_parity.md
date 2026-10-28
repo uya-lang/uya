@@ -2089,13 +2089,13 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       （pthread/堆/OSAL 约 10 例，同步 VM 无并发语义）、`@c_import`（3 例）、
       `cleanup scope 嵌套过深`（8 例，第 343 轮已定位根因但修复方案三次证否）
       与超长函数（`bytecode 指令超出上限`）；这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿（第 345 轮实测 **914 例 / 一致 832 / 不一致 81**；
+- [ ] `make exec-parity` 全绿（第 345/348 轮实测均 **914 例 / 一致 832 / 不一致 81**；
       81 例的分类见下。与第 342 轮（832/81）逐项一致，说明第 344~346 轮的三处
       修复没有动摇差分口径 —— 但也没有收口，因为剩下的全是模型级缺口：
       async 帧布局与 `@await` 语义 40 例、线程/堆/OSAL 10 例、`@c_import` 3 例、
       超长函数 1 例、以及少量 `cleanup scope 嵌套过深`。
       libc 堆两例的共同根因已定位到「常量折叠把 `CHUNK_STATE_MASK` 算成 2」）
-- [x] `make check` 全绿（1191 个测试，通过 1191，失败 0；第 309/314/317/320/345 轮复测均绿）
+- [x] `make check` 全绿（1191 个测试，通过 1191，失败 0；第 309/314/317/320/345/348 轮复测均绿）
 - [ ] 合并到 main 并删除工作区
 
 ### 第 342 轮：错误联合 error_id 借用、INDEX 基引用、裸指针还原判定收窄
@@ -2409,3 +2409,45 @@ loop scope**，不是「所有比当前深的 scope」。真正的修法是给 `
 代码已全部 `git checkout` 回退（`git status` 干净），确认无回归：
 `test_mem` / `test_std_string` / `test_dyn_table_growth` / `test_std_env` /
 `test_json_from_json_reflect` 均 rc=0。
+
+### 第 349 轮：`memcpy` 补两条缺失组合，`test_tflm_interpreter` 转入正常执行
+
+`lib/tflm/kernels/kernels.uya:29-39` 的 `load_f32` / `store_f32` 写法是
+
+```
+memcpy(&f as &void, &(p[off]) as &const void, 4 as usize);
+```
+
+在 VM 里一律报「内存函数目标是 VM 值，无法按字节写」。原因是宿主 `memcpy`
+分支只处理了两条组合：**两端都是 VM 值**（整体替换或位转换）、**`memset` 零填**；
+漏了「目标是 VM 值本体、源是原生字节」这一条，而这正是从缓冲区读标量的标准写法。
+
+补上两条路径（`src/exec/vm.uya`）：
+
+- `exec_vm_scalar_from_bytes`：目标 kind 是标量时，按小端从源字节拼出位模式，
+  再按 kind 组装（F32/F64 走 `exec_make_f32_bits`/`exec_make_f64_bits`，
+  BOOL 判零，整数直接放 `i64_value` 并改 kind）。
+- `exec_vm_copy_value_bits`：两端都被判成单元素 VM 视图时按字节搬位，
+  目标宽于源补零、窄于源截断。
+
+顺带补了 `exec_vm_scalar_width_bytes` / `exec_vm_kind_is_signed_int` /
+`exec_vm_scalar_byte_at` 三个小工具。
+
+**效果**：`test_tflm_interpreter` 从「运行时错误」变成正常跑完（返回码 5 是数值
+断言差异，C99 侧本来是 `undefined reference to exp` 的链接错误，两边都还没通过，
+但 VM 侧不再卡在 memcpy）。
+
+**门禁**（第 348/349 轮实测）：
+
+- `make check`：1191 个测试，通过 1191，失败 0。
+- `make exec-parity`：914 例 / 一致 832 / 不一致 81，与第 345 轮完全一致，无回归。
+
+**本轮另外查清但未修的三处**（都属同一类「类型信息没建出来」，不是 memcpy 问题）：
+
+- `test_signal`：`lib/libc/signal.uya:205` 的 `signal` 是 `extern "libc"` **带函数体**，
+  VM 里 `action.sa_handler` 的 `LOAD_FIELD` 报 `kind=0 count=-1 pointee=-1`
+  —— 局部 `sigaction` 的类型字段表是空的。单独写 `sigaction{...}` 字面量是正常的，
+  说明问题出在 `extern` 带体这条 lowering 路径上。
+- `test_tls_handshake`：`ADDR_FIELD` 的 `c` 里 pointee kind 解出 **83**（非法值），
+  同一类类型结构破损。
+- `test_libc_stdio_new`：`sscanf` 是变参宿主调用，VM 不支持变参，属模型级限制。
