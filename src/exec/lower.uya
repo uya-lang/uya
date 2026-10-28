@@ -3517,6 +3517,27 @@ fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type:
             }
         }
     }
+    // 浮点窄化/拓宽（`var x: f32 = 1.0`、`f32_to_bits(1.0)`）：C 侧靠赋值的隐式
+    // 转换，VM 的值自带 kind，必须在降级期显式插 CAST，否则 f32 局部/形参槽里
+    // 存的是 f64 位模式，`memcpy(&bits, &f, 4)` 这类位重解释会读到全 0。
+    if expected_type != null &&
+        (expected_type.kind == TypeKind.TYPE_F32 || expected_type.kind == TypeKind.TYPE_F64) {
+        const actual_float_type: Type = exec_lower_expr_type(ctx, expr);
+        if actual_float_type.kind != expected_type.kind &&
+            (actual_float_type.kind == TypeKind.TYPE_F32 || actual_float_type.kind == TypeKind.TYPE_F64 ||
+             is_integer_type(actual_float_type.kind) != 0) {
+            const float_operand: &HIRExpr = exec_lower_expr(ctx, expr);
+            if float_operand == null {
+                return null;
+            }
+            const float_cast: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CAST, expected_type);
+            if float_cast == null {
+                return null;
+            }
+            float_cast.left = float_operand;
+            return float_cast;
+        }
+    }
     return exec_lower_expr(ctx, expr);
 }
 
