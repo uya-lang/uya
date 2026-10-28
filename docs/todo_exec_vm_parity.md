@@ -2356,3 +2356,56 @@ loop scope**，不是「所有比当前深的 scope」。真正的修法是给 `
 返回零值」的桩（实测 `/tmp/t_ep.uya` 得到 `-999`），所以 poll 永远返回 0，
 `while completed < queue.len` 永不退出。这是同步 VM 没有真实 IO 就绪的模型级缺口，
 不是 cleanup 的问题 —— 修它要让 VM 的 `epoll_wait` 真的等到事件或超时。
+
+### 第 348 轮：`TaskQueue.slots[i]` 元素步长退化成 0 的完整根因链（未修，诊断结论）
+
+第 347 轮的 cleanup 修法让 `test_std_async_scheduler` 能编译了，但运行期仍不结束。
+逐层拆下去，根因不在 cleanup，而在 `ADDR_INDEX` 拿到的元素字节数是 0。
+
+**症状**：`lib/std/async_scheduler.uya:1145` 的调度循环里
+`const slot: &TaskQueueSlot<T> = &queue.slots[i as usize];` 之后的
+`slot.active` / `slot.future.poll(...)` 读到的永远是零值 —— `active` 判据失败，
+循环跳过了本轮的 future poll，而 `loop.poll()` 又被 mock 实现正常返回，
+于是 `while completed < queue.len` 永远不退出（100% CPU 空转）。
+
+**逐层证据**（每层都用 `fprintf(libc.stderr, ...)` 打点确认过）：
+
+1. `BC_ADDR_INDEX` 的 `imm` 编码是「低 32 位 pointee kind | 高 32 位元素字节数」。
+   实测该指令的 `imm=16` → `pointee_kind=16`、**元素字节数=0**。
+   元素字节数来自 `exec_lower_expr_inner` 里
+   `hir_index.int_value = exec_lower_size_align_of_type(ctx, copy_type(&expr_type), 1)`，
+   即 `expr_type` 的 `@size_of`。
+2. `exec_lower_size_align_of_type` 返回 **-1**。诊断显示
+   `kind=16(STRUCT) sname=TaskQueueSlot targs=1`。
+3. 它的泛型分支进入后设了 subst（`subst_active=1`、`subst_name=T`、`subst_type=实参`），
+   但 `subst_type.kind` 打印出来是 **28 = TYPE_GENERIC_PARAM**，也就是实参自己还是 `T`。
+   根因：`target_type.struct_type_args[0]` 是 `T` 而不是 `i32` —— 这个类型从未被单态化。
+4. 再往上一层：`saved_active=0`，说明进入 `exec_lower_size_align_of_type` 时
+   **外层根本没有生效的替换上下文**。`@size_of(q.slots[0])` 的 `expr_type` 是
+   `checker_infer_type` 直接给的「声明形态」，单态化信息在这一支里完全丢失。
+5. 继续往下，`compute_struct_size_v2` 对 `TaskQueueSlot<T>` 的 `result: T` 字段
+   （`TypeKind.TYPE_GENERIC_PARAM`）返回 -1；`get_type_size_bytes_v2` 原先连
+   `TYPE_INTERFACE`（`future: Future<!T>`，固定 16 字节）都没处理。
+
+**尝试过的修法（全部回退，无一带来可验证的改善）**：
+
+- 给 `get_type_size_bytes_v2` / `get_type_align_bytes_v2` 加
+  `TYPE_GENERIC_PARAM` 分支按 `checker.subst_*` 替换 → 无效，因为第 4 层证明
+  `subst_active=0`，压根没有可替换的上下文。
+- 给 `get_type_size_bytes_v2` 加 `TYPE_INTERFACE = 16` → 正确但**不充分**，
+  单独加完 `TaskQueueSlot` 仍然算不出尺寸（卡在 `result: T`）。
+- 给 `compute_struct_size_v2` 的泛型分支加 `type_layout_push_subst` +
+  `compute_struct_size_v2` 直接调用 → 无效，`struct_type_args[0]` 仍是 `T`。
+- 让 `checker_eval_const_expr` 的 `@size_of` 分支回退到 v2 → 无效（同上）。
+- 在 `exec_lower_expr_type` 里对 `AST_ARRAY_ACCESS` 从基表达式反推元素类型 →
+  无效，`q.slots` 的类型本身也带未替换的实参。
+
+**净结论**：这不是「补一个 `TYPE_INTERFACE` 分支」能解决的问题，而是
+**`exec` 后端的表达式类型推断缺少单态化上下文**——`@size_of(<表达式>)`
+在单态化体里拿到的是未替换的声明形态。修它需要在 `exec_lower_expr_type` /
+`exec_lower_size_align_of_type` 这一层引入「当前单态化实参表」，让
+`type_from_ast(T)` 能查到具体类型，属于结构性改动。
+
+代码已全部 `git checkout` 回退（`git status` 干净），确认无回归：
+`test_mem` / `test_std_string` / `test_dyn_table_growth` / `test_std_env` /
+`test_json_from_json_reflect` 均 rc=0。
