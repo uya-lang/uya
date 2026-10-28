@@ -127,9 +127,34 @@ fn exec_builder_instr_slot(ctx: &ExecFunctionBuildContext, idx: i32) &BCInstr {
     return null;
 }
 
+/// 在模块里定位一个被调函数。
+///
+/// 三轮匹配，顺序不能颠倒：
+///
+/// 1. **声明 + 名字都相同**：泛型单态副本全都共用同一个 `fn_decl` 指针
+///    （`exec_lower_generic_instances` 反复用原声明降级，只改 `lowered.name`），
+///    只按声明指针找会把 `dump<A>()` 和 `dump<B>()` 全部指向第一个实例，
+///    于是 `@size_of(v)` 之类的单态折叠取到先出现那个类型实参的结果。
+/// 2. **只按声明**：非泛型方法调用，声明唯一。
+/// 3. **只按名字**：宏展开等场景下调用侧没有拿到声明节点。
+///
+/// 参数：`module` HIR 模块；`callee_decl` 调用侧解析到的声明（可为 null）；
+/// `callee_name` 调用侧的名字（可为 null）。
+/// 返回值：模块内下标；找不到返回 -1。
 fn exec_builder_find_function_index(module: &HIRModule, callee_decl: &ASTNode, callee_name: &byte) i32 {
     if module == null {
         return -1;
+    }
+    if callee_decl != null && callee_name != null {
+        var i: i32 = 0;
+        while i < module.function_count {
+            const fn_hir: &HIRFunction = module.functions[i];
+            if fn_hir != null && fn_hir.decl == callee_decl && fn_hir.name != null &&
+                str_equals(fn_hir.name, callee_name) != 0 {
+                return i;
+            }
+            i = i + 1;
+        }
     }
     // 先按声明指针精确匹配，再退回按名字匹配：不同结构体的同名方法（`A.drop` /
     // `B.drop`）名字完全相同，混在一趟里先撞名字会把调用全指向同一个实现
