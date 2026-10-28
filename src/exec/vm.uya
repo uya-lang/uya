@@ -2404,6 +2404,13 @@ fn exec_vm_load_pointer_index(function: &BCFunction, base: ExecValue, index_valu
         // 原生内存里的结构体数组（`&EpollEvent` 之类）：编译期把元素字节数放在
         // 指令 imm 里，这里按真实步长算出元素地址并返回「指向该元素」的指针，
         // 后续字段访问才能走原生字段读写。
+        // 裸地址落在 VM 值竞技场里：指针丢了内部引用编码，目标就是 ExecValue
+        // 本体（与 STORE 侧对称）。
+        if exec_vm_address_is_vm_resident(base_addr) {
+            const direct_elem: &ExecValue = @ptr_from_usize(base_addr) as &ExecValue;
+            out_value[0] = exec_value_clone(direct_elem);
+            return 0;
+        }
         if elem_size_hint > 0 as usize && !exec_vm_address_is_vm_resident(base_addr) {
             out_value[0] = exec_make_pointer_with_kind(base_addr + (index_value as usize) * elem_size_hint,
                 pointee_kind);
@@ -2532,6 +2539,14 @@ fn exec_vm_store_pointer_index(function: &BCFunction, base: ExecValue, index_val
         elem_size = 1 as usize;
     }
     if elem_size == 0 as usize {
+        // 裸地址落在 VM 值竞技场里：指针虽然丢了内部引用编码，目标仍是
+        // ExecValue 本体（`@ptr_from_usize(&arr[i])` 后再 `*p = v` 就是这个形态）。
+        // 直接整块替换，不能退化成旁路表，否则写进影子槽、读回仍是旧值。
+        if exec_vm_address_is_vm_resident(base_addr) {
+            const direct_elem: &ExecValue = @ptr_from_usize(base_addr) as &ExecValue;
+            direct_elem[0] = exec_value_clone(&src_value);
+            return 0;
+        }
         // 原生结构体数组：不可就地写到 C 布局里（元素类型是 VM 聚合），
         // 只能按旁路表槽位写入；有元素步长时至少保证下标不串位。
         const agg_slot: &ExecValue = exec_vm_native_agg_slot(base_addr, index_value);
