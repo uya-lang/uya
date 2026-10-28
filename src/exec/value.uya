@@ -1151,11 +1151,23 @@ fn exec_value_truthy(value: ExecValue) i32 {
     return 0;
 }
 
+/// 取错误值/错误联合携带的错误 id。
+///
+/// 错误联合的 `error_id` 字段在 **ok** 状态下被借去保存载荷的 aux 位
+/// （指针的 pointee kind、裸数组的元素类型码、向量通道数），不能当成
+/// 错误 id 返回：`const r: !&byte = ...; r.error_id` 否则会读到 10
+/// （BYTE 的 TypeKind），把成功值误判成 `error.Bad`。
+///
+/// 参数：`value` 错误值或错误联合值。
+/// 返回值：错误 id；ok 状态与非错误值一律返回 0。
 fn exec_value_error_id(value: ExecValue) i32 {
     if value.kind == ExecValueKind.EXEC_VALUE_ERROR {
         return value.error_id;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_ERROR_UNION {
+        if value.i64_value == 0 {
+            return 0;
+        }
         return value.error_id;
     }
     return 0;

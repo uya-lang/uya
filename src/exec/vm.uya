@@ -5456,6 +5456,20 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             if byte_view_load < 0 {
                 return -1;
             }
+            // INDEX 基引用已经指向 aggregate.values 里的某个元素（`&arr[0]` 传参后
+            // 再 `p[i]`）：必须按 ExecValue 步进取第 i 个元素，不能拿元素的指针值
+            // 去解引用 —— `&&byte` 形参时 target 本身是 STRING，一解引用就变成
+            // 首字符的字节值（`args[1]` 拿到 'l' 而不是 "beta"）。
+            if exec_vm_pointer_is_index_base_ref(slot_b) != 0 {
+                const index_ref_ib: &ExecValue = exec_vm_index_ref(slot_b, index_value);
+                if index_ref_ib == null {
+                    exec_backend_set_error(function.decl, "exec: LOAD_INDEX 越界" as *byte, 0);
+                    return -1;
+                }
+                exec_vm_store_slot(slot_a, index_ref_ib[0]);
+                frame.ip = frame.ip + 1;
+                return 0;
+            }
             if exec_value_is_raw_array(base_target2) != 0 {
                 const raw_ptr_value4: ExecValue = exec_vm_raw_array_element_ptr(base_target2, index_value);
                 if raw_ptr_value4.kind != ExecValueKind.EXEC_VALUE_POINTER {
