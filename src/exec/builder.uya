@@ -1464,6 +1464,22 @@ fn exec_builder_field_addr_element_kind(expr: &HIRExpr) i32 {
     return 0;
 }
 
+/// 计算「字段/下标存储的对象基址」槽位。
+/// 对象的静态类型是 POINTER 时（`p.field.x = v`、`p.items[i] = v`），基址必须是
+/// **指针值本身**（VM 侧按指针解引用算原生基址），不能取「指针槽的地址」——
+/// 后者对原生结构体里的指针字段恰好是那块内存的地址，写入会静默落到结构体内部，
+/// 既不报错也不生效：libc 堆的空闲链表 `chunk.next.prev = null` 就是这么失效的，
+/// bin 里留下悬挂项，之后 malloc 找不到连续块（carve 8 次全失败）。
+fn exec_builder_compile_object_base_slot(ctx: &ExecFunctionBuildContext, expr: &HIRExpr, ast_node: &ASTNode) i32 {
+    if ctx == null || expr == null {
+        return -1;
+    }
+    if exec_builder_effective_kind_code(&expr.type_ref.type) == TypeKind.TYPE_POINTER as i32 {
+        return exec_builder_compile_expr(ctx, expr);
+    }
+    return exec_builder_compile_addressable_expr_slot(ctx, expr, ast_node);
+}
+
 fn exec_builder_compile_addressable_expr_slot(ctx: &ExecFunctionBuildContext, expr: &HIRExpr, ast_node: &ASTNode) i32 {
     if ctx == null || expr == null {
         return -1;
@@ -1506,7 +1522,7 @@ fn exec_builder_compile_addressable_expr_slot(ctx: &ExecFunctionBuildContext, ex
         return dst_global_addr;
     }
     if expr.kind == HIRExprKind.HIR_EXPR_FIELD {
-        const base_slot_addr: i32 = exec_builder_compile_addressable_expr_slot(ctx, expr.left, ast_node);
+        const base_slot_addr: i32 = exec_builder_compile_object_base_slot(ctx, expr.left, ast_node);
         const dst_field_addr: i32 = exec_builder_new_temp(ctx);
         if base_slot_addr < 0 || dst_field_addr < 0 {
             return -1;
@@ -1534,7 +1550,7 @@ fn exec_builder_compile_addressable_expr_slot(ctx: &ExecFunctionBuildContext, ex
         return dst_field_addr;
     }
     if expr.kind == HIRExprKind.HIR_EXPR_INDEX {
-        const base_slot_index_addr: i32 = exec_builder_compile_addressable_expr_slot(ctx, expr.left, ast_node);
+        const base_slot_index_addr: i32 = exec_builder_compile_object_base_slot(ctx, expr.left, ast_node);
         const index_slot_addr: i32 = exec_builder_compile_expr(ctx, expr.right);
         const dst_index_addr: i32 = exec_builder_new_temp(ctx);
         if base_slot_index_addr < 0 || index_slot_addr < 0 || dst_index_addr < 0 {
@@ -1578,7 +1594,7 @@ fn exec_builder_compile_lvalue_store(ctx: &ExecFunctionBuildContext, target: &HI
         });
     }
     if target.kind == HIRExprKind.HIR_EXPR_FIELD {
-        const base_slot: i32 = exec_builder_compile_addressable_expr_slot(ctx, target.left, ast_node);
+        const base_slot: i32 = exec_builder_compile_object_base_slot(ctx, target.left, ast_node);
         if base_slot < 0 {
             return -1;
         }
@@ -1593,7 +1609,7 @@ fn exec_builder_compile_lvalue_store(ctx: &ExecFunctionBuildContext, target: &HI
         });
     }
     if target.kind == HIRExprKind.HIR_EXPR_INDEX {
-        const base_slot2: i32 = exec_builder_compile_addressable_expr_slot(ctx, target.left, ast_node);
+        const base_slot2: i32 = exec_builder_compile_object_base_slot(ctx, target.left, ast_node);
         const index_slot: i32 = exec_builder_compile_expr(ctx, target.right);
         if base_slot2 < 0 || index_slot < 0 {
             return -1;
