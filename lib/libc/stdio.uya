@@ -660,6 +660,170 @@ export extern "libc" fn fgetc(stream: &FILE) i32 {
 // 支持：普通数值、NaN、Infinity、科学计数法（大数/小数）
 // g_format: 非0 时按 %g/%G 的有效数字精度解释 precision
 // force_scientific: 非0 时强制科学计数法；scientific_uppercase: 非0 时指数用 'E'；uppercase_inf_nan: 非0 时输出 INF/NAN（C99 %F/%G）
+// ============================================================
+// f64 -> 十进制有效数字（精确转换）
+// 逐位乘 10 在 17 位有效数字（DBL_MAX 这类）会差最后一位，与 glibc 不一致；
+// 这里用「尾数 × 2^e / 5^k」的整数大数运算得到**精确**的前若干位十进制数字，
+// 再按 glibc 的「就近舍入、半偶」规则取位。
+// ============================================================
+
+const FMT_DIGIT_CHARS: &const byte = "0123456789";
+const FMT_LIMB_BASE: u64 = 1000000000u64;
+const FMT_POW10_TABLE: [u64: 9] = [1u64, 10u64, 100u64, 1000u64, 10000u64,
+    100000u64, 1000000u64, 10000000u64, 100000000u64];
+const FMT_MAX_LIMBS: i32 = 96;
+
+fn _fmt_bignum_mul_small(limbs: &u64, count: &i32, factor: u64) void {
+    if limbs == null || count == null {
+        return;
+    }
+    var carry: u64 = 0u64;
+    var i: i32 = 0;
+    while i < count[0] {
+        const v: u64 = limbs[i] * factor + carry;
+        limbs[i] = v % FMT_LIMB_BASE;
+        carry = v / FMT_LIMB_BASE;
+        i = i + 1;
+    }
+    if carry != 0u64 && count[0] < FMT_MAX_LIMBS {
+        limbs[count[0]] = carry;
+        count[0] = count[0] +| 1;
+    }
+}
+
+fn _fmt_f64_to_bits(value: f64) u64 {
+    var bits: u64 = 0u64;
+    _ = memcpy((&bits) as *byte, (&value) as *const byte, 8 as usize);
+    return bits;
+}
+
+/// 取大整数第 `p` 位十进制数字（0 = 最高位）。
+fn _fmt_decimal_digit(limbs: &u64, total: i32, p: i32) u64 {
+    const place: i32 = total -| 1 -| p;
+    if place < 0 {
+        return 0u64;
+    }
+    const limb: i32 = place / 9;
+    if limb < 0 || limb >= FMT_MAX_LIMBS {
+        return 0u64;
+    }
+    var off: i32 = place -| limb *| 9;
+    if off < 0 || off >= 9 {
+        off = 0;
+    }
+    if off < 0 || off >= 9 {
+        return 0u64;
+    }
+    return (limbs[limb] / FMT_POW10_TABLE[off as usize]) % 10u64;
+}
+
+/// 精确提取 f64 的前 `want` 位有效数字（ASCII，不补 0 结尾）。
+/// 参数：`value` 正有限值；`want` 1..19；`out_digits` 输出缓冲；`out_exp` 十进制指数。
+/// 返回值：1 成功；0 表示不支持（调用方回退到逐位乘 10）。
+fn _fmt_exact_digits(value: f64, want: i32, out_digits: &byte, out_exp: &i32) i32 {
+    if out_digits == null || out_exp == null {
+        return 0;
+    }
+    if !(value > 0.0) || want <= 0 || want > 19 {
+        return 0;
+    }
+    const bits: u64 = _fmt_f64_to_bits(value);
+    const exp_bits: u64 = (bits >> (52 as i32)) & 2047u64;
+    const exp_field: i32 = exp_bits as i32;
+    var mant: u64 = bits & (0xFFFFFFFFFFFFF as u64);
+    var e2: i32 = 0;
+    if exp_field == 0 {
+        // 次正规数：没有隐含的最高位。
+        e2 = 0 - 1074;
+    } else {
+        mant = mant | (1u64 << (52 as i32));
+        e2 = exp_field -| 1075;
+    }
+    var limbs: [u64: FMT_MAX_LIMBS] = [];
+    // 10^9 进制：尾数 <= 2^53 < 10^17，最多三节。
+    limbs[0] = mant % FMT_LIMB_BASE;
+    limbs[1] = (mant / FMT_LIMB_BASE) % FMT_LIMB_BASE;
+    limbs[2] = mant / 1000000000000000000u64;
+    var count: i32 = 3;
+    while count > 1 && limbs[count - 1] == 0u64 {
+        count = count - 1;
+    }
+    // value = mant * 2^e2；e2 >= 0 时就是整数 mant*2^e2，
+    // e2 < 0 时 value = (mant * 5^k) / 10^k（k = -e2）。
+    var k: i32 = 0;
+    if e2 >= 0 {
+        var t: i32 = 0;
+        while t < e2 {
+            _fmt_bignum_mul_small(&limbs[0], &count, 2u64);
+            t = t + 1;
+        }
+    } else {
+        var t2: i32 = 0;
+        while t2 < 0 - e2 {
+            _fmt_bignum_mul_small(&limbs[0], &count, 5u64);
+            t2 = t2 + 1;
+        }
+        k = 0 - e2;
+    }
+    var top_digits: i32 = 1;
+    var probe: u64 = limbs[count - 1];
+    while probe >= 10u64 {
+        probe = probe / 10u64;
+        top_digits = top_digits +| 1;
+    }
+    const total: i32 = (count -| 1) *| 9 +| top_digits;
+    var d: i32 = 0;
+    while d < want {
+        out_digits[d] = FMT_DIGIT_CHARS[_fmt_decimal_digit(&limbs[0], total, d) as usize];
+        d = d + 1;
+    }
+    // 四舍五入：看下一位 + 后面是否还有非零（半偶规则，与 glibc 一致）。
+    const next_digit: u64 = _fmt_decimal_digit(&limbs[0], total, want);
+    var sticky: i32 = 0;
+    var p: i32 = want +| 1;
+    while p < total {
+        if _fmt_decimal_digit(&limbs[0], total, p) != 0u64 {
+            sticky = 1;
+            break;
+        }
+        p = p + 1;
+    }
+    var round_up: i32 = 0;
+    if next_digit > 5u64 {
+        round_up = 1;
+    } else if next_digit == 5u64 {
+        if sticky != 0 {
+            round_up = 1;
+        } else if (_fmt_decimal_digit(&limbs[0], total, want - 1) % 2u64) == 1u64 {
+            round_up = 1;
+        }
+    }
+    var pos: i32 = want -| 1;
+    while round_up != 0 && pos >= 0 {
+        const cur: u64 = _fmt_decimal_digit(&limbs[0], total, pos) + 1u64;
+        if cur > 9u64 {
+            out_digits[pos] = FMT_DIGIT_CHARS[0];
+            pos = pos -| 1;
+        } else {
+            out_digits[pos] = FMT_DIGIT_CHARS[cur as usize];
+            round_up = 0;
+        }
+    }
+    if round_up != 0 {
+        // 全是 9：进位后变成 1 后面跟零，指数 +1。
+        var z: i32 = 0;
+        while z < want {
+            out_digits[z] = FMT_DIGIT_CHARS[0];
+            z = z + 1;
+        }
+        out_digits[0] = FMT_DIGIT_CHARS[1];
+        out_exp[0] = total -| k;
+        return 1;
+    }
+    out_exp[0] = total -| 1 -| k;
+    return 1;
+}
+
 fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precision: i32, g_format: i32, force_scientific: i32, scientific_uppercase: i32, uppercase_inf_nan: i32, alt_form: i32) usize {
     var pos: usize = buf_pos;
     if pos >= buf_max { return pos; }
@@ -789,36 +953,56 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
             frac_prec = frac_prec - 1;
         }
 
+        // 精确的二进制->十进制取位（逐位乘 10 在 17 位有效数字上与 glibc
+        // 差最后一位，`%#.17g` 的 DBL_MAX 就是典型）。
+        var exact_digits: [byte: 24] = [];
+        var exact_exp: i32 = 0;
+        var use_exact: i32 = 0;
+        if frac_prec >= 0 && frac_prec +| 1 <= 19 {
+            use_exact = _fmt_exact_digits(x, frac_prec +| 1, &exact_digits[0], &exact_exp);
+        }
         // 输出整数部分
-        const int_digit: i32 = normalized as i32;
+        var int_digit: i32 = normalized as i32;
+        if use_exact != 0 {
+            int_digit = (exact_digits[0] as i32) -| 48;
+            exp = exact_exp;
+        }
         buf[pos] = (48 +| int_digit) as byte;
         pos = pos + 1;
 
-        // 输出小数部分。
-        // 注：17 位有效数字（如 %#.17g 的 DBL_MAX）已到 f64 精度极限，
-        // 逐位乘 10 会差最后一位，与 glibc 尚不一致。
+        // 输出小数部分
         const sci_frac_start: usize = pos;
         if frac_prec > 0 && pos < buf_max {
             buf[pos] = 46;
             pos = pos + 1;
-            var frac: f64 = normalized - (int_digit as f64);
+            var frac: f64 = 0.0;
+            if use_exact == 0 {
+                frac = normalized - (int_digit as f64);
+            }
             var k: i32 = 0;
             while k < frac_prec && pos < buf_max {
-                frac = frac * 10.0;
-                const d: i32 = frac as i32;
-                buf[pos] = (48 +| d) as byte;
-                pos = pos + 1;
-                frac = frac - (d as f64);
+                if use_exact != 0 {
+                    if k +| 1 < 24 {
+                        buf[pos] = exact_digits[k +| 1];
+                        pos = pos + 1;
+                    }
+                } else {
+                    frac = frac * 10.0;
+                    const d: i32 = frac as i32;
+                    buf[pos] = (48 +| d) as byte;
+                    pos = pos + 1;
+                    frac = frac - (d as f64);
+                }
                 k = k + 1;
             }
         }
         if g_format != 0 && alt_form == 0 {
             // %g 去掉小数尾零（必要时连小数点一起去掉）：1.50000e+10 -> 1.5e+10
             while pos > sci_frac_start && buf[pos - 1] == 48 {
-                pos = pos - 1;
+                pos = pos -| 1;
             }
             if pos > sci_frac_start && buf[pos - 1] == 46 {
-                pos = pos - 1;
+                pos = pos -| 1;
             }
         }
 
@@ -948,10 +1132,10 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
         if g_format != 0 && alt_form == 0 {
             // %g 去掉小数尾零（必要时连小数点一起去掉）：3.50000 -> 3.5
             while pos > fixed_frac_start && buf[pos - 1] == 48 {
-                pos = pos - 1;
+                pos = pos -| 1;
             }
             if pos > fixed_frac_start && buf[pos - 1] == 46 {
-                pos = pos - 1;
+                pos = pos -| 1;
             }
         }
     }
@@ -1068,7 +1252,7 @@ fn _fmt_f64_hex_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, pre
     if default_precision {
         while pos > frac_start_pos {
             if buf[pos - 1] != 48 { break; }
-            pos = pos - 1;
+            pos = pos -| 1;
         }
         if pos == frac_start_pos {
             pos = frac_dot_pos;
