@@ -2451,3 +2451,42 @@ memcpy(&f as &void, &(p[off]) as &const void, 4 as usize);
 - `test_tls_handshake`：`ADDR_FIELD` 的 `c` 里 pointee kind 解出 **83**（非法值），
   同一类类型结构破损。
 - `test_libc_stdio_new`：`sscanf` 是变参宿主调用，VM 不支持变参，属模型级限制。
+
+### 第 350 轮：`test_signal` 从「运行时崩溃」转为「语义差异」；parity 超时口径说明
+
+**两处修复**（`src/exec/vm.uya`，提交 `ff30dafb`）：
+
+1. `exec_vm_syscall_shield_vm_addresses` —— 内核按自己认得的布局读写用户内存，
+   而 VM 槽位里放的是 `ExecValue`。`rt_sigaction` 的 `&old_action` 直接就是
+   `slots[5]` 的地址，内核写 32 字节就把 `ExecValue` 的头（`kind`）覆盖成垃圾，
+   之后所有 `LOAD_FIELD` 都报 `字段越界(idx=0 kind=0 count=-1 pointee=-1)`。
+   现在 `out_mask` 标记过的出参结构体一律换成原生缓冲区：调 syscall 前把现有
+   字段值填进去，调完由 `exec_vm_syscall_marshal_out_struct` 回填。
+   配套补 `exec_vm_realign_to_slot`：lowering 生成的 `&slot` 经 `CAST` 到
+   `&const void` 偶尔带 8 字节偏移（实测 `&old_action` 是 `slots[5] + 8`）。
+
+2. `exec_vm_is_signal_syscall` —— VM 没有真实线程/信号语义，真把 `rt_sigaction`
+   交给宿主会给**解释器进程自己**装上信号处理器，后续 `raise`/`kill` 直接把
+   解释器打死（返回码 138，实测 SIGUSR1）。按 `pthread_*` 的既有方式一律返回
+   「调用成功、什么都没发生」。桩必须放在 `arg_count` 分支**之前**：
+   `tgkill`/`kill` 是 3 参数，会先命中 `arg_count == 3` 直接真发信号。
+
+**结果**：`test_signal` 从 rc=1（运行时崩溃）变成 rc=2 —— 4 个测试通过、
+2 个失败（`signal_handler_is_invoked` / `sigprocmask_blocks_delivery` 依赖
+真实信号送达，VM 里没有，属预期语义差异）。
+
+**关于 `make exec-parity` 的 93/81 差异（不是回归）**：
+
+第 350 轮测得 914 例 / 一致 821 / 不一致 93，比第 345 轮的 81 多 12 个。
+逐个核对后确认全部是**超时口径**问题，不是功能回归：
+
+- `test_crypto_bigint_modexp4096`、`test_crypto_bigint`、`test_epoll_server`、
+  以及若干 `test_async_*` 在 parity 的 `UYA_PARITY_TIMEOUT`（默认 180s、本轮
+  降到 120s）下超时。单独跑 `test_crypto_bigint_modexp4096` 实测**耗时 398 秒、
+  返回码 0**，是纯计算型用例本身的耗时问题。第 345 轮用默认 300s 超时才没过。
+- `test_mem` 的 **C99 侧**稳定 rc=139（段错误），与 exec 后端无关；清空
+  `src/exec/*` 改动的基线同样 rc=139，确认既有问题。
+- 其余 81 个与第 345 轮完全一致。
+
+所以本轮的结论是：**功能无回归**，`make check` 1191/1191 全绿；parity 的
+数字需要用 `UYA_PARITY_TIMEOUT=600 UYA_PARITY_JOBS=8` 才能与第 345 轮可比。
