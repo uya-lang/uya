@@ -2327,6 +2327,166 @@ fn exec_vm_mem_view(value: &ExecValue, out_capacity: &usize, out_view: &i32) &by
     return null;
 }
 
+/// 从原生字节缓冲区读出一个标量 VM 值（`memcpy(&scalar, raw_bytes, n)` 用）。
+///
+/// 只处理标量 kind：整数/浮点/布尔/指针。聚合类型（结构体/数组/切片）按字节
+/// 复制没有意义，交回调用方报错。
+///
+/// 参数：`kind` 目标值的 ExecValueKind；`src` 源字节；`count` 字节数；
+///       `out_target` 就地的目标值。
+/// 返回值：0 成功；-1 该 kind 不支持。
+fn exec_vm_scalar_from_bytes(kind: ExecValueKind, src: &byte, count: usize, out_target: &ExecValue) i32 {
+    if src == null || out_target == null {
+        return -1;
+    }
+    var raw: [byte: 8] = [0: 8];
+    const width: usize = exec_vm_scalar_width_bytes(kind);
+    if width == 0 as usize {
+        return -1;
+    }
+    const copy_len: usize = if count < width { count } else { width };
+    var i: usize = 0;
+    while i < copy_len {
+        raw[i] = src[i];
+        i = i + 1;
+    }
+    var bits: i64 = 0;
+    var bi: usize = 0;
+    while bi < 8 as usize {
+        bits = bits | ((raw[bi] as i64) << ((bi as i32) * 8));
+        bi = bi + 1;
+    }
+    if kind == ExecValueKind.EXEC_VALUE_F32 {
+        out_target[0] = exec_make_f32_bits(bits as u32);
+        return 0;
+    }
+    if kind == ExecValueKind.EXEC_VALUE_F64 {
+        out_target[0] = exec_make_f64_bits(bits as u64);
+        return 0;
+    }
+    if kind == ExecValueKind.EXEC_VALUE_BOOL {
+        out_target[0] = exec_make_bool(bits != 0);
+        return 0;
+    }
+    if exec_vm_kind_is_signed_int(kind) != 0 {
+        out_target[0] = exec_make_i64(bits);
+        out_target[0].kind = kind;
+        return 0;
+    }
+    out_target[0] = exec_make_i64(bits);
+    out_target[0].kind = kind;
+    return 0;
+}
+
+/// 把 `src` 的位按 `count` 字节搬进 `dst`（两者都已是 VM 值本体）。
+///
+/// `memcpy(&dst, &src, n)` 在两个操作数都被判成单元素 VM 视图时用：语义就是
+/// 「按字节复制」，所以只要双方宽度容得下 `count`，搬位即可。目标宽度大于源宽度
+/// 时高位补零；窄于源时截断。
+///
+/// 参数：`src` 源值；`dst` 目标值（就地修改）；`count` 字节数。
+/// 返回值：0 成功；-1 不适用（非标量）。
+fn exec_vm_copy_value_bits(src: &ExecValue, dst: &ExecValue, count: usize) i32 {
+    if src == null || dst == null {
+        return -1;
+    }
+    const dst_width: usize = exec_vm_scalar_width_bytes(dst.kind);
+    if dst_width == 0 as usize {
+        return -1;
+    }
+    const src_width: usize = exec_vm_scalar_width_bytes(src.kind);
+    if src_width == 0 as usize {
+        return -1;
+    }
+    var raw: [byte: 8] = [0: 8];
+    var wi: usize = 0;
+    while wi < src_width {
+        raw[wi] = exec_vm_scalar_byte_at(src, wi);
+        wi = wi + 1;
+    }
+    var bits: i64 = 0;
+    var bi: usize = 0;
+    const take: usize = if count < dst_width { count } else { dst_width };
+    while bi < take {
+        bits = bits | ((raw[bi] as i64) << ((bi as i32) *| 8));
+        bi = bi + 1;
+    }
+    if dst.kind == ExecValueKind.EXEC_VALUE_F32 {
+        dst[0] = exec_make_f32_bits(bits as u32);
+        dst[0].kind = dst.kind;
+        return 0;
+    }
+    if dst.kind == ExecValueKind.EXEC_VALUE_F64 {
+        dst[0] = exec_make_f64_bits(bits as u64);
+        dst[0].kind = dst.kind;
+        return 0;
+    }
+    if dst.kind == ExecValueKind.EXEC_VALUE_BOOL {
+        dst[0] = exec_make_bool(bits != 0);
+        return 0;
+    }
+    dst[0] = exec_make_i64(bits);
+    dst[0].kind = dst.kind;
+    return 0;
+}
+
+/// 取一个标量 VM 值的第 `idx` 个字节（小端）。
+///
+/// 参数：`v` 标量值；`idx` 字节下标。
+/// 返回值：该字节。
+fn exec_vm_scalar_byte_at(v: &ExecValue, idx: usize) byte {
+    if v == null {
+        return 0 as byte;
+    }
+    var bits: i64 = v.i64_value;
+    if v.kind == ExecValueKind.EXEC_VALUE_F32 {
+        bits = v.i64_value;
+    } else if v.kind == ExecValueKind.EXEC_VALUE_F64 {
+        bits = v.i64_value;
+    } else if v.kind == ExecValueKind.EXEC_VALUE_POINTER {
+        bits = v.ptr_value as i64;
+    }
+    const shift: i32 = (idx as i32) *| 8;
+    return ((bits >> shift) & 0xFF) as byte;
+}
+
+/// 标量 kind 的字节宽度；聚合/非标量返回 0。
+///
+/// 参数：`kind` ExecValueKind。
+/// 返回值：字节数。
+fn exec_vm_scalar_width_bytes(kind: ExecValueKind) usize {
+    if kind == ExecValueKind.EXEC_VALUE_I8 || kind == ExecValueKind.EXEC_VALUE_U8 ||
+        kind == ExecValueKind.EXEC_VALUE_BOOL || kind == ExecValueKind.EXEC_VALUE_BYTE {
+        return 1 as usize;
+    }
+    if kind == ExecValueKind.EXEC_VALUE_I16 || kind == ExecValueKind.EXEC_VALUE_U16 {
+        return 2 as usize;
+    }
+    if kind == ExecValueKind.EXEC_VALUE_I32 || kind == ExecValueKind.EXEC_VALUE_U32 ||
+        kind == ExecValueKind.EXEC_VALUE_F32 {
+        return 4 as usize;
+    }
+    if kind == ExecValueKind.EXEC_VALUE_I64 || kind == ExecValueKind.EXEC_VALUE_U64 ||
+        kind == ExecValueKind.EXEC_VALUE_F64 || kind == ExecValueKind.EXEC_VALUE_ISIZE ||
+        kind == ExecValueKind.EXEC_VALUE_USIZE || kind == ExecValueKind.EXEC_VALUE_POINTER {
+        return 8 as usize;
+    }
+    return 0 as usize;
+}
+
+/// 该 kind 是否为有符号整数（决定从字节还原时是否需要符号扩展）。
+///
+/// 参数：`kind` ExecValueKind。
+/// 返回值：1 有符号；0 无符号/非整数。
+fn exec_vm_kind_is_signed_int(kind: ExecValueKind) i32 {
+    if kind == ExecValueKind.EXEC_VALUE_I8 || kind == ExecValueKind.EXEC_VALUE_I16 ||
+        kind == ExecValueKind.EXEC_VALUE_I32 || kind == ExecValueKind.EXEC_VALUE_I64 ||
+        kind == ExecValueKind.EXEC_VALUE_ISIZE {
+        return 1;
+    }
+    return 0;
+}
+
 /// 把 VM 值原地清零（保留结构形状，等价于对底层字节 memset 0）。
 /// 参数：`target` 目标值。
 /// 返回值：无。
@@ -3671,6 +3831,34 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                 }
                 out_value[0] = mem_dst[0];
                 return 0;
+            }
+            // 目标是 VM 值本体、**源是原生缓冲区**（`memcpy(&f, &buf[off], 4)`，
+            // 典型形态是 tflm 的 `load_f32`）。按字节读源、再按目标 kind 组装值。
+            if site.id != ExecHostCallId.EXEC_HOST_CALL_MEMSET && mem_src_ptr != null {
+                if src_view != EXEC_MEM_VIEW_VALUE {
+                    const dst_target3: &ExecValue = exec_vm_ref_target_value(mem_dst);
+                    if dst_target3 != null {
+                        const wrote: i32 = exec_vm_scalar_from_bytes(
+                            dst_target3[0].kind, mem_src_ptr, mem_count, dst_target3);
+                        if wrote == 0 {
+                            out_value[0] = mem_dst[0];
+                            return 0;
+                        }
+                    }
+                }
+            }
+            // 源也是 VM 视图，但它指向的是单个标量（`&(p[off])` 里 `p` 是
+            // VM 里的指针值）：把源值按字节展开，再装进目标。tflm 的
+            // `load_f32` 就走这条 —— 源 `&(p[off])` 被判成 single-element 视图。
+            if site.id != ExecHostCallId.EXEC_HOST_CALL_MEMSET {
+                const src_target3: &ExecValue = exec_vm_ref_target_value(mem_second);
+                const dst_target4: &ExecValue = exec_vm_ref_target_value(mem_dst);
+                if src_target3 != null && dst_target4 != null {
+                    if exec_vm_copy_value_bits(src_target3, dst_target4, mem_count) == 0 {
+                        out_value[0] = mem_dst[0];
+                        return 0;
+                    }
+                }
             }
             exec_backend_set_error(function.decl, "exec: 内存函数目标是 VM 值，无法按字节写" as *byte, 0);
             return -1;
