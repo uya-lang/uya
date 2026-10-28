@@ -2021,7 +2021,15 @@ fn exec_vm_pointer_add(function: &BCFunction, base: &ExecValue, offset: &ExecVal
         return exec_make_void();
     }
     const pointee_kind: i32 = exec_value_pointer_pointee_kind(base);
-    const elem_size: usize = exec_vm_type_kind_size(pointee_kind);
+    var elem_size: usize = exec_vm_type_kind_size(pointee_kind);
+    var eff_pointee: i32 = pointee_kind;
+    if elem_size == 0 as usize && pointee_kind == TypeKind.TYPE_VOID as i32 {
+        // `&byte` / `&void` 的字节指针：pointee 编码可能是 VOID（字段读取路径
+        // 只带宽度不带元素类型）。与 `exec_vm_load_pointer_index` /
+        // `exec_vm_store_pointer_index` 保持一致，按 1 字节步进，而不是直接报错。
+        eff_pointee = TypeKind.TYPE_BYTE as i32;
+        elem_size = 1 as usize;
+    }
     if elem_size == 0 as usize {
         exec_backend_set_error(function.decl, "exec: 指针算术不支持该元素类型" as *byte, 0);
         return exec_make_void();
@@ -2042,9 +2050,9 @@ fn exec_vm_pointer_add(function: &BCFunction, base: &ExecValue, offset: &ExecVal
     }
     const scaled: usize = elem_size * magnitude;
     if effective_sub != 0 {
-        return exec_make_pointer_with_kind((base.i64_value as usize) -| scaled, pointee_kind);
+        return exec_make_pointer_with_kind((base.i64_value as usize) -| scaled, eff_pointee);
     }
-    return exec_make_pointer_with_kind((base.i64_value as usize) +| scaled, pointee_kind);
+    return exec_make_pointer_with_kind((base.i64_value as usize) +| scaled, eff_pointee);
 }
 
 fn exec_vm_raw_slice_element_ptr(value: &ExecValue, index_value: i32, allow_end: i32) ExecValue {
