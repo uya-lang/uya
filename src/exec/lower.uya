@@ -29,16 +29,18 @@ struct ExecLowerContext {
     function_decl: &ASTNode,
     global_names: [&byte: EXEC_MAX_GLOBALS],
     global_decls: [&ASTNode: EXEC_MAX_GLOBALS],
-    global_types: [Type: EXEC_MAX_GLOBALS],
+    // 这三个 `[Type: …]` 每个约 200KB，是 `ExecLowerContext` 819KB 栈帧的主体。
+    // 改成按需分配（见 `exec_lower_type_array`），没用到就不清。
+    global_types: &Type,
     global_is_const: [i32: EXEC_MAX_GLOBALS],
     global_count: i32,
     local_names: [&byte: EXEC_MAX_LOCALS],
     local_slots: [i32: EXEC_MAX_LOCALS],
-    local_types: [Type: EXEC_MAX_LOCALS],
+    local_types: &Type,
     local_is_param: [i32: EXEC_MAX_LOCALS],
     slot_names: [&byte: EXEC_MAX_LOCALS],
     slot_decls: [&ASTNode: EXEC_MAX_LOCALS],
-    slot_types: [Type: EXEC_MAX_LOCALS],
+    slot_types: &Type,
     slot_is_param: [i32: EXEC_MAX_LOCALS],
     slot_scope_ids: [i32: EXEC_MAX_LOCALS],
     slot_needs_drop: [i32: EXEC_MAX_LOCALS],
@@ -58,6 +60,36 @@ struct ExecLowerContext {
     keep_scope_block: &ASTNode,
     // 上一次 exec_lower_make_block_prefix 是否留下了未弹出的作用域。
     catch_prefix_scope_open: i32,
+}
+
+/// 取 `exec_lower_type_slot(ctx, 0, idx, EXEC_MAX_LOCALS)[0]` / `local_types` / `global_types` 的槽位地址，
+/// 数组没用到时先行分配。
+///
+/// 这三个数组每个约 200KB（`Type` 结构体），是 `ExecLowerContext` 819KB 栈帧
+/// 的主体；把 ctx 字面量放栈上会让每次函数 lowering 白清 600KB
+/// （callgrind 实测 `memset'exec_lower_function` 占编译器 6.4% 的指令数）。
+///
+/// 参数：`ctx` lowering 上下文；`which` 0=slot_types 1=local_types 2=global_types；
+///       `idx` 元素下标；`cap` 该数组的上限。
+/// 返回值：元素地址；下标越界或分配失败返回 null。
+fn exec_lower_type_slot(ctx: &ExecLowerContext, which: i32, idx: i32, cap: i32) &Type {
+    if ctx == null || idx < 0 || idx >= cap {
+        return null;
+    }
+    var target: & & Type = &ctx.slot_types;
+    if which == 1 {
+        target = &ctx.local_types;
+    } else if which == 2 {
+        target = &ctx.global_types;
+    }
+    if target[0] == null {
+        const fresh: &Type = compiler_arena_alloc(ctx.arena, @size_of(Type) * cap as usize) as &Type;
+        if fresh == null {
+            return null;
+        }
+        target[0] = fresh;
+    }
+    return &target[0][idx];
 }
 
 fn exec_lower_set_unsupported(node: &ASTNode, reason: &byte) i32 {
@@ -1245,7 +1277,7 @@ fn exec_lower_expr_type(ctx: &ExecLowerContext, expr: &ASTNode) Type {
         // （宏展开体、单态化体尤其明显），靠 checker_infer_type 容易退回 void。
         const ident_slot: i32 = exec_lower_find_slot(ctx, expr.identifier_name);
         if ident_slot >= 0 && ident_slot < EXEC_MAX_LOCALS {
-            return copy_type(&ctx.slot_types[ident_slot]);
+            return copy_type(exec_lower_type_slot(ctx, 0, ident_slot, EXEC_MAX_LOCALS));
         }
     }
     if expr.type == ASTNodeType.AST_UNARY_EXPR &&
@@ -1326,12 +1358,12 @@ fn exec_lower_expr_type(ctx: &ExecLowerContext, expr: &ASTNode) Type {
                     const temp_symbol: &Symbol = compiler_arena_alloc(ctx.checker.arena, @size_of(Symbol)) as &Symbol;
                     if temp_symbol != null {
                         const local_slot: i32 = ctx.local_slots[local_i];
-                        var local_type: Type = copy_type(&ctx.local_types[local_i]);
+                        var local_type: Type = copy_type(exec_lower_type_slot(ctx, 1, local_i, EXEC_MAX_LOCALS));
                         var local_line: i32 = expr.line;
                         var local_column: i32 = expr.column;
                         var local_is_const: i32 = ctx.local_is_param[local_i];
                         if local_slot >= 0 && local_slot < EXEC_MAX_LOCALS {
-                            local_type = copy_type(&ctx.slot_types[local_slot]);
+                            local_type = copy_type(exec_lower_type_slot(ctx, 0, local_slot, EXEC_MAX_LOCALS));
                             const local_decl: &ASTNode = ctx.slot_decls[local_slot];
                             if local_decl != null {
                                 local_line = local_decl.line;
@@ -1482,7 +1514,7 @@ fn exec_lower_seed_globals(ctx: &ExecLowerContext, globals: &HIRGlobalSlot, glob
     while i < global_count && i < EXEC_MAX_GLOBALS {
         ctx.global_names[i] = globals[i].name;
         ctx.global_decls[i] = globals[i].decl;
-        ctx.global_types[i] = copy_type(&globals[i].type_ref.type);
+        exec_lower_type_slot(ctx, 2, i, EXEC_MAX_GLOBALS)[0] = copy_type(&globals[i].type_ref.type);
         ctx.global_is_const[i] = globals[i].is_const;
         i = i + 1;
     }
@@ -1928,13 +1960,13 @@ fn exec_lower_append_local(ctx: &ExecLowerContext, decl: &ASTNode, name: &byte, 
     if ctx.active_local_count >= 0 && ctx.active_local_count < EXEC_MAX_LOCALS {
         ctx.local_names[ctx.active_local_count] = name;
         ctx.local_slots[ctx.active_local_count] = slot;
-        ctx.local_types[ctx.active_local_count] = copy_type(type);
+        exec_lower_type_slot(ctx, 1, ctx.active_local_count, EXEC_MAX_LOCALS)[0] = copy_type(type);
         ctx.local_is_param[ctx.active_local_count] = is_param;
     }
     if slot >= 0 && slot < EXEC_MAX_LOCALS {
         ctx.slot_names[slot] = name;
         ctx.slot_decls[slot] = decl;
-        ctx.slot_types[slot] = copy_type(type);
+        exec_lower_type_slot(ctx, 0, slot, EXEC_MAX_LOCALS)[0] = copy_type(type);
         ctx.slot_is_param[slot] = is_param;
         ctx.slot_scope_ids[slot] = scope_id;
         ctx.slot_needs_drop[slot] = needs_drop;
@@ -2700,11 +2732,11 @@ fn exec_lower_known_len_for_expr(ctx: &ExecLowerContext, expr: &ASTNode) i32 {
     if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null {
         const local_slot: i32 = exec_lower_find_slot(ctx, expr.identifier_name);
         if local_slot >= 0 && local_slot < EXEC_MAX_LOCALS {
-            return exec_lower_known_len(&ctx.slot_types[local_slot]);
+            return exec_lower_known_len(exec_lower_type_slot(ctx, 0, local_slot, EXEC_MAX_LOCALS));
         }
         const global_slot: i32 = exec_lower_find_global_slot(ctx, expr.identifier_name);
         if global_slot >= 0 && global_slot < EXEC_MAX_GLOBALS {
-            return exec_lower_known_len(&ctx.global_types[global_slot]);
+            return exec_lower_known_len(exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS));
         }
     }
     const expr_type: Type = exec_lower_resolve_exact_type(ctx, expr);
@@ -2748,7 +2780,7 @@ fn exec_lower_params_tuple_expr(ctx: &ExecLowerContext, ast_node: &ASTNode, type
     while i < param_count {
         var elem_type: Type = make_void_type();
         if i < EXEC_MAX_LOCALS {
-            elem_type = ctx.slot_types[i];
+            elem_type = exec_lower_type_slot(ctx, 0, i, EXEC_MAX_LOCALS)[0];
         }
         const item_expr: &HIRExpr = exec_lower_make_local_expr(ctx, ast_node, i, &elem_type);
         if item_expr == null {
@@ -2908,11 +2940,11 @@ fn exec_lower_resolve_exact_type(ctx: &ExecLowerContext, expr: &ASTNode) Type {
         }
         const slot: i32 = exec_lower_find_slot(ctx, expr.identifier_name);
         if slot >= 0 && slot < EXEC_MAX_LOCALS {
-            return ctx.slot_types[slot];
+            return exec_lower_type_slot(ctx, 0, slot, EXEC_MAX_LOCALS)[0];
         }
         const global_slot: i32 = exec_lower_find_global_slot(ctx, expr.identifier_name);
         if global_slot >= 0 && global_slot < EXEC_MAX_GLOBALS {
-            return ctx.global_types[global_slot];
+            return exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0];
         }
         return resolved;
     }
@@ -3031,7 +3063,7 @@ fn exec_lower_make_ref_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
     if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null {
         const local_slot: i32 = exec_lower_find_slot(ctx, expr.identifier_name);
         if local_slot >= 0 && local_slot < EXEC_MAX_LOCALS {
-            const addr_local: &HIRExpr = exec_lower_make_addr_expr(ctx, expr, &ctx.slot_types[local_slot]);
+            const addr_local: &HIRExpr = exec_lower_make_addr_expr(ctx, expr, exec_lower_type_slot(ctx, 0, local_slot, EXEC_MAX_LOCALS));
             if addr_local == null {
                 return null;
             }
@@ -3040,7 +3072,7 @@ fn exec_lower_make_ref_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         }
         const global_slot: i32 = exec_lower_find_global_slot(ctx, expr.identifier_name);
         if global_slot >= 0 && global_slot < EXEC_MAX_GLOBALS {
-            const addr_global: &HIRExpr = exec_lower_make_addr_expr(ctx, expr, &ctx.global_types[global_slot]);
+            const addr_global: &HIRExpr = exec_lower_make_addr_expr(ctx, expr, exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS));
             if addr_global == null {
                 return null;
             }
@@ -4103,17 +4135,17 @@ fn exec_lower_member_base_type(ctx: &ExecLowerContext, object: &ASTNode) Type {
         }
         const slot: i32 = exec_lower_find_slot(ctx, object.identifier_name);
         if slot >= 0 && slot < EXEC_MAX_LOCALS {
-            if ctx.slot_types[slot].kind == TypeKind.TYPE_POINTER && ctx.slot_types[slot].pointer_to != null {
-                return ctx.slot_types[slot].pointer_to[0];
+            if exec_lower_type_slot(ctx, 0, slot, EXEC_MAX_LOCALS)[0].kind == TypeKind.TYPE_POINTER && exec_lower_type_slot(ctx, 0, slot, EXEC_MAX_LOCALS)[0].pointer_to != null {
+                return exec_lower_type_slot(ctx, 0, slot, EXEC_MAX_LOCALS)[0].pointer_to[0];
             }
-            return ctx.slot_types[slot];
+            return exec_lower_type_slot(ctx, 0, slot, EXEC_MAX_LOCALS)[0];
         }
         const global_slot: i32 = exec_lower_find_global_slot(ctx, object.identifier_name);
         if global_slot >= 0 && global_slot < EXEC_MAX_GLOBALS {
-            if ctx.global_types[global_slot].kind == TypeKind.TYPE_POINTER && ctx.global_types[global_slot].pointer_to != null {
-                return ctx.global_types[global_slot].pointer_to[0];
+            if exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0].kind == TypeKind.TYPE_POINTER && exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0].pointer_to != null {
+                return exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0].pointer_to[0];
             }
-            return ctx.global_types[global_slot];
+            return exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0];
         }
     }
     if object != null && object.type == ASTNodeType.AST_MEMBER_ACCESS &&
@@ -6788,16 +6820,16 @@ fn exec_lower_lower_global_init_exprs(arena: &CompilerArena, checker: &TypeCheck
         function_decl: null,
         global_names: [],
         global_decls: [],
-        global_types: [],
+        global_types: null,
         global_is_const: [],
         global_count: 0,
         local_names: [],
         local_slots: [],
-        local_types: [],
+        local_types: null,
         local_is_param: [],
         slot_names: [],
         slot_decls: [],
-        slot_types: [],
+        slot_types: null,
         slot_is_param: [],
         slot_scope_ids: [],
         slot_needs_drop: [],
@@ -7948,7 +7980,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if slot >= 0 {
             var local_type: Type = copy_type(&expr_type);
             if slot >= 0 && slot < EXEC_MAX_LOCALS {
-                local_type = ctx.slot_types[slot];
+                local_type = exec_lower_type_slot(ctx, 0, slot, EXEC_MAX_LOCALS)[0];
             }
             const hir_local: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_LOCAL, &local_type);
             if hir_local == null {
@@ -7973,7 +8005,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             if resolved_global_slot_by_decl >= 0 {
                 var global_type_by_decl: Type = copy_type(&expr_type);
                 if resolved_global_slot_by_decl >= 0 && resolved_global_slot_by_decl < EXEC_MAX_GLOBALS {
-                    global_type_by_decl = ctx.global_types[resolved_global_slot_by_decl];
+                    global_type_by_decl = exec_lower_type_slot(ctx, 2, resolved_global_slot_by_decl, EXEC_MAX_GLOBALS)[0];
                 }
                 const hir_global_by_decl: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_GLOBAL, &global_type_by_decl);
                 if hir_global_by_decl == null {
@@ -8005,7 +8037,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if global_slot >= 0 {
             var global_type: Type = copy_type(&expr_type);
             if global_slot >= 0 && global_slot < EXEC_MAX_GLOBALS {
-                global_type = ctx.global_types[global_slot];
+                global_type = exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0];
             }
             const hir_global: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_GLOBAL, &global_type);
             if hir_global == null {
@@ -8941,7 +8973,7 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 if resolved_module_global_slot >= 0 {
                     var module_global_type: Type = copy_type(&expr_type);
                     if resolved_module_global_slot >= 0 && resolved_module_global_slot < EXEC_MAX_GLOBALS {
-                        module_global_type = ctx.global_types[resolved_module_global_slot];
+                        module_global_type = exec_lower_type_slot(ctx, 2, resolved_module_global_slot, EXEC_MAX_GLOBALS)[0];
                     }
                     const hir_module_global: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_GLOBAL, &module_global_type);
                     if hir_module_global == null {
@@ -10246,16 +10278,16 @@ fn exec_lower_function(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &A
         function_decl: fn_decl,
         global_names: [],
         global_decls: [],
-        global_types: [],
+        global_types: null,
         global_is_const: [],
         global_count: 0,
         local_names: [],
         local_slots: [],
-        local_types: [],
+        local_types: null,
         local_is_param: [],
         slot_names: [],
         slot_decls: [],
-        slot_types: [],
+        slot_types: null,
         slot_is_param: [],
         slot_scope_ids: [],
         slot_needs_drop: [],
@@ -10333,7 +10365,7 @@ fn exec_lower_function(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &A
             locals[i].decl = ctx.slot_decls[i];
             locals[i].slot = i;
             locals[i].scope_id = ctx.slot_scope_ids[i];
-            locals[i].type_ref = exec_lower_make_type_ref(&ctx.slot_types[i]);
+            locals[i].type_ref = exec_lower_make_type_ref(exec_lower_type_slot(ctx, 0, i, EXEC_MAX_LOCALS));
             locals[i].is_param = ctx.slot_is_param[i];
             locals[i].needs_drop = ctx.slot_needs_drop[i];
             locals[i].drop_decl = ctx.slot_drop_decls[i];
