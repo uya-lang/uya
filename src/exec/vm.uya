@@ -1860,6 +1860,13 @@ fn exec_vm_native_field_load(kind_code: i32, pointee_kind_code: i32, elem_count:
         const pf64: *u64 = @ptr_from_usize(addr) as *u64;
         return exec_make_f64_bits(pf64[0]);
     }
+    if kind_code == TypeKind.TYPE_STRUCT as i32 || kind_code == TypeKind.TYPE_UNION as i32 ||
+        kind_code == TypeKind.TYPE_TUPLE as i32 {
+        // 原生结构体里的**按值嵌套结构体**字段：给出指向字段内存的指针视图。
+        // 以前这里返回 VOID，于是 `chunk.header.size` 这种链式字段访问在 VM 里
+        // 直接报 `LOAD_FIELD 字段越界`（libc 堆的 `&chunk.header` 全是这个形态）。
+        return exec_make_pointer_with_kind(addr, kind_code);
+    }
     if kind_code == TypeKind.TYPE_POINTER as i32 {
         const pp: *usize = @ptr_from_usize(addr) as *usize;
         const target_addr: usize = pp[0];
@@ -5527,6 +5534,12 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                     instr.imm as usize, slot_c[0]) != 0 {
                     return -1;
                 }
+            } else if index_value2 == 0 &&
+                base_target3[0].kind != ExecValueKind.EXEC_VALUE_SLICE &&
+                exec_value_as_aggregate(base_target3) == null {
+                // `*ref = v`：引用指向标量等非聚合值时，就是整槽替换（与 LOAD_INDEX 的
+                // 解引用分支对称）。`p[0] = v`（p 是 `&usize` 这类形参）走这里。
+                exec_vm_store_slot(base_target3, slot_c[0]);
             } else {
                 const index_ref3: &ExecValue = exec_vm_index_ref(slot_a, index_value2);
                 if index_ref3 == null {
