@@ -2208,3 +2208,44 @@ fn f() i32 {
 
 **本轮实测**：回退后全量普查失败 **79 例**（与本轮开头一致，无回归）。
 `make check` 1191/1191 通过。
+
+### 第 344 轮：泛型单态副本的调用目标消歧（`test_json_from_json_reflect` 转绿）
+
+**症状**：`@size_of(v)` 在两个不同的泛型实例里返回同一个值，且「谁先被调用谁的值赢」。
+
+**最小复现**：
+
+```uya
+fn dump<T>(v: T) i64 { return @size_of(v) as i64; }
+// A2 = 16 字节，B4 = 32 字节
+printf("ra=%ld rb=%ld", dump<A2>(a), dump<B4>(b));   // VM 16/16，C99 16/32
+// 调用顺序反过来 → VM 32/32，C99 32/16
+```
+
+**根因**：`exec_lower_generic_instances` 为每个单态实例都**复用同一个
+`fn_decl` 指针**降级，只改 `lowered.name`（`dump$m0` / `dump$m1`）。
+而 `exec_builder_find_function_index` 第一轮只比声明指针，于是同一泛型的
+所有调用全部命中模块里的第一个实例。`test_json_from_json_reflect` 里
+`to_json<User>` / `to_json<Record>` / `to_json<Rect>` / `to_json<WithArray>`
+串成同一条链，`LOAD_FIELD idx=2` 于是按 `User`（2 字段）去访问 4 字段的结构体，
+报 `LOAD_FIELD 字段越界(idx=2 kind=16 count=2)`。
+
+**修法**：`exec_builder_find_function_index` 改三轮匹配 ——
+① 声明指针**且**名字都相同（覆盖「同一声明多个单态副本」）；
+② 只按声明（非泛型方法，声明唯一）；③ 只按名字（宏展开等拿不到声明的场景）。
+后两轮语义保持不变。
+
+**本轮实测**：`test_json_from_json_reflect` 由 rc=1 转 rc=0，json 簇
+（`test_json_roundtrip` / `test_json_struct_roundtrip` / `test_json_to_json_reflect`
+/ `test_json_nested` / `test_json_slice` / `test_yaml_*`）全部保持绿。
+全量普查失败 **79 → 78**，逐例比对无新增回归。`make check` 1191/1191。
+
+**顺带记录（同一轮排查但未修）**：`test_typed_pipeline_capability` /
+`test_typed_pipeline_executor_single` 的剩余阻塞在 `try_tcache_free_fast` →
+`current_thread_heap_cache()`。VM 不支持 `@asm`，`_pthread_fast_heap_cache()`
+读 `gs:8` 恒得 0，于是回落到 `&_pthread_main_desc.heap_cache`；该地址是
+`ADDR_GLOBAL + ADDR_FIELD` 算出的**原生偏移**（4368 = 21×208），
+`exec_vm_field_object` 的裸指针分支对「聚合内部字段地址」还认不出来，
+最终报 `LOAD_FIELD 字段越界(idx=1 kind=14 pointee=16)`。
+这和第 323 轮的「嵌套结构体字段视图」是同一族问题，需要把
+「聚合元素地址 → ExecValue 槽」的映射做成通用能力。
