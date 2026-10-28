@@ -2031,15 +2031,58 @@ packed 12 字节 C 布局转写进原生缓冲区。
 - async 一族要的是真正的状态机（VM 目前「async 函数同步执行到完成」，
   `poll()` 永远返回 Ready），属结构性缺口。
 
+### 第 323 轮：指针字段基址 / 嵌套结构体字段视图 / 标量解引用（libc 堆三例转绿）
+
+承接第 322 轮，这轮把 libc 堆那一簇拆到底，**`test_libc_heap_bins`、
+`test_libc_heap_coalescing_adjacent`、`test_libc_heap_realloc_in_place` 转绿**，
+并修掉两个会让解释器直接报错的通用缺口。
+
+三个根因（都能用最小复现单独复现）：
+
+1. **以「指针类型的成员」为基址的存储写错了地址。**
+   `p.field.x = v` / `p.items[i] = v` / `&p.field.x` 以前把**指针槽的地址**当对象基址
+   传给 VM；对原生结构体里的指针字段（libc 堆的 `chunk.next.prev = null`），这个
+   地址恰好是那块内存本身，于是写入静默落到结构体内部 —— 既不报错也不生效。
+   `chunk_free` 里 `chunk.next.prev = chunk.prev` 失效 → bin 链表留下悬挂项 →
+   下一次 malloc 从 bin5 拿到一块已经被合并掉的 chunk → 8 次 carve 全失败。
+   修法：新增 `exec_builder_compile_object_base_slot`，基址静态类型是 POINTER 时
+   编译**指针值本身**，否则仍走取址路径（聚合对象必须原地写，不能写临时副本）。
+   LOAD 路径本来就用指针值，这轮把 STORE / ADDR 路径对齐过来。
+2. **原生结构体里的按值嵌套结构体字段读出来是 VOID。**
+   `exec_vm_native_field_load` 没有 STRUCT/UNION/TUPLE 分支，`chunk.header.size`
+   这种链式访问直接报 `LOAD_FIELD 字段越界(idx=0 kind=14 count=-1 pointee=16)`。
+   现在返回指向字段内存的指针视图，下一跳仍按 C 偏移解析。
+3. **`BC_STORE_INDEX` 缺少「引用指向标量」的解引用存储。**
+   `p[0] = v`（p 是 `&usize` 形参）落到 `index_ref` 分支报 `STORE_INDEX 越界`
+   （第 322 轮的 INDEX 基址改动之后暴露；`test_tls_x509` 因此回归，已随本轮修好）。
+   补上后与 `LOAD_INDEX` 的 `*ref` 分支对称。
+
+**仍未解决的一层（下一轮入口）**：`test_libc_heap_tcache`(44) 与
+`test_std_stdlib_malloc`(9) 同一个根因 —— **`set_free(hdr, false)` 清不掉 FREE 标志位**。
+打点确认：进入 `set_free` 时 `hdr.size=0x1001`、`free=false`，写回后仍是 `0x1001`
+（C 侧变成 `0x1000`）。进一步打点发现 `hdr.size - (hdr.size & CHUNK_STATE_MASK)` 里
+**`CHUNK_STATE_MASK` 在某些调用点求值成 2（应为 3）**：它在 heap.uya 里声明为
+`CHUNK_FLAG_FREE | CHUNK_FLAG_TCACHE`（`1 | 2`）。同样的写法在 /tmp 的单文件用例里
+求值正确（`M=3`），说明这是**跨模块/多全局时 exec 降级期常量折叠**的缺陷，
+按调用点不同取值不同（有的点 3、有的点 2）。后果连锁：已分配的 chunk 一直带
+FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p1/p2 从不合并
+→ `malloc(3600)` 只能 mmap 新 region，断言地址相等就失败。
+
+**本轮实测**：原 29 例失败清单剩 **20 例**（C 侧全部 rc=0）。相邻回归已逐一复测：
+`test_tls_x509`、`test_std_io(_buffering)`、`test_stdio_file_buffering`、
+`test_std_async_event(_fd_reuse)`、`test_protobuf_wire`、`test_protobuf_dynamic`、
+`test_std_mem`、`test_math`、`test_struct_default`、`test_array_pointer_access` 全绿。
+
 ### T11 收口
 
 - [ ] `uya test --vm` 全量通过（跳过表只保留 C99 侧同样不适用的用例）
-      —— 现状 **≈829/909（91.2%）**（第 320 轮末普查 823 + 第 322 轮收口 6 例；
-      第 322 轮只跑了受影响用例与失败清单，未重跑全量普查），剩余缺口集中在
+      —— 现状 **≈832/909（91.5%）**（第 320 轮末普查 823 + 第 322 轮 6 例 +
+      第 323 轮 3 例；这两轮只跑了受影响用例与失败清单，未重跑全量普查），剩余缺口集中在
       async 帧布局（41 例静默失败）、线程（pthread/堆/OSAL 约 10 例，
       同步 VM 无并发语义）、`@c_import`（3 例）与超长函数（`bytecode 指令超出上限`）；
       这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿（阻塞：第 322 轮后剩 23 例，见上方分类表；其中
-      聚合裸指针算术与 async 状态机属模型级改动）
+- [ ] `make exec-parity` 全绿（阻塞：第 323 轮后剩 20 例，见第 322 轮分类表；
+      libc 堆两例的共同根因已定位到「常量折叠把 `CHUNK_STATE_MASK` 算成 2」，
+      capability 与 async 一族仍属模型级改动）
 - [x] `make check` 全绿（1191 个测试，通过 1191，失败 0；第 309/314/317/320 轮复测均绿）
 - [ ] 合并到 main 并删除工作区
