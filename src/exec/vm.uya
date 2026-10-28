@@ -2143,6 +2143,32 @@ fn exec_vm_native_agg_slot_index(base: usize) i32 {
     return slot;
 }
 
+/// 查找原生指针第 index 个聚合元素的**已登记**旁路槽位（不建表）。
+///
+/// `STORE_INDEX` 往原生结构体数组写元素时，元素是 VM 聚合，无法落进 C 布局，
+/// 只能存进旁路表。`LOAD_INDEX` 若还按 `elem_size_hint` 返回「指向原生缓冲区」
+/// 的指针，读到的就是从未被写过的原始字节（`Vec<SomeStruct>` 的 `push`/`get`
+/// 因此恒得零值）。读侧必须先来这里对一次账。
+///
+/// 参数：`base` 原生基址；`index` 元素下标。
+/// 返回值：已写入的旁路槽位；未登记或未写到该下标返回 null。
+fn exec_vm_native_agg_peek(base: usize, index: i64) &ExecValue {
+    if base == 0 as usize || index < 0 || index >= (EXEC_NATIVE_AGG_MAX_ELEMS as i64) {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < g_native_agg_used {
+        if g_native_agg_base[i] == base {
+            if (index as i32) < g_native_agg_count[i] {
+                return &g_native_agg_values[i][index as i32];
+            }
+            return null;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
 /// 取原生指针第 index 个聚合元素对应的 ExecValue 槽位（按需建表）。
 /// 参数：base 指针地址；index 元素下标。
 /// 返回值：指向该元素 ExecValue 的指针；越界或表满返回 null。
@@ -2450,6 +2476,13 @@ fn exec_vm_load_pointer_index(function: &BCFunction, base: ExecValue, index_valu
         if exec_vm_address_is_exec_value_storage(base_addr) {
             const direct_elem: &ExecValue = @ptr_from_usize(base_addr) as &ExecValue;
             out_value[0] = exec_value_clone(direct_elem);
+            return 0;
+        }
+        // 该元素此前被 `STORE_INDEX` 写进过旁路表：真实内容在那里，不在原生缓冲区。
+        // 必须先取旁路槽位，否则读回的是从未写过的原始字节。
+        const agg_stored: &ExecValue = exec_vm_native_agg_peek(base_addr, index_value);
+        if agg_stored != null {
+            out_value[0] = exec_value_clone(agg_stored);
             return 0;
         }
         if elem_size_hint > 0 as usize && !exec_vm_address_is_vm_resident(base_addr) {
