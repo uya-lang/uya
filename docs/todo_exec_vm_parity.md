@@ -2309,3 +2309,35 @@ generation_registry` / `pipeline_stage_count_empty_is_read_only`）因此转绿�
 只路由 `memcpy`/`memmove`、把 `memset` 留在 Uya 体里同样回归。
 结论：在「旁路表基址」与「原生字节地址」还没统一之前，不能整体改路由口径。
 `git checkout -- src/exec/lower.uya` 已回退，回归确认消失。
+
+### 第 347 轮：`defer { ... break ... }` 的 cleanup 重入（第 4 次证否，护栏方案作废）
+
+第 343 轮已定位根因：`lib/std/async_scheduler.uya:1155` 的 `defer { while ... }`
+里那个 `break` 会调用 `exec_builder_emit_all_cleanup`，把「正在发射的这个
+cleanup scope」再发一遍，自我递归直到 `cleanup scope 嵌套过深`。
+
+本轮尝试的**第 4 个方案**：在 `ExecFunctionBuildContext` 加
+`emitting_cleanup_scope_plus1`，`exec_builder_emit_cleanup_scope` 进入时记录
+当前下标、退出时恢复；`exec_builder_emit_all_cleanup` 跳过该下标。
+
+两种跳过口径都试了：
+
+1. **跳过「正在发射的 scope 及更内层」**（`scope_idx < stop_at` 才发）：
+   `test_std_async_scheduler` 前 14 个用例从「整个文件编译失败」变成**通过**
+   ——说明护栏确实切断了递归；但第 15 个用例
+   `scheduler_run_task_queue_i32_with_shared_event_loop` 变成**运行期死循环**
+   （`scheduler_run_task_queue_with_event_loop$m46` 在 `ip=22..345` 之间空转
+   2490 万次）。原因是被跳过的内层 scope 里有本轮循环必须执行的状态推进。
+2. **只跳过「正在发射的那一个 scope」**（`scope_idx == emit_scope_idx` 时
+   `continue`）：`test_async_multi_fd_concurrent` 直接死循环，比方案 1 更糟。
+
+**结论**：`emit_all_cleanup` 需要「跳到哪个 scope 为止」的信息，而单靠
+`emitting_cleanup_scope_plus1` 一个下标表达不了 —— `break` 要发的是**外层
+loop scope**，不是「所有比当前深的 scope」。真正的修法是给 `ExecLoopPatch`
+记录 `cleanup_depth_at_loop_entry`，`break`/`continue` 只发到那个深度为止。
+这是结构性改动（`lower.uya` 的 loop lowering + `builder.uya` 的 patch 栈都要动），
+不适合在收口阶段硬塞。
+
+代码已 `git checkout -- src/exec/builder.uya` 回退，回归确认消失
+（`test_std_async_scheduler` 恢复为快速失败的 `cleanup scope 嵌套过深`，
+不再死循环）。
