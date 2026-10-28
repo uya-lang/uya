@@ -2249,3 +2249,58 @@ printf("ra=%ld rb=%ld", dump<A2>(a), dump<B4>(b));   // VM 16/16，C99 16/32
 最终报 `LOAD_FIELD 字段越界(idx=1 kind=14 pointee=16)`。
 这和第 323 轮的「嵌套结构体字段视图」是同一族问题，需要把
 「聚合元素地址 → ExecValue 槽」的映射做成通用能力。
+
+### 第 345 轮：`Vec<结构体>` 读回恒零（LOAD_INDEX 只认原生缓冲区）
+
+**症状**：`Vec<SomeStruct>` 的 `push` / `get` 往返后字段全是零值，C99 侧正确。
+
+**最小复现**：
+
+```uya
+struct Pair { a: i64, b: i64 }
+var v: Vec<Pair> = vec_new<Pair>(get_allocator());
+v.push(Pair{ a: 11, b: 22 });
+v.push(Pair{ a: 33, b: 44 });
+const p0: Pair = v.get(0);   // VM: 0,0    C99: 11,22
+```
+
+**根因**：`Vec<T>` 的 `data` 是 `&T`（原生指针）。`push` 走
+`STORE_INDEX(base, idx, value)`，元素是 VM 聚合，`exec_vm_store_pointer_index`
+的 `elem_size == 0` 分支把它写进 `g_native_agg_values` 旁路表 —— 原生缓冲区上
+一个字节都没动。而 `get` 走 `LOAD_INDEX`，`exec_vm_load_pointer_index` 的同一
+分支只要 `elem_size_hint > 0` 就直接返回「指向原生缓冲区」的指针，读到的是
+从未被写过的原始字节。
+
+**修法**：读侧在返回裸指针之前先查旁路表（新增 `exec_vm_native_agg_peek`，
+**只查不建表**，避免「读一个空槽也把表撑大」），命中则取旁路槽位。
+`exec_vm_pointer_element_ptr` 与 `exec_vm_load_pointer_index` 两处都已覆盖。
+
+**实测转绿**：`test_std_env`（`EnvBlockBuilder.ops` 是 `Vec<EnvOverlayOp>`，
+前 3 个用例原本全 ERROR）、`test_dyn_table_growth` 保持绿，
+`test_json_from_json_reflect` 保持绿。
+
+### 第 346 轮：`memcpy` 扩容原生聚合数组时旁路表留在旧基址
+
+**接续第 345 轮**：`pipeline_registry_append_last_stage_env` 用
+`malloc 新块 → memcpy 旧块 → free 旧块` 扩容 `&PipelineEnvOp` 数组。
+只搬字节时目标基址的旁路表是空的，`env_ops[0].remove` 于是 `LOAD_FIELD 字段越界`。
+
+**修法**：新增 `exec_vm_native_agg_migrate(dst, src)`，由宿主
+`EXEC_HOST_CALL_MEMCPY` 分支在字节搬运之后调用，把源基址登记的元素 clone 到
+目标基址。元素级拷贝（`while i < n { dst[i] = src[i] }`）本来就正确，不受影响。
+
+**但这条只解决了「命中的是宿 memcpy」的情形**。`lib/libc/mem.uya` 的
+`memcpy` 是**带 Uya 体**的 `extern "libc"`，`process.uya` 自己的
+`extern fn memcpy` 声明引用到的也是它 —— 实际执行的是逐字节循环，根本走不到
+宿主分支。`test_typed_pipeline_capability` 前两个用例（`pipeline_capability_
+generation_registry` / `pipeline_stage_count_empty_is_read_only`）因此转绿，
+后面仍卡在 `EnvBlockBuilder` → `pthread_current_heap_cache` 的堆路径。
+
+**尝试过但放弃**：在 `exec_lower_extern_prefers_host_call` 里把
+`memcpy`/`memmove`/`memset` 一律改走宿主实现。`test_typed_pipeline_capability`
+前 3 个用例能过，但 `test_dyn_table_growth` 立刻回归
+（`hash table` 的 rehash 用 `memcpy` 搬 `&Payload` 片段，宿主实现按
+`mem_ptr + n` 逐字节写，把 VM 聚合的旁路表基址算错）。
+只路由 `memcpy`/`memmove`、把 `memset` 留在 Uya 体里同样回归。
+结论：在「旁路表基址」与「原生字节地址」还没统一之前，不能整体改路由口径。
+`git checkout -- src/exec/lower.uya` 已回退，回归确认消失。
