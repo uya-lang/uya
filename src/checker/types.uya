@@ -254,6 +254,9 @@ struct ModuleInfo {
     filename: &byte,
     exports: &ExportedItem,
     export_count: i32,
+    // `exports` 的已分配容量。每加一条导出就把整块重分配并复制是 O(n²)：
+    // callgrind 里 `memcpy'append_module_export` 单独占 5.7% 的指令数。
+    export_capacity: i32,
     dependencies: &ModuleDependency,
     dependency_count: i32,
 }

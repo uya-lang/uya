@@ -6528,7 +6528,10 @@ fn exec_lower_collect_file_globals_node(checker: &TypeChecker, node: &ASTNode, f
     if node.filename == null || filename == null {
         return 0;
     }
-    if str_equals(node.filename, filename) == 0 {
+    // 先比指针：AST 节点的 `filename` 绝大多数直接指向同一份文件名字符串，
+    // 指针相等就能跳过逐字符比较。这个递归会走遍整个文件的每个节点，
+    // 逐个 `str_equals` 比完整路径是 callgrind 里的第二大热点（5.3%）。
+    if node.filename != filename && str_equals(node.filename, filename) == 0 {
         return 0;
     }
     if exec_lower_global_is_runtime_decl(node) == 0 {
@@ -6547,6 +6550,48 @@ fn exec_lower_collect_file_globals_node(checker: &TypeChecker, node: &ASTNode, f
     }
     if exec_lower_append_global_slot(checker, node, globals, out_count, 1) != 0 {
         return -1;
+    }
+    return 0;
+}
+
+/// 已经收集过全局变量的文件名（指针级别去重）。
+///
+/// `exec_lower_collect_file_globals` 每次调用都要遍历**整个程序 AST** 并按
+/// 文件名过滤，而两个调用点都套在「遍历每个可达函数」的循环里 —— 几百个可达
+/// 函数、每个来自几十个不同文件，就是 O(函数数 × 总节点数) 的重复扫描。
+/// 同一个文件只要收集一次就够，这里按文件名指针记住已经做过的。
+const EXEC_COLLECTED_FILES_MAX: i32 = 256;
+var g_exec_collected_file_names: [&byte: EXEC_COLLECTED_FILES_MAX] = [];
+var g_exec_collected_file_count: i32 = 0;
+
+/// 清空「已收集文件」记录（每轮 program lowering 开始时调用）。
+/// 参数：无。返回值：无。
+fn exec_lower_reset_collected_files() void {
+    g_exec_collected_file_count = 0;
+}
+
+/// 带去重的 `exec_lower_collect_file_globals`。
+///
+/// 参数：`checker` 类型检查器；`filename` 目标文件名；`globals`/`out_count` 全局槽表与计数。
+/// 返回值：0 成功；-1 失败。
+fn exec_lower_collect_file_globals_once(checker: &TypeChecker, filename: &byte,
+    globals: &HIRGlobalSlot, out_count: &i32) i32 {
+    if filename == null {
+        return 0;
+    }
+    var fi: i32 = 0;
+    while fi < g_exec_collected_file_count && fi < EXEC_COLLECTED_FILES_MAX {
+        if g_exec_collected_file_names[fi] == filename {
+            return 0;
+        }
+        fi = fi + 1;
+    }
+    if exec_lower_collect_file_globals(checker, filename, globals, out_count) != 0 {
+        return -1;
+    }
+    if g_exec_collected_file_count >= 0 && g_exec_collected_file_count < EXEC_COLLECTED_FILES_MAX {
+        g_exec_collected_file_names[g_exec_collected_file_count] = filename;
+        g_exec_collected_file_count = g_exec_collected_file_count + 1;
     }
     return 0;
 }
@@ -10531,11 +10576,12 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
             edge_idx = edge_idx + 1;
         }
     }
+    exec_lower_reset_collected_files();
     var file_global_i: i32 = 0;
     while file_global_i < exec_reachable_count {
         const file_global_decl: &ASTNode = exec_reachable[file_global_i];
         if file_global_decl != null && file_global_decl.filename != null {
-            if exec_lower_collect_file_globals(checker, file_global_decl.filename, globals, &global_count) != 0 {
+            if exec_lower_collect_file_globals_once(checker, file_global_decl.filename, globals, &global_count) != 0 {
                 return null;
             }
         }
@@ -10557,7 +10603,7 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
     while i < exec_reachable_count {
         const decl: &ASTNode = exec_reachable[i];
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null && decl.filename != null {
-            if exec_lower_collect_file_globals(checker, decl.filename, globals, &global_count) != 0 {
+            if exec_lower_collect_file_globals_once(checker, decl.filename, globals, &global_count) != 0 {
                 return null;
             }
         }
