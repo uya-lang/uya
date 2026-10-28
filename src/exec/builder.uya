@@ -25,6 +25,11 @@ struct ExecLoopPatch {
     continue_jumps: [i32: 128],
     continue_count: i32,
     continue_target: i32,
+    // 进入这个 loop 时的 cleanup 深度。`break`/`continue` 只该发到这一层为止：
+    // loop 自己的 scope 要发，loop 外面的 scope 留给外层语句。没有这个下标时
+    // `defer { ... break ... }` 会把正在发射的 scope 再发一遍，自我递归到
+    // `cleanup scope 嵌套过深`。
+    cleanup_depth_at_entry: i32,
 }
 
 struct ExecCleanupScope {
@@ -59,6 +64,9 @@ struct ExecFunctionBuildContext {
     // 最近一个 checked catch 的错误联合槽位：同一 catch 内所有受检运算都写这里，
     // 错误分支再从这里取错误 id 绑定 / 构造返回的错误联合。
     checked_err_union_slot: i32,
+    // 正在发射的 cleanup scope 下标 +1（0 = 没在发射）。用来阻止
+    // `defer { ... break ... }` 把正在发射的 scope 再发一遍。
+    emitting_cleanup_scope_plus1: i32,
 }
 
 fn exec_builder_const_pool_value_ref(const_pool: &ExecConstPoolBuilder, idx: i32) &ExecValue {
@@ -4173,6 +4181,19 @@ fn exec_builder_emit_cleanup_scope(ctx: &ExecFunctionBuildContext, scope_idx: i3
     if ctx == null || scope == null {
         return -1;
     }
+    const saved_emitting: i32 = ctx.emitting_cleanup_scope_plus1;
+    ctx.emitting_cleanup_scope_plus1 = scope_idx +| 1;
+    const emit_rc: i32 = exec_builder_emit_cleanup_scope_body(ctx, scope, include_errdefer);
+    ctx.emitting_cleanup_scope_plus1 = saved_emitting;
+    return emit_rc;
+}
+
+/// `exec_builder_emit_cleanup_scope` 的主体：重入保护由调用方设置/恢复。
+///
+/// 参数：`ctx` 构建上下文；`scope` 目标 scope；`include_errdefer` 是否含 errdefer。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_cleanup_scope_body(ctx: &ExecFunctionBuildContext, scope: &ExecCleanupScope,
+    include_errdefer: i32) i32 {
     if include_errdefer != 0 {
         var ei: i32 = scope.errdefer_count -| 1;
         while ei >= 0 {
@@ -4216,6 +4237,34 @@ fn exec_builder_emit_all_cleanup(ctx: &ExecFunctionBuildContext, include_errdefe
     }
     var scope_idx: i32 = ctx.cleanup_depth -| 1;
     while scope_idx >= 0 {
+        if exec_builder_emit_cleanup_scope(ctx, scope_idx, include_errdefer) < 0 {
+            return -1;
+        }
+        scope_idx = scope_idx - 1;
+    }
+    return 0;
+}
+
+/// 发到 `stop_depth`（不含）为止的 cleanup，供 `break`/`continue` 用。
+///
+/// `break` 只该拆掉 loop 自己及其内层的 scope，loop 外面的 scope 归外层语句管。
+/// 用 `exec_builder_emit_all_cleanup` 会连外层一起发 —— 而 `defer { ... break ... }`
+/// 正在发射的就是那个外层 scope，于是自我递归到 `cleanup scope 嵌套过深`。
+///
+/// 参数：`ctx` 构建上下文；`stop_depth` 停下的 cleanup 深度；`include_errdefer` 是否含 errdefer。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_cleanup_down_to(ctx: &ExecFunctionBuildContext, stop_depth: i32,
+    include_errdefer: i32) i32 {
+    if ctx == null {
+        return -1;
+    }
+    // 正在发射的 scope（及其更内层）不再重发：那个 scope 的 body 就在栈上。
+    var floor_depth: i32 = stop_depth;
+    if ctx.emitting_cleanup_scope_plus1 > 0 && ctx.emitting_cleanup_scope_plus1 -| 1 >= floor_depth {
+        floor_depth = ctx.emitting_cleanup_scope_plus1;
+    }
+    var scope_idx: i32 = ctx.cleanup_depth -| 1;
+    while scope_idx >= floor_depth {
         if exec_builder_emit_cleanup_scope(ctx, scope_idx, include_errdefer) < 0 {
             return -1;
         }
@@ -4481,6 +4530,7 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                 continue_jumps: [],
                 continue_count: 0,
                 continue_target: loop_start,
+                cleanup_depth_at_entry: ctx.cleanup_depth,
             };
             ctx.loop_depth = ctx.loop_depth + 1;
             if exec_builder_compile_block(ctx, stmt.loop_body) < 0 {
@@ -4534,7 +4584,7 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                 exec_backend_set_error(stmt.ast_node, "exec: break patch 栈越界" as *byte, 0);
                 return -1;
             }
-            if exec_builder_emit_all_cleanup(ctx, 0) < 0 {
+            if exec_builder_emit_cleanup_down_to(ctx, loop_patch_for_break.cleanup_depth_at_entry, 0) < 0 {
                 return -1;
             }
             const patch_idx: i32 = loop_patch_for_break.break_count;
@@ -4568,7 +4618,7 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                 exec_backend_set_error(stmt.ast_node, "exec: continue patch 栈越界" as *byte, 0);
                 return -1;
             }
-            if exec_builder_emit_all_cleanup(ctx, 0) < 0 {
+            if exec_builder_emit_cleanup_down_to(ctx, loop_patch_for_continue.cleanup_depth_at_entry, 0) < 0 {
                 return -1;
             }
             const patch_idx2: i32 = loop_patch_for_continue.continue_count;
