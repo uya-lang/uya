@@ -2095,7 +2095,7 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       async 帧布局与 `@await` 语义 40 例、线程/堆/OSAL 10 例、`@c_import` 3 例、
       超长函数 1 例、以及少量 `cleanup scope 嵌套过深`。
       libc 堆两例的共同根因已定位到「常量折叠把 `CHUNK_STATE_MASK` 算成 2」）
-- [x] `make check` 全绿（1191 个测试，通过 1191，失败 0；第 309/314/317/320 轮复测均绿）
+- [x] `make check` 全绿（1191 个测试，通过 1191，失败 0；第 309/314/317/320/345 轮复测均绿）
 - [ ] 合并到 main 并删除工作区
 
 ### 第 342 轮：错误联合 error_id 借用、INDEX 基引用、裸指针还原判定收窄
