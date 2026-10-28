@@ -6777,43 +6777,58 @@ fn exec_lower_lower_global_init_exprs(arena: &CompilerArena, checker: &TypeCheck
         return -1;
     }
     var i: i32 = 0;
+    // `ExecLowerContext` 有 12 个 `[T: EXEC_MAX_LOCALS]` / `[T: EXEC_MAX_GLOBALS]`
+    // 级别的大数组，`@size_of` 接近 2MB。原来在循环体内每轮都构造一次字面量，
+    // 等于每处理一个全局变量就 memset 两 MB —— callgrind 实测这一项占掉
+    // 整个编译器 41% 的指令数（exec_lower_lower_global_init_exprs 内的 memset）。
+    // 这里把它提到循环外，循环内只重置运行态计数。
+    var ctx: ExecLowerContext = ExecLowerContext {
+        arena: arena,
+        checker: checker,
+        function_decl: null,
+        global_names: [],
+        global_decls: [],
+        global_types: [],
+        global_is_const: [],
+        global_count: 0,
+        local_names: [],
+        local_slots: [],
+        local_types: [],
+        local_is_param: [],
+        slot_names: [],
+        slot_decls: [],
+        slot_types: [],
+        slot_is_param: [],
+        slot_scope_ids: [],
+        slot_needs_drop: [],
+        slot_drop_decls: [],
+        slot_field_drop_indices: [],
+        slot_field_drop_decls: [],
+        slot_field_drop_count: [],
+        active_local_count: 0,
+        next_slot: 0,
+        max_slot_count: 0,
+        next_scope_id: 0,
+        scope_markers: [],
+        scope_ids: [],
+        scope_depth: 0,
+        keep_scope_block: null,
+        catch_prefix_scope_open: 0,
+    };
     while i < global_count {
         const decl: &ASTNode = globals[i].decl;
         const init_expr_ast: &ASTNode = exec_lower_global_init_ast(decl);
         if init_expr_ast != null {
-            var ctx: ExecLowerContext = ExecLowerContext {
-                arena: arena,
-                checker: checker,
-                function_decl: decl,
-                global_names: [],
-                global_decls: [],
-                global_types: [],
-                global_is_const: [],
-                global_count: 0,
-                local_names: [],
-                local_slots: [],
-                local_types: [],
-                local_is_param: [],
-                slot_names: [],
-                slot_decls: [],
-                slot_types: [],
-                slot_is_param: [],
-                slot_scope_ids: [],
-                slot_needs_drop: [],
-                slot_drop_decls: [],
-                slot_field_drop_indices: [],
-                slot_field_drop_decls: [],
-                slot_field_drop_count: [],
-                active_local_count: 0,
-                next_slot: 0,
-                max_slot_count: 0,
-                next_scope_id: 0,
-                scope_markers: [],
-                scope_ids: [],
-                scope_depth: 0,
-                keep_scope_block: null,
-                catch_prefix_scope_open: 0,
-            };
+            // 每个全局变量的初始化表达式各自独立：只重置运行态计数和槽位记账，
+            // 不重跑整块 ctx 的零初始化（见循环外的注释）。
+            ctx.function_decl = decl;
+            ctx.active_local_count = 0;
+            ctx.next_slot = 0;
+            ctx.max_slot_count = 0;
+            ctx.next_scope_id = 0;
+            ctx.scope_depth = 0;
+            ctx.keep_scope_block = null;
+            ctx.catch_prefix_scope_open = 0;
             exec_lower_seed_globals(&ctx, globals, global_count);
             const lowered_init: &HIRExpr = exec_lower_coerce_expr(&ctx, init_expr_ast, &globals[i].type_ref.type);
             if lowered_init == null {

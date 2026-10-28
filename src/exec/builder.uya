@@ -49,13 +49,18 @@ struct ExecFunctionBuildContext {
     host_calls: &ExecHostCallSiteBuilder,
     module: &HIRModule,
     function: &HIRFunction,
-    instrs: [BCInstr: EXEC_MAX_BYTECODE_INSTRS],
+    // 指令数组按需从 arena 分配：`[BCInstr: 16384]` 单个字段就有 1.2MB，
+    // 放在 ctx 里会让每个函数 build 都 memset 掉 3.4MB 栈帧
+    // （callgrind 实测占编译器 21.8% 的指令数）。
+    instrs: &BCInstr,
     instr_count: i32,
     next_temp_slot: i32,
     max_slot_count: i32,
-    loop_stack: [ExecLoopPatch: 1024],
+    // 循环/cleanup 栈同样按需分配：`ExecCleanupScope` 一个就 1584 字节，
+    // 1024 层预分配等于每次 build 白清 1.6MB（同 `instrs` 的理由）。
+    loop_stack: &ExecLoopPatch,
     loop_depth: i32,
-    cleanup_scopes: [ExecCleanupScope: EXEC_MAX_CLEANUP_SCOPE_DEPTH],
+    cleanup_scopes: &ExecCleanupScope,
     cleanup_depth: i32,
     // checked 算术（`(a + b) catch`）溢出时跳向最近 catch 分支的跳转指令索引，
     // 由 HIR_EXPR_CHECKED_CATCH 统一回填目标。
@@ -127,6 +132,9 @@ fn exec_builder_intern_host_call(ctx: &ExecFunctionBuildContext, expr: &HIRExpr)
 
 fn exec_builder_instr_slot(ctx: &ExecFunctionBuildContext, idx: i32) &BCInstr {
     if ctx == null || idx < 0 || idx >= EXEC_MAX_BYTECODE_INSTRS {
+        return null;
+    }
+    if ctx.instrs == null {
         return null;
     }
     if idx >= 0 && idx < EXEC_MAX_BYTECODE_INSTRS {
@@ -282,6 +290,16 @@ fn exec_builder_loop_patch_ref(ctx: &ExecFunctionBuildContext, idx: i32) &ExecLo
     if ctx == null || idx < 0 || idx >= 1024 {
         return null;
     }
+    if ctx.loop_stack == null {
+        ctx.loop_stack = compiler_arena_alloc(ctx.arena,
+            @size_of(ExecLoopPatch) * 1024 as usize) as &ExecLoopPatch;
+        if ctx.loop_stack == null {
+            return null;
+        }
+    }
+    if ctx.loop_stack == null {
+        return null;
+    }
     if idx >= 0 && idx < 1024 {
         return &ctx.loop_stack[idx];
     }
@@ -310,6 +328,16 @@ fn exec_builder_continue_jump_ref(loop_patch: &ExecLoopPatch, idx: i32) &i32 {
 
 fn exec_builder_cleanup_scope_ref(ctx: &ExecFunctionBuildContext, idx: i32) &ExecCleanupScope {
     if ctx == null || idx < 0 || idx >= EXEC_MAX_CLEANUP_SCOPE_DEPTH {
+        return null;
+    }
+    if ctx.cleanup_scopes == null {
+        ctx.cleanup_scopes = compiler_arena_alloc(ctx.arena,
+            @size_of(ExecCleanupScope) * EXEC_MAX_CLEANUP_SCOPE_DEPTH as usize) as &ExecCleanupScope;
+        if ctx.cleanup_scopes == null {
+            return null;
+        }
+    }
+    if ctx.cleanup_scopes == null {
         return null;
     }
     if idx >= 0 && idx < EXEC_MAX_CLEANUP_SCOPE_DEPTH {
@@ -504,6 +532,17 @@ fn exec_builder_emit(ctx: &ExecFunctionBuildContext, instr: BCInstr) i32 {
     if instr_index >= EXEC_MAX_BYTECODE_INSTRS {
         exec_backend_set_error(ctx.function.decl, "exec: bytecode 指令超出上限" as *byte, 0);
         return -1;
+    }
+    // 指令数组惰性分配：绝大多数函数远用不到 16384 条上限，按上限预分配
+    // 只是白白多清 1.2MB（见 `ExecFunctionBuildContext.instrs` 的注释）。
+    if ctx.instrs == null {
+        const fresh: &BCInstr = compiler_arena_alloc(ctx.arena,
+            @size_of(BCInstr) * EXEC_MAX_BYTECODE_INSTRS as usize) as &BCInstr;
+        if fresh == null {
+            exec_backend_set_error(ctx.function.decl, "exec: bytecode 指令缓冲区分配失败" as *byte, 0);
+            return -1;
+        }
+        ctx.instrs = fresh;
     }
     const instr_ptr: &BCInstr = exec_builder_instr_slot(ctx, instr_index);
     if instr_ptr == null {
@@ -5280,13 +5319,13 @@ fn exec_builder_build_function(arena: &CompilerArena, checker: &TypeChecker, con
         host_calls: host_calls,
         module: module,
         function: fn_hir,
-        instrs: [],
+        instrs: null,
         instr_count: 0,
         next_temp_slot: fn_hir.local_count,
         max_slot_count: fn_hir.local_count,
-        loop_stack: [],
+        loop_stack: null,
         loop_depth: 0,
-        cleanup_scopes: [],
+        cleanup_scopes: null,
         cleanup_depth: 0,
         checked_err_jumps: [],
         checked_err_count: 0,
@@ -5318,7 +5357,9 @@ fn exec_builder_build_function(arena: &CompilerArena, checker: &TypeChecker, con
         exec_backend_set_error(fn_hir.decl, "exec: bytecode function 分配失败" as *byte, 0);
         return null;
     }
-    memcpy(out_instrs as *void, &ctx.instrs[0] as *void, @size_of(BCInstr) *| ctx.instr_count as usize);
+    if ctx.instrs != null && ctx.instr_count > 0 {
+        memcpy(out_instrs as *void, ctx.instrs as *void, @size_of(BCInstr) *| ctx.instr_count as usize);
+    }
     _ = memset(out_fn as *byte, 0, @size_of(BCFunction));
     out_fn.name = fn_hir.name;
     out_fn.decl = fn_hir.decl;

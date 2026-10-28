@@ -876,9 +876,22 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
         return -1;
     }
     
-    const existing: &Symbol = symbol_table_lookup(checker, symbol.name);
-    if existing != null && existing.scope_level == symbol.scope_level {
-        return -1;
+    // 只需要判断「同一个作用域里是否已有同名符号」：外层作用域有同名符号完全
+    // 合法（内层遮蔽外层）。原先走完整的 `symbol_table_lookup`（从最内层一路
+    // 向外遍历所有作用域的所有符号）只为拿到一个 `scope_level` 比较，
+    // 每次 insert 平均触发 1.1 万次 `str_equals` —— callgrind 实测
+    // `symbol_table_insert` 一项就吃掉 14.7% 的指令数，是编译器最大的单点开销。
+    // 符号在下面插入成功时必定挂进 `scope_heads[scope]` 链表（见 L914），
+    // 所以直接扫当前作用域的链表即可，长度等于该作用域的符号数。
+    const dup_scope: i32 = symbol.scope_level;
+    if dup_scope >= 0 && dup_scope < @len(checker.scope_heads) {
+        var dup: &Symbol = checker_scope_head_at(checker, dup_scope);
+        while dup != null {
+            if str_equals(dup.name, symbol.name) != 0 {
+                return -1;
+            }
+            dup = dup.next_in_scope;
+        }
     }
     
     // P54：符号表也是动态哈希表 —— 先按负载因子扩容，再把符号放进空槽。
