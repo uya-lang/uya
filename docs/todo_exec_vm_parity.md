@@ -2092,3 +2092,73 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       capability 与 async 一族仍属模型级改动）
 - [x] `make check` 全绿（1191 个测试，通过 1191，失败 0；第 309/314/317/320 轮复测均绿）
 - [ ] 合并到 main 并删除工作区
+
+### 第 342 轮：错误联合 error_id 借用、INDEX 基引用、裸指针还原判定收窄
+
+本轮三处根因，全部在 `src/exec/` 值模型层，且都是「同一份语义在不同路径上实现不一致」。
+
+**1. ok 错误联合的 `error_id` 被 aux 借用（`test_capability_runtime_compat` 11→0）**
+
+`exec_make_error_union_ok` 把载荷的 aux 位（指针 pointee kind / 裸数组元素类型码 /
+向量通道数）暂存进 `error_id`，`exec_value_unwrap_ok` 再还原。于是
+`const r: !&byte = ...; r.error_id` 读到的是 `10`（BYTE 的 TypeKind），
+被上层误判成 `error.Bad`。`exec_value_error_id` 增加 ok 判定：`i64_value == 0`
+时一律返回 0。这是本轮最便宜的一处，却一次修掉 11 个断言。
+
+**2. `BC_LOAD_INDEX` 缺 INDEX 基引用分支（`test_typed_pipeline_capability` 越界消失）**
+
+`&arr[0]` 传参后形参是 INDEX 基引用，`p[i]` 走了「解引用 target」分支：
+target 本身是 STRING，`exec_vm_load_pointer_index` 于是把首字符字节值当成元素返回，
+`args[i]` 拿到 `'l'` 而不是 `"beta"`，`str_len(&[&const byte])` 一律越界。
+新增分支按 ExecValue 步进取第 i 个元素。
+（顺带：`LOAD_INDEX` 遇到 STRING 基值也补了显式分支，不再落进 `exec_value_count == 0`
+的越界判定。）
+
+**3. 裸指针还原成 ExecValue 本体：判据从「在竞技场里」收窄到「登记表命中」**
+
+`651a148e` 为了修 `*entry = Entry{...}`（`@ptr_from_usize(&arr[i])` 丢掉内部引用编码）
+加了「地址在 VM 居住区就整块读写 ExecValue」的快路径。判据太宽，三个坑同时踩：
+
+- 竞技场里同时住着 ExecValue 数组和**裸字节缓冲**（源码文本、捕获缓冲）；
+- `g_native_agg_values` 旁路表的**基址**本身就是 C 侧裸地址。
+
+结果 `*p` 把缓冲字节当成 `kind/count` 解出来，fmt / json / yaml 三簇整片
+`LOAD_FIELD 字段越界`（20 余例回归）。
+
+修法：`src/exec/value.uya` 新增**聚合元素登记表**。`exec_value_make_aggregate`
+分配 values 数组时登记（基址 + 跨度），`exec_vm_box_value_ref` 登记单个装箱值。
+竞技场是 bump 分配、基址单调递增，所以按下标追加即天然有序，二分查找 O(log n)。
+新判定 `exec_vm_address_is_exec_value_storage`：竞技场内部必须命中登记表且落在
+元素边界；槽池 / 全局区按 ExecValue 步长对齐；独立装箱值查登记；明确排除
+`g_native_agg_values`。LOAD / STORE 两侧都换用它。
+
+**4. 指针算术的 VOID pointee 兜底（`test_dyn_table_growth` 转绿）**
+
+`self.values + off`（`values` 是 `&byte` 字段）报 `指针算术不支持该元素类型`：
+字段读取路径只带宽度、不带元素类型，pointee 被编码成 VOID，
+`exec_vm_type_kind_size` 返回 0 就走错误分支。`LOAD_INDEX` / `STORE_INDEX`
+早就有「VOID pointee 按 1 字节」的兜底，`exec_vm_pointer_add` 漏了。补上，
+并把结果指针的 pointee 改写成 BYTE，避免后续再次退化。
+
+**本轮实测**（全量普查，第 342 轮末）：失败 **79 例**（r340 基线 86 例）。
+新转绿 20 例：`test_capability_runtime_compat`、`test_libc_heap_{bins,coalescing_adjacent,
+realloc_in_place,tcache}`、`test_printf_f`、`test_protobuf_wire`、
+`test_http_websocket_{reconnect,handshake,heartbeat}`、`test_https_websocket_loopback`、
+`test_http_uyagin_recover_observe`、`test_std_io`、`test_std_io_buffering`、
+`test_stdio_file_buffering`、`test_std_stdlib_malloc`、`test_std_async_event`、
+`test_std_async_event_fd_reuse`、`test_typed_pipeline_cmd_argv`、`test_dyn_table_growth`。
+fmt / json / yaml 三簇回到全绿。
+
+**新出现的 13 例不是回归**：`test_abi_calling_convention` / `test_simple_cast` /
+`test_pointer_cast` / `test_comprehensive_cast` / `test_exec_vm_c_import_unsupported`
+在跳过表里（C99 侧本来就链不上），普查会过滤掉；其余
+`test_{std_sql,std_jpeg_decode,std_jpeg_encode,https_debug,https_google,
+https_production,https_real_site,crypto_bigint_modexp4096}` 已在
+`1c05e2d9` 与 `76f611e5` 两个提交上逐一复现同样失败（`VM frame slot 超限` /
+`空指针解引用` / 超时），确认是基线里就有的，只是 r340 那次普查它们偶然通过。
+
+**剩余缺口仍是模型级**：async 帧布局（约 20 例，`@await` 同步降级的语义边界）、
+线程（`pthread`/堆/OSAL 约 10 例，同步 VM 无并发语义）、`@c_import`（3 例）、
+超长函数（`bytecode 指令超出上限`）、以及「内核/C 侧按 C 布局写进 VM 聚合槽」
+（`test_signal` 的 `rt_sigaction`、`test_osal` 的 `execve`、`test_kernel_sim` 的
+call gate 桩）。这些都需要给 VM 真正的聚合内存字节视图，不是补几个分支能收口的。
