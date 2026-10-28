@@ -2169,6 +2169,46 @@ fn exec_vm_native_agg_peek(base: usize, index: i64) &ExecValue {
     return null;
 }
 
+/// 把一条原生聚合旁路表里的元素整体迁到另一条基址（`memcpy` 用）。
+///
+/// 原生结构体数组的元素是 VM 聚合，真实内容在 `g_native_agg_values` 旁路表里，
+/// 原生缓冲区上只有从未写过的原始字节。`memcpy` 若只搬字节，目标基址的旁路表
+/// 就是空的 —— 之后 `dst[i]` 读到 null，字段访问直接 `LOAD_FIELD 字段越界`。
+///
+/// 参数：`dst_base` 目标基址；`src_base` 源基址。
+/// 返回值：迁移的元素个数；源没有登记返回 0。
+fn exec_vm_native_agg_migrate(dst_base: usize, src_base: usize) i32 {
+    if dst_base == 0 as usize || src_base == 0 as usize || dst_base == src_base {
+        return 0;
+    }
+    var src_slot: i32 = -1;
+    var i: i32 = 0;
+    while i < g_native_agg_used {
+        if g_native_agg_base[i] == src_base {
+            src_slot = i;
+            break;
+        }
+        i = i + 1;
+    }
+    if src_slot < 0 || src_slot >= EXEC_NATIVE_AGG_MAX_BASES {
+        return 0;
+    }
+    if g_native_agg_count[src_slot] <= 0 {
+        return 0;
+    }
+    const count: i32 = g_native_agg_count[src_slot];
+    var j: i32 = 0;
+    while j < count && j < EXEC_NATIVE_AGG_MAX_ELEMS {
+        const dst_elem: &ExecValue = exec_vm_native_agg_slot(dst_base, j as i64);
+        if dst_elem == null {
+            break;
+        }
+        dst_elem[0] = exec_value_clone(&g_native_agg_values[src_slot][j]);
+        j = j + 1;
+    }
+    return j;
+}
+
 /// 取原生指针第 index 个聚合元素对应的 ExecValue 槽位（按需建表）。
 /// 参数：base 指针地址；index 元素下标。
 /// 返回值：指向该元素 ExecValue 的指针；越界或表满返回 null。
@@ -3656,6 +3696,9 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                 mem_copy_count = src_cap;
             }
             mem_copy_len = mem_copy_count;
+            // 两端是原生聚合数组时，真实内容在旁路表里，字节搬完还要迁表。
+            _ = exec_vm_native_agg_migrate(@usize_from_ptr(mem_dst_ptr as &void),
+                @usize_from_ptr(mem_src_ptr as &void));
             var mem_forward: i32 = 1;
             if site.id == ExecHostCallId.EXEC_HOST_CALL_MEMMOVE &&
                 @usize_from_ptr(mem_dst_ptr as &void) > @usize_from_ptr(mem_src_ptr as &void) {
