@@ -632,6 +632,79 @@ fn exec_value_aggregate_from_parts(kind: ExecValueKind, count: i32, values: &Exe
     };
 }
 
+// VM 聚合 values 数组登记表。
+//
+// 竞技场里既有 ExecValue 数组，也有裸字节缓冲（源码文本、捕获缓冲等），
+// 单看「地址落在竞技场」无法判断某地址处是不是真正的 ExecValue。裸指针
+// 还原成 ExecValue 本体（`@ptr_from_usize(&arr[i])` 之后 `*p`）必须先证明
+// 目标确实是聚合的元素槽，否则会把缓冲字节误读成 kind/count。
+//
+// 竞技场是 bump 分配，基址单调递增，所以按下标追加即天然有序，可用二分查找。
+const EXEC_VALUE_ARRAY_REGISTRY_MAX: i32 = 65536;
+var g_exec_value_array_bases: [usize: EXEC_VALUE_ARRAY_REGISTRY_MAX] = [];
+var g_exec_value_array_spans: [usize: EXEC_VALUE_ARRAY_REGISTRY_MAX] = [];
+var g_exec_value_array_count: i32 = 0;
+
+/// 登记一段 VM 聚合元素数组。
+/// 参数：`base` 元素数组首地址；`count` 元素个数。
+/// 返回值：无。表满时放弃登记（该聚合退回保守路径，不影响正确性）。
+fn exec_value_register_array(base: usize, count: i32) void {
+    if base == 0 as usize || count <= 0 {
+        return;
+    }
+    if g_exec_value_array_count >= EXEC_VALUE_ARRAY_REGISTRY_MAX {
+        return;
+    }
+    const idx: i32 = g_exec_value_array_count;
+    if idx < 0 || idx >= EXEC_VALUE_ARRAY_REGISTRY_MAX {
+        return;
+    }
+    g_exec_value_array_bases[idx] = base;
+    g_exec_value_array_spans[idx] = (@size_of(ExecValue) as usize) * (count as usize);
+    g_exec_value_array_count = idx + 1;
+}
+
+/// 登记一个「独立装箱的单个 ExecValue」地址（`exec_vm_box_value_ref` 用）。
+/// 参数：`base` ExecValue 地址。
+/// 返回值：无。表满时放弃登记（该装箱值退回保守路径）。
+fn exec_value_register_boxed(base: usize) void {
+    exec_value_register_array(base, 1);
+}
+
+/// 判断地址是否是登记过的独立装箱 ExecValue。
+/// 参数：`addr` 绝对地址。
+/// 返回值：true 表示该地址处确实是一个 ExecValue。
+fn exec_value_address_is_boxed(addr: usize) bool {
+    return exec_value_address_is_array_element(addr);
+}
+
+/// 判断地址是否落在某个已登记的 VM 聚合元素数组内。
+/// 参数：`addr` 绝对地址。
+/// 返回值：true 表示该地址处确实是一个 ExecValue 元素槽。
+fn exec_value_address_is_array_element(addr: usize) bool {
+    if addr == 0 as usize || g_exec_value_array_count <= 0 {
+        return false;
+    }
+    var lo: i32 = 0;
+    var hi: i32 = g_exec_value_array_count;
+    while lo < hi {
+        const mid: i32 = (lo + hi) / 2;
+        if mid < 0 || mid >= EXEC_VALUE_ARRAY_REGISTRY_MAX {
+            return false;
+        }
+        const base: usize = g_exec_value_array_bases[mid];
+        const span: usize = g_exec_value_array_spans[mid];
+        if addr < base {
+            hi = mid;
+        } else if addr >= base +| span {
+            lo = mid + 1;
+        } else {
+            return (addr -| base) % (@size_of(ExecValue) as usize) == 0 as usize;
+        }
+    }
+    return false;
+}
+
 fn exec_value_make_aggregate(kind: ExecValueKind, count: i32) ExecValue {
     if count < 0 {
         return exec_make_void();
@@ -642,6 +715,7 @@ fn exec_value_make_aggregate(kind: ExecValueKind, count: i32) ExecValue {
         if values == null {
             return exec_make_void();
         }
+        exec_value_register_array(@usize_from_ptr(values as &void), count);
     }
     return exec_value_aggregate_from_parts(kind, count, values);
 }

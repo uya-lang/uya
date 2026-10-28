@@ -1558,6 +1558,7 @@ fn exec_vm_box_value_ref(value: ExecValue, pointee_kind: i32) ExecValue {
         return exec_make_pointer_with_kind(0 as usize, exec_vm_encode_ref_kind(pointee_kind));
     }
     boxed[0] = exec_value_clone(&value);
+    exec_value_register_boxed(@usize_from_ptr(boxed as &void));
     return exec_vm_make_value_ref(boxed, pointee_kind);
 }
 
@@ -1751,6 +1752,37 @@ fn exec_vm_address_is_vm_resident(addr: usize) bool {
         return true;
     }
     return false;
+}
+
+/// 地址是否指向一个确实存放 ExecValue 的元素槽。
+///
+/// 与 `exec_vm_address_is_vm_resident` 的区别：不含 `g_native_agg_values`
+/// 旁路表，并且竞技场内部还要再查聚合元素登记表 —— 竞技场里同时住着
+/// ExecValue 数组和裸字节缓冲（源码文本、捕获缓冲），只看「在竞技场里」
+/// 会把缓冲字节当成 kind/count 解出来（fmt/json/yaml 系列因此崩溃）。
+///
+/// 参数：`addr` 待判定地址。
+/// 返回值：true 表示可以安全地 `@ptr_from_usize(addr) as &ExecValue`。
+fn exec_vm_address_is_exec_value_storage(addr: usize) bool {
+    if addr == 0 as usize {
+        return false;
+    }
+    // 竞技场：必须是登记过的聚合元素数组中的元素地址。
+    if exec_vm_address_is_value(addr) {
+        return exec_value_address_is_array_element(addr);
+    }
+    const pool_base: usize = @usize_from_ptr(&g_exec_vm_slot_pool[0] as &void);
+    const pool_size: usize = (@size_of(ExecValue) as usize) * (EXEC_MAX_FRAME_SLOTS as usize);
+    if addr >= pool_base && addr < pool_base +| pool_size {
+        return (addr -| pool_base) % (@size_of(ExecValue) as usize) == 0 as usize;
+    }
+    if g_exec_vm_globals_base != 0 && addr >= g_exec_vm_globals_base && addr < g_exec_vm_globals_end {
+        return (addr -| g_exec_vm_globals_base) % (@size_of(ExecValue) as usize) == 0 as usize;
+    }
+    // 独立分配的单个 ExecValue（`exec_vm_box_value_ref` 之类）：借用登记表
+    // 的「单元素数组」形态不可得，这里用旁路表之外的最小判据 —— 只接受
+    // 由 `exec_vm_box_value_ref` 记录过的地址。
+    return exec_value_address_is_boxed(addr);
 }
 
 fn exec_vm_field_native_base(object: &ExecValue) usize {
@@ -2405,8 +2437,9 @@ fn exec_vm_load_pointer_index(function: &BCFunction, base: ExecValue, index_valu
         // 指令 imm 里，这里按真实步长算出元素地址并返回「指向该元素」的指针，
         // 后续字段访问才能走原生字段读写。
         // 裸地址落在 VM 值竞技场里：指针丢了内部引用编码，目标就是 ExecValue
-        // 本体（与 STORE 侧对称）。
-        if exec_vm_address_is_vm_resident(base_addr) {
+        // 本体（与 STORE 侧对称）。判定必须排除原生聚合旁路表，否则会把
+        // C 侧结构体字节误读成 ExecValue（fmt/json/yaml 系列曾因此崩溃）。
+        if exec_vm_address_is_exec_value_storage(base_addr) {
             const direct_elem: &ExecValue = @ptr_from_usize(base_addr) as &ExecValue;
             out_value[0] = exec_value_clone(direct_elem);
             return 0;
@@ -2542,7 +2575,8 @@ fn exec_vm_store_pointer_index(function: &BCFunction, base: ExecValue, index_val
         // 裸地址落在 VM 值竞技场里：指针虽然丢了内部引用编码，目标仍是
         // ExecValue 本体（`@ptr_from_usize(&arr[i])` 后再 `*p = v` 就是这个形态）。
         // 直接整块替换，不能退化成旁路表，否则写进影子槽、读回仍是旧值。
-        if exec_vm_address_is_vm_resident(base_addr) {
+        // 判定必须排除原生聚合旁路表，见 `exec_vm_address_is_exec_value_storage`。
+        if exec_vm_address_is_exec_value_storage(base_addr) {
             const direct_elem: &ExecValue = @ptr_from_usize(base_addr) as &ExecValue;
             direct_elem[0] = exec_value_clone(&src_value);
             return 0;
