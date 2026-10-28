@@ -2162,3 +2162,49 @@ https_production,https_real_site,crypto_bigint_modexp4096}` 已在
 超长函数（`bytecode 指令超出上限`）、以及「内核/C 侧按 C 布局写进 VM 聚合槽」
 （`test_signal` 的 `rt_sigaction`、`test_osal` 的 `execve`、`test_kernel_sim` 的
 call gate 桩）。这些都需要给 VM 真正的聚合内存字节视图，不是补几个分支能收口的。
+
+### 第 343 轮：defer 清理体自我重入（已定位，但修复方案被证否，不落地）
+
+普查里 8 例报 `exec: cleanup scope 嵌套过深`（`test_async_multi_fd_concurrent`、
+`test_async_runtime_shared_{dns,semantics}`、`test_async_shared_runtime_semantics`、
+`test_async_scheduler_event_loop_ptr_compile` 等），根因已完整定位。
+
+**最小复现**（`/tmp/t_c6.uya`）：
+
+```uya
+fn f() i32 {
+    defer { while false { g = g + 1; } }   // defer 体里只要有 while 就炸
+    return 0;
+}
+```
+
+**根因**：`exec_builder_emit_cleanup_scope(ctx, scope_idx, ..)` 在**当前深度**上
+发射清理体。若清理体里有 `while`，`builder` 会给它开新的 cleanup scope，
+于是复用同一个槽位下标；循环体的 `break`（while 被降级成
+`loop { if !cond { break } .. }`）又会调 `exec_builder_emit_all_cleanup`，
+从当前深度往回遍历 —— 而被发射的这个 scope 自己还在遍历范围内，
+于是它再发射一次自己的清理体 → 无限自我重入，深度涨到 1024 上限。
+实测 `DBGDEF` 打印证明：`defer` 的 `cleanup_block` 指针等于外层 block 本身。
+
+**试过的修法（都不成立，已全部 `git checkout` 回退）**：
+
+1. 发射期间把 `ctx.cleanup_depth` 压到 `scope_idx`，并备份/还原槽位登记 ——
+   `嵌套过深` 消失，但 `defer` 体里 `break` 的展开目标变成
+   "0x.. <本 scope> + 2"，落进了合法跳转表，执行时跳进“外层 while 的循环体”
+   导致 PC 倒退死循环。症状从编译期错误转成运行期挂起，更难排查。
+2. 同上 + 加 `ctx.cleanup_floor` 下界（`break`/`continue`/`return` 只收
+   清理体自己的内层块）—— 错误变成 `scope enter/exit 不匹配`
+   （`sid=10 vs 6`），因为 `continue` 之后的 `SCOPE_EXIT` 是不可达代码，
+   它对应的登记已被跳转前的发射消费掉。
+3. 再把 `SCOPE_EXIT` 配对放宽成“向下找到本 scope_id”—— 该例仍然失败，
+   且全量普查**新增 3 例回归**（`test_async_cleanup_body_coverage`、
+   `test_async_defer_errdefer`、`test_http_websocket_handshake`），零修复。
+   **净负收益，已回退。**
+
+**结论**：`defer` 体与循环体的 cleanup scope 需要各自独立的槽位编号
+（不是复用现有一个栈），这属于 `builder` 的 scope 分配模型改动，
+和 async 帧布局同量级。在拿到能同时保证「清理体 break 目标正确」与
+「SCOPE_EXIT 配对」的方案前不要动 `exec_builder_emit_cleanup_scope`。
+
+**本轮实测**：回退后全量普查失败 **79 例**（与本轮开头一致，无回归）。
+`make check` 1191/1191 通过。
