@@ -2059,6 +2059,12 @@ packed 12 字节 C 布局转写进原生缓冲区。
 
 **仍未解决的一层（下一轮入口）**：`test_libc_heap_tcache`(44) 与
 `test_std_stdlib_malloc`(9) 同一个根因 —— **`set_free(hdr, false)` 清不掉 FREE 标志位**。
+（本轮末尾又加了一个直接探针 `export fn heap_debug_state_mask() usize { return CHUNK_STATE_MASK; }`：
+VM 返回 **0**、C 返回 3；探针程序里 `__exec_global_init` 给 MASK 的槽位写的是
+`const[7] = 4095`（另一份稍大的程序里写的是 2）—— **同一个 const 在 heap.uya 里每次
+构建拿到的值是 0 / 2 / 4095 三种，全都不对**，而把这段 const 块原样抄进 /tmp 单文件
+用例又完全正确。说明这是「大模块里 const 全局初始化表达式」的
+降级期 HIR/AST 复用或计算缺陷，与 `1|2` 本身无关。探针已回滚，heap.uya 保持干净。）
 打点确认：进入 `set_free` 时 `hdr.size=0x1001`、`free=false`，写回后仍是 `0x1001`
 （C 侧变成 `0x1000`）。进一步打点发现 `hdr.size - (hdr.size & CHUNK_STATE_MASK)` 里
 **`CHUNK_STATE_MASK` 在某些调用点求值成 2（应为 3）**：它在 heap.uya 里声明为
