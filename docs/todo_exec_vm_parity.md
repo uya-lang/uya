@@ -2089,7 +2089,8 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       （pthread/堆/OSAL 约 10 例，同步 VM 无并发语义）、`@c_import`（3 例）、
       `cleanup scope 嵌套过深`（8 例，第 343 轮已定位根因但修复方案三次证否）
       与超长函数（`bytecode 指令超出上限`）；这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿（第 345/348 轮实测均 **914 例 / 一致 832 / 不一致 81**；
+- [ ] `make exec-parity` 全绿（第 363 轮实测 **914 例 / 一致 835 / 不一致 79**，
+      比文档原先记录的 832/81 多 3 例一致；
       81 例的分类见下。与第 342 轮（832/81）逐项一致，说明第 344~346 轮的三处
       修复没有动摇差分口径 —— 但也没有收口，因为剩下的全是模型级缺口：
       async 帧布局与 `@await` 语义 40 例、线程/堆/OSAL 10 例、`@c_import` 3 例、
@@ -2963,3 +2964,8 @@ if length == 4 || length == 5 || length == 7 {   // %lld / %jd / %td
   `exec_vm_field_native_base` 把指向全局区的原生结构体指针判成 VM 驻留，
   第 359~361 轮三次修法都被 `test_fmt_*` 回退证否）、`@await` 语义、
   线程/OSAL、`@c_import`、超长函数。
+
+第 363 轮 `make exec-parity`（`UYA_PARITY_TIMEOUT=600 UYA_PARITY_JOBS=8`）实测：
+914 例 / 一致 835 / 不一致 79 / stdout 差分 0，不一致全部是 `STATUS_MISMATCH`
+（C99 通过、VM 失败 21 例，其中 4 例是 VM 侧 124 超时）。相对第 345/348 轮的
+832/81 多 3 例一致：`%lld` 与接口 `.data` 两处修复各收口一部分格式/装箱用例。
