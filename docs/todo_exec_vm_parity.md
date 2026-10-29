@@ -2751,3 +2751,43 @@ builder 侧按长度原样 `memcpy`。
 `test_std_sql`、`test_syscall_time`、`test_syscall_dir`、`test_kernel_dispatch`、
 `test_std_path_module`、`test_tls_x509`、`test_embed_builtin`、
 `test_libc_stdio_new`、`test_macro_mc_type_auto`。
+
+### 第 358 轮：`@frame` 类失败的具体根因（查清，未修）
+
+剩余 73 个失败里约 60 个与 `@frame` / `@async_fn` 相关。挑
+`test_async_frame_align_pool` 拆到最底层，根因很明确：
+
+`lib/std/async_frame.uya:511` 的
+```
+const header: &AsyncFrameAllocHeader = raw_ptr as &AsyncFrameAllocHeader;
+header.storage_kind = storage_kind as i16;
+```
+在 VM 里报
+`STORE_FIELD 字段越界(idx=0 kind=14 count=-1 pointee=16 aux=16 isref=0)`。
+
+逐层诊断：
+
+1. 字节码是 `STORE_FIELD a=12 b=11 c=0 imm=0` —— `imm == 0` 表示**没有任何
+   原生布局信息**（field 下标、native 偏移、native kind 全是 0）。
+2. `exec_vm_field_imm_kind(imm, 32) -| 1 = 0`，所以不走「按原生偏移写」那条
+   分支，退回 VM 聚合路径；而 `slot_a` 是裸原生指针（`pointee=16` 但
+   `count=-1`，即背后没有字段表），于是越界。
+3. 往上追：`hir_field.binary_op`（承载 native kind）是 0，是因为
+   `exec_lower_native_field_layout` 拿到的**结构体类型错了** ——
+   诊断打印 `sname=Future lk=16 fi=0 off=0 nk=0`。`base_type` 被推断成
+   `Future`，而这里应该是 `AsyncFrameAllocHeader`。
+4. 再往上：`expr.member_access_object`（`raw_ptr as &AsyncFrameAllocHeader`）
+   在 AST 里**已经不是 `AST_CAST_EXPR`**（诊断 `iscast=0 hastt=0`）——
+   `@async_fn` 的变换把函数体重写过了，这条 cast-expression 被换成别的形态，
+   于是「按 AST 目标类型解析 CAST」那条兜底（第 350 轮加的）也接不上。
+
+**结论**：这不是「补一个字段布局分支」能解决的，而是 **`@async_fn` 变换后的
+AST 里，成员访问的基类型丢失了原始 cast 目标** —— `Future` 是变换自己引入的
+包装类型，被错误地当成了 `raw_ptr` 的类型。修它需要在 `@async_fn` /
+`@frame` 的 AST 重写里保留 cast 目标（或给 exec lowering 一条「从
+`AST_CAST_EXPR` 被替换后的等价节点取原文类型」的路径），属结构性改动。
+
+同一族里 `test_async_frame_methods` 报 `LOAD_UNION_TAG 目标不是 union`、
+`test_async_fd` 报 `@await 操作数不是 Future 或始终 Pending`（后者是测试
+**故意** await 一个永远 Pending 的 future，而 VM 是同步执行到完成，无法表示
+Pending —— 属设计差异）。
