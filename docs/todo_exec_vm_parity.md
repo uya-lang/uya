@@ -2946,3 +2946,20 @@ if length == 4 || length == 5 || length == 7 {   // %lld / %jd / %td
 
 **当前状态**：census 仍为 836/909（本轮把一例的失败点从 lowering 前移到
 运行时，未新增通过）；`make check` 与 parity 待本轮末尾复测。
+
+### 第 363 轮收口实测
+
+- `make check`：**1191/1191 通过，失败 0**（`/tmp/check_r363.log`，rc=0），
+  含本轮 `%lld` 修复与接口 `.data` lowering 两处改动；
+- `uya test --vm` 全量普查（`UYA_EXEC_CENSUS_MEM_MB=0 UYA_EXEC_CENSUS_JOBS=12
+  UYA_EXEC_CENSUS_TIMEOUT=240`）：**836/909（92.0%）**，失败 73 例，
+  与上一轮逐例比对**零新增、零修复**。按原因分布：超时 21、运行时断言 19、
+  `@c_import` 3、`@await 操作数不是 Future 或始终 Pending` 5、
+  `LOAD_UNION_TAG 目标不是 union` 2、`LOAD_FIELD 字段越界(kind=14 pointee=16)` 4、
+  其余零散。
+  注：T11 里记的 841/909 来自第 345 轮，两次普查的 `TIMEOUT` 预算不同，
+  不宜直接相减比较。
+- 剩余缺口已确认都是模型级：async 帧的原生/托管地址二义性（
+  `exec_vm_field_native_base` 把指向全局区的原生结构体指针判成 VM 驻留，
+  第 359~361 轮三次修法都被 `test_fmt_*` 回退证否）、`@await` 语义、
+  线程/OSAL、`@c_import`、超长函数。
