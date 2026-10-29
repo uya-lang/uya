@@ -640,23 +640,74 @@ fn exec_value_aggregate_from_parts(kind: ExecValueKind, count: i32, values: &Exe
 // 目标确实是聚合的元素槽，否则会把缓冲字节误读成 kind/count。
 //
 // 竞技场是 bump 分配，基址单调递增，所以按下标追加即天然有序，可用二分查找。
-const EXEC_VALUE_ARRAY_REGISTRY_MAX: i32 = 65536;
-var g_exec_value_array_bases: [usize: EXEC_VALUE_ARRAY_REGISTRY_MAX] = [];
-var g_exec_value_array_spans: [usize: EXEC_VALUE_ARRAY_REGISTRY_MAX] = [];
+// 表按需增长：固定 65536 条时，fmt 一类大量分配数组的用例会把它涨满，
+// 之后新数组不再登记，依赖「地址是否是聚合元素」的严格判定就会全线失效
+// （第 359 轮那次原生字段写入的尝试就是被这个拖垮的）。
+var g_exec_value_array_bases: &usize = null;
+var g_exec_value_array_spans: &usize = null;
 var g_exec_value_array_count: i32 = 0;
+var g_exec_value_array_capacity: i32 = 0;
+const EXEC_VALUE_ARRAY_REGISTRY_INITIAL: i32 = 1024;
+// 上限只防失控，实际不会用到（每条约 16 字节）。
+const EXEC_VALUE_ARRAY_REGISTRY_MAX: i32 = 1 << 22;
+
+/// 确保登记表至少能再放 `want` 条，不够就翻倍扩容。
+/// 参数：`want` 必需条数。返回值：0 成功；-1 分配失败或超上限。
+fn exec_value_array_registry_reserve(want: i32) i32 {
+    if want <= 0 {
+        return 0;
+    }
+    if want > EXEC_VALUE_ARRAY_REGISTRY_MAX {
+        return -1;
+    }
+    if g_exec_value_array_bases != null && want <= g_exec_value_array_capacity {
+        return 0;
+    }
+    var next: i32 = g_exec_value_array_capacity;
+    if next < EXEC_VALUE_ARRAY_REGISTRY_INITIAL {
+        next = EXEC_VALUE_ARRAY_REGISTRY_INITIAL;
+    }
+    while next < want && next < EXEC_VALUE_ARRAY_REGISTRY_MAX {
+        next = next *| 2;
+    }
+    if next < want {
+        next = want;
+    }
+    const bytes: usize = (@size_of(usize) as usize) * (next as usize);
+    const fresh_bases: &usize = exec_value_alloc_bytes(bytes) as &usize;
+    const fresh_spans: &usize = exec_value_alloc_bytes(bytes) as &usize;
+    if fresh_bases == null || fresh_spans == null {
+        return -1;
+    }
+    if g_exec_value_array_count > 0 && g_exec_value_array_bases != null && g_exec_value_array_spans != null {
+        const copy_bytes: usize = (@size_of(usize) as usize) * (g_exec_value_array_count as usize);
+        _ = memcpy(fresh_bases as *void, g_exec_value_array_bases as *const void, copy_bytes);
+        _ = memcpy(fresh_spans as *void, g_exec_value_array_spans as *const void, copy_bytes);
+    }
+    g_exec_value_array_bases = fresh_bases;
+    g_exec_value_array_spans = fresh_spans;
+    g_exec_value_array_capacity = next;
+    return 0;
+}
 
 /// 登记一段 VM 聚合元素数组。
 /// 参数：`base` 元素数组首地址；`count` 元素个数。
-/// 返回值：无。表满时放弃登记（该聚合退回保守路径，不影响正确性）。
+/// 返回值：无。
 fn exec_value_register_array(base: usize, count: i32) void {
     if base == 0 as usize || count <= 0 {
         return;
     }
-    if g_exec_value_array_count >= EXEC_VALUE_ARRAY_REGISTRY_MAX {
+    if g_exec_value_array_count < 0 {
+        return;
+    }
+    if exec_value_array_registry_reserve(g_exec_value_array_count +| 1) != 0 {
         return;
     }
     const idx: i32 = g_exec_value_array_count;
-    if idx < 0 || idx >= EXEC_VALUE_ARRAY_REGISTRY_MAX {
+    if idx < 0 || idx >= g_exec_value_array_capacity {
+        return;
+    }
+    if g_exec_value_array_bases == null || g_exec_value_array_spans == null {
         return;
     }
     g_exec_value_array_bases[idx] = base;
@@ -685,11 +736,14 @@ fn exec_value_address_is_array_element(addr: usize) bool {
     if addr == 0 as usize || g_exec_value_array_count <= 0 {
         return false;
     }
+    if g_exec_value_array_bases == null || g_exec_value_array_spans == null {
+        return false;
+    }
     var lo: i32 = 0;
     var hi: i32 = g_exec_value_array_count;
     while lo < hi {
         const mid: i32 = (lo + hi) / 2;
-        if mid < 0 || mid >= EXEC_VALUE_ARRAY_REGISTRY_MAX {
+        if mid < 0 || mid >= g_exec_value_array_capacity {
             return false;
         }
         const base: usize = g_exec_value_array_bases[mid];
