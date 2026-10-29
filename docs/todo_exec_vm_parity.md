@@ -2082,8 +2082,8 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
 ### T11 收口
 
 - [ ] `uya test --vm` 全量通过（跳过表只保留 C99 侧同样不适用的用例）
-      —— 现状 **841/909（92.5%）**（第 345 轮全量普查实测，失败 67 例，逐例比对
-      零新增回归）。较第 320 轮的 832 例净增 9 例：第 344 轮泛型单态调用目标消歧、
+      —— 现状 **836/907（92.2%）**（第 365 轮全量普查实测，失败 71、跳过 7，逐例
+      比对零新增回归）；第 345 轮曾测 841/909（92.5%，失败 67）。较第 320 轮的 832 例净增 9 例：第 344 轮泛型单态调用目标消歧、
       第 345/346 轮 `LOAD_INDEX` 旁路表回查与 `memcpy` 旁路表迁移。
       剩余缺口集中在 async 帧布局（约 40 例静默/`@await` 失败）、线程
       （pthread/堆/OSAL 约 10 例，同步 VM 无并发语义）、`@c_import`（3 例）、
@@ -3005,3 +3005,24 @@ if length == 4 || length == 5 || length == 7 {   // %lld / %jd / %td
   `#define stdout (&_stdout)` 冲突，生成
   `error: expected identifier before '(' token`。`uya test` 路径不受影响，
   但这是 C99 镜像宏与字段名互相干扰的隐患。
+
+### 第 365 轮：普查跳过表补齐两个负向用例
+
+`test_exec_vm_global_init_fail`（全局初始化除零）与
+`test_exec_vm_extern_decl_varargs_unsupported`（断言 exec 必须拒绝未登记的
+varargs extern ABI）都是**负向用例**：前者 C99 侧同样 `rc=1`，后者用例头注释
+明确要求 VM 拒绝。上一轮把它们的非零退出当成 VM 缺口计数，属于普查口径虚高。
+
+已按跳过表既有纪律登记（与 `test_exec_vm_c_import_unsupported` 同类），并在
+文档里写明原因。
+
+复测（`UYA_EXEC_CENSUS_MEM_MB=0 JOBS=12 TIMEOUT=240`）：
+**907 个用例，通过 836，失败 71，跳过 7，通过率 92.2%**；与上一轮逐例比对，
+新增失败 0，减少的 2 例正是本次登记的两个负向用例，
+`test_async_nested_http1_await_codegen` 上一轮的 rc=0 确认是抖动（本轮稳定失败，
+`@await` 模型级缺口）。
+
+剩余 71 例的构成（与前几轮一致）：async 帧/`@await` 语义约 40 例、
+线程与并发（pthread/OSAL/DNS）约 10 例、`@c_import` 3 例、
+错误路径上的自动 drop（`pipeline_drop_count` 一类）若干、超长函数与 124 超时。
+这些都要求 exec VM 具备真正的挂起/清理语义，不是局部修补能收口的。
