@@ -3060,3 +3060,32 @@ varargs extern ABI）都是**负向用例**：前者 C99 侧同样 `rc=1`，后�
 合并到 main）都卡在上述四点上。它们不是「再来几轮修 bug」的量级，而是需要
 exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映射、运行期 C 符号加载**。
 因此在当前设计下这几项无法收口；本文件保留现状与证据，供后续按模型级改造推进。
+
+### 第 367 轮：async 返回裸 `error.X` 时漏包错误联合
+
+`test_async_sync_body_matrix` 在 `const r: !i32 = block_on(async_cleanup_matrix(0));`
+之后报 `LOAD_ERROR_TAG 目标不是错误联合`。用 `--trace-vm` + `--dump-bytecode`
+一路跟到 `async_cleanup_matrix`：
+
+- `@await flip_pending_i32(..)` 的返回值被塞进 `Poll.Ready(...)`，
+- 但那个值是**裸 error**（运行时 kind=21，`i64=-489222378`），不是 `!i32`，
+- 于是 `block_on` 原样返回裸 error，调用方拿它当错误联合用 → 报错。
+
+根因在 `exec_lower_wrap_async_return`：它只处理了「返回裸 `T` → 补 `ok()`」，
+**漏了「返回裸 `error.X` → 补错误分支」**。同时 `exec_lower_coerce_expr` 的
+错误联合分支也只有 `MAKE_ERR` 一半、没有裸值 → `MAKE_OK` 的一半。
+
+修复两处：
+
+1. `exec_lower_wrap_async_return`：载荷类型是 `!T` 而返回表达式是裸
+   `error.X` 时，包一层 `HIR_EXPR_MAKE_ERR`（错误 id 取自错误类型）；
+2. `exec_lower_coerce_expr`：目标类型是 `!T` 而实际类型既不是错误联合也不是
+   裸 error 时，补 `HIR_EXPR_MAKE_OK`（覆盖 `const x: !T = 普通值`、传参等）。
+
+另外顺手修了 `--dump-bytecode` 把 `BC_AWAIT` 显示成 `BC_UNKNOWN(77)` 的问题
+（`src/exec/debug.uya` 的名字表缺这一项）。
+
+验证：`test_async_sync_body_matrix` **失败: 0**；`tests/test_*error*.uya` 共 26 例
+（含 `test_async_error_*`、`test_exec_vm_*error_union*`、`test_return_error`）
+在 `--vm` 下全部 `失败: 0`，唯一仍失败的 `test_typed_pipeline_lowering_error`
+是本文件已记录的「错误路径自动 drop」缺口，与本轮改动无关。

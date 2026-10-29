@@ -58,6 +58,7 @@ fn exec_debug_opcode_name(opcode: BCOpcode) &byte {
     if opcode == BCOpcode.BC_CMP_GT { return "BC_CMP_GT" as &byte; }
     if opcode == BCOpcode.BC_CMP_GE { return "BC_CMP_GE" as &byte; }
     if opcode == BCOpcode.BC_MAKE_OK { return "BC_MAKE_OK" as &byte; }
+    if opcode == BCOpcode.BC_AWAIT { return "BC_AWAIT" as &byte; }
     if opcode == BCOpcode.BC_MAKE_ERR { return "BC_MAKE_ERR" as &byte; }
     if opcode == BCOpcode.BC_IS_ERR { return "BC_IS_ERR" as &byte; }
     if opcode == BCOpcode.BC_UNWRAP_OK { return "BC_UNWRAP_OK" as &byte; }
