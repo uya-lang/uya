@@ -3092,3 +3092,14 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
 （含 `test_async_error_*`、`test_exec_vm_*error_union*`、`test_return_error`）
 在 `--vm` 下全部 `失败: 0`，唯一仍失败的 `test_typed_pipeline_lowering_error`
 是本文件已记录的「错误路径自动 drop」缺口，与本轮改动无关。
+
+### 第 368 轮：修复后的门禁复测
+
+- `make check`：**1191/1191 通过，失败 0**（`/tmp/check_r368.log`，rc=0）。
+- 普查（`UYA_EXEC_CENSUS_MEM_MB=0 JOBS=12 TIMEOUT=240`）：
+  **907 例 / 通过 838 / 失败 69 / 跳过 7 / 92.4%**。较第 365 轮的 836/71
+  净增 2 例，**零新增回归**。修好的两例：
+
+  1. `test_async_sync_body_matrix` —— 本轮的「async 返回裸 error」修复；
+  2. `test_async_nested_http1_await_codegen` —— 第 364 轮曾把它的 rc=0 记为抖动，
+     现在确认根因就是同一个「裸 error 未包错误联合」，修复后稳定通过。
