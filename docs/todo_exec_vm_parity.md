@@ -2694,3 +2694,60 @@ builder 侧按长度原样 `memcpy`。
 `src/codegen/c99/main.uya:4984` 特判生成）。exec 侧需要在
 `AST_STRUCT_INIT` 的 lowering 里对「找不到声明」的情形退回用
 `struct_init_field_count` 内联构造，属下一个可做的点。
+
+### 第 357 轮：`@embed` / `@mc_type` / `sscanf` / `%n` 四项支持，3 个用例转绿
+
+**一、`@embed` / `@embed_dir`**（`test_embed_builtin` 转绿）
+
+`AST_EMBED`（68）/ `AST_EMBED_DIR`（69）在 exec 里完全没有处理，报
+`尚未支持的表达式节点`。
+
+- `@embed("path")`：检查阶段已把内容读进 `expr.embed_data`（长度
+  `expr.embed_size`）。VM 里做成原生字节数组常量再包成 `&[const byte]` 切片。
+  内容可能含 NUL，所以不能复用 `exec_make_string`（按 `strlen` 截断），
+  改用 `string_value` 存指针 + `int_value` 存字节数 + `bool_value` 作二进制标记。
+- `@embed_dir("dir")`：检查阶段已读好 `embed_dir_paths` / `embed_dir_data` /
+  `embed_dir_sizes` / `embed_dir_entry_count`。VM 里拼成
+  `{ path: &[const byte], data: &[const byte] }` 的结构体数组再包成**聚合切片**
+  （必须用 `exec_make_slice` 而不是 `exec_make_raw_slice`：后者只适用于定长
+  标量数组，用错了 `entry.path` 会立刻报 `LOAD_FIELD 字段越界`）。
+  新增 `HIR_EXPR_EMBED_DIR`：数据全在编译期就绪，builder 直接生成常量。
+
+**二、合成结构体（`@mc_type` 的 `TypeInfo`）**（`test_macro_mc_type_auto` 转绿）
+
+`TypeInfo` 没有真实声明 —— 字段表由宏展开阶段的 `create_type_info_struct`
+合成（C99 后端在 `src/codegen/c99/main.uya:4984` 特判）。exec 侧两处失效：
+
+- `AST_STRUCT_INIT` lowering 里 `find_struct_decl_from_program` 返回 null。
+  改为：找不到声明但字面量自带字段值时，按 `struct_init_field_count` 内联构造
+  （字段名与值本来就是固定顺序）。
+- `exec_lower_struct_field_index` 找不到声明。改为：对 `TypeInfo` 用固定字段表
+  回答下标（顺序与 `create_type_info_struct` 一致）。
+
+**三、`sscanf` + 格式化 I/O 分支的不可达陷阱**（`test_libc_stdio_new` 转绿）
+
+两处：
+
+1. `exec_lower_match_host_call_impl` 里 `printf` / `fprintf` / `sprintf` /
+   `snprintf` / `sscanf` 的分支写在 `if is_varargs == 0 { ... }` 块**之后**，
+   而那个块以自己的 `return EXEC_HOST_CALL_NONE` 收尾。按名字查的入口
+   `exec_lower_match_host_call_name` 传的就是 `is_varargs = 0`，于是这些分支
+   **永远不可达** —— 全部落到 Uya 实现体的 `@va_start` 路径上报
+   「无法解析被调用函数」。整体移到该块之前。
+2. 新增 `EXEC_HOST_CALL_SSCANF_FIXED`：变参无法直接转发给宿主（要构造 C 的
+   va_list），在 VM 里按格式串逐个解析、把结果写回调用方给的 VM 槽位。
+   覆盖 `%d` / `%i` / `%u`（含 `*` 抑制）。
+3. `exec_format_render` 支持 `%n`：不输出字符，把已写出的字节数写回实参指向
+   的 VM 值（`%n` 的实参本身是 VM 指针 `&n`，直接改它所指的 ExecValue 即可）。
+
+**census 结果**（`UYA_EXEC_CENSUS_MEM_MB=0 JOBS=12 TIMEOUT=240`）：
+
+| | 本轮开始 | 本轮结束 |
+|---|---|---|
+| 通过 | 833 | **836** |
+| 失败 | 76 | **73** |
+
+新增失败 **0** 个。连同第 355 轮一起算，这几天转绿的用例共 9 个：
+`test_std_sql`、`test_syscall_time`、`test_syscall_dir`、`test_kernel_dispatch`、
+`test_std_path_module`、`test_tls_x509`、`test_embed_builtin`、
+`test_libc_stdio_new`、`test_macro_mc_type_auto`。
