@@ -2661,3 +2661,36 @@ UYA_EXEC_CENSUS_JOBS=12`，结果 **828/909，81 个失败**。
 `test_syscall_time`、`test_tls_x509`。
 
 `make check` 1191/1191 全绿。
+
+### 第 356 轮：支持 `@embed` / `@embed_dir`（test_embed_builtin 转绿）
+
+`test_embed_builtin` 在 VM 下报 `尚未支持的表达式节点(type=68/69)`
+（`AST_EMBED` / `AST_EMBED_DIR`），C99 侧全绿。
+
+**`@embed("path")`**：检查阶段已经把文件内容读进 `expr.embed_data`
+（长度 `expr.embed_size`）。VM 里做成一块原生字节数组常量再包成
+`&[const byte]` 切片。内容可能含 NUL，所以不能复用 `string_value` 那条
+「NUL 结尾」的路径（`exec_make_string` 按 `strlen` 截断）—— 改用
+`string_value` 存指针、`int_value` 存字节数、`bool_value` 作二进制标记，
+builder 侧按长度原样 `memcpy`。
+
+**`@embed_dir("dir")`**：检查阶段已经读好 `embed_dir_paths` /
+`embed_dir_data` / `embed_dir_sizes` / `embed_dir_entry_count`。VM 里拼成
+`{ path: &[const byte], data: &[const byte] }` 的结构体数组，再包成聚合切片。
+这里必须用 `exec_make_slice`（聚合切片，按 ExecValue 步进）而不是
+`exec_make_raw_slice`（只适用于定长标量数组）—— 用错了 `entry.path` 会立刻报
+`LOAD_FIELD 字段越界(idx=0 kind=0 count=-1)`。
+
+新增 `HIR_EXPR_EMBED_DIR`：路径与内容都在编译期就绪，builder 直接生成常量，
+不需要运行时 IO。
+
+`test_embed_builtin` 全部通过（4 个测试、84 条断言）；`make check`
+1191/1191 全绿。
+
+**本节顺带确认的下一个缺口**：`test_macro_mc_type_auto` 报
+`exec: 无法解析结构体声明`。`@mc_type(T)` 由 `create_type_info_struct`
+在宏展开阶段**合成**一个名为 `TypeInfo` 的 `AST_STRUCT_INIT`，但
+`TypeInfo` 从来不是程序里真实存在的结构体声明（C99 后端在
+`src/codegen/c99/main.uya:4984` 特判生成）。exec 侧需要在
+`AST_STRUCT_INIT` 的 lowering 里对「找不到声明」的情形退回用
+`struct_init_field_count` 内联构造，属下一个可做的点。
