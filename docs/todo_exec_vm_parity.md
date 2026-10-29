@@ -3126,3 +3126,9 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
 验证：`test_std_jpeg_decode`、`test_std_jpeg_encode` 均 `失败: 0`；
 `test_std_mem`、`test_array_pointer_access`、`test_std_string`、`test_std_io`、
 `test_struct_default` 仍 `失败: 0`。
+
+普查（`UYA_EXEC_CENSUS_MEM_MB=0 JOBS=12 TIMEOUT=240`）：
+**907 例 / 通过 839 / 失败 68 / 跳过 7 / 92.5%**。修好
+`test_std_jpeg_decode`、`test_std_jpeg_encode` 两例；`test_async_nested_http1_await_codegen`
+本轮又回到失败，但同一命令连跑三次得 1/0/1，属于依赖网络时序的抖动，
+不计为本轮回归。`make check` 复测 **1191/1191 通过**（`/tmp/check_r369.log`）。
