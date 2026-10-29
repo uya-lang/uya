@@ -3132,3 +3132,5 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
 `test_std_jpeg_decode`、`test_std_jpeg_encode` 两例；`test_async_nested_http1_await_codegen`
 本轮又回到失败，但同一命令连跑三次得 1/0/1，属于依赖网络时序的抖动，
 不计为本轮回归。`make check` 复测 **1191/1191 通过**（`/tmp/check_r369.log`）。
+`make exec-parity`（`UYA_PARITY_TIMEOUT=600 UYA_PARITY_JOBS=6`）复测：
+**914 例 / 一致 839 / 不一致 75 / stdout 差分 0**（第 368 轮为 836/78）。
