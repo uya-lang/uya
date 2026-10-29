@@ -2490,3 +2490,46 @@ memcpy(&f as &void, &(p[off]) as &const void, 4 as usize);
 
 所以本轮的结论是：**功能无回归**，`make check` 1191/1191 全绿；parity 的
 数字需要用 `UYA_PARITY_TIMEOUT=600 UYA_PARITY_JOBS=8` 才能与第 345 轮可比。
+
+### 第 351 轮：性能专项（用户要求「先看看速度慢的性能问题」）
+
+**方法**：`perf record` 在这个虚拟机上采不到样（PMU 不可用，`perf.data` 没有
+samples），改用 `valgrind --tool=callgrind`（纯插桩、结果稳定）+ `perf stat`
+（只能读 task-clock / page-faults / cycles / instructions 这类不需要采样的计数器）
++ `strace -c` + `gdb` 断点回溯。
+
+**一、编译器自身的指令数：38.85 亿 → 8.63 亿（-77.8%）**
+
+基线用 `uya run --vm /tmp/bench4.uya`（fib(22)）测，callgrind 显示 51% 的指令
+花在 `memset` 上，全部来自「在栈上构造巨型结构体字面量」。四处、同一个模式：
+
+| 位置 | 原因 | 处理 |
+|---|---|---|
+| `exec_lower_lower_global_init_exprs`（41%） | `ExecLowerContext` 819KB 栈帧（12 个 `[T: 1024]` 大数组）写在循环体内，每个全局变量清一遍 | 提到循环外，循环内只重置 `function_decl` 与运行态计数 |
+| `exec_builder_build_function`（21.8%） | `ExecFunctionBuildContext` 3.4MB 栈帧（`instrs` 1.2MB、`cleanup_scopes` 1.6MB、`loop_stack` 1.0MB），每个函数 build 清一遍 | 三个数组改成按需从 arena 分配，栈帧降到 648 字节 |
+| `symbol_table_insert`（18.7%） | 去重走完整 `symbol_table_lookup`（遍历所有作用域的所有符号）只为比一个 `scope_level`，每次 insert 平均 1.1 万次 `str_equals` | 只扫当前作用域的链表（外层同名本来合法） |
+| `exec_lower_function`（6.4%） | 同上，三个 `[Type: 1024]` 数组（600KB） | 改 `&Type` + `exec_lower_type_slot` 惰性分配，栈帧 819KB → 132KB |
+
+另外两处 O(n²)：
+
+- `exec_lower_collect_file_globals` 的两个调用点都套在「遍历每个可达函数」的
+  循环里，每次都全 AST 扫描并按 filename 过滤 → 加按文件名去重（`..._once`）。
+- `append_module_export` 每加一条导出就重分配 + 复制整块 → `ModuleInfo` 加
+  `export_capacity`，按 8 起翻倍。
+
+**二、`stat` 系统调用：99,554 → 6,490 次（-93.5%）**
+
+`perf stat` 显示 `uya check src/main.uya` 有 33% 的时间在内核态、IPC 只有 1.00。
+`strace -c` 定位到 `stat` 被调用 9.95 万次（0.33s），`gdb` 回溯到 `paths_equal`：
+它在字符串不等时无条件做两次 `stat` 比 inode，而这个函数在依赖收集的 O(n²)
+去重循环里被反复调用。改成先比「最后一段文件名」快速排除，剩下的才 `stat`
+（macOS 大小写不敏感卷的那个用途保留）。syscall 总时间 1.49s → 1.00s。
+
+**三、结论与后续**
+
+- `uya check src/main.uya`：5.95-6.25s → 5.70s（约 -5%）。
+- 剩余时间的大头不在指令数：`strace -c` 显示 `fork` 8 次 + `wait4` 11 次占
+  92% 的 syscall 时间（并行编译分片），加上 IPC 长期在 1.03 左右（内存受限）。
+  想再明显提速要动并行编译的进程模型，风险高、本轮未做。
+- 纯计算型的 VM 用例（如 `test_tls_x25519_pure` 607s）几乎不受影响 —— 它们的
+  时间全花在 VM 解释执行本身，不是编译阶段。
