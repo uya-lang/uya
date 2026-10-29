@@ -6217,7 +6217,8 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 if exec_vm_store_pointer_index(function, raw_slice_ptr_value4, 0, 0 as usize, slot_c[0]) != 0 {
                     return -1;
                 }
-            } else if exec_value_is_pointer_like(base_target3[0]) != 0 {
+            } else if exec_value_is_pointer_like(base_target3[0]) != 0 &&
+                exec_vm_pointer_address(base_target3) != 0 as usize {
                 if exec_vm_store_pointer_index(function, base_target3[0], slot_b.i64_value,
                     instr.imm as usize, slot_c[0]) != 0 {
                     return -1;

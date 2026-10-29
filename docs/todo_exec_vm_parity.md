@@ -3106,3 +3106,23 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
 - `make exec-parity`（`UYA_PARITY_TIMEOUT=600 UYA_PARITY_JOBS=6`）：
   **914 例 / 一致 836 / 不一致 78 / stdout 差分 0**，比第 363 轮的 835/79
   多 1 例一致；不一致全部是 `STATUS_MISMATCH`，与普查里的 69 例同源。
+
+### 第 369 轮：`&&T` 形参上的 `p[0] = v` 被当成穿透写
+
+`test_std_jpeg_decode/encode` 都在 `lib/std/image/jpeg_marker.uya:481` 的
+`body_out[0] = jpeg_sub(...)` 处报 `空指针解引用`（`body_out: &&const u8`）。
+
+定位过程：`--trace-vm` 显示失败在 `BC_STORE_INDEX`；`--dump-bytecode` 看到
+调用方传的是 `BC_ADDR_LOCAL(&body)`；在 `exec_vm_run_frame` 里打印实参，
+确认 `arg4` 是正常的内部引用（`aux=65554`、地址非 0）。问题出在
+`BC_STORE_INDEX` 的内部引用分支：它先判断「引用目标本身是个指针」就
+**穿透写**（`exec_vm_store_pointer_index(base_target3[0], …)`），而 C 语义里
+`body_out[0] = x` 等价于 `*body_out = x`，是**替换那个指针变量**。当
+`*body_out` 恰好是 null（本例的 `body` 初值就是 null）时，穿透写就撞空指针。
+
+修复：只有引用目标的指针地址非 0 时才穿透写；地址为 0 时落到后面的
+「`*ref = v` 整槽替换」分支。这条改动只影响原本会报空指针的路径。
+
+验证：`test_std_jpeg_decode`、`test_std_jpeg_encode` 均 `失败: 0`；
+`test_std_mem`、`test_array_pointer_access`、`test_std_string`、`test_std_io`、
+`test_struct_default` 仍 `失败: 0`。
