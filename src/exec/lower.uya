@@ -3657,6 +3657,29 @@ fn exec_lower_native_field_layout(ctx: &ExecLowerContext, struct_type: Type, fie
     return 0;
 }
 
+/// `TypeInfo` 的字段下标（该结构体由宏展开阶段合成，没有真实声明）。
+///
+/// 顺序必须与 `src/checker/macro_expand.uya` 的 `create_type_info_struct` 一致。
+///
+/// 参数：`field_name` 字段名。
+/// 返回值：字段下标；不认识返回 -1。
+fn exec_lower_type_info_field_index(field_name: &byte) i32 {
+    if field_name == null {
+        return -1;
+    }
+    if str_equals(field_name, "name" as *byte) != 0 { return 0; }
+    if str_equals(field_name, "size" as *byte) != 0 { return 1; }
+    if str_equals(field_name, "align" as *byte) != 0 { return 2; }
+    if str_equals(field_name, "kind" as *byte) != 0 { return 3; }
+    if str_equals(field_name, "type_id" as *byte) != 0 { return 4; }
+    if str_equals(field_name, "is_integer" as *byte) != 0 { return 5; }
+    if str_equals(field_name, "is_float" as *byte) != 0 { return 6; }
+    if str_equals(field_name, "is_bool" as *byte) != 0 { return 7; }
+    if str_equals(field_name, "is_pointer" as *byte) != 0 { return 8; }
+    if str_equals(field_name, "is_array" as *byte) != 0 { return 9; }
+    return -1;
+}
+
 fn exec_lower_struct_field_index(ctx: &ExecLowerContext, struct_type: Type, field_name: &byte) i32 {
     const struct_name: &byte = type_get_struct_name(&struct_type);
     if ctx == null || ctx.checker == null || ctx.checker.program_node == null ||
@@ -3665,6 +3688,12 @@ fn exec_lower_struct_field_index(ctx: &ExecLowerContext, struct_type: Type, fiel
     }
     const struct_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node, struct_name);
     if struct_decl == null || struct_decl.struct_decl_fields == null {
+        // `TypeInfo` 没有真实声明（字段表由宏展开阶段的
+        // `create_type_info_struct` 合成，见 `src/checker/macro_expand.uya:375`）。
+        // 那里的字段顺序是固定的，这里按同一顺序回答下标。
+        if str_equals(struct_name, "TypeInfo" as *byte) != 0 {
+            return exec_lower_type_info_field_index(field_name);
+        }
         return -1;
     }
     var fi: i32 = 0;
@@ -8843,6 +8872,35 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         // 零字段结构体（`HeapAllocator{}`、`Empty{}`）的 struct_decl_fields 是 null，
         // 字段数以 struct_decl_field_count 为准，不能当成「声明解析失败」。
         if struct_decl == null {
+            // 有些结构体**没有真实声明**，字段表是宏展开阶段合成的 ——
+            // 典型是 `@mc_type(T)` 生成的 `TypeInfo`（C99 后端在
+            // `src/codegen/c99/main.uya:4984` 特判生成）。这种字面量的字段
+            // 名与值都按固定顺序排列，直接按 `struct_init_field_count` 内联构造。
+            if expr.struct_init_field_count > 0 && expr.struct_init_field_values != null {
+                const synth_items: & & HIRExpr = exec_lower_alloc_items(ctx, expr.struct_init_field_count);
+                if synth_items == null {
+                    exec_backend_set_error(expr, "exec: struct items 分配失败" as *byte, 0);
+                    return null;
+                }
+                var sfi: i32 = 0;
+                while sfi < expr.struct_init_field_count {
+                    const sv: &ASTNode = exec_lower_unwrap_typed_init(expr.struct_init_field_values[sfi]);
+                    const se: &HIRExpr = exec_lower_expr(ctx, sv);
+                    if se == null {
+                        return null;
+                    }
+                    synth_items[sfi] = se;
+                    sfi = sfi + 1;
+                }
+                const synth_expr: &HIRExpr = exec_lower_alloc_expr(ctx, expr,
+                    HIRExprKind.HIR_EXPR_STRUCT_INIT, &expr_type);
+                if synth_expr == null {
+                    return null;
+                }
+                synth_expr.items = synth_items;
+                synth_expr.item_count = expr.struct_init_field_count;
+                return synth_expr;
+            }
             return exec_lower_fail_expr(expr, "exec: 无法解析结构体声明" as *byte);
         }
         const items: & & HIRExpr = exec_lower_alloc_items(ctx, struct_decl.struct_decl_field_count);
