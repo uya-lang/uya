@@ -3248,3 +3248,11 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
 回归抽样：`test_std_mem`、`test_std_sql`、`test_fmt_api`、`test_std_io`、
 `test_stdio_file_buffering`、`test_tls_x509` 均 `失败: 0`；
 `test_signal`、`test_std_async_event` 仍失败，但它们在改动前就是失败状态。
+
+普查复测（`UYA_EXEC_CENSUS_MEM_MB=0 JOBS=12 TIMEOUT=240`）：
+**907 例 / 通过 848 / 失败 59 / 跳过 7 / 93.5%**（上一轮 839/68）。
+净增 **9 例**，全部来自本次 shielding 修复：`test_epoll_server`、
+`test_http_server`、`test_http_websocket_handshake`、`test_http_websocket_async`、
+`test_http_websocket_backpressure`、`test_http_websocket_heartbeat`、
+`test_http_websocket_read_message_semantics` 等。
+`make check` 复测 **1191/1191 通过**（rc=0）。
