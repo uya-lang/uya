@@ -2988,3 +2988,17 @@ if length == 4 || length == 5 || length == 7 {   // %lld / %jd / %td
 验证：该例前进到 `/lib/std/async.uya:1754` 的
 `@await 操作数不是 Future 或始终 Pending`（下一节的模型级缺口）；
 `test_exec_vm_stdio_no_varargs`、`test_std_sql` 仍 `失败: 0`。
+
+### 第 364 轮普查：`libc_errno` 修复转绿一例
+
+- `uya test --vm` 全量普查（`UYA_EXEC_CENSUS_MEM_MB=0 UYA_EXEC_CENSUS_JOBS=12
+  UYA_EXEC_CENSUS_TIMEOUT=240`）：**837/909（92.1%）**，失败 **72**（上一轮 73）。
+  逐例比对：新增回归 0，新修复 1 —— `test_async_nested_http1_await_codegen`
+  （原先停在 `libc_errno` 的 lowering 错误，现在整条跑完并转绿）。
+- `test_http1_async_client` 仍不通过，但失败点从 lowering 前移到
+  `@await 操作数不是 Future 或始终 Pending`（下一节的模型级缺口）。
+- 顺带记录一条本轮新发现、尚未修的问题：`uya --dump-bytecode <file>` 走普通
+  编译路径时，C99 后端对结构体字段名 `stdout`/`stderr` 与
+  `#define stdout (&_stdout)` 冲突，生成
+  `error: expected identifier before '(' token`。`uya test` 路径不受影响，
+  但这是 C99 镜像宏与字段名互相干扰的隐患。
