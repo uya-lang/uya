@@ -1483,6 +1483,72 @@ fn _fmt_i32_to_buf_full(ctx: &_FmtContext, value: i32, flags: i32, precision: i3
     }
 }
 
+// _fmt_i64_to_buf_full - 将 i64 按 flags/precision 格式化（%lld/%ld/%jd/%td）
+fn _fmt_i64_to_buf_full(ctx: &_FmtContext, value: i64, flags: i32, precision: i32) void {
+    var is_neg: i32 = 0;
+    var magnitude: u64 = 0 as u64;
+    if value < 0 {
+        is_neg = 1;
+        magnitude = (0 as u64) - (value as u64);
+    } else {
+        magnitude = value as u64;
+    }
+    var digits: [byte: 32] = [];
+    var digit_idx: usize = 0;
+    if magnitude == 0 as u64 {
+        digits[0] = 48;
+        digit_idx = 1;
+    } else {
+        var temp: u64 = magnitude;
+        while temp > 0 && digit_idx < 32 {
+            const ten: u64 = 10 as u64;
+            const digit: u64 = temp % ten;
+            const zero: u64 = 48 as u64;
+            digits[digit_idx] = (zero + digit) as byte;
+            digit_idx = digit_idx + 1;
+            temp = temp / ten;
+        }
+    }
+    if is_neg > 0 {
+        ctx.total_len = ctx.total_len + 1;
+        if ctx.buf_pos < ctx.buf_max {
+            ctx.buf[ctx.buf_pos] = 45;
+            ctx.buf_pos = ctx.buf_pos + 1;
+        }
+    } else if (flags & _FMT_PLUS) != 0 {
+        ctx.total_len = ctx.total_len + 1;
+        if ctx.buf_pos < ctx.buf_max {
+            ctx.buf[ctx.buf_pos] = 43;
+            ctx.buf_pos = ctx.buf_pos + 1;
+        }
+    } else if (flags & _FMT_SPACE) != 0 {
+        ctx.total_len = ctx.total_len + 1;
+        if ctx.buf_pos < ctx.buf_max {
+            ctx.buf[ctx.buf_pos] = 32;
+            ctx.buf_pos = ctx.buf_pos + 1;
+        }
+    }
+    var min_digits: i32 = precision;
+    if min_digits < 0 { min_digits = 0; }
+    if (min_digits as usize) > digit_idx {
+        var pad: usize = (min_digits as usize) - digit_idx;
+        ctx.total_len = ctx.total_len + pad;
+        var pi: usize = 0;
+        while pi < pad && ctx.buf_pos < ctx.buf_max {
+            ctx.buf[ctx.buf_pos] = 48;
+            ctx.buf_pos = ctx.buf_pos + 1;
+            pi = pi + 1;
+        }
+    }
+    ctx.total_len = ctx.total_len + digit_idx;
+    var i: usize = 0;
+    while i < digit_idx && ctx.buf_pos < ctx.buf_max {
+        ctx.buf[ctx.buf_pos] = digits[digit_idx - 1 - i];
+        ctx.buf_pos = ctx.buf_pos + 1;
+        i = i + 1;
+    }
+}
+
 // _fmt_u32_hex_to_buf - 将 u32 格式化为十六进制
 fn _fmt_u32_hex_to_buf(ctx: &_FmtContext, value: u32, uppercase: i32) void {
     _fmt_u32_hex_to_buf_prefix(ctx, value, uppercase, 0);
@@ -1742,24 +1808,10 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_ctx: _FmtContext = _FmtContext{ buf: &temp_buf[0], buf_pos: 0, buf_max: 255, stream: null, total_len: 0 };
                     if length == 4 || length == 5 || length == 7 {
                         const lld: i64 = @va_arg(ap, i64);
-                        if lld < 0 {
-                            temp_ctx.buf[temp_ctx.buf_pos] = 45;
-                            temp_ctx.buf_pos = temp_ctx.buf_pos + 1;
-                            temp_ctx.total_len = temp_ctx.total_len + 1;
-                            _fmt_u64_to_buf(&temp_ctx, (0 - lld) as u64);
-                        } else {
-                            _fmt_i32_to_buf_full(&temp_ctx, lld as i32, flags, precision);
-                        }
+                        _fmt_i64_to_buf_full(&temp_ctx, lld, flags, precision);
                     } else if length == 3 {
                         const ld: i64 = @va_arg(ap, i64);
-                        if ld < 0 {
-                            temp_ctx.buf[temp_ctx.buf_pos] = 45;
-                            temp_ctx.buf_pos = temp_ctx.buf_pos + 1;
-                            temp_ctx.total_len = temp_ctx.total_len + 1;
-                            _fmt_u64_to_buf(&temp_ctx, (0 - ld) as u64);
-                        } else {
-                            _fmt_i32_to_buf_full(&temp_ctx, ld as i32, flags, precision);
-                        }
+                        _fmt_i64_to_buf_full(&temp_ctx, ld, flags, precision);
                     } else if length == 1 || length == 2 {
                         var hv: i32 = @va_arg(ap, i32);
                         if length == 2 { hv = (hv << 24) >> 24; } else { hv = (hv << 16) >> 16; }
@@ -1813,14 +1865,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     const ld: i64 = @va_arg(ap, i64);
                     var temp_buf: [byte: 256] = [];
                     var temp_ctx: _FmtContext = _FmtContext{ buf: &temp_buf[0], buf_pos: 0, buf_max: 255, stream: null, total_len: 0 };
-                    if ld < 0 {
-                        temp_ctx.buf[temp_ctx.buf_pos] = 45;
-                        temp_ctx.buf_pos = temp_ctx.buf_pos + 1;
-                        temp_ctx.total_len = temp_ctx.total_len + 1;
-                        _fmt_u64_to_buf(&temp_ctx, (0 - ld) as u64);
-                    } else {
-                        _fmt_i32_to_buf_full(&temp_ctx, ld as i32, flags, precision);
-                    }
+                    _fmt_i64_to_buf_full(&temp_ctx, ld, flags, precision);
                     _fmt_apply_padding(&ctx, &temp_buf[0], temp_ctx.buf_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %u - 无符号（支持 width；%lu length==3 用 u64；%hu/%hhu 用 mask）
                 } else if spec == 117 && length != 4 && length != 6 {
