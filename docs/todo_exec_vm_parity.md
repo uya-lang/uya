@@ -3103,3 +3103,6 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
   1. `test_async_sync_body_matrix` —— 本轮的「async 返回裸 error」修复；
   2. `test_async_nested_http1_await_codegen` —— 第 364 轮曾把它的 rc=0 记为抖动，
      现在确认根因就是同一个「裸 error 未包错误联合」，修复后稳定通过。
+- `make exec-parity`（`UYA_PARITY_TIMEOUT=600 UYA_PARITY_JOBS=6`）：
+  **914 例 / 一致 836 / 不一致 78 / stdout 差分 0**，比第 363 轮的 835/79
+  多 1 例一致；不一致全部是 `STATUS_MISMATCH`，与普查里的 69 例同源。
