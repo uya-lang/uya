@@ -1074,10 +1074,97 @@ fn exec_builder_vector_lane_count(ty: &Type) i32 {
 /// 函数地址指针的基址：`&fn` 的值 = 基址 + 模块内函数下标，宿主调用据此回调。
 const EXEC_FN_REF_BASE: i64 = 0x40000000;
 
+/// 把 `@embed` 的编译期数据造成 VM 里的 `&[const byte]` 切片常量。
+///
+/// 内容按 `size` 字节原样拷贝（可能含 NUL），所以不能复用
+/// `exec_make_string`（那条路按 `strlen` 截断）。
+///
+/// 参数：`data` 编译期读入的字节；`size` 字节数。
+/// 返回值：切片值；分配失败返回 void。
+/// 把 `@embed_dir` 的编译期数据拼成 `&[EmbedDirEntry]` 切片常量。
+///
+/// 每个条目是 `{ path: &[const byte], data: &[const byte] }`，两个字段都是
+/// 原生字节数组切片。检查阶段已经读好了路径、内容与长度，这里只负责组装。
+///
+/// 参数：`node` 对应的 `AST_EMBED_DIR` 节点。
+/// 返回值：切片值；数据缺失或分配失败返回 void。
+fn exec_builder_make_embed_dir_value(node: &ASTNode) ExecValue {
+    if node == null || node.embed_dir_paths == null {
+        return exec_make_void();
+    }
+    const count: i32 = node.embed_dir_entry_count;
+    if count < 0 {
+        return exec_make_void();
+    }
+    const elems: ExecValue = exec_make_array_with_element_kind(count, TypeKind.TYPE_STRUCT as i32);
+    if elems.kind == ExecValueKind.EXEC_VALUE_VOID {
+        return exec_make_void();
+    }
+    var i: i32 = 0;
+    while i < count {
+        const path_ptr: &byte = node.embed_dir_paths[i];
+        var path_len: i32 = 0;
+        if path_ptr != null {
+            path_len = strlen(path_ptr) as i32;
+        }
+        var data_ptr: &byte = null;
+        var data_len: i32 = 0;
+        if node.embed_dir_data != null {
+            data_ptr = node.embed_dir_data[i];
+        }
+        if node.embed_dir_sizes != null {
+            data_len = node.embed_dir_sizes[i];
+        }
+        const entry: ExecValue = exec_make_struct(2);
+        if entry.kind == ExecValueKind.EXEC_VALUE_VOID {
+            return exec_make_void();
+        }
+        if entry.ptr_value != null {
+            const entry_agg: &ExecAggregate = entry.ptr_value as &ExecAggregate;
+            if entry_agg != null && entry_agg.values != null {
+                entry_agg.values[0] = exec_builder_make_embed_slice(path_ptr, path_len);
+                entry_agg.values[1] = exec_builder_make_embed_slice(data_ptr, data_len);
+            }
+        }
+        if exec_value_set_index(&elems, i, &entry) != 0 {
+            return exec_make_void();
+        }
+        i = i + 1;
+    }
+    // 元素是 `EmbedDirEntry` 结构体，必须用「聚合切片」而不是原生字节切片：
+    // `exec_make_raw_slice` 只适用于定长标量数组，拿它包 struct 数组会让
+    // 元素访问按标量步长走，`entry.path` 立刻报 `LOAD_FIELD 字段越界`。
+    const elems_agg: &ExecAggregate = elems.ptr_value as &ExecAggregate;
+    if elems_agg == null {
+        return exec_make_void();
+    }
+    return exec_make_slice(elems_agg, 0, count);
+}
+
+fn exec_builder_make_embed_slice(data: &byte, size: i32) ExecValue {
+    if data == null || size < 0 {
+        return exec_make_void();
+    }
+    const backing: ExecValue = exec_make_array_with_element_kind(size, TypeKind.TYPE_U8 as i32);
+    if backing.kind == ExecValueKind.EXEC_VALUE_VOID {
+        return exec_make_void();
+    }
+    if size > 0 && backing.ptr_value != null {
+        _ = memcpy(backing.ptr_value as *void, data as *const void, size as usize);
+    }
+    // 原生字节数组 -> 切片：把数据区首地址和长度一起带过去。
+    return exec_make_raw_slice(backing.ptr_value as &byte, TypeKind.TYPE_U8 as i32, size);
+}
+
 fn exec_builder_emit_const(ctx: &ExecFunctionBuildContext, dst: i32, expr: &HIRExpr) i32 {
     var const_value: ExecValue = exec_make_void();
     const kind_code: i32 = exec_builder_effective_kind_code(&expr.type_ref.type);
-    if expr.string_value != null {
+    if expr.string_value != null && expr.bool_value != 0 {
+        // `@embed` 的二进制切片：内容可能含 NUL，不能走 `exec_make_string`
+        // 的「NUL 结尾」路径，按 `expr.int_value` 记录的字节数原样拷进一块
+        // 原生字节数组，再包成 `&[const byte]` 切片。
+        const_value = exec_builder_make_embed_slice(expr.string_value, expr.int_value as i32);
+    } else if expr.string_value != null {
         const_value = exec_make_string(expr.string_value);
     } else if kind_code == TypeKind.TYPE_F32 as i32 {
         const_value = exec_make_f32(expr.float_value as f32);
@@ -2137,6 +2224,33 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             return -1;
         }
         return vec_dst;
+    }
+    if expr.kind == HIRExprKind.HIR_EXPR_EMBED_DIR {
+        const dir_slot: i32 = exec_builder_new_temp(ctx);
+        if dir_slot < 0 {
+            return -1;
+        }
+        const dir_value: ExecValue = exec_builder_make_embed_dir_value(expr.ast_node);
+        if dir_value.kind == ExecValueKind.EXEC_VALUE_VOID {
+            exec_backend_set_error(expr.ast_node, "exec: @embed_dir 常量构造失败" as *byte, 0);
+            return -1;
+        }
+        const dir_const_idx: i32 = exec_builder_intern_const(ctx, dir_value);
+        if dir_const_idx < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_LOAD_CONST,
+            a: dir_slot,
+            b: 0,
+            c: 0,
+            imm: dir_const_idx as i64,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return dir_slot;
     }
     if expr.kind == HIRExprKind.HIR_EXPR_CONST {
         const dst: i32 = exec_builder_new_temp(ctx);

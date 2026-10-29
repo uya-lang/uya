@@ -9230,6 +9230,56 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         hir_slice.extra = len_expr;
         return hir_slice;
     }
+    if expr.type == ASTNodeType.AST_EMBED_DIR {
+        // `@embed_dir("dir")`：检查阶段已经把所有条目的相对路径、内容、长度
+        // 分别读进 `embed_dir_paths` / `embed_dir_data` / `embed_dir_sizes`，
+        // 条目数在 `embed_dir_entry_count`。VM 里直接拼成 `&[EmbedDirEntry]`
+        // 常量（每个条目是 `{ path: &[const byte], data: &[const byte] }`）。
+        if expr.embed_dir_paths == null && ctx.checker != null {
+            _ = checker_infer_type(ctx.checker, expr);
+        }
+        if expr.embed_dir_paths == null {
+            return exec_lower_fail_expr_reason(expr, "exec: @embed_dir 未解析出目录内容" as *byte,
+                ExecUnsupportedReason.EXEC_UNSUPPORTED_GENERIC);
+        }
+        var dir_type: Type = copy_type(&expr_type);
+        const hir_dir: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_EMBED_DIR, &dir_type);
+        if hir_dir == null {
+            return null;
+        }
+        return hir_dir;
+    }
+    if expr.type == ASTNodeType.AST_EMBED {
+        // `@embed("path")` 在编译期把文件内容读进 `expr.embed_data`（长度
+        // `expr.embed_size`）。VM 里把它当成一块原生字节数组常量再包成
+        // `&[const byte]` 切片。内容可能含 NUL，所以不能走 `string_value`
+        // 那条「NUL 结尾」的路径（`exec_make_string` 会按 strlen 截断）：
+        // 这里用 `string_value` 存指针、`int_value` 存字节数、`bool_value`
+        // 标记「按长度构造的二进制切片」，由 builder 侧负责分配与拷贝。
+        if expr.embed_data == null && ctx.checker != null {
+            // 检查阶段可能还没解析（例如宏展开体里的 embed）：就地补一次。
+            _ = checker_infer_type(ctx.checker, expr);
+        }
+        if expr.embed_data == null {
+            return exec_lower_fail_expr_reason(expr, "exec: @embed 未解析出文件内容" as *byte,
+                ExecUnsupportedReason.EXEC_UNSUPPORTED_GENERIC);
+        }
+        var embed_elem: Type = make_u8_type();
+        var embed_type: Type = copy_type(&expr_type);
+        if embed_type.kind != TypeKind.TYPE_SLICE {
+            embed_type = make_slice_type(ctx.arena, &embed_elem);
+        } else if embed_type.slice_element_type != null {
+            embed_elem = copy_type(&embed_type.slice_element_type[0]);
+        }
+        const hir_embed: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CONST, &embed_type);
+        if hir_embed == null {
+            return null;
+        }
+        hir_embed.string_value = expr.embed_data;
+        hir_embed.int_value = expr.embed_size as i64;
+        hir_embed.bool_value = 1;
+        return hir_embed;
+    }
     if expr.type == ASTNodeType.AST_PRINT || expr.type == ASTNodeType.AST_PRINTLN {
         const inner: &HIRExpr = exec_lower_expr(ctx, expr.print_expr);
         if inner == null {

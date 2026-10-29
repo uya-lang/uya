@@ -107,6 +107,9 @@ enum HIRExprKind {
     HIR_EXPR_IMETHOD_CALL,
     HIR_EXPR_LEN,
     HIR_EXPR_SLICE_PTR,
+    // `@embed_dir(...)`：编译期就把所有条目的路径与内容都读好了，
+    // builder 里直接拼出 `&[EmbedDirEntry]` 常量（无需运行时 IO）。
+    HIR_EXPR_EMBED_DIR,
     HIR_EXPR_STRUCT_INIT,
     HIR_EXPR_INTERFACE_BOX,
     HIR_EXPR_ARRAY_INIT,
