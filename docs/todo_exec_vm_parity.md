@@ -3189,3 +3189,16 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
 另试过一个「引用目标若是裸数组就用缓冲首地址当原生基址」的补丁，对该簇无效，
 已撤回。当前树在 `f5184ed8` 干净，`test_std_sql` / `test_asm_atomic` /
 `test_std_jpeg_decode` / `test_async_sync_body_matrix` 复跑均 `失败: 0`。
+
+### 第 372 轮：`@frame` 改造的可行性评估
+
+想推进 async 帧那条主线，先量了爆炸半径：`tests/` 里用到 `@frame(` 的用例共
+**12** 个，其中当前 `--vm` 下通过的有 **2** 个（`test_async_frame_stack_ok`、
+`test_async_frame_type`，只用到 `@size_of`/类型，不碰 `start/poll/stop`）。
+
+也就是说，把 `@frame` 合成结构体在 VM 侧真正建出来（`start` 调 body、`poll`
+返回 `Poll`、`stop` 空操作）不会波及大量已通过用例。但按失败点逐个核对后，
+这 10 个失败例里只有 2 个（`test_async_frame_methods`、`test_std_mqtt_async`）
+卡在「帧没有布局」，其余分别卡在帧池原生内存（`pool_stats`/`align_pool`）、
+`Pending` 语义（`state_machine`）、指针元素类型（`event_dynamic_growth`）和
+网络/超时上。所以单做帧布局的收益是 2 例量级，优先级排在原生内存模型之后。
