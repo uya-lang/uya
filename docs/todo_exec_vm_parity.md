@@ -2969,3 +2969,22 @@ if length == 4 || length == 5 || length == 7 {   // %lld / %jd / %td
 914 例 / 一致 835 / 不一致 79 / stdout 差分 0，不一致全部是 `STATUS_MISMATCH`
 （C99 通过、VM 失败 21 例，其中 4 例是 VM 侧 124 超时）。相对第 345/348 轮的
 832/81 多 3 例一致：`%lld` 与接口 `.data` 两处修复各收口一部分格式/装箱用例。
+
+### 第 364 轮：`libc_errno` 的解释器降级
+
+`test_http1_async_client` 报
+`exec: 当前仅支持局部变量/参数/全局标识符(libc_errno)`，
+位置是 `lib/std/http/http1_async.uya:1614`。
+
+`libc_errno` 不是 Uya 里的声明：C99 后端把它当成宿主 libc 的 `errno`
+直接改名（`src/codegen/c99/global.uya` 的全局标识符改名分支），
+所以 C99 侧能编过。解释器没有这块宿主存储，标识符查找落空。
+
+修复：标识符 lowering 在落到「未知标识符」失败前，对
+`libc_errno` 返回 i32 零常量 —— 与同一函数上面 `extern var` 的
+「解释器无存储 → 零值」策略一致；用到它的代码都是「宿主调用刚失败、
+看是不是 `EAGAIN`」的错误路径。
+
+验证：该例前进到 `/lib/std/async.uya:1754` 的
+`@await 操作数不是 Future 或始终 Pending`（下一节的模型级缺口）；
+`test_exec_vm_stdio_no_varargs`、`test_std_sql` 仍 `失败: 0`。

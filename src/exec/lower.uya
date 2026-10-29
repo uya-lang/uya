@@ -8259,6 +8259,15 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                     }
                 }
             }
+            // 宿主 libc 的 `errno`：C99 后端把标识符 `libc_errno` 直接映射成 C 的
+            // `errno`（见 `src/codegen/c99/global.uya` 的全局标识符改名），解释器
+            // 没有对应的宿主存储。这里按 0 处理，与上面 `extern var` 分支的
+            // 「解释器无存储 → 零值」策略一致；用到它的代码都是「宿主调用刚失败、
+            // 看是不是 EAGAIN」的错误路径。
+            if str_equals(expr.identifier_name, "libc_errno" as *byte) != 0 {
+                const errno_type_i32: Type = exec_lower_type_from_kind_code(TypeKind.TYPE_I32 as i32);
+                return exec_lower_make_int_const_expr(ctx, expr, &errno_type_i32, 0);
+            }
             var unknown_ident_msg: [byte: 192] = [];
             _ = snprintf(&unknown_ident_msg[0] as *byte, 192, "exec: 当前仅支持局部变量/参数/全局标识符(%s)" as *byte, expr.identifier_name as *byte);
             return exec_lower_fail_expr(expr, &unknown_ident_msg[0]);
