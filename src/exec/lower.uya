@@ -1272,6 +1272,39 @@ fn exec_lower_expr_type(ctx: &ExecLowerContext, expr: &ASTNode) Type {
             }
         }
     }
+    if expr.type == ASTNodeType.AST_ARRAY_ACCESS && expr.array_access_array != null {
+        // `q.slots[i]`：从基表达式类型逐层取元素类型。checker 在单态化体里会把
+        // 元素类型推成声明形态（`TaskQueueSlot<T>`），`@size_of` 折叠不出尺寸，
+        // `ADDR_INDEX` 的元素步长退化成 0（原生数组按下标访问全部错位）。
+        var aa_elem: Type = exec_lower_expr_type(ctx, expr.array_access_array);
+        if aa_elem.kind == TypeKind.TYPE_POINTER && aa_elem.pointer_to != null {
+            aa_elem = copy_type(&aa_elem.pointer_to[0]);
+        } else if aa_elem.kind == TypeKind.TYPE_ARRAY && aa_elem.element_type != null {
+            aa_elem = copy_type(&aa_elem.element_type[0]);
+        } else if aa_elem.kind == TypeKind.TYPE_SLICE && aa_elem.slice_element_type != null {
+            aa_elem = copy_type(&aa_elem.slice_element_type[0]);
+        } else {
+            aa_elem = make_void_type();
+        }
+        if aa_elem.kind != TypeKind.TYPE_VOID {
+            return aa_elem;
+        }
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS &&
+        expr.member_access_object != null && expr.member_access_field_name != null {
+        // `q.slots`：checker 在单态化体里会把字段类型推成声明形态
+        // （`&TaskQueueSlot<T>`，实参还是 `T`），下游 `@size_of` 折叠不出尺寸，
+        // exec 侧 `ADDR_INDEX` 的元素步长就退化成 0。这里改从**基表达式自己的
+        // 类型**出发，用泛型实参把字段声明里的 `T` 换掉。
+        const ma_base: Type = exec_lower_member_base_type(ctx, expr.member_access_object);
+        if ma_base.kind == TypeKind.TYPE_STRUCT && ma_base.struct_name != null {
+            const ma_field: Type = exec_lower_struct_field_type(ctx, copy_type(&ma_base),
+                expr.member_access_field_name);
+            if ma_field.kind != TypeKind.TYPE_VOID {
+                return ma_field;
+            }
+        }
+    }
     if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_target_type != null {
         if expr.cast_expr_is_force_cast == 0 {
             // `x as &const void`：checker 的静默推断在 `extern "libc"` 带函数体
@@ -2939,6 +2972,23 @@ fn exec_lower_struct_field_type(ctx: &ExecLowerContext, struct_type: Type, field
     const struct_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node, struct_name);
     if struct_decl == null {
         return make_void_type();
+    }
+    // 泛型结构体实例（`TaskQueue<i32>`）取字段类型时必须把 `T` 换成实参：
+    // 直接 `find_struct_field_type` 拿到的是声明形态（`slots: &TaskQueueSlot<T>`），
+    // 里面还是 `T`。下游 `@size_of(该字段的元素)` 于是折叠不出尺寸，
+    // exec 侧 `ADDR_INDEX` 的元素步长退化成 0，按下标访问原生数组全部错位
+    // （`test_async_task_queue_dynamic_growth` 的调度循环因此永远读不到 active）。
+    if struct_type.struct_type_args != null && struct_type.struct_type_arg_count > 0 &&
+        struct_decl.struct_decl_type_params != null && struct_decl.struct_decl_type_param_count > 0 &&
+        struct_decl.struct_decl_fields != null {
+        var sfi: i32 = 0;
+        while sfi < struct_decl.struct_decl_field_count {
+            const sfd: &ASTNode = struct_decl.struct_decl_fields[sfi];
+            if sfd != null && sfd.var_decl_name != null && str_equals(sfd.var_decl_name, field_name) != 0 {
+                return exec_lower_subst_struct_field_type(ctx.checker, &struct_type, struct_decl, sfd);
+            }
+            sfi = sfi + 1;
+        }
     }
     return find_struct_field_type(ctx.checker, struct_decl, field_name);
 }
@@ -9284,7 +9334,28 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         // 元素字节数：原生指针（`&EpollEvent`、`&FILE` 这类）做下标时，
         // VM 拿不到 C 布局步长（`exec_vm_type_kind_size(STRUCT) == 0`），
         // 只能由编译期把元素尺寸带过去。
-        hir_index.int_value = exec_lower_size_align_of_type(ctx, copy_type(&expr_type), 1) as i64;
+        //
+        // 这里的元素类型要**从基表达式自己的类型推**，不能直接用 checker 给的
+        // `expr_type`：`q.slots[i]` 在单态化体里会被推断成声明形态
+        // （`TaskQueueSlot<T>`，实参还是 `T`），`@size_of` 折叠不出尺寸，
+        // 步长就退化成 0，按下标访问原生数组全部错位
+        // （`test_async_task_queue_dynamic_growth` 的调度循环因此永远读不到
+        // active，空转到超时）。
+        var elem_type_probe: Type = exec_lower_resolve_exact_type(ctx, expr.array_access_array);
+        if elem_type_probe.kind == TypeKind.TYPE_POINTER && elem_type_probe.pointer_to != null {
+            elem_type_probe = copy_type(&elem_type_probe.pointer_to[0]);
+        } else if elem_type_probe.kind == TypeKind.TYPE_ARRAY && elem_type_probe.element_type != null {
+            elem_type_probe = copy_type(&elem_type_probe.element_type[0]);
+        } else if elem_type_probe.kind == TypeKind.TYPE_SLICE && elem_type_probe.slice_element_type != null {
+            elem_type_probe = copy_type(&elem_type_probe.slice_element_type[0]);
+        } else {
+            elem_type_probe = make_void_type();
+        }
+        var index_elem_type: Type = copy_type(&expr_type);
+        if elem_type_probe.kind != TypeKind.TYPE_VOID {
+            index_elem_type = elem_type_probe;
+        }
+        hir_index.int_value = exec_lower_size_align_of_type(ctx, index_elem_type, 1) as i64;
         return hir_index;
     }
     if expr.type == ASTNodeType.AST_SLICE_EXPR {
