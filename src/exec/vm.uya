@@ -34,7 +34,7 @@ const EXEC_VM_REF_KIND_INDEX_BASE: i32 = 131072;
 // 一次普通函数调用要几十万条初始化指令，纯计算型用例（大数模幂、SHA-384）
 // 因此慢到几十分钟。改为按 function.slot_count 从共享栈里切一段，调用返回时
 // 回退栈顶；递归按 LIFO 自然正确。
-var g_exec_vm_slot_pool: [ExecValue: EXEC_MAX_FRAME_SLOTS] = [];
+var g_exec_vm_slot_pool: [ExecValue: EXEC_MAX_FRAME_SLOT_POOL] = [];
 var g_exec_vm_slot_top: i32 = 0;
 
 /// 从共享槽位栈里切一段给新调用帧。
@@ -45,7 +45,7 @@ fn exec_vm_slot_pool_push(slot_count: i32) i32 {
         return -1;
     }
     const base: i32 = g_exec_vm_slot_top;
-    if slot_count > EXEC_MAX_FRAME_SLOTS -| base {
+    if slot_count > EXEC_MAX_FRAME_SLOT_POOL -| base {
         return -1;
     }
     g_exec_vm_slot_top = base +| slot_count;

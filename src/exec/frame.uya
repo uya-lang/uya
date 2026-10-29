@@ -3,6 +3,14 @@
 // 编译器本体 staged smoke 当前已越过 4096 个临时/局部槽位。
 const EXEC_MAX_FRAME_SLOTS: i32 = 8192;
 
+/// 共享槽位栈的总容量（所有活跃调用帧的槽位数之和）。
+///
+/// 它必须**大于** `EXEC_MAX_FRAME_SLOTS`：后者是单个函数的槽位上限，而池要
+/// 同时容纳整条调用链。原来两者共用同一个常量，于是调用链稍深就报
+/// 「VM frame slot 超限」（`test_std_sql` 实测 `top=8186 need=10`，差 4 个槽
+/// 就撞墙，报错点落在一个只占 10 个槽的 `sql_bytes_view_from_ptr` 上）。
+const EXEC_MAX_FRAME_SLOT_POOL: i32 = 32768;
+
 struct ExecFrame {
     function: &BCFunction,
     ip: i32,
