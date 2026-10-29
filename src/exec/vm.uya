@@ -34,8 +34,75 @@ const EXEC_VM_REF_KIND_INDEX_BASE: i32 = 131072;
 // 一次普通函数调用要几十万条初始化指令，纯计算型用例（大数模幂、SHA-384）
 // 因此慢到几十分钟。改为按 function.slot_count 从共享栈里切一段，调用返回时
 // 回退栈顶；递归按 LIFO 自然正确。
-var g_exec_vm_slot_pool: [ExecValue: EXEC_MAX_FRAME_SLOT_POOL] = [];
+// 池按需增长（初始 `EXEC_VM_SLOT_POOL_INITIAL`，不够就翻倍）。
+// 固定容量有两个麻烦：小则深调用链撞墙，大则白占内存且必须把容量抄到
+// 每一处判界的地方（历史上就是因为把单函数帧上限 8192 当成了池容量，
+// 导致 base ≥ 8192 的帧拿不到自己的槽段、退回 pool[0] 与别的帧重叠）。
+var g_exec_vm_slot_pool: &ExecValue = null;
+var g_exec_vm_slot_pool_capacity: i32 = 0;
 var g_exec_vm_slot_top: i32 = 0;
+
+const EXEC_VM_SLOT_POOL_INITIAL: i32 = 8192;
+// 单次增长的上限保护，避免 `+ slot_count` 溢出成负数后误判。
+const EXEC_VM_SLOT_POOL_MAX: i32 = 1 << 24;
+
+/// 确保池至少有 `want` 个槽位，不够就翻倍扩容。
+///
+/// 参数：`want` 需要的槽位数。
+/// 返回值：0 成功；-1 分配失败或超出上限。
+fn exec_vm_slot_pool_reserve(want: i32) i32 {
+    if want <= 0 {
+        return 0;
+    }
+    if want > EXEC_VM_SLOT_POOL_MAX {
+        return -1;
+    }
+    if g_exec_vm_slot_pool != null && want <= g_exec_vm_slot_pool_capacity {
+        return 0;
+    }
+    var next: i32 = g_exec_vm_slot_pool_capacity;
+    if next < EXEC_VM_SLOT_POOL_INITIAL {
+        next = EXEC_VM_SLOT_POOL_INITIAL;
+    }
+    while next < want && next < EXEC_VM_SLOT_POOL_MAX {
+        next = next *| 2;
+    }
+    if next < want {
+        next = want;
+    }
+    const bytes: usize = (@size_of(ExecValue) as usize) * (next as usize);
+    const fresh: &ExecValue = exec_value_alloc_bytes(bytes) as &ExecValue;
+    if fresh == null {
+        return -1;
+    }
+    // 只在**没有活跃帧**时才搬移：`ExecFrame.slots` 是指向池内的裸指针，
+    // 搬到新块会让栈上所有 frame 悬挂。调用栈为空（top==0）时没有指针，
+    // 换块是安全的 —— 需要扩容的场景（更深的调用链、跨测试复用）都能落在
+    // 这里：一次调用结束后 top 归零，下一次进入前再扩容即可。
+    if g_exec_vm_slot_top > 0 && g_exec_vm_slot_pool != null {
+        return -1;
+    }
+    g_exec_vm_slot_pool = fresh;
+    g_exec_vm_slot_pool_capacity = next;
+    return 0;
+}
+
+/// 池的内存区间 `[base, base+size)`，供地址归属判定使用。
+///
+/// 参数：`out_base` 池起始地址；`out_size` 池字节数。
+/// 返回值：无。池未分配时 `out_base` 为 0。
+fn exec_vm_slot_pool_range(out_base: &usize, out_size: &usize) void {
+    if out_base != null {
+        if g_exec_vm_slot_pool == null {
+            out_base[0] = 0 as usize;
+        } else {
+            out_base[0] = @usize_from_ptr(g_exec_vm_slot_pool as &void);
+        }
+    }
+    if out_size != null {
+        out_size[0] = (@size_of(ExecValue) as usize) * (g_exec_vm_slot_pool_capacity as usize);
+    }
+}
 
 /// 从共享槽位栈里切一段给新调用帧。
 /// 参数：`slot_count` 本次调用需要的槽位数。
@@ -45,10 +112,14 @@ fn exec_vm_slot_pool_push(slot_count: i32) i32 {
         return -1;
     }
     const base: i32 = g_exec_vm_slot_top;
-    if slot_count > EXEC_MAX_FRAME_SLOT_POOL -| base {
+    const need: i32 = base +| slot_count;
+    if need < 0 {
         return -1;
     }
-    g_exec_vm_slot_top = base +| slot_count;
+    if exec_vm_slot_pool_reserve(need) != 0 {
+        return -1;
+    }
+    g_exec_vm_slot_top = need;
     return base;
 }
 
@@ -56,7 +127,10 @@ fn exec_vm_slot_pool_push(slot_count: i32) i32 {
 /// 参数：`base` push 返回的起始下标。
 /// 返回值：指向该槽位的指针；下标越界返回 null。
 fn exec_vm_slot_pool_base(base: i32) &ExecValue {
-    if base < 0 || base >= EXEC_MAX_FRAME_SLOTS {
+    if g_exec_vm_slot_pool == null {
+        return null;
+    }
+    if base < 0 || base >= g_exec_vm_slot_pool_capacity {
         return null;
     }
     return &g_exec_vm_slot_pool[base];
@@ -65,7 +139,7 @@ fn exec_vm_slot_pool_base(base: i32) &ExecValue {
 /// 归还一段槽位（必须与 push 一一配对）。
 /// 参数：`base` push 返回的起始下标。
 fn exec_vm_slot_pool_pop(base: i32) void {
-    if base >= 0 && base <= EXEC_MAX_FRAME_SLOTS {
+    if base >= 0 && base <= g_exec_vm_slot_top {
         g_exec_vm_slot_top = base;
     }
 }
@@ -822,12 +896,13 @@ fn exec_vm_realign_to_slot(addr: usize) &ExecValue {
     if addr == 0 as usize {
         return null;
     }
-    const base: usize = @usize_from_ptr(&g_exec_vm_slot_pool[0] as &void);
+    var base: usize = 0 as usize;
+    var total: usize = 0 as usize;
+    exec_vm_slot_pool_range(&base, &total);
     const slot_bytes: usize = @size_of(ExecValue) as usize;
-    if slot_bytes == 0 as usize {
+    if slot_bytes == 0 as usize || base == 0 as usize || total == 0 as usize {
         return null;
     }
-    const total: usize = slot_bytes *| (EXEC_MAX_FRAME_SLOTS as usize);
     if addr < base || addr >= (base +| total) {
         return null;
     }
@@ -1780,9 +1855,10 @@ fn exec_vm_address_is_vm_resident(addr: usize) bool {
     if exec_vm_address_is_value(addr) {
         return true;
     }
-    const pool_base: usize = @usize_from_ptr(&g_exec_vm_slot_pool[0] as &void);
-    const pool_size: usize = (@size_of(ExecValue) as usize) * (EXEC_MAX_FRAME_SLOTS as usize);
-    if addr >= pool_base && addr < pool_base +| pool_size {
+    var pool_base: usize = 0 as usize;
+    var pool_size: usize = 0 as usize;
+    exec_vm_slot_pool_range(&pool_base, &pool_size);
+    if pool_base != 0 as usize && addr >= pool_base && addr < pool_base +| pool_size {
         return true;
     }
     if g_exec_vm_globals_base != 0 && addr >= g_exec_vm_globals_base && addr < g_exec_vm_globals_end {
@@ -1813,9 +1889,10 @@ fn exec_vm_address_is_exec_value_storage(addr: usize) bool {
     if exec_vm_address_is_value(addr) {
         return exec_value_address_is_array_element(addr);
     }
-    const pool_base: usize = @usize_from_ptr(&g_exec_vm_slot_pool[0] as &void);
-    const pool_size: usize = (@size_of(ExecValue) as usize) * (EXEC_MAX_FRAME_SLOTS as usize);
-    if addr >= pool_base && addr < pool_base +| pool_size {
+    var pool_base: usize = 0 as usize;
+    var pool_size: usize = 0 as usize;
+    exec_vm_slot_pool_range(&pool_base, &pool_size);
+    if pool_base != 0 as usize && addr >= pool_base && addr < pool_base +| pool_size {
         return (addr -| pool_base) % (@size_of(ExecValue) as usize) == 0 as usize;
     }
     if g_exec_vm_globals_base != 0 && addr >= g_exec_vm_globals_base && addr < g_exec_vm_globals_end {
@@ -6670,7 +6747,10 @@ fn exec_vm_run_frame(program: &BCProgram, function: &BCFunction, args: &ExecValu
     trace_vm: i32, out_value: &ExecValue, base: i32) i32 {
     var slots_ptr: &ExecValue = exec_vm_slot_pool_base(base);
     if slots_ptr == null {
-        slots_ptr = &g_exec_vm_slot_pool[0];
+        // 拿不到自己的槽段时绝不能退回 pool[0]：那会和最深层的帧重叠，
+        // 表现为「参数刚拷进去是对的，一次内层调用回来就变了别的类型」。
+        exec_backend_set_error(function.decl, "exec: 调用帧槽位段无效" as *byte, 0);
+        return -1;
     }
     var frame: ExecFrame = ExecFrame {
         function: function,
