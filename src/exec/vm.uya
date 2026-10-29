@@ -1919,7 +1919,13 @@ fn exec_vm_field_native_base(object: &ExecValue) usize {
             return 0 as usize;
         }
         if exec_vm_pointer_is_internal_ref(cursor) == 0 {
-            if exec_vm_address_is_vm_resident(addr) {
+            // 判据必须用**严格版**：`exec_vm_address_is_vm_resident` 把
+            // 「落在竞技场里」一律当成 VM 常驻，可竞技场里同时住着 ExecValue
+            // 数组和裸字节缓冲（`[byte: N]` 的原生数组数据就住那儿）。用宽松版
+            // 会把 `raw as &Hdr` 这类「指向原生字节缓冲」的指针误判成 VM 值，
+            // 于是 `p.field = v` 走不到原生偏移写入、退回 VM 聚合路径并报
+            // `STORE_FIELD 字段越界(count=-1)`。
+            if exec_vm_address_is_exec_value_storage(addr) {
                 return 0 as usize;
             }
             return addr;
