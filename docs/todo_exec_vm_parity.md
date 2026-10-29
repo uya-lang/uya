@@ -3168,3 +3168,24 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
   `test_async_nested_http1_await_codegen` 变不一致、
   `test_async_thread_pool_dynamic_growth` 变一致，两者都依赖网络/时序，
   单独复跑都不稳定，不构成本轮回归。
+
+### 第 371 轮：`LOAD/STORE_FIELD(… kind=14 pointee=16)` 簇的两条根因（未修）
+
+给 `BC_LOAD_FIELD` / `BC_STORE_FIELD` 的失败分支加临时诊断后，这个簇分成两类：
+
+1. `test_typed_pipeline_executor_single`（`sigismember`）：
+   `isref=1`、地址落在 VM 驻留区、**引用目标的 kind 是 0（VOID）**。
+   调用点在 `lib/std/process.uya:2931`，位于 `if pid == 0 { … }` 的 fork 子进程分支里：
+   `var current_mask: sigset_t = sigset_t {};` 之后 `&current_mask` 指向的槽位
+   在解释器里从未被materialize（VM 没有 fork，子进程分支是内联跑的）。
+   这不是字段布局问题，而是子进程语义缺口。
+2. `test_async_frame_align_pool` / `test_async_frame_pool_stats`（`async_frame.uya:503`）：
+   `isref=0`、裸指针、地址落在 VM 驻留区。这块内存是 `async_frame_pool` 用宿主
+   `malloc` 借出来的原生块，但地址被判成「VM 驻留」，于是既不走原生字段读写、
+   也找不到聚合。要区分「VM 值」与「解释器自己 malloc 的原生块」，
+   得用 `g_exec_alloc_*` 分配登记表做判定；本轮未做（第 359~361 轮在这条线上
+   已有三次被 `test_fmt_*` 证否的记录，需要单独设计）。
+
+另试过一个「引用目标若是裸数组就用缓冲首地址当原生基址」的补丁，对该簇无效，
+已撤回。当前树在 `f5184ed8` 干净，`test_std_sql` / `test_asm_atomic` /
+`test_std_jpeg_decode` / `test_async_sync_body_matrix` 复跑均 `失败: 0`。
