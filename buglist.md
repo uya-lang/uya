@@ -197,6 +197,9 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     `--strict-div` 拒绝无证明除数、常量与区间守卫放行、常量除零始终报错）；
     正例 `tests/test_strict_div.uya`（6 用例）、负例夹具 `tests/repros/strict_div_negative.uya`
     （**不用 `error_` 前缀**，因为它在默认模式下必须编译通过）。
+  - **跨函数方案（未实现）**：本条「证明器不跨函数，无法表达前提」正是
+    `docs/interprocedural_proof_plan.md` 的 B3 目标 —— 把 `align != 0` 这类事实变成被调方
+    的 requirement、由调用点付账。**当前状态不变：闸门仍默认关闭。**
 
 - [ ] **P1：逃逸检查（数组 / 切片 / 接口值）完全未实现**
   - `uya.md` §6.5、§6.8、§7 都写了「逃逸即编译错误」，但实测三条路径全部静默通过：
@@ -206,6 +209,9 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     运行期读到已释放栈帧，属未定义行为（实测恰好返回值正确，因为栈还没被复用）。
   - 已在 `uya.md` §6.5 / §6.8 / §7 就地标注「设计意图 vs 当前行为」，避免按文档预期编译器行为。
   - 归属：`src/checker/`（需要作用域层级表，与现有 `enable_safety_proof` 体系独立）。
+  - **跨函数方案（未实现）**：`docs/interprocedural_proof_plan.md` 的 B1 / P1 阶段给出
+    origin（来源）格 + 三处判定点（`return` / 写入更长寿命容器 / 传参）的施工图。
+    **当前状态不变：这三条路径仍然静默通过。**
 
 
 ## 标准库 bug
@@ -911,6 +917,9 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
       需要先引入 `?&T` 或 `@nonnull` 之类的语法/属性，再让 std 按语义标注，属独立设计工作量。
       改成「只对任意来源做检查」的中间态同样不成立 —— 编译器无法区分
       「调用方保证非空」与「漏检查」，两种写法在 AST 上完全同形。
+      **跨函数方案（未实现）**：`docs/interprocedural_proof_plan.md` 的 B2 用「被调方
+      requirement + 调用点付账」替代这条 blanket 假设，并论证不需要 `?&T` 语法。
+      **当前状态不变：形参仍被无条件视为非空。**
     * **③ 循环体下标**：表面现象是循环体不证明，**实际成因是赋值不失效约束**：
       `i = i + 1` 不会让进入循环前的 `i < 9` 作废，于是
       `while i < 9 { a[i] = 1; i = i + 1; }`（a 只有 5 个元素）实测越界写 `a[5]`。

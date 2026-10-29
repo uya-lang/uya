@@ -25,6 +25,7 @@
 | **microcontainer 可移植 native** | 部分落地（`make microapp-*` 与 macOS CI 有 aarch64 / macOS 运行时检查），剩余 27 项未勾，未逐条回填 | `docs/microcontainer/portable_native_todo.md` | 中 |
 | **HTTP/3 与 HTTP/2 WebSocket transport** | QUIC/HTTP/3 未实现；`lib/std/http/websocket_http2_h3_route.uya` 只是路由占位；RFC 8441 extended CONNECT 的 stream adapter 未落地（HTTP/2 frame/stream/HPACK 基础栈已在） | `lib/std/http/websocket_http2_h3_route.uya`、`docs/std_http_websocket_http2_http3_route.md`、`docs/todo_http_websocket.md` | 大 |
 | **1.0 语法锁定** | `docs/goal_v1_lockdown.md` 多数条目未勾：T2（`try`/`catch` 语义收敛）、T4（闭包"不做"契约）、T5（canonical Future、`@await`+`catch` 多语句 lowering）、T6（stdlib 手写状态机收编）仍未完成；三个指定测试 `tests/error_try_catch_combined.uya`、`tests/test_catch_multistmt_block.uya`、`tests/test_async_await_catch_multistmt.uya` 均不存在。T3 宏卫生：代码已实现（`src/checker/macro_expand.uya` 的 `macro_ctx_has_hygiene`），`docs/uya.md` §25.2.2 已写，`tests/test_macro_hygiene.uya` 存在 | `docs/goal_v1_lockdown.md`；`src/checker/macro_expand.uya:957`；`docs/uya.md:5919` | 中 |
+| **跨函数内存安全证明** | **未开始：只有方案文档，零实现**。目标是在零新语法前提下把「函数内证不出的事实」换成编译器推导的摘要（origin / 逃逸 / 非空 / 非零 / 下标范围 / 长度关系），义务沿调用栈上行到有真实守卫处。**目前仍未实现**：跨函数证明本身、逃逸检查、`--strict-div` 默认开、⑥ 指针形参解引用 | `docs/interprocedural_proof_plan.md`；现状证据见 `buglist.md` 的 P1 逃逸、⑥、`--strict-div` 三条 | 大 |
 | **可选优化尾巴** | `todo_json`（`@vector`/`@asm` 快路径与基准）、`todo_yaml`（基准、错误位置）、`todo_protobuf`（泛型 `decode<T>`/宏）、`tls_https_todo`（清理临时占位）、`tls_todo`（README 说明）、`libc_todo`（性能基准、POSIX 层、Windows）、`fmt_phase4`（stdin 与 `-s/-r` 组合不支持）、`tflm_uya_todo`（TFLite 对比测试等可选项） | 各文件未勾选条目 | 小 |
 
 ---
