@@ -2604,3 +2604,34 @@ if is_index_base == 0 && index_value == 0 && target_aggregate != null &&
   `LOAD_INDEX imm=24`（元素步长 24）产出的元素 kind 是 0（void），
   字段表整块缺失。与 `test_tls_handshake` 的 `ADDR_FIELD` pointee kind=83
   同属「类型结构没建出来」。
+
+### 第 354 轮：census 口径核对（`UYA_EXEC_CENSUS_MEM_MB` 的影响）
+
+**关键结论：`UYA_EXEC_CENSUS_MEM_MB` 默认的 `ulimit -v 1024` 会让大量
+`test_async_*` 用例失败**，与本轮 exec 改动无关。
+
+排查过程：
+
+1. 池改动后第一次 census 得到 770/909（84.7%），比第 345 轮的 841（92.5%）
+   少 71 个，看着像严重回归。
+2. 把 `src/exec/vm.uya` **完全 stash 回第 352 轮之前**重跑 census，
+   结果**同样是 770/909** —— 立刻排除了本轮改动。
+3. 单独不限内存跑那些「失败」用例（`test_async_channel`、`test_async_bug_a_two_while` 等）
+   全部 rc=0。
+4. 用 `bash -c 'ulimit -v 1048576; ./bin/uya test ...'` 复现：进程能启动、
+   第一个 test 通过，跑到第二个就没了下文。是 1GB 地址空间不够。
+5. 改用 `UYA_EXEC_CENSUS_MEM_MB=0`（不限内存）重跑，得到 **828/909（91.1%）**。
+
+**逐项对比**（基线 = 把 vm.uya stash 回旧状态 + `MEM_MB=1024` 的那次 census）：
+
+- 本轮**新增失败：0 个**（`comm -13` 为空）。
+- 基线那 139 个失败里有 58 个在不限内存时通过 —— 全是 `ulimit` 导致的。
+
+**真正稳定的口径**：`UYA_EXEC_CENSUS_MEM_MB=0 UYA_EXEC_CENSUS_TIMEOUT=240
+UYA_EXEC_CENSUS_JOBS=12`，结果 **828/909，81 个失败**。
+其中 `https_*` / `http_*` / `epoll_server` 这类需要真实网络的用例在并行下
+仍然会超时，属于环境限制。
+
+**本轮真正修好的**：`test_std_sql`（第 352+353 轮：动态槽位池 + 接口字段
+引用写回），`test_tflm_interpreter`（第 349 轮：memcpy 两条缺失组合），
+`test_signal`（第 350 轮：syscall 参数护住 VM 槽地址 + 信号桩）。
