@@ -43,8 +43,11 @@ var g_exec_vm_slot_pool_capacity: i32 = 0;
 var g_exec_vm_slot_top: i32 = 0;
 
 const EXEC_VM_SLOT_POOL_INITIAL: i32 = 8192;
-// 单次增长的上限保护，避免 `+ slot_count` 溢出成负数后误判。
-const EXEC_VM_SLOT_POOL_MAX: i32 = 1 << 24;
+// 池的容量上限。`ExecValue` 是 56 字节，所以槽数直接决定内存：`1 << 18`
+//（26 万槽 ≈ 14.7MB）已经比任何真实调用链都宽裕得多。不要往上调 ——
+// census 会用 `ulimit -v 1024`（1GB 地址空间）跑每个用例，上限设成
+// `1 << 24` 时一旦真的扩到那儿就是 940MB，直接把用例打死。
+const EXEC_VM_SLOT_POOL_MAX: i32 = 1 << 18;
 
 /// 确保池至少有 `want` 个槽位，不够就翻倍扩容。
 ///
