@@ -21,3 +21,5 @@ test_abi_calling_convention.uya   # C99: undefined reference to `c_small_struct_
 
 # --- exec VM 的负向用例（验证 VM 拒绝某特性，本就不该在 --vm 下通过） ---
 test_exec_vm_c_import_unsupported.uya  # 负向：断言 exec 拒绝 @c_import，--vm 下必然「失败」
+test_exec_vm_global_init_fail.uya   # 负向：全局初始化除零，C99 侧同样 rc=1；两侧行为一致
+test_exec_vm_extern_decl_varargs_unsupported.uya  # 负向：断言 exec 必须拒绝未登记的 varargs extern ABI（见用例头注释）
