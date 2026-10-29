@@ -3026,3 +3026,37 @@ varargs extern ABI）都是**负向用例**：前者 C99 侧同样 `rc=1`，后�
 线程与并发（pthread/OSAL/DNS）约 10 例、`@c_import` 3 例、
 错误路径上的自动 drop（`pipeline_drop_count` 一类）若干、超长函数与 124 超时。
 这些都要求 exec VM 具备真正的挂起/清理语义，不是局部修补能收口的。
+
+### 第 366 轮：剩余 71 例的根因归类
+
+普查口径：`907 例 / 通过 836 / 失败 71 / 跳过 7 / 92.2%`。按失败原因自动归类：
+
+| 类别 | 例数 | 代表 | 为什么不是局部修补 |
+|---|---|---|---|
+| 无消息（断言失败或非零退出码） | 27 | `test_async_state_machine`(3)、`test_osal`(3)、`test_kernel_sim`(5)、`test_std_thread`(23)、websocket 系列(2~5) | 断言差异集中在 async 帧状态机、线程/OSAL、子进程 pipeline；VM 同步执行，没有真正的挂起/调度 |
+| 超时(124) | 24 | `test_https_*`、`test_tls_*`、`test_pthread_*`、`test_http_server` | 依赖真实网络/线程并发，VM 单线程同步跑不完 |
+| 原生内存/值模型 | 9 | `LOAD_FIELD 字段越界(kind=14 pointee=16)`、`LOAD_UNION_TAG 目标不是 union`、`ADDR_FIELD 字段越界` | 见下 |
+| `@await`/Pending 语义 | 6 | `test_async_await`、`test_std_dns` | `pending_i32()` 这类「永远 Pending」的 Future 需要挂起语义 |
+| `@c_import` | 3 | `test_c_import_file/dir/cflags` | 需要运行时加载 C 符号 |
+| 其它（空指针解引用） | 2 | `test_std_jpeg_decode/encode` | 见下 |
+
+本轮通过 `--dump-bytecode` / `--trace-vm` 拿到的四条硬证据：
+
+1. **async 帧布局不存在**：`@frame(fn)` 的结构体由 C99 codegen 合成，AST 里没有声明，
+   `src/exec/builder.uya` 的零值构造注释就写着「VM 侧按空结构体零值处理（布局未对齐，
+   字段访问会照常报错）」。`test_async_frame_methods` 的 `LOAD_UNION_TAG 目标不是 union`
+   就是这么来的 —— `frame.poll(&w)` 返回的值根本不是 VM 认得的 Poll 联合。
+2. **原生地址无法反查聚合**：`test_tls_handshake` 在 `ssl_server_identity_ptr` 里把
+   `&ctx.server_identities[0]` 用 `@ptr_from_usize` 变成裸指针再做偏移，之后
+   `&ident.name[0]` 的 `BC_ADDR_FIELD` 拿到的是「指向 VM 聚合内部的裸地址」，
+   `exec_vm_field_object` 既不能当 ExecValue 读、也没有原生槽位，只能报字段越界。
+3. **错误路径上的自动 drop 不触发**：`test_typed_pipeline_lowering_error` 里
+   `Pipeline.drop` 只在成功路径被调用，`pipeline_drop_count()` 在错误返回后仍是 0。
+4. **子进程语义不存在**：`test_typed_pipeline_executor_single` 的 trace 显示
+   `pipeline_child_write_startup` / `pipeline_child_fail_startup` 在 VM 里被**内联执行**，
+   最后直接走到 `_exit` 的 `sys_exit` —— 整个 VM 进程退出，父子进程模型无从谈起。
+
+结论：T11 剩下的三个未勾选项（`uya test --vm` 全量、`make exec-parity` 全绿、
+合并到 main）都卡在上述四点上。它们不是「再来几轮修 bug」的量级，而是需要
+exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映射、运行期 C 符号加载**。
+因此在当前设计下这几项无法收口；本文件保留现状与证据，供后续按模型级改造推进。
