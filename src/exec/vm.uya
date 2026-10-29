@@ -3610,6 +3610,12 @@ fn exec_vm_syscall_shield_vm_addresses(frame: &ExecFrame, arg_base: i32, arg_cou
                 scratch2[fi] = exec_vm_numeric_to_i64(field_probe.values[fi]);
                 fi = fi + 1;
             }
+        } else {
+            // 标量局部按指针传入（`sys_getsockname(fd, &addr, &alen)` 的 `&alen`
+            // 就是这种）：必须把当前值写进缓冲区。以前 memset 清零后不填，
+            // 内核读到的 `addrlen` 是 0，于是**一个字节都不写回**、还返回 0，
+            // 表现为「调用成功但端口一直是 0」。
+            scratch2[0] = exec_vm_numeric_to_i64(slot[0]);
         }
         args[si] = scratch2 as i64;
         si = si + 1;

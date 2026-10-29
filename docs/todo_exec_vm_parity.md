@@ -3219,3 +3219,32 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
   让字段访问认这些区间，同样无效 —— `async_frame_pool` 的地址不在任何全局裸数组
   区间里（它不是全局 arena，而是宿主 `malloc` 出来的池）。这条线只能改成
   「谁分配谁登记」，并且要覆盖宿主 `malloc` 的路径。
+
+### 第 374 轮：`getsockname` 取不到端口 —— shielding 把标量入参清零
+
+`test_http_websocket_json` / `test_http_websocket_handshake` 的用例都走
+`make_pair`，而 `make_pair` 里 `http_tcp_connect_loopback` 报 111（= `ECONNREFUSED`）。
+逐步收敛：
+
+1. 三个用例都 ERROR、无断言消息 → 说明错误是从库经 `try` 冒上来的，不是断言；
+2. 临时打印测试函数的返回值：`kind=22 i64=1 error_id=111` —— 111 正是
+   `ECONNREFUSED`，所以 `connect()` 真到了内核、只是没人监听；
+3. 探针断言 `srv.port != 0` 失败 → **`http_server_listen` 返回的端口是 0**；
+4. 再探 `sys_getsockname` 本身：返回 0（成功），但 `out[0]` 仍是 0；
+5. 对照探针 `sys_read` 写进局部 `[byte: 8]` 完全正常 → 不是「写不进局部裸数组」；
+6. 读 `exec_vm_syscall_shield_vm_addresses` 发现根因：它把落在槽位池里的指针参数
+   换成原生 scratch 缓冲区，memset 清零后**只回填聚合字段**（`field_probe`）；
+   `&alen` 这种**标量局部**走不到回填分支，于是内核读到的 `addrlen` 是 0，
+   `getsockname` 按「写 0 字节」处理、仍然返回 0，端口自然永远是 0。
+
+修复：scratch 清零后，标量目标也把当前值写进 `scratch2[0]`
+（`exec_vm_numeric_to_i64` 取数）。这条只影响「标量局部按指针传给 syscall」的入参，
+以前一律按 0 传给内核。
+
+验证：`sys_getsockname` 探针拿到真实端口；`http_tcp_connect_loopback` 探针由
+`ECONNREFUSED` 变为成功；`test_http_websocket_handshake` 由失败转为
+**失败: 0**；`test_http_websocket_json` 3 个用例里 2 个转绿（剩下
+`websocket_conn_write_json` 报一个 json 侧的 error id，属另一条线）。
+回归抽样：`test_std_mem`、`test_std_sql`、`test_fmt_api`、`test_std_io`、
+`test_stdio_file_buffering`、`test_tls_x509` 均 `失败: 0`；
+`test_signal`、`test_std_async_event` 仍失败，但它们在改动前就是失败状态。
