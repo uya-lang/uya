@@ -2635,3 +2635,29 @@ UYA_EXEC_CENSUS_JOBS=12`，结果 **828/909，81 个失败**。
 **本轮真正修好的**：`test_std_sql`（第 352+353 轮：动态槽位池 + 接口字段
 引用写回），`test_tflm_interpreter`（第 349 轮：memcpy 两条缺失组合），
 `test_signal`（第 350 轮：syscall 参数护住 VM 槽地址 + 信号桩）。
+
+### 第 355 轮：shield 顺序修正，5 个用例转绿
+
+**根因**：第 350 轮加的 `exec_vm_syscall_shield_vm_addresses`（把落在 VM 槽池里
+的 syscall 参数地址换成原生缓冲区）放在了 `exec_vm_syscall_marshal_out_struct`
+**之前**。于是 `out_mask` 标记过的**出参**也被一并换成 scratch，marshal 拿到的
+`raw_address` 已经是 scratch，`exec_vm_realign_to_slot` 认不出对应的 VM 槽位，
+`prepare` 返回 null，回填永远不执行 —— 出参结构体保持初值。
+
+典型表现：`sys_gettimeofday(&tv, null)` 返回 0，但 `tv.tv_sec` 一直是 0。
+
+**修法**：shield 跳过 `out_mask` 标记的参数，出参完全交给 marshal
+（它在 `prepare` 成功后自己会把那个参数换成原生缓冲区）。
+
+**效果**（census 口径 `UYA_EXEC_CENSUS_MEM_MB=0 JOBS=12 TIMEOUT=240`）：
+
+| | 之前 | 之后 |
+|---|---|---|
+| 通过 | 828 | **833** |
+| 失败 | 81 | **76** |
+
+新增失败 **0** 个，转绿 5 个：
+`test_kernel_dispatch`、`test_std_path_module`、`test_syscall_dir`、
+`test_syscall_time`、`test_tls_x509`。
+
+`make check` 1191/1191 全绿。
