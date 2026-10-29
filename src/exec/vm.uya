@@ -2714,8 +2714,14 @@ fn exec_vm_index_ref(value: &ExecValue, index_value: i32) &ExecValue {
         const ref_kind: i32 = exec_vm_decode_ref_kind(value.aux_i64_value as i32);
         // `*ref`：引用指向 struct/tuple 值本体时，下标 0 就是该值本身
         // （结构体字段访问走 LOAD_FIELD，不经过下标）。
+        // `*ref`：引用指向「值本体」时下标 0 就是该值。除了 STRUCT/TUPLE，
+        // 接口（`&self.conn` 这类 `&Conn`）在 VM 里同样是以聚合形式承载的
+        // （方法入口表 + 数据），必须一起认，否则 `out[0] = impl` 会写到
+        // 一个临时地址、调用方看不到任何变化
+        // （test_std_sql 的 `db_open` → `drv.open(..., &db.conn)` 就是这么失效的）。
         if is_index_base == 0 && index_value == 0 && target_aggregate != null &&
-            (ref_kind == TypeKind.TYPE_STRUCT as i32 || ref_kind == TypeKind.TYPE_TUPLE as i32) {
+            (ref_kind == TypeKind.TYPE_STRUCT as i32 || ref_kind == TypeKind.TYPE_TUPLE as i32 ||
+             ref_kind == TypeKind.TYPE_INTERFACE as i32 || ref_kind == TypeKind.TYPE_UNION as i32) {
             return target;
         }
         // 嵌套数组 `arr[0][1]`：引用指向内层数组本体，下标要按内层 aggregate.values 取，
