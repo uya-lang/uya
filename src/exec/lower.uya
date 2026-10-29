@@ -3745,6 +3745,27 @@ fn exec_lower_type_info_field_index(field_name: &byte) i32 {
     return -1;
 }
 
+/// 接口在 exec VM 里以聚合承载：下标 0..n-1 是方法表，最后一项是数据引用
+/// （见 `exec_builder` 的 `HIR_EXPR_INTERFACE_BOX`）。`.data` 就是最后那格。
+fn exec_lower_interface_data_field_index(ctx: &ExecLowerContext, iface_type: &Type, field_name: &byte) i32 {
+    if ctx == null || ctx.checker == null || ctx.checker.program_node == null ||
+        iface_type == null || field_name == null {
+        return -1;
+    }
+    if str_equals(field_name, "data" as *byte) == 0 {
+        return -1;
+    }
+    const iface_name: &byte = type_get_interface_name(iface_type);
+    if iface_name == null {
+        return -1;
+    }
+    const iface_decl: &ASTNode = find_interface_decl_from_program(ctx.checker.program_node, iface_name);
+    if iface_decl == null || iface_decl.interface_decl_method_sig_count < 0 {
+        return -1;
+    }
+    return iface_decl.interface_decl_method_sig_count;
+}
+
 fn exec_lower_struct_field_index(ctx: &ExecLowerContext, struct_type: Type, field_name: &byte) i32 {
     const struct_name: &byte = type_get_struct_name(&struct_type);
     if ctx == null || ctx.checker == null || ctx.checker.program_node == null ||
@@ -9275,6 +9296,8 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         var field_index: i32 = -1;
         if base_type.kind == TypeKind.TYPE_TUPLE {
             field_index = atoi(expr.member_access_field_name as *byte);
+        } else if base_type.kind == TypeKind.TYPE_INTERFACE {
+            field_index = exec_lower_interface_data_field_index(ctx, &base_type, expr.member_access_field_name);
         } else {
             field_index = exec_lower_struct_field_index(ctx, copy_type(&base_type), expr.member_access_field_name);
         }

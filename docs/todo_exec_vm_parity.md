@@ -2918,3 +2918,31 @@ if length == 4 || length == 5 || length == 7 {   // %lld / %jd / %td
 
 - 相关测试全绿（见上）
 - census 需重新测量：本轮修复预计改善一批依赖大整数打印的断言
+
+### 第 363 轮：接口 `.data` 成员访问的 lowering
+
+`test_async_frame_pool_stats` 在
+`tests/test_async_frame_pool_stats.uya:409:52` 报
+`exec: 无法解析成员访问字段(kind=15): data`，`kind=15` 是 `TypeKind.TYPE_INTERFACE`。
+
+接口在 exec VM 里以聚合承载：`HIR_EXPR_INTERFACE_BOX` 生成
+`[方法表 0..n-1, 数据引用]`（见 `src/exec/builder.uya` 的装箱分支），
+最后一项才是 `.data`。而成员访问 lowering 只认 TUPLE 与 STRUCT，
+接口一律走 `exec_lower_struct_field_index` → 拿不到声明 → 失败。
+
+修复：新增 `exec_lower_interface_data_field_index`，对
+`field_name == "data"` 返回该接口的方法数（即数据引用所在下标），
+成员访问在 `TYPE_INTERFACE` 时走它。原生偏移保持 0，运行时按聚合
+下标读取。
+
+验证：
+
+- 原 lowering 错误消失，`test_async_frame_pool_stats` 前进到
+  `lib/std/async_frame.uya:513` 的 `STORE_FIELD 字段越界(idx=0 kind=14
+  count=-1 pointee=16)` —— 即第 359~361 轮记录的原生字段基址判定缺口，
+  本轮不涉及；
+- 回归面：`test_std_sql`、`test_fmt_api`、`test_fmt_api_phase3`、
+  `test_exec_vm_stdio_no_varargs`、`test_std_io` 五例 `失败: 0`。
+
+**当前状态**：census 仍为 836/909（本轮把一例的失败点从 lowering 前移到
+运行时，未新增通过）；`make check` 与 parity 待本轮末尾复测。
