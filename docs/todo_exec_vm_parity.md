@@ -3134,3 +3134,21 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
 不计为本轮回归。`make check` 复测 **1191/1191 通过**（`/tmp/check_r369.log`）。
 `make exec-parity`（`UYA_PARITY_TIMEOUT=600 UYA_PARITY_JOBS=6`）复测：
 **914 例 / 一致 839 / 不一致 75 / stdout 差分 0**（第 368 轮为 836/78）。
+
+### 第 370 轮：`atomic T` 字段的原生布局 kind
+
+`test_async_event_dynamic_growth` 在 `lib/std/async.uya:250` 的
+`self._wake_count` 处报 `LOAD_FIELD 字段越界(idx=0 kind=14 count=-1 pointee=16)`。
+诊断显示：字段读走的原生路径是通的（`nk=25`、基址非 0、非 VM 驻留），
+但 `nk=25` 对应 `TypeKind.TYPE_ATOMIC`，而 `exec_vm_native_field_load` 只认
+标量/指针/数组等具体 kind，返回 VOID，于是回落到聚合路径并失败。
+
+根因：`exec_lower_native_field_layout` 直接把字段类型的 `kind + 1` 编进指令，
+`atomic T` 字段因此带着 `TYPE_ATOMIC` 下去。可在原生内存里 `atomic T` 就是一个 `T`。
+
+修复：该函数在编码前用 `type_get_atomic_inner` 把 atomic 解开成内层类型
+（偏移和尺寸仍按原字段类型算）。修复后该例前进到
+`exec: 当前不支持该指针元素类型`（`run_linux_epoll_growth_case` 里
+`read_fds[i]` 这一处指针元素类型问题，属另一条线）。
+
+回归：`test_asm_atomic`、`bench_asm_atomic` 仍 `失败: 0`。

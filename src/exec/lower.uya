@@ -3697,14 +3697,23 @@ fn exec_lower_native_field_layout(ctx: &ExecLowerContext, struct_type: Type, fie
             }
         }
         if fi == field_index {
+            // `atomic T` 在原生内存里就是一个 T：把内层类型解出来再编码字段 kind，
+            // 否则 VM 拿到 TypeKind.TYPE_ATOMIC 后不认识，字段读写会报「字段越界」。
+            var layout_type: Type = copy_type(&field_type);
+            if layout_type.kind == TypeKind.TYPE_ATOMIC {
+                const atomic_inner: &Type = type_get_atomic_inner(&layout_type);
+                if atomic_inner != null {
+                    layout_type = copy_type(&atomic_inner[0]);
+                }
+            }
             out_offset[0] = offset;
-            out_kind[0] = (field_type.kind as i32) +| 1;
+            out_kind[0] = (layout_type.kind as i32) +| 1;
             out_pointee[0] = 0;
             out_count[0] = 0;
-            if field_type.kind == TypeKind.TYPE_POINTER && field_type.pointer_to != null {
-                out_pointee[0] = (field_type.pointer_to[0].kind as i32) +| 1;
+            if layout_type.kind == TypeKind.TYPE_POINTER && layout_type.pointer_to != null {
+                out_pointee[0] = (layout_type.pointer_to[0].kind as i32) +| 1;
             }
-            if field_type.kind == TypeKind.TYPE_ARRAY && field_type.element_type != null {
+            if layout_type.kind == TypeKind.TYPE_ARRAY && layout_type.element_type != null && field_type.kind == TypeKind.TYPE_ARRAY && field_type.element_type != null {
                 // 原生内存里的定长数组字段：pointee 槽放元素 kind，count 槽放元素个数。
                 // 个数按「字段字节数 / 元素字节数」算，避免 `[T: CONST]` 的 array_size
                 // 在类型里没解析出来（那时是 0）。
