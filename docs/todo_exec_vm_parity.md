@@ -2568,3 +2568,39 @@ samples），改用 `valgrind --tool=callgrind`（纯插桩、结果稳定）+ `
 **结果**：`test_std_sql` 从「运行时崩溃」变成**正常跑完**，剩 2 个断言差异
 （`last_insert_id` 期望 101 实得 0，C99 侧通过；是 `DB`→`Driver` 双层接口
 转发里结构体返回值丢失，另案）。`make check` 1191/1191 全绿。
+
+### 第 353 轮：`&interface_field` 的 `*ref = v` 写回原位（test_std_sql 转绿）
+
+接第 352 轮，`test_std_sql` 从「正常跑完」进一步暴露 2 个断言差异：
+`last_insert_id` 期望 101 实得 0（C99 侧通过）。
+
+**根因**：`exec_vm_index_ref` 里「引用指向值本体时下标 0 就是该值」这个分支
+只认 `TYPE_STRUCT` / `TYPE_TUPLE`：
+
+```
+if is_index_base == 0 && index_value == 0 && target_aggregate != null &&
+    (ref_kind == TYPE_STRUCT || ref_kind == TYPE_TUPLE) {
+    return target;
+}
+```
+
+但**接口在 VM 里同样是以聚合形式承载**（方法入口表 + 数据）。
+`&h.sh`（`sh: Shape`）产生的 `ref_kind` 是 `15 (TYPE_INTERFACE)`，落不到
+这个分支，于是 `out[0] = impl` 写进了一个临时地址 —— 调用方完全看不到。
+
+实测链路：`db_open` 里 `drv.open(dsn, len, &db.conn)` 本该把 `db.conn` 换成
+真正的实现，写入丢失后它仍是 `ClosedConn{}`，后续 `db.exec(...)` 全部走
+`ClosedConn.exec` 返回 `Result{ last_insert_id: 0 }`。
+
+**修法**：分支条件补 `TYPE_INTERFACE` 与 `TYPE_UNION`。
+
+最小复现（`&h.sh` 经 `out: &Shape` 写入）从 `after=0` 变成 `after=25`；
+**`test_std_sql` 全部通过**（VM 1/1），`make check` 1191/1191 全绿。
+
+**本节顺带确认的两个仍然存在的缺口**（诊断到位置，未修）：
+
+- `test_typed_pipeline_capability`：`lib/std/process.uya:3660` 报
+  `LOAD_FIELD 字段越界(idx=2 kind=0 count=-1 pointee=-1)` —— 前一条
+  `LOAD_INDEX imm=24`（元素步长 24）产出的元素 kind 是 0（void），
+  字段表整块缺失。与 `test_tls_handshake` 的 `ADDR_FIELD` pointee kind=83
+  同属「类型结构没建出来」。
