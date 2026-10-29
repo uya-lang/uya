@@ -2791,3 +2791,33 @@ AST 里，成员访问的基类型丢失了原始 cast 目标** —— `Future` 
 `test_async_fd` 报 `@await 操作数不是 Future 或始终 Pending`（后者是测试
 **故意** await 一个永远 Pending 的 future，而 VM 是同步执行到完成，无法表示
 Pending —— 属设计差异）。
+
+### 第 359 轮：原生结构体字段写入的尝试与回退（教训记录）
+
+**动机**：`lib/std/async_frame.uya:511` 的
+`const header: &AsyncFrameAllocHeader = raw_ptr as &AsyncFrameAllocHeader;`
+之后的 `header.storage_kind = ...` 在 VM 里写不进去（最小复现：
+`struct Hdr { a: i16, b: i16, c: u32 }` + `raw as &Hdr`，写完全读到 0）。
+
+字节码里的 native 偏移（`c=0/2/4`）和字段 kind 都是对的，问题在
+`exec_vm_field_native_base` 返回 0：它用宽松的
+`exec_vm_address_is_vm_resident`，把「落在竞技场里」一律当成 VM 常驻，
+而 `[byte: N]` 的数据区也住在那儿，于是原生缓冲被误判成 VM 值。
+
+**改成严格版 `exec_vm_address_is_exec_value_storage` 后**：
+
+- 好的一面：最小复现通了，`test_async_frame_align_pool`（4 测试 / 4235 断言）
+  和 `test_async_frame_pool_dynamic_growth` 双双转绿 —— 这是 `@frame` 一族里
+  第一个真正修掉的缺口。
+- 坏的一面：census **从 836 掉到 824**，`test_fmt_*` 十来个用例集体失败
+  （`LOAD_FIELD 字段越界(idx=0 kind=0 count=-1)`）。原因是那张
+  **聚合元素登记表有上限**，fmt 一类大量分配数组的用例把表涨满，之后正常的
+  `file.decls[i].xxx` 也判 false 而被打坏。
+- 也试过「宽松判据 + 探针确认目标是有效聚合值」的组合版：`t_hdr` 仍通，
+  但 fmt 依旧失败（那条路径拿到的地址其实在 mmap 大块上、`isstorage=0`，
+  说明失败点不在这个判定上）。
+
+**结论：已 revert（`f9949953`）**。`make check` 1191/1191、census 836/909
+都回到改动前的状态。要真正修好这条，得先解决「聚合元素登记表会涨满」这个
+前置问题（改成可增长的表，或换成更精确的区间判据），否则任何依赖它的严格
+判定都会在大用例上翻车。
