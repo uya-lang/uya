@@ -3472,6 +3472,14 @@ fn exec_vm_syscall_shield_vm_addresses(frame: &ExecFrame, arg_base: i32, arg_cou
     }
     var si: i32 = 0;
     while si < arg_count && si < 6 {
+        // `out_mask` 标记过的出参交给 `exec_vm_syscall_marshal_out_struct` 处理：
+        // 它需要拿到**原始**地址去 `exec_vm_realign_to_slot` 定位 VM 槽位，
+        // 这里先换成 scratch 会让它认不出来、于是出参永远回填不了
+        // （`sys_gettimeofday(&tv, ...)` 的 `tv.tv_sec` 一直是 0）。
+        if (out_mask & (1 << si)) != 0 {
+            si = si + 1;
+            continue;
+        }
         const addr: usize = args[si] as usize;
         if addr == 0 as usize {
             si = si + 1;
@@ -3482,7 +3490,6 @@ fn exec_vm_syscall_shield_vm_addresses(frame: &ExecFrame, arg_base: i32, arg_cou
             si = si + 1;
             continue;
         }
-        const is_out: i32 = if (out_mask & (1 << si)) != 0 { 1 } else { 0 };
         var shield_bytes: usize = 256 as usize;
         var field_count2: i32 = 0;
         const field_probe: &ExecAggregate = slot.ptr_value as &ExecAggregate;
@@ -3499,7 +3506,7 @@ fn exec_vm_syscall_shield_vm_addresses(frame: &ExecFrame, arg_base: i32, arg_cou
             continue;
         }
         _ = memset(scratch2 as *void, 0, shield_bytes);
-        if is_out == 0 && field_probe != null && field_probe.values != null {
+        if field_probe != null && field_probe.values != null {
             var fi: i32 = 0;
             while fi < field_count2 && fi < 64 {
                 scratch2[fi] = exec_vm_numeric_to_i64(field_probe.values[fi]);
