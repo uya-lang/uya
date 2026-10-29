@@ -2873,3 +2873,48 @@ VM 值还是裸地址、`Decl` 是不是 union（`fn_decl` 的 native 布局怎�
 - `make check` 1191/1191 全绿
 - census 836/909（92.0%），73 个失败
 - 与第 362 轮相比**新增失败 0**，第 360 轮的登记表动态化是纯前置改进
+
+### 第 362 轮：定位并修复 `%lld` 大整数被截断为 i32 的根因
+
+第 361 轮把 fmt 链路的疑问留在 `decls` 的数据区上。本轮从另一条更基本的
+线索切进去：VM 下 `printf("%lld", 481036337152)` 输出 `0`，而 `%d`
+正常、值本身也正确（`low=0 hi=112`、`cmp-ok`）。
+
+用不可常量折叠的运行期值（循环累加出 `base`，再 `base << 32`）复现后，
+逐层排除字节码、槽位、`ExecValue` 类型与 `exec_format_render` 的 spec
+构造，最终定位到 `lib/libc/stdio.uya` 的 `_vfprintf_impl`：
+
+```uya
+if length == 4 || length == 5 || length == 7 {   // %lld / %jd / %td
+    const lld: i64 = @va_arg(ap, i64);
+    if lld < 0 { ... 负值路径正常 ... }
+    else { _fmt_i32_to_buf_full(&temp_ctx, lld as i32, flags, precision); }  // 截断
+}
+```
+
+非负的 64 位实参被 `as i32` 截断后再格式化；481036337152 的低 32 位
+正好是 0，于是输出 `0`。`%ld`（`length == 3`）分支以及后面重复的
+`%ld` 分支同样如此。
+
+修复：
+
+- 新增 `_fmt_i64_to_buf_full`：按 `u64` 幅值生成数字，保留 `+`/空格
+  flags 与 precision 语义；
+- `%lld/%jd/%td`、`%ld` 的非负分支改用该函数，负值路径不变；
+- 合并后面重复的 `%ld` 分支，消除同类截断。
+
+这条路径是 exec VM 的格式化出口：`exec_format_snprintf_typed` 最终
+调用 libc `snprintf`（即 Uya 实现的 `vsnprintf` → `_vfprintf_impl`），
+因此 VM 侧所有大整数打印一并恢复；C99 后端的 `fprintf`/`snprintf`
+同样受益。
+
+验证（只跑相关测试）：
+
+- `tests/test_exec_vm_stdio_no_varargs.uya`、`test_fmt_api*.uya` 共 5 个：
+  `--vm` 与 C99 均为 `失败: 0`
+- 复现用例：VM `%lld` 由 `0` 变为 `481036337152`，与 C99 一致
+
+**当前状态**（本轮结束时）：
+
+- 相关测试全绿（见上）
+- census 需重新测量：本轮修复预计改善一批依赖大整数打印的断言
