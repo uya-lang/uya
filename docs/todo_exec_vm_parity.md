@@ -3163,3 +3163,8 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
   但还没整例通过，所以计数不变）。
 - `make exec-parity` 首跑因 **`/tmp` 被其它任务写满**（32G tmpfs，ENOSPC）
   在 415/914 例处中断，已改用 `TMPDIR` 指向大盘重跑；该次中断的日志不作数。
+- `make exec-parity`（`TMPDIR` 指到大盘后重跑）：**914 例 / 一致 838 / 不一致 76 /
+  stdout 差分 0**。与第 369 轮的 839/75 相比是两例抖动互换：
+  `test_async_nested_http1_await_codegen` 变不一致、
+  `test_async_thread_pool_dynamic_growth` 变一致，两者都依赖网络/时序，
+  单独复跑都不稳定，不构成本轮回归。
