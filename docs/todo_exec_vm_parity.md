@@ -2993,8 +2993,11 @@ if length == 4 || length == 5 || length == 7 {   // %lld / %jd / %td
 
 - `uya test --vm` 全量普查（`UYA_EXEC_CENSUS_MEM_MB=0 UYA_EXEC_CENSUS_JOBS=12
   UYA_EXEC_CENSUS_TIMEOUT=240`）：**837/909（92.1%）**，失败 **72**（上一轮 73）。
-  逐例比对：新增回归 0，新修复 1 —— `test_async_nested_http1_await_codegen`
-  （原先停在 `libc_errno` 的 lowering 错误，现在整条跑完并转绿）。
+  逐例比对：新增回归 0；普查里 `test_async_nested_http1_await_codegen` 的
+  结果由失败变成 rc=0，但这是**抖动**：直接复跑三次（带与不带
+  `--no-strict-overflow` 各跑过）都稳定停在
+  `@await 操作数不是 Future 或始终 Pending`。所以 `libc_errno` 修复只是把
+  该例的失败点从 lowering 前移到运行时，**没有真正转绿**，本轮净变化为零。
 - `test_http1_async_client` 仍不通过，但失败点从 lowering 前移到
   `@await 操作数不是 Future 或始终 Pending`（下一节的模型级缺口）。
 - 顺带记录一条本轮新发现、尚未修的问题：`uya --dump-bytecode <file>` 走普通
