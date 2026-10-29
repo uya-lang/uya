@@ -2533,3 +2533,38 @@ samples），改用 `valgrind --tool=callgrind`（纯插桩、结果稳定）+ `
   想再明显提速要动并行编译的进程模型，风险高、本轮未做。
 - 纯计算型的 VM 用例（如 `test_tls_x25519_pure` 607s）几乎不受影响 —— 它们的
   时间全花在 VM 解释执行本身，不是编译阶段。
+
+### 第 352 轮：槽位池改为动态增长，修掉帧重叠
+
+**发现过程**：`test_std_sql` 报 `VM frame slot 超限`。诊断显示
+`top=8186 need=10`，报错点落在一个只占 10 个槽的 `sql_bytes_view_from_ptr`
+上 —— 明显不是那个函数自己的问题。
+
+扩大池容量后暴露真正的 bug：`LOAD_SLICE_PTR 目标不是 slice`。继续诊断，
+发现**同一个 `fake_column` 帧**里，参数刚拷进去时 `kind=18`（切片），
+一次内层调用回来再读就变成 `kind=1`（整数）；而且该帧的 `frame.slots`
+地址与 `g_exec_vm_slot_top` 对不上（`slots` 指向 `pool[31]`，`top` 却是 8244）。
+
+**根因**：`EXEC_MAX_FRAME_SLOTS`（8192，单函数的槽位上限）被当成**池**容量
+抄到了四个地方，凡是 `base >= 8192` 的调用帧处理全错：
+
+| 位置 | 错误后果 |
+|---|---|
+| `exec_vm_slot_pool_base` | 返回 null，`run_frame` 退回 `&pool[0]`，整帧与别的帧**重叠** |
+| `exec_vm_slot_pool_pop` | pop 静默失效，`top` 只增不减 |
+| `exec_vm_realign_to_slot` | 池地址区间算小一半，落在高位的槽认不出来 |
+| `exec_vm_address_is_vm_resident` / `exec_value_address_is_exec_value_storage` | 同上 |
+
+**修法**：池改成动态增长。
+
+- `g_exec_vm_slot_pool` 变成 `&ExecValue` + `g_exec_vm_slot_pool_capacity`，
+  `exec_vm_slot_pool_reserve` 按需翻倍（初始 8192，上限 `1 << 24`）。
+- 扩容**只在 `top == 0`**（没有活跃帧）时进行：`ExecFrame.slots` 是指向池内的
+  裸指针，搬移会让栈上所有 frame 悬挂。调用结束 `top` 归零，下次进入前再扩。
+- 新增 `exec_vm_slot_pool_range` 统一算区间，四处判界全部改用它。
+- `exec_vm_run_frame` 拿不到自己槽段时**直接报错**，不再退回 `pool[0]` ——
+  那个回退正是帧重叠的直接原因。
+
+**结果**：`test_std_sql` 从「运行时崩溃」变成**正常跑完**，剩 2 个断言差异
+（`last_insert_id` 期望 101 实得 0，C99 侧通过；是 `DB`→`Driver` 双层接口
+转发里结构体返回值丢失，另案）。`make check` 1191/1191 全绿。
