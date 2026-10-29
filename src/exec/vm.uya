@@ -3368,6 +3368,104 @@ fn exec_vm_wrap_syscall_result(result: !i64, target_kind: i32, target_pointee_ki
     return exec_make_error_union_ok(cast_value);
 }
 
+/// 执行一次 `sscanf`，把解析到的整数写回调用方给的 VM 槽位。
+///
+/// 只实现 `%d` / `%i` / `%u`（可带宽度、可带 `*` 抑制），覆盖现有用例。
+/// 遇到不认识的转换符就停止解析并返回已成功的个数 —— 与 C 的行为一致。
+///
+/// 参数：`frame` 当前帧；`arg_base` 参数槽起点；`arg_count` 参数个数；
+///       `src` 输入字符串；`fmt` 格式串。
+/// 返回值：成功赋值的项数；参数异常返回 -1。
+fn exec_vm_do_sscanf(frame: &ExecFrame, arg_base: i32, arg_count: i32,
+    src: &const byte, fmt: &const byte) i32 {
+    if src == null || fmt == null {
+        return -1;
+    }
+    var si: usize = 0;
+    var fi: usize = 0;
+    var assigned: i32 = 0;
+    var out_idx: i32 = 2;
+    while fmt[fi] != 0 as byte {
+        const fc: byte = fmt[fi];
+        if fc == 32 as byte || fc == 9 as byte || fc == 10 as byte {
+            // 格式串里的空白匹配任意空白（含零个）。
+            while src[si] == 32 as byte || src[si] == 9 as byte || src[si] == 10 as byte {
+                si = si + 1;
+            }
+            fi = fi + 1;
+            continue;
+        }
+        if fc != 37 as byte {
+            // 普通字符必须逐字匹配。
+            if src[si] != fc {
+                return assigned;
+            }
+            si = si + 1;
+            fi = fi + 1;
+            continue;
+        }
+        fi = fi + 1;
+        var suppress: i32 = 0;
+        if fmt[fi] == 42 as byte {
+            suppress = 1;
+            fi = fi + 1;
+        }
+        // 跳过宽度数字（本实现按「不限制宽度」处理）。
+        while fmt[fi] >= 48 as byte && fmt[fi] <= 57 as byte {
+            fi = fi + 1;
+        }
+        const conv: byte = fmt[fi];
+        if conv != 100 as byte && conv != 105 as byte && conv != 117 as byte {
+            return assigned;
+        }
+        fi = fi + 1;
+        while src[si] == 32 as byte || src[si] == 9 as byte || src[si] == 10 as byte {
+            si = si + 1;
+        }
+        var neg: i32 = 0;
+        if src[si] == 45 as byte {
+            neg = 1;
+            si = si + 1;
+        } else if src[si] == 43 as byte {
+            si = si + 1;
+        }
+        var any: i32 = 0;
+        var acc: i64 = 0;
+        while src[si] >= 48 as byte && src[si] <= 57 as byte {
+            acc = acc *| 10 +| ((src[si] as i64) -| 48);
+            any = 1;
+            si = si + 1;
+        }
+        if any == 0 {
+            return assigned;
+        }
+        if neg != 0 {
+            acc = 0 - acc;
+        }
+        if suppress == 0 {
+            if out_idx >= arg_count {
+                return assigned;
+            }
+            const ptr_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base +| out_idx);
+            if ptr_slot == null {
+                return -1;
+            }
+            const target: &ExecValue = exec_vm_ref_target_value(ptr_slot);
+            if target == null {
+                return -1;
+            }
+            target[0] = exec_make_i64(acc);
+            if target[0].kind != ExecValueKind.EXEC_VALUE_I64 {
+                // 调用方可能声明成 i32：按目标原来的宽度收敛，保持 kind 不变。
+                target[0].i64_value = acc;
+            }
+            out_idx = out_idx +| 1;
+            assigned = assigned + 1;
+        }
+    }
+    return assigned;
+}
+
 fn exec_vm_host_syscall0(target_kind: i32, target_pointee_kind: i32, nr: i64) ExecValue {
     return exec_vm_wrap_syscall_result(@syscall(nr), target_kind, target_pointee_kind);
 }
@@ -5078,6 +5176,30 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
             return -1;
         }
         out_value[0] = exec_make_i32(written);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_SSCANF_FIXED {
+        // `sscanf(str, fmt, &a, &b, ...)`：变参无法直接转发给宿主（要构造
+        // C 的 va_list），这里按格式串逐个解析，把结果写回调用方给的 VM 槽位。
+        // 目前覆盖 `%d` / `%i` / `%u`（含可选宽度与 `*` 抑制），够 tests 里的
+        // 全部用法；遇到别的转换符就按「不匹配」处理，与 C 的返回值语义一致。
+        if arg_count < 2 {
+            exec_backend_set_error(function.decl, "exec: sscanf 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const ss_arg0: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const ss_arg1: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        if ss_arg0 == null || ss_arg1 == null {
+            exec_backend_set_error(function.decl, "exec: sscanf 参数槽位非法" as *byte, 0);
+            return -1;
+        }
+        const ss_count: i32 = exec_vm_do_sscanf(frame, arg_base, arg_count,
+            ss_arg0.ptr_value as &const byte, ss_arg1.ptr_value as &const byte);
+        if ss_count < 0 {
+            exec_backend_set_error(function.decl, "exec: sscanf 解析失败" as *byte, 0);
+            return -1;
+        }
+        out_value[0] = exec_make_i32(ss_count);
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_SPRINTF_FIXED {

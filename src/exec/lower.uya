@@ -731,6 +731,27 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
     if fn_name == null {
         return ExecHostCallId.EXEC_HOST_CALL_NONE;
     }
+    // 格式化 I/O 族（printf / fprintf / sprintf / snprintf / sscanf）必须放在
+    // 下面 `is_varargs == 0` 块**之前**：那个块以自己的 `return
+    // EXEC_HOST_CALL_NONE` 收尾，而查名字的入口
+    // （`exec_lower_match_host_call_name`）传的就是 `is_varargs = 0`，把这些分支
+    // 放在块后面永远不可达 —— 实测 `sscanf` / `sprintf` 因此一直匹配不到宿主实现，
+    // 落到 Uya 实现体的 `@va_start` 路径上报「无法解析被调用函数」。
+    if str_equals(fn_name, "fprintf" as &byte) != 0 && call_arg_count >= 2 {
+        return ExecHostCallId.EXEC_HOST_CALL_FPRINTF_FIXED;
+    }
+    if str_equals(fn_name, "printf" as &byte) != 0 && call_arg_count >= 1 {
+        return ExecHostCallId.EXEC_HOST_CALL_PRINTF_FIXED;
+    }
+    if str_equals(fn_name, "sprintf" as &byte) != 0 && call_arg_count >= 2 {
+        return ExecHostCallId.EXEC_HOST_CALL_SPRINTF_FIXED;
+    }
+    if str_equals(fn_name, "snprintf" as &byte) != 0 && call_arg_count >= 3 {
+        return ExecHostCallId.EXEC_HOST_CALL_SNPRINTF_FIXED;
+    }
+    if str_equals(fn_name, "sscanf" as &byte) != 0 && call_arg_count >= 2 {
+        return ExecHostCallId.EXEC_HOST_CALL_SSCANF_FIXED;
+    }
     if is_varargs == 0 {
         // 内存 / 字符串族：protobuf、tflm、process 等模块只声明不带体的
         // `extern "libc"`，VM 必须自己按原生指针实现，否则这些模块整体不可用。
@@ -1030,18 +1051,6 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
         }
         return ExecHostCallId.EXEC_HOST_CALL_NONE;
     }
-    if str_equals(fn_name, "fprintf" as &byte) != 0 && call_arg_count >= 2 {
-        return ExecHostCallId.EXEC_HOST_CALL_FPRINTF_FIXED;
-    }
-    if str_equals(fn_name, "printf" as &byte) != 0 && call_arg_count >= 1 {
-        return ExecHostCallId.EXEC_HOST_CALL_PRINTF_FIXED;
-    }
-    if str_equals(fn_name, "sprintf" as &byte) != 0 && call_arg_count >= 2 {
-        return ExecHostCallId.EXEC_HOST_CALL_SPRINTF_FIXED;
-    }
-    if str_equals(fn_name, "snprintf" as &byte) != 0 && call_arg_count >= 3 {
-        return ExecHostCallId.EXEC_HOST_CALL_SNPRINTF_FIXED;
-    }
     return ExecHostCallId.EXEC_HOST_CALL_NONE;
 }
 
@@ -1050,6 +1059,12 @@ fn exec_lower_extern_prefers_host_call(fn_decl: &ASTNode) i32 {
         return 0;
     }
     const name: &byte = fn_decl.fn_decl_name;
+    // `sscanf` 的 Uya 实现体走 `@va_start` 变参路径，解释器里那条路最后要落到
+    // 一个不存在的变参宿主符号上（实测「无法解析被调用函数」）。它已经有
+    // 专门的宿主实现（`EXEC_HOST_CALL_SSCANF_FIXED`），这里让它优先走宿主。
+    if str_equals(name, "sscanf" as *byte) != 0 {
+        return 1;
+    }
     // 这些入口在 VM 里有宿主实现，Uya 实现体（线程/信号/内存系统调用）在解释器里
     // 既跑不通也没有等价语义，优先走宿主实现。
     if str_equals(name, "pthread_create" as *byte) != 0 ||
