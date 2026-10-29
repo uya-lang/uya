@@ -3590,24 +3590,6 @@ fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type:
             make_err_expr.int_value = actual_error_type.error_error_id as i64;
             return make_err_expr;
         }
-        // `!T` 位置给的是裸 `T`（`const r: !i32 = 普通值`、`return v`、传参）：
-        // 这里显式补 ok 包装。以前只处理了 `error.X` 那一半，裸值会原样落到
-        // 运行时，后面的 `LOAD_ERROR_TAG` / `catch` 就会报「目标不是错误联合」。
-        if actual_error_type.kind != TypeKind.TYPE_ERROR_UNION &&
-            actual_error_type.kind != TypeKind.TYPE_ERROR &&
-            actual_error_type.kind != TypeKind.TYPE_VOID &&
-            expected_type.error_union_payload_type != null {
-            const ok_payload_expr: &HIRExpr = exec_lower_coerce_expr(ctx, expr, &expected_type.error_union_payload_type[0]);
-            if ok_payload_expr == null {
-                return null;
-            }
-            const make_ok_coerce_expr: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_MAKE_OK, expected_type);
-            if make_ok_coerce_expr == null {
-                return null;
-            }
-            make_ok_coerce_expr.left = ok_payload_expr;
-            return make_ok_coerce_expr;
-        }
     }
     if expected_type != null && expected_type.kind == TypeKind.TYPE_SLICE &&
         expr.type == ASTNodeType.AST_STRING && expected_type.slice_element_type != null {

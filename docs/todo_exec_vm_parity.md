@@ -3075,12 +3075,15 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
 **漏了「返回裸 `error.X` → 补错误分支」**。同时 `exec_lower_coerce_expr` 的
 错误联合分支也只有 `MAKE_ERR` 一半、没有裸值 → `MAKE_OK` 的一半。
 
-修复两处：
+修复一处：`exec_lower_wrap_async_return` 里载荷类型是 `!T` 而返回表达式是
+裸 `error.X` 时，包一层 `HIR_EXPR_MAKE_ERR`（错误 id 取自错误类型）。
 
-1. `exec_lower_wrap_async_return`：载荷类型是 `!T` 而返回表达式是裸
-   `error.X` 时，包一层 `HIR_EXPR_MAKE_ERR`（错误 id 取自错误类型）；
-2. `exec_lower_coerce_expr`：目标类型是 `!T` 而实际类型既不是错误联合也不是
-   裸 error 时，补 `HIR_EXPR_MAKE_OK`（覆盖 `const x: !T = 普通值`、传参等）。
+同时验证过一个更宽的修法并**主动撤回**：在 `exec_lower_coerce_expr` 里对
+「目标 `!T` + 裸 `T`」统一补 `MAKE_OK`。它确实让本例通过，但 `@async_fn`
+声明返回 `!Future<T>` 时同一个值会被二次包装，导致 `test_async_return_value`、
+`test_async_nested`、`test_async_nested_future_poll` 三例回归
+（`LOAD_FIELD 字段越界(idx=0 kind=22 …)`）。撤回后四例全绿，说明这个
+「隐式 ok 包装」不能放在通用 coercion 里，只能在真正的 `!T` 值位置补。
 
 另外顺手修了 `--dump-bytecode` 把 `BC_AWAIT` 显示成 `BC_UNKNOWN(77)` 的问题
 （`src/exec/debug.uya` 的名字表缺这一项）。
