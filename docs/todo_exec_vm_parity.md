@@ -2845,3 +2845,31 @@ Pending —— 属设计差异）。
 说明那条链上还有别的东西在依赖宽松判定 —— 登记表涨满只是**原因之一**，
 不是全部。要继续这条线，得先把 `FmtFile.decls`（`&Decl`）的数据区究竟
 落在哪里、有没有被 `exec_value_register_array` 登记过查清楚。
+
+### 第 361 轮：fmt 链路的进一步定位（`decls` 本来就是原生数组）
+
+接着第 360 轮的待办，把 `FmtFile.decls` 的数据区查清了：
+
+```
+// lib/std/fmt/parser.uya:314
+var decls: &Decl = arena_alloc(arena, @size_of(Decl) as usize * (tokens.len + 1)) as &Decl;
+...
+file.decls = decls;
+```
+
+`decls` 是 **`arena_alloc` 出来的原生内存**，按 `@size_of(Decl) * count` 字节
+分配、然后 `as &Decl`。也就是说 `file.decls[i]` 是**原生结构体数组元素**，
+不是 ExecValue 数组 —— 所以 `exec_value_address_is_exec_value_storage` 对它
+返回 false 是**正确的**，它本来就该走「按原生偏移读」那条路。
+
+这条信息改变了第 359 轮的判断：`test_fmt_api` 在换成严格判定后失败，
+**不是**因为「登记表涨满把正常 VM 数组判坏了」（那个已经由第 360 轮修掉），
+而是 fmt 这条链上另有一段逻辑依赖宽松判定 —— `file`（`&FmtFile`）本身是
+VM 值还是裸地址、`Decl` 是不是 union（`fn_decl` 的 native 布局怎么算），
+这两点还没查完。
+
+**当前状态**（本轮结束时）：
+
+- `make check` 1191/1191 全绿
+- census 836/909（92.0%），73 个失败
+- 与第 362 轮相比**新增失败 0**，第 360 轮的登记表动态化是纯前置改进
