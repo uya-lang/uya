@@ -2821,3 +2821,27 @@ Pending —— 属设计差异）。
 都回到改动前的状态。要真正修好这条，得先解决「聚合元素登记表会涨满」这个
 前置问题（改成可增长的表，或换成更精确的区间判据），否则任何依赖它的严格
 判定都会在大用例上翻车。
+
+### 第 360 轮：聚合元素登记表动态化（前置改进，无回归）
+
+第 359 轮回退时指出「严格判定依赖的聚合元素登记表会涨满」，本轮把它修掉：
+
+`exec_value_register_array` 原来用的是一张固定 `65536` 条的静态表
+（`g_exec_value_array_bases` / `g_exec_value_array_spans`）。大用例
+（`test_fmt_*` 一类大量分配临时数组的）会把它涨满，之后新数组不再登记，
+`exec_value_address_is_array_element` 对它们全部返回 false —— 任何依赖
+「这个地址是不是 VM 聚合元素」的严格判定都会在大用例上失灵。
+
+改成和槽位池同样的模式：`&usize` + `g_exec_value_array_capacity`，
+`exec_value_array_registry_reserve` 按需翻倍（初始 1024，上限 `1 << 22`
+只作失控保护），扩容时把已有条目搬过去；二分查找的上界改读 capacity。
+
+**验证**：`make check` 1191/1191 全绿；census 836/909（与第 362 轮一致，
+**新增失败 0**）。
+
+**仍未解决**：把 `exec_vm_field_native_base` 换成严格判定后，
+`test_fmt_api` 依然报 `LOAD_FIELD 字段越界(idx=0 kind=0 count=-1)`（
+`lib/std/fmt/simplify.uya:26` 的 `file.decls[i].fn_decl.body`）。
+说明那条链上还有别的东西在依赖宽松判定 —— 登记表涨满只是**原因之一**，
+不是全部。要继续这条线，得先把 `FmtFile.decls`（`&Decl`）的数据区究竟
+落在哪里、有没有被 `exec_value_register_array` 登记过查清楚。
