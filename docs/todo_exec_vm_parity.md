@@ -5670,3 +5670,23 @@ parent: [r1 state=1 kind=0 phase=0 code=0]
 - 定向回归：`test_typed_pipeline_module_qualified_positive` / `cmd_argv` / `lowering` /
   `result_types` / `type_identity` 在 VM 下全部通过。
 - `test_std_script_pipeline_facade` 在 VM 仍是失败，下一堵墙是上面的启动记录读写。
+
+### 407 后续：启动记录改成「读原生字节再解字段」，facade 用例转绿
+
+上一节末尾的两侧嫌疑，实测结论是**父进程读侧**：`pipeline_read_startup_record`
+先读到 `[byte: 32]` 缓冲、再逐字段写回 `record`，VM 里立刻能拿到 `kind = 1`。
+
+改动前：`read(fd, &report as &byte, 24)` 直接把 VM 聚合当宿主缓冲 →
+`read` 返回 24 字节但 `report` 三个字段仍是 0（`state=1 / kind=0`）。
+改用原生字节缓冲后：
+
+- `test_std_script_pipeline_facade`：VM `通过: 1 / 失败: 0`（2 个用例全过），C99 无变化；
+- `test_typed_pipeline_caller_buffers`：VM 通过；
+- `test_osal` / `test_runtime_environment`：VM 无回归。
+
+`test_typed_pipeline_executor_single` 因此往前推进了，现在卡在 capture 侧：
+`pipeline_stderr_to_stdout_merge_uses_stdout_policy` 断言
+`result.stdout.byte_count == 6`，实到 0。下一个可疑点还是同一类：
+capture 的 `sys_read` 目标缓冲是不是「裸槽池地址 → 宿主缓冲」的换出/回填漏了。
+（`sys_read` 读进 `[byte: 8]` 局部数组在 VM 里是好的，所以更可能是
+capture 拿到的 `stdout_buf.ptr` 来自切片、指向别处。）
