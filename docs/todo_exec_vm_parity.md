@@ -4547,3 +4547,43 @@ Waker**：`_io_slot_fds` / `_io_slot_interests` / `_io_slot_count` 得有真实�
 跑法沿用第 398 轮的纪律：parity `UYA_PARITY_JOBS=4`、普查
 `UYA_EXEC_CENSUS_JOBS=3 UYA_EXEC_CENSUS_MEM_MB=0`（**不要**设小内存上限，
 那会造出 16 例假失败）。
+
+### 第 402 轮：`test_typed_pipeline_lowering_error` 根因定位
+
+这一例 4 个子测试过 2 个、挂 2 个：
+
+```
+TEST: pipeline_error_path_cleans_input      ... pipeline_drop_count() == 1 (actual 0)
+TEST: pipeline_sink_failure_consumes_input  ... pipeline_drop_count() == 1 (actual 0)
+TEST: pipeline_success_path_does_not_clean  ... OK
+TEST: pipeline_unconsumed_scope_auto_drop   ... OK
+```
+
+「作用域退出自动 drop」是好的（第 4 个子测试过），坏的是**错误路径**上的 drop。
+对比两个后端，根因很干脆：
+
+- **C99 侧**：`src/codegen/c99/expr.uya:795` 的
+  `gen_pipeline_emit_input_cleanup` 专门在 transformer 返回 `!Pipeline` 失败时
+  发出 `std.process.pipeline_drop(<输入>)`。
+- **VM 侧**：`src/exec/lower.uya:7804` 的 `exec_lower_desugar_pipeline` 只把
+  `a |> f(b)` 改写成 `f(a, b)`，**没有**任何错误路径的清理合成。
+
+所以这不是「drop 语义整体缺失」，而是**一处具体的降级缺口**：pipeline 的
+错误路径清理是 C99 codegen 里的手工合成，VM 的 desugar 没有对应物。
+
+#### 为什么这轮没有直接修
+
+要修得在 desugar 里造出带语句的 AST：
+
+```
+tmp = <stage 调用>
+if <tmp 是错误> { pipeline_drop(<输入>); return <tmp>; }
+```
+
+`exec_lower_desugar_pipeline` 是**纯表达式改写**（只重排 `AST_CALL_EXPR` 的参数），
+要引入临时变量和条件返回，就得改成语句级合成，并保证输入表达式只求值一次
+（否则 `pipeline() |> f()` 会被求值两次）。这是一次有明确边界的改造，但会碰到
+pipeline 的所有用例，风险不小，不在这一轮顺手做。
+
+顺带纠正一处早先的分类：T11 里把这类记成「`cleanup scope` 嵌套过深」，不准确 ——
+至少这 2 个子测试是 **pipeline 错误路径清理未合成**，与作用域嵌套无关。
