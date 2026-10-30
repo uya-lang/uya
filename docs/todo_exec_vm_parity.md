@@ -2079,6 +2079,31 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
 `test_std_async_event(_fd_reuse)`、`test_protobuf_wire`、`test_protobuf_dynamic`、
 `test_std_mem`、`test_math`、`test_struct_default`、`test_array_pointer_access` 全绿。
 
+### 剩余缺口的三堵墙（截至第 399 轮）
+
+49 个普查失败、52 个 parity 落后用例，根因全部收敛到三处；每一处都已在正文里
+用实测证据钉死，不属于「再来几轮就能收口」：
+
+1. **async 帧 / `@await` 的 poll 函数**（约 40 例，最大一簇）
+   `Future<T>` 是 interface，调用侧要对返回值做接口装箱，装箱需要知道 poll 方法的
+   函数号；而 poll 是 **C99 侧 `c99_async_frame_helper_name` 合成的 `<fn>_poll`**，
+   VM 的 builder 不生成它。`@frame` 的 `start`/`poll`/`stop` 在
+   `src/exec/lower.uya:8845` 被整体降级成 void 空操作。
+   证否记录：第 393 轮（帧布局取证）、第 399 轮（Pending 传播方案证否）。
+
+2. **drop / cleanup 语义**（约 8 例 + 悬垂引用 2 例）
+   `pipeline_drop_count()` 在错误路径上应为 1 实际为 0（`test_typed_pipeline_*`）；
+   `async_box_free_current` 从 box 头读出的 allocator 地址是 `-15`，说明释放了
+   不是本分配器给出的指针（第 396 轮）。
+   根因已定位到 `cleanup scope 嵌套过深`，但修复方案三次证否（第 343 轮）。
+
+3. **宿主导回调 / 线程并发**（约 10 例）
+   VM 没有 host→bytecode 的回调蹦床（`grep trampoline src/exec/vm.uya` 为空），
+   所以 `signal()` 注册的 Uya 处理函数不会被调用（`test_signal` 的
+   `signal_handler_count` 恒为 0）；pthread/fork/execve 同理。
+
+另有 5 例是**纯算法太慢**（`test_tls_x25519_pure` 等 >200s），属性能问题不是语义问题。
+
 ### T11 收口
 
 - [ ] `uya test --vm` 全量通过（跳过表只保留 C99 侧同样不适用的用例）
