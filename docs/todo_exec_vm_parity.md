@@ -5690,3 +5690,41 @@ parent: [r1 state=1 kind=0 phase=0 code=0]
 capture 的 `sys_read` 目标缓冲是不是「裸槽池地址 → 宿主缓冲」的换出/回填漏了。
 （`sys_read` 读进 `[byte: 8]` 局部数组在 VM 里是好的，所以更可能是
 capture 拿到的 `stdout_buf.ptr` 来自切片、指向别处。）
+
+### 407 后续之二：`sys_poll` 在 VM 里丢掉 `revents`，capture 全线空转
+
+启动记录修好后，`test_typed_pipeline_executor_single` 从「断言失败」变成「整轮超时」，
+日志停在 `pipeline_capture_drains_output_larger_than_pipe_buffer` 之后。根因在
+`lib/libc/syscall.uya` 的 `sys_poll`：
+
+- `struct pollfd` 是 `{ i32 fd; i16 events; i16 revents; }` 的**紧凑原生布局**（8 字节/条目）；
+- exec VM 里每个字段各占一个 56 字节的 ExecValue 槽，内核按原生布局写回的 `revents`
+  落不到任何字段上 —— `poll_fds[i].revents` 读出来恒为 0，drain 循环认为「永远没就绪」，
+  要么空转到超时，要么拿不到任何字节（`byte_count = 0`）。
+
+修法：新增 `sys_poll_linux`，把调用方数组按 8 字节/条目显式编组进一块 `malloc` 出来的
+**原生缓冲**（字节级打包 fd/events），`@syscall(SYS_poll, …)` 之后再把 `revents`
+按小端拼回调用方数组。C99 侧只是多一次内存拷贝，语义不变（C99 整文件仍全过）。
+
+验证：
+
+- 探针 `pipe + write + sys_poll`：VM 与 C99 都返回 0（`revents != 0`）；
+- `test_typed_pipeline_executor_single`（VM）：`pipeline_stderr_to_stdout_merge_uses_stdout_policy`、
+  `pipeline_capture_drains_output_larger_than_pipe_buffer`、
+  `pipeline_capture_limit_uses_one_byte_overflow_probe` 全部 `OK`；
+  只剩 `pipeline_capture_limit_kills_writer_that_ignores_sigpipe` 挂住（见下）；
+- `test_std_script_pipeline_facade` / `test_osal` / `test_runtime_environment` /
+  `test_poll_std_async` / `test_std_async_event` / `test_std_async_waker` /
+  `test_async_fd_substrate_boundary`：VM 全过；
+- `test_std_async_scheduler`（VM=124）在本次改动前就是 124，非回归。
+
+### 下一堵墙：capture 超限后杀不掉「忽略 SIGPIPE」的写者
+
+`pipeline_capture_limit_kills_writer_that_ignores_sigpipe` 在 VM 里挂死。实测现场：
+
+- 父进程 `wchan = do_wait`（卡在 `waitpid` 收尸）；
+- 子进程 `/bin/sh -c 'trap "" PIPE; while :; do printf …'` 仍然 `R` 状态活着。
+
+也就是「超限 → `kill(-pgid, SIGKILL)` → 收尸」这条链里，SIGKILL 没送到子进程，
+父进程随后在正常收尸路径上永远等下去。下一步查 `pipeline_cancel_started_group`
+里的 `pgid` / `pids[]` 在 VM 里是不是记录了错误的值（`kill` 本身在别的用例里是通的）。

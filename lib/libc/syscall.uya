@@ -1810,8 +1810,60 @@ export fn sys_poll(fds: &PollFd, nfds: usize, timeout_ms: i32) !i32 {
     std.cfg(std.target_os == .tos_macos, {
         return uya_macos_poll(fds, nfds, timeout_ms);
     }, {
-        return @syscall(SYS_poll, fds as i64, nfds as i64, timeout_ms as i64) as! i32;
+        return sys_poll_linux(fds, nfds, timeout_ms);
     })
+}
+
+/// Linux 侧 `poll(2)`：先把调用方的 pollfd 数组编组进一块原生缓冲，再交给内核。
+///
+/// `struct pollfd` 是 `{ i32 fd; i16 events; i16 revents; }` 的紧凑原生布局（8 字节），
+/// 而 exec VM 里每个字段各占一个 56 字节的 ExecValue 槽，内核按原生布局写回的
+/// `revents` 落不到任何字段上（读出来恒为 0，capture 的就绪循环因此空转）。
+/// 这里按 8 字节/条目显式打包，调用后再把 revents 抄回调用方数组；C99 侧只是
+/// 多一次内存拷贝，语义不变。
+fn sys_poll_linux(fds: &PollFd, nfds: usize, timeout_ms: i32) !i32 {
+    const entry_bytes: usize = 8usize;
+    if nfds == 0usize || fds == null {
+        return @syscall(SYS_poll, fds as i64, nfds as i64, timeout_ms as i64) as! i32;
+    }
+    const native_raw: &void = malloc(nfds * entry_bytes);
+    if native_raw == null {
+        return @syscall(SYS_poll, fds as i64, nfds as i64, timeout_ms as i64) as! i32;
+    }
+    const native: &byte = native_raw as &byte;
+    var i: usize = 0usize;
+    while i < nfds {
+        const item: &PollFd = @ptr_from_usize(@usize_from_ptr(fds) + i * entry_bytes) as &PollFd;
+        const at: usize = i * entry_bytes;
+        const fd_value: i32 = item.fd;
+        native[at] = (fd_value & 255) as byte;
+        native[at + 1usize] = ((fd_value >> 8) & 255) as byte;
+        native[at + 2usize] = ((fd_value >> 16) & 255) as byte;
+        native[at + 3usize] = ((fd_value >> 24) & 255) as byte;
+        const events_value: i32 = item.events as i32;
+        native[at + 4usize] = (events_value & 255) as byte;
+        native[at + 5usize] = ((events_value >> 8) & 255) as byte;
+        native[at + 6usize] = 0 as byte;
+        native[at + 7usize] = 0 as byte;
+        i = i + 1usize;
+    }
+    const native_addr: i64 = @usize_from_ptr(native_raw) as i64;
+    const raw_rc: !i64 = @syscall(SYS_poll, native_addr, nfds as i64, timeout_ms as i64);
+    const rc_value: i64 = raw_rc catch {
+        free(native_raw);
+        return 0 - 1;
+    };
+    i = 0usize;
+    while i < nfds {
+        const target: &PollFd = @ptr_from_usize(@usize_from_ptr(fds) + i * entry_bytes) as &PollFd;
+        const back_at: usize = i * entry_bytes;
+        const low: i32 = native[back_at + 6usize] as i32;
+        const high: i32 = native[back_at + 7usize] as i32;
+        target.revents = ((high << 8) | low) as i16;
+        i = i + 1usize;
+    }
+    free(native_raw);
+    return rc_value as i32;
 }
 
 /// 创建 kqueue 实例（macOS 内核事件队列）。
