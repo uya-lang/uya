@@ -1907,6 +1907,26 @@ fn exec_vm_address_is_exec_value_storage(addr: usize) bool {
     return exec_value_address_is_boxed(addr);
 }
 
+/// `exec_vm_field_native_base` 的宽松版：只要求「非内部引用指针 + 非零地址」，
+/// 不再排除落在 VM 驻留区里的地址。
+///
+/// async 帧池这类分配器给出的字节块地址**可能**正好落在值 arena 的地址范围
+/// 里，但内容是按原生布局排的（不是 `ExecValue`）。严格版把这类地址当成 VM
+/// 值而拒绝，`STORE_FIELD` / `LOAD_FIELD` 于是报「字段越界」
+/// （`test_async_frame_align_pool` 就是这么挂的）。
+///
+/// 只在「按 VM 值取字段确实失败」之后才退到这里，所以不会把真正的 ExecValue
+/// 聚合误判成原生内存。
+fn exec_vm_field_native_base_relaxed(object: &ExecValue) usize {
+    if object == null || object.kind != ExecValueKind.EXEC_VALUE_POINTER {
+        return 0 as usize;
+    }
+    if exec_vm_pointer_is_internal_ref(object) != 0 {
+        return 0 as usize;
+    }
+    return exec_vm_pointer_address(object);
+}
+
 fn exec_vm_field_native_base(object: &ExecValue) usize {
     var cursor: &ExecValue = object;
     var depth: i32 = 0;
@@ -6196,6 +6216,21 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         if fld_native_done == 0 {
             field_ref = exec_vm_field_ref(slot_b, instr.imm as i32);
         }
+        if fld_native_done == 0 && field_ref == null && fld_native_kind > 0 &&
+            fld_native_base == 0 as usize {
+            const fld_relaxed: usize = exec_vm_field_native_base_relaxed(slot_b);
+            if fld_relaxed != 0 as usize {
+                const fld_pointee1: i32 = exec_vm_field_imm_kind(instr.imm, 40) -| 1;
+                const fld_count1: i32 = exec_vm_field_imm_count(instr.imm);
+                const fld_addr1: usize = fld_relaxed +| (instr.c as usize);
+                const fld_value1: ExecValue = exec_vm_native_field_load(fld_native_kind, fld_pointee1,
+                    fld_count1, fld_addr1);
+                if fld_value1.kind != ExecValueKind.EXEC_VALUE_VOID {
+                    exec_vm_store_slot_shallow(slot_a, fld_value1);
+                    fld_native_done = 1;
+                }
+            }
+        }
         if fld_native_done == 0 && field_ref == null {
             var fld_msg: [byte: 160] = [];
             var fld_count: i32 = -1;
@@ -6232,7 +6267,17 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 return 0;
             }
         }
-        const field_ref2: &ExecValue = exec_vm_field_ref_store(slot_a, instr.imm as i32);
+        var field_ref2: &ExecValue = exec_vm_field_ref_store(slot_a, instr.imm as i32);
+        if field_ref2 == null && stf_native_kind > 0 && stf_native_base == 0 as usize {
+            const stf_relaxed: usize = exec_vm_field_native_base_relaxed(slot_a);
+            if stf_relaxed != 0 as usize {
+                const stf_addr1: usize = stf_relaxed +| (instr.c as usize);
+                if exec_vm_native_field_store(stf_native_kind, stf_addr1, slot_b[0]) != 0 {
+                    frame.ip = frame.ip + 1;
+                    return 0;
+                }
+            }
+        }
         if field_ref2 == null {
             var stf_msg: [byte: 224] = [];
             var stf_count: i32 = -1;
@@ -6247,9 +6292,9 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 stf_isref = exec_vm_pointer_is_internal_ref(slot_a);
             }
             _ = snprintf(&stf_msg[0] as *byte, 224,
-                "exec: STORE_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d aux=%d isref=%d)" as *byte,
+                "exec: STORE_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d aux=%d isref=%d nk=%d nb=%zx c=%ld)" as *byte,
                 instr.imm as i32, slot_a.kind as i32, stf_count, stf_pointee,
-                slot_a.aux_i64_value as i32, stf_isref);
+                slot_a.aux_i64_value as i32, stf_isref, stf_native_kind, stf_native_base, instr.c as i64);
             exec_backend_set_error(function.decl, &stf_msg[0] as &byte, 0);
             return -1;
         }

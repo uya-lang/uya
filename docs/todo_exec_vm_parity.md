@@ -3715,3 +3715,58 @@ C99 侧两者完全等价，所以行为不变。
 
 `lib/` 里现在只剩 3 处 `@ptr_from_usize(... @size_of(x))`，都是**标量**数组
 （`i32`/`byte`）——VM 里标量数组本来就是原生字节数组，这类写法是正确的，保留。
+
+### 第 383 轮：async 帧池的原生字段写入（`test_async_frame_align_pool` 转绿）
+
+`test_async_frame_align_pool` 报：
+
+```
+lib/std/async_frame.uya:503: exec: STORE_FIELD 字段越界(idx=0 kind=14 count=-1 pointee=16 aux=16 isref=0 nk=1 nb=0 c=0)
+```
+
+第 503 行是 `async_frame_pool_write_alloc_header(raw_ptr: &byte, ...)`，把裸字节块
+转成 `&AsyncFrameAllocHeader` 再写字段——**内容确实是原生布局**。
+
+- `nk=1`：指令里带了原生字段布局（译者已经知道这是一个原生 struct）
+- `nb=0`：`exec_vm_field_native_base` 返回 0
+
+`exec_vm_field_native_base` 对「非内部引用指针」的处理是：
+
+```uya
+if exec_vm_pointer_is_internal_ref(cursor) == 0 {
+    if exec_vm_address_is_vm_resident(addr) {
+        return 0 as usize;   // 认为这是 VM 值，不是原生内存
+    }
+    return addr;
+}
+```
+
+async 帧池的字节块地址**恰好落在值 arena 的地址范围里**（池子自己就是从 arena
+分配字节的），于是被误判成 VM 值而拒绝，随后 `exec_vm_field_ref_store` 找不到
+聚合（`count=-1`）就报越界。
+
+修法：加 `exec_vm_field_native_base_relaxed()`，只要求「非内部引用指针 + 非零
+地址」，不做 VM 驻留判断。关键是**只在按 VM 值取字段确实失败之后才退到它**：
+
+```uya
+var field_ref2: &ExecValue = exec_vm_field_ref_store(slot_a, instr.imm as i32);
+if field_ref2 == null && stf_native_kind > 0 && stf_native_base == 0 as usize {
+    // 这里才尝试原生基址
+}
+```
+
+`LOAD_FIELD` 同样加了这个兜底。因为只有在 VM 解释失败后才启用，真正的
+`ExecValue` 聚合不会被误判成原生内存。
+
+验证：
+
+- `test_async_frame_align_pool`：VM `失败: 0`，C99 `失败: 0`
+- `test_async_frame_pool_stats`：不再报「字段越界」，越过该点后卡在
+  `async_box_free_current` 的 `BC_LOAD_INDEX` 段错误——**这是既有缺口**
+  （`test_http_uyagin` 早先就在同一函数同一指令崩过，野生指针 `0xfffffff1`），
+  与本次改动无关，单独记录。
+- 回归抽查（VM）：`test_async_frame_methods`、`test_async_frame_pool_full`、
+  `test_async_state_machine`、`test_async_compute_types`、
+  `test_typed_pipeline_capability`、`test_typed_pipeline_executor_single`、
+  `test_http_websocket_json`、`test_std_script_pipeline_facade`
+  报错信息与改动前**完全一致**，无回归。
