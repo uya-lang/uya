@@ -4708,3 +4708,27 @@ lib/libc/signal.uya:425:22: exec: LOAD_FIELD 字段越界(idx=0 kind=14 count=-1
 
 同族的 `test_typed_pipeline_capability` 报 `idx=2 kind=0`（槽值已经是 VOID），
 `test_http_uyagin` 报 `base=-15`，大致都是「引用/地址语义被写坏」的不同表现。
+
+#### 补充：反查写入者的一次尝试（第 405 轮续）
+
+按上面的建议在指令派发循环末尾加了打点：只要某条指令的**目标槽**变成
+「POINTER + 内部引用 + 地址不在 VM 驻留区且小于 4GiB」就打印
+`function.name / ip / opcode / instr.a,b,c`。
+
+结果：跑 `test_typed_pipeline_executor_single`，**一条都没打**
+（把条件放宽到 `iref` 不限时，只打出 `pipeline_broker_install_handler`
+里几个 `iref=0` 的裸指针，比如 `addr=0x400000d6 poi=13`）。
+
+这说明那个坏引用**不是**任何指令写进 `slot_a` 的。可能性收敛到两种：
+
+1. 它是从**内存里读出来**的（例如某个聚合字段本来就没写过，读到的是旧值）；
+2. 它来自 `slot_a` 之外的写入口（参数槽、`slot_b`/`slot_c` 写回、或旁路表迁移）。
+
+下一轮的正确做法：在 `BC_LOAD_FIELD` 失败时打印 `function.name` / `frame.ip` /
+`instr.b`（拿到确切的槽号），再对该函数做一次字节码反汇编，看谁写过这个槽 ——
+比继续在派发末尾撒网有效。
+
+另一个值得注意的现象是：放宽条件后看到的 `addr=0x400000d6` 正好也是 32 位量级，
+形态和 `0xc6c1d688` 同类。如果这两者同源，那就是「某条路径把宿主指针截成 32 位」
+而不是「读到了垃圾」，可以在 `exec_make_pointer_with_kind` 入口加宽度断言一次性确认
+（该函数是 value.uya 里的单点，所有指针都从这里造出来）。
