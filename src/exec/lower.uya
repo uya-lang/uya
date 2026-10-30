@@ -4318,6 +4318,53 @@ fn exec_lower_rewrite_module_qualified_callee(ctx: &ExecLowerContext, call_expr:
     return 1;
 }
 
+/// `mod.f(args)` 里 `mod` 是模块名：按「模块 + 导出名」精确定位被调函数。
+///
+/// 只按函数名解析时，若当前文件里也有同名函数（facade 转发层就属于这种形态），
+/// 会命中本文件的同名声明，表现为自递归直到栈溢出。
+///
+/// 参数：`ctx` lowering 上下文；`callee` 是 `AST_MEMBER_ACCESS` 节点。
+/// 返回值：解析到的函数声明；不是模块限定调用或模块没有导出该名字时返回 null。
+fn exec_lower_resolve_module_qualified_call_decl(ctx: &ExecLowerContext, callee: &ASTNode) &ASTNode {
+    if ctx == null || callee == null || callee.type != ASTNodeType.AST_MEMBER_ACCESS {
+        return null;
+    }
+    const object_ast: &ASTNode = callee.member_access_object;
+    const member_name: &byte = callee.member_access_field_name;
+    if object_ast == null || object_ast.type != ASTNodeType.AST_IDENTIFIER ||
+        object_ast.identifier_name == null || member_name == null {
+        return null;
+    }
+    const qualifier: &byte = object_ast.identifier_name;
+    if find_struct_decl_from_program(ctx.checker.program_node, qualifier) != null {
+        return null;
+    }
+    if find_union_decl_from_program(ctx.checker.program_node, qualifier) != null {
+        return null;
+    }
+    if find_interface_decl_from_program(ctx.checker.program_node, qualifier) != null {
+        return null;
+    }
+    if find_type_alias_from_program(ctx.checker.program_node, qualifier) != null {
+        return null;
+    }
+    if exec_lower_find_slot(ctx, qualifier) >= 0 {
+        return null;
+    }
+    if exec_lower_find_global_slot(ctx, qualifier) >= 0 {
+        return null;
+    }
+    const module_name: &byte = exec_lower_resolve_member_access_module_name(ctx.checker, callee);
+    if module_name == null {
+        return null;
+    }
+    const decl: &ASTNode = exec_lower_find_module_export_decl(ctx.checker, module_name, member_name, 0);
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL {
+        return null;
+    }
+    return decl;
+}
+
 fn exec_lower_member_base_type(ctx: &ExecLowerContext, object: &ASTNode) Type {
     var base_type: Type = exec_lower_resolve_exact_type(ctx, object);
     if type_get_struct_name(&base_type) != null {
@@ -8616,6 +8663,10 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if expr.call_expr_has_ellipsis_forward != 0 {
             return exec_lower_fail_expr(expr, "exec: 当前不支持 varargs 转发" as *byte);
         }
+        var module_qualified_callee: &ASTNode = null;
+        if expr.call_expr_callee != null && expr.call_expr_callee.type == ASTNodeType.AST_MEMBER_ACCESS {
+            module_qualified_callee = exec_lower_resolve_module_qualified_call_decl(ctx, expr.call_expr_callee);
+        }
         _ = exec_lower_rewrite_module_qualified_callee(ctx, expr);
         if expr.call_expr_type_arg_count > 0 &&
             expr.call_expr_callee != null && expr.call_expr_callee.type == ASTNodeType.AST_IDENTIFIER {
@@ -8865,7 +8916,10 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         if expr.call_expr_callee == null || expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER {
             return exec_lower_fail_expr(expr, "exec: 当前仅支持直接函数调用" as *byte);
         }
-        const callee_decl: &ASTNode = exec_lower_resolve_function_decl_from_file(ctx.checker, expr.filename, expr.call_expr_callee.identifier_name);
+        var callee_decl: &ASTNode = module_qualified_callee;
+        if callee_decl == null {
+            callee_decl = exec_lower_resolve_function_decl_from_file(ctx.checker, expr.filename, expr.call_expr_callee.identifier_name);
+        }
         // `use std.mem.memcpy;` 一类「名字来自 C 头文件」的隐式 libc 调用没有 Uya
         // 声明节点，但 VM 对 memcpy/memset/strlen 这些有原生实现，按名字直接接上。
         if callee_decl == null && expr.call_expr_callee.identifier_name != null {

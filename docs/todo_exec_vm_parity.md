@@ -5584,3 +5584,89 @@ heap 的 `&chunk.field` 修好之后，位图方案才有落地条件。
 
 顺带把 `ADDR_FIELD 字段越界` 的消息补全成
 `fn/ip/slot/kind/idx/line/col`（与 `LOAD_FIELD` 一致），这类错误以后自带精确位置。
+
+## 第 407 轮：std.script facade 的 extern 绑定在 VM 里是空桩
+
+`test_std_script_pipeline_facade` 唯一的失败断言是 `result.stage_count == 1 (actual: 0)`，
+来源 `pipeline_prepare_status_buffer` 里的 `result.stage_count = count`。
+一路查下去，`count` 为 0 不是 registry 的问题，而是**整条 facade 调用链在 VM 里是空操作**。
+
+### 根因：`extern fn std_*` 用 C 符号名跨模块绑定，VM 侧没有实现
+
+`lib/std/script/file.uya` 里 20 个转发函数全部声明成
+
+```
+extern fn std_cmd_path_argv(input: Pipeline, path: &const byte, args: &[&const byte]) !Pipeline;
+```
+
+C99 后端把 `std.process.cmd_path_argv` 发射成 C 符号 `std_cmd_path_argv`，
+链接期这条 extern 正好接上真实实现。exec VM 里 extern 没有函数体、也没登记宿主桥，
+`exec_lower_extern_can_run_in_vm` 返回 0，于是走 `exec_lower_make_zero_expr` 的零值桩：
+`std_pipeline()` 返回全零 `Pipeline`、`std_cmd_path_argv()` 什么都不做、
+`std_stage_count()` 返回 0、`std_check()` 是纯空转。
+
+这解释了为什么该用例在 VM 里只报「stage_count 是 0」而不是直接报错：
+整个 facade 都在空转，断言自然拿不到数据。
+
+探针验证（`[facade]`/`[bridge]` 打印 + gdb）：改动前的 `check(command)` 实际没有 fork 任何进程。
+
+### 修法一：facade 改用模块限定调用，不再依赖 C 符号名
+
+`lib/std/script/file.uya` 的 20 个 `extern fn std_*` 全部删掉，改成
+
+```
+use std.process;
+...
+export fn pipeline() Pipeline { return process.pipeline(); }
+```
+
+`mod.f()` 两个后端都支持（`c99_find_module_export_function_decl` / VM 的成员访问路径），
+不再需要 extern 这层 hack。C99 侧 `test_std_script_pipeline_facade` 仍然 `通过: 1`。
+
+### 修法二：VM 的模块限定调用必须按「模块 + 导出名」解析
+
+改完立刻发现 VM 段错误，gdb 是 `vm_step → exec_vm_call_function` 无限递归。
+原因在 `exec_lower_rewrite_module_qualified_callee`：它把 `mod.f(args)` 就地改写成
+标识符 `f`，之后的解析按「文件名 + 导入」找函数，**丢掉了模块名**。
+facade 文件里自己也有 `pipeline`，于是 `process.pipeline()` 命中本文件的同名函数，
+`pipeline → process.pipeline → pipeline …` 直到栈溢出。C99 侧有精确的模块查找，所以不受影响。
+
+修法：新增 `exec_lower_resolve_module_qualified_call_decl`，在改写前用
+`exec_lower_resolve_member_access_module_name` + `exec_lower_find_module_export_decl`
+精确定位被调函数，调用点优先用它，找不到才回落到原来的按名字解析。
+（`src/exec/lower.uya`，两个后端行为一致后 VM 不再递归。）
+
+### 修完后剩下的阻塞：pipeline 启动记录读到全零
+
+facade 不再是空桩之后，`test_std_script_pipeline_facade` 变成两个用例都是运行时 ERROR，
+定位到 `pipeline_execute_basic` 的启动握手：
+
+```
+child:  [c5 startup-written]        # pipeline_child_write_startup(fd, READY=1, 0, 0) 已调用
+parent: [r1 state=1 kind=0 phase=0 code=0]
+```
+
+`pipeline_read_startup_record` 用 `read(fd, &report as &byte, 24)` 把
+`PipelineStartupRecord{kind, phase, platform_code, error_name_offset}` 读进**栈上局部结构体**，
+`state == 1` 说明 `read` 有返回值，但 4 个字段全是 0（子进程写的是 `kind = 1`）。
+`if record_state != 1 || report.kind != PIPELINE_STARTUP_READY` 因此成立，
+函数返回 `error.PipelineSpawnFailed`，后面的 `[r2 …]`（fd 关闭检查）根本没走到。
+
+也就是说：**`read`/`write` 的 24 字节结构体缓冲没有落到 VM 存储里**。
+子进程写侧（`pipeline_child_write_startup` 里 `&record`）和父进程读侧（`&report`）都是
+「局部结构体取址交给宿主 syscall」，两侧都可能出问题，需要分别验：
+
+1. 子进程侧：打印 `record` 的 4 个字段，确认写出去之前值是对的；
+2. 父进程侧：把 `read` 换成读进 `[byte: 24]` 原生缓冲区再逐字段解析，看能否拿到 `kind = 1`。
+
+如果是父进程读侧，嫌疑在 `exec_vm_syscall_shield_vm_addresses` /
+`exec_vm_syscall_out_struct_apply` 对「裸 24 字节结构体、非槽池地址」的换出/回填；
+如果是子进程写侧，则是 `write` 的 shield 把 VM 地址当成原生指针传给了内核。
+
+### 状态
+
+- `lib/std/script/file.uya`：20 个 extern → 模块限定调用（C99 与 VM 都通过编译，C99 用例通过）。
+- `src/exec/lower.uya`：模块限定调用精确解析（修掉 VM 自递归）。
+- 定向回归：`test_typed_pipeline_module_qualified_positive` / `cmd_argv` / `lowering` /
+  `result_types` / `type_identity` 在 VM 下全部通过。
+- `test_std_script_pipeline_facade` 在 VM 仍是失败，下一堵墙是上面的启动记录读写。
