@@ -3354,9 +3354,11 @@ fn exec_vm_cast_value(value: ExecValue, target_kind: i32, target_pointee_kind: i
         }
         // ExecValue 聚合转指针：元素按 56 字节排布，宿主（execve 的 argv、
         // 任何 C 数组参数）读不了，必须先物化成连续 8 字节数组。
-        if value.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
-            value.kind == ExecValueKind.EXEC_VALUE_TUPLE ||
-            value.kind == ExecValueKind.EXEC_VALUE_STRUCT {
+        // 只处理「指针数组转指针」（argv 那类）。`&Self` 这种结构体取址必须
+        // 继续走内部引用，否则字段偏移全乱（async.uya 的 LOAD_INDEX 越界就是）。
+        if target_pointee_kind == TypeKind.TYPE_POINTER as i32 &&
+            (value.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
+             value.kind == ExecValueKind.EXEC_VALUE_TUPLE) {
             const cast_agg: &ExecAggregate = exec_value_as_aggregate(&value);
             if cast_agg != null && cast_agg.values != null && cast_agg.count > 0 &&
                 cast_agg.count <= 4096 {
