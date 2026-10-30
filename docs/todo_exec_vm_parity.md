@@ -5468,7 +5468,8 @@ C 布局写进 24 字节缓冲区），键是 `(基址, 下标)`；而 `memcpy` 
 然后**既没有** `[hint]` 也**没有** `[no-hint]` 打印 —— 说明读侧根本没进
 `elem_size == 0` 那个分支，也就是说**同一个字段 `env_ops`，写侧认成「结构体指针」
 （`elem_size == 0` → 旁路表），读侧认成别的 pointee（`elem_size != 0` → 标量）。
-两边的元素类型推断不一致才是根因，旁路表键只是表象。
+（后续探针证实两边对元素类型其实**认知一致**：都是 pointee=STRUCT、24 字节元素，
+真正的问题见下一节。）
 
 另外 `memcpy` 在 VM 里**不是**宿主调用（`lib/libc` 里有 Uya 实现，走不到
 `EXEC_HOST_CALL_MEMCPY`），所以「让 memcpy 搬旁路表条目」这条路走不通 ——
@@ -5478,3 +5479,28 @@ C 布局写进 24 字节缓冲区），键是 `(基址, 下标)`；而 `memcpy` 
 下一步应该查：为什么 `&PipelineEnvOp` 这个字段经过
 `malloc(... ) as &PipelineEnvOp` → 赋值给结构体字段 → 再读出来之后，
 pointee kind 会不一致（大概率是 `as` 转换后再存字段丢了 pointee 编码）。
+
+**探针会改变行为，这个用例暂时打点打不下去了**：加上 `[ld]` 打印后能看到
+
+```
+[ld] base=0x778e270 pointee=16 sz=0 hint=24 resident=0
+```
+
+`pointee=16`（STRUCT）、`elem_size=0`、`hint=24`、`resident=0` —— 按代码字面，
+下一步必然进 `elem_size_hint` 分支并写回一个「指向原生元素的指针」，
+可是加在该分支里的 `[hint-ret]` **一次都没打印**。也就是说：
+同一个地址，第一次调 `exec_vm_address_is_vm_resident` 得到 0，
+真正做判断的那次却不为 0（或者 `exec_vm_native_agg_peek` 命中了一个空值）。
+无论哪种，这个判定在调用之间不是纯函数，一打点就换路径。
+
+结论：读写两侧对 `env_ops` 的**元素类型认知是一致的**（都是 `&PipelineEnvOp`，
+pointee=STRUCT、元素 24 字节），真正的缺陷是
+「旁路表按**基址**记账，而这块内存每次追加都被 malloc/memcpy/free 换掉」，
+外加 load 侧在 peek 落空后会退到「读原生字节」路径，读到的自然不是结构体。
+
+下一步（更靠谱的一条）：**写侧同时落原生字节** ——
+`STORE_INDEX` 把聚合写进旁路表的同时，若 `elem_size_hint == 字段数 × 8`，
+就按「字段 i 写在 i*8」把每个字段的数值/指针也写进那块原生内存。
+这样 memcpy/realloc 搬移之后原生字节仍然有效，load 侧走 `elem_size_hint`
+路径就能读到真正的 C 布局，旁路表再也不是唯一真相。
+`PipelineEnvOp{key, value, remove}` 正好是 3 个 8 字节字段 = 24，满足前提。
