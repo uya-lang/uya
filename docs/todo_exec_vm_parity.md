@@ -3419,3 +3419,47 @@ VM 只能解释执行它；只有「无实现体的 `extern "libc"`」才走宿�
 | `test_https_production`（VM） | 437 s 后报 LOAD_FIELD 错 | **37 s，失败: 0** |
 
 对拍（300 组随机 + 边界）依旧全等，`test_ec_p256_ecdh` 两侧全绿。
+
+### 第 378 轮：结构体数组不能用裸指针算术（router 三例转绿）
+
+`test_https_loopback` 在 VM 里 4 秒就报：
+
+```
+exec: LOAD_FIELD 字段越界(idx=6 kind=14 count=-1 pointee=16)
+    at lib/std/http/uyagin_router.uya:364 uyagin_router_find_static_child
+```
+
+`parent.first_static_child` 的 `parent` 来自 `uyagin_router_node_ptr`：
+
+```uya
+@ptr_from_usize(@usize_from_ptr(&router.nodes[0] as &void)
+                + (idx as usize) * @size_of(UyaginRouterNode)) as &UyaginRouterNode
+```
+
+最小复现（1 秒，C99 通过、VM 报同样的错）：
+
+```uya
+const p: &Node = @ptr_from_usize(@usize_from_ptr(&r.nodes[0] as &void)
+                                 + (3 as usize) * @size_of(Node)) as &Node;
+p.first_child   // → LOAD_FIELD 字段越界
+```
+
+**根因**：`[Struct: N]` 这样的字段在 VM 里每个元素是一个 `ExecValue`
+（56 字节），而 `@size_of(Node)` 给的是 C 布局大小（40 字节）。裸指针算术
+落到 ExecValue 中间，`exec_vm_field_object` 在那里读不出合法聚合，于是报越界。
+这不是 router 的问题，是**VM 不支持「对结构体数组做手动指针算术」**
+这一类写法（`test_typed_pipeline_capability` 之前那个 `kind=0 count=-1` 也是同一类）。
+
+**处理**：`uyagin_router_node_ptr` 改用下标取地址 `&router.nodes[ui]`
+（VM 里 LOAD_INDEX 会给出元素 ExecValue 的内部引用，C99 下等价）。
+
+结果：
+
+| 用例（VM） | 改前 | 改后 |
+|---|---|---|
+| `test_https_loopback` | LOAD_FIELD 越界 | **失败: 0** |
+| `test_https_local` | 同族 | **失败: 0** |
+| `test_https_websocket_loopback` | 同族 | **失败: 0** |
+| `test_http_websocket_json` | 124 超时 | 只剩 1 个用例 ERROR |
+
+C99 侧这 4 例全绿（无回归）。
