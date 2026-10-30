@@ -2422,6 +2422,25 @@ fn exec_vm_native_agg_slot_index(base: usize) i32 {
     return slot;
 }
 
+/// realloc 把块搬到新地址时，同步搬旁路表的基址键。
+/// 参数：`old_base` 旧基址；`new_base` 新基址。
+/// 返回值：无。
+/// 旁路表按基址**线性**查找（`exec_vm_native_agg_slot_index`），改键不影响
+/// 任何顺序不变量；但漏搬就会让扩容前写进去的元素读不回来
+/// （`env_ops[0]` 在追加第二项后变成 VOID，接着 `.remove` 就 LOAD_FIELD 越界）。
+fn exec_vm_native_agg_rebase(old_base: usize, new_base: usize) void {
+    if old_base == 0 as usize || new_base == 0 as usize || old_base == new_base {
+        return;
+    }
+    var i: i32 = 0;
+    while i < g_native_agg_used {
+        if g_native_agg_base[i] == old_base {
+            g_native_agg_base[i] = new_base;
+        }
+        i = i + 1;
+    }
+}
+
 /// 查找原生指针第 index 个聚合元素的**已登记**旁路槽位（不建表）。
 ///
 /// `STORE_INDEX` 往原生结构体数组写元素时，元素是 VM 聚合，无法落进 C 布局，
@@ -5593,8 +5612,10 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         // 否则宿主堆会被 realloc 的原地搬移写坏。
         var realloc_block: &byte = null;
         if exec_vm_alloc_untrack(@usize_from_ptr(realloc_ptr.ptr_value as &void)) != 0 {
+            const realloc_old_addr: usize = @usize_from_ptr(realloc_ptr.ptr_value as &void);
             realloc_block = realloc(realloc_ptr.ptr_value as &void, realloc_bytes) as &byte;
             exec_vm_alloc_track(@usize_from_ptr(realloc_block as &void), realloc_bytes);
+            exec_vm_native_agg_rebase(realloc_old_addr, @usize_from_ptr(realloc_block as &void));
         }
         out_value[0] = exec_make_pointer_with_kind(@usize_from_ptr(realloc_block as &void), TypeKind.TYPE_VOID as i32);
         return 0;

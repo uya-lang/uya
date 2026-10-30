@@ -5424,11 +5424,36 @@ ip=762 slot=46 line=3754 col=62
 ```
 
 `env_ops` 是 `&PipelineEnvOp`（24 字节元素，正对应 `LOAD_INDEX imm=24`），
-前一行刚检查过 `env_ops == null`，所以指针非空；问题在**跨 realloc 的旁路表键**：
-`append_last_stage_env` 追加第二项时数组会扩容/搬移，
-`exec_vm_native_agg_slot(base_addr, index)` 以**基址**为键，
-扩容后读用的是新基址，命中不到旧基址下写的第 0 项，
-于是惰性新建了一个全零槽 —— 读回来是 VOID，接着 `.remove` 就 `LOAD_FIELD 越界`。
+前一行刚检查过 `env_ops == null`，所以指针非空。
 
-下一步方向：让旁路表在基址搬移时重新绑定（或者按「数组身份 + 下标」记账，
-而不是按绝对地址），这样 `realloc` 前后都能读到同一份元素值。
+继续看 `pipeline_registry_append_last_stage_env` 的写法，根因就清楚了 ——
+它**每追加一项都换一块内存**：
+
+```uya
+const raw: &void = malloc((old_count + 1usize) * @size_of(PipelineEnvOp));
+const ops: &PipelineEnvOp = raw as &PipelineEnvOp;
+if old_count > 0usize {
+    _ = memcpy(raw, _pipeline_process_stages[storage_idx].env_ops as &const void,
+        old_count * @size_of(PipelineEnvOp));
+    free(_pipeline_process_stages[storage_idx].env_ops as &void);
+}
+ops[old_count] = PipelineEnvOp { key: owned_key, value: owned_value, remove: remove };
+_pipeline_process_stages[storage_idx].env_ops = ops;
+```
+
+`ops[old_count] = 结构体值` 在 VM 里落进**旁路表**（元素是 VM 聚合，没法按
+C 布局写进 24 字节缓冲区），键是 `(基址, 下标)`；而 `memcpy` 复制的是原生字节，
+那里从来没被写过。于是：
+
+1. 追加第 0 项：值在 `(B0, 0)` 的旁路槽里，`B0` 的原生字节是空的；
+2. 追加第 1 项：`malloc` 出 `B1`，`memcpy` 把 `B0` 的**空字节**抄过去，`free(B0)`；
+3. 自检读 `env_ops[0]`：基址是 `B1`，旁路表里没有 `(B1, 0)`，
+   `exec_vm_native_agg_slot` 惰性建了个全零槽 —— 读回 VOID，`.remove` 立刻越界。
+
+本轮顺手做了「`realloc` 搬移时同步搬旁路表键」（`exec_vm_native_agg_rebase`），
+那条是对的独立缺陷，但**治不了这里**：这个用例走的是 malloc/memcpy/free，
+根本不经过 `realloc`（实测修完错误一模一样，就是证据）。
+
+下一步方向：让 `memcpy` 携带旁路表条目（源基址的 `(src, i)` 整体搬到 `(dst, i)`，
+顺带在 `free(src)` 时清掉旧条目），或者让结构体元素在写入旁路表的同时
+也按字段偏移写进原生缓冲。前者更小、更贴近现有设计。
