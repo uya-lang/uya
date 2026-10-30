@@ -3770,3 +3770,67 @@ if field_ref2 == null && stf_native_kind > 0 && stf_native_base == 0 as usize {
   `test_typed_pipeline_capability`、`test_typed_pipeline_executor_single`、
   `test_http_websocket_json`、`test_std_script_pipeline_facade`
   报错信息与改动前**完全一致**，无回归。
+
+### 第 384 轮：门禁复测 + 本轮遗留问题定位
+
+本轮（第 382~383 轮）共修 3 处，全部已单独提交：
+
+| 提交 | 内容 | 转绿用例 |
+|---|---|---|
+| `c9520822` | TLS 身份槽位改下标取地址 | `test_tls_handshake` |
+| `49da8b27` | 其余结构体数组辅助函数改指针下标 | （预防同类） |
+| `8adb4ba1` | 原生字段读写加宽松基址回退 | `test_async_frame_align_pool` |
+
+门禁复测：
+
+- `make check`：**1191 个测试 / 通过 1191 / 失败 0**，`rc=0`
+- `make exec-parity`：**914 例 / 一致 849 / 不一致 65 / stdout 差分 0**（上次 848）
+- 普查基线（上一次全量）：907 例 / 通过 854 / 失败 53 / 跳过 7
+
+#### 遗留 1：`async_box_free_current` 的 `BC_LOAD_INDEX` 段错误（`rc=139`）
+
+`test_async_frame_pool_stats`、`test_http_uyagin` 都会崩在同一处。现场：
+
+```
+[vm] enter fn=async_box_free_current args=1
+[vm] fn=async_box_free_current ip=0 op=BC_LOAD_LOCAL(1) a=7 b=0   ← 参数 ptr 进来就是 0xfffffff1
+```
+
+`ptr` 在函数入口就已经是野生指针（`0xfffffff1`，即 `-15` 被截成 32 位），
+来源是 `async_frame_allocator_worker` 里的：
+
+```uya
+const boxed: &byte = async_box_alloc_current(16usize);
+if boxed != null { async_box_free_current(boxed); }
+```
+
+也就是说 `async_box_alloc_current` 返回了一个非空但无效的指针。该函数经
+`IAllocator` 接口派发 `alloc.alloc(total_size)`，接口调用在 VM 里的返回值需要
+进一步核对（`lib/std/async.uya:118`）。**未修**，是当前唯一会让 VM 进程直接
+段错误的已知点（其余失败都是干净的非零退出码）。
+
+#### 遗留 2：`pipeline_capability_self_test` 的 `env_ops` 索引返回 VOID
+
+`test_typed_pipeline_capability` 报 `LOAD_FIELD 字段越界(idx=2 kind=0 ...)`，
+`kind=0` 是 VOID。trace 定位到 `lib/std/process.uya:3752` 附近：
+
+```
+LOAD_GLOBAL a=41 → LOAD_LOCAL b=6 → LOAD_INDEX elem=48   (定位 stage)
+→ LOAD_FIELD c=32                                        (env_ops 字段)
+→ LOAD_CONST → LOAD_INDEX elem=24                        (env_ops[1])
+→ LOAD_FIELD c=16 idx=2                                  ← 操作数是 VOID
+```
+
+`env_ops: &PipelineEnvOp` 指向的是 lib 自己 malloc 出来的原生结构体数组，
+`LOAD_INDEX` 原生分支本应返回「指向该元素的指针」，实际返回了 VOID，
+没有报错。**未修**：需要核对 `exec_vm_load_pointer_index` 在
+`elem_size_hint > 0` 与 `exec_vm_native_agg_slot` 两条路径上的取舍。
+
+#### 已确认不可在本轮修的模型墙
+
+- `test_kernel_sim` / `test_osal` / `test_std_thread*`：fork + execve 子进程，
+  VM 侧没有该能力（断言拿到 `actual: 0`）。
+- `test_http_websocket_json` / `test_std_script_pipeline_facade`：都走 `@await` /
+  spawn，落回 async 语义缺口。
+- async 家族约 20 例：`@await` / `@frame` 合成结构体在 VM 里不存在
+  （`match frame.poll(...)` 的操作数是 VOID）。
