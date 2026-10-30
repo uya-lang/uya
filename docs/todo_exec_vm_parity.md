@@ -3662,3 +3662,43 @@ test_std_async_scheduler               test_std_dns_async_transport
 - 普查对「fork 型」用例的结论不可信，涉及 `pipeline_*`、`test_osal`
   这类用例时必须单独跑一遍确认，不能只看普查数字；
 - 这也是为什么本轮不把 854 当成收益写进结论。
+
+### 第 382 轮：TLS 身份槽位的裸指针算术（`test_tls_handshake` 转绿）
+
+`test_tls_handshake` 在 VM 里报：
+
+```
+lib/tls/ssl/context.uya:372:8: exec: ADDR_FIELD 字段越界
+```
+
+第 372 行是 `ssl_server_add_identity`，它调用 `ssl_server_identity_ptr(ctx, slot)`。
+两个取槽位的 helper（`_ptr` / `_const_ptr`）写的是：
+
+```uya
+const base: &SslServerIdentity = &ctx.server_identities[0];
+const off: usize = slot * @size_of(SslServerIdentity);
+return @ptr_from_usize(@usize_from_ptr(base as &void) + off) as &SslServerIdentity;
+```
+
+和 router 那次是**同一类 bug**：`server_identities: [SslServerIdentity: N]` 在 VM 里
+每个元素是一个 `ExecValue`（56 字节），而 `@size_of` 给的是 C 布局大小。
+裸指针算术落进 ExecValue 中间，随后取字段地址就报「ADDR_FIELD 字段越界」。
+
+改成下标取地址：
+
+```uya
+return &ctx.server_identities[slot];
+```
+
+C99 侧两者完全等价，所以行为不变。
+
+验证：
+
+- `test_tls_handshake` VM：`失败: 0`（原来 ADDR_FIELD 越界）
+- C99 侧 `test_tls_handshake` / `test_https_loopback` / `test_tls_x509` /
+  `test_https_production` 全部 `失败: 0`（无回归）
+- VM 侧 `test_https_loopback` 仍 `失败: 0`
+
+至此「结构体数组不要用裸指针算术」这个模式已在 router 和 TLS identity 两处
+修掉；`rg '@size_of\(' + '@ptr_from_usize'` 在 `lib/` 里还剩 6 处，都属于同类，
+后续按同样方式处理。
