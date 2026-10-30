@@ -5119,3 +5119,38 @@ sigismember 读的引用目标： 0x82ff46f8     ← 相差 0x70 = 2 个槽
 
 （这一族到此可以确定是**多个独立缺陷叠加**：出参回填、局部槽号不一致，
 之前的 async/drop/回调三堵墙另外还在。）
+
+#### 收口：`sigismember` 的运行时错误已消除
+
+上一版加的类型守卫是错的 —— `@syscall(SYS_rt_sigpending, set as i64, 8)` 里实参
+早就被 CAST 成 i64，按「参数是不是聚合指针」判会把真正的聚合出参挡掉，
+于是又退化成 scratch + 不回填。`out_mask` 的位本来就是构建期
+`exec_builder_syscall_arg_out_struct_bit` 按「指针指向 struct/union/array/tuple」
+打上的，语义足够，不需要二次判断（提交 `58989041`）。
+
+打点对照（同一次运行的两次 `rt_sigpending`）：
+
+```
+带守卫： [out127] n=0 raw=0xed29c9e0                 ← 换成 scratch，写回丢弃
+去守卫： [out127] n=1 tgt=0x47cf2688 kind=16 i64=0x40 fields=64
+```
+
+**结果**：`test_typed_pipeline_executor_single` 里
+`exec: LOAD_FIELD 字段越界 ... fn=sigismember ip=20 slot=2` 这条运行时错误
+彻底消失，测试从「跑到一半就中断」变成「跑完全部用例」。
+
+#### 该用例当前的状态与下一个独立问题
+
+现在它的退出码是 **141（128 + SIGPIPE）**，没有打印汇总。这不是回归 ——
+断言已经跑到 `pipeline_path_permission_failure_has_stable_classification ... OK`
+这一批，说明主体逻辑在跑，只是最后整个进程被 SIGPIPE 打死。
+
+下一个问题很明确：VM 里 `pthread_sigmask(SIG_BLOCK, &pipe_set, &old_set)` 的
+屏蔽没有真正挡住 SIGPIPE（或者子进程里的屏蔽没继承），于是往已关闭的对端
+`sys_write` 直接把解释器打死。查这两点：
+
+1. `pthread_sigmask` 在 VM 里是否真的执行到 `rt_sigprocmask`（打点看 `nr`）；
+2. 管道写在 fork 出来的子进程里，子进程是否继承了屏蔽字。
+
+相邻用例全部无变化：epoll_server / epoll_syscall / std_async_event /
+struct_default / std_mem / std_io / async_await 均仍为 `失败: 0`。
