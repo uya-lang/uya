@@ -3902,7 +3902,31 @@ fn exec_vm_syscall_marshal_out_struct(function: &BCFunction, frame: &ExecFrame, 
             const arg_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base + oi);
             const target: &ExecValue = exec_vm_syscall_out_struct_target(arg_slot, args[oi]);
             var field_count: i32 = 0;
-            const buffer: &i64 = exec_vm_syscall_out_struct_prepare(target, &field_count);
+            var buffer: &i64 = exec_vm_syscall_out_struct_prepare(target, &field_count);
+            var register_target: &ExecValue = target;
+            if buffer == null {
+                // 目标槽还是空的（`var s: sigset_t = sigset_t {}` 之后、还没有
+                // 任何字段被写过）。此时既不能把槽地址直接交给内核，也不能只
+                // 换成 scratch 就算完 —— 内核写的结果会丢在 scratch 里，槽永远
+                // 是空的，随后 `sigismember(&s, ...)` 就报「字段越界 count=-1」。
+                // 先按 `exec_vm_field_ref_store` 的同一约定把空槽物化成聚合，
+                // 再重试一次 prepare，出参回填登记就能建立起来。
+                var materialize_target: &ExecValue = target;
+                if materialize_target == null {
+                    materialize_target = exec_vm_realign_to_slot(args[oi] as usize);
+                }
+                var pointee_is_agg: bool = false;
+                if arg_slot != null && arg_slot[0].kind == ExecValueKind.EXEC_VALUE_POINTER {
+                    pointee_is_agg = exec_vm_type_kind_size(
+                        exec_value_pointer_pointee_kind(&arg_slot[0])) == 0 as usize;
+                }
+                if materialize_target != null && materialize_target[0].kind == ExecValueKind.EXEC_VALUE_VOID &&
+                    pointee_is_agg {
+                    materialize_target[0] = exec_value_make_aggregate(ExecValueKind.EXEC_VALUE_STRUCT, 64);
+                    buffer = exec_vm_syscall_out_struct_prepare(materialize_target, &field_count);
+                    register_target = materialize_target;
+                }
+            }
             if buffer == null {
                 // 目标不是能解析出来的单块结构体。
                 //
@@ -3928,7 +3952,7 @@ fn exec_vm_syscall_marshal_out_struct(function: &BCFunction, frame: &ExecFrame, 
                 oi = oi + 1;
                 continue;
             }
-            out_targets[out_count[0]] = target;
+            out_targets[out_count[0]] = register_target;
             out_buffers[out_count[0]] = buffer;
             out_fields[out_count[0]] = field_count;
             out_count[0] = out_count[0] +| 1;
