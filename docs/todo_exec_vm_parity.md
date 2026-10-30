@@ -4767,3 +4767,33 @@ kind/aux 让读方仍然把它当合法引用。
   `exec_vm_make_value_ref` 的调用点检查「引用是否被存进了非 VM 值的容器」。
   这是内存所有权层面的问题，修法是「让内部引用不逃逸」或「引用目标不被回收」，
   二者都不是局部补丁。
+
+#### 陷阱记录：`exec_vm_fn_ref_index` 不能用来判别「这是不是函数引用」
+
+顺着上面 `0x400000d6` 的线索想给「函数引用被当地址解引用」加一道守卫，
+于是用了现成的 `exec_vm_fn_ref_index(value) >= 0`。**结果误伤三个本来通过的用例**：
+
+```
+test_struct_default   -> 失败: 1      （改前 失败: 0）
+test_epoll_server     -> 失败: 1      （改前 失败: 0）
+test_std_async_event  -> 失败: 1      （改前 失败: 0）
+```
+
+原因很直白：`exec_vm_fn_ref_index` 只判**下界**
+
+```uya
+if value.i64_value < EXEC_VM_FN_REF_BASE { return -1; }   // BASE = 0x40000000
+return (value.i64_value - EXEC_VM_FN_REF_BASE) as i32;
+```
+
+而 64 位进程里**真实堆地址普遍大于 `0x40000000`**（本机值 arena 在 `0x7f…`、
+堆在 `0x55…`），所以任何正常指针都会被判成「函数引用下标 = 十几亿」。
+用这个判据做的守卫必然把合法指针全拦掉。
+
+立即回退（`git checkout HEAD -- src/exec/vm.uya`），三例恢复 `失败: 0`。
+
+结论：`&fn` 的哨兵编码 `EXEC_FN_REF_BASE + index` 与真实地址**在取值空间上重叠**，
+仅凭 `i64_value` 无法区分。要判别只能在**产生/消费的具体上下文**里做
+（例如 `@fn_ref` 的 HIR 节点、或 `CALL_INDIRECT` 的槽位），不能事后看数值。
+这也解释了为什么 `0x400000d6` 既可能是合法函数引用、也可能是被截断的地址 ——
+在没有上下文信息前不要对它下判断。
