@@ -5154,3 +5154,43 @@ sigismember 读的引用目标： 0x82ff46f8     ← 相差 0x70 = 2 个槽
 
 相邻用例全部无变化：epoll_server / epoll_syscall / std_async_event /
 struct_default / std_mem / std_io / async_await 均仍为 `失败: 0`。
+
+#### 顺带修掉一个真缺口：`pthread_sigmask` 是空桩
+
+查 SIGPIPE 时发现宿主桥 `EXEC_HOST_CALL_PTHREAD_SIGMASK` 根本没设屏蔽字，
+只把 `old_set` 清零就 `return 0`：
+
+```uya
+// 解释器是单线程：屏蔽信号表只当占位，oldset 有值就清零。
+```
+
+于是 `pthread_sigmask(SIG_BLOCK, &pipe_set, &old_set)` 之后再往已关闭的对端写，
+SIGPIPE 直接把解释器打死，Uya 代码里明明写了的 `errno == EPIPE` 分支永远跑不到。
+
+改成真调 `rt_sigprocmask`（14 号；内核要求的 sigsetsize 正好是 8，而 Uya 的
+`sigset_t` 就只有一个 `val: u64`，正好对得上）。提交 `ad58f2a1`。打点确认：
+
+```
+[sigmask] how=0 new=0x1000 rc=0     ← SIG_BLOCK，0x1000 = 屏蔽信号 13（SIGPIPE）
+[sigmask] how=2 new=0x0    rc=0     ← SIG_SETMASK 还原
+```
+
+#### 本轮小结与剩余问题
+
+完成：
+
+| 提交 | 内容 |
+| --- | --- |
+| `cbabf264` | `LOAD_FIELD` 越界错误补 `fn/ip/slot`，定位从「猜」变成「查」 |
+| `fff39fb9` | 上一条把消息加长后缓冲区没同步，消除越界写 |
+| `ad5a31b4` / `58989041` | 空聚合槽当系统调用出参时先物化再回填 |
+| `ad58f2a1` | `pthread_sigmask` 真调 `rt_sigprocmask` |
+
+**`test_typed_pipeline_executor_single` 的 `LOAD_FIELD 字段越界 ... fn=sigismember`
+运行时错误已经彻底消失**，测试从「跑到一半中断」变成「跑完全部用例」。
+
+仍未解决：该用例最后退出码 141（SIGPIPE），没有汇总。屏蔽字已经确认设上了，
+所以下一个怀疑点是**在 fork 出子进程之前就已经写了对端已关闭的管道**，或者
+子进程 fork 时父进程还没进入 `pipeline_write_control_token`（子进程继承了空屏蔽字）。
+下一步用 `strace -f -e trace=write,rt_sigprocmask` 定位到底是哪个进程、哪一次写
+收到 SIGPIPE，再决定是在 fork 处补屏蔽还是让 `sys_write` 自己吞掉 SIGPIPE。
