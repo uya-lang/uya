@@ -5345,3 +5345,20 @@ C 语义里 `arr as &T` 等价于 `&arr[0]`，应当取**数据区**地址。
 （`signal_handler_count == 1`，实际 0）。VM 没有 host → bytecode 的蹦床，
 内核投递的信号无法回调到 Uya 处理器 —— 这正是「三堵墙」的第 ③ 堵，
 与 `pthread_create` 传 `&double_i64 as &void` 同一个成因。不重复尝试。
+
+#### `test_async_nested_http1_await_codegen` 此前 parity 记 OK 是假象
+
+本轮 parity 复跑时它变成 `VM=1`（`lib/std/async.uya:294` `LOAD_INDEX 越界`），
+一度以为是「聚合转指针物化」引入的回归。对照实验：
+
+| 版本 | 连跑 8 次退出码 |
+| --- | --- |
+| 基线 `809c887f`（`git show 809c887f:src/exec/vm.uya` 覆盖后重建） | 1 1 1 1 1 1 1 1 |
+| 修复后（`af01705d` + `a6538295`） | 1 1 1 1 1 1 1 1 |
+
+两边都是**必失败**，所以不是本轮改动引入的；早先那轮 parity 把它记成 OK，
+是 `src/.uyacache` 里旧字节码（或时序）造成的假象 —— 重建编译器后就不再复现。
+结论：它属于既有的 async 墙，与 `_io_slot_*` 的槽位记账有关，不追。
+
+同时这也说明「parity 单次采样 + 字节码缓存」会让个别用例在 OK / 不一致之间漂移，
+判定回归必须**同一版本连跑多次**并和基线对照，不能只看一次差分结果。
