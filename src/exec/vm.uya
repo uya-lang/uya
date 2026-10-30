@@ -856,6 +856,56 @@ fn exec_vm_syscall_out_struct_apply(target: &ExecValue, buffer: &i64, field_coun
     }
 }
 
+/// `epoll_wait` 家族的事件解包。
+///
+/// 内核按 C 的 packed 布局写事件：`events` u32 @0、`data_lo` u32 @4、
+/// `data_hi` u32 @8，每条 **12 字节**。而 VM 的聚合值是「一字段一个 i64」，
+/// 通用 `exec_vm_syscall_out_struct_apply` 按 8 字节步长回填，会把
+/// `events` 和 `data_lo` 粘进同一个 i64（实测 `0x00000005_00000001`），
+/// 于是 `epoll_event_fd` 读到 0、监听事件永远认不出来
+/// （test_epoll_server 的 accept 全部落空）。
+///
+/// 参数：`target` 出参聚合（单个 EpollEvent，或 EpollEvent 数组）；
+///       `buffer` 内核写过的原生缓冲区；`count` 内核返回的事件数。
+fn exec_vm_unpack_epoll_events(target: &ExecValue, buffer: &i64, count: i32) void {
+    if target == null || buffer == null || count <= 0 {
+        return;
+    }
+    const outer: &ExecAggregate = if target.kind == ExecValueKind.EXEC_VALUE_ARRAY {
+        target.ptr_value as &ExecAggregate
+    } else {
+        null
+    };
+    const src_base: usize = @usize_from_ptr(buffer as &void);
+    var k: i32 = 0;
+    while k < count && k < 64 {
+        var elem: &ExecValue = target;
+        if outer != null {
+            if outer.values == null || k >= outer.count {
+                return;
+            }
+            elem = &outer.values[k];
+        } else if k > 0 {
+            return;
+        }
+        if elem.kind != ExecValueKind.EXEC_VALUE_STRUCT && elem.kind != ExecValueKind.EXEC_VALUE_TUPLE {
+            return;
+        }
+        const rec: &ExecAggregate = elem.ptr_value as &ExecAggregate;
+        if rec == null || rec.values == null || rec.count < 2 {
+            return;
+        }
+        const rec_addr: usize = src_base +| (k as usize) * (12 as usize);
+        const words: &u32 = @ptr_from_usize(rec_addr) as &u32;
+        rec.values[0].i64_value = words[0] as i64;
+        rec.values[1].i64_value = words[1] as i64;
+        if rec.count > 2 {
+            rec.values[2].i64_value = words[2] as i64;
+        }
+        k = k + 1;
+    }
+}
+
 /// 定位 syscall 出参结构体（参数值可能是指针、内部引用或裸地址）。
 fn exec_vm_syscall_out_struct_target(arg_slot: &ExecValue, raw_address: i64) &ExecValue {
     const resolved: &ExecValue = exec_vm_resolve_va_target(arg_slot);
@@ -3930,6 +3980,14 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
         exec_vm_syscall_out_struct_apply(out_targets[out_apply_i], out_buffers[out_apply_i],
             out_fields[out_apply_i]);
         out_apply_i = out_apply_i +| 1;
+    }
+    // epoll_wait(232) / epoll_pwait(281)：内核写的是 packed 12 字节记录，
+    // 通用 apply 的 8 字节步长会把字段读歪，这里按 packed 记录重新解包。
+    if (nr_value == 232i64 || nr_value == 281i64) && out_count2 > 0 {
+        const got_value: ExecValue = exec_value_unwrap_ok(exec_value_clone(&out_value[0]));
+        if got_value.i64_value > 0i64 {
+            exec_vm_unpack_epoll_events(out_targets[0], out_buffers[0], got_value.i64_value as i32);
+        }
     }
     return 0;
 }
