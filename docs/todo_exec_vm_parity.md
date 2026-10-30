@@ -3336,3 +3336,23 @@ VM 只能解释执行它；只有「无实现体的 `extern "libc"`」才走宿�
 
 结论：**24 例 124 属于性能问题，不属于语义缺口**。要收口需要解释器性能工程
 （分配路径特化、指令分派优化），不是本文件的 parity 修补范围。
+
+**5. 放宽时限后的复跑实测（20 例 124 全部重跑，单例上限 480 秒，并行 5）**
+
+| 结果 | 例数 | 用例 |
+|---|---|---|
+| `rc=0`（只是慢，语义正确） | 3 | `test_https_debug`(435s)、`test_https_google`(435s)、`test_https_real_site`(445s) |
+| `rc=1`（放宽后暴露真实失败） | 1 | `test_https_production`(437s) |
+| 仍然 124 | 16 | `test_async_multi_fd_concurrent`、`test_async_runtime_shared_dns`、`test_async_runtime_shared_semantics`、`test_async_shared_runtime_semantics`、`test_async_task_queue_dynamic_growth`、`test_http1_async_client`、`test_http_uyagin_websocket`、`test_pthread_affinity`、`test_pthread_api_cancel`、`test_pthread_heap_cache_identity`、`test_pthread_heap_concurrency`、`test_std_async_scheduler`、`test_std_dns_async_transport`、`test_tls_ecdsa`、`test_tls_rsa`、`test_tls_x25519_pure` |
+
+其中 `test_tls_x25519_pure` 单独用 900 秒上限跑是**通过**的，480 秒不够。
+
+结论细化：20 例 124 里
+
+- **4 例是纯性能问题**（3 个 https + x25519）：语义正确，只是解释执行跑不完；
+- **1 例 `test_https_production` 是真实失败**，只是被超时掩盖了（以后要按 `rc=1` 追它，别再当超时）；
+- **15 例是真的不收敛**（pthread/OSAL、async runtime、DNS transport、ECDSA/RSA），
+  它们要么依赖真实并发（VM 单线程同步执行，等不到别的线程推进），要么需要挂起语义。
+
+这也说明普查的「失败 59」里，口径上应把 `test_https_production` 从超时类移出，
+后面按普通失败处理。
