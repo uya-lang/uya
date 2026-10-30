@@ -4944,3 +4944,39 @@ return mem;
 下一轮的最小验证（明确一条）：在 `exec_vm_native_agg_slot_index` 命中已有条目时
 统计并打印 base 与 count；若失败前出现「命中的旧条目 count>0 且其元素里含非法
 引用」，就在那里加「base 换主人时清空」，判定依据用槽池 push/pop 的世代号。
+
+#### 定位到调用点与引用构造点（aux 精确对上），但出现一个未解的矛盾
+
+用 `--trace-vm` 把 `enter fn=sigismember` 前后几行抓出来：
+
+```
+[vm] fn=pipeline_write_control_token ip=113 op=BC_MOV a=19 b=17
+[vm] fn=pipeline_write_control_token ip=114 op=BC_MOV a=20 b=18
+[vm] fn=pipeline_write_control_token ip=115 op=BC_CALL a=16 b=19 c=2 imm=191   ; 191 = sigismember
+[vm] enter fn=sigismember args=2
+```
+
+再看 `pipeline_write_control_token` 的字节码，写 slot 17 的那条正是：
+
+```
+ip=19: BC_ADDR_LOCAL a=17 b=2 c=16        ; 取局部 slot2 的地址，pointee kind=16(STRUCT)
+```
+
+`c=16` 会被 `exec_vm_encode_ref_kind` 编成 `65536 + 16 = 65552` —— 与失败的
+`arg0.aux_i64_value = 65552` **精确对上**。也就是说，坏值就是「局部 slot2 的地址引用」，
+`kind/aux` 全对，只有地址高位不对。
+
+于是逻辑上只剩两种可能：
+
+1. `exec_make_pointer_with_kind` 拿到的高位就已经丢了（`@usize_from_ptr` 之前）；
+2. 这个 `arg0` 不是这一次 `ADDR_LOCAL` 的产物，而是**另一个进程/另一帧**的残留
+   （`--trace-vm` 的输出本来就是两个进程交叉写同一个 fd，上面的相邻关系不能全信）。
+
+但在同一次运行里，`exec_make_pointer_with_kind`（唯一制造点）**总共只被调用 11 次、
+且没有一次 aux >= 65536** —— 这与「`ADDR_LOCAL` 造出了这个引用」直接冲突。
+
+矛盾的唯一合理解释：**产生错误值的那段代码不在打印 `[sig]` 的这个进程里**。
+这条测试会 `fork` 出 pipeline 子进程，子进程的 stderr 与父进程共用，才出现交叉。
+下一轮第一件事应该是给打印加 **pid**（`getpid()`），把两个进程的输出分开，
+再判断 `ADDR_LOCAL`（ip=19）到底发生在父进程还是子进程、该进程的制造点有没有被调用。
+这一步做完，「到底是截断还是残留」就能一次性判定，不用再猜。
