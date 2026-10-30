@@ -268,109 +268,246 @@ fn fe256_cond_sub_p(r: &Fe256, a: &const Fe256, cond: u64) void {
     }
 }
 
-// 常量时间的条件减 p：`cond` 只取 0/1，`t` 是调用方提供的临时量。
-//
-// 热路径版本，不在内部再声明 Fe256 局部量 —— 解释执行下一次
-// `Fe256{ l: [0:4] }` 字面量大约要 20 微秒，原先每比特要分配 5 次。
-fn fe256_cond_sub_p_into(r: &Fe256, a: &const Fe256, cond: u64, t: &Fe256) void {
-    fe256_sub_p(t, a);
-    const mask: u64 = (0 as u64) - cond;
-    var i: usize = 0;
-    while i < FE256_LIMBS {
-        r.l[i] = (a.l[i] & ~mask) | (t.l[i] & mask);
-        i = i + 1;
-    }
-}
-
-// 把 v + carry*2^256 约简成 < p 的域元素（`t`/`u` 为调用方临时量）。
-//
-// 依据 2^256 ≡ R (mod p)（R = P256_R_LE），先把进位折回低位，
-// 再条件减 p。v 与 r 可以相同，调用方不必另备临时量。
-fn fe256_reduce_257_into(r: &Fe256, v: &const Fe256, carry: u64, t: &Fe256, u: &Fe256) void {
-    fe256_cpy(t, v);
-    var c: u64 = carry;
-    while c != 0 {
-        // t = t + R，返回新的进位（R < 2^224，最多再折一次）
-        var ci: u64 = 0;
-        var i: usize = 0;
-        while i < FE256_LIMBS {
-            const s1: u64 = t.l[i] + P256_R_LE[i];
-            var k1: u64 = 0;
-            if s1 < t.l[i] {
-                k1 = 1;
-            }
-            const s2: u64 = s1 + ci;
-            var k2: u64 = 0;
-            if s2 < s1 {
-                k2 = 1;
-            }
-            t.l[i] = s2 & (0xFFFFFFFFFFFFFFFF as u64);
-            ci = k1 | k2;
-            i = i + 1;
-        }
-        c = ci;
-    }
-    fe256_cond_sub_p_into(t, t, (fe256_ge_p(t)) as u64, u);
-    fe256_cond_sub_p_into(r, t, (fe256_ge_p(t)) as u64, u);
-}
-
 // 域乘法：r = a * b mod p。
 //
-// 用常量时间双倍加（不分支、不用通用大数除法）：b 的每一位都做一次
-// 「acc = 2*acc」和一次「acc += b_i ? a : 0」，条件加靠掩码实现。
-// 之前这里走 tls.base.mpi 的 mul+mod，一次要 40 毫秒（P-256 标量乘要
-// 上万次域乘，直接三分钟起步）。所有临时量都提到循环外，热路径零分配。
+// 常量时间双倍加，全标量展开（不碰数组、不碰通用大数除法）：
+// 逐位做 `acc = 2*acc` 再 `acc += b_i ? a : 0`（条件加用掩码，不分支）。
+// 中间值只要「mod p 同余」即可，不必随时小于 p —— 每次把 2^256 的进位
+// 按 `2^256 ≡ R` 折回低位，最后统一做一次条件减 p 就落地到 [0, p)。
+// 这样每比特只有 8 次 64 位加减，比原来走 mpi 的 mul+mod 快两个数量级。
 fn fe256_mul(r: &Fe256, a: &const Fe256, b: &const Fe256) void {
-    var aa: Fe256 = Fe256{ l: [0:4] };
-    var bb: Fe256 = Fe256{ l: [0:4] };
-    fe256_cpy(&aa, a);
-    fe256_cpy(&bb, b);
-    const mask64: u64 = 0xFFFFFFFFFFFFFFFF;
-    var acc: Fe256 = Fe256{ l: [0:4] };
-    var wide: Fe256 = Fe256{ l: [0:4] };
-    var dbl: Fe256 = Fe256{ l: [0:4] };
-    var sum: Fe256 = Fe256{ l: [0:4] };
-    var t: Fe256 = Fe256{ l: [0:4] };
-    var u: Fe256 = Fe256{ l: [0:4] };
-    var limb: usize = FE256_LIMBS;
-    while limb > 0 {
-        limb = limb - 1;
+    const p0: u64 = 0xFFFFFFFFFFFFFFFF;
+    const p1: u64 = 0x00000000FFFFFFFF;
+    const p2: u64 = 0;
+    const p3: u64 = 0xFFFFFFFF00000001;
+    const r0c: u64 = 0x0000000000000001;
+    const r1c: u64 = 0xFFFFFFFF00000000;
+    const r2c: u64 = 0xFFFFFFFFFFFFFFFF;
+    const r3c: u64 = 0x00000000FFFFFFFE;
+    const a0: u64 = a.l[0];
+    const a1: u64 = a.l[1];
+    const a2: u64 = a.l[2];
+    const a3: u64 = a.l[3];
+    const b0: u64 = b.l[0];
+    const b1: u64 = b.l[1];
+    const b2: u64 = b.l[2];
+    const b3: u64 = b.l[3];
+    var x0: u64 = 0;
+    var x1: u64 = 0;
+    var x2: u64 = 0;
+    var x3: u64 = 0;
+    var limb: usize = 3;
+    while true {
+        var bl: u64 = b0;
+        if limb == 3 {
+            bl = b3;
+        } else if limb == 2 {
+            bl = b2;
+        } else if limb == 1 {
+            bl = b1;
+        }
         var sh: i32 = 63;
         while sh >= 0 {
-            var carry: u64 = 0;
-            var i: usize = 0;
-            while i < FE256_LIMBS {
-                const next_c: u64 = acc.l[i] >> 63;
-                wide.l[i] = ((acc.l[i] << 1) | carry) & mask64;
-                carry = next_c;
-                i = i + 1;
-            }
-            fe256_reduce_257_into(&dbl, &wide, carry, &t, &u);
-            const bit_val: u64 = (bb.l[limb] >> sh) & 1 as u64;
-            const mask: u64 = (0 as u64) - bit_val;
-            var c2: u64 = 0;
-            i = 0;
-            while i < FE256_LIMBS {
-                const addend: u64 = aa.l[i] & mask;
-                const t1: u64 = dbl.l[i] + addend;
-                var k1: u64 = 0;
-                if t1 < dbl.l[i] {
-                    k1 = 1;
+            // ---- acc = 2*acc ----
+            var n0: u64 = x0 << 1;
+            var n1: u64 = (x1 << 1) | (x0 >> 63);
+            var n2: u64 = (x2 << 1) | (x1 >> 63);
+            var n3: u64 = (x3 << 1) | (x2 >> 63);
+            var cy: u64 = x3 >> 63;
+            while cy != 0 {
+                var c: u64 = 0;
+                const u0: u64 = n0 + r0c;
+                if u0 < n0 {
+                    c = 1;
                 }
-                const t2: u64 = t1 + c2;
+                n0 = u0;
+                var k: u64 = 0;
+                const v1: u64 = n1 + r1c;
+                if v1 < n1 {
+                    k = 1;
+                }
+                const w1: u64 = v1 + c;
                 var k2: u64 = 0;
-                if t2 < t1 {
+                if w1 < v1 {
                     k2 = 1;
                 }
-                sum.l[i] = t2 & mask64;
-                c2 = k1 | k2;
-                i = i + 1;
+                n1 = w1;
+                c = k | k2;
+                k = 0;
+                const v2: u64 = n2 + r2c;
+                if v2 < n2 {
+                    k = 1;
+                }
+                const w2: u64 = v2 + c;
+                k2 = 0;
+                if w2 < v2 {
+                    k2 = 1;
+                }
+                n2 = w2;
+                c = k | k2;
+                k = 0;
+                const v3: u64 = n3 + r3c;
+                if v3 < n3 {
+                    k = 1;
+                }
+                const w3: u64 = v3 + c;
+                k2 = 0;
+                if w3 < v3 {
+                    k2 = 1;
+                }
+                n3 = w3;
+                cy = k | k2;
             }
-            fe256_reduce_257_into(&acc, &sum, c2, &t, &u);
+            // ---- acc += (bit ? a : 0) ----
+            const bitv: u64 = (bl >> sh) & 1 as u64;
+            const am: u64 = (0 as u64) - bitv;
+            const m0: u64 = a0 & am;
+            const m1: u64 = a1 & am;
+            const m2: u64 = a2 & am;
+            const m3: u64 = a3 & am;
+            var c: u64 = 0;
+            const t0: u64 = n0 + m0;
+            if t0 < n0 {
+                c = 1;
+            }
+            n0 = t0;
+            var k: u64 = 0;
+            const t1: u64 = n1 + m1;
+            if t1 < n1 {
+                k = 1;
+            }
+            const s1: u64 = t1 + c;
+            var k2: u64 = 0;
+            if s1 < t1 {
+                k2 = 1;
+            }
+            n1 = s1;
+            c = k | k2;
+            k = 0;
+            const t2: u64 = n2 + m2;
+            if t2 < n2 {
+                k = 1;
+            }
+            const s2: u64 = t2 + c;
+            k2 = 0;
+            if s2 < t2 {
+                k2 = 1;
+            }
+            n2 = s2;
+            c = k | k2;
+            k = 0;
+            const t3: u64 = n3 + m3;
+            if t3 < n3 {
+                k = 1;
+            }
+            const s3: u64 = t3 + c;
+            k2 = 0;
+            if s3 < t3 {
+                k2 = 1;
+            }
+            n3 = s3;
+            var cy2: u64 = k | k2;
+            while cy2 != 0 {
+                var cc: u64 = 0;
+                const u0b: u64 = n0 + r0c;
+                if u0b < n0 {
+                    cc = 1;
+                }
+                n0 = u0b;
+                var kk: u64 = 0;
+                const v1b: u64 = n1 + r1c;
+                if v1b < n1 {
+                    kk = 1;
+                }
+                const w1b: u64 = v1b + cc;
+                var kk2: u64 = 0;
+                if w1b < v1b {
+                    kk2 = 1;
+                }
+                n1 = w1b;
+                cc = kk | kk2;
+                kk = 0;
+                const v2b: u64 = n2 + r2c;
+                if v2b < n2 {
+                    kk = 1;
+                }
+                const w2b: u64 = v2b + cc;
+                kk2 = 0;
+                if w2b < v2b {
+                    kk2 = 1;
+                }
+                n2 = w2b;
+                cc = kk | kk2;
+                kk = 0;
+                const v3b: u64 = n3 + r3c;
+                if v3b < n3 {
+                    kk = 1;
+                }
+                const w3b: u64 = v3b + cc;
+                kk2 = 0;
+                if w3b < v3b {
+                    kk2 = 1;
+                }
+                n3 = w3b;
+                cy2 = kk | kk2;
+            }
+            x0 = n0;
+            x1 = n1;
+            x2 = n2;
+            x3 = n3;
             sh = sh - 1;
         }
+        if limb == 0 {
+            break;
+        }
+        limb = limb - 1;
     }
-    fe256_cpy(r, &acc);
+    // ---- 最后一次条件减 p（此时 0 <= x < 2^256 < 2p）----
+    var borrow: u64 = 0;
+    const d0: u64 = x0 - p0;
+    if x0 < p0 {
+        borrow = 1;
+    }
+    const q1: u64 = x1 - borrow;
+    var nb: u64 = 0;
+    if x1 < borrow {
+        nb = 1;
+    }
+    const d1: u64 = q1 - p1;
+    if q1 < p1 {
+        nb = 1;
+    }
+    borrow = nb;
+    const q2: u64 = x2 - borrow;
+    var nb2: u64 = 0;
+    if x2 < borrow {
+        nb2 = 1;
+    }
+    const d2: u64 = q2 - p2;
+    if q2 < p2 {
+        nb2 = 1;
+    }
+    borrow = nb2;
+    const q3: u64 = x3 - borrow;
+    var nb3: u64 = 0;
+    if x3 < borrow {
+        nb3 = 1;
+    }
+    const d3: u64 = q3 - p3;
+    if q3 < p3 {
+        nb3 = 1;
+    }
+    borrow = nb3;
+    r.l[0] = x0;
+    r.l[1] = x1;
+    r.l[2] = x2;
+    r.l[3] = x3;
+    if borrow == 0 {
+        r.l[0] = d0;
+        r.l[1] = d1;
+        r.l[2] = d2;
+        r.l[3] = d3;
+    }
 }
 
 fn fe256_sqr(r: &Fe256, a: &const Fe256) void {
