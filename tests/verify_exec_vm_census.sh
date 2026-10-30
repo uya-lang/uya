@@ -19,13 +19,16 @@
 #   UYA_EXEC_CENSUS_MIN       最低通过用例数（默认 0，不设门禁）
 #   UYA_EXEC_CENSUS_JOBS      并行度（默认 CPU 核数）
 #   UYA_EXEC_CENSUS_TIMEOUT   单用例超时秒数（默认 300）
-#   UYA_EXEC_CENSUS_MEM_MB    单用例地址空间上限（MB，默认 1024；0 表示不限）
+#   UYA_EXEC_CENSUS_MEM_MB    单用例地址空间上限（MB，默认 4096；0 表示不限）
 #                             census 的峰值内存 ≈ JOBS × MEM_MB，跑之前先看一下
 #                             机器余量（实测单用例峰值：TLS 186MB / https 456MB
 #                             / kernel_sim 548MB，失控用例靠这个上限快速失败）
 #                             解释器里的失控用例（如 test_crypto_bigint 会一路
 #                             涨到 7GB+ 再被超时杀掉）只会在白等之前先把内存
 #                             吃光；设上限让它快速失败，并记为原因 mem。
+#                             不要再降到 1024：编译器自己的 CompilerArena 就要
+#                             1GB 以上，1024 会让 79 个用例在「编译期」就
+#                             `CompilerArena 无法分配 chunk` 假失败（已实测）。
 #   UYA_EXEC_CENSUS_REPORT    明细 TSV 落盘路径（默认 /tmp/uya_exec_vm_census.tsv）
 #   UYA_EXEC_CENSUS_SKIP      跳过表路径（默认 tests/exec_vm_census_skip.txt）
 #   UYA_EXEC_CENSUS_GLOB      只跑匹配该 bash 通配的用例（默认全部），例如
@@ -43,7 +46,7 @@ COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
 export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 MIN_PASS="${UYA_EXEC_CENSUS_MIN:-0}"
 TIMEOUT="${UYA_EXEC_CENSUS_TIMEOUT:-300}"
-MEM_MB="${UYA_EXEC_CENSUS_MEM_MB:-1024}"
+MEM_MB="${UYA_EXEC_CENSUS_MEM_MB:-4096}"
 REPORT="${UYA_EXEC_CENSUS_REPORT:-/tmp/uya_exec_vm_census.tsv}"
 SKIP_FILE="${UYA_EXEC_CENSUS_SKIP:-$SCRIPT_DIR/exec_vm_census_skip.txt}"
 TIMEOUT_FILE="${UYA_EXEC_CENSUS_TIMEOUTS:-$SCRIPT_DIR/exec_vm_census_timeouts.txt}"
@@ -61,17 +64,32 @@ ulimit -s unlimited 2>/dev/null || ulimit -s 524288 2>/dev/null || true
 export TIMEOUT_FILE
 export MEM_MB
 export TIMEOUT
-# 上一次 census 若被 SIGKILL 掐掉（timeout/trap 都来不及跑），xargs 会留下孤儿
-# 解释器继续吃 CPU 和内存，下一轮再叠加。这里先按编译器路径清一遍。
-pkill -f -- "$COMPILER test --vm" 2>/dev/null || true
+# 这里**不做任何按名字的进程清理**。
+#
+# 早先写的是 `pkill -f -- "$COMPILER test --vm"`：按命令行子串匹配，会把同机
+# 其它会话正在跑的 `./bin/uya test --vm ...` 一并杀掉（实测误伤过别的
+# uya-agent 会话；而且它也会命中 census 自己的轮询 shell，表现为整轮普查
+# 「已终止」并被记成 0/0）。
+#
+# 换成了两条结构性保证，不再需要模式匹配：
+#   1. 每个 worker 都由 `timeout -k <grace>` 硬性封顶（TERM 不理就补 KILL），
+#      所以单个用例不可能无限期占着 CPU；
+#   2. 因此本脚本即使被 SIGKILL 掐掉，留下的也只是一批「各自会在超时后
+#      自动退出」的进程，不需要事后按名字扫射。
+# 确实要清上一轮的遗留时，显式设置 UYA_EXEC_CENSUS_REAP=1。
+if [ "${UYA_EXEC_CENSUS_REAP:-0}" = "1" ]; then
+    pkill -f -- "$COMPILER test --vm" 2>/dev/null || true
+fi
 
-WORK_DIR="$(mktemp -d /tmp/uya_exec_census.XXXXXX)"
+# 临时目录可用 UYA_EXEC_CENSUS_TMPDIR 指定：/tmp 常常是 32G tmpfs，
+# 别的任务写满后这里会 ENOSPC，整轮普查直接算成 0/0。
+CENSUS_TMPDIR="${UYA_EXEC_CENSUS_TMPDIR:-/tmp}"
+WORK_DIR="$(mktemp -d "$CENSUS_TMPDIR/uya_exec_census.XXXXXX")"
 RESULTS_DIR="$WORK_DIR/results"
 mkdir -p "$RESULTS_DIR"
 cleanup() {
-    # 被 Ctrl-C / kill 掐掉时，xargs 拉起的 timeout 与解释器会变成孤儿继续吃
-    # CPU 和内存（下一次 census 再叠加）。退出时按编译器路径清一遍。
-    pkill -f -- "$COMPILER test --vm" 2>/dev/null
+    # 只删自己的临时目录。worker 由各自 `timeout -k` 封顶，会自行退出，
+    # 这里不去碰任何按名字匹配的进程（避免误伤同机其它会话）。
     rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT INT TERM
@@ -108,11 +126,14 @@ run_one() {
     local err
     local mem_mb="${MEM_MB:-0}"
     local limit_kb=$((mem_mb * 1024))
+    # `-k` 必不可少：解释器里互相等待的用例会忽略 SIGTERM，只发 TERM 的 timeout
+    # 会一直等下去 —— 实测 test_std_dns_async_query_aggregate 卡了 50 分钟，
+    # 整轮普查被它一个人拖死（TIMEOUT=240 完全没生效）。加 `-k` 后超时再补 SIGKILL。
     if [ "$mem_mb" -gt 0 ]; then
-        err="$(bash -c 'ulimit -v "$1" 2>/dev/null; shift; exec timeout "$@"' _ \
+        err="$(bash -c 'ulimit -v "$1" 2>/dev/null; shift; exec timeout -k 10 "$@"' _ \
             "$limit_kb" "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
     else
-        err="$(timeout "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
+        err="$(timeout -k 10 "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
     fi
     local st=$?
 
@@ -167,7 +188,19 @@ case "$JOBS" in
 esac
 [ "$JOBS" -lt 1 ] && JOBS=1
 
-echo "exec VM 覆盖普查: $TOTAL 个用例（跳过 $SKIPPED），并行度 $JOBS"
+# 不限内存（MEM_MB=0）乘以高并行度会把整机打爆：实测单用例峰值 crypto_bigint 7GB+、
+# kernel_sim 548MB、https 456MB。一旦整机进 OOM，内核 killer 会挑**任意**大进程
+# 杀掉 —— 包括同机的 uya-agent 会话（真实发生过）。所以 MEM_MB=0 时把并行度压到
+# 保守值，除非调用方显式 UYA_EXEC_CENSUS_ALLOW_UNLIMITED=1。
+if [ "$MEM_MB" = "0" ] && [ "${UYA_EXEC_CENSUS_ALLOW_UNLIMITED:-0}" != "1" ]; then
+    if [ "$JOBS" -gt 4 ]; then
+        echo "注意: MEM_MB=0 表示不限内存，并行度 $JOBS 会放大峰值；已压到 4。" >&2
+        echo "      需要原样跑请设 UYA_EXEC_CENSUS_ALLOW_UNLIMITED=1。" >&2
+        JOBS=4
+    fi
+fi
+
+echo "exec VM 覆盖普查: $TOTAL 个用例（跳过 $SKIPPED），并行度 $JOBS（单用例内存上限 ${MEM_MB}MB，0=不限）"
 printf '%s\n' "${FILES[@]}" | xargs -P "$JOBS" -I{} bash -c \
     'run_one "$@"' _ {} "$RESULTS_DIR" "$COMPILER" "$TIMEOUT"
 

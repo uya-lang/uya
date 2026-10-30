@@ -3546,3 +3546,68 @@ fn=async_box_free_current addr=fffffff1 idx=0 kind=14 pointee=7
 下一步的方向（留给后续）：让 `exec_vm_syscall_arg_to_i64` 在遇到内部引用时
 把「这是哪个 ExecValue」的旁路信息保留下来（例如把实参槽的索引一并编码），
 而不是只丢一个裸地址给 `exec_vm_syscall_out_struct_target` 去猜。
+
+### 第 381 轮：普查为什么"又慢又卡"——三个根因
+
+这一轮没有推进覆盖率，专门查"跑一轮普查要一小时、CPU 还忽高忽低"。
+结论是三个独立问题叠加，其中第一个是我自己引入的回归。
+
+#### 根因 1（我的回归，已回退）：`@await` Pending 让用例无限忙等
+
+我曾让 `@await` 遇到 Pending 时不再报错，而是让当前 async 函数返回
+`Future{state: Pending}`。这对 `test_async_await` 是对的，但 `block_on` 的实现是
+
+```uya
+while true {
+    w.reset();
+    const p: Poll<!T> = f.poll(&w);
+    match p { .Ready(v) => { return v; }, .Pending(_) => { } };
+}
+```
+
+VM 里没有真正的挂起/恢复，Pending 永远不会自己变成 Ready，于是**每个这类用例
+都变成死循环空转**，把 CPU 吃满还不结束。后果：整轮普查跑不完，
+`test_std_dns_async_query_aggregate` 一个用例卡了 **50 分钟**（超时设置是 240 秒）。
+
+已 `git checkout` 回退 `src/exec/{vm,builder,lower}.uya`。回退后该用例
+**2 秒**就报出明确原因（`exec: @await 操作数不是 Future 或始终 Pending`）。
+代价：`test_async_await` 回到"失败"，这是已知的模型级缺口
+（真正的 Pending 语义需要栈式协程或真反应堆），不该用假成功换。
+
+#### 根因 2：`timeout` 没有 `-k`，忽略 SIGTERM 的用例永远不被回收
+
+`run_one` 原来是 `timeout "$timeout_s" ...`。只发 SIGTERM，进程若不理就直接
+等到天荒地老 —— 这就是"超时明明设了 240 秒却跑了 50 分钟"的直接原因。
+已改为 `timeout -k 10`（TERM 之后补 SIGKILL），并把超时信号发给整个子进程组，
+fork 出去的子进程也会一起收掉。
+
+#### 根因 3：我为"安全清理"加的 `setsid` 自我重启，反而制造了幽灵进程
+
+为了避免按名字 `pkill` 误伤同机其它会话，我让脚本 `exec setsid "$0"` 把自己
+放进独立进程组。但这有个副作用：**父进程立刻退出、真正的脚本被分离**，外层
+`timeout` / 管道 / 调用者都拿不到它的生命周期。实测后果是单文件普查跑出
+**209 秒**（外层 `timeout 200` 到期才结束），而同一文件用 `run_one` 单独跑只要
+**1 秒**。
+
+已改成不需要任何模式匹配的方案：
+
+- 每个 worker 由 `timeout -k <grace>` 硬性封顶，单个用例不可能无限期占着 CPU；
+- 因此即使脚本被 SIGKILL，遗留的也只是"各自会超时自动退出"的进程，
+  不需要事后按名字扫射；
+- 脚本里不再有任何默认执行的 `pkill`（只有显式 `UYA_EXEC_CENSUS_REAP=1` 才清）。
+
+改完后同样那个单文件普查从 **209 秒降到 2 秒**，且不留进程。
+
+#### 另外两点实测修正
+
+- **默认 `MEM_MB=1024` 太小**：编译器自己的 `CompilerArena` 就要 1GB 以上，
+  1024 会让 **79 个用例在编译期**就报 `CompilerArena 无法分配 chunk` 假失败
+  （实测把上限放到 4096 后，抽查的 4 个全部恢复 `失败: 0`）。默认值已提到 4096。
+- **"CPU 没起来"是正常的**：真正拖时间的网络/DNS 用例是**阻塞在 I/O 上**
+  （实测 `timeout` 包着的 uya 进程 CPU 占用 **0.0%**），不是算得慢。
+  这类用例低 CPU 却吃满整个超时槽位，并行度一高就互相拖死。
+  想真正提速，应当给它们单独设**更短**的超时（现成的
+  `tests/exec_vm_census_timeouts.txt` 目前只支持"放宽"，方向相反）。
+
+- 机器上同时有一台 8 vCPU 的 macOS QEMU 虚拟机在跑，12 路并行普查和它抢核，
+  也会显著放大耗时。
