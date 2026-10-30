@@ -50,6 +50,7 @@ use libc.sys_fcntl;
 use libc.F_DUPFD_CLOEXEC;
 use libc.F_GETFD;
 use libc.F_SETFD;
+use libc.errno;
 use libc.sigset_t;
 use libc.sigemptyset;
 use libc.sigaddset;
@@ -117,8 +118,11 @@ fn pipeline_errno_location() &i32 {
 }, {
 extern fn __errno_location() &i32;
 
+// 解释器里 `__errno_location` 是没有实现的裸 extern（零值桩），拿到的地址是
+// null，于是所有失败路径的 `platform_code` 都变成 0。libc 自己的 errno 是普通
+// Uya 全局，失败的 syscall 包装体就是写它，直接取它的地址即可（C99 侧同样成立）。
 fn pipeline_errno_location() &i32 {
-    return __errno_location();
+    return &errno as &i32;
 }
 })
 
@@ -527,6 +531,11 @@ var _pipeline_broker_pipe: [i32: 2] = [0 - 1, 0 - 1];
 var _pipeline_broker_pending_signal: atomic i32 = 0;
 var _pipeline_broker_signal_epoch: atomic i32 = 0;
 var _pipeline_broker_installed: i32 = 0;
+// 中断信号在 broker 存活期间一律屏蔽，改用 `sigpending` + `sigwait` 同步消费：
+// 这样 exec VM 不必执行信号处理器（解释器没有 host→bytecode 蹦床），
+// C99 侧语义与「处理器登记 epoch」等价（见 `pipeline_broker_take_signal`）。
+var _pipeline_broker_saved_mask: sigset_t = sigset_t {};
+var _pipeline_broker_mask_blocked: i32 = 0;
 var _pipeline_broker_previous_actions: [PipelineSigaction: 4] = [];
 var _pipeline_broker_owned_actions: [i32: 4] = [];
 var _pipeline_test_fail_next_fork: atomic i32 = 0;
@@ -581,6 +590,10 @@ fn pipeline_broker_uninstall() void {
     if _pipeline_broker_pipe[1] >= 0 { _ = close(_pipeline_broker_pipe[1]); }
     _pipeline_broker_pipe[0] = 0 - 1;
     _pipeline_broker_pipe[1] = 0 - 1;
+    if _pipeline_broker_mask_blocked != 0 {
+        _ = pthread_sigmask(SIG_SETMASK, &_pipeline_broker_saved_mask, null as &sigset_t);
+        _pipeline_broker_mask_blocked = 0;
+    }
     _pipeline_broker_installed = 0;
 }
 
@@ -593,11 +606,45 @@ fn pipeline_broker_install() !void {
     try pipeline_broker_install_handler(SIGQUIT, 1usize);
     try pipeline_broker_install_handler(SIGTERM, 2usize);
     try pipeline_broker_install_handler(SIGHUP, 3usize);
+    var block_set: sigset_t = sigset_t {};
+    _ = sigemptyset(&block_set);
+    var block_i: usize = 0usize;
+    while block_i < 4usize {
+        _ = sigaddset(&block_set, pipeline_broker_signal_at(block_i));
+        block_i = block_i + 1usize;
+    }
+    if pthread_sigmask(SIG_BLOCK, &block_set, &_pipeline_broker_saved_mask) == 0 {
+        _pipeline_broker_mask_blocked = 1;
+    }
     _pipeline_broker_installed = 1;
 }
 
 fn pipeline_broker_take_signal(observed_epoch: &i32) i32 {
     if observed_epoch == null { return 0; }
+    // 屏蔽期间到达的中断信号不会触发处理器，只能同步取走：sigpending 看有没有，
+    // 有就用 sigwait 消费并把 epoch/pending 补上，等价于处理器被调用。
+    if _pipeline_broker_mask_blocked != 0 {
+        var pending_set: sigset_t = sigset_t {};
+        if sigpending(&pending_set) == 0 {
+            var take_i: usize = 0usize;
+            while take_i < 4usize {
+                const take_sig: i32 = pipeline_broker_signal_at(take_i);
+                if sigismember(&pending_set, take_sig) == 1 {
+                    var wait_set: sigset_t = sigset_t {};
+                    _ = sigemptyset(&wait_set);
+                    _ = sigaddset(&wait_set, take_sig);
+                    var consumed: i32 = 0;
+                    if sigwait(&wait_set, &consumed) == 0 {
+                        _pipeline_broker_pending_signal = consumed;
+                        _ = __atomic_add_fetch((&_pipeline_broker_signal_epoch) as &i32, 1,
+                            PIPELINE_ATOMIC_SEQ_CST);
+                    }
+                    break;
+                }
+                take_i = take_i + 1usize;
+            }
+        }
+    }
     const epoch: i32 = __atomic_load_n((&_pipeline_broker_signal_epoch) as &i32, PIPELINE_ATOMIC_SEQ_CST);
     if epoch == observed_epoch[0] { return 0; }
     observed_epoch[0] = epoch;
@@ -1825,13 +1872,45 @@ fn pipeline_child_clear_cloexec(fd: i32) i32 {
     return changed catch { return 0 - 1; };
 }
 
-fn pipeline_child_write_startup(fd: i32, kind: i32, phase: i32, platform_code: i32) i32 {
-    const record: PipelineStartupRecord = PipelineStartupRecord {
-        kind: kind, phase: phase, platform_code: platform_code, error_name_offset: 0isize,
-    };
-    if write(fd, &record as &const byte, @size_of(PipelineStartupRecord)) !=
-        @size_of(PipelineStartupRecord) as i64 { return 0 - 1; }
+/// 按小端把启动记录打包成原生 24 字节再写。
+///
+/// 不能直接 `write(fd, &record as &byte, 24)`：VM 聚合的每个字段各占一个
+/// 56 字节的 ExecValue 槽，内核会照单全收地写出去，父进程按原生布局解出来
+/// 就是 kind/phase 错位（实测 phase 恒为 0，所有 exec 失败都被归成 platform_error）。
+fn pipeline_write_startup_record(fd: i32, kind: i32, phase: i32, platform_code: i32,
+    error_name_offset: isize) i32 {
+    var storage: [byte: 32] = [];
+    var zi: usize = 0usize;
+    while zi < 32usize {
+        storage[zi] = 0 as byte;
+        zi = zi + 1usize;
+    }
+    storage[0] = (kind & 255) as byte;
+    storage[1] = ((kind >> 8) & 255) as byte;
+    storage[2] = ((kind >> 16) & 255) as byte;
+    storage[3] = ((kind >> 24) & 255) as byte;
+    storage[4] = (phase & 255) as byte;
+    storage[5] = ((phase >> 8) & 255) as byte;
+    storage[6] = ((phase >> 16) & 255) as byte;
+    storage[7] = ((phase >> 24) & 255) as byte;
+    storage[8] = (platform_code & 255) as byte;
+    storage[9] = ((platform_code >> 8) & 255) as byte;
+    storage[10] = ((platform_code >> 16) & 255) as byte;
+    storage[11] = ((platform_code >> 24) & 255) as byte;
+    const off: i64 = error_name_offset as i64;
+    var oi: i32 = 0;
+    while oi < 8 {
+        const shift: i32 = oi * 8;
+        const byte_index: usize = 16usize + oi as usize;
+        storage[byte_index] = ((off >> shift) & 255i64) as byte;
+        oi = oi + 1;
+    }
+    if write(fd, &storage[0], 24usize) != 24i64 { return 0 - 1; }
     return 0;
+}
+
+fn pipeline_child_write_startup(fd: i32, kind: i32, phase: i32, platform_code: i32) i32 {
+    return pipeline_write_startup_record(fd, kind, phase, platform_code, 0isize);
 }
 
 fn pipeline_child_write_stage_result(fd: i32, kind: i32, error_name: &const byte) i32 {
@@ -1840,12 +1919,7 @@ fn pipeline_child_write_stage_result(fd: i32, kind: i32, error_name: &const byte
         error_name_offset = @usize_from_ptr(error_name as &const void) as isize -|
             uya_pipeline_image_anchor() as isize;
     }
-    const record: PipelineStartupRecord = PipelineStartupRecord {
-        kind: kind, phase: 0, platform_code: 0, error_name_offset: error_name_offset,
-    };
-    if write(fd, &record as &const byte, @size_of(PipelineStartupRecord)) !=
-        @size_of(PipelineStartupRecord) as i64 { return 0 - 1; }
-    return 0;
+    return pipeline_write_startup_record(fd, kind, 0, 0, error_name_offset);
 }
 
 fn pipeline_worker_arg_matches(value: &const byte) bool {
@@ -1922,9 +1996,10 @@ fn pipeline_child_fail_startup(fd: i32, phase: i32, platform_code: i32) void {
 fn pipeline_read_startup_record(fd: i32, record: &PipelineStartupRecord) !i32 {
     if record == null { return error.PipelineIoError; }
     var raw: [byte: 32] = [];
+    const base: &byte = &raw[0];
     var received: usize = 0usize;
     while received < @size_of(PipelineStartupRecord) {
-        const target: &byte = &raw[received];
+        const target: &byte = &base[received];
         const read_count: i64 = read(fd, target, @size_of(PipelineStartupRecord) -| received);
         if read_count == 0i64 {
             if received == 0usize { return 0; }

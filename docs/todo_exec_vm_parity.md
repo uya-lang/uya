@@ -5772,3 +5772,34 @@ capture 读通了以后，`test_typed_pipeline_executor_single` 还剩两处挂�
 `pipeline_runtime_broker_interrupts_and_cancels_process_group` 现在让 VM 进程收到 SIGTERM
 （rc=143）。取消/中断路径的 `pgid` 与信号目标还要再核：多半是记录到的进程组落到了
 调用方自己这一组（`kill(0 - pgid, …)` 打到了父进程组）。
+
+### 407 后续之四：`test_typed_pipeline_executor_single` 在 VM 里全绿（34/34）
+
+上一节的「broker 中断把自己打死」拆成三处，全部修在 `lib/std/process.uya`：
+
+1. **中断信号改成「屏蔽 + 同步消费」**
+   VM 里没有 host→bytecode 蹦床，`sigaction` 装不上处理器（解释器也没有
+   `__restore_rt` 汇编垫片，真装会崩）。改成 broker 存活期间用既有的
+   `pthread_sigmask`（宿主桥已能真屏蔽）把 SIGINT/SIGQUIT/SIGTERM/SIGHUP 屏蔽，
+   `pipeline_broker_take_signal` 里再用 `sigpending` + `sigwait`（都是既有桥/解释
+   路径）同步取走挂起信号、补上 `pending_signal` 与 `signal_epoch`。
+   C99 侧语义等价（处理器不再被调用，但 epoch/pending 由同一段代码补），
+   实测 C99 该文件 36 例仍全过。
+
+2. **启动记录改成原生 24 字节打包**
+   `write(fd, &record as &byte, 24)` 在 VM 里写出的是 ExecValue 槽（每字段 56 字节），
+   父进程按原生布局解出来 kind/phase 错位：`phase` 恒为 0，所有 exec 失败都被
+   归成 `platform_error`。新增 `pipeline_write_startup_record` 按小端逐字节打包，
+   读侧同步改成字节指针推进（`&base[received]`，避免把元素步长当字节偏移）。
+
+3. **`platform_code` 恒为 0**
+   `pipeline_errno_location()` 原来调裸 extern `__errno_location`，VM 里是零值桩
+   返回 null。改成直接取 libc 自己的 `errno` 全局地址（失败的 syscall 包装体
+   写的就是它）。
+
+验证（本文件）：VM `通过: 34 / 失败: 0`（第 405 轮曾整轮挂死），C99 `通过: 36 / 失败: 0`。
+相邻用例 VM 也无回归：`test_typed_pipeline_caller_buffers` / `test_std_script_pipeline_facade` /
+`test_typed_pipeline_cmd_argv` / `test_typed_pipeline_result_types` / `test_osal` /
+`test_runtime_environment` 全过。仍红的只剩两处已登记缺口：
+`test_typed_pipeline_capability`（聚合字段偏移）与 `test_typed_pipeline_lowering_error`
+（drop/cleanup 语义）。
