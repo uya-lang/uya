@@ -3476,3 +3476,6 @@ C99 侧这 4 例全绿（无回归）。
 翻转的 5 例全是 https：P-256 提速让握手跑得完，router 的下标修复让它们真正通过
 （含 `test_https_google` / `test_https_real_site` 这种连真实站点的）。
 没有新增失败。
+`make exec-parity` 复测：**914 例 / 一致 848 / 不一致 66 / stdout 差分 0**
+（第 374 轮 846/68）。剩余 66 例里 async 相关占 30 例以上，其余是 pthread、
+`@c_import`、TLS 大数、typed_pipeline 这几类已知的模型级缺口。
