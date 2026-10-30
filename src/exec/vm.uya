@@ -24,6 +24,11 @@ use libc.realloc;
 use libc.free;
 use libc.exit;
 use libc.fflush;
+use libc.sys_setpgid;
+use libc.sys_getpgid;
+use libc.sys_getpgrp;
+use libc.sys_setsid;
+use libc.sys_kill;
 
 const EXEC_VM_REF_KIND_BASE: i32 = 65536;
 const EXEC_VM_REF_KIND_INDEX_BASE: i32 = 131072;
@@ -4901,6 +4906,50 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
     if site.id == ExecHostCallId.EXEC_HOST_CALL_ISATTY {
         // 解释器输出总是被当管道读（与 C99 测试里 isatty 返回 0 一致）。
         out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_SETPGID {
+        const sp_pid: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const sp_group: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        if sp_pid == null || sp_group == null || arg_count != 2 {
+            exec_backend_set_error(function.decl, "exec: setpgid 参数非法" as *byte, 0);
+            return -1;
+        }
+        const sp_rc: i32 = sys_setpgid(sp_pid.i64_value as i32, sp_group.i64_value as i32);
+        out_value[0] = exec_make_i32(sp_rc);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_GETPGID {
+        const gp_pid: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        if gp_pid == null || arg_count != 1 {
+            exec_backend_set_error(function.decl, "exec: getpgid 参数非法" as *byte, 0);
+            return -1;
+        }
+        const gp_rc: i32 = sys_getpgid(gp_pid.i64_value as i32);
+        out_value[0] = exec_make_i32(gp_rc);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_KILL {
+        const k_pid: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const k_sig: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        if k_pid == null || k_sig == null || arg_count != 2 {
+            exec_backend_set_error(function.decl, "exec: kill 参数非法" as *byte, 0);
+            return -1;
+        }
+        const kill_raw: !i32 = sys_kill(k_pid.i64_value, k_sig.i64_value as i32);
+        const kill_rc: i32 = kill_raw catch {
+            out_value[0] = exec_make_i32(0 - 1);
+            return 0;
+        };
+        out_value[0] = exec_make_i32(kill_rc);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_GETPGRP {
+        out_value[0] = exec_make_i32(sys_getpgrp());
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_SETSID {
+        out_value[0] = exec_make_i32(sys_setsid());
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CREATE ||

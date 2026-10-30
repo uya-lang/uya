@@ -5728,3 +5728,47 @@ capture 拿到的 `stdout_buf.ptr` 来自切片、指向别处。）
 也就是「超限 → `kill(-pgid, SIGKILL)` → 收尸」这条链里，SIGKILL 没送到子进程，
 父进程随后在正常收尸路径上永远等下去。下一步查 `pipeline_cancel_started_group`
 里的 `pgid` / `pids[]` 在 VM 里是不是记录了错误的值（`kill` 本身在别的用例里是通的）。
+
+### 407 后续之三：进程组族在 VM 里是空桩，取消路径打空
+
+capture 读通了以后，`test_typed_pipeline_executor_single` 还剩两处挂：
+
+1. `pipeline_capture_limit_kills_writer_that_ignores_sigpipe` 挂死；
+2. 后面 `pipeline_runtime_broker_interrupts_and_cancels_process_group` 把测试进程自己打死。
+
+实测现场（挂死那次）：父进程 `wchan = do_wait`，子进程
+`/bin/sh -c 'trap "" PIPE; while :; …'` 还活着。用探针逐项拆开：
+
+- `setpgid(pid, pid)` 返回 0，但随后 `getpgid(pid)` **不等于** pid —— `setpgid` 是空桩；
+- 把 `setpgid` 换成真实现后，`kill(-pid, 9)` 返回 0，子进程却还活着 —— `kill` 也是空桩；
+- 直接从探针里 `@syscall(62, pid, 9)` 同样无效：解释器里这条 syscall 返回 0 但不发信号。
+
+根因：`lib/std/process.uya:78-90` 那一组 `extern fn`（`setpgid`/`getpgid`/`getpgrp`/`setsid`/
+`tcgetpgrp`/…）既没有 Uya 实现体，也没有宿主桥，VM 里退化成零值桩；而
+`lib/libc/signal.uya` 的 `kill` 虽然有体，体里是 `@syscall(62,…)`，解释器里跑出来是空操作。
+
+修法（宿主桥 + 真实现两条腿）：
+
+- `src/exec/hir.uya` 增加 `EXEC_HOST_CALL_SETPGID/GETPGID/GETPGRP/SETSID/KILL`；
+- `src/exec/lower.uya` 按名字 + 参数个数把这些调用点判成宿主调用，
+  并把 `kill` 加进 `exec_lower_extern_prefers_host_call`（有体也让宿主覆盖）；
+- `src/exec/vm.uya` 的宿主桥调用 `lib/libc/unistd.uya` 新增的
+  `sys_setpgid/sys_getpgid/sys_getpgrp/sys_setsid`（编译器自身 -nostdlib，
+  glibc 不参与链接，必须走 `@syscall`；系统调用号按 x86_64/arm/arm64/riscv64 分支）
+  和既有的 `sys_kill`。
+
+验证：
+
+- 探针（fork 死循环子进程 + `setpgid` + `kill(-pid,SIGKILL)` + `WNOHANG` 收尸）：
+  修前 VM rc=22（杀不掉），修后 VM rc=0；
+- `test_typed_pipeline_executor_single`（VM）：`pipeline_capture_limit_kills_writer_that_ignores_sigpipe`
+  由挂死转为 OK（该文件 VM 侧 19 个用例通过），C99 侧 36 个全过；
+- `test_osal` / `test_runtime_environment` / `test_std_script_pipeline_facade` /
+  `test_poll_std_async` / `test_typed_pipeline_cmd_argv` / `test_typed_pipeline_caller_buffers`：VM 全过；
+- `test_signal`（VM=2）改动前就是 2，属已登记的「宿主回调」墙，非回归。
+
+### 再下一堵：broker 中断把测试进程自己打死
+
+`pipeline_runtime_broker_interrupts_and_cancels_process_group` 现在让 VM 进程收到 SIGTERM
+（rc=143）。取消/中断路径的 `pgid` 与信号目标还要再核：多半是记录到的进程组落到了
+调用方自己这一组（`kill(0 - pgid, …)` 打到了父进程组）。

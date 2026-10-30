@@ -818,6 +818,31 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
             param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_ISATTY;
         }
+        // 进程组族：std.process 用不带体的 `extern fn` 声明它们，
+        // 解释器里必须真调宿主，否则 setpgid 静默失败、kill(-pgid) 打空，
+        // 超限取消的收尸就会永远阻塞。
+        if str_equals(fn_name, "setpgid" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_SETPGID;
+        }
+        if str_equals(fn_name, "getpgid" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_GETPGID;
+        }
+        if str_equals(fn_name, "getpgrp" as &byte) != 0 &&
+            param_count == 0 && call_arg_count == 0 {
+            return ExecHostCallId.EXEC_HOST_CALL_GETPGRP;
+        }
+        // kill 同理：解释器里 `@syscall(62,…)` 是空操作（返回 0 但信号没发出去），
+        // 必须由宿主桥真发信号，否则超限取消的 kill(-pgid) 永远打空。
+        if str_equals(fn_name, "kill" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_KILL;
+        }
+        if str_equals(fn_name, "setsid" as &byte) != 0 &&
+            param_count == 0 && call_arg_count == 0 {
+            return ExecHostCallId.EXEC_HOST_CALL_SETSID;
+        }
         if str_equals(fn_name, "pthread_sigmask" as &byte) != 0 &&
             param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SIGMASK;
@@ -1127,6 +1152,11 @@ fn exec_lower_extern_prefers_host_call(fn_decl: &ASTNode) i32 {
     // 一个不存在的变参宿主符号上（实测「无法解析被调用函数」）。它已经有
     // 专门的宿主实现（`EXEC_HOST_CALL_SSCANF_FIXED`），这里让它优先走宿主。
     if str_equals(name, "sscanf" as *byte) != 0 {
+        return 1;
+    }
+    // `kill` 的 Uya 实现体走 `@syscall(62,…)`，解释器里那条 syscall 是空操作
+    // （返回 0 但信号没发出去）。信号必须由宿主真发，否则 kill(-pgid) 打空。
+    if str_equals(name, "kill" as *byte) != 0 {
         return 1;
     }
     // 这些入口在 VM 里有宿主实现，Uya 实现体（线程/信号/内存系统调用）在解释器里
