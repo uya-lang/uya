@@ -4417,6 +4417,27 @@ fn exec_vm_libm_binary(name: &byte, x: f64, y: f64) f64 {
     return 0.0;
 }
 
+/// 真正调用内核的 `rt_sigprocmask`（14 号）。
+///
+/// 参数：`how`（SIG_BLOCK=0 / SIG_UNBLOCK=1 / SIG_SETMASK=2）；`mask_new` 新屏蔽字
+/// 的低 64 位；`mask_old` 接收旧屏蔽字；`has_set` 为 0 时按「set 传 null」处理。
+/// 返回值：内核返回值（0 成功，负数为 -errno）。
+fn exec_vm_rt_sigprocmask(how: i32, mask_new: i64, mask_old: &i64, has_set: bool) i64 {
+    var buf_new: [i64: 1] = [mask_new];
+    var buf_old: [i64: 1] = [0i64];
+    var set_ptr: i64 = 0;
+    if has_set {
+        set_ptr = @usize_from_ptr(&buf_new[0] as &void) as i64;
+    }
+    const raw: !i64 = @syscall(14i64, how as i64, set_ptr,
+        @usize_from_ptr(&buf_old[0] as &void) as i64, 8i64);
+    const rc: i64 = raw catch { return 0 -| 1; };
+    if mask_old != null {
+        mask_old[0] = buf_old[0];
+    }
+    return rc;
+}
+
 fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCallSite, frame: &ExecFrame, arg_base: i32, arg_count: i32, out_value: &ExecValue) i32 {
     if function == null || site == null || frame == null || out_value == null {
         exec_backend_set_error(null, "exec: hostcall 输入无效" as *byte, 0);
@@ -5266,18 +5287,42 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SIGMASK {
-        // 解释器是单线程：屏蔽信号表只当占位，oldset 有值就清零。
-        if arg_count == 3 {
-            const mask_old: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
-            if mask_old != null && mask_old.ptr_value != null {
-                var mask_i: usize = 0;
-                while mask_i < 128 as usize {
-                    mask_old.ptr_value[mask_i] = 0;
-                    mask_i = mask_i + 1;
-                }
+        // 这里必须**真的**把信号屏蔽字设上，不能只做占位：管道写已关闭的对端时，
+        // SIGPIPE 没被屏蔽会直接把解释器打死（退出码 141），Uya 代码里精心写的
+        // `errno == EPIPE` 分支永远跑不到。
+        //
+        // Uya 的 `sigset_t` 只有一个 `val: u64`，而内核的 `rt_sigprocmask`
+        // 要求的 sigsetsize 正好是 8，直接按 8 字节传即可。
+        if arg_count != 3 {
+            exec_backend_set_error(function.decl, "exec: pthread_sigmask 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const how_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const set_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        const old_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
+        var how_value: i32 = 0;
+        if how_slot != null {
+            how_value = exec_vm_numeric_to_i64(how_slot[0]) as i32;
+        }
+        var mask_new: i64 = 0;
+        const set_target: &ExecValue = exec_vm_ref_target_value(set_slot);
+        if set_target != null {
+            const set_agg: &ExecAggregate = exec_value_as_aggregate(set_target);
+            if set_agg != null && set_agg.values != null && set_agg.count > 0 {
+                mask_new = exec_vm_numeric_to_i64(set_agg.values[0]);
             }
         }
-        out_value[0] = exec_make_i32(0);
+        var mask_old: i64 = 0;
+        const sig_rc: i64 = exec_vm_rt_sigprocmask(how_value, mask_new, &mask_old,
+            set_target != null);
+        const old_target: &ExecValue = exec_vm_ref_target_value(old_slot);
+        if old_target != null {
+            const old_agg: &ExecAggregate = exec_value_as_aggregate(old_target);
+            if old_agg != null && old_agg.values != null && old_agg.count > 0 {
+                old_agg.values[0] = exec_make_u64(mask_old as u64);
+            }
+        }
+        out_value[0] = exec_make_i32(sig_rc as i32);
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_INTERFACE_GET_VTABLE {
