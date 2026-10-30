@@ -5457,3 +5457,24 @@ C 布局写进 24 字节缓冲区），键是 `(基址, 下标)`；而 `memcpy` 
 下一步方向：让 `memcpy` 携带旁路表条目（源基址的 `(src, i)` 整体搬到 `(dst, i)`，
 顺带在 `free(src)` 时清掉旧条目），或者让结构体元素在写入旁路表的同时
 也按字段偏移写进原生缓冲。前者更小、更贴近现有设计。
+
+**实测补充（探针结果，已全部撤掉）**：
+
+```
+[agg-slot] base=0x...1f0 idx=0     ← 写第 0 项：走的是旁路表（elem_size==0 分支）
+[agg-slot] base=0x...270 idx=1     ← 写第 1 项：换了新块
+[agg-peek] base=0x...270 idx=0     ← 读 env_ops[0]：新基址下没有条目
+```
+然后**既没有** `[hint]` 也**没有** `[no-hint]` 打印 —— 说明读侧根本没进
+`elem_size == 0` 那个分支，也就是说**同一个字段 `env_ops`，写侧认成「结构体指针」
+（`elem_size == 0` → 旁路表），读侧认成别的 pointee（`elem_size != 0` → 标量）。
+两边的元素类型推断不一致才是根因，旁路表键只是表象。
+
+另外 `memcpy` 在 VM 里**不是**宿主调用（`lib/libc` 里有 Uya 实现，走不到
+`EXEC_HOST_CALL_MEMCPY`），所以「让 memcpy 搬旁路表条目」这条路走不通 ——
+本轮加的 `exec_vm_native_agg_carry` 留着但在这个用例里不触发（实测无输出）。
+`realloc` 那条搬键是真缺陷（`exec_vm_native_agg_rebase`），也留着。
+
+下一步应该查：为什么 `&PipelineEnvOp` 这个字段经过
+`malloc(... ) as &PipelineEnvOp` → 赋值给结构体字段 → 再读出来之后，
+pointee kind 会不一致（大概率是 `as` 转换后再存字段丢了 pointee 编码）。

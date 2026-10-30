@@ -2441,6 +2441,52 @@ fn exec_vm_native_agg_rebase(old_base: usize, new_base: usize) void {
     }
 }
 
+/// 把旁路表里 `src_base` 名下的元素整体搬到 `dst_base` 名下。
+/// 参数：`src_base` 源原生基址；`dst_base` 目标原生基址。
+/// 返回值：无。
+/// `malloc + memcpy + free` 这种「每追加一项就换块」的写法（`process.uya` 的
+/// `env_ops`）里，结构体元素只活在旁路表，原生字节是空的：memcpy 抄过去的是
+/// 没写过的内存，之后按新基址读自然全是 VOID。搬键就是把语义上的值一起搬。
+fn exec_vm_native_agg_carry(src_base: usize, dst_base: usize) void {
+    if src_base == 0 as usize || dst_base == 0 as usize || src_base == dst_base {
+        return;
+    }
+    var i: i64 = 0;
+    while i < (EXEC_NATIVE_AGG_MAX_ELEMS as i64) {
+        const src_elem: &ExecValue = exec_vm_native_agg_peek(src_base, i);
+        if src_elem == null {
+            return;
+        }
+        const dst_elem: &ExecValue = exec_vm_native_agg_slot(dst_base, i);
+        if dst_elem == null {
+            return;
+        }
+        dst_elem[0] = exec_value_clone(src_elem);
+        i = i + 1;
+    }
+}
+
+/// 释放原生块时丢掉它名下的旁路表条目。
+/// 参数：`base` 即将释放的原生基址。
+/// 返回值：无。不丢的话，地址被后续 `malloc` 复用时会把上一位使用者的
+/// 元素值「复活」（读到本不该存在的数据）。
+fn exec_vm_native_agg_forget(base: usize) void {
+    if base == 0 as usize {
+        return;
+    }
+    var i: i32 = 0;
+    while i < g_native_agg_used {
+        if g_native_agg_base[i] == base {
+            g_native_agg_base[i] = 0 as usize;
+            g_native_agg_count[i] = 0;
+            g_native_agg_handles[i].count = 0;
+            g_native_agg_storage[i] = null;
+            return;
+        }
+        i = i + 1;
+    }
+}
+
 /// 查找原生指针第 index 个聚合元素的**已登记**旁路槽位（不建表）。
 ///
 /// `STORE_INDEX` 往原生结构体数组写元素时，元素是 VM 聚合，无法落进 C 布局，
@@ -4695,6 +4741,15 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         if site.id != ExecHostCallId.EXEC_HOST_CALL_MEMSET {
             mem_src_ptr = exec_vm_mem_view(mem_second, &src_cap, &src_view);
         }
+        // 原生块之间的 memcpy：旁路表里挂在源基址上的结构体元素一起搬过去
+        // （`malloc + memcpy + free` 增容后旧元素不能凭空消失）。
+        if (site.id == ExecHostCallId.EXEC_HOST_CALL_MEMCPY ||
+            site.id == ExecHostCallId.EXEC_HOST_CALL_MEMMOVE) &&
+            dst_view != EXEC_MEM_VIEW_VALUE && src_view != EXEC_MEM_VIEW_VALUE &&
+            mem_dst_ptr != null && mem_src_ptr != null {
+            exec_vm_native_agg_carry(@usize_from_ptr(mem_src_ptr as &void),
+                @usize_from_ptr(mem_dst_ptr as &void));
+        }
         // 目标是 VM 值本体（`&local`/`&field`）：不能按字节写，按语义整体处理。
         if dst_view == EXEC_MEM_VIEW_VALUE && mem_count > 0 as usize {
             if site.id == ExecHostCallId.EXEC_HOST_CALL_MEMSET && (mem_second.i64_value as byte) == 0 {
@@ -5632,6 +5687,7 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         }
         if free_arg.ptr_value != null &&
             exec_vm_alloc_untrack(@usize_from_ptr(free_arg.ptr_value as &void)) != 0 {
+            exec_vm_native_agg_forget(@usize_from_ptr(free_arg.ptr_value as &void));
             free(free_arg.ptr_value as &void);
         }
         out_value[0] = exec_make_void();
