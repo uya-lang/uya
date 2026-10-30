@@ -4088,3 +4088,32 @@ parity 的 +2 就是 `test_std_async_event` 与 `test_epoll_server`（外加
 - `@c_import`（3 例，明确不支持）、`cleanup scope 嵌套过深`、超长函数。
 
 T11 的三条收口项因此仍保持未勾选状态；`make check` 一项持续为绿。
+
+### 第 391 轮：`test_typed_pipeline_executor_single` 的悬垂引用取证
+
+该例报 `LOAD_FIELD 字段越界(idx=0 kind=14 count=-1 pointee=16)`
+（C99 侧通过），位置在 `lib/libc/signal.uya:425` 的 `sigismember`。
+
+用临时打印追踪 `exec_vm_field_object` 的解引用链，最后一段是：
+
+```
+FOBJ d=0 kind=14 i64=139727701718664 aux=65552   # 指针，ref-kind=STRUCT
+FOBJ d=1 kind=0  i64=0          aux=0            # 目标槽 kind=VOID
+```
+
+`aux=65552` = `EXEC_VM_REF_KIND_BASE + 16`，说明这是一个**合法的内部引用编码**，
+但解出来的目标 `ExecValue` 的 `kind` 是 `VOID` —— 该槽从未被写过（或所属帧已弹出，
+槽位被回收）。于是 `set == null` 判不出来，`set.val` 直接撞上 `LOAD_FIELD` 越界。
+
+#### 已排除
+
+写了最小用例（`var s: sigset_t = sigset_t {}` 依次 `sigemptyset` / `sigaddset` /
+`sigismember`）在 exec 后端**通过**，所以不是「extern libc + `&struct` 传参」
+本身的问题，而是**指向局部聚合的引用活得比帧久**。
+
+#### 结论与后续方向
+
+这是跨帧逃逸（悬垂引用）问题，和 async 帧布局属同一类模型缺口，改动面大。
+本轮只做定位，不动代码；后续若要把这条收口，需要先找到「取局部地址后存进
+更长生命周期的容器」的具体路径，再决定是延长帧寿命还是让槽位回收时把
+仍被引用的槽降级为「已移动」哨兵并按需报错。
