@@ -822,6 +822,13 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
             param_count == 3 && call_arg_count == 3 {
             return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SIGMASK;
         }
+        // `sigwait` 是同步解释器里「消费挂起信号」的唯一手段：屏蔽期间产生的
+        // SIGPIPE 会挂起，若不消费，恢复屏蔽字的那一刻就会被默认动作打死
+        // （退出码 141，管道用例必踩）。宿主桥按 rt_sigtimedwait 实现。
+        if str_equals(fn_name, "sigwait" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_SIGWAIT;
+        }
         // 同步解释器没有真线程：这几个 pthread 入口在 VM 里按「顺序执行 + 状态表」模拟，
         // 语义比跑 Uya 实现体（clone 系统调用）更接近调用点的期望。
         if str_equals(fn_name, "pthread_create" as &byte) != 0 &&

@@ -5325,6 +5325,48 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         out_value[0] = exec_make_i32(sig_rc as i32);
         return 0;
     }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_SIGWAIT {
+        // `sigwait(set, &signo)`：从挂起信号里取一个并消费掉。
+        //
+        // 用 `rt_sigtimedwait`（128 号）加全零 timeout 实现：调用点已经先
+        // `sigpending` + `sigismember` 确认过目标信号是挂起的，所以这里不会
+        // 阻塞；万一没挂起也只是返回 EAGAIN，绝不会把解释器卡死。
+        if arg_count != 2 {
+            exec_backend_set_error(function.decl, "exec: sigwait 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const sw_set: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const sw_sig: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        var sw_mask: i64 = 0;
+        const sw_set_target: &ExecValue = exec_vm_ref_target_value(sw_set);
+        if sw_set_target != null {
+            const sw_set_agg: &ExecAggregate = exec_value_as_aggregate(sw_set_target);
+            if sw_set_agg != null && sw_set_agg.values != null && sw_set_agg.count > 0 {
+                sw_mask = exec_vm_numeric_to_i64(sw_set_agg.values[0]);
+            }
+        }
+        var sw_buf: [i64: 1] = [sw_mask];
+        var sw_wait: [i64: 2] = [0i64, 0i64];
+        const sw_raw: !i64 = @syscall(128i64,
+            @usize_from_ptr(&sw_buf[0] as &void) as i64, 0i64,
+            @usize_from_ptr(&sw_wait[0] as &void) as i64, 8i64);
+        const sw_rc: i64 = sw_raw catch { return -1; };
+        if sw_rc > 0i64 {
+            const sw_out_target: &ExecValue = exec_vm_ref_target_value(sw_sig);
+            if sw_out_target != null {
+                const sw_out_agg: &ExecAggregate = exec_value_as_aggregate(sw_out_target);
+                if sw_out_agg != null && sw_out_agg.values != null && sw_out_agg.count > 0 {
+                    sw_out_agg.values[0] = exec_make_i32(sw_rc as i32);
+                } else {
+                    sw_out_target[0] = exec_make_i32(sw_rc as i32);
+                }
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        out_value[0] = exec_make_i32(sw_rc as i32);
+        return 0;
+    }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_INTERFACE_GET_VTABLE {
         if arg_count != 1 {
             exec_backend_set_error(function.decl, "exec: uya_interface_get_vtable 参数数量非法" as *byte, 0);
