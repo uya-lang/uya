@@ -3611,3 +3611,31 @@ fork 出去的子进程也会一起收掉。
 
 - 机器上同时有一台 8 vCPU 的 macOS QEMU 虚拟机在跑，12 路并行普查和它抢核，
   也会显著放大耗时。
+
+#### 治本：把"阻塞型"用例的等待时间收窄
+
+`tests/exec_vm_census_timeouts.txt` 原来只支持"放宽"（纯 CPU 慢的用例）。但真正
+拖垮普查的是另一类：**VM 里推不动、只会干等**的用例。历史数据
+（`uya-tmp/slow_results.tsv`）里 20 个用例每个都吃满 **480 秒**，按并行度 6 折算，
+光它们就占掉约 **27 分钟墙钟**。
+
+判别方法很简单：跑的时候看 CPU。**CPU 打满 = 算得慢（放宽）；CPU 接近 0 =
+阻塞干等（收窄）**。后者不该跳过（那会把覆盖率数字做漂亮），但也不该让它
+吃满默认超时。
+
+已给 13 个阻塞型用例设 60 秒超时：
+
+```
+test_async_multi_fd_concurrent         test_async_runtime_shared_semantics
+test_async_shared_runtime_semantics    test_async_task_queue_dynamic_growth
+test_http1_async_client                test_http_uyagin_websocket
+test_pthread_affinity                  test_pthread_api_cancel
+test_pthread_heap_cache_identity       test_pthread_heap_concurrency
+test_std_async_scheduler               test_std_dns_async_transport
+```
+
+实测单个用例从"吃满 480 秒"变成 **62 秒**结束，判定结论不变（仍是失败）。
+13 个合计每轮省下约 **39 分钟槽位时间**。
+
+同时保留"放宽"侧的 3 个纯 CPU 用例（bigint/ed25519/modexp4096），
+它们是真在算，必须给足时间。

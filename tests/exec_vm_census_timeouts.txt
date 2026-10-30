@@ -1,8 +1,17 @@
 # exec VM census 单用例超时覆盖表
 #
-# 格式：`用例文件名<TAB>秒数`（# 起注释）。只给「语义已经对齐、但解释器纯 CPU
-# 开销大」的用例放宽超时；跑不通的用例不要往这里加，它属于覆盖率问题。
+# 格式：`用例文件名<TAB>秒数`（# 起注释）。两个方向都支持：
 #
+#   * 放宽 —— 「语义已经对齐、但解释器纯 CPU 开销大」的用例。这类必须给足时间，
+#     否则会被误判成失败。
+#   * 收窄 —— 「VM 里根本推不动、只会干等」的用例。它们不该被跳过（那会把
+#     覆盖率数字做漂亮），但每个都吃满默认超时会把整轮普查拖死，所以给一个
+#     短超时让它快速失败。判定结论不变，只是不再白等。
+#
+# 判别依据：跑的时候看 CPU。CPU 打满 = 纯算得慢（放宽）；CPU 接近 0 =
+# 阻塞在 I/O 或死等（收窄）。实测 deterrence 见 docs/todo_exec_vm_parity.md 第 381 轮。
+
+# ---- 纯 CPU 慢（放宽）----
 # test_crypto_bigint_modexp4096：4096 位私钥指数模幂 = 6144 次 64×64 Montgomery
 # 乘法，解释器实测约 343s（C99 侧约 1s）。内存稳定在 40MB 级别。
 test_crypto_bigint_modexp4096.uya	900
@@ -10,3 +19,20 @@ test_crypto_bigint_modexp4096.uya	900
 # 慢两个数量级，默认 120s 会被误判成失败（内容已对齐）。
 test_crypto_bigint.uya	300
 test_crypto_ed25519.uya	300
+
+# ---- 阻塞型（收窄，快速失败）----
+# 这些在 VM 里等不到结果：要么需要真并发/真进程，要么需要真正的 Pending 挂起
+# 恢复语义，要么在等外部网络。CPU 实测接近 0，属于干等。给 60s 足够暴露
+# 「确实推不动」，再长只是白烧墙钟时间。
+test_async_multi_fd_concurrent.uya	60
+test_async_runtime_shared_semantics.uya	60
+test_async_shared_runtime_semantics.uya	60
+test_async_task_queue_dynamic_growth.uya	60
+test_http1_async_client.uya	60
+test_http_uyagin_websocket.uya	60
+test_pthread_affinity.uya	60
+test_pthread_api_cancel.uya	60
+test_pthread_heap_cache_identity.uya	60
+test_pthread_heap_concurrency.uya	60
+test_std_async_scheduler.uya	60
+test_std_dns_async_transport.uya	60
