@@ -4166,3 +4166,40 @@ PSTDBG pkind=16 hint=68 src=16 base=140197684404288 used=2
 `test_async_frame_methods` 里 `frame.poll(&w)` 拿到的是 VOID，
 `test_async_await` 等 8 例的 `@await 操作数不是 Future` 也在这条线上。
 这是功能级缺口，需要单独一轮做，不适合和本轮的旁路表改动混在一起。
+
+### 第 393 轮：`@frame` 帧方法缺口的取证（未实现，仅结论）
+
+`test_async_frame_methods` 与 `test_std_mqtt_async` 都报
+`LOAD_UNION_TAG 目标不是 union`，共同根因在 `frame.poll(&w)` 返回的不是
+`Poll<T>`。追到 `src/exec/lower.uya:8845`：
+
+```uya
+// `@frame(fn)` 的合成帧在 VM 里已经同步执行完：`stop()` 这类帧控制方法
+// 没有 AST 声明，按空操作处理（返回 void 零值）。
+if owner_type.kind == TYPE_STRUCT && prefix == "uya_async_" { return zero_void; }
+```
+
+`start` / `poll` / `stop` **一律降级成 void 空操作**，所以 `poll` 拿到 VOID。
+
+本轮尝试了「`start` 直接调 async 函数并把 `Future` 写回帧本体、`poll` 取字段 0」
+的实现，编译通过但测试仍失败。取证打印说明这个模型不成立：
+
+```
+FRAMESTART name=frame_method_child
+FRAMEPOLL typekind=13
+LDPK srckind=16 dstkind=1 dsti64=11     # 帧确实是 STRUCT，但字段 0 是 i32=11
+UTAG2 kind=1 i64=11
+```
+
+`srckind=16` 说明 VM 里的帧**不是空结构体**，它带着真实布局，字段 0 是
+`i32` 的步进/状态计数器（11）。也就是说 C99 侧合成的 `uya_async_*` 状态机
+结构在 VM 里已经有一份字段布局，`poll` 不能简单取字段 0 了事 —— 要复刻
+「按步进计数器跳转、跨 `@await` 保存/恢复局部变量」的整套状态机。
+
+结论：这是**功能级缺口**（需要在 VM 侧实现帧状态机），不是几行能补的 bug。
+本轮已把实验性改动整体回退（`git checkout HEAD -- src/exec/lower.uya src/exec/vm.uya`），
+工作树干净；相关 2 例保持失败，等后续专门一轮处理。
+
+`@await` 家族（8 例，`@await 操作数不是 Future 或始终 Pending`）属于同一根因链：
+`exec_vm_await_poll_interface` 需要 `poll` 返回 `Poll` 联合值，而帧 `poll` 现在给
+VOID。另有部分是同步执行模型无法表达 `Pending`（VM 里 async 函数必须一次跑完）。
