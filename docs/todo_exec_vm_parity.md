@@ -5557,3 +5557,30 @@ load 侧「peek 落空 → 调 `slot()` 再 clone」的兜底必须换成不置�
 本用例的完整结论：`env_ops` 的读侧拿到 VOID，是因为
 「`slot(base, 1)` 扩容把下标 0 撑成可读的全零槽 → `peek` 命中这条假条目」。
 要修就得让「存在」和「写过」分开，而这件事必须先做写入点审计。
+
+**位图的第三个变体也被证伪（顺带定位到 `exec_vm_field_ref` 的错路径）**
+
+换成「只标记被请求的那个下标」（`slot()` 里只置 `index` 的位，不整段撑开）后，
+`test_typed_pipeline_capability` **越过了**原来 3754 那处 `LOAD_FIELD 越界`，
+但立刻死在另一处：
+
+```
+lib/libc/heap.uya:859 fn=try_tcache_free_fast ip=58 slot=10 kind=14 idx=0 line=884 col=23
+exec: ADDR_FIELD 字段越界
+```
+
+`heap.uya:884` 是类似 `&chunk.<field>` 的取址，`chunk` 是「裸指针 → 原生结构体」。
+这条路径本该走原生字节，实际却走 `exec_vm_aggregate_ref_from_value` 里那条
+「裸指针指向聚合 → 取旁路表第 0 个元素当聚合视图」（`vm.uya:1788` 一带）。
+旁路表那条记录是 `slot()` fabricate 出来的全零值，`exec_value_as_aggregate`
+返回 null，`exec_vm_field_ref` 于是返回 null。
+
+也就是说：**堆分配器现在是靠「fabricate 出来的空条目」在工作的** ——
+把「存在」和「存取过」分开，反而暴露了它一直在走错路径。位图先撤回。
+
+下一步（比位图更根本）：让 `exec_vm_field_ref` / `exec_vm_aggregate_ref_from_value`
+在「裸指针 + pointee 是原生结构体」时优先走原生字段偏移，而不是去旁路表造聚合视图。
+heap 的 `&chunk.field` 修好之后，位图方案才有落地条件。
+
+顺带把 `ADDR_FIELD 字段越界` 的消息补全成
+`fn/ip/slot/kind/idx/line/col`（与 `LOAD_FIELD` 一致），这类错误以后自带精确位置。

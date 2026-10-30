@@ -6046,7 +6046,12 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         }
         const field_ref: &ExecValue = exec_vm_field_ref(slot_b, instr.imm as i32);
         if field_ref == null {
-            exec_backend_set_error(function.decl, "exec: ADDR_FIELD 字段越界" as *byte, 0);
+            var af_msg: [byte: 512] = [];
+            _ = snprintf(&af_msg[0] as *byte, 512,
+                "exec: ADDR_FIELD 字段越界(fn=%s ip=%d slot=%d kind=%d idx=%d line=%d col=%d)" as *byte,
+                function.name as *byte, frame.ip, instr.b, slot_b.kind as i32,
+                instr.imm as i32, instr.source.line, instr.source.column);
+            exec_backend_set_error(function.decl, &af_msg[0] as &byte, 0);
             return -1;
         }
         slot_a[0] = exec_vm_make_value_ref(field_ref, instr.c & 0xFF);
