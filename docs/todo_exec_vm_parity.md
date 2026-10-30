@@ -4226,3 +4226,52 @@ VOID。另有部分是同步执行模型无法表达 `Pending`（VM 里 async �
 - 其余零散运行时错误
 
 这些都是模型级/工程级缺口，不是「再修几个小 bug」能收口的量级。
+
+### 第 395 轮：门禁假失败的环境归因
+
+#### 现象
+
+第 394 轮 parity 记了「一致 852 / 不一致 62」，但抽查其中 9 例单独复跑**全部通过**：
+
+```
+test_embed_builtin          rc=0 失败: 0
+test_libc_stdio_new         rc=0 失败: 0
+test_std_sql                rc=0 失败: 0
+test_macro_mc_type_auto     rc=0 失败: 0
+test_std_jpeg_decode        rc=0 失败: 0
+test_std_jpeg_encode        rc=0 失败: 0
+test_exec_vm_globals        rc=0 失败: 0
+test_ffi_cast               rc=0 失败: 0
+test_extern_union           rc=0 失败: 0
+```
+
+这些用例在 parity 结果文件里是 `C99=0 VM=1` 且**两边摘要都是 `-`**（完全没有
+stdout）—— 正常跑完至少会打印 `总计/通过/失败` 三行。也就是说 `uya test`
+根本没跑起来，而不是测试断言失败。
+
+#### 排查过的（都不是原因）
+
+- **临时路径撞车**：`host_fill_temp_path` 生成 `$TMPDIR/uya_out_<pid><后缀>`，
+  带 PID，不会撞。
+- **分裂 C 缓存 `.uyacache` 并发写**：该目录最近 90 分钟无任何修改，`uya test`
+  并不使用它（那是 `make uya` 的产物）。
+- **并发本身**：6 个不同用例并发跑 3 轮，全部 `rc=0 失败: 0`，不抖。
+
+#### 真正原因：机器内存被别的会话占着
+
+普查 78/914 时 `free -g` 是 **used 51G / available 10G**。查下来是另一个会话
+起的 ComfyUI 服务：
+
+```
+python main.py --listen 127.0.0.1 --port 8188 --lowvram ...     RSS 41998824 KB ≈ 41G
+```
+
+`uya test` 的 C99 路径要调 gcc，内存不够时进程起不来 → `rc=1`、stdout 全空，
+正是前面看到的形态。第 388 轮记的「parity 固定 6 路、内存 9G/53G 可用」是在
+没有这个负载的前提下成立的，现在不成立。
+
+#### 结论与纪律
+
+- **parity / 普查的读数必须连同 `free -g` 一起看**；`available < 15G` 时读数不可信。
+- 出现「`rc=1` 且两边都没有 stdout」的行，先单独复跑再计入不一致，不要直接写进文档。
+- 怀疑假失败时，用「同一用例并发 6 份 × 3 轮」验证稳定性，比反复全量跑便宜得多。
