@@ -145,14 +145,14 @@ fn uyagin_request_segment_ptr(base: &UyaginRequestSegment, idx: i32) &UyaginRequ
     if base == null || idx < 0 || idx >= UYAGIN_ROUTER_MAX_REQ_SEGMENTS {
         return null;
     }
-    return @ptr_from_usize(@usize_from_ptr(base as &void) + (idx as usize) * @size_of(UyaginRequestSegment)) as &UyaginRequestSegment;
+    return &base[idx as usize];
 }
 
 fn uyagin_router_route_meta_ptr(base: &UyaginRouteMeta, idx: i32) &UyaginRouteMeta {
     if base == null || idx < 0 || idx >= UYAGIN_ROUTER_MAX_ROUTES {
         return null;
     }
-    return @ptr_from_usize(@usize_from_ptr(base as &void) + (idx as usize) * @size_of(UyaginRouteMeta)) as &UyaginRouteMeta;
+    return &base[idx as usize];
 }
 
 fn uyagin_router_node_ptr(router: &UyaginRouter, idx: i32) &UyaginRouterNode {

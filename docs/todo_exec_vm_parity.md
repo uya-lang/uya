@@ -3702,3 +3702,16 @@ C99 侧两者完全等价，所以行为不变。
 至此「结构体数组不要用裸指针算术」这个模式已在 router 和 TLS identity 两处
 修掉；`rg '@size_of\(' + '@ptr_from_usize'` 在 `lib/` 里还剩 6 处，都属于同类，
 后续按同样方式处理。
+
+#### 顺带清掉其余同类写法
+
+把剩余 4 处「结构体数组 + 裸指针算术」也改成指针下标（`ADDR_INDEX` 在 VM 里
+支持指针基址，并按指令里的元素大小步进，C99 侧等价）：
+
+| 文件 | 函数 |
+|---|---|
+| `lib/std/http/uyagin.uya` | `uyagin_conn_slot_ptr`、`uyagin_append_response_headers_fast` |
+| `lib/std/http/uyagin_router.uya` | `uyagin_request_segment_ptr`、`uyagin_router_route_meta_ptr` |
+
+`lib/` 里现在只剩 3 处 `@ptr_from_usize(... @size_of(x))`，都是**标量**数组
+（`i32`/`byte`）——VM 里标量数组本来就是原生字节数组，这类写法是正确的，保留。

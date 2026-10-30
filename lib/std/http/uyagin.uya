@@ -1837,7 +1837,10 @@ fn uyagin_conn_slot_ptr(base: &UyaginConnTaskSlot, idx: i32, cap: i32) &UyaginCo
     if base == null || idx < 0 || idx >= cap {
         return null;
     }
-    return @ptr_from_usize(@usize_from_ptr(base as &void) + (idx as usize) * @size_of(UyaginConnTaskSlot)) as &UyaginConnTaskSlot;
+    // 指针下标而不是「基址 + idx*@size_of(T)」：结构体数组在 VM 里每个元素是
+    // 一个 ExecValue（56 字节），`@size_of` 是 C 布局，裸加法会落进
+    // ExecValue 中间。C99 侧两者等价。
+    return &base[idx as usize];
 }
 
 fn uyagin_sync_slot_io_registration(loop: EventLoop, slot: &UyaginConnTaskSlot) !void {
@@ -2706,7 +2709,7 @@ fn uyagin_append_response_headers_fast(out: &byte, cap: usize, pos: usize, heade
     var p: usize = pos;
     var i: i32 = 0;
     while i < header_count && i < UYAGIN_MAX_RESPONSE_HEADERS {
-        const h: &Header = @ptr_from_usize(@usize_from_ptr(headers as &void) + (i as usize) * @size_of(Header)) as &Header;
+        const h: &Header = &headers[i as usize];
         p = uyagin_append_header_fast(out, cap, p, h);
         i = i + 1;
     }
