@@ -5194,3 +5194,66 @@ SIGPIPE 直接把解释器打死，Uya 代码里明明写了的 `errno == EPIPE`
 子进程 fork 时父进程还没进入 `pipeline_write_control_token`（子进程继承了空屏蔽字）。
 下一步用 `strace -f -e trace=write,rt_sigprocmask` 定位到底是哪个进程、哪一次写
 收到 SIGPIPE，再决定是在 fork 处补屏蔽还是让 `sys_write` 自己吞掉 SIGPIPE。
+
+#### 退出码 141 破案：SIGPIPE 挂起后没人消费
+
+用 `strace -f -e trace=write,rt_sigprocmask` 抓到的真实序列（同一 PID）：
+
+```
+rt_sigprocmask(SIG_BLOCK, [PIPE], [], 8)   = 0
+write(16, "A", 1)                          = -1 EPIPE (断开的管道)
+rt_sigprocmask(SIG_SETMASK, [], [PIPE], 8) = 0
+--- SIGPIPE {si_signo=SIGPIPE, si_code=SI_USER, si_pid=<自己>} ---
++++ killed by SIGPIPE +++
+```
+
+读法要说清楚：**屏蔽是有效的**（`write` 返回的是 `EPIPE` 而不是被杀），
+挂起的 SIGPIPE 在恢复屏蔽字的那一刻才投递。POSIX 语义就是这样 —— 屏蔽只推迟，
+不丢弃。要让进程活下来，必须在恢复屏蔽前把挂起信号**取走**。
+
+Uya 源码确实这么写了（`lib/std/process.uya`）：
+
+```uya
+if sigpending(&pending_after) == 0 && sigismember(&pending_before, SIGPIPE) == 0 &&
+    sigismember(&pending_after, SIGPIPE) == 1 {
+    var consumed: i32 = 0;
+    _ = sigwait(&pipe_set, &consumed);      // ← 就是这一步取走挂起信号
+}
+```
+
+而 `sigwait` 在 VM 里是**零值桩**：它在 `lib/std/process.uya` 里是裸
+`extern fn`（没有函数体），`exec_lower_extern_can_run_in_vm` 返回 0，
+调用点退化成「返回 0 但什么都不做」。于是信号既没被取走、也没被忽略，
+恢复屏蔽后立刻补投 —— 解释器被打死，退出码 141。
+
+修法（提交 `3b0f8077`）：新增 `EXEC_HOST_CALL_SIGWAIT`，用 `rt_sigtimedwait`
+（128 号）配全零 timeout 实现。调用点已经用 `sigpending` + `sigismember`
+确认过信号挂起，所以实际不会阻塞；万一没挂起也只是返回 `EAGAIN`，
+不会把解释器卡死。
+
+#### 效果
+
+`test_typed_pipeline_executor_single`：
+
+| | 之前 | 之后 |
+| --- | --- | --- |
+| 结果 | 退出码 141，无汇总 | 退出码 25，总计 1 / 通过 0 / 失败 1 |
+| 失败点 | 进程被 SIGPIPE 打死 | `statuses[0].kind` 期望 `exited` 实得 `0` 等语义断言 |
+
+也就是说，这条用例从「整个进程崩掉」推进到「正常跑完、只剩语义差异」。
+本轮的四个修复（出参回填两处、sigmask、sigwait）是叠加生效的：缺任何一个
+都走不到现在这一步。
+
+#### 该用例剩下的失败点（都是语义层，不是崩溃）
+
+```
+pipeline_single_observing_status_reports_nonzero_exit
+    statuses[0].kind == PipelineStageStatusKind.exited   (actual 0, expected 3)
+pipeline_stderr_capture_drains_separate_stream
+    result.stderr.byte_count == 11                       (actual 0, expected 11)
+pipeline_single_exact_path_check_executes ... ERROR
+pipeline_two_stage_printf_wc_executes_with_pipe_eof ... ERROR
+```
+
+共同点是**子进程状态与管道捕获**：VM 里 fork 出来的子进程退出状态没有回填到
+`PipelineStageStatus`，管道的 stderr 也没被排空。下一步从这里切入。
