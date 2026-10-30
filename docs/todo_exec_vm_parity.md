@@ -3256,3 +3256,5 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
 `test_http_websocket_backpressure`、`test_http_websocket_heartbeat`、
 `test_http_websocket_read_message_semantics` 等。
 `make check` 复测 **1191/1191 通过**（rc=0）。
+`make exec-parity`（`UYA_PARITY_TIMEOUT=600 UYA_PARITY_JOBS=6`）复测：
+**914 例 / 一致 846 / 不一致 68 / stdout 差分 0**（上一轮 838/76，净增 8 例一致）。
