@@ -5107,10 +5107,15 @@ sigismember(&pending_before, SIGPIPE)
 sigismember 读的引用目标： 0x82ff46f8     ← 相差 0x70 = 2 个槽
 ```
 
-**同一个源变量 `pending_before` 在两次使用里落到了不同的槽。** 这不是回填的问题，
-是「同一个局部在不同语句里拿到不同 slot 号」。下一步应该查降低阶段
-`HIR_EXPR_LOCAL.local_slot` 的分配：同一个 `VarDecl` 是否被分配了两次槽，
-或者两个不同作用域的临时变量恰好都叫 `pending_before` 的槽位被复用。
+（**更正**：起初以为这是「同一个变量拿到两个槽」，查源码后不成立 ——
+`lib/std/process.uya` 里本来就有两次 `sigpending` 调用，一次 `&pending_before`、
+一次 `&pending_after`，它们是两个不同的局部，地址相差两个槽是正常的。
+此前的「槽号不一致」猜测撤回。）
+
+剩下要查的是：`&pending_before` 的回填到底落到了哪个槽，以及
+`sigismember(&pending_before, ...)` 读的是不是同一个槽。最省事的验证是在
+`exec_vm_syscall_out_struct_apply` 里打印 `target` 的地址，和 `sigismember`
+入口的 `args[0]` 直接比对一次。
 
 （这一族到此可以确定是**多个独立缺陷叠加**：出参回填、局部槽号不一致，
 之前的 async/drop/回调三堵墙另外还在。）
