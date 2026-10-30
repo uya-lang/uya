@@ -4381,3 +4381,62 @@ box 头里读出的 allocator 地址是 `-15`，说明**释放了一个不是本
 - 不设内存上限：`UYA_EXEC_CENSUS_MEM_MB=0`。
 - 看到通过率突然掉 2~3 个百分点且失败项分散在 TLS/crypto/大缓冲用例上，
   先怀疑内存上限，不要当成回归去查。
+
+### 第 399 轮：`@await` Pending 传播——方案证否
+
+#### 为什么试
+
+`test_async_await`、`test_std_dns`、`test_http_websocket_*`、`test_http_uyagin` 等
+十几例都停在同一条错误上：
+
+```
+exec: @await 操作数不是 Future 或始终 Pending
+```
+
+如果能让 Pending「向上传播」，这一簇看起来能一起收口，所以值得试。
+
+#### 做了什么
+
+在 `BC_AWAIT` 里加了 `exec_vm_propagate_pending`：命中 Pending 时，按当前函数的
+返回类型造一个 `Future{ state: Pending }`（`exec_make_struct(1)` +
+`exec_make_union(0, void)`）并直接 `return 1` 从当前帧返回，靠外层再 `@await`
+层层传播。
+
+过程中确认了两个事实（都有价值）：
+
+1. `Future<T>` 在 `std.async` 里是 **interface**（`TypeKind.TYPE_INTERFACE` = 15），
+   不是 struct；同名还有一个占位 `struct Future<T>`。VM 里 `function.return_type.kind`
+   拿到的是 15。
+2. `TypeKind.TYPE_STRUCT` 的序号是 **16**（`TYPE_INTERFACE`=15），文档里早期记的
+   「STRUCT=15」是错的。
+
+#### 为什么证否
+
+传播确实生效了（错误从「始终 Pending」变成后面一步），但紧接着报：
+
+```
+exec: LOAD_FIELD 字段越界(idx=2 kind=16 count=1 pointee=-1)
+```
+
+原因是 async 函数的返回值在**调用侧会做一次接口装箱**：`Future<T>` 是 interface，
+`const f: Future<!i32> = some_async_fn();` 要把返回的结构体装成
+`{ poll_fn, drop_fn, 数据指针 }` 的箱子，装箱要读源值的第 0/1/2 个字段。而正常的
+`@async_fn` 返回语句在**降级阶段**就已经被 `exec_lower_wrap_async_return` 包成了
+`Future{state: Poll.Ready(x)}` 并完成装箱；从 `BC_AWAIT` 里直接 `return 1` 绕过的是
+降级阶段的包装，于是调用侧拿到一个 1 字段结构体，装箱时读第 2 个字段就越界。
+
+要正确装箱，必须知道 `Future<T>` 的 poll 方法函数号 —— 那是 **C99 侧
+`c99_async_frame_helper_name` 合成的 `<fn>_poll`**，VM 的 builder 根本不生成。
+这和 `@frame` 状态机是同一堵墙，不是「补几十行」的量级。
+
+实测这一簇在改动后**零新增通过**（`test_async_fd`、`test_async_compound_try_await`、
+`test_async_compute_types`、`test_async_macro_expand`、`test_async_frame_pool_stats`、
+`test_http_websocket_json` 全是 `失败: 1`），所以整体回退
+（`git checkout HEAD -- src/exec/vm.uya`），只保留第 396 轮的地址守卫。
+
+#### 结论
+
+`@await` 的 Pending 语义**不**是「在 VM 里造个 Pending 值」就能解决的，
+前置条件是在 VM 侧实现 async 帧的 poll 函数（与 `@frame` 同一工程）。
+这条结论把 T11 里「async 约 40 例」的根因钉死在一处，以后不要再按「传播 Pending」
+的方向试。
