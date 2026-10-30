@@ -5257,3 +5257,46 @@ pipeline_two_stage_printf_wc_executes_with_pipe_eof ... ERROR
 
 共同点是**子进程状态与管道捕获**：VM 里 fork 出来的子进程退出状态没有回填到
 `PipelineStageStatus`，管道的 stderr 也没被排空。下一步从这里切入。
+
+#### 标量出参回填（提交 `809c887f`）—— 顺带看清子进程为什么死
+
+`wait4(pid, &status, ...)` 的 `&status` 是标量出参：shield 把地址换成原生
+scratch，内核写在 scratch 里，而**回填从来没做**，所以 `statuses[0]` 一直是 0。
+补上回填后打点确认（`nr=61` 就是 wait4）：
+
+```
+[scalar-out] nr=61 slot=0xbc0163e8 val=13
+```
+
+`status = 13`，也就是 `status & 0x7f == 13` —— **子进程是被信号 13（SIGPIPE）
+打死的**，不是正常退出。这正好解释了 `statuses[0].kind` 期望 `exited` 实得 0。
+
+再用 strace 看子进程（PID 3263227）死前最后几步：
+
+```
+3263227 rt_sigprocmask(SIG_SETMASK, [], [], 8) = 0                      ← 屏蔽字被清空
+3263227 write(18, "\1\0\0\0…", 24)             = -1 EPIPE (断开的管道)
+3263227 --- SIGPIPE {si_signo=SIGPIPE, si_code=SI_USER} ---
+3263227 +++ killed by SIGPIPE +++
+```
+
+这 24 字节是 `pipeline_child_write_startup` 写出的 `PipelineStartupRecord`
+（`lib/std/process.uya:1826`），那个函数**自己没有屏蔽 SIGPIPE**；它能安全
+全靠调用点前面已经把 SIGPIPE 挡住。而在 VM 里，它前面紧挨着一次
+`SIG_SETMASK → 空集`，等于把保护撤掉了。
+
+所以下一个问题不是「mask 没实现」（已经实现了，也验证过），而是
+**父进程关闭控制管道读端的时机比 C99 早**：子进程往 fd 18 写启动记录时对端已经关了。
+下一步应该对比 C99 与 VM 在 fork 前后 `close()` 的顺序，重点看父进程是否在
+`fork` 之后、子进程写启动记录之前就把读端关掉了。
+
+#### 到目前为止的修复清单（本轮）
+
+| 提交 | 内容 | 验证 |
+| --- | --- | --- |
+| `cbabf264` | `LOAD_FIELD` 错误补 `fn/ip/slot` | 定位能力 |
+| `fff39fb9` | 消息缓冲区 160 → 256 | 消除越界写 |
+| `ad5a31b4` + `58989041` | 空聚合槽出参先物化再回填 | `sigismember` 错误消失 |
+| `ad58f2a1` | `pthread_sigmask` 真调 `rt_sigprocmask` | `[PIPE]` 确实被屏蔽 |
+| `3b0f8077` | `sigwait` 宿主桥（`rt_sigtimedwait`） | 退出码 141 → 25，能出汇总 |
+| `809c887f` | 标量出参回填 | `wait4` 的 status 能到 Uya 代码 |
