@@ -5504,3 +5504,33 @@ pointee=STRUCT、元素 24 字节），真正的缺陷是
 这样 memcpy/realloc 搬移之后原生字节仍然有效，load 侧走 `elem_size_hint`
 路径就能读到真正的 C 布局，旁路表再也不是唯一真相。
 `PipelineEnvOp{key, value, remove}` 正好是 3 个 8 字节字段 = 24，满足前提。
+
+**根因锁定：旁路槽「存在」不等于「写过」**
+
+再补一个只读探针（打印 peek 的命中与否）：
+
+```
+[peek-hit] base=0x99a26270 kind=0
+```
+
+命中的条目 `kind=0`（VOID）—— 这是一条**从未写过的全零槽**。
+成因在 `exec_vm_native_agg_slot(base, index)`：它按 `index` 扩容时把
+`count` 直接撑到 `index + 1`，于是下标 0 也跟着「可读」，内容是 calloc 出来的全零。
+本用例里先写 `(B1, 1)`，`(B1, 0)` 就凭空变成了合法的 VOID 元素，
+`env_ops[0]` 读到的正是它，接着 `.remove` 必然 `LOAD_FIELD 越界`。
+
+试过两个快速修法，**都不能直接上**（已全部回退）：
+
+1. 把「全零 VOID 条目」当未写，让 load 继续走原生字节路径；
+2. 写侧在写旁路表的同时，按「字段 i → i*8」也把值写进原生字节
+   （`elem_size_hint == 字段数 × 8` 时成立，`PipelineEnvOp` 正好 3×8=24）。
+
+两条一起改后，报错变成 `lib/libc/heap.uya:859 exec: ADDR_FIELD 字段越界` ——
+原生字节路径接手之后读到了不该读的布局（或写侧越界写坏了堆元数据）。
+启发式不可靠，只能老老实实记账。
+
+正确修法：给每个基址配一张**「已写」位图**（`EXEC_NATIVE_AGG_MAX_ELEMS` 位 /
+64 = 1024 个 u64 = 每基址 8KB），`slot()` 只置自己那一位，`peek()` 要求该位为 1；
+load 侧「peek 落空 → 调 `slot()` 再 clone」的兜底必须换成不置位的 getter，
+否则又会把未写元素标成已写。这样「存在」与「写过」才真正分开，
+且不需要任何全零启发式。
