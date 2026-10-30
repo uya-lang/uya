@@ -3834,3 +3834,33 @@ LOAD_GLOBAL a=41 → LOAD_LOCAL b=6 → LOAD_INDEX elem=48   (定位 stage)
   spawn，落回 async 语义缺口。
 - async 家族约 20 例：`@await` / `@frame` 合成结构体在 VM 里不存在
   （`match frame.poll(...)` 的操作数是 VOID）。
+
+### 第 385 轮：普查复测（855 / 52 / 7）
+
+用当前二进制重跑普查（`MEM_MB=4096 JOBS=8`）：
+
+- **通过 855 / 失败 52 / 跳过 7，通过率 94.3%**
+- 上一轮是 854 / 53 / 7。净 +1 来自 `test_async_frame_align_pool`
+  （第 383 轮的宽松基址回退）；`test_tls_handshake` 在上次普查时已按失败计入，
+  本轮同样通过，`test_https_loopback` 等也保持通过。
+- 三个已提交修复均无回归。
+
+#### 本轮已确认的失败构成（52 例为主）
+
+1. **async / `@await` / `@frame`（约 20 例）**：`@frame(fn)` 合成结构体在 VM
+   里不存在，`frame.poll()` 的返回值是 VOID，`match` 于是报
+   `LOAD_UNION_TAG 目标不是 union` 或 `@await 操作数不是 Future 或始终 Pending`。
+2. **线程（约 8 例）**：`test_std_thread*`、`test_async_thread_pool_dynamic_growth`
+   依赖真实工作线程，VM 里 `thread_wait_started_workers` 恒为 0；
+   `test_pthread_*` 是 124（超时）。
+3. **fork + execve（约 4 例）**：`test_kernel_sim`、`test_osal`、
+   `test_std_script_pipeline_facade`（spawn `/usr/bin/true`）。
+4. **`@c_import`（3 例）**：明确报「当前不支持」。
+5. **原生信号/大数（约 5 例）**：`test_signal`、`test_tls_ecdsa` / `test_tls_rsa`
+   超时、`test_typed_pipeline_executor_single`（`sigset_t` 原生字段）。
+
+#### 已排除的误判
+
+`test_abi_calling_convention` 在 parity 里 C99 侧也是失败，原因是该用例需要外链
+C 助手（`c_large_struct_param` 等未定义），单独跑 `uya test` 必然链接失败。
+属于 parity 夹具问题，不是 VM 缺陷。
