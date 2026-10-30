@@ -3258,3 +3258,39 @@ exec VM 具备**真正的挂起/恢复、进程与线程、原生内存双向映
 `make check` 复测 **1191/1191 通过**（rc=0）。
 `make exec-parity`（`UYA_PARITY_TIMEOUT=600 UYA_PARITY_JOBS=6`）复测：
 **914 例 / 一致 846 / 不一致 68 / stdout 差分 0**（上一轮 838/76，净增 8 例一致）。
+
+### 第 375 轮：libm host call + `memcpy` 从 VM 标量取源
+
+两条都是「VM 缺能力」，后者影响面很大。
+
+**1. `extern "libc"` 的 libm 函数在 VM 里解析不了**
+
+`lib/tflm/kernels/kernels.uya` 只写了不带体的 `extern "libc" fn exp(x: f64) f64;`，
+`lib/libc/math.uya` 里的同名函数有 Uya 实现体所以能解释执行，这种裸声明两边都不认。
+以前 `exp` 直接报「无法解析被调用函数」。
+
+修复：新增两个通用 host call id（`EXEC_HOST_CALL_LIBM1` / `EXEC_HOST_CALL_LIBM2`），
+具体函数名走 `BCHostCallSite.name`，VM 按名字分派
+（`fabs/sqrt/cbrt/exp/exp2/log/log2/log10/sin/cos/tan/asin/acos/atan/sinh/cosh/tanh/
+floor/ceil/round/trunc` 与二元 `pow/fmod/atan2/hypot/copysign/fmin/fmax`）。
+`expm1`/`log1p` 因生成的头文件没声明而暂不收录。
+
+**2. `memcpy(dst, &scalar_local, n)` 静默丢数据**
+
+`kernels.uya` 的 `store_f32` 是 `memcpy(&(p[off]) as &void, &v as &const void, 4)`。
+VM 里 `&v` 是「指向 ExecValue 本体的内部引用」，`exec_vm_mem_view` 对它返回
+`EXEC_MEM_VIEW_VALUE` 且指针为 null，于是走到字节拷贝分支时 `mem_src_ptr == null`、
+**整段拷贝被直接跳过** —— 目标一个字节都没写，而且不报错。
+
+这是通用缺陷：任何 `memcpy(&buf[off], &本地标量, sizeof T)` 的二进制序列化在 VM 下
+都会写出全 0。反方向（`memcpy(&scalar, raw, n)`）本来就有 `exec_vm_scalar_from_bytes`
+处理，所以一直是对的。
+
+修复：新增 `exec_vm_scalar_to_bytes`（按 kind 展开成小端原生字节），并在 memcpy 的
+分支链里加一条「目标是原生缓冲、源是 VM 标量」的路径。
+
+验证：三个探针（`memcpy` 从 `f32`/`i32` 取源、写入标量）全绿；
+`test_tflm_interpreter`（同时需要上面两条）由失败转为 **失败: 0**；
+`test_tflm_phase2`、`test_tflm_arena`、`test_tflm_model`、`test_std_mem`、
+`test_std_sql`、`test_fmt_api`、`test_std_io`、`test_protobuf_wire`、
+`test_std_jpeg_decode`、`test_http_websocket_handshake` 均 `失败: 0`。

@@ -79,6 +79,10 @@ enum ExecHostCallId {
     EXEC_HOST_CALL_PTHREAD_KEY_DELETE,
     EXEC_HOST_CALL_PTHREAD_SETSPECIFIC,
     EXEC_HOST_CALL_PTHREAD_GETSPECIFIC,
+    // libm 一/二元函数（`extern "libc" fn exp(x: f64) f64;` 这类没有 Uya 实现体的
+    // 声明）：具体函数名放在 hostcall 站点的 `name` 里，VM 按名字分派。
+    EXEC_HOST_CALL_LIBM1,
+    EXEC_HOST_CALL_LIBM2,
 }
 
 enum HIRStmtKind {

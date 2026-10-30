@@ -722,6 +722,52 @@ fn exec_lower_match_host_call(fn_decl: &ASTNode, call_arg_count: i32) ExecHostCa
 ///
 /// 参数：`fn_name` 函数名；`param_count` 期望参数个数；`call_arg_count` 实参个数。
 /// 返回值：命中的宿主调用 id；没命中返回 NONE。
+/// 判断函数名是否属于「一元 libm」族（`f64 -> f64`）。
+///
+/// 参数：`fn_name` 函数名。
+/// 返回值：1 命中；0 不命中。
+fn exec_lower_is_libm_unary_name(fn_name: &byte) i32 {
+    if fn_name == null {
+        return 0;
+    }
+    // 常见一元函数（`fabs`/`sqrt`/`exp`/`log`/三角/取整族）。
+    if str_equals(fn_name, "fabs" as &byte) != 0 || str_equals(fn_name, "sqrt" as &byte) != 0 ||
+        str_equals(fn_name, "cbrt" as &byte) != 0 || str_equals(fn_name, "exp" as &byte) != 0 ||
+        str_equals(fn_name, "exp2" as &byte) != 0 || str_equals(fn_name, "log" as &byte) != 0 ||
+        str_equals(fn_name, "log2" as &byte) != 0 || str_equals(fn_name, "log10" as &byte) != 0 {
+        return 1;
+    }
+    if str_equals(fn_name, "sin" as &byte) != 0 || str_equals(fn_name, "cos" as &byte) != 0 ||
+        str_equals(fn_name, "tan" as &byte) != 0 || str_equals(fn_name, "asin" as &byte) != 0 ||
+        str_equals(fn_name, "acos" as &byte) != 0 || str_equals(fn_name, "atan" as &byte) != 0 {
+        return 1;
+    }
+    if str_equals(fn_name, "sinh" as &byte) != 0 || str_equals(fn_name, "cosh" as &byte) != 0 ||
+        str_equals(fn_name, "tanh" as &byte) != 0 || str_equals(fn_name, "floor" as &byte) != 0 ||
+        str_equals(fn_name, "ceil" as &byte) != 0 || str_equals(fn_name, "round" as &byte) != 0 ||
+        str_equals(fn_name, "trunc" as &byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+/// 判断函数名是否属于「二元 libm」族（`(f64, f64) -> f64`）。
+///
+/// 参数：`fn_name` 函数名。
+/// 返回值：1 命中；0 不命中。
+fn exec_lower_is_libm_binary_name(fn_name: &byte) i32 {
+    if fn_name == null {
+        return 0;
+    }
+    if str_equals(fn_name, "pow" as &byte) != 0 || str_equals(fn_name, "fmod" as &byte) != 0 ||
+        str_equals(fn_name, "atan2" as &byte) != 0 || str_equals(fn_name, "hypot" as &byte) != 0 ||
+        str_equals(fn_name, "copysign" as &byte) != 0 || str_equals(fn_name, "fmin" as &byte) != 0 ||
+        str_equals(fn_name, "fmax" as &byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn exec_lower_match_host_call_name(fn_name: &byte, param_count: i32, call_arg_count: i32) ExecHostCallId {
     return exec_lower_match_host_call_impl(fn_name, param_count, call_arg_count, 0);
 }
@@ -1028,6 +1074,17 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
         if str_equals(fn_name, "isqrt" as &byte) != 0 &&
             param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_ISQRT;
+        }
+        // libm 族：`lib/tflm/kernels` 这类模块只写不带体的
+        // `extern "libc" fn exp(x: f64) f64;`，没有 Uya 实现体，VM 必须自己接上。
+        // 具体函数名留在 hostcall 站点的 `name` 里，由 VM 按名字分派。
+        if exec_lower_is_libm_unary_name(fn_name) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_LIBM1;
+        }
+        if exec_lower_is_libm_binary_name(fn_name) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_LIBM2;
         }
         if str_equals(fn_name, "strcmp" as &byte) != 0 &&
             param_count == 2 && call_arg_count == 2 {
