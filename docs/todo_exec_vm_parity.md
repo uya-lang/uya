@@ -4980,3 +4980,48 @@ ip=19: BC_ADDR_LOCAL a=17 b=2 c=16        ; 取局部 slot2 的地址，pointee 
 下一轮第一件事应该是给打印加 **pid**（`getpid()`），把两个进程的输出分开，
 再判断 `ADDR_LOCAL`（ip=19）到底发生在父进程还是子进程、该进程的制造点有没有被调用。
 这一步做完，「到底是截断还是残留」就能一次性判定，不用再猜。
+
+#### 真因锁定：坏引用指向**调用方自己的 slot 4**，而那槽已被临时值覆盖
+
+把「帧基址 + 各槽地址」直接打印出来对照，一次运行得到：
+
+```
+[fr] pipeline_write_control_token base=171 addr=0x2273e5a8 s2_kind=1 s2_i64=0x18 arg0=0x8
+[fr] sigismember base=213 addr=0x2273eed8 s2_kind=2 s2_i64=0x0 arg0=0x2273e688
+[fld] addr=0x2273e688 isstore=1 iref=1 aux=65552 tgt_kind=0 tgt_aux=0 tgt_i64=0x0
+```
+
+换算（`sizeof(ExecValue)=56`）：
+
+- 调用方帧基址 `0x2273e5a8`，被调方帧基址 `0x2273eed8`，两者相差 `0x930 = 2352 = 42 × 56`
+  —— 正好是调用方的 `slots=42`，帧布局完全正确，**没有重叠**。
+- 坏引用 `arg0 = 0x2273e688`，它 `- 0x2273e5a8 = 0xE0 = 224 = 4 × 56`
+  —— 指向的是调用方的 **slot 4**，而且 `isstore=1`（合法槽地址）、`iref=1`、`aux=65552`（STRUCT 引用）全对。
+- 但那个槽当时的内容是 `kind=0(EXEC_VALUE_VOID) i64=0`，**空的**。
+
+所以整条链是：
+
+1. 降低阶段发出 `BC_ADDR_LOCAL`，取某个局部的地址（`sigset_t {}` 这类栈上结构体）；
+2. 该局部所在的**槽随后被当成临时槽复用**，写进了别的值（这里是 VOID）；
+3. 迟到的那次 `set.val` 读写穿过引用，落到一个已经不是结构体的槽上；
+4. `exec_vm_aggregate_ref_from_value` 拿不到聚合 → 退化到「原生结构体」路径 →
+   `count = -1` → 报 `LOAD_FIELD 字段越界`。
+
+这一路把前面所有「截断 / 悬垂 / 竞技场残留」的猜测全部解释掉了：地址从来没错，
+错的是**槽的所有权**——取过地址的局部不能当临时槽复用。
+
+#### 已确认的次生问题（已修）
+
+排查中给 `LOAD_FIELD` 错误消息加长（`160 → 200`）时忘了同步缓冲区，
+造成潜在越界写；已把 `fld_msg` 同步扩到 256（提交 `fff39fb9`）。
+
+#### 下一步（明确、单点）
+
+在降低阶段标记「**取过地址的局部**」，让它的槽不被临时值复用。可选做法：
+
+- `exec_lower` 里给局部维护一个 `address_taken` 标志，`&local` 降级时置位；
+- 临时槽分配器（`exec_lower_alloc_temp` 一类）跳过 `address_taken` 的槽；
+- 或者更简单：凡是 `&local` 出现过的局部，一次性分配**独立槽段**，与临时槽区隔开。
+
+这条改完之后，`test_typed_pipeline_executor_single` / `test_typed_pipeline_capability` /
+`test_http_uyagin` / `test_std_script_pipeline_facade` 这一族应当一起转绿。
