@@ -4797,3 +4797,50 @@ return (value.i64_value - EXEC_VM_FN_REF_BASE) as i32;
 （例如 `@fn_ref` 的 HIR 节点、或 `CALL_INDIRECT` 的槽位），不能事后看数值。
 这也解释了为什么 `0x400000d6` 既可能是合法函数引用、也可能是被截断的地址 ——
 在没有上下文信息前不要对它下判断。
+
+### 第 406 轮：用指令跟踪把悬垂引用钉到具体指令（仍未修，但已可复现到行）
+
+给 `LOAD_FIELD` 的越界错误补上 `fn= / ip= / slot=`（提交 `cbabf264`），立刻拿到：
+
+```
+exec: LOAD_FIELD 字段越界(idx=0 kind=14 count=-1 pointee=16 fn=sigismember ip=20 slot=2)
+```
+
+配 `--dump-bytecode` 直接看 `fn[191] sigismember` 的字节码：
+
+```
+ 0: BC_LOAD_LOCAL a=2 b=0      ; slot2 = slot0（就是参数 set）
+ ...
+19: BC_LOAD_LOCAL a=2 b=0      ; 再次把 set 拷进 slot2
+20: BC_LOAD_FIELD a=3 b=2 imm=… ; set.val  ← 炸在这里
+```
+
+**slot 2 是从参数 slot 0 拷过来的**，所以坏值就是形参 `set` 本身；在
+`sigismember` 的 0..19 号指令里没有任何一条写 slot 0。换成 `--trace-vm` 再看调用链，
+失败前最后的进入顺序是：
+
+```
+enter fn=sigemptyset → sigaddset → sigpending → sys_write → sigpending
+     → pipeline_errno_value → pipeline_errno_location → sigismember args=2
+```
+
+（`--trace-vm` 没有配对的 exit 事件，这个序列不能直接当栈用，但能说明失败发生在
+`lib/std/process.uya` 的 errno/pipeline 那段路径上。）
+
+#### 已经排除的可能
+
+| 假设 | 排除依据 |
+| --- | --- |
+| 槽位残留（上一帧的值） | 在 `exec_vm_slot_pool_push` 里整段 memset 清零后**错误完全不变**，已回退 |
+| 指针是在 `exec_make_pointer_with_kind` 里被截断的 | 在该函数入口打点，`0xc6c1d688` **一次都没出现过** |
+| 坏值是某条指令写进目标槽的 | 在派发末尾对所有目标槽打点，没有命中 |
+| 坏值是从参数传进来的 | 在 `exec_vm_run_frame` 入口对指针参数打点，没有命中 |
+
+四条都排掉之后，剩下的最可能解释是：**这个 ExecValue 不是「造」出来的，而是
+按位读出来的** —— 例如 `exec_vm_native_field_load` 直接从原生内存读 8 字节当成
+POINTER 值（它不经过任何 maker），而那块原生内存里存的确实是程序的某个 `u64`
+（`sigset_t.val` 就是 u64）。
+
+若成立，问题就变成「原生结构体的字段在 VM 侧被按错误的 kind 解释」，
+而不是引用逃逸。下一轮应该直接从 `exec_vm_native_field_load` 的 kind 判定入手核对：
+`sigset_t` 只有一个 `val: u64`，读出来必须是 U64，不可能是 POINTER。
