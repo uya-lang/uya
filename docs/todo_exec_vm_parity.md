@@ -3515,3 +3515,34 @@ fn=async_box_free_current addr=fffffff1 idx=0 kind=14 pointee=7
 模拟缺口（VM 同步执行，`@frame` 的 start/poll/stop 是空操作），
 这一处目前仍会让进程收到 SIGSEGV。它不影响别的用例，
 但说明「VM 缺能力时应当报错而不是崩」这条纪律在 async 路径上还没落实。
+
+### 第 380 轮：`test_std_async_event` 的 waker 没被唤醒（未修完，留档）
+
+现象：`register(read_fd, Readable, &w) `后 `poll(0)` 返回 `ready_n == 1`，
+但 `w.is_woken()` 仍是 0。
+
+逐步插桩（已全部撤掉）得到的事实链：
+
+1. `poll` 确实走的是 epoll 分支，`sys_epoll_wait` 返回 `n=1`；
+2. 但 `epoll_event_fd(&self.events[0])` 读出 **fd=0** —— 内核回写的
+   `data_lo` 是 0，于是 `find_slot(0)` 找不到槽位，waker 没被唤醒；
+3. `data_lo` 为 0 说明注册时交给内核的 `struct epoll_event.data` 是 0；
+4. 注册走 `sys_epoll_ctl`，VM 里本该由「`&EpollEvent` → 原生 12 字节布局」的
+   转换（`exec_vm_epoll_ctl_native_event`）填好 `data_lo`；
+5. 插桩显示这个转换**根本没跑到底**：`exec_vm_syscall_out_struct_target()`
+   对第 4 个实参返回 null，于是整段转换被跳过，裸地址原样交给内核。
+
+顺带排除了两个猜测（都写了探针、都通过）：
+
+- `(waker as &void) as usize` 存进 `slot_wakers` 再 `@ptr_from_usize` 取回、
+  调 `wake()` —— 往返正常，`is_woken()` 变 1；
+- 原生 `EpollEvent` 数组按下标取元素再 `epoll_event_fd()` —— 读回正确。
+
+所以缺口在「`@syscall` 变参里把 `&结构体` 降级成 i64 之后，
+出参结构体目标的还原」。这条路径也解释了 `test_http_uyagin` 里
+`async_box_free_current` 拿到野生指针 `0xfffffff1` 的同类问题：
+**结构体指针一旦经过 i64 中转，VM 就找不回它对应的 ExecValue**。
+
+下一步的方向（留给后续）：让 `exec_vm_syscall_arg_to_i64` 在遇到内部引用时
+把「这是哪个 ExecValue」的旁路信息保留下来（例如把实参槽的索引一并编码），
+而不是只丢一个裸地址给 `exec_vm_syscall_out_struct_target` 去猜。
