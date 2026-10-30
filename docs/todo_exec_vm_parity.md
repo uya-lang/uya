@@ -3864,3 +3864,44 @@ LOAD_GLOBAL a=41 → LOAD_LOCAL b=6 → LOAD_INDEX elem=48   (定位 stage)
 `test_abi_calling_convention` 在 parity 里 C99 侧也是失败，原因是该用例需要外链
 C 助手（`c_large_struct_param` 等未定义），单独跑 `uya test` 必然链接失败。
 属于 parity 夹具问题，不是 VM 缺陷。
+
+### 第 386 轮：epoll_ctl 事件注册失败的定位（未修，已排除两条假设）
+
+`test_std_async_event`、`test_std_async_event_fd_reuse` 共 4+ 个用例都卡在
+
+```
+assert_eq_i32 failed: w.is_woken() as i32 == 1 (actual: 0, expected: 1)
+```
+
+即 waker 永远不会被唤醒。链路是 `epoll_ctl(233)` 注册事件 →
+`epoll_wait` 返回 → 按 `data` 找回 waker。实测 `epoll_wait` 能返回，但
+`data_lo = 0`，说明**注册进去的 events/data 是 0**。
+
+调用点在 `exec_vm_exec_syscall`：
+
+```uya
+if nr_value == EPOLL_CTL_NR && arg_count >= 4 &&
+   exec_vm_address_is_vm_resident(args[3] as usize) {
+    // 把 &EpollEvent 转成原生布局；失败就原样把裸地址交给内核
+}
+```
+
+本轮验证并**否掉**了两条假设（改动均已回退）：
+
+1. **假设：地址在原生聚合旁路表里** —— 加
+   `agg = exec_vm_native_agg_handle(raw_addr)` 兜底。实测返回的聚合
+   `count == 0`，`exec_vm_native_agg_peek(base, 0/1)` 也全是 null，
+   说明旁路表里**没有**这个基址的字段。
+2. **假设：地址是 arena 里带偏移的聚合元素** —— 加
+   `exec_vm_realign_in_arena()`（按 `@size_of(i64)` 向下探测最多 8 步）。
+   实测 `exec_vm_syscall_out_struct_target` 仍然返回 null，
+   连 `target.kind` 都读不到聚合。
+
+结论：`args[3]` 这个地址对应的内存**既不是 ExecValue 起始地址，也不是旁路表
+基址**，epoll_event 在 VM 里根本没有被物化成任何可识别的形态。
+
+真正的修法需要在 lowering 阶段把「取局部结构体地址并转成整数传给 syscall」
+变成一次显式的物化（分配原生缓冲区 + 逐字段写入），而不是像现在这样只把地址
+传下去。这属于 `@syscall` 入参 marshal 的一个独立特性，改动面较大，本轮不做。
+相关代码位置：`src/exec/vm.uya` 的 `exec_vm_exec_syscall`（epoll_ctl 分支）与
+`exec_vm_syscall_out_struct_target`。
