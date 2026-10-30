@@ -5362,3 +5362,51 @@ C 语义里 `arr as &T` 等价于 `&arr[0]`，应当取**数据区**地址。
 
 同时这也说明「parity 单次采样 + 字节码缓存」会让个别用例在 OK / 不一致之间漂移，
 判定回归必须**同一版本连跑多次**并和基线对照，不能只看一次差分结果。
+
+#### argv 的两条产生路径都要物化（`&argv[0]` 这一条是第二堵）
+
+上一节修的是 `args as &(&byte)`（**cast**）这条路。`test_osal` 走的是另一条：
+```uya
+const pid: i32 = try spawn_execve_with_redirect(
+    "/bin/cat" as &const byte,
+    &argv[0] as &(&const byte),      // ← 索引引用，不是 cast
+    ...);
+```
+`&argv[0]` 拿到的是竞技场里 56 字节步长的 ExecValue 地址，
+`exec_vm_syscall_shield_vm_addresses` 只认槽池地址（`exec_vm_realign_to_slot`），
+认不出就原样放行 → 内核按 8 字节步长读到的是第一个元素的 `kind` 字段 →
+`execve` EFAULT → 子进程走进 `os_exit(104)` 分支。三个用例的断言
+`status >> 8 & 255 == 0` 全都停在 **104**，数字本身就是证据。
+
+修法（`97f91122`）：新增 `exec_value_array_element_remaining`（复用数组登记表
+的二分查找算出「从该地址起还剩几个元素」），shield 在槽池判定失败后，
+若命中的是指针/字符串数组就物化成连续 8 字节指针数组再交给内核。
+
+验证：`tests/test_osal.uya` 从 3 处断言失败变成 `失败: 0`。
+
+至此 `fork` + `execve` + `waitpid` 这条链路在 VM 里是通的
+（`test_runtime_environment`、`test_osal` 都过）。
+
+#### 遗留：`test_typed_pipeline_capability` 的 LOAD_FIELD 越界 —— 缺行号表
+
+```
+exec: LOAD_FIELD 字段越界(idx=2 kind=0 count=-1 pointee=-1
+      fn=pipeline_capability_self_test ip=762 slot=46)
+```
+`--dump-bytecode` 能看到 ip=762 附近：
+```
+756: BC_LOAD_GLOBAL  <- global[116]
+757: BC_LOAD_LOCAL   <- local[6]
+758: BC_LOAD_INDEX   imm=48      ← 48 字节元素的全局数组
+759: BC_LOAD_FIELD   idx=32
+760: BC_LOAD_CONST   <- const[14]
+761: BC_LOAD_INDEX   imm=24      ← 这一步产出了 VOID
+762: BC_LOAD_FIELD   idx=16      ← 因此越界
+```
+问题在 761：`kind=0` 说明它拿到的是 VOID。但错误消息只能报**函数起始行**
+（`process.uya:3660:8` 就是 `export fn` 那一行），因为字节码里根本没有行号表
+（`grep line_table src/exec/*.uya` 无结果）。
+
+下一步要给指令加行号（builder 里每条指令一个 `u32` 行号，`ExecFunction` 存一份
+数组），才能把 `ip` 映射回具体表达式。这是纯诊断基建，改完所有
+`LOAD_FIELD/LOAD_INDEX` 类错误都会自带精确行号，值得先做。
