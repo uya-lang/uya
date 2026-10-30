@@ -6675,7 +6675,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             }
         }
         if fld_native_done == 0 && field_ref == null {
-            var fld_msg: [byte: 256] = [];
+            var fld_msg: [byte: 640] = [];
             var fld_count: i32 = -1;
             const fld_agg: &ExecAggregate = exec_vm_aggregate_ref_from_value(slot_b);
             if fld_agg != null {
@@ -6685,10 +6685,11 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             if slot_b.kind == ExecValueKind.EXEC_VALUE_POINTER {
                 fld_pointee = exec_value_pointer_pointee_kind(&slot_b[0]);
             }
-            _ = snprintf(&fld_msg[0] as *byte, 200,
-                "exec: LOAD_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d fn=%s ip=%d slot=%d)" as *byte,
+            _ = snprintf(&fld_msg[0] as *byte, 640,
+                "exec: LOAD_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d fn=%s ip=%d slot=%d line=%d col=%d)" as *byte,
                 instr.imm as i32, slot_b.kind as i32, fld_count, fld_pointee,
-                function.name as *byte, frame.ip, instr.b as i32);
+                function.name as *byte, frame.ip, instr.b as i32,
+                instr.source.line, instr.source.column);
             exec_backend_set_error(function.decl, &fld_msg[0] as &byte, 0);
             return -1;
         }

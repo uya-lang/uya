@@ -5407,6 +5407,28 @@ exec: LOAD_FIELD 字段越界(idx=2 kind=0 count=-1 pointee=-1
 （`process.uya:3660:8` 就是 `export fn` 那一行），因为字节码里根本没有行号表
 （`grep line_table src/exec/*.uya` 无结果）。
 
-下一步要给指令加行号（builder 里每条指令一个 `u32` 行号，`ExecFunction` 存一份
-数组），才能把 `ip` 映射回具体表达式。这是纯诊断基建，改完所有
-`LOAD_FIELD/LOAD_INDEX` 类错误都会自带精确行号，值得先做。
+**更正**：行号表其实早就有 —— `BCInstr` 带 `source: BCSourceMap {line, column, filename}`，
+`exec_builder_make_source(ast_node)` 在每条指令发射时填好，只是错误消息没打印它。
+本轮把它加进 `LOAD_FIELD 字段越界` 消息（并把 `fld_msg` 从 256 提到 640，
+因为报告前缀里已经有完整路径，消息里只放 `line=/col=` 才不会被截断），
+立刻就得到了精确位置：
+
+```
+ip=762 slot=46 line=3754 col=62
+```
+
+对应源码：
+
+```uya
+3754:        _pipeline_process_stages[owned_stage_idx].env_ops[0].remove != 0 ||
+```
+
+`env_ops` 是 `&PipelineEnvOp`（24 字节元素，正对应 `LOAD_INDEX imm=24`），
+前一行刚检查过 `env_ops == null`，所以指针非空；问题在**跨 realloc 的旁路表键**：
+`append_last_stage_env` 追加第二项时数组会扩容/搬移，
+`exec_vm_native_agg_slot(base_addr, index)` 以**基址**为键，
+扩容后读用的是新基址，命中不到旧基址下写的第 0 项，
+于是惰性新建了一个全零槽 —— 读回来是 VOID，接着 `.remove` 就 `LOAD_FIELD 越界`。
+
+下一步方向：让旁路表在基址搬移时重新绑定（或者按「数组身份 + 下标」记账，
+而不是按绝对地址），这样 `realloc` 前后都能读到同一份元素值。
