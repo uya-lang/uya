@@ -4073,6 +4073,15 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
     // 任何指向 VM 槽位池的裸地址参数都要换成原生缓冲区：内核按原生 `struct`
     // 布局读写，直接拿槽地址过去会把 ExecValue 的头（`kind`）覆盖掉。入参先把
     // 现有字段值填进缓冲区，出参（`out_mask` 里标过的）由 marshal 负责回填。
+    // 记下换过缓冲区之前的原始地址：标量出参（`waitpid(fd, &status, ...)` 的
+    // `&status`、`read(..., &len)` 的 `&len`）走的是 shield 的标量分支，
+    // 内核写在 scratch 里；不主动回填的话调用方的局部永远是旧值。
+    var raw_before: [i64: 6] = [];
+    var rb_i: i32 = 0;
+    while rb_i < arg_count && rb_i < 6 {
+        raw_before[rb_i] = args[rb_i];
+        rb_i = rb_i + 1;
+    }
     _ = exec_vm_syscall_shield_vm_addresses(frame, arg_base, arg_count, out_mask, &args[0]);
     if exec_vm_syscall_marshal_out_struct(function, frame, arg_base, arg_count, out_mask, &args[0],
         &out_targets[0] as & & ExecValue, &out_buffers[0] as & & i64, &out_fields[0], &out_count2) != 0 {
@@ -4126,6 +4135,21 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
         exec_vm_syscall_out_struct_apply(out_targets[out_apply_i], out_buffers[out_apply_i],
             out_fields[out_apply_i]);
         out_apply_i = out_apply_i +| 1;
+    }
+    // 标量出参回填：只处理「shield 换过地址」且「原始地址指向标量槽」的参数。
+    // 聚合槽的 `ptr_value` 非空，交给上面的 out_struct 通道，这里跳过。
+    var sc_i: i32 = 0;
+    while sc_i < arg_count && sc_i < 6 {
+        if args[sc_i] != raw_before[sc_i] && raw_before[sc_i] != 0 {
+            const sc_slot: &ExecValue = exec_vm_realign_to_slot(raw_before[sc_i] as usize);
+            if sc_slot != null && sc_slot.ptr_value == null {
+                const sc_buf: &i64 = @ptr_from_usize(args[sc_i] as usize) as &i64;
+                if sc_buf != null {
+                    sc_slot[0].i64_value = sc_buf[0];
+                }
+            }
+        }
+        sc_i = sc_i + 1;
     }
     // epoll_wait(232) / epoll_pwait(281)：内核写的是 packed 12 字节记录，
     // 通用 apply 的 8 字节步长会把字段读歪，这里按 packed 记录重新解包。
