@@ -4275,3 +4275,53 @@ python main.py --listen 127.0.0.1 --port 8188 --lowvram ...     RSS 41998824 KB 
 - **parity / 普查的读数必须连同 `free -g` 一起看**；`available < 15G` 时读数不可信。
 - 出现「`rc=1` 且两边都没有 stdout」的行，先单独复跑再计入不一致，不要直接写进文档。
 - 怀疑假失败时，用「同一用例并发 6 份 × 3 轮」验证稳定性，比反复全量跑便宜得多。
+
+### 第 396 轮：指针下标解引用加地址范围守卫（修 SIGSEGV）
+
+#### 症状与取证
+
+`test_http_uyagin` 在 VM 下 `rc=139`，停在
+`TEST: uyagin_handle_releases_all_async_frames`。用 gdb 取现场：
+
+```
+Program received signal SIGSEGV
+#0 exec_vm_load_pointer_index
+$1 = (void *) 0xfffffffffffffff1      # si_addr = -15
+```
+
+#### 根因
+
+`exec_vm_pointer_address` 对**任何 kind** 都直接返回 `i64_value`。一旦上层把
+非指针值（或已释放/未初始化的句柄）传进下标路径，算出的「地址」就是
+`0xfffffffffffffff1` 这种非用户态值，`@ptr_from_usize(addr)` 之后一解引用就崩。
+另外 load/store 两条路径的 `base + index * elem` 用的是普通乘加，usize 溢出会回绕。
+
+#### 修法
+
+- 新增 `exec_vm_check_deref_addr`：地址超出用户态上限
+  （`>= 0x0000800000000000`）或落进空页保护（`< 4096`）时，报
+  `exec: 指针下标解引用地址非法(addr=… idx=… base=… kind=…)` 并返回 -1。
+- load / store 两条下标路径的地址计算改成 `+|` / `*|` 饱和运算。
+
+修后同一用例不再崩，给出可定位的诊断：
+
+```
+exec runtime: ./lib/std/async.uya:118:8:
+  exec: 指针下标解引用地址非法(addr=0xfffffff1 idx=0 base=-15 kind=14)
+```
+
+#### 上游问题（留待后续）
+
+`lib/std/async.uya:118` 是 `async_box_free_current` 里的 `*alloc_ref`：它从
+box 头里读出的 allocator 地址是 `-15`，说明**释放了一个不是本分配器给出的指针**
+（box 头被覆盖，或重复释放）。这是分配器契约问题，不是地址计算问题；
+本轮只保证解释器不再段错误。
+
+#### 回归
+
+指针密集用例全绿：`test_array_pointer_access`、`test_std_mem`、
+`test_struct_default`、`test_epoll_server`、`test_epoll_syscall`、
+`test_protobuf_dynamic`、`test_std_async_event(_fd_reuse)`、`test_std_io`、
+`test_tls_x509`、`test_math`、`test_std_sql`。`make check` 1191 通过 / 失败 0。
+
+提交 `fa543eff`。
