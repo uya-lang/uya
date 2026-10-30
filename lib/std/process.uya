@@ -1921,9 +1921,10 @@ fn pipeline_child_fail_startup(fd: i32, phase: i32, platform_code: i32) void {
 
 fn pipeline_read_startup_record(fd: i32, record: &PipelineStartupRecord) !i32 {
     if record == null { return error.PipelineIoError; }
+    var raw: [byte: 32] = [];
     var received: usize = 0usize;
     while received < @size_of(PipelineStartupRecord) {
-        const target: &byte = @ptr_from_usize(@usize_from_ptr(record as &void) + received) as &byte;
+        const target: &byte = &raw[received];
         const read_count: i64 = read(fd, target, @size_of(PipelineStartupRecord) -| received);
         if read_count == 0i64 {
             if received == 0usize { return 0; }
@@ -1935,6 +1936,11 @@ fn pipeline_read_startup_record(fd: i32, record: &PipelineStartupRecord) !i32 {
         }
         received = received + read_count as usize;
     }
+    const view: &PipelineStartupRecord = @ptr_from_usize(@usize_from_ptr(&raw[0] as &void)) as &PipelineStartupRecord;
+    record.kind = view.kind;
+    record.phase = view.phase;
+    record.platform_code = view.platform_code;
+    record.error_name_offset = view.error_name_offset;
     return 1;
 }
 
