@@ -741,6 +741,11 @@ fn exec_vm_value_bytes_address(value: ExecValue) u64 {
             return target.ptr_value as u64;
         }
     }
+    // 裸数组值直接取数据区：`args as &(&byte)`、`buf as &byte` 这类转换在 C 里
+    // 就是 `&buf[0]`，而数组的 `i64_value` 存的是元素个数（转成地址等于 0x4）。
+    if exec_value_is_raw_array(&value) != 0 {
+        return value.ptr_value as u64;
+    }
     return exec_vm_numeric_to_u64(value);
 }
 
@@ -1112,6 +1117,14 @@ fn exec_vm_syscall_arg_to_i64(value: ExecValue) i64 {
             return raw_addr as i64;
         }
         return value.i64_value;
+    }
+    // 裸数组直接当参数（`execve(path, args, envp)` 的 `args`）：C 语义是
+    // 数据区首地址，而 `i64_value` 存的是元素个数，绝不能拿来当地址。
+    if exec_value_is_raw_array(&value) != 0 {
+        const raw_array_addr: usize = @usize_from_ptr(value.ptr_value as &void);
+        if raw_array_addr != 0 as usize {
+            return raw_array_addr as i64;
+        }
     }
     return exec_vm_numeric_to_i64(value);
 }
@@ -3339,7 +3352,37 @@ fn exec_vm_cast_value(value: ExecValue, target_kind: i32, target_pointee_kind: i
         if value.kind == ExecValueKind.EXEC_VALUE_STRING {
             return exec_make_pointer_with_kind(value.i64_value as usize, target_pointee_kind);
         }
-        return exec_make_pointer_with_kind(exec_vm_numeric_to_u64(value) as usize, target_pointee_kind);
+        // ExecValue 聚合转指针：元素按 56 字节排布，宿主（execve 的 argv、
+        // 任何 C 数组参数）读不了，必须先物化成连续 8 字节数组。
+        if value.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
+            value.kind == ExecValueKind.EXEC_VALUE_TUPLE ||
+            value.kind == ExecValueKind.EXEC_VALUE_STRUCT {
+            const cast_agg: &ExecAggregate = exec_value_as_aggregate(&value);
+            if cast_agg != null && cast_agg.values != null && cast_agg.count > 0 &&
+                cast_agg.count <= 4096 {
+                const cast_bytes: usize = (@size_of(i64) as usize) * (cast_agg.count as usize);
+                const cast_buf: &i64 = exec_value_alloc_bytes(cast_bytes) as &i64;
+                if cast_buf != null {
+                    var cast_i: i32 = 0;
+                    while cast_i < cast_agg.count {
+                        const cast_elem: &ExecValue = &cast_agg.values[cast_i];
+                        if exec_value_is_pointer_like(cast_elem[0]) != 0 {
+                            cast_buf[cast_i] = @usize_from_ptr(cast_elem[0].ptr_value as &void) as i64;
+                        } else {
+                            cast_buf[cast_i] = exec_vm_numeric_to_i64(cast_elem[0]);
+                        }
+                        cast_i = cast_i + 1;
+                    }
+                    return exec_make_pointer_with_kind(@usize_from_ptr(cast_buf as &void),
+                        target_pointee_kind);
+                }
+            }
+        }
+        // 聚合转指针（`args as &(&byte)`、`buf as &byte`）必须取**数据区**地址，
+        // 不能取 `i64_value`：后者的语义是元素个数，C 里等价于 `&buf[0]`，
+        // VM 里数据在 `ptr_value`。`exec_vm_value_bytes_address` 正是为此写的。
+        return exec_make_pointer_with_kind(exec_vm_value_bytes_address(value) as usize,
+            target_pointee_kind);
     }
     if target_kind == TypeKind.TYPE_VA_LIST as i32 && value.kind == ExecValueKind.EXEC_VALUE_VA_LIST {
         return exec_value_clone(&value);
