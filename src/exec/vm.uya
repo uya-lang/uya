@@ -2921,6 +2921,38 @@ fn exec_vm_index_ref(value: &ExecValue, index_value: i32) &ExecValue {
     return &aggregate.values[index_value];
 }
 
+/// 指针下标解引用前的地址合理性检查。
+///
+/// `exec_vm_pointer_address` 对任何 kind 都直接返回 `i64_value`，一旦上层把
+/// 非指针值（或负值）当成指针传进下标路径，算出来的「地址」可能是
+/// `0xfffffffffffffff1` 这类非用户态地址，直接解引用就是 SIGSEGV
+/// （`test_http_uyagin` 崩在这里，rc=139，si_addr=-15）。用户态地址范围之外
+/// 一律报可诊断的错误，不要交给内核去崩。
+///
+/// 参数：`function` 当前函数（用于报错定位）；`value` 被当成指针的基值；
+///       `addr` 计算出的元素地址；`index` 下标。
+/// 返回值：0 地址可用；-1 已设置错误。
+const EXEC_VM_USER_ADDR_LIMIT: usize = 0x0000800000000000 as usize;
+const EXEC_VM_NULL_PAGE_LIMIT: usize = 4096 as usize;
+
+fn exec_vm_check_deref_addr(function: &BCFunction, value: &ExecValue, addr: usize, index: i64) i32 {
+    if addr >= EXEC_VM_USER_ADDR_LIMIT || addr < EXEC_VM_NULL_PAGE_LIMIT {
+        var msg: [byte: 192] = [];
+        var base_kind: i32 = -1;
+        var base_i64: i64 = 0;
+        if value != null {
+            base_kind = value.kind as i32;
+            base_i64 = value.i64_value;
+        }
+        _ = snprintf(&msg[0] as *byte, 192,
+            "exec: 指针下标解引用地址非法(addr=0x%lx idx=%ld base=%ld kind=%d)" as *byte,
+            addr, index, base_i64, base_kind);
+        exec_backend_set_error(function.decl, &msg[0] as &byte, 0);
+        return -1;
+    }
+    return 0;
+}
+
 fn exec_vm_load_pointer_index(function: &BCFunction, base: ExecValue, index_value: i64, elem_size_hint: usize, out_value: &ExecValue) i32 {
     if function == null || out_value == null {
         exec_backend_set_error(null, "exec: pointer load 输入无效" as *byte, 0);
@@ -3013,7 +3045,10 @@ fn exec_vm_load_pointer_index(function: &BCFunction, base: ExecValue, index_valu
         out_value[0] = exec_value_clone(agg_slot);
         return 0;
     }
-    const addr: usize = base_addr + (index_value as usize) * elem_size;
+    const addr: usize = base_addr +| (index_value as usize) *| elem_size;
+    if exec_vm_check_deref_addr(function, &base, addr, index_value) != 0 {
+        return -1;
+    }
     if pointee_kind == TypeKind.TYPE_BOOL as i32 {
         const ptr_bool: &byte = @ptr_from_usize(addr) as &byte;
         out_value[0] = exec_make_bool((ptr_bool[0] != 0) as i32);
@@ -3147,7 +3182,10 @@ fn exec_vm_store_pointer_index(function: &BCFunction, base: ExecValue, index_val
         agg_slot[0] = exec_value_clone(&src_value);
         return 0;
     }
-    const addr: usize = base_addr + (index_value as usize) * elem_size;
+    const addr: usize = base_addr +| (index_value as usize) *| elem_size;
+    if exec_vm_check_deref_addr(function, &base, addr, index_value) != 0 {
+        return -1;
+    }
     if pointee_kind == TypeKind.TYPE_BOOL as i32 {
         const ptr_bool: &byte = @ptr_from_usize(addr) as &byte;
         ptr_bool[0] = src_value.i64_value as byte;
