@@ -5300,3 +5300,48 @@ scratch，内核写在 scratch 里，而**回填从来没做**，所以 `statuse
 | `ad58f2a1` | `pthread_sigmask` 真调 `rt_sigprocmask` | `[PIPE]` 确实被屏蔽 |
 | `3b0f8077` | `sigwait` 宿主桥（`rt_sigtimedwait`） | 退出码 141 → 25，能出汇总 |
 | `809c887f` | 标量出参回填 | `wait4` 的 status 能到 Uya 代码 |
+
+#### `system()` / `execve` 的 argv 是 `0x4`：聚合转指针丢了数据区
+
+`test_runtime_environment` 在 VM 下总是返回 2，它只做一件事：
+```uya
+if system("test -n \"$UYA_ROOT\"") != 0 { return 2; }
+```
+`system()` 的实现是朴素的 `fork` + `execve("/bin/sh", args, envp)` + `waitpid`，
+其中 `args` 是 `[&byte: 4]`，交给 `execve` 时写作 `args as &(&byte)`。
+
+在 `exec_vm_exec_syscall` 里打点，`execve`（nr=59）收到的是：
+
+```
+[execve] argv=0x4 envp=0x70b8a908 isval_argv=0 isval_envp=0
+```
+
+`argv = 0x4` —— 正是 `args` 的**元素个数**。内核拿这个当地址，直接 EFAULT，
+`/bin/sh` 起不来，`waitpid` 回收到的状态自然非 0。
+
+根因是「聚合 → 指针」的转换落到了兜底分支 `exec_make_pointer_with_kind(
+exec_vm_numeric_to_u64(value))`：聚合的 `i64_value` 存的是元素个数，而
+C 语义里 `arr as &T` 等价于 `&arr[0]`，应当取**数据区**地址。
+
+修法（`af01705d` + `a6538295`）：
+1. `exec_vm_cast_value` 的 POINTER 分支，对 `目标 pointee == POINTER && 源是 ARRAY/TUPLE`
+   先物化成连续 8 字节数组（指针元素取 `ptr_value`，标量取数值），再把缓冲区地址当指针；
+2. `exec_vm_value_bytes_address` / `exec_vm_syscall_arg_to_i64` 都能识别裸数组的数据区地址；
+3. `exec_value_alloc_bytes` 分配即清零，物化缓冲区末尾天然是 NULL，满足 argv 终止约定。
+
+验证：`test_runtime_environment` 从 `返回码 2` 变成 `通过 1 / 失败 0`。
+
+**陷阱（第一版踩了）**：起初对 ARRAY/TUPLE/**STRUCT** 一并物化，把 `&Self` 这种
+结构体取址也吃掉了 —— 字段偏移从「聚合槽下标」变成「字段序号 × 8」，
+`lib/std/async.uya:_set_primary_io_slot` 立刻 `LOAD_INDEX 越界`，
+`test_async_nested_http1_await_codegen` 从通过变失败（parity 里只体现为
+「不一致数不变」，因为同时有别的用例翻绿，极难察觉）。
+所以物化必须收窄到「指针数组 → 指针」，结构体取址继续走内部引用。
+这也是本轮唯一一次回归，教训是：**改 wide 语义前先把源类型收窄到必需的最小集合**。
+
+#### `test_signal` 的两个失败是墙，不是 bug
+
+`signal_handler_is_invoked` / `sigprocmask_blocks_delivery` 都断言行号处理器被调用
+（`signal_handler_count == 1`，实际 0）。VM 没有 host → bytecode 的蹦床，
+内核投递的信号无法回调到 Uya 处理器 —— 这正是「三堵墙」的第 ③ 堵，
+与 `pthread_create` 传 `&double_i64 as &void` 同一个成因。不重复尝试。
