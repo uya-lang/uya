@@ -3731,16 +3731,26 @@ fn exec_vm_syscall_marshal_out_struct(function: &BCFunction, frame: &ExecFrame, 
             var field_count: i32 = 0;
             const buffer: &i64 = exec_vm_syscall_out_struct_prepare(target, &field_count);
             if buffer == null {
-                // 目标不是能解析出来的单块结构体。**绝不能把原地址继续交给内核**：
-                // 那个地址多半落在 VM 的槽位池里（`&old_action` 就是 `slots[5]`），
-                // 内核按原生 `struct` 布局往里写会把 ExecValue 的头（`kind`）覆盖掉，
-                // 之后所有 `LOAD_FIELD` 都报「字段越界」（test_signal 的
-                // `rt_sigaction` 就这么坏的）。改成给一块等大的原生缓冲区，
-                // 内核写进缓冲区即可；解析不出字段结构，所以不回填。
-                const scratch: &i64 = exec_value_alloc_bytes(256 as usize) as &i64;
-                if scratch != null {
-                    _ = memset(scratch as *void, 0, 256 as usize);
-                    args[oi] = scratch as i64;
+                // 目标不是能解析出来的单块结构体。
+                //
+                // 如果原地址落在 VM 槽位池 / 值 arena 里（`&old_action` 就是
+                // `slots[5]`），**绝不能把它继续交给内核**：内核会按原生 `struct`
+                // 布局往里写，把 ExecValue 的头（`kind`）覆盖掉，之后所有
+                // `LOAD_FIELD` 都报「字段越界」（test_signal 的 `rt_sigaction`
+                // 就这么坏的）。这种情况下换成一块原生 scratch。
+                //
+                // 反之，地址本来就在宿主原生内存里（`epoll_wait` 的事件数组是
+                // malloc 出来的字节块，参数已经是 `events as i64`，解析不出
+                // ExecValue 结构）——这时把地址原样交给内核是**正确**的，换
+                // scratch 反而会让内核把事件写进 scratch，调用方永远读到全 0：
+                // `epoll_wait` 返回 n=1 但 `epoll_event_fd` 读到 0，`find_slot`
+                // 找不到，waker 永不唤醒（test_std_async_event 系列）。
+                    if exec_vm_address_is_vm_resident(args[oi] as usize) {
+                    const scratch: &i64 = exec_value_alloc_bytes(256 as usize) as &i64;
+                    if scratch != null {
+                        _ = memset(scratch as *void, 0, 256 as usize);
+                        args[oi] = scratch as i64;
+                    }
                 }
                 oi = oi + 1;
                 continue;
@@ -3768,37 +3778,73 @@ fn exec_vm_epoll_ctl_native_event(arg_slot: &ExecValue, raw_addr: i64, out_buf: 
     if out_buf == null {
         return -1;
     }
-    var target: &ExecValue = exec_vm_syscall_out_struct_target(arg_slot, raw_addr);
-    if target == null {
-        return -1;
-    }
-    if target.kind == ExecValueKind.EXEC_VALUE_POINTER {
-        const deref: &ExecValue = exec_vm_ref_target_value(target);
-        if deref != null {
-            target = deref;
+    const target_head: &ExecValue = exec_vm_syscall_out_struct_target(arg_slot, raw_addr);
+    if target_head != null {
+        var target: &ExecValue = target_head;
+        if target.kind == ExecValueKind.EXEC_VALUE_POINTER {
+            const deref: &ExecValue = exec_vm_ref_target_value(target);
+            if deref != null {
+                target = deref;
+            }
+        }
+        const agg: &ExecAggregate = exec_value_as_aggregate(target);
+        if agg != null && agg.values != null && agg.count >= 2 {
+            const events_val: i32 = exec_vm_numeric_to_i64(agg.values[0]) as i32;
+            const slot1: i64 = exec_vm_numeric_to_i64(agg.values[1]);
+            var slot2: i64 = 0i64;
+            if agg.count >= 3 {
+                slot2 = exec_vm_numeric_to_i64(agg.values[2]);
+            }
+            // `data` 的 8 个字节跨两个 u32 槽。**不能**假定槽序等于声明序：
+            // 实测 `EpollEvent{events, data_lo, data_hi}` 在 VM 聚合里可能落到
+            // `[events, data_hi, data_lo]`，按声明序取值会把 fd 写进 data 的高
+            // 32 位（内核读到 `data=0x600000000`）：注册「成功」，但
+            // `epoll_wait` 回来后 `epoll_event_fd` 读到 0，`find_slot` 找不到，
+            // waker 永不唤醒。本运行时 `data` 只当 fd 用、值恒在低 32 位，
+            // 所以「槽 1 为零而槽 2 非零」时把槽 2 当低 32 位。
+            var data64: i64 = 0i64;
+            if slot1 == 0i64 && slot2 != 0i64 {
+                data64 = slot2 & 0xFFFFFFFFi64;
+            } else {
+                data64 = (slot1 & 0xFFFFFFFFi64) | ((slot2 & 0xFFFFFFFFi64) << 32);
+            }
+            const words: &u32 = out_buf as &u32;
+            words[0] = events_val as u32;
+            words[1] = (data64 & 0xFFFFFFFFi64) as u32;
+            words[2] = ((data64 >> 32) & 0xFFFFFFFFi64) as u32;
+            words[3] = 0 as u32;
+            return 0;
         }
     }
-    const agg: &ExecAggregate = exec_value_as_aggregate(target);
-    if agg == null || agg.values == null || agg.count < 2 {
+    // 回退：调用点写的是 `&ev as i64`，指针先被整数化，参数槽里只剩 kind=I64，
+    // 解析不出 ExecValue 结构。此时 `&ev` 指向编译器给「按值结构体」准备的原生
+    // 缓冲区 —— **每个字段占一个 i64**（和 `exec_vm_syscall_out_struct_prepare`
+    // 造出来的缓冲区同一种表示），不是 12 字节的 C 布局。按 3 个 i64 读出来重新
+    // 打包成 packed 的 `{u32 events; u64 data@4}`。
+    //
+    // 这里**不**按「地址是否落在 VM 驻留区」筛：竞技场（200MB）和宿主 malloc
+    // 出来的内存在同一片地址空间里，`exec_vm_address_is_value` 会把不少宿主
+    // 指针也判成驻留，用它当门禁等于把这个回退整体关掉。改成只读 + 内容校验
+    // （events 非零且落在 u32 内、data 的高 32 位为空），不满足就原样留给内核。
+    if raw_addr == 0 {
         return -1;
     }
-    const events_val: i32 = exec_vm_numeric_to_i64(agg.values[0]) as i32;
-    var data_lo: i64 = 0;
-    var data_hi: i64 = 0;
-    if agg.count >= 3 {
-        data_lo = exec_vm_numeric_to_i64(agg.values[1]);
-        data_hi = exec_vm_numeric_to_i64(agg.values[2]);
-    } else {
-        data_lo = exec_vm_numeric_to_i64(agg.values[1]);
+    const src: &i64 = @ptr_from_usize(raw_addr as usize) as &i64;
+    if src == null {
+        return -1;
     }
-    const words: &u32 = out_buf as &u32;
-    words[0] = events_val as u32;
-    words[1] = (data_lo & 0xFFFFFFFFi64) as u32;
-    words[2] = ((data_lo >> 32) & 0xFFFFFFFFi64) as u32;
-    if agg.count >= 3 {
-        words[2] = (data_hi & 0xFFFFFFFFi64) as u32;
+    const src_events: i64 = src[0];
+    const src_data: i64 = src[1];
+    const src_hi: i64 = src[2];
+    if src_events <= 0i64 || src_events > 4294967295i64 ||
+        src_data < 0i64 || src_data > 4294967295i64 || src_hi != 0i64 {
+        return -1;
     }
-    words[3] = 0 as u32;
+    const fallback_words: &u32 = out_buf as &u32;
+    fallback_words[0] = (src_events & 0xFFFFFFFFi64) as u32;
+    fallback_words[1] = (src_data & 0xFFFFFFFFi64) as u32;
+    fallback_words[2] = 0 as u32;
+    fallback_words[3] = 0 as u32;
     return 0;
 }
 
@@ -3859,14 +3905,29 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
         return 0;
     }
     // epoll_ctl(233)：`&EpollEvent` 入参必须转成原生布局，否则内核读到的
-    // 是 VM 槽位（ExecValue）而不是事件字段。
+    // 是 VM 槽位（ExecValue）/ 聚合缓冲区（每个字段 8 字节）而不是 12 字节的
+    // C `struct epoll_event`。
+    //
+    // **不能**按「地址是否落在 VM 驻留区」来筛：结构体按值返回时会被放进一块
+    // 原生聚合缓冲区（3 个字段 × 8 字节），地址不在驻留区里，可那恰恰是最需要
+    // 转换的一种。原样交给内核时，内核按 `{u32 events; u64 data@4}` 读，
+    // `data` 取到的是第 2、3 个字段的高低位错位值 0x0000000600000000 ——
+    // 注册「成功」，但 `epoll_wait` 回来后 `epoll_event_fd` 读到 0，
+    // `find_slot` 找不到，waker 永不唤醒（test_std_async_event 系列）。
+    // 所以一律先尝试转换，转换失败（比如 EPOLL_CTL_DEL 传 0）才保留原地址。
     const EPOLL_CTL_NR: i64 = 233;
-    if nr_value == EPOLL_CTL_NR && arg_count >= 4 && exec_vm_address_is_vm_resident(args[3] as usize) {
+    if nr_value == EPOLL_CTL_NR && arg_count >= 4 {
         const ev_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 3);
         const ev_buf: &byte = exec_value_alloc_bytes(32 as usize) as &byte;
-        if ev_arg != null && ev_buf != null &&
-            exec_vm_epoll_ctl_native_event(ev_arg, args[3], ev_buf) == 0 {
+        const ec_rc: i32 = if ev_arg != null && ev_buf != null {
+            exec_vm_epoll_ctl_native_event(ev_arg, args[3], ev_buf)
+        } else {
+            -1
+        };
+        fprintf(stderr, "DBGEC5 rc=%d before=%ld\n", ec_rc, args[3]);
+        if ec_rc == 0 {
             args[3] = @usize_from_ptr(ev_buf as &void) as i64;
+            fprintf(stderr, "DBGEC6 after=%ld\n", args[3]);
         }
     }
     out_value[0] = exec_vm_dispatch_host_syscall(target_kind, target_pointee_kind, nr_value, &args[0], arg_count);
