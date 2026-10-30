@@ -3882,6 +3882,34 @@ fn exec_vm_syscall_shield_vm_addresses(frame: &ExecFrame, arg_base: i32, arg_cou
         }
         const slot: &ExecValue = exec_vm_realign_to_slot(addr);
         if slot == null {
+            // 竞技场里的 ExecValue 数组（`&argv[0]` 交给 `execve`）：元素是
+            // 56 字节的 ExecValue，宿主要的是连续 8 字节指针数组。不物化的话
+            // 内核读到的是 `kind` 字段，`execve` 直接 EFAULT，子进程走
+            // `os_exit(104)` 分支（`test_osal` 三个 redirect 用例就是这样）。
+            const remaining: i32 = exec_value_array_element_remaining(addr);
+            if remaining > 0 && remaining <= 1024 {
+                const elems: &ExecValue = @ptr_from_usize(addr) as &ExecValue;
+                const head_kind: i32 = elems[0].kind;
+                if head_kind == ExecValueKind.EXEC_VALUE_POINTER as i32 ||
+                    head_kind == ExecValueKind.EXEC_VALUE_STRING as i32 ||
+                    head_kind == ExecValueKind.EXEC_VALUE_VOID as i32 {
+                    const pbytes: usize = (@size_of(i64) as usize) * (remaining as usize);
+                    const pbuf: &i64 = exec_value_alloc_bytes(pbytes) as &i64;
+                    if pbuf != null {
+                        var pi: i32 = 0;
+                        while pi < remaining {
+                            const pe: &ExecValue = &elems[pi];
+                            if exec_value_is_pointer_like(pe[0]) != 0 {
+                                pbuf[pi] = @usize_from_ptr(pe[0].ptr_value as &void) as i64;
+                            } else {
+                                pbuf[pi] = exec_vm_numeric_to_i64(pe[0]);
+                            }
+                            pi = pi + 1;
+                        }
+                        args[si] = pbuf as i64;
+                    }
+                }
+            }
             si = si + 1;
             continue;
         }

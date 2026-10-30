@@ -759,6 +759,51 @@ fn exec_value_address_is_array_element(addr: usize) bool {
     return false;
 }
 
+/// 查询地址落在某个已登记 ExecValue 数组内时，从该地址起还剩多少个元素。
+/// 参数：`addr` 绝对地址。
+/// 返回值：剩余元素个数；不是数组元素地址时返回 0。
+/// 宿主按 8 字节步长读数组，而 ExecValue 是 56 字节：把 `&argv[0]` 交给
+/// `execve` 之前必须先物化，物化长度就靠这个函数算。
+fn exec_value_array_element_remaining(addr: usize) i32 {
+    if addr == 0 as usize || g_exec_value_array_count <= 0 {
+        return 0;
+    }
+    if g_exec_value_array_bases == null || g_exec_value_array_spans == null {
+        return 0;
+    }
+    const stride: usize = @size_of(ExecValue) as usize;
+    if stride == 0 as usize {
+        return 0;
+    }
+    var lo: i32 = 0;
+    var hi: i32 = g_exec_value_array_count;
+    while lo < hi {
+        const mid: i32 = (lo + hi) / 2;
+        if mid < 0 || mid >= g_exec_value_array_capacity {
+            return 0;
+        }
+        const base: usize = g_exec_value_array_bases[mid];
+        const span: usize = g_exec_value_array_spans[mid];
+        if addr < base {
+            hi = mid;
+        } else if addr >= base +| span {
+            lo = mid + 1;
+        } else {
+            const off: usize = addr -| base;
+            if off % stride != 0 as usize {
+                return 0;
+            }
+            const total: usize = span / stride;
+            const idx: usize = off / stride;
+            if idx >= total {
+                return 0;
+            }
+            return (total - idx) as i32;
+        }
+    }
+    return 0;
+}
+
 fn exec_value_make_aggregate(kind: ExecValueKind, count: i32) ExecValue {
     if count < 0 {
         return exec_make_void();
