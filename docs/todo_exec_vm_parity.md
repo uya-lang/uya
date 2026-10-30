@@ -2084,12 +2084,20 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
 49 个普查失败、52 个 parity 落后用例，根因全部收敛到三处；每一处都已在正文里
 用实测证据钉死，不属于「再来几轮就能收口」：
 
-1. **async 帧 / `@await` 的 poll 函数**（约 40 例，最大一簇）
+1. **async 帧 / `@await` 的 poll 函数 + Waker**（约 40 例，最大一簇）
    `Future<T>` 是 interface，调用侧要对返回值做接口装箱，装箱需要知道 poll 方法的
    函数号；而 poll 是 **C99 侧 `c99_async_frame_helper_name` 合成的 `<fn>_poll`**，
    VM 的 builder 不生成它。`@frame` 的 `start`/`poll`/`stop` 在
    `src/exec/lower.uya:8845` 被整体降级成 void 空操作。
-   证否记录：第 393 轮（帧布局取证）、第 399 轮（Pending 传播方案证否）。
+   另一半是 **Waker**：`exec_vm_await_poll_interface` 传给 poll 的 waker 是伪造的
+   占位聚合（`EXEC_AWAIT_WAKER_FIELDS` 个 void 字段），poll 方法里
+   `w.add_interest(...)` 一写 `_io_slot_fds[i]` 就 `LOAD_INDEX 越界`
+   （`test_std_dns` / `test_async_fd` 就死在这）。
+   证否/取证记录：第 393 轮（帧布局取证）、第 399 轮（Pending 传播方案证否）、
+   第 400 轮（穿透修好 `test_async_await`，并暴露 waker 问题）。
+   注意：第 400 轮的穿透只解决「内层本来就已经 Pending」的情况，解决不了
+   「C99 会停在第一个 await、VM 却把整个函数体跑完」这一层（
+   `pending_seen == 1` 那类断言），后者必须实现真正的状态机。
 
 2. **drop / cleanup 语义**（约 8 例 + 悬垂引用 2 例）
    `pipeline_drop_count()` 在错误路径上应为 1 实际为 0（`test_typed_pipeline_*`）；
@@ -2101,6 +2109,8 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
    VM 没有 host→bytecode 的回调蹦床（`grep trampoline src/exec/vm.uya` 为空），
    所以 `signal()` 注册的 Uya 处理函数不会被调用（`test_signal` 的
    `signal_handler_count` 恒为 0）；pthread/fork/execve 同理。
+   `test_async_compute_*` 把 `&double_i64 as &void` 这样的函数指针交给线程池，
+   池子回头调用它 —— 同样需要回调蹦床（这 11 个子测试全 ERROR，rc=11）。
 
 另有 5 例是**纯算法太慢**（`test_tls_x25519_pure` 等 >200s），属性能问题不是语义问题。
 
