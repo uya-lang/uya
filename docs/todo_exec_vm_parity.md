@@ -3294,3 +3294,8 @@ VM 里 `&v` 是「指向 ExecValue 本体的内部引用」，`exec_vm_mem_view`
 `test_tflm_phase2`、`test_tflm_arena`、`test_tflm_model`、`test_std_mem`、
 `test_std_sql`、`test_fmt_api`、`test_std_io`、`test_protobuf_wire`、
 `test_std_jpeg_decode`、`test_http_websocket_handshake` 均 `失败: 0`。
+
+普查复测：**907 例 / 通过 848 / 失败 59 / 跳过 7 / 93.5%**。
+逐例比对：修好 `test_tflm_interpreter`；`test_async_nested_http1_await_codegen`
+再次出现（该例是已知的网络时序抖动，同一命令多次复跑会在 0/1 之间跳，不计回归）。
+`make check` 复测 **1191/1191 通过**（rc=0）。
