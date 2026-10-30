@@ -4117,3 +4117,52 @@ FOBJ d=1 kind=0  i64=0          aux=0            # 目标槽 kind=VOID
 本轮只做定位，不动代码；后续若要把这条收口，需要先找到「取局部地址后存进
 更长生命周期的容器」的具体路径，再决定是延长帧寿命还是让槽位回收时把
 仍被引用的槽降级为「已移动」哨兵并按需报错。
+
+### 第 392 轮：原生聚合旁路表按需增长（每基址 512 元素上限）
+
+#### 症状
+
+`test_async_event_dynamic_growth` 在 `tests/test_async_event_dynamic_growth.uya:132`
+报 `exec: 当前不支持该指针元素类型`。
+
+#### 定位
+
+5 个报错点先加站点编号，确认命中第 4 处（`exec_vm_store_pointer_index` 的
+原生结构体数组分支）。再打印现场：
+
+```
+PSTDBG pkind=16 hint=68 src=16 base=140197684404288 used=2
+```
+
+`used=2` 说明 256 条基址表**没满**，`pkind=16`（STRUCT）、`hint=68`（元素字节数）
+都正常。真正卡住的是 `exec_vm_native_agg_slot` 里的第二个上限：
+旁路表每条基址是静态 `[ExecValue: 512]`，而这个用例往同一个原生数组里写
+**1025 个 Waker**，`index=1024` 直接撞越界，于是走到「不支持」分支。
+
+#### 修法
+
+- 旁路表元素存储从静态 `[[ExecValue: 512]: 256]` 改成
+  `[&ExecValue: 256]` + 每基址容量表，首次使用时从 arena 分配，按需倍增扩容
+  （`exec_vm_native_agg_ensure`），上界提到 65536。
+- 扩容时新槽位先 `memset` 清零：不然未初始化字节被当成 ExecValue 解出来就是
+  随机 `kind`。
+- `exec_vm_native_agg_slot` / `exec_vm_native_agg_peek` / `exec_vm_native_agg_migrate`
+  统一走 storage 指针；驻留判定里删掉已不存在的静态表范围（arena 分配天然驻留）。
+
+#### 结果
+
+- `test_async_event_dynamic_growth`：失败 → **通过**。
+- 相邻用例全绿：`test_std_async_event`、`test_std_async_event_fd_reuse`、
+  `test_epoll_server`、`test_epoll_syscall`、`test_protobuf_dynamic`、
+  `test_std_mem`、`test_array_pointer_access`、`test_struct_default`。
+
+提交 `c8e3e21e`。普查通过数预期 857 → 858。
+
+#### 备注
+
+顺手确认了另一件事：`@frame(...)` 的 `start` / `poll` / `stop` 在 VM 侧**完全没有
+落地**（C99 侧由 `c99_async_frame_helper_name` 合成 `<fn>_poll` 等 static helper，
+`src/exec/builder.uya` 与 `src/exec/*.uya` 里搜不到任何对应实现）。所以
+`test_async_frame_methods` 里 `frame.poll(&w)` 拿到的是 VOID，
+`test_async_await` 等 8 例的 `@await 操作数不是 Future` 也在这条线上。
+这是功能级缺口，需要单独一轮做，不适合和本轮的旁路表改动混在一起。
