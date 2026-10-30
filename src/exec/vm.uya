@@ -1917,17 +1917,12 @@ fn exec_vm_address_is_vm_resident(addr: usize) bool {
     if g_exec_vm_globals_base != 0 && addr >= g_exec_vm_globals_base && addr < g_exec_vm_globals_end {
         return true;
     }
-    const agg_base: usize = @usize_from_ptr(&g_native_agg_values[0][0] as &void);
-    const agg_size: usize = (@size_of(ExecValue) as usize) * (512 as usize) * (EXEC_NATIVE_AGG_MAX_BASES as usize);
-    if addr >= agg_base && addr < agg_base +| agg_size {
-        return true;
-    }
     return false;
 }
 
 /// 地址是否指向一个确实存放 ExecValue 的元素槽。
 ///
-/// 与 `exec_vm_address_is_vm_resident` 的区别：不含 `g_native_agg_values`
+/// 与 `exec_vm_address_is_vm_resident` 的区别：不含原生聚合旁路表
 /// 旁路表，并且竞技场内部还要再查聚合元素登记表 —— 竞技场里同时住着
 /// ExecValue 数组和裸字节缓冲（源码文本、捕获缓冲），只看「在竞技场里」
 /// 会把缓冲字节当成 kind/count 解出来（fmt/json/yaml 系列因此崩溃）。
@@ -2296,13 +2291,64 @@ fn exec_vm_slice_ptr_value(value: &ExecValue, pointee_kind: i32) ExecValue {
 // `arena_alloc` 之类返回的是原生内存，里面放不下 ExecValue；
 // 以「基地址 → ExecValue 数组」的旁路表承接 `ptr[i].field` 的读写。
 const EXEC_NATIVE_AGG_MAX_BASES: i32 = 256;
-const EXEC_NATIVE_AGG_MAX_ELEMS: i32 = 512;
+// 每基址元素上限现在是「按需增长」的上界，不再是静态数组维度：
+// 动态扩容的 epoll 用例会往同一个原生数组里写到 1025 个元素，静态 512 会
+// 直接判越界（`exec: 当前不支持该指针元素类型`）。
+const EXEC_NATIVE_AGG_MAX_ELEMS: i32 = 65536;
 
 var g_native_agg_base: [usize: 256] = [];
 var g_native_agg_count: [i32: 256] = [];
-var g_native_agg_values: [[ExecValue: 512]: 256] = [];
+var g_native_agg_caps: [i32: 256] = [];
+var g_native_agg_storage: [&ExecValue: 256] = [];
 var g_native_agg_handles: [ExecAggregate: 256] = [];
 var g_native_agg_used: i32 = 0;
+
+/// 保证某条旁路表基址至少能容纳 `need` 个元素（倍增扩容，旧内容整体搬过去）。
+/// 参数：`slot` 基址条目下标；`need` 需要的元素个数。
+/// 返回值：0 成功，-1 无法分配。
+fn exec_vm_native_agg_ensure(slot: i32, need: i32) i32 {
+    if slot < 0 || slot >= EXEC_NATIVE_AGG_MAX_BASES || need <= 0 {
+        return -1;
+    }
+    var want: i32 = need;
+    if want > EXEC_NATIVE_AGG_MAX_ELEMS {
+        want = EXEC_NATIVE_AGG_MAX_ELEMS;
+    }
+    const old_cap: i32 = g_native_agg_caps[slot];
+    if old_cap >= want {
+        return 0;
+    }
+    var cap: i32 = old_cap;
+    if cap <= 0 {
+        cap = 16;
+    }
+    while cap < want && cap < EXEC_NATIVE_AGG_MAX_ELEMS {
+        cap = cap *| 2;
+    }
+    if cap > EXEC_NATIVE_AGG_MAX_ELEMS {
+        cap = EXEC_NATIVE_AGG_MAX_ELEMS;
+    }
+    const bytes: usize = (@size_of(ExecValue) as usize) * (cap as usize);
+    const mem: &ExecValue = exec_value_alloc_bytes(bytes) as &ExecValue;
+    if mem == null {
+        return -1;
+    }
+    // 新槽位一律先清零（kind=VOID）：越界读永远走不到这里，但扩容时未初始化
+    // 的字节一旦被当成 ExecValue 解出来就是随机 kind，必须抹掉。
+    _ = memset(mem as *void, 0, bytes);
+    const old_mem: &ExecValue = g_native_agg_storage[slot];
+    if old_mem != null {
+        var i: i32 = 0;
+        while i < old_cap {
+            mem[i] = old_mem[i];
+            i = i + 1;
+        }
+    }
+    g_native_agg_storage[slot] = mem;
+    g_native_agg_caps[slot] = cap;
+    g_native_agg_handles[slot].values = mem;
+    return 0;
+}
 
 /// 查找或建立原生指针聚合元素旁路表的条目。
 /// 参数：base 指针地址。
@@ -2330,7 +2376,8 @@ fn exec_vm_native_agg_slot_index(base: usize) i32 {
     g_native_agg_base[slot] = base;
     g_native_agg_count[slot] = 0;
     g_native_agg_handles[slot].count = 0;
-    g_native_agg_handles[slot].values = &g_native_agg_values[slot][0];
+    g_native_agg_caps[slot] = 0;
+    g_native_agg_storage[slot] = null;
     g_native_agg_used = slot + 1;
     return slot;
 }
@@ -2352,7 +2399,11 @@ fn exec_vm_native_agg_peek(base: usize, index: i64) &ExecValue {
     while i < g_native_agg_used {
         if g_native_agg_base[i] == base {
             if (index as i32) < g_native_agg_count[i] {
-                return &g_native_agg_values[i][index as i32];
+                const storage: &ExecValue = g_native_agg_storage[i];
+                if storage == null {
+                    return null;
+                }
+                return &storage[index as i32];
             }
             return null;
         }
@@ -2363,7 +2414,7 @@ fn exec_vm_native_agg_peek(base: usize, index: i64) &ExecValue {
 
 /// 把一条原生聚合旁路表里的元素整体迁到另一条基址（`memcpy` 用）。
 ///
-/// 原生结构体数组的元素是 VM 聚合，真实内容在 `g_native_agg_values` 旁路表里，
+/// 原生结构体数组的元素是 VM 聚合，真实内容在原生聚合旁路表里，
 /// 原生缓冲区上只有从未写过的原始字节。`memcpy` 若只搬字节，目标基址的旁路表
 /// 就是空的 —— 之后 `dst[i]` 读到 null，字段访问直接 `LOAD_FIELD 字段越界`。
 ///
@@ -2395,7 +2446,11 @@ fn exec_vm_native_agg_migrate(dst_base: usize, src_base: usize) i32 {
         if dst_elem == null {
             break;
         }
-        dst_elem[0] = exec_value_clone(&g_native_agg_values[src_slot][j]);
+        const src_storage: &ExecValue = g_native_agg_storage[src_slot];
+        if src_storage == null {
+            break;
+        }
+        dst_elem[0] = exec_value_clone(&src_storage[j]);
         j = j + 1;
     }
     return j;
@@ -2416,11 +2471,14 @@ fn exec_vm_native_agg_slot(base: usize, index: i64) &ExecValue {
     if idx < 0 || idx >= EXEC_NATIVE_AGG_MAX_ELEMS {
         return null;
     }
+    if exec_vm_native_agg_ensure(slot, idx + 1) != 0 {
+        return null;
+    }
     if idx >= g_native_agg_count[slot] {
         g_native_agg_count[slot] = idx + 1;
         g_native_agg_handles[slot].count = idx + 1;
     }
-    return &g_native_agg_values[slot][idx];
+    return &g_native_agg_storage[slot][idx];
 }
 
 /// 取原生指针聚合元素旁路表的聚合视图（按需建表）。
@@ -3083,7 +3141,7 @@ fn exec_vm_store_pointer_index(function: &BCFunction, base: ExecValue, index_val
         // 只能按旁路表槽位写入；有元素步长时至少保证下标不串位。
         const agg_slot: &ExecValue = exec_vm_native_agg_slot(base_addr, index_value);
         if agg_slot == null {
-            exec_backend_set_error(function.decl, "exec: 当前不支持该指针元素类型" as *byte, 0);
+                        exec_backend_set_error(function.decl, "exec: 当前不支持该指针元素类型" as *byte, 0);
             return -1;
         }
         agg_slot[0] = exec_value_clone(&src_value);
