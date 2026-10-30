@@ -4914,3 +4914,33 @@ POINTER 值（它不经过任何 maker），而那块原生内存里存的确实
 下一步（写成可执行的最小验证）：在 `exec_value_arena_alloc` 里对返回的字节做
 `memset(0)`，重跑 `test_typed_pipeline_executor_single` —— 如果错误消失或形态改变，
 就确认是竞技场残留，然后决定是「清零换正确性」还是「分配即初始化所有字段」。
+
+#### 竞技场也排除了：`exec_value_alloc_bytes` 本来就清零
+
+按上一节写的最小验证去读代码，发现根本不用改 —— `src/exec/value.uya:427`：
+
+```uya
+const mem: &byte = g_exec_value_arena_base + g_exec_value_arena_used;
+g_exec_value_arena_used = g_exec_value_arena_used +| total;
+_ = memset(mem as *byte, 0, size);   // ← 竞技场分配即清零
+return mem;
+```
+
+耗尽回落的那条 `malloc` 分支也是清零的。所以「竞技场复用留下旧 ExecValue」不成立。
+
+排到现在剩下的**唯一**嫌疑就是原生聚合旁路表：
+
+| 位置 | 是否清零 | 结论 |
+| --- | --- | --- |
+| 帧槽池 `g_exec_vm_slot_pool` | 否（本轮实测清零后错误不变） | 不是它 |
+| 值竞技场 `g_exec_value_arena_base` | 是（分配即 memset） | 不是它 |
+| 原生聚合存储 `g_native_agg_storage` | 首次分配清 0，**之后按 base 地址复用、不再清** | **剩下的嫌疑** |
+
+旁路表的键是「原生聚合的 base 地址」，同一个 base 地址被后续不同的对象复用时，
+表里上一次的 56 字节元素还在 —— 读字段拿到的就是旧 ExecValue，形状（kind/aux）
+合法、地址却指向已经换了主人的地方。这与观察到的
+`sigismember` 形参带着 `kind=14 aux=65552` 但地址无效完全吻合。
+
+下一轮的最小验证（明确一条）：在 `exec_vm_native_agg_slot_index` 命中已有条目时
+统计并打印 base 与 count；若失败前出现「命中的旧条目 count>0 且其元素里含非法
+引用」，就在那里加「base 换主人时清空」，判定依据用槽池 push/pop 的世代号。
