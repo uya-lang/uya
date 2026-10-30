@@ -4587,3 +4587,51 @@ pipeline 的所有用例，风险不小，不在这一轮顺手做。
 
 顺带纠正一处早先的分类：T11 里把这类记成「`cleanup scope` 嵌套过深」，不准确 ——
 至少这 2 个子测试是 **pipeline 错误路径清理未合成**，与作用域嵌套无关。
+
+### 第 403 轮：48 个普查失败的全量归因台账
+
+这一步的目的：**不留任何「还没查过」的失败**。48 例逐个点到具体的墙，
+以后谁接手都可以直接从对应的小节读起，不必重新排查。
+
+| 组 | 例数 | 说明 |
+| --- | --- | --- |
+| A. async 帧 / `@await` / waker / 调度器 | **25** | 见下方名单 |
+| B. pipeline 错误路径清理 / drop / 悬垂引用 | **4** | 第 402 轮定位 |
+| C. 宿主导回调 / 线程并发 | **13** | 无 host→bytecode 蹦床 |
+| D. `@c_import` 明确不支持 | **3** | 有意的 reason code `c_import` |
+| E. 纯算法慢（超时） | **3** | 性能问题，非语义 |
+
+合计 25 + 4 + 13 + 3 + 3 = **48**，与普查失败数一致。
+
+**A（25）**：`test_async_fd`、`test_async_frame_methods`、`test_async_frame_pool_full`、
+`test_async_frame_pool_stats`、`test_async_macro_expand`、
+`test_async_nested_http1_await_codegen`、`test_async_state_machine`、
+`test_async_compound_try_await`、`test_async_multi_fd_concurrent`、
+`test_async_runtime_shared_dns`、`test_async_runtime_shared_semantics`、
+`test_async_shared_runtime_semantics`、`test_async_task_queue_dynamic_growth`、
+`test_http1_async_client`、`test_http_uyagin_websocket`、
+`test_http_uyagin_async_boundary`、`test_http_websocket_json`、
+`test_http_websocket_reconnect`、`test_std_dns`、`test_std_dns_async_query_aggregate`、
+`test_std_dns_async_transport`、`test_std_mqtt_async`、
+`test_std_script_pipeline_facade`、`test_tls_async_runtime_io`、
+`test_std_async_scheduler`。
+
+**B（4）**：`test_typed_pipeline_capability`、`test_typed_pipeline_executor_single`、
+`test_typed_pipeline_lowering_error`、`test_http_uyagin`（`async_box_free_current`
+读到的 allocator 头是 `-15`，即释放了不是本分配器给出的指针，第 396 轮取证）。
+
+**C（13）**：`test_signal`、`test_osal`、`test_std_thread`、
+`test_std_thread_async_boundary`、`test_kernel_sim`（x86 call gate 要调目标函数）、
+`test_pthread_affinity`、`test_pthread_api_cancel`、`test_pthread_heap_cache_identity`、
+`test_pthread_heap_concurrency`、`test_async_thread_pool_dynamic_growth`、
+`test_async_compute_types`（`&double_i64 as &void` 交给线程池回调）、
+`test_async_compute_dynamic_resource_pressure`、`test_async_compute_generic_wrapper`。
+
+**D（3）**：`test_c_import_cflags`、`test_c_import_dir`、`test_c_import_file`
+（报 `exec: 当前不支持 @c_import`）。
+
+**E（3）**：`test_tls_ecdsa`、`test_tls_rsa`、`test_tls_x25519_pure`（>200s 超时）。
+
+结论：普查口径下**没有未归因的失败**了。剩下的每一例都指向 A/B/C 三堵墙中的
+一处，或纯性能。这也意味着 94.7% 之后的每一个百分点，都要以「实现一个子系统」
+为单位来算，而不是修 bug。
