@@ -4465,3 +4465,55 @@ exec: LOAD_FIELD 字段越界(idx=2 kind=16 count=1 pointee=-1)
 前置条件是在 VM 侧实现 async 帧的 poll 函数（与 `@frame` 同一工程）。
 这条结论把 T11 里「async 约 40 例」的根因钉死在一处，以后不要再按「传播 Pending」
 的方向试。
+
+### 第 400 轮：`@await` Pending 穿透（`test_async_await` 转绿）
+
+第 399 轮证否的是「造一个 `Future{Pending}` 再返回」——卡在调用侧的接口装箱。
+这一轮换成**穿透**：不去造新值，而是把**被 await 的那个 Future 原样**当作当前
+函数的返回值。
+
+#### 为什么这是对的
+
+Pending 变体没有载荷。所以
+
+```
+Future<!i32>{ state: Pending }        // 外层
+Future<!usize>{ state: Pending }      // 内层
+```
+
+在运行期完全同形：一个 box（或一个 `{state}` 结构体），`state` 是 `Poll.Pending`。
+把内层原样交出去，调用方再 poll 仍然得到 Pending —— 与 C99 状态机「本轮推不动、
+下次再 poll」的可观测结果一致。而 VM 本来就没有调度器，内层不可能在之后变成
+Ready 又回头驱动外层，所以「外层未来被折叠成内层」不会丢掉任何可观测行为。
+
+#### 改动
+
+- 新增 `exec_vm_await_pass_through_pending`：只在当前函数返回 Future
+  （`TYPE_INTERFACE` / `TYPE_STRUCT`）时生效，其它返回类型保持原报错。
+- `exec_vm_await_poll_interface` 忙等超时改为返回 **1**（始终 Pending），
+  与 **-1**（根本不是 Future）区分开，`BC_AWAIT` 据此决定穿透还是报错。
+- `BC_AWAIT` 不再覆盖内层错误。之前 poll 调用失败一律显示
+  `@await 操作数不是 Future`，把真正的根因（如 `LOAD_INDEX 越界`）盖掉了；
+  现在保留内层信息，只剩这一处改动就已经值回票价（见下）。
+
+#### 结果
+
+- `test_async_await` 由失败转通过：「await 一个永远 Pending 的 future，
+  外层 poll 应当是 Pending」这条终于对了。
+- async 全家族 28 例逐例复核：原本通过的**全部仍然通过**，零回归。
+- `make check` **1191 通过 / 失败 0**。
+
+#### 顺带暴露的真问题
+
+保留内层错误后，`test_std_dns` / `test_async_fd` 的真实失败点露出来了：
+
+```
+lib/std/async.uya:294:5: exec: LOAD_INDEX 越界
+```
+
+`_set_primary_io_slot` 里 `self._io_slot_fds[index]` 越界。原因是
+`exec_vm_await_poll_interface` 传进去的 waker 是**伪造的占位聚合**
+（`EXEC_AWAIT_WAKER_FIELDS` 个 void 字段），poll 方法里 `w.add_interest(...)`
+一写数组就炸。也就是说这两例缺的不是 `@await` 语义，而是**一个能真正记账的
+Waker**：`_io_slot_fds` / `_io_slot_interests` / `_io_slot_count` 得有真实布局
+和语义。这属于异步运行时（事件循环 + waker 注册）的一部分，不是补几行能解决的。
