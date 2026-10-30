@@ -976,6 +976,31 @@ const EXEC_AWAIT_BUSY_CLOCKS: i64 = 1500000;
 /// `@await` 忙等时给 `Waker` 参数用的占位聚合字段数（够覆盖 Waker 的全部字段）。
 const EXEC_AWAIT_WAKER_FIELDS: i32 = 64;
 
+/// `@await` 命中「始终 Pending」时的向上传播。
+///
+/// VM 同步执行到完成，没有挂起点，所以没法真正保存「外层函数执行到一半」的
+/// 状态。这里采用**穿透**：把被 await 的那个 Future 原样当作当前函数的返回值。
+/// 因为 Pending 没有载荷，`Future<A>{Pending}` 和 `Future<B>{Pending}` 在运行期
+/// 完全同形（都是「一个 box / 一个 {state} 结构体，state 是 Pending」），
+/// 调用方拿到后再 poll 仍然得到 Pending —— 与 C99 状态机「本轮推不动」的
+/// 可观测结果一致，而这正是 `test_async_await` 之类用例所断言的语义。
+///
+/// 仅在当前函数返回 Future（interface/struct）时生效；其它返回类型保持报错，
+/// 避免把写错的 `@await` 静默吞掉。
+///
+/// 返回值：1 已把穿透值写入 `out_value`；0 不适用。
+fn exec_vm_await_pass_through_pending(function: &BCFunction, value: &ExecValue, out_value: &ExecValue) i32 {
+    if function == null || value == null || out_value == null {
+        return 0;
+    }
+    const ret_kind: i32 = function.return_type.kind as i32;
+    if ret_kind != (TypeKind.TYPE_INTERFACE as i32) && ret_kind != (TypeKind.TYPE_STRUCT as i32) {
+        return 0;
+    }
+    out_value[0] = exec_value_clone(&value[0]);
+    return 1;
+}
+
 fn exec_vm_await_find_poll(value: &ExecValue, depth: i32) &ExecUnionData {
     if value == null || depth > 4 {
         return null;
@@ -1072,7 +1097,9 @@ fn exec_vm_await_poll_interface(program: &BCProgram, value: &ExecValue, out_valu
             return -1;
         }
     }
-    return -1;
+    // 忙等窗口内一直是 Pending：和「根本不是 Future」区分开，
+    // 交给调用方决定是报错还是向上传播（见 BC_AWAIT）。
+    return 1;
 }
 
 fn exec_vm_syscall_arg_to_i64(value: ExecValue) i64 {
@@ -7064,12 +7091,35 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         const poll_data: &ExecUnionData = exec_vm_await_find_poll(slot_b, 0);
         if poll_data != null && poll_data.tag == 1 {
             slot_a[0] = exec_value_clone(&poll_data.payload);
+        } else if poll_data != null && poll_data.tag == 0 {
+            // 明确的 Pending：穿透给调用方（详见 exec_vm_await_pass_through_pending）。
+            if exec_vm_await_pass_through_pending(function, slot_b, out_value) != 0 {
+                return 1;
+            }
+            exec_backend_set_error(function.decl,
+                "exec: @await 操作数始终 Pending，且当前函数不返回 Future" as *byte, 0);
+            return -1;
         } else {
             // 自己实现 poll 的 Future：同步忙等直到不再是 Pending。
             var awaited: ExecValue = exec_make_void();
-            if exec_vm_await_poll_interface(program, slot_b, &awaited) != 0 {
+            const poll_rc: i32 = exec_vm_await_poll_interface(program, slot_b, &awaited);
+            if poll_rc == 1 {
+                // 忙等窗口内一直 Pending：同样穿透。
+                if exec_vm_await_pass_through_pending(function, slot_b, out_value) != 0 {
+                    return 1;
+                }
                 exec_backend_set_error(function.decl,
-                    "exec: @await 操作数不是 Future 或始终 Pending" as *byte, 0);
+                    "exec: @await 操作数始终 Pending，且当前函数不返回 Future" as *byte, 0);
+                return -1;
+            }
+            if poll_rc < 0 {
+                // 内层（真正的 poll 调用）已经设过错误信息，别覆盖掉，
+                // 否则这里只会看到「不是 Future」，查不到真实原因。
+                return -1;
+            }
+            if poll_rc != 0 {
+                exec_backend_set_error(function.decl,
+                    "exec: @await 操作数不是 Future" as *byte, 0);
                 return -1;
             }
             slot_a[0] = awaited;
