@@ -6468,7 +6468,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             }
         }
         if fld_native_done == 0 && field_ref == null {
-            var fld_msg: [byte: 160] = [];
+            var fld_msg: [byte: 256] = [];
             var fld_count: i32 = -1;
             const fld_agg: &ExecAggregate = exec_vm_aggregate_ref_from_value(slot_b);
             if fld_agg != null {
