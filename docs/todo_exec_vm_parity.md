@@ -4008,3 +4008,56 @@ C 程序确认：`n=1 bytes: 01 00 00 00 06 00 00 00 ...`）。
 
 清理办法：`ps -eo pid,comm | awk '$2=="uya"'` 按 PID 精确 `kill`，
 不要 `pkill -f`（会连带杀掉 agent 进程树）。
+
+### 第 389 轮：epoll_wait 事件按 packed 12 字节记录解包
+
+#### 发现
+
+第 388 轮跑 parity 时 `test_epoll_server` 一例跑了 24 分钟不结束，单独复现是
+**6 个断言失败**（`0 == 1`、`total_drained == 2` 实得 0），而改前普查里它是
+`失败: 0`。把 `src/exec/vm.uya` 退回 `35c434be` 重建复测，同为 8/8 通过 ——
+回归确认是本轮改动引入。
+
+#### 根因：改前是「两边都错但互补」的假通过
+
+用 `strace` 对比两个版本的 `epoll_wait` 返回值：
+
+- 改前：`data={u32=0, u64=21474836480}` = `0x5_00000000`，fd 在**高 32 位**
+  （`epoll_ctl` 把 fd 写进了 `data` 高半，见第 387 轮）。
+- 改后：`data={u32=5, u64=5}`，fd 在 `data_lo`（低 32 位），这是正确的。
+
+内核写的是 C 的 packed 布局：`events` u32 @0、`data_lo` u32 @4、
+`data_hi` u32 @8，每条 **12 字节**（本机 `sizeof(struct epoll_event)=12`）。
+而 VM 聚合是「一字段一个 i64」，通用 `exec_vm_syscall_out_struct_apply`
+按 8 字节步长回填，于是：
+
+- 改后：`buffer[0] = 0x00000005_00000001`（events 和 data_lo 粘进一个 i64），
+  `buffer[1] = 0` → `epoll_event_fd` 读到 0 → 认不出监听事件 → 从不 accept。
+- 改前：fd 在 offset 8，恰好被 apply 读成第二个 i64 字段 → `epoll_event_fd`
+  读到的正是 fd → 测试通过。**两边都错，但错得互补。**
+
+这也解释了为什么 `test_std_async_event` 一直能在改后通过：它的事件数组是
+`calloc` 出来的宿主 packed 缓冲，读取走的是原生旁路，不经过 8 字节步长的 apply。
+
+#### 修法
+
+新增 `exec_vm_unpack_epoll_events`：对 `epoll_wait(232)` / `epoll_pwait(281)`
+在返回 `n > 0` 时，按 packed 记录把 `events` / `data_lo` / `data_hi` 逐个
+写回出参聚合（同时支持单个 `EpollEvent` 和 `EpollEvent` 数组），不再依赖
+通用 apply 的 8 字节步长。
+
+#### 结果
+
+- `test_epoll_server`：8/8，`失败: 0`（改前 2/8）
+- `test_epoll_syscall`、`test_std_async_event`、`test_std_async_event_fd_reuse`：
+  `失败: 0`
+- parity（本题修复前、含第 387 轮 epoll_ctl 修复）：914 例 / 一致 **850** /
+  不一致 64（原 849/65）。
+
+提交 `3d998497`。
+
+#### 教训
+
+「改前能过、改后不过」不等于改后错了 —— 要先确认改前的通过是不是**假通过**。
+判定方法：把两个版本在同一位置的中间值打出来对比（本轮是 apply 读到的
+`buffer[0..2]`），看差异出现在哪个字节偏移上，再回内核 ABI 对齐。
