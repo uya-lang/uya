@@ -3915,13 +3915,12 @@ fn exec_vm_syscall_marshal_out_struct(function: &BCFunction, frame: &ExecFrame, 
                 if materialize_target == null {
                     materialize_target = exec_vm_realign_to_slot(args[oi] as usize);
                 }
-                var pointee_is_agg: bool = false;
-                if arg_slot != null && arg_slot[0].kind == ExecValueKind.EXEC_VALUE_POINTER {
-                    pointee_is_agg = exec_vm_type_kind_size(
-                        exec_value_pointer_pointee_kind(&arg_slot[0])) == 0 as usize;
-                }
-                if materialize_target != null && materialize_target[0].kind == ExecValueKind.EXEC_VALUE_VOID &&
-                    pointee_is_agg {
+                // 不必再判「参数是不是聚合指针」：`out_mask` 的位是构建期
+                // `exec_builder_syscall_arg_out_struct_bit` 打上的，只有
+                // 「指针指向 struct/union/array/tuple」才会置位。而且实参常常
+                // 是 `set as i64` 这种已被折成整数的形态，按参数类型判反而会
+                // 把正是聚合出参的情况漏掉。
+                if materialize_target != null && materialize_target[0].kind == ExecValueKind.EXEC_VALUE_VOID {
                     materialize_target[0] = exec_value_make_aggregate(ExecValueKind.EXEC_VALUE_STRUCT, 64);
                     buffer = exec_vm_syscall_out_struct_prepare(materialize_target, &field_count);
                     register_target = materialize_target;
