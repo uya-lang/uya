@@ -3479,3 +3479,39 @@ C99 侧这 4 例全绿（无回归）。
 `make exec-parity` 复测：**914 例 / 一致 848 / 不一致 66 / stdout 差分 0**
 （第 374 轮 846/68）。剩余 66 例里 async 相关占 30 例以上，其余是 pthread、
 `@c_import`、TLS 大数、typed_pipeline 这几类已知的模型级缺口。
+
+### 第 379 轮：`exec_vm_load_pointer_index` 的 ExecValue 越界读
+
+`test_http_uyagin` 在 VM 下是 `rc=139`（**段错误**，不是断言失败）。gdb 回溯：
+
+```
+#0 exec_vm_load_pointer_index
+#1 vm_step
+#2 exec_vm_run_frame
+#3 exec_vm_call_function
+...
+```
+
+这条路径在「内部引用 + 下标」时直接做裸地址加法：
+
+```uya
+const value_elem: &ExecValue = @ptr_from_usize(exec_vm_index_ref_element_addr(&base, index_value)) as &ExecValue;
+out_value[0] = exec_value_clone(value_elem);
+```
+
+`exec_vm_index_ref_element_addr` 是 `base.i64_value + sizeof(ExecValue) * index`，
+没有任何上界。下标越界就会把任意内存当 ExecValue 克隆。
+
+**已修**：先取引用目标，按目标的元素数（聚合 `count` 或裸数组长度）校验下标，
+越界报「exec: 指针下标越界」而不是崩。
+
+**仍在的**：同一测试里还有个野生指针。加临时标记（已删）打出来是
+
+```
+fn=async_box_free_current addr=fffffff1 idx=0 kind=14 pointee=7
+```
+
+`0xfffffff1` 是 async 帧盒子释放路径拿到的野地址，属于既有的 async frame
+模拟缺口（VM 同步执行，`@frame` 的 start/poll/stop 是空操作），
+这一处目前仍会让进程收到 SIGSEGV。它不影响别的用例，
+但说明「VM 缺能力时应当报错而不是崩」这条纪律在 async 路径上还没落实。
