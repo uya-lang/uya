@@ -3905,3 +3905,73 @@ if nr_value == EPOLL_CTL_NR && arg_count >= 4 &&
 传下去。这属于 `@syscall` 入参 marshal 的一个独立特性，改动面较大，本轮不做。
 相关代码位置：`src/exec/vm.uya` 的 `exec_vm_exec_syscall`（epoll_ctl 分支）与
 `exec_vm_syscall_out_struct_target`。
+
+### 第 387 轮：epoll 唤醒断链的真正原因（已修）
+
+第 386 轮把结论写成「epoll_event 在 VM 里根本没有被物化成任何可识别的形态」，
+**那个结论是错的**。本轮从内核侧取证，断链点不在「物化」而在「打包」。
+
+#### 取证方法
+
+`strace` 直接看内核收到的字节，绕开 VM 侧一切解读：
+
+```
+epoll_ctl(5, EPOLL_CTL_ADD, 6,
+          {events=EPOLLIN, data={u32=0, u64=25769803776}}) = 0
+epoll_wait(5, [{events=EPOLLIN, data={u32=0, u64=25769803776}}], 1024, 0) = 1
+```
+
+`25769803776 = 0x6_00000000` —— **fd 6 被写进了 `data` 的高 32 位**。
+本机 `sizeof(struct epoll_event)` 实测为 12、`data` 在 offset 4（用一个等价
+C 程序确认：`n=1 bytes: 01 00 00 00 06 00 00 00 ...`）。
+
+#### 三个独立缺陷叠在一起
+
+1. **聚合槽序不等于声明序。**
+   `EpollEvent{ events, data_lo, data_hi }` 在 VM 聚合里可能落成
+   `[events, data_hi, data_lo]`。`exec_vm_epoll_ctl_native_event` 按声明序取
+   `values[1]` 当低 32 位，于是 fd 进了高半。
+   修法：本运行时 `data` 只当 fd 用、值恒在低 32 位，所以「槽 1 为零而槽 2
+   非零」时把槽 2 当低 32 位，两种槽序都能得到正确的 8 字节 `data`。
+
+2. **`epoll_ctl` 分支的 residency 门禁把转换整体关掉。**
+   `exec_vm_address_is_vm_resident(args[3])` 为真才做原生打包。但竞技场
+   （200MB）和宿主 malloc 出来的内存在同一片地址空间里，
+   `exec_vm_address_is_value` 会把不少宿主指针也判成驻留 —— 用 `strace`
+   对照发现转换根本没发生。而且 `&ev as i64` 已经把指针整数化，
+   参数槽里只剩 `kind=I64`，`exec_vm_syscall_out_struct_target` 返回 null，
+   这正是最需要转换的一种。
+   修法：去掉该门禁，改为「一律先尝试转换，失败才保留原地址」；
+   参数已整数化时按原生缓冲区的 3 个 i64 读（每个字段占一个 i64，和
+   `exec_vm_syscall_out_struct_prepare` 造出来的表示一致），并做内容校验
+   （events 非零且落在 u32 内、data 高 32 位为空），不满足就不碰它。
+
+3. **出参 marshal 的 scratch 回退不分场合。**
+   `exec_vm_syscall_marshal_out_struct` 在出参解析不出结构时无条件换成
+   256 字节 scratch 且不回填。`epoll_wait` 的事件数组是 malloc 出来的字节块，
+   参数已经是 `events as i64`，永远解析不出 ExecValue 结构 —— 于是内核把事件
+   全写进 scratch，调用方读到的永远是全 0。那一轮 `epoll_wait` 能返回 n=1
+   却 `epoll_event_fd` 读到 0，就是这条。
+   修法：scratch 只对**确实落在 VM 驻留区**的地址生效（那才是「内核会踩坏
+   ExecValue 头」的危险场景，`test_signal` 的 `rt_sigaction`）；原生内存原样
+   交给内核。
+
+#### 结果
+
+修好后 `strace` 变成 `data={u32=6, u64=6}`，`w1.is_woken()` 断言通过：
+
+- `test_std_async_event`：`失败: 0`
+- `test_std_async_event_fd_reuse`：`失败: 0`
+
+提交 `916b1833`。
+
+#### 仍然失败的部分（与 epoll 无关）
+
+`test_signal` 的 `signal_handler_is_invoked` / `sigprocmask_blocks_delivery`
+依旧 FAILED —— 那是「内核回调进 VM 执行 handler」的模型墙，不是打包问题。
+
+#### 给后续轮次的提示
+
+「VM 里读到的值和内核对不上」这类问题，**先上 `strace -xx` 看内核侧的字节**，
+再用等价 C 程序确认 ABI 布局，最后回 VM 找打包/解包的位置。第 386 轮花了整轮
+在 arena / 旁路表里找「物化形态」，方向就错了。

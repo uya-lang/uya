@@ -3919,15 +3919,9 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
     if nr_value == EPOLL_CTL_NR && arg_count >= 4 {
         const ev_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 3);
         const ev_buf: &byte = exec_value_alloc_bytes(32 as usize) as &byte;
-        const ec_rc: i32 = if ev_arg != null && ev_buf != null {
-            exec_vm_epoll_ctl_native_event(ev_arg, args[3], ev_buf)
-        } else {
-            -1
-        };
-        fprintf(stderr, "DBGEC5 rc=%d before=%ld\n", ec_rc, args[3]);
-        if ec_rc == 0 {
+        if ev_arg != null && ev_buf != null &&
+            exec_vm_epoll_ctl_native_event(ev_arg, args[3], ev_buf) == 0 {
             args[3] = @usize_from_ptr(ev_buf as &void) as i64;
-            fprintf(stderr, "DBGEC6 after=%ld\n", args[3]);
         }
     }
     out_value[0] = exec_vm_dispatch_host_syscall(target_kind, target_pointee_kind, nr_value, &args[0], arg_count);
