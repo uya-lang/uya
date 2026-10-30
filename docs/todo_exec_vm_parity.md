@@ -5025,3 +5025,55 @@ ip=19: BC_ADDR_LOCAL a=17 b=2 c=16        ; 取局部 slot2 的地址，pointee 
 
 这条改完之后，`test_typed_pipeline_executor_single` / `test_typed_pipeline_capability` /
 `test_http_uyagin` / `test_std_script_pipeline_facade` 这一族应当一起转绿。
+
+#### 真正的根因：内核按原生布局**直接写进了 ExecValue 槽**
+
+上一节把「槽 4」认作被临时值复用，再往下看一层就发现不是复用 —— 是**别的东西从槽里
+穿过去了**。`lib/libc/signal.uya:324`：
+
+```uya
+var result: !i64 = @syscall(SYS_rt_sigpending, set as i64, 8);
+```
+
+`set` 是 `&pending_before`，在 VM 里它是 `BC_ADDR_LOCAL` 造出的内部引用，地址就是
+**ExecValue 槽的地址**。而 `rt_sigpending` 会往这个地址写 8 字节原生 `sigset_t`。
+
+在 C99 后端里这没问题：`sigset_t` 就是 8 字节原生结构体，写进去正好。
+但在 VM 里，那个地址上躺着的是一整个 **56 字节的 ExecValue**
+（`kind / i64_value / ptr_value / aux_kind / …`），内核的 8 字节直接盖在
+`kind` 和 `i64_value` 上。
+
+于是：
+
+- `kind` 变成信号掩码的低 4 字节 —— 空掩码时正好是 **0 = EXEC_VALUE_VOID**；
+- `i64_value` 变成掩码的高 4 字节 —— 空掩码时正好是 **0**。
+
+这与实测的 `tgt_kind=0 tgt_i64=0` **逐位吻合**。
+
+整条因果链到此闭合：
+
+```
+sigpending(&pending_before)  →  内核把 56 字节槽的前 8 字节写成 0
+                             →  pending_before 变成 VOID/0
+sigismember(&pending_before, SIGPIPE)
+                             →  穿过引用读到「不是结构体」的槽
+                             →  aggregate_ref 失败 → 退化原生路径 count=-1
+                             →  LOAD_FIELD 字段越界
+```
+
+#### 修正上一节的判断
+
+上一节说「取过地址的局部被当临时槽复用」**是错的**，应当撤回。真正的规则是：
+
+> **凡是会把指针交给内核/libc 并由对方回写的原生结构体，在 VM 里都必须先物化成
+> 原生缓冲区，调用结束后再拷回聚合** —— 否则对方按自己的布局写进 ExecValue 槽。
+
+这解释了为什么这一族（sigset / pthread_sigmask / epoll_event / stat / termios …）
+总是在「一次成功的系统调用之后」炸，而且 `kind` 变成 0 或某个小整数。
+
+#### 下一步（单点，明确）
+
+在 `BC_SYSCALL` 的实参编组里：对「指向聚合（`exec_vm_type_kind_size == 0`）的内部引用」
+先物化到原生缓冲区（可复用 `exec_vm_native_agg_slot(base, 0)` 那条旁路），把缓冲地址
+传给内核，返回后按 `STORE_FIELD` 的写法把字段拷回聚合。同时检查 `pthread_sigmask` /
+`epoll_ctl` / `stat` 这几条同类调用是否共用同一编组路径 —— 共用的话一处修好全都好。
