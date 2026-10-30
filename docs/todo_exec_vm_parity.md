@@ -4210,7 +4210,7 @@ VOID。另有部分是同步执行模型无法表达 `Pending`（VM 里 async �
 | --- | --- | --- |
 | `make exec-census` | **858/907（94.6%）** / 失败 49 / 跳过 7 | 857/94.5% / 50 |
 | `make exec-parity` | 914 例 / 一致 **852** / 不一致 62 | 851 / 63 |
-| `make check` | 见下 | 1191 通过 / 失败 0 |
+| `make check` | **1191 通过 / 失败 0 / rc=0** | 1191 / 0 |
 
 两处 +1 都来自 `test_async_event_dynamic_growth`（原生聚合旁路表按需增长）。
 
