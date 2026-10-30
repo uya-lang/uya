@@ -3463,3 +3463,16 @@ p.first_child   // → LOAD_FIELD 字段越界
 | `test_http_websocket_json` | 124 超时 | 只剩 1 个用例 ERROR |
 
 C99 侧这 4 例全绿（无回归）。
+
+**本轮累计效果**
+
+| 指标 | 第 374 轮 | 第 378 轮 |
+|---|---|---|
+| 普查通过 | 848 / 907（93.5%） | **853 / 907（94.0%）** |
+| 失败 | 59 | **54** |
+| 转绿用例 | — | `test_https_debug`、`test_https_google`、`test_https_loopback`、`test_https_production`、`test_https_real_site` |
+| `make check`（C99） | 1191/1191 | **1191/1191** |
+
+翻转的 5 例全是 https：P-256 提速让握手跑得完，router 的下标修复让它们真正通过
+（含 `test_https_google` / `test_https_real_site` 这种连真实站点的）。
+没有新增失败。
