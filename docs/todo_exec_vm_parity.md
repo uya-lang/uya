@@ -5077,3 +5077,40 @@ sigismember(&pending_before, SIGPIPE)
 先物化到原生缓冲区（可复用 `exec_vm_native_agg_slot(base, 0)` 那条旁路），把缓冲地址
 传给内核，返回后按 `STORE_FIELD` 的写法把字段拷回聚合。同时检查 `pthread_sigmask` /
 `epoll_ctl` / `stat` 这几条同类调用是否共用同一编组路径 —— 共用的话一处修好全都好。
+
+#### 修复一处真漏洞：空聚合槽当出参时内核写的结果被丢弃
+
+`exec_vm_syscall_marshal_out_struct` 的 `prepare` 在「槽里还没有聚合」时返回空，
+代码于是走到「换成原生 scratch」的兜底分支。这个兜底对**只读**入参是对的，
+对**出参**却是错的：内核把结果写进 scratch，而 scratch 用完就丢，槽永远保持空。
+
+`var s: sigset_t = sigset_t {}` 正是这种状态（有类型、没聚合），所以
+`sigpending(&s)` 的写回被整段丢弃。给 `_syscall` 加打点验证过前后差异：
+
+```
+打点前： [sys] nr=127 mask=1 a0_before=0x82ff4688
+        [sys] nr=127 a0_after =0x883649e0 out_n=0     ← 换成 scratch，不回填
+修复后： [sys] nr=127 a0_before=0xfbb2c688
+        [sys] nr=127 a0_after =0xe9d810   out_n=1     ← 登记回填
+```
+
+修法（提交 `f83cb7c4`）：在兜底之前先按 `exec_vm_field_ref_store` 的同一约定
+把空槽物化成聚合，再重试 `prepare`。只用「指针且 pointee 是聚合」触发，
+标量出参（`&alen` 这种）不受影响。
+
+#### 但 pipeline 那一族**还没有**转绿，新证据指向下一个问题
+
+修完之后 `test_typed_pipeline_executor_single` 仍卡在同一处。继续看地址发现：
+
+```
+第一次 sigpending 的目标： 0x82ff4688
+sigismember 读的引用目标： 0x82ff46f8     ← 相差 0x70 = 2 个槽
+```
+
+**同一个源变量 `pending_before` 在两次使用里落到了不同的槽。** 这不是回填的问题，
+是「同一个局部在不同语句里拿到不同 slot 号」。下一步应该查降低阶段
+`HIR_EXPR_LOCAL.local_slot` 的分配：同一个 `VarDecl` 是否被分配了两次槽，
+或者两个不同作用域的临时变量恰好都叫 `pending_before` 的槽位被复用。
+
+（这一族到此可以确定是**多个独立缺陷叠加**：出参回填、局部槽号不一致，
+之前的 async/drop/回调三堵墙另外还在。）
