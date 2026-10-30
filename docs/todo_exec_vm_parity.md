@@ -4635,3 +4635,37 @@ pipeline 的所有用例，风险不小，不在这一轮顺手做。
 结论：普查口径下**没有未归因的失败**了。剩下的每一例都指向 A/B/C 三堵墙中的
 一处，或纯性能。这也意味着 94.7% 之后的每一个百分点，都要以「实现一个子系统」
 为单位来算，而不是修 bug。
+
+### 第 404 轮：`&struct` 落在槽池里时没有字段视图（墙 B 的第三块）
+
+`test_typed_pipeline_executor_single` 的失败点：
+
+```
+lib/libc/signal.uya:425:22: exec: LOAD_FIELD 字段越界(idx=0 kind=14 count=-1 pointee=16)
+```
+
+`kind=14` 是 POINTER，`pointee=16` 是 STRUCT，`count=-1` 说明
+`exec_vm_aggregate_ref_from_value` 压根没拿到聚合视图。顺着读代码：
+
+1. `exec_vm_aggregate_ref_from_value`（`src/exec/vm.uya:1771`）对**裸指针**指向聚合
+   的分支是：pointee 尺寸为 0（struct/union 都返回 0，见 `exec_vm_type_kind_size`）
+   时取 `exec_vm_native_agg_slot(addr, 0)`，再 `exec_value_as_aggregate` 那个元素。
+2. 旁路表元素刚 memset 成 VOID，`exec_value_as_aggregate(VOID)` 返回 null ——
+   于是整个函数返回 null，`LOAD_FIELD` 报「字段越界」。
+
+也就是说：**裸指针指向的聚合本体在 VM 里没有字段视图**。旁路表存的是「元素」
+（`&Token` 切片里一个元素就是一个 Token），而 `p.field` 要的是「Token 的字段」，
+两者语义不同。要用旁路表表达，得先把这块内存解释成一个结构体值再落进元素 0，
+而槽池里存的是 56 字节的 `ExecValue`，不是 C 布局 —— 这正是悬垂引用那一族的根。
+
+结论：这**不是**「补个 count 检查」能修的，需要一套「指针 → 聚合视图」的物化机制
+（把 `&struct` 指向的槽序列投影成 `ExecAggregate`）。同族的还有
+`test_typed_pipeline_capability`（`idx=2 kind=0`：引用目标已经是 VOID 槽）。
+
+#### 下一步的入口（给接手的人）
+
+| 墙 | 第一站 | 说明 |
+| --- | --- | --- |
+| A async | `src/exec/vm.uya` 的 `BC_AWAIT` / `exec_vm_await_poll_interface`；`src/exec/lower.uya:8845` | 要先有 `<fn>_poll` 的字节码版本，再有能记账的 Waker |
+| B drop / 指针聚合视图 | `src/exec/vm.uya:1762` `exec_vm_aggregate_ref_from_value`；`src/exec/lower.uya:7804` `exec_lower_desugar_pipeline` | 前者要「指针→聚合视图」物化；后者要语句级合成错误路径 drop |
+| C 宿主回调 | 无 | VM 没有任何 host→bytecode 蹦床，需要新增一层 C thunk 表，且要处理信号处理器里重入 VM 的约束 |
