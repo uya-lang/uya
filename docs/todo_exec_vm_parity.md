@@ -3299,3 +3299,5 @@ VM 里 `&v` 是「指向 ExecValue 本体的内部引用」，`exec_vm_mem_view`
 逐例比对：修好 `test_tflm_interpreter`；`test_async_nested_http1_await_codegen`
 再次出现（该例是已知的网络时序抖动，同一命令多次复跑会在 0/1 之间跳，不计回归）。
 `make check` 复测 **1191/1191 通过**（rc=0）。
+`make exec-parity` 复测：**914 例 / 一致 847 / 不一致 67 / stdout 差分 0**
+（第 374 轮 846/68）。
