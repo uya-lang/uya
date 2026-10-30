@@ -4669,3 +4669,42 @@ lib/libc/signal.uya:425:22: exec: LOAD_FIELD 字段越界(idx=0 kind=14 count=-1
 | A async | `src/exec/vm.uya` 的 `BC_AWAIT` / `exec_vm_await_poll_interface`；`src/exec/lower.uya:8845` | 要先有 `<fn>_poll` 的字节码版本，再有能记账的 Waker |
 | B drop / 指针聚合视图 | `src/exec/vm.uya:1762` `exec_vm_aggregate_ref_from_value`；`src/exec/lower.uya:7804` `exec_lower_desugar_pipeline` | 前者要「指针→聚合视图」物化；后者要语句级合成错误路径 drop |
 | C 宿主回调 | 无 | VM 没有任何 host→bytecode 蹦床，需要新增一层 C thunk 表，且要处理信号处理器里重入 VM 的约束 |
+
+### 第 405 轮：悬垂引用那一族的指针取证（挂在「地址不是宿主地址」上）
+
+针对 `test_typed_pipeline_executor_single` 又做了一轮取证，结论比第 404 轮更硬。
+
+#### 观测
+
+在 `exec_vm_aggregate_ref_from_value` 的失败出口打点，拿到：
+
+```
+[vm] agg-null kind=14 iref=1 addr=0xc6c1d688 poi=16 storage=0
+```
+
+- `kind=14`：POINTER；
+- `iref=1`：它**是**内部引用（引用编码是合法的，不是丢编码的裸指针）；
+- `poi=16`：pointee 是 STRUCT，说明类型层面没错；
+- `addr=0xc6c1d688`：**这不是宿主地址**（宿主 64 位程序的值 arena / 槽池地址都是
+  `0x7f…` / `0x55…` 量级），而且 `storage=0` 说明它也不在任何 ExecValue 存储里；
+- 在 `exec_vm_run_frame` 入口对**所有**指针参数加了「地址 < 4GiB 就报」的打点，
+  跑同一用例**一条都没打** —— 说明这个坏地址不是从参数传进来的，是函数体里
+  某个局部/字段值算出来的。
+
+#### 结论
+
+`exec_vm_ref_target_value` 拿这个地址去解码自然得到 null，于是 `set.val` 报
+`LOAD_FIELD 字段越界(count=-1)`。也就是说：**内部引用的地址在某个环节被写成了
+一个 32 位量级的非宿主值**。它既没经过参数口（已排除），也不在存储区里，
+所以最可能是在某条 `STORE_LOCAL` / 字段写入路径上，把「引用编码」和「地址」
+两个概念混用了 —— 例如把 `EXEC_VM_REF_KIND_*` 的编码值当成地址存进了
+`i64_value`。
+
+要定位还需要在「指针值写入槽位」处打点并回溯写入者，这一轮没有继续往下钻
+（单测收益只有 2~3 例，而打点+重编一轮三分钟起步）。这里把线索固化下来：
+**下一步直接从 `0xc6c1d688` 这个值反查是谁写进去的**，比从头猜快得多
+（建议做法：在 `exec_vm_store_slot_shallow` 里判断「POINTER 且 iref=1 且
+地址不在 VM 驻留区」时打印 `function.name` + `instr`，一轮就能锁定写入指令）。
+
+同族的 `test_typed_pipeline_capability` 报 `idx=2 kind=0`（槽值已经是 VOID），
+`test_http_uyagin` 报 `base=-15`，大致都是「引用/地址语义被写坏」的不同表现。
