@@ -34,6 +34,11 @@ use libc.sys_setsid;
 use libc.sys_kill;
 
 const EXEC_VM_REF_KIND_BASE: i32 = 65536;
+// 线程体指令预算：解释器没有并发，`pthread_create` 是「当场把 routine 跑完」。
+// routine 里等待父线程放行的自旋会在这里变成死循环（实测 test_pthread_affinity
+// 挂一小时）。给它一个指令上限，超了就让这次线程体调用失败返回，父线程按
+// 「线程没跑完」继续走（测试会明确失败，而不是挂死）。
+var g_exec_vm_thread_body_budget: i64 = 0i64;
 const EXEC_VM_REF_KIND_INDEX_BASE: i32 = 131072;
 
 // 调用帧槽位的共享栈（LIFO）。
@@ -5089,7 +5094,14 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                         thread_args[0] = thread_arg[0];
                     }
                     var thread_ret: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+                    g_exec_vm_thread_body_budget = 20000000i64;
                     const thread_rc2: i32 = exec_vm_call_function(program, routine_index, &thread_args[0], 1, 0, &thread_ret);
+                    g_exec_vm_thread_body_budget = 0i64;
+                    if thread_rc2 != 0 {
+                        // 线程体没跑完（预算超限/内部错误）：清掉错误状态，让父线程
+                        // 继续跑（join 拿到默认返回值），不要污染整个程序。
+                        g_exec_last_error_message[0] = 0 as byte;
+                    }
                     if thread_rc2 == 0 {
                         exec_vm_thread_result[free_slot] = thread_ret;
                     }
@@ -7802,6 +7814,13 @@ fn exec_vm_run_frame(program: &BCProgram, function: &BCFunction, args: &ExecValu
     }
 
     while frame.ip < function.instr_count {
+        if g_exec_vm_thread_body_budget > 0i64 {
+            g_exec_vm_thread_body_budget = g_exec_vm_thread_body_budget -| 1i64;
+            if g_exec_vm_thread_body_budget == 0i64 {
+                exec_backend_set_error(function.decl, "exec: 线程体超出指令预算（解释器无并发，自旋会死锁）" as *byte, 0);
+                return -1;
+            }
+        }
         const step_result: i32 = vm_step(program, &frame, trace_vm, out_value);
         if step_result < 0 {
             return -1;
