@@ -3432,6 +3432,19 @@ fn c99_emit_static_method_call(codegen: &C99CodeGenerator, expr: &ASTNode,
     return 1;
 }
 
+/// hosted 下 mem 族调用的判空包装名；不是这几个函数返回 null。
+fn c99_hosted_mem_null_guard_name(name: &byte) &byte {
+    if name == null {
+        return null;
+    }
+    if strcmp(name as *byte, "memcpy" as *byte) == 0 { return "__uya_checked_memcpy" as &byte; }
+    if strcmp(name as *byte, "memmove" as *byte) == 0 { return "__uya_checked_memmove" as &byte; }
+    if strcmp(name as *byte, "memset" as *byte) == 0 { return "__uya_checked_memset" as &byte; }
+    if strcmp(name as *byte, "memchr" as *byte) == 0 { return "__uya_checked_memchr" as &byte; }
+    if strcmp(name as *byte, "memcmp" as *byte) == 0 { return "__uya_checked_memcmp" as &byte; }
+    return null;
+}
+
 fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         const callee: &ASTNode = expr.call_expr_callee;
         const args: & & ASTNode = expr.call_expr_args;
@@ -4212,6 +4225,11 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     const gen_decl: &ASTNode = find_generic_fn_decl_for_mono_call(codegen, func_name, expr.call_expr_type_arg_count);
                     const mono_name: &byte = get_mono_function_name(codegen, func_name, expr.call_expr_type_args, expr.call_expr_type_arg_count, gen_decl);
                     safe_name = get_safe_c_identifier(codegen, mono_name);
+                }
+                // hosted 把 mem 族调用点换成带判空的包装（Uya 语义：空指针/n==0 返回入参）。
+                if (codegen.is_nostdlib == 0 && func_name != null) {
+                    const guarded: &byte = c99_hosted_mem_null_guard_name(func_name);
+                    if (guarded != null) { safe_name = guarded; }
                 }
                 const libc_ret_c: &byte = get_extern_libc_return_c_type(codegen, fn_decl);
                 if libc_ret_c != null {

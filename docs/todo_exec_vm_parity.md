@@ -5955,3 +5955,20 @@ Uya 侧原型，和 `<sys/stat.h>` 的 `int mkdir(const char *, mode_t)` 撞车�
 系统 libc 符号时，不再发原型，直接沿用系统头里的声明。修后两后端都通过。
 
 本轮差分 913 例（跳过 1）/ 一致 863 / 不一致 **50**（起点 60）。
+
+### 408 轮补充七：hosted 下 mem 族走判空包装（`test_mem` 转一致）
+
+`test_mem` 在 C99 里曾经 SIGSEGV：Uya 的 `libc.mem` 把「空指针 / `n == 0`」定义为
+返回入参本身（`memcpy(null,null,10)` 返回 null），而 hosted 生成的 C 直接调宿主
+`memcpy`，glibc 遇到 NULL 立刻段错误。
+
+修法（只动 hosted，`--nostdlib` 不受影响）：
+
+- 生成的 C 里补一组 `static inline` 包装：`__uya_checked_memcpy/memmove/memset/
+  memchr/memcmp`，先判空再委派（`memcpy`/`memcmp` 用已有的 `__uya_*` 字节实现，
+  其余用块作用域 `extern` 声明宿主函数，避免头文件依赖）；
+- `gen_call_expr` 在 hosted 下把这五个名字的调用点换成对应包装
+  （`c99_hosted_mem_null_guard_name`）。
+
+验证：`test_mem` C99/VM 均通过；抽样回归（pipeline / kernel / dns / signal /
+globals）C99 全过。至此本轮差分 913 例（跳过 1）/ 一致 865 / 不一致 **48**。
