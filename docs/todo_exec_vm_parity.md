@@ -6018,3 +6018,25 @@ typed_pipeline 2、crypto_bigint 1、std_dns 1）。
 
 另外 `make exec-census` 同步复测：907 例 / 通过 **864** / 失败 43 / 跳过 7（95.3%，
 比第 401 轮的 859/48 多覆盖 5 例）。
+
+### 408 轮补充十：epoll 分配器的 `count` 守卫（修 `make check` 的 53 例编译失败）
+
+`make check` 之前从 1191 全绿掉到 1138/53，53 例失败全是同一个编译错误：
+`alloc-size-larger-than`（ghcc `-Werror`）。根因链：
+
+1. 语言里 `@size_of` 返回 **i32**（checker 的既定规则），
+   `@size_of(PollFd) *| (count as usize)` 于是是 i32 饱和乘法，
+   临时量 `int32` 把 `(size_t)count` 截断；
+2. `count` 在错误路径上可能是负数 → `bytes` 变负 → 转成 `size_t` 后是极大值；
+3. gcc 在 `-O2` 下内联后能证明这一点，于是 `calloc(1, bytes)` 触发
+   `-Werror=alloc-size-larger-than`。
+
+修法（`lib/std/async_event.uya`）：7 个 `linux_epoll_alloc_*` 一律先
+`if count <= 0 { return error.EventLoopAllocFailed; }`，并把 `@size_of(...)`
+显式 `as usize`（`lib/std/async.uya` 的两处 header_size 同样处理）。
+这样负数根本进不了 `calloc`，`-Werror` 下也能编过。
+
+注意自举插曲：中途试过「饱和运算临时量按更宽操作数取类型」，结果自举出的
+编译器带 64 位临时量、把 i32 饱和上限常量截成 -1，`make check` 里 3442 个
+「溢出无法证明」直接崩掉，只能用 `bin/uya.c` 备份 `make from-c` 回退重编。
+该方案已放弃，最终只做上面的守卫 + 显式 `as usize`。

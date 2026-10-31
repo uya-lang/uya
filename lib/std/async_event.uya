@@ -852,7 +852,12 @@ fn linux_epoll_fd_map_remove(ep: &LinuxEpoll, fd: i32) void {
 }
 
 fn linux_epoll_alloc_i32(count: i32) !&i32 {
-    const bytes: usize = @size_of(i32) *| (count as usize);
+    // count 必须为正：负数转成 usize 会得到极大值（-Werror 下 gcc 会直接拒编，
+    // 语义上也不该走到分配）。
+    if count <= 0 {
+        return error.EventLoopAllocFailed;
+    }
+    const bytes: usize = (@size_of(i32) as usize) *| (count as usize);
     const ptr: &void = calloc(1 as usize, bytes);
     if ptr == null {
         return error.EventLoopAllocFailed;
@@ -861,7 +866,12 @@ fn linux_epoll_alloc_i32(count: i32) !&i32 {
 }
 
 fn linux_epoll_alloc_i16(count: i32) !&i16 {
-    const bytes: usize = @size_of(i16) *| (count as usize);
+    // count 必须为正：负数转成 usize 会得到极大值（-Werror 下 gcc 会直接拒编，
+    // 语义上也不该走到分配）。
+    if count <= 0 {
+        return error.EventLoopAllocFailed;
+    }
+    const bytes: usize = (@size_of(i16) as usize) *| (count as usize);
     const ptr: &void = calloc(1 as usize, bytes);
     if ptr == null {
         return error.EventLoopAllocFailed;
@@ -870,7 +880,12 @@ fn linux_epoll_alloc_i16(count: i32) !&i16 {
 }
 
 fn linux_epoll_alloc_u32(count: i32) !&u32 {
-    const bytes: usize = @size_of(u32) *| (count as usize);
+    // count 必须为正：负数转成 usize 会得到极大值（-Werror 下 gcc 会直接拒编，
+    // 语义上也不该走到分配）。
+    if count <= 0 {
+        return error.EventLoopAllocFailed;
+    }
+    const bytes: usize = (@size_of(u32) as usize) *| (count as usize);
     const ptr: &void = calloc(1 as usize, bytes);
     if ptr == null {
         return error.EventLoopAllocFailed;
@@ -879,7 +894,12 @@ fn linux_epoll_alloc_u32(count: i32) !&u32 {
 }
 
 fn linux_epoll_alloc_usize(count: i32) !&usize {
-    const bytes: usize = @size_of(usize) *| (count as usize);
+    // count 必须为正：负数转成 usize 会得到极大值（-Werror 下 gcc 会直接拒编，
+    // 语义上也不该走到分配）。
+    if count <= 0 {
+        return error.EventLoopAllocFailed;
+    }
+    const bytes: usize = (@size_of(usize) as usize) *| (count as usize);
     const ptr: &void = calloc(1 as usize, bytes);
     if ptr == null {
         return error.EventLoopAllocFailed;
@@ -888,7 +908,12 @@ fn linux_epoll_alloc_usize(count: i32) !&usize {
 }
 
 fn linux_epoll_alloc_events(count: i32) !&EpollEvent {
-    const bytes: usize = @size_of(EpollEvent) *| (count as usize);
+    // count 必须为正：负数转成 usize 会得到极大值（-Werror 下 gcc 会直接拒编，
+    // 语义上也不该走到分配）。
+    if count <= 0 {
+        return error.EventLoopAllocFailed;
+    }
+    const bytes: usize = (@size_of(EpollEvent) as usize) *| (count as usize);
     const ptr: &void = calloc(1 as usize, bytes);
     if ptr == null {
         return error.EventLoopAllocFailed;
@@ -897,7 +922,12 @@ fn linux_epoll_alloc_events(count: i32) !&EpollEvent {
 }
 
 fn linux_epoll_alloc_pollfds(count: i32) !&PollFd {
-    const bytes: usize = @size_of(PollFd) *| (count as usize);
+    // count 必须为正：负数转成 usize 会得到极大值（-Werror 下 gcc 会直接拒编，
+    // 语义上也不该走到分配）。
+    if count <= 0 {
+        return error.EventLoopAllocFailed;
+    }
+    const bytes: usize = (@size_of(PollFd) as usize) *| (count as usize);
     const ptr: &void = calloc(1 as usize, bytes);
     if ptr == null {
         return error.EventLoopAllocFailed;
@@ -906,7 +936,12 @@ fn linux_epoll_alloc_pollfds(count: i32) !&PollFd {
 }
 
 fn linux_epoll_alloc_kevents(count: i32) !&Kevent {
-    const bytes: usize = @size_of(Kevent) *| (count as usize);
+    // count 必须为正：负数转成 usize 会得到极大值（-Werror 下 gcc 会直接拒编，
+    // 语义上也不该走到分配）。
+    if count <= 0 {
+        return error.EventLoopAllocFailed;
+    }
+    const bytes: usize = (@size_of(Kevent) as usize) *| (count as usize);
     const ptr: &void = calloc(1 as usize, bytes);
     if ptr == null {
         return error.EventLoopAllocFailed;
