@@ -5913,3 +5913,35 @@ signal 1（宿主回调）、typed_pipeline 2（聚合布局 / drop 语义）、
 实测这一类仍然是**空槽**（`kind=0`）：`frame.poll(&w)` 的结果槽根本没被写过，
 属 async 帧/`<fn>_poll` 字节码缺口（模型级墙），不是 opcode 判据问题。
 改动只提升诊断，不改语义；pipeline/osal 用例复跑无回归。
+
+### 408 轮补充五：C99 整型除零检查 + 全局初始化器里的调用可达性
+
+用户指出「C99 普通整数除法不检查除零（UB），VM 直接报 `exec: 除零` 是编译器的问题」，
+本轮修掉：
+
+1. **整型 `/` `%` 显式判零**（`src/codegen/c99/expr.uya`）
+   函数体内的整型除/模发射成语句表达式：
+   `({ __typeof__(L) _uya_dv_l = (L); __typeof__(R) _uya_dv_r = (R);
+   if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l OP _uya_dv_r; })`
+   ——除数为 0 时与 VM 一样以状态 1 终止进程。用生成 C 里到处都在用的
+   `uya_syscall1`，避免在 split-C 的每个 TU 里再补声明。静态初始化器位置不发射
+   （语句表达式在那里非法），由下面的运行期初始化兜住。
+
+2. **全局初始化器里的调用要计入可达性**（`src/checker/check_call.uya`）
+   `var g: i32 = init_dep();` 的调用不属于任何函数体（`current_function_decl == null`），
+   之前不登记调用边，`init_dep` 被可达性裁剪掉、C99 链接期 `undefined reference`。
+   现在这种调用按「根」登记，函数一定会发射。
+
+3. **运行期全局初始化**（`src/codegen/c99/global.uya` + `main.uya`）
+   非常量初始化器改成：全局定义留空 + 前置声明 `__uya_rt_init_globals`，
+   定义放在**所有函数之后**（初始化表达式可能引用后面才定义的函数），
+   `main_main` 的四个入口形态（错误联合 / 普通 main / `export fn main` / 测试运行器）
+   开头各调用一次。
+
+验证：`test_exec_vm_globals`、`test_exec_vm_globals_multi` 两后端均通过；
+`test_exec_vm_global_init_fail`（全局初始化除零）C99/VM 都是退出码 1，
+差分由「C99=0 / VM=1」回到一致。抽样回归
+（pipeline / kernel / signal / osal / dns）C99 全过。
+
+自举注意：旧编译器会给每个整型除法包一层 `__uya_div_zero_abort()` 调用，
+换实现的第一轮需要一个临时定义才能自举；已在 `lib/libc/unistd.uya` 里用完即删。

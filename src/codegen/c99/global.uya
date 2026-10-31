@@ -495,6 +495,8 @@ var g_c99_dyn_global_names: [&byte: 256] = [];
 var g_c99_dyn_global_exprs: [&ASTNode: 256] = [];
 var g_c99_dyn_global_types: [&ASTNode: 256] = [];
 var g_c99_dyn_global_count: i32 = 0;
+var g_c99_dyn_global_emitted: i32 = 0;
+var g_c99_dyn_global_declared: i32 = 0;
 
 fn c99_global_init_contains_call(expr: &ASTNode) i32 {
     if expr == null {
@@ -527,10 +529,20 @@ fn c99_dynamic_global_init_count() i32 {
     return g_c99_dyn_global_count;
 }
 
-fn c99_emit_dynamic_global_inits(codegen: &C99CodeGenerator) void {
-    if codegen == null || g_c99_dyn_global_count <= 0 {
+/// 前置声明：`export fn main` 就是 C 入口，调用点可能早于定义。
+fn c99_emit_dynamic_global_init_prototype(codegen: &C99CodeGenerator) void {
+    if codegen == null || g_c99_dyn_global_count <= 0 || g_c99_dyn_global_declared != 0 {
         return;
     }
+    g_c99_dyn_global_declared = 1;
+    fputs("static void __uya_rt_init_globals(void);\n" as *byte, codegen.emit_stream as *void);
+}
+
+fn c99_emit_dynamic_global_inits(codegen: &C99CodeGenerator) void {
+    if codegen == null || g_c99_dyn_global_count <= 0 || g_c99_dyn_global_emitted != 0 {
+        return;
+    }
+    g_c99_dyn_global_emitted = 1;
     fputs("static void __uya_rt_init_globals(void) {\n" as *byte, codegen.emit_stream as *void);
     var i: i32 = 0;
     while i < g_c99_dyn_global_count {

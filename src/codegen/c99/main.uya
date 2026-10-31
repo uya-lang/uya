@@ -2852,6 +2852,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         }
         if is_bootstrap == 0 && codegen.freestanding == 0 {
             fputs("extern void _exit(int);\n" as *byte, codegen.emit_stream as *void);
+
         }
         c99_emit_newline(codegen);
         // C99 兼容的 alignof 宏（使用 offsetof 技巧）
@@ -6690,7 +6691,16 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                     }
                     fputs(") {\n" as *byte, codegen.emit_stream as *void);
                 } else {
+                    if is_app_main != 0 {
+                        // `export fn main` 直接发射成 C 入口 main_main：先补前置声明，
+                        // 函数体开头调用一次；定义在所有函数之后发射（见下面的收尾处），
+                        // 否则初始化表达式里引用的函数还没有声明。
+                        c99_emit_dynamic_global_init_prototype(codegen);
+                    }
                     fprintf(codegen.emit_stream as *void, "%s %s(void) {\n" as *byte, return_c as *byte, main_c_name as *byte);
+                    if is_app_main != 0 && c99_dynamic_global_init_count() > 0 {
+                        fputs("    __uya_rt_init_globals();\n" as *byte, codegen.emit_stream as *void);
+                    }
                 }
 
                 // 保存并设置当前函数的返回类型
@@ -6726,7 +6736,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         // 入口 main 返回错误联合：用户函数已发射为 uya_main_result()，
         // 这里生成 int32_t main_main(void)：解包成功值作为退出码，出错打印错误名并返回 1。
         c99_mirror_emit_common(codegen);
-        c99_emit_dynamic_global_inits(codegen);
+        c99_emit_dynamic_global_init_prototype(codegen);
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
         if c99_dynamic_global_init_count() > 0 {
             fputs("    __uya_rt_init_globals();\n" as *byte, codegen.emit_stream as *void);
@@ -6746,7 +6756,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         c99_emit_close_brace_newline(codegen);
     } else if cg_emit_now != 0 && has_plain_user_main != 0 && c99_parallel_is_common_owner(codegen) != 0 {
         c99_mirror_emit_common(codegen);
-        c99_emit_dynamic_global_inits(codegen);
+        c99_emit_dynamic_global_init_prototype(codegen);
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
         if c99_dynamic_global_init_count() > 0 {
             fputs("    __uya_rt_init_globals();\n" as *byte, codegen.emit_stream as *void);
@@ -6759,7 +6769,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     // std.runtime.entry 的 main 会调用 main_main()
     if cg_emit_now != 0 && has_user_main == 0 && test_count > 0 && c99_parallel_is_common_owner(codegen) != 0 {
         c99_mirror_emit_common(codegen);
-        c99_emit_dynamic_global_inits(codegen);
+        c99_emit_dynamic_global_init_prototype(codegen);
         // 测试计数变量已在第八步 c 中定义
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
         if c99_dynamic_global_init_count() > 0 {
@@ -6807,6 +6817,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
             fprintf(libc.stderr, "错误: 并行 codegen 回填临时分片失败（split 目录不可写？）\n" as *byte);
             return 0 - 1;
         }
+    }
+
+    // 运行期全局初始化的定义放在所有函数之后：初始化表达式可能引用后面才定义的
+    // 函数（`export fn main` 直接就是 C 入口，调用点更早）。
+    if cg_emit_now != 0 && c99_parallel_is_common_owner(codegen) != 0 {
+        c99_emit_dynamic_global_inits(codegen);
     }
 
     // 输出宏展开等阶段才加入的字符串常量（如 encode_to_to_json 中的 "id"/"name"）

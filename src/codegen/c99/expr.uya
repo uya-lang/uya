@@ -385,6 +385,23 @@ fn c99_checked_arith_c_type(codegen: &C99CodeGenerator, kind: i32) &byte {
     return bare;
 }
 
+/// C 类型串是否为整型算术（浮点/布尔不算）。
+fn c99_c_type_is_integer_arith(type_c: &byte) i32 {
+    if type_c == null {
+        return 0;
+    }
+    if strstr(type_c as *byte, "float" as *byte) != null {
+        return 0;
+    }
+    if strstr(type_c as *byte, "double" as *byte) != null {
+        return 0;
+    }
+    if strstr(type_c as *byte, "bool" as *byte) != null {
+        return 0;
+    }
+    return 1;
+}
+
 // C 类型串是否为无符号整数（无符号不做 MIN/-1 与负溢出判断）
 fn c99_c_type_is_unsigned(type_c: &byte) i32 {
     if type_c == null {
@@ -8391,6 +8408,27 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 gen_expr(codegen, right);
                 fputs(")))" as *byte, codegen.emit_stream as *void);
             }
+        } else if ((op == TokenType.TOKEN_SLASH || op == TokenType.TOKEN_PERCENT) &&
+            codegen.current_function_decl != null &&
+            c99_c_type_is_integer_arith(get_c_type_of_expr(codegen, expr)) != 0) {
+            // 整型 `/` `%` 先判除数为 0：Uya 语义是运行时错误（exec VM 直接
+            // `exec: 除零` 并退出 1），C 里却是 UB（-O2 下会被折成任意值，
+            // 表现为「程序照常跑完」）。这里按同样语义把进程以 1 退出。
+            // 只在函数体内发射：静态初始化器位置不允许语句表达式。
+            fputs("({ __typeof__(" as *byte, codegen.emit_stream as *void);
+            gen_expr(codegen, left);
+            fputs(") _uya_dv_l = (" as *byte, codegen.emit_stream as *void);
+            gen_expr(codegen, left);
+            fputs("); __typeof__(" as *byte, codegen.emit_stream as *void);
+            gen_expr(codegen, right);
+            fputs(") _uya_dv_r = (" as *byte, codegen.emit_stream as *void);
+            gen_expr(codegen, right);
+            // 除数为 0：与 exec VM 一样终止进程（exit_group=60，状态 1）。
+            // 用生成的 C 里到处都在用的 uya_syscall1，避免在 split-C 的每个 TU
+            // 里都要额外声明一个 helper。
+            fputs("); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l " as *byte, codegen.emit_stream as *void);
+            c99_emit_binary_operator(codegen, op_code_for_emit(op));
+            fputs(" _uya_dv_r; })" as *byte, codegen.emit_stream as *void);
         } else {
             // 普通二元表达式
             fputc(40, codegen.emit_stream as *void);  // '('
