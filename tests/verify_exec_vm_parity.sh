@@ -35,6 +35,9 @@ TIMEOUT="${UYA_PARITY_TIMEOUT:-300}"
 REPORT="${UYA_PARITY_REPORT:-/tmp/uya_exec_vm_parity.tsv}"
 PARITY_STDOUT="${UYA_PARITY_STDOUT:-0}"
 SKIP_FILE="${UYA_PARITY_SKIP:-$SCRIPT_DIR/exec_vm_parity_skip.txt}"
+# 单用例超时覆盖表（只放宽「语义对齐但解释器慢」的纯算法用例）
+TIMEOUT_FILE="${UYA_PARITY_TIMEOUTS:-$SCRIPT_DIR/exec_vm_parity_timeouts.txt}"
+export TIMEOUT_FILE
 
 if [ ! -x "$COMPILER" ]; then
     echo "✗ 编译器不存在或不可执行: $COMPILER" >&2
@@ -99,6 +102,13 @@ run_one() {
     local compiler="$3"
     local timeout_s="$4"
     local parity_stdout="$5"
+    local override_s=""
+    if [ -n "${TIMEOUT_FILE:-}" ] && [ -f "$TIMEOUT_FILE" ]; then
+        override_s="$(awk -F'\t' -v n="$(basename "$uya_file")" '$1 == n { print $2; exit }' "$TIMEOUT_FILE" 2>/dev/null)"
+    fi
+    if [[ "$override_s" =~ ^[0-9]+$ ]]; then
+        timeout_s="$override_s"
+    fi
     local base
     base="$(basename "$uya_file")"
     local out_file="$results_dir/${base}.txt"

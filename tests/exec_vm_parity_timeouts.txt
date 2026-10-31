@@ -1,0 +1,13 @@
+# exec VM / C99 差分：单用例超时覆盖表
+#
+# 格式：`用例文件名<TAB>秒数`（# 起注释）。
+# 只放宽「语义已经对齐、但解释器纯 CPU 开销大」的用例 —— 这类必须给足时间，
+# 否则会被误判成 STATUS_MISMATCH（VM=124）。默认超时见 UYA_PARITY_TIMEOUT。
+#
+# 纯算法（大数模幂 / 椭圆曲线）在解释器里比 C99 慢两个数量级：
+#   实测 test_crypto_bigint_modexp4096 在 VM 里 424s 跑完（C99 <1s），
+#   结论是「通过」，只是超过了默认 300s。
+test_crypto_bigint_modexp4096.uya	900
+test_tls_ecdsa.uya	900
+test_tls_rsa.uya	900
+test_tls_x25519_pure.uya	900
