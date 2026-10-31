@@ -71,20 +71,22 @@ normalize_stdout() {
 
 # 按进程组超时执行：解释器里互相等待的用例会忽略 SIGTERM，个别用例的子进程
 # 甚至会 kill 掉自己的父进程（`timeout` 因此消失、uya 变孤儿挂一小时）。
-# 这里把命令放进独立会话，超时后对**整个进程组**发 SIGKILL。
+# 用作业控制让命令自成一组，超时后对**整组**发 SIGKILL。
+# 注意：不能用 `setsid`——它在调用方是进程组长时会 fork，捕获到的 PID 和真正
+# 运行的进程组对不上，看门狗等于打空（实测 async_dns 依旧挂 38 分钟）。
 run_with_timeout() {
     local t="$1"
     shift
-    setsid "$@" &
+    set -m
+    "$@" &
     local run_pid=$!
-    # 看门狗子 shell 必须断开 stdout/stderr：否则它继承命令替换的管道，
-    # `$(run_with_timeout ...)` 要等满 t 秒才返回（实测每个用例都被拖成 300s）。
     ( sleep "$t"; kill -9 -"$run_pid" 2>/dev/null ) >/dev/null 2>&1 &
     local watch_pid=$!
     wait "$run_pid"
     local rc=$?
     kill "$watch_pid" 2>/dev/null
     wait "$watch_pid" 2>/dev/null
+    set +m
     return $rc
 }
 export -f run_with_timeout
