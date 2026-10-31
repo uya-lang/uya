@@ -2125,7 +2125,9 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       （pthread/堆/OSAL 约 10 例，同步 VM 无并发语义）、`@c_import`（3 例）、
       `cleanup scope 嵌套过深`（8 例，第 343 轮已定位根因但修复方案三次证否）
       与超长函数（`bytecode 指令超出上限`）；这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿（第 400 轮复测 **914 例 / 一致 854 / 不一致 60**（`test_osal` 由不一致转一致，其余无变化；再往前一轮是 853/61，`test_runtime_environment` 转一致），
+- [ ] `make exec-parity` 全绿（第 408 轮复测 **914 例 / 一致 858 / 不一致 56**
+      （`test_std_script_pipeline_facade`、`test_typed_pipeline_executor_single` 转为一致；
+      第 400 轮是 914/854/60，`test_osal` 由不一致转一致，再往前一轮 853/61），
       按方向拆分见第 397 轮小节：VM 领先 9、VM 落后 51、两边都失败 1；
       第 363 轮曾为 835/79，比文档原先记录的 832/81 多 3 例一致；
       81 例的分类见下。与第 342 轮（832/81）逐项一致，说明第 344~346 轮的三处
