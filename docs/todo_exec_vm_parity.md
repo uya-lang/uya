@@ -5881,3 +5881,23 @@ capture 读通了以后，`test_typed_pipeline_executor_single` 还剩两处挂�
 
 结果：`test_exec_vm_globals` C99/VM 双过；`test_exec_vm_globals_multi`
 （跨模块 import 全局）仍是 C99 侧编译失败，与改动前一致，非回归。
+
+### 408 轮收尾：差分 914 / 一致 862 / 不一致 52
+
+本轮累计修复后全量复测（`UYA_PARITY_SKIP` 仅排除会挂住整轮的
+`test_async_runtime_shared_dns`）：
+
+- 不一致 60 → **52**；
+- 转一致：`test_std_script_pipeline_facade`、`test_typed_pipeline_executor_single`、
+  `test_syscall_process`、`test_tflm_interpreter`、`test_tflm_phase2`、
+  `test_exec_vm_globals`；
+- 新出现：`test_exec_vm_global_init_fail`（C99=0 / VM=1）。原因是本轮给 C99 加了
+  运行期全局初始化后，这个用例**不再编译失败**，于是暴露出「C99 的普通整数除法
+  不检查除零（UB），VM 直接报 `exec: 除零`」。
+  这是 C99 侧 checked 算术只覆盖 `try/catch` 操作数导致的，修它要把所有 `/` 都
+  换成带零判断的语句表达式，风险大于收益，先记录不修。
+
+剩余 52 例的结构：async/http/websocket/dns/mqtt ~27、pthread/thread ~7、
+tls 纯算法超时 3、`@c_import` 3、`exec_vm_*Unsupported` 负例 2、
+需要伴随 C 源的 FFI 3（abi/extern_union/ffi_cast）、kernel_sim 1（call gate 机器码）、
+signal 1（宿主回调）、typed_pipeline 2（聚合布局 / drop 语义）、其余 3。
