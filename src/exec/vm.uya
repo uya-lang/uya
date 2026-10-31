@@ -38,6 +38,59 @@ const EXEC_VM_REF_KIND_BASE: i32 = 65536;
 // routine 里等待父线程放行的自旋会在这里变成死循环（实测 test_pthread_affinity
 // 挂一小时）。给它一个指令上限，超了就让这次线程体调用失败返回，父线程按
 // 「线程没跑完」继续走（测试会明确失败，而不是挂死）。
+// 影子调用栈：VM 的帧在 C 栈上，运行时错误现场看不到调用方；
+// 这里只维护函数名序列，供诊断消息（如 LOAD_FIELD 字段越界）追加调用链。
+const EXEC_VM_SHADOW_STACK_MAX: i32 = 64;
+var g_exec_vm_shadow_names: [&byte: 64] = [];
+var g_exec_vm_shadow_depth: i32 = 0;
+
+fn exec_vm_shadow_push(name: &byte) void {
+    if g_exec_vm_shadow_depth < 0 || g_exec_vm_shadow_depth >= EXEC_VM_SHADOW_STACK_MAX {
+        return;
+    }
+    const idx: usize = g_exec_vm_shadow_depth as usize;
+    if idx >= 64usize {
+        return;
+    }
+    g_exec_vm_shadow_names[idx] = name;
+    g_exec_vm_shadow_depth = g_exec_vm_shadow_depth +| 1;
+}
+
+fn exec_vm_shadow_pop() void {
+    if g_exec_vm_shadow_depth > 0 {
+        g_exec_vm_shadow_depth = g_exec_vm_shadow_depth -| 1;
+    }
+}
+
+fn exec_vm_shadow_write(buf: &byte, cap: usize) void {
+    var used: i32 = strlen(buf as &const byte) as i32;
+    var d: i32 = g_exec_vm_shadow_depth -| 1;
+    var shown: i32 = 0;
+    while d >= 0 && shown < 6 {
+        const didx: usize = d as usize;
+        if didx >= 64usize {
+            return;
+        }
+        const nm: &byte = g_exec_vm_shadow_names[didx];
+        if nm != null && used < (cap as i32) -| 96 {
+            var appended: i32 = 0;
+            if used > 0 {
+                appended = snprintf((&buf[0] as *byte) + used, cap -| used as usize,
+                    " <- %s" as *byte, nm as *byte);
+            } else {
+                appended = snprintf((&buf[0] as *byte) + used, cap -| used as usize,
+                    "%s" as *byte, nm as *byte);
+            }
+            if appended <= 0 {
+                return;
+            }
+            used = used +| appended;
+        }
+        d = d -| 1;
+        shown = shown +| 1;
+    }
+}
+
 var g_exec_vm_thread_body_budget: i64 = 0i64;
 
 // 解释器里的信号模拟状态：处理器函数下标（-1 表示默认，-2 表示忽略）、
@@ -7071,7 +7124,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             }
         }
         if fld_native_done == 0 && field_ref == null {
-            var fld_msg: [byte: 640] = [];
+            var fld_msg: [byte: 1024] = [];
             var fld_count: i32 = -1;
             const fld_agg: &ExecAggregate = exec_vm_aggregate_ref_from_value(slot_b);
             if fld_agg != null {
@@ -7081,11 +7134,17 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             if slot_b.kind == ExecValueKind.EXEC_VALUE_POINTER {
                 fld_pointee = exec_value_pointer_pointee_kind(&slot_b[0]);
             }
-            _ = snprintf(&fld_msg[0] as *byte, 640,
+            _ = snprintf(&fld_msg[0] as *byte, 1024,
                 "exec: LOAD_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d fn=%s ip=%d slot=%d line=%d col=%d)" as *byte,
                 instr.imm as i32, slot_b.kind as i32, fld_count, fld_pointee,
                 function.name as *byte, frame.ip, instr.b as i32,
                 instr.source.line, instr.source.column);
+            // 错误消息会进 512 字节的错误缓冲，调用链单独打到 stderr，避免被截断。
+            var fld_chain: [byte: 512] = [];
+            exec_vm_shadow_write(&fld_chain[0], 512usize);
+            if fld_chain[0] != 0 as byte {
+                _ = fprintf(libc.stderr, "[vm] call chain:%s\n" as *byte, &fld_chain[0] as *byte);
+            }
             exec_backend_set_error(function.decl, &fld_msg[0] as &byte, 0);
             return -1;
         }
@@ -7959,6 +8018,7 @@ fn exec_vm_call_function(program: &BCProgram, function_index: i32, args: &ExecVa
         return -1;
     }
     const rc: i32 = exec_vm_run_frame(program, function, args, arg_count, trace_vm, out_value, base);
+    exec_vm_shadow_pop();
     exec_vm_slot_pool_pop(base);
     return rc;
 }
@@ -7983,6 +8043,7 @@ fn exec_vm_run_frame(program: &BCProgram, function: &BCFunction, args: &ExecValu
         vararg_count: 0,
     };
     exec_vm_trace_call_enter(trace_vm, function.name, arg_count);
+    exec_vm_shadow_push(function.name);
     var si: i32 = 0;
     while si < function.slot_count {
         frame.slots[si] = exec_make_void();

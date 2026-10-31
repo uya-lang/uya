@@ -6201,3 +6201,23 @@ hosted C99 对 `extern "libc"` 的符号**不发原型**（认为宿主头文件
 清理 `/tmp/tr.log`、旧的 parity/census 临时目录和上百个 `/tmp/uya_output_*.c` 之后，
 `make uya` 立刻恢复正常。经验：`--trace-vm` 的日志量是每指令一行，只适合跑极小的
 用例，且必须马上删。
+
+### 411 轮补充：VM 影子调用栈（诊断用）
+
+VM 的帧都在 C 栈上，运行时错误（`LOAD_FIELD 字段越界` 这类）只打当前
+`fn/ip/slot`，看不到「是谁传进来的」。新增：
+
+- `g_exec_vm_shadow_names/depth`：`exec_vm_run_frame` 进入时 push 函数名、
+  `exec_vm_call_function` 返回后 pop；
+- `LOAD_FIELD` 失败时把最近 6 层调用链**单独打到 stderr**
+  （`[vm] call chain: a <- b <- …`），因为错误消息本身进 512 字节缓冲会被截断。
+
+用它定位 `test_tls_ecdsa` 的失败调用链：
+
+```
+p384_jac_is_zero <- p384_jac_double <- p384_jac_scalar_mul <-
+ec_p384_ecdsa_sign_with_k <- ecdsa_sign_p384_with_k <- test_p384_rfc6979
+```
+
+即 `p384_jac_double` 拿到的 `p`（`&const P384Jac`）本身就是空槽，
+和 typed_pipeline/heap 那组「聚合/指针参数物化」缺口同源，本轮不深挖。
