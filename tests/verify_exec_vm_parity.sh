@@ -77,7 +77,9 @@ run_with_timeout() {
     shift
     setsid "$@" &
     local run_pid=$!
-    ( sleep "$t"; kill -9 -"$run_pid" 2>/dev/null ) &
+    # 看门狗子 shell 必须断开 stdout/stderr：否则它继承命令替换的管道，
+    # `$(run_with_timeout ...)` 要等满 t 秒才返回（实测每个用例都被拖成 300s）。
+    ( sleep "$t"; kill -9 -"$run_pid" 2>/dev/null ) >/dev/null 2>&1 &
     local watch_pid=$!
     wait "$run_pid"
     local rc=$?
