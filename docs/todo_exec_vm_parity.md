@@ -6254,3 +6254,44 @@ A/B 确认：同一份源码去掉影子栈就恢复通过（`git checkout 117ff
 保留的有效结论：`test_tls_ecdsa` 的失败点已经用一次性探针定位到
 「`p.z` 的字段槽在某个累加器实例里是 VOID（aggregate count=3 但 values[2] 为空）」，
 即**写入侧**（`p384_jac_*` 的聚合字段存储）而不是字段解析侧。
+
+## 当前收口状态（第 411 轮，供后续接手）
+
+### 指标
+
+| 门禁 | 结果 |
+| --- | --- |
+| `make check` | **1192 / 0** 全绿 |
+| `make exec-parity` | 914 例 / 一致 **876** / 不一致 **38** |
+| `make exec-census` | 907 例 / 通过 **864** / 失败 43 / 跳过 7（95.3%） |
+
+第 407 轮开始时是 60 例不一致；本轮系列修复后降到 38。
+
+### 剩余 38 例的归因（按可收割性）
+
+1. **async / http / dns / mqtt（24 例）** —— 解释器缺少 async 帧状态机：
+   `frame.poll()` 返回槽是空的（`LOAD_UNION_TAG 目标不是 union(kind=0)`），
+   `pending_seen` 恒 0。需要给 `@async_fn` 生成 `<fn>_poll` 的字节码版本 +
+   能记账的 Waker。这是最大的一块，也是唯一能一次收掉两位数的方向。
+2. **thread / pthread（6 例）** —— 无并发语义。`pthread_create` 现在是
+   「当场同步执行线程体 + 2e7 指令预算」，自旋等父线程的用例会立刻失败而不是挂死。
+   真要收口需要 VM 层面的真线程（每线程独立帧栈）或协作式调度器（可挂起/恢复）。
+3. **`test_tls_ecdsa`** —— 已定位到**写入侧**：某次 `P384Jac` 聚合
+   `count=3` 但 `values[2]`（`z`）是 VOID，`p.z.l[i]` 于是报字段越界。
+   `aggregate` 是 3 字段而只有 2 个被写过，指向「结构体字段存储路径漏写」。
+4. **`test_tls_rsa`** —— 900s 仍跑不完（纯算法慢，非语义）。
+5. **`test_typed_pipeline_capability`** —— `&FreeChunk`（原生堆内存）上的
+   `chunk.header.size` 走 `ADDR_FIELD` 失败：需要「裸指针 + 原生结构体 pointee」
+   的字段偏移支持（历史三次尝试都弄坏过堆）。
+6. **`test_typed_pipeline_lowering_error`** —— drop/cleanup 语义。
+7. **`test_kernel_sim`** —— call gate/trampoline 要执行机器码。
+8. **`test_abi_calling_convention`** —— 需要伴随 C 源（`tests/test_abi_helpers.c`），
+   VM 侧没有 @c_import 声明，拿不到这些符号。
+
+### 已有能力（不要重复实现）
+
+- `@c_import`：VM 侧已支持（生成桥程序 + 子进程按符号名调用）；
+- `fcntl` / `signal` / `raise` / `sigprocmask`：宿主桥/同步模拟；
+- 差分脚本：进程组超时 + 独立会话看门狗 + 单用例超时覆盖表；
+- 运行时错误：`LOAD_FIELD`/`ADDR_FIELD` 带 fn/ip/slot/行列（影子调用栈已回退，
+  加了会让 pipeline 用例回归）。
