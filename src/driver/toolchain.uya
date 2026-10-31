@@ -1107,10 +1107,13 @@ fn link_with_toolchain(c_file: &byte, output: &byte, is_nostdlib: i32, plan: &CI
             cmd_len = snprintf(&cmd[0], 4096, "%s %s -nostdlib -static %s -o %s -lgcc %s" as *byte, cc_driver as *byte, cflags as *byte, c_file as *byte, output as *byte, ldflags as *byte);
         }
     } else {
+        // hosted 链接固定补 `-lm`：tflm / 数学用例会直接调 `exp`、`sqrt` 这类
+        // libm 符号，而 LDFLAGS 默认是空串，`uya test` 直连时就会
+        // `undefined reference to 'exp'`（Makefile 那条路径本来就带 -lm）。
         if target_flags[0] != 0 {
-            cmd_len = snprintf(&cmd[0], 4096, "%s %s %s %s -o %s %s" as *byte, cc_driver as *byte, target_flags as *byte, cflags as *byte, c_file as *byte, output as *byte, ldflags as *byte);
+            cmd_len = snprintf(&cmd[0], 4096, "%s %s %s %s -o %s %s -lm" as *byte, cc_driver as *byte, target_flags as *byte, cflags as *byte, c_file as *byte, output as *byte, ldflags as *byte);
         } else {
-            cmd_len = snprintf(&cmd[0], 4096, "%s %s %s -o %s %s" as *byte, cc_driver as *byte, cflags as *byte, c_file as *byte, output as *byte, ldflags as *byte);
+            cmd_len = snprintf(&cmd[0], 4096, "%s %s %s -o %s %s -lm" as *byte, cc_driver as *byte, cflags as *byte, c_file as *byte, output as *byte, ldflags as *byte);
         }
     }
 

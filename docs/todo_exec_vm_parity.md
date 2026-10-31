@@ -5838,3 +5838,28 @@ capture 读通了以后，`test_typed_pipeline_executor_single` 还剩两处挂�
 
 回归：`test_typed_pipeline_executor_single` / `caller_buffers` /
 `std_script_pipeline_facade` / `test_osal` 在 VM 与 C99 两侧均通过。
+
+### 408 轮补充二：三例「VM 领先」的 C99 侧原因与修法
+
+差分里「VM 过、C99 挂」的用例逐个查了 C99 的报错，三类：
+
+1. **hosted 链接缺 `-lm`**（`test_tflm_interpreter` / `test_tflm_phase2`）
+   `undefined reference to 'exp'`。`uya test` 直连宿主工具的链接命令只带
+   `LDFLAGS`（默认空串），Makefile 那条路径才会补 `-lm`。
+   在 `src/driver/toolchain.uya` 的 hosted 分支固定补 `-lm`（`-nostdlib` 分支不动）。
+   修后两例 C99 均通过。
+
+2. **局部变量名撞系统宏**（`test_syscall_process`）
+   测试里 `const WNOHANG: i32 = 1;` 生成到 C 里变成 `const int32_t 1 = 1;`
+   （`<sys/wait.h>` 的宏展开），报语法错误。这是测试自身的可移植性问题，
+   把局部量改名为 `wait_option` 后两后端都通过。
+
+3. **需要伴随 C 源才能链接**（`test_abi_calling_convention` / `test_extern_union` /
+   `test_ffi_cast`）：符号 `c_small_struct_param` / `take_c_value` / `test_ffi_ptr`
+   来自 `tests/test_abi_helpers.c`、`tests/external_functions.c`，
+   只有 `tests/Makefile` 的 C99 路径会链接它们；差分脚本用 `uya test` 直连拿不到，
+   属**差分口径**问题（不是 VM 缺口），后续若要收口需让差分脚本按 Makefile 的
+   对应表补伴随 C 源，或在差分里显式排除。
+
+`test_exec_vm_extern_mkdir_bridge` 则是生成的 C 里 `mkdir`/`rmdir` 原型与
+`<sys/stat.h>` 冲突（测试自己声明了 `int32_t(uint8_t*, int32_t)` 版本），同属 C99 侧。
