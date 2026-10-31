@@ -6221,3 +6221,17 @@ ec_p384_ecdsa_sign_with_k <- ecdsa_sign_p384_with_k <- test_p384_rfc6979
 
 即 `p384_jac_double` 拿到的 `p`（`&const P384Jac`）本身就是空槽，
 和 typed_pipeline/heap 那组「聚合/指针参数物化」缺口同源，本轮不深挖。
+
+### 411 轮补充二：`test_tls_ecdsa` 的字节码现场（记录，未修）
+
+用 `--dump-bytecode` 看了两层：
+
+- `p384_jac_double`（fn[92]）第 0 条就是 `LOAD_LOCAL(1)`（参数 `p`）→ `MOV` →
+  `CALL p384_jac_is_zero`，说明**callee 侧**代码没问题；
+- 调用方 `p384_jac_scalar_mul`（fn[45]）第 43-47 条是
+  `ADDR_LOCAL(&local3)` → `MOV` → `CALL p384_jac_double(2 参数)`，**实参也齐**；
+- 但 callee 里参数槽 1 仍是 `VOID`（错误消息的 `kind=0`）。
+
+即问题在 `BC_CALL` 的**参数交接**（或 `ADDR_LOCAL` 产出的引用在交接中被当成空）。
+这是聚合/指针物化那一组的另一个面，单看字节码已无法定位，需要给 `BC_CALL`
+加「参数槽 kind 快照」探针；本轮到此为止。
