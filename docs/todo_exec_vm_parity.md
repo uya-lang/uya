@@ -6055,3 +6055,30 @@ hosted 原型跳过收窄、epoll 分配守卫）之后的完整回归：
 自举注意：中途「饱和运算临时量取更宽类型」的实验把自举编译器编坏
 （i32 饱和上限常量被截断 → 3442 个「溢出无法证明」），已用
 `make from-c`（`bin/uya.c` 备份）回退重编，该实验未保留。
+
+### 409 轮：exec VM 支持 `@c_import`（进程内无 dlopen 的折中方案）
+
+`@c_import` 之前在 lowering 里被整体拒绝（原因码 `c_import`），三例差分因此永远红。
+VM 这边没法在进程内 `dlopen`：编译器是 `-nostdlib` 静态链接，`dlopen/dlsym` 不可用。
+采用的方案是「**按符号名调用的桥程序**」：
+
+1. lowering 不再拒绝，只记录「本程序带 @c_import」；未识别的裸 extern 调用点
+   映射成新宿主调用 id `EXEC_HOST_CALL_C_IMPORT_DYNAMIC`（保留 varargs 的
+   `extern_abi` 拒绝路径不变）。
+2. `exec_build_program` 里生成 `/tmp/uya_cimport_<pid>.c`：`#include` 所有
+   `@c_import` 展开出的 C 源（跨 decl + decl 内去重，目录导入与显式导入重叠时
+   只编一次），cflags 照样传给 cc；再配一个 `main()` 按
+   `argv[1]` 做符号分发，用 `long long (*)()` 旧式原型（避免"参数个数不符"的
+   编译期检查）调用后 `printf("%lld\n", r)`。产物是
+   `/tmp/uya_cimport_<pid>.bin`。
+3. VM 侧 `EXEC_HOST_CALL_C_IMPORT_DYNAMIC`：拼出
+   `<bridge> <符号名> <参数...> > /tmp/..._out.txt`，`system()` 跑一次、读回结果。
+   每个调用点一次子进程；@c_import 本来就是胶水代码/测试场景，开销可接受。
+
+结果：`test_c_import_file` / `test_c_import_dir` / `test_c_import_cflags` 在
+VM 侧全部通过（C99 侧本来就过）；原负例
+`test_exec_vm_c_import_unsupported.uya` 更名为 `test_exec_vm_c_import_supported.uya`，
+`tests/verify_exec_backend_progress.sh` 里对应断言改成「必须成功且不再报
+当前不支持 @c_import」（顺带把同样已过时的 SIMD 负例断言改成正向）。
+
+`make check` 复测：**通过 1191 / 失败 0**。

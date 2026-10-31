@@ -101,23 +101,26 @@ echo "  local drop exec path ✓"
 bash "$SCRIPT_DIR/verify_exec_vm_hir_scope.sh"
 echo "  exec HIR scope markers ✓"
 
-echo "验证 @c_import unsupported 原因..."
-if "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_c_import_unsupported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
-    echo "✗ @c_import unsupported case should fail under --vm"
+echo "验证 @c_import 正向路径（VM 已支持）..."
+if ! "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_c_import_supported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
+    echo "✗ @c_import case should now succeed under --vm"
     cat "$TMP_STDERR"
     exit 1
 fi
-grep -q 'exec: 当前不支持 @c_import' "$TMP_STDERR"
-echo "  @c_import unsupported reason ✓"
+if grep -q '当前不支持 @c_import' "$TMP_STDERR"; then
+    echo "✗ @c_import 仍然报告不支持"
+    cat "$TMP_STDERR"
+    exit 1
+fi
+echo "  @c_import supported ✓"
 
-echo "验证 SIMD unsupported 原因..."
-if "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_simd_unsupported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
-    echo "✗ SIMD unsupported case should fail under --vm"
+echo "验证 SIMD 正向路径（VM 已支持 @vector.splat / 掩码比较）..."
+if ! "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_simd_unsupported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
+    echo "✗ SIMD case should now succeed under --vm"
     cat "$TMP_STDERR"
     exit 1
 fi
-grep -q 'exec: 当前不支持 SIMD' "$TMP_STDERR"
-echo "  SIMD unsupported reason ✓"
+echo "  SIMD supported ✓"
 
 echo "验证 extern ABI unsupported 原因与 fallback..."
 if "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_extern_decl_varargs_unsupported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then

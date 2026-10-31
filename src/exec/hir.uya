@@ -46,6 +46,8 @@ enum ExecHostCallId {
     EXEC_HOST_CALL_GETPGRP,
     EXEC_HOST_CALL_SETSID,
     EXEC_HOST_CALL_KILL,
+    // @c_import 导入的 C 函数：调用点名字在运行期用 dlsym 解析。
+    EXEC_HOST_CALL_C_IMPORT_DYNAMIC,
     EXEC_HOST_CALL_EXIT,
     EXEC_HOST_CALL_MEMCHR,
     EXEC_HOST_CALL_PTHREAD_CREATE,

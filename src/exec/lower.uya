@@ -710,7 +710,11 @@ fn exec_lower_match_host_call(fn_decl: &ASTNode, call_arg_count: i32) ExecHostCa
     if fn_decl.fn_decl_is_extern == 0 {
         return ExecHostCallId.EXEC_HOST_CALL_NONE;
     }
-    if fn_decl.fn_decl_name == null || fn_decl.fn_decl_return_type == null {
+    if fn_decl.fn_decl_name == null {
+        return ExecHostCallId.EXEC_HOST_CALL_NONE;
+    }
+    // @c_import 的裸 extern 常常没有返回类型节点（由 C 侧决定），不能因此跳过匹配。
+    if fn_decl.fn_decl_return_type == null && g_exec_c_import_present == 0 {
         return ExecHostCallId.EXEC_HOST_CALL_NONE;
     }
     return exec_lower_match_host_call_impl(fn_decl.fn_decl_name, fn_decl.fn_decl_param_count,
@@ -1137,6 +1141,10 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
         if str_equals(fn_name, "__atomic_compare_exchange_n" as &byte) != 0 &&
             param_count == 6 && call_arg_count == 6 {
             return ExecHostCallId.EXEC_HOST_CALL_ATOMIC_COMPARE_EXCHANGE;
+        }
+        if g_exec_c_import_present != 0 {
+            // 有 @c_import 的程序：未识别的裸 extern 一律交给运行期桥程序。
+            return ExecHostCallId.EXEC_HOST_CALL_C_IMPORT_DYNAMIC;
         }
         return ExecHostCallId.EXEC_HOST_CALL_NONE;
     }
@@ -10835,7 +10843,10 @@ fn exec_lower_function(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &A
 /// 将 checker 后的可达函数降级为执行友好的 HIR。
 /// 参数：`arena` 为执行后端短生命周期 Arena；`checker` 提供类型与可达性；`program` 为 merged checked AST。
 /// 返回值：成功时返回 `HIRModule`；遇到当前未支持特性时返回 null，并通过 exec backend 错误状态说明原因。
-export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, program: &ASTNode) &HIRModule {
+export // 本程序是否带 @c_import（决定未识别的裸 extern 是否走 dlsym 动态调用）。
+var g_exec_c_import_present: i32 = 0;
+
+fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, program: &ASTNode) &HIRModule {
     if arena == null || checker == null || program == null {
         exec_backend_set_error(program, "exec: lowering 输入无效" as *byte, 0);
         return null;
@@ -10844,13 +10855,15 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
         exec_lower_set_unsupported_reason(program, "exec: 当前不支持 microapp exec backend" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_MICROAPP);
         return null;
     }
+    // @c_import：不再整体拒绝。导入的 C 源在 `exec_build_program` 阶段编译成
+    // 共享库，调用点按符号名走 `EXEC_HOST_CALL_C_IMPORT_DYNAMIC`（dlsym 调用）。
+    g_exec_c_import_present = 0;
     if program.type == ASTNodeType.AST_PROGRAM {
         var decl_idx: i32 = 0;
         while decl_idx < program.program_decl_count {
             const decl: &ASTNode = program.program_decls[decl_idx];
             if decl != null && decl.type == ASTNodeType.AST_C_IMPORT_DECL {
-                exec_lower_set_unsupported_reason(decl, "exec: 当前不支持 @c_import" as *byte, ExecUnsupportedReason.EXEC_UNSUPPORTED_C_IMPORT);
-                return null;
+                g_exec_c_import_present = 1;
             }
             decl_idx = decl_idx + 1;
         }

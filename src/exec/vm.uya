@@ -18,6 +18,9 @@ use libc.snprintf;
 use libc.write;
 use libc.strlen;
 use libc.fflush;
+use libc.fopen;
+use libc.fgets;
+use libc.fclose;
 use libc.malloc;
 use libc.calloc;
 use libc.realloc;
@@ -4605,10 +4608,66 @@ fn exec_vm_rt_sigprocmask(how: i32, mask_new: i64, mask_old: &i64, has_set: bool
     return rc;
 }
 
+/// @c_import 的动态调用：把 (符号名, 参数) 交给编译好的桥程序执行并读回结果。
+fn exec_vm_c_import_dispatch(site: &BCHostCallSite, frame: &ExecFrame, arg_base: i32,
+    arg_count: i32, out_value: &ExecValue) i32 {
+    if out_value == null || site == null || site.name == null || frame == null {
+        return -1;
+    }
+    if g_exec_c_import_bridge_path[0] == 0 as byte {
+        exec_backend_set_error(null, "exec: @c_import 桥未就绪" as *byte, 0);
+        return -1;
+    }
+    const pid: i32 = getpid();
+    var out_path: [byte: 128] = [];
+    _ = snprintf(&out_path[0], 128usize, "/tmp/uya_cimport_out_%d.txt" as *byte, pid);
+    var cmd: [byte: 1024] = [];
+    var used: i32 = snprintf(&cmd[0], 1024usize, "%s %s" as *byte,
+        &g_exec_c_import_bridge_path[0] as *byte, site.name as *byte);
+    var ai: i32 = 0;
+    while ai < arg_count && ai < 6 && used > 0 && used < 900 {
+        const arg_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base +| ai);
+        var arg_value: i64 = 0;
+        if arg_slot != null {
+            arg_value = exec_vm_numeric_to_i64(arg_slot[0]);
+        }
+        const appended: i32 = snprintf(&cmd[used as usize], (1024 -| used) as usize,
+            " %lld" as *byte, arg_value);
+        if appended <= 0 { break; }
+        used = used +| appended;
+        ai = ai + 1;
+    }
+    if used <= 0 || used >= 1000 {
+        exec_backend_set_error(null, "exec: @c_import 调用命令过长" as *byte, 0);
+        return -1;
+    }
+    _ = snprintf(&cmd[used as usize], (1024 -| used) as usize, " > %s" as *byte,
+        &out_path[0] as *byte);
+    const sys_rc: i32 = system(&cmd[0] as &const byte);
+    if sys_rc != 0 {
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    var result_value: i64 = 0;
+    const rf: &FILE = fopen(&out_path[0] as &const byte, "r" as &const byte);
+    if rf != null {
+        var line: [byte: 64] = [];
+        if fgets(&line[0], 64usize, rf as *void) != null {
+            result_value = atoll(&line[0] as &const byte);
+        }
+        _ = fclose(rf as *void);
+    }
+    out_value[0] = exec_make_i32(result_value as i32);
+    return 0;
+}
+
 fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCallSite, frame: &ExecFrame, arg_base: i32, arg_count: i32, out_value: &ExecValue) i32 {
     if function == null || site == null || frame == null || out_value == null {
         exec_backend_set_error(null, "exec: hostcall 输入无效" as *byte, 0);
         return -1;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_C_IMPORT_DYNAMIC {
+        return exec_vm_c_import_dispatch(site, frame, arg_base, arg_count, out_value);
     }
     if site.arg_count != arg_count {
         exec_backend_set_error(function.decl, "exec: hostcall 参数数量非法" as *byte, 0);
