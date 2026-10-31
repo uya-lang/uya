@@ -6082,3 +6082,19 @@ VM 侧全部通过（C99 侧本来就过）；原负例
 当前不支持 @c_import」（顺带把同样已过时的 SIMD 负例断言改成正向）。
 
 `make check` 复测：**通过 1191 / 失败 0**。
+
+### 409 轮复测：914 例 / 一致 871 / 不一致 43
+
+`@c_import` 支持落地后的全量差分：
+
+- `test_c_import_file` / `test_c_import_dir` / `test_c_import_cflags` 转为一致；
+- `test_exec_vm_c_import_supported`（原 `..._unsupported` 负例）转为一致；
+- 不一致 47 → **43**（914 例，跳过 0）。
+
+剩余 43 例构成：async/http/websocket/dns/mqtt 24、pthread/thread 7、tls 4、
+`exec_vm_*Unsupported` 2（`extern_abi` 负例与 SIMD 负例已随实现更新）、
+FFI/abi 1、kernel_sim 1、signal 1、typed_pipeline 2、crypto_bigint 1。
+
+运维提示：`test_async_runtime_shared_dns` 仍会挂住并被 `timeout` 杀掉后留下
+孤儿进程（脚本侧 `timeout -k` 也没能收干净），整轮需要手工 `kill -9` 那个
+`bin/uya test --vm` 孤儿才会返回摘要。
