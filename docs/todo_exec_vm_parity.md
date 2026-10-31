@@ -6001,3 +6001,20 @@ globals）C99 全过。至此本轮差分 913 例（跳过 1）/ 一致 865 / �
 结果：`test_extern_union`、`test_ffi_cast` 转为一致；`test_abi_calling_convention`
 C99 侧现在能跑通（0），但 VM 侧返回 121 —— 该用例调的是真实 C 符号
 （`c_small_struct_param` 等），属 VM 的 C/FFI 互操作缺口，保留为不一致。
+
+### 408 轮补充九：差分脚本补 `timeout -k`，挂死用例不再拖死整轮
+
+`test_async_runtime_shared_dns` 这类用例在 VM 里会卡在 `ep_poll` 且**忽略 SIGTERM**，
+只发 TERM 的 `timeout 300` 完全无效 —— 实测两次把整轮差分/普查拖住一小时以上，
+只能手工 `kill -9`。给 `tests/verify_exec_vm_parity.sh` 所有 `timeout` 补 `-k 10`
+（普查脚本本来就有）。这样差分不再需要额外的跳过表来绕开它。
+
+本轮最终复测（914 例，跳过 0）：一致 **867** / 不一致 **47**。
+`test_exec_vm_globals*`、`test_mem`、`test_extern_union`、`test_ffi_cast`、
+`test_exec_vm_extern_mkdir_bridge` 等 12 例由不一致转为一致；
+剩余 47 例的构成与上节一致（async/http/dns 24、thread/pthread 7、tls 4、
+`@c_import` 3、`exec_vm_*Unsupported` 2、FFI/abi 1、kernel_sim 1、signal 1、
+typed_pipeline 2、crypto_bigint 1、std_dns 1）。
+
+另外 `make exec-census` 同步复测：907 例 / 通过 **864** / 失败 43 / 跳过 7（95.3%，
+比第 401 轮的 859/48 多覆盖 5 例）。
