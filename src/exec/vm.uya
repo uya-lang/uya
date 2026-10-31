@@ -7039,9 +7039,19 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, "exec: LOAD_UNION_TAG 槽位越界" as *byte, 0);
             return -1;
         }
-        const union_data: &ExecUnionData = exec_value_as_union(slot_b);
+        var union_data: &ExecUnionData = exec_value_as_union(slot_b);
         if union_data == null {
-            exec_backend_set_error(function.decl, "exec: LOAD_UNION_TAG 目标不是 union" as *byte, 0);
+            // `match` 的操作数常常是引用（`&union` / 返回值按引用传回），先还原目标再取。
+            const union_via_ref: &ExecValue = exec_vm_ref_target_value(slot_b);
+            if union_via_ref != null && union_via_ref != slot_b {
+                union_data = exec_value_as_union(union_via_ref);
+            }
+        }
+        if union_data == null {
+            var union_tag_msg: [byte: 160] = [];
+            _ = snprintf(&union_tag_msg[0], 160usize,
+                "exec: LOAD_UNION_TAG 目标不是 union(kind=%d)" as *byte, slot_b.kind as i32);
+            exec_backend_set_error(function.decl, &union_tag_msg[0], 0);
             return -1;
         }
         slot_a[0] = exec_make_i32(union_data.tag);

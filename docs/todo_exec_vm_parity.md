@@ -5901,3 +5901,15 @@ capture 读通了以后，`test_typed_pipeline_executor_single` 还剩两处挂�
 tls 纯算法超时 3、`@c_import` 3、`exec_vm_*Unsupported` 负例 2、
 需要伴随 C 源的 FFI 3（abi/extern_union/ffi_cast）、kernel_sim 1（call gate 机器码）、
 signal 1（宿主回调）、typed_pipeline 2（聚合布局 / drop 语义）、其余 3。
+
+### 408 轮补充四：`LOAD_UNION_TAG` 的引用还原与诊断
+
+`test_async_frame_methods` 报 `LOAD_UNION_TAG 目标不是 union`。给该分支补了两点：
+
+1. 先按普通值取 tag；失败再 `exec_vm_ref_target_value` 还原一次引用
+   （`match` 的操作数常是 `&union` 或按引用传回的返回值）；
+2. 失败消息带上 `kind=%d`。
+
+实测这一类仍然是**空槽**（`kind=0`）：`frame.poll(&w)` 的结果槽根本没被写过，
+属 async 帧/`<fn>_poll` 字节码缺口（模型级墙），不是 opcode 判据问题。
+改动只提升诊断，不改语义；pipeline/osal 用例复跑无回归。
