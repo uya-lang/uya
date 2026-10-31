@@ -6269,10 +6269,15 @@ A/B 确认：同一份源码去掉影子栈就恢复通过（`git checkout 117ff
 
 ### 剩余 38 例的归因（按可收割性）
 
-1. **async / http / dns / mqtt（24 例）** —— 解释器缺少 async 帧状态机：
-   `frame.poll()` 返回槽是空的（`LOAD_UNION_TAG 目标不是 union(kind=0)`），
-   `pending_seen` 恒 0。需要给 `@async_fn` 生成 `<fn>_poll` 的字节码版本 +
-   能记账的 Waker。这是最大的一块，也是唯一能一次收掉两位数的方向。
+1. **async / http / dns / mqtt（24 例）** —— 解释器缺的是 `@frame` 那套 API：
+   `@async_fn` + `@await` 已经在 exec lowering 里按「同步执行 + `Future{state:
+   Ready(v)}` + `BC_AWAIT` 取载荷」实现了（见 lower.uya 3946 行附近注释）；
+   但 `@frame(fn)` / `frame.start()` / `frame.poll()` / `frame.stop()` 是 C99 的
+   async 变换（`src/lower/async.uya`）合成的状态机，exec 路径没有对应 lowering，
+   所以 `frame.poll(&w)` 的返回槽是空的（`LOAD_UNION_TAG 目标不是 union(kind=0)`），
+   依赖 `pending_seen`/worker 计数的断言也跟着红。
+   收口方向：给 exec lowering 补一个「同步 frame」实现（start 直接跑完、poll 返回
+   Ready、stop 释放），或在 exec 路径复用 `async_lower_build_plan`。这是最大的一块。
 2. **thread / pthread（6 例）** —— 无并发语义。`pthread_create` 现在是
    「当场同步执行线程体 + 2e7 指令预算」，自旋等父线程的用例会立刻失败而不是挂死。
    真要收口需要 VM 层面的真线程（每线程独立帧栈）或协作式调度器（可挂起/恢复）。
