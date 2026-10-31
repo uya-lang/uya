@@ -6156,3 +6156,16 @@ VM 里 `signal()`/`raise()`/`sigprocmask()` 之前都是空桩/真调宿主：�
 本轮之前的 `make check` 仍为 1191/0；上述 exec 侧改动只跑定向用例
 （`test_signal`、`test_exec_vm_extern_decl_varargs_supported`、
 `test_exec_vm_stdio_varargs`、pipeline/osal 抽样）。
+
+### 410 轮复测：914 例 / 一致 876 / 不一致 38
+
+- `test_crypto_bigint_modexp4096`（VM 实测 424s）、`test_tls_x25519_pure`：超时放宽后转为一致；
+- `test_tls_ecdsa`：VM 侧真失败 —— `lib/tls/crypto/ec_p384.uya:588`
+  `LOAD_FIELD 字段越界(kind=0 …)`，`p.z` 的基址槽是空值（聚合/指针参数的
+  物化缺口，与 typed_pipeline/heap 那组同源），记录不修；
+- `test_tls_rsa`：900s 仍未跑完（被看门狗 SIGKILL，137）；
+- 其余 34 例：async/http/dns/mqtt 24、thread/pthread 6、abi 1、kernel_sim 1、
+  typed_pipeline 2。
+
+对上一轮（43）净减 5 例：varargs/fcntl、signal、bigint、x25519 四例转一致，
+tls_rsa 由 124 变 137（仍不一致）。
