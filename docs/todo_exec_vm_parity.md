@@ -6098,3 +6098,41 @@ FFI/abi 1、kernel_sim 1、signal 1、typed_pipeline 2、crypto_bigint 1。
 运维提示：`test_async_runtime_shared_dns` 仍会挂住并被 `timeout` 杀掉后留下
 孤儿进程（脚本侧 `timeout -k` 也没能收干净），整轮需要手工 `kill -9` 那个
 `bin/uya test --vm` 孤儿才会返回摘要。
+
+### 410 轮：`fcntl` 宿主桥（C varargs extern 从"整体拒绝"里摘出来）
+
+`test_exec_vm_extern_decl_varargs_unsupported` 里唯一被拒的是
+`extern "libc" fn fcntl(fd, cmd, ...)`。VM 之前对「无函数体 + 可变参数」一律回
+`extern_abi` 拒绝；但 `fcntl` 语义就是一发系统调用，完全可以实现：
+
+- `src/exec/hir.uya`：新增 `EXEC_HOST_CALL_FCNTL`；
+- `src/exec/lower.uya`：`fcntl`（≥2 参数）映射到该 id —— **必须放在
+  `is_varargs == 0` 块之前**，否则 varargs 调用永远匹配不到；
+- `src/exec/vm.uya`：读 fd/cmd/arg 后 `@syscall(72, …)`（x86_64 的 fcntl 号）。
+
+该用例改名 `test_exec_vm_extern_decl_varargs_supported.uya`（现在是正向用例）；
+`tests/verify_exec_backend_progress.sh` 里原来的 extern_abi 负例/回退断言改用
+脚本内生成的临时文件（`ioctl` 仍是未登记的 C varargs，继续验证拒绝与 C99 回退）。
+
+定向验证：改名后的用例 C99/VM 均 0；`test_exec_vm_stdio_varargs`、
+`test_c_import_file` 在 VM 无回归；`verify_exec_backend_progress.sh` 全绿。
+
+### 410 轮补充：信号三件套的同步模拟（`test_signal` 转一致）
+
+VM 里 `signal()`/`raise()`/`sigprocmask()` 之前都是空桩/真调宿主：注册的 Uya
+处理器永远不会被调用（`signal_handler_count` 恒 0），真 `raise` 还会按默认动作
+把编译器进程打死。改成**纯模拟**：
+
+- `signal(signum, handler)`：登记 `ExecHostCallId.EXEC_HOST_CALL_SIGNAL_REGISTER`，
+  把处理器的函数下标记到 VM 侧表里（`SIG_DFL`/`SIG_IGN` 各自编码）；
+- `raise(signum)`：查掩码 —— 被屏蔽就记入 pending，否则直接在该调用点同步
+  调用 Uya 处理器（`exec_vm_call_function`，可重入）；
+- `sigprocmask(how, set, old)`：维护 VM 自己的掩码，写回 `old`，解除屏蔽后
+  把 pending 里的信号补投递。
+
+三个入口都要加进 `exec_lower_extern_prefers_host_call`（libc 里它们有 Uya 实现体，
+不覆盖就会走 body 里的 `@syscall(rt_sigaction)`，等于没模拟）。
+
+验证：`test_signal` VM 通过（6 个用例全绿），C99 侧本来过 → 转为一致；
+抽样 `test_osal` / `test_typed_pipeline_executor_single` / `test_pthread_api_cancel` /
+`test_std_script_pipeline_facade` / `test_exec_vm_stdio_varargs` 在 VM 无回归。

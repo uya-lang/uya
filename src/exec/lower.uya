@@ -787,6 +787,22 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
     // （`exec_lower_match_host_call_name`）传的就是 `is_varargs = 0`，把这些分支
     // 放在块后面永远不可达 —— 实测 `sscanf` / `sprintf` 因此一直匹配不到宿主实现，
     // 落到 Uya 实现体的 `@va_start` 路径上报「无法解析被调用函数」。
+    // 信号三件套：解释器里不能真把信号发给编译器进程（默认动作会把它打死），
+    // 改由宿主桥模拟「登记处理器 + 掩码 + 挂起补投递」。
+    if str_equals(fn_name, "signal" as &byte) != 0 && param_count == 2 && call_arg_count == 2 {
+        return ExecHostCallId.EXEC_HOST_CALL_SIGNAL_REGISTER;
+    }
+    if str_equals(fn_name, "raise" as &byte) != 0 && param_count == 1 && call_arg_count == 1 {
+        return ExecHostCallId.EXEC_HOST_CALL_RAISE;
+    }
+    if str_equals(fn_name, "sigprocmask" as &byte) != 0 && param_count == 3 && call_arg_count == 3 {
+        return ExecHostCallId.EXEC_HOST_CALL_SIGPROCMASK_SIM;
+    }
+    // `fcntl` 是 C varargs；解释器侧按 fcntl 系统调用实现（不能落进下面的
+    // is_varargs == 0 块，否则永远匹配不到）。
+    if str_equals(fn_name, "fcntl" as &byte) != 0 && param_count >= 2 && call_arg_count >= 2 {
+        return ExecHostCallId.EXEC_HOST_CALL_FCNTL;
+    }
     if str_equals(fn_name, "fprintf" as &byte) != 0 && call_arg_count >= 2 {
         return ExecHostCallId.EXEC_HOST_CALL_FPRINTF_FIXED;
     }
@@ -1165,6 +1181,10 @@ fn exec_lower_extern_prefers_host_call(fn_decl: &ASTNode) i32 {
     // `kill` 的 Uya 实现体走 `@syscall(62,…)`，解释器里那条 syscall 是空操作
     // （返回 0 但信号没发出去）。信号必须由宿主真发，否则 kill(-pgid) 打空。
     if str_equals(name, "kill" as *byte) != 0 {
+        return 1;
+    }
+    if str_equals(name, "signal" as *byte) != 0 || str_equals(name, "raise" as *byte) != 0 ||
+        str_equals(name, "sigprocmask" as *byte) != 0 {
         return 1;
     }
     // 这些入口在 VM 里有宿主实现，Uya 实现体（线程/信号/内存系统调用）在解释器里

@@ -39,6 +39,78 @@ const EXEC_VM_REF_KIND_BASE: i32 = 65536;
 // 挂一小时）。给它一个指令上限，超了就让这次线程体调用失败返回，父线程按
 // 「线程没跑完」继续走（测试会明确失败，而不是挂死）。
 var g_exec_vm_thread_body_budget: i64 = 0i64;
+
+// 解释器里的信号模拟状态：处理器函数下标（-1 表示默认，-2 表示忽略）、
+// 掩码、挂起集合。这里不碰宿主信号，避免默认动作把编译器进程打死。
+const EXEC_VM_SIG_NONE: i32 = -1;
+const EXEC_VM_SIG_IGNORE: i32 = -2;
+var g_exec_vm_sig_handlers: [i32: 128] = [];
+var g_exec_vm_sig_mask: i64 = 0i64;
+var g_exec_vm_sig_pending: i64 = 0i64;
+var g_exec_vm_sig_table_ready: i32 = 0;
+
+fn exec_vm_sig_table_init() void {
+    if g_exec_vm_sig_table_ready != 0 {
+        return;
+    }
+    var i: i32 = 0;
+    while i < 128 {
+        g_exec_vm_sig_handlers[i] = EXEC_VM_SIG_NONE;
+        i = i + 1;
+    }
+    g_exec_vm_sig_table_ready = 1;
+}
+
+fn exec_vm_sig_bit(signum: i32) i64 {
+    if signum <= 0 || signum >= 64 {
+        return 0i64;
+    }
+    return 1i64 << ((signum - 1) as i32);
+}
+
+/// 挂起信号里挑一个未被屏蔽的投递（同步调用 Uya 处理器）。
+fn exec_vm_sig_deliver_pending(program: &BCProgram, trace_vm: i32) void {
+    exec_vm_sig_table_init();
+    var sig: i32 = 1;
+    while sig < 64 {
+        if sig < 0 || sig >= 128 {
+            return;
+        }
+        const bit: i64 = exec_vm_sig_bit(sig);
+        if bit != 0i64 && (g_exec_vm_sig_pending & bit) != 0i64 && (g_exec_vm_sig_mask & bit) == 0i64 {
+            g_exec_vm_sig_pending = g_exec_vm_sig_pending & (0i64 -| (bit +| 1i64));
+            const handler_idx: i32 = g_exec_vm_sig_handlers[sig];
+            if handler_idx >= 0 {
+                var sig_args: [ExecValue: 1] = [exec_make_i32(sig)];
+                var sig_ret: ExecValue = exec_make_void();
+                _ = exec_vm_call_function(program, handler_idx, &sig_args[0], 1, trace_vm, &sig_ret);
+            }
+        }
+        sig = sig + 1;
+    }
+}
+
+fn exec_vm_sig_deliver_one(program: &BCProgram, signum: i32, trace_vm: i32) void {
+    exec_vm_sig_table_init();
+    const bit: i64 = exec_vm_sig_bit(signum);
+    if bit == 0i64 {
+        return;
+    }
+    if (g_exec_vm_sig_mask & bit) != 0i64 {
+        g_exec_vm_sig_pending = g_exec_vm_sig_pending | bit;
+        return;
+    }
+    if signum < 0 || signum >= 128 {
+        return;
+    }
+    const handler_idx: i32 = g_exec_vm_sig_handlers[signum];
+    if handler_idx >= 0 {
+        var sig_args: [ExecValue: 1] = [exec_make_i32(signum)];
+        var sig_ret: ExecValue = exec_make_void();
+        _ = exec_vm_call_function(program, handler_idx, &sig_args[0], 1, trace_vm, &sig_ret);
+    }
+}
+
 const EXEC_VM_REF_KIND_INDEX_BASE: i32 = 131072;
 
 // 调用帧槽位的共享栈（LIFO）。
@@ -4613,6 +4685,14 @@ fn exec_vm_rt_sigprocmask(how: i32, mask_new: i64, mask_old: &i64, has_set: bool
     return rc;
 }
 
+/// fcntl 系统调用包装（`@syscall` 的 `!i64` 只能在函数里用 `return` 收敛）。
+fn exec_vm_fcntl_syscall(nr: i64, fd: i64, cmd: i64, arg: i64) i64 {
+    const raw: !i64 = @syscall(nr, fd, cmd, arg);
+    return raw catch {
+        return 0 -| 1;
+    };
+}
+
 /// @c_import 的动态调用：把 (符号名, 参数) 交给编译好的桥程序执行并读回结果。
 fn exec_vm_c_import_dispatch(site: &BCHostCallSite, frame: &ExecFrame, arg_base: i32,
     arg_count: i32, out_value: &ExecValue) i32 {
@@ -4991,6 +5071,120 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         }
         const gp_rc: i32 = sys_getpgid(gp_pid.i64_value as i32);
         out_value[0] = exec_make_i32(gp_rc);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_SIGNAL_REGISTER {
+        exec_vm_sig_table_init();
+        const sr_sig: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const sr_handler: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        if sr_sig == null || sr_handler == null {
+            exec_backend_set_error(function.decl, "exec: signal 参数非法" as *byte, 0);
+            return -1;
+        }
+        const sr_signum: i32 = exec_vm_numeric_to_i64(sr_sig[0]) as i32;
+        if sr_signum > 0 && sr_signum < 128 {
+            const sr_old: i32 = g_exec_vm_sig_handlers[sr_signum];
+            const sr_handler_value: i64 = exec_vm_numeric_to_i64(sr_handler[0]);
+            var sr_new: i32 = EXEC_VM_SIG_NONE;
+            if sr_handler_value == 0i64 {
+                sr_new = EXEC_VM_SIG_NONE;
+            } else if sr_handler_value == 1i64 {
+                sr_new = EXEC_VM_SIG_IGNORE;
+            } else {
+                const sr_idx: i32 = exec_vm_fn_ref_index(sr_handler[0]);
+                if sr_idx >= 0 {
+                    sr_new = sr_idx;
+                } else {
+                    sr_new = EXEC_VM_SIG_IGNORE;
+                }
+            }
+            g_exec_vm_sig_handlers[sr_signum] = sr_new;
+            if sr_old >= 0 {
+                out_value[0] = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+            } else if sr_old == EXEC_VM_SIG_IGNORE {
+                out_value[0] = exec_make_pointer_with_kind(1 as usize, TypeKind.TYPE_VOID as i32);
+            } else {
+                out_value[0] = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+            }
+        } else {
+            out_value[0] = exec_make_pointer_with_kind(1 as usize, TypeKind.TYPE_VOID as i32);
+        }
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_RAISE {
+        const rs_sig: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        if rs_sig == null {
+            exec_backend_set_error(function.decl, "exec: raise 参数非法" as *byte, 0);
+            return -1;
+        }
+        const rs_signum: i32 = exec_vm_numeric_to_i64(rs_sig[0]) as i32;
+        exec_vm_sig_deliver_one(program, rs_signum, 0);
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_SIGPROCMASK_SIM {
+        exec_vm_sig_table_init();
+        const sp_how: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const sp_set: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        const sp_old: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
+        var sp_how_value: i32 = 0;
+        if sp_how != null {
+            sp_how_value = exec_vm_numeric_to_i64(sp_how[0]) as i32;
+        }
+        var sp_new: i64 = 0i64;
+        if sp_set != null {
+            const sp_target: &ExecValue = exec_vm_ref_target_value(sp_set);
+            if sp_target != null {
+                const sp_agg: &ExecAggregate = exec_value_as_aggregate(sp_target);
+                if sp_agg != null && sp_agg.values != null && sp_agg.count > 0 {
+                    sp_new = exec_vm_numeric_to_i64(sp_agg.values[0]);
+                }
+            }
+        }
+        const sp_saved: i64 = g_exec_vm_sig_mask;
+        if sp_how_value == 0 {
+            g_exec_vm_sig_mask = g_exec_vm_sig_mask | sp_new;
+        } else if sp_how_value == 1 {
+            g_exec_vm_sig_mask = g_exec_vm_sig_mask & (0i64 -| (sp_new +| 1i64));
+        } else {
+            g_exec_vm_sig_mask = sp_new;
+        }
+        if sp_old != null {
+            const sp_old_target: &ExecValue = exec_vm_ref_target_value(sp_old);
+            if sp_old_target != null {
+                const sp_old_agg: &ExecAggregate = exec_value_as_aggregate(sp_old_target);
+                if sp_old_agg != null && sp_old_agg.values != null && sp_old_agg.count > 0 {
+                    sp_old_agg.values[0] = exec_make_u64(sp_saved as u64);
+                } else {
+                    sp_old_target[0] = exec_make_u64(sp_saved as u64);
+                }
+            }
+        }
+        exec_vm_sig_deliver_pending(program, 0);
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_FCNTL {
+        // fcntl(fd, cmd, arg)：`arg` 只在部分 cmd 下存在。Linux 系统调用号
+        // x86_64 = 72、aarch64 = 25（与 std.cfg 的目标一致）。
+        const fc_fd: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const fc_cmd: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        if fc_fd == null || fc_cmd == null {
+            exec_backend_set_error(function.decl, "exec: fcntl 参数非法" as *byte, 0);
+            return -1;
+        }
+        var fc_arg: i64 = 0;
+        if arg_count >= 3 {
+            const fc_arg_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
+            if fc_arg_slot != null {
+                fc_arg = exec_vm_numeric_to_i64(fc_arg_slot[0]);
+            }
+        }
+        // x86_64 是 72（arm64/riscv64 是 25；解释器目前只在 x86_64 宿主上验证）。
+        const fc_nr: i64 = 72;
+        const fc_rc: i64 = exec_vm_fcntl_syscall(fc_nr, exec_vm_numeric_to_i64(fc_fd[0]),
+            exec_vm_numeric_to_i64(fc_cmd[0]), fc_arg);
+        out_value[0] = exec_make_i32(fc_rc as i32);
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_KILL {
