@@ -6136,3 +6136,23 @@ VM 里 `signal()`/`raise()`/`sigprocmask()` 之前都是空桩/真调宿主：�
 验证：`test_signal` VM 通过（6 个用例全绿），C99 侧本来过 → 转为一致；
 抽样 `test_osal` / `test_typed_pipeline_executor_single` / `test_pthread_api_cancel` /
 `test_std_script_pipeline_facade` / `test_exec_vm_stdio_varargs` 在 VM 无回归。
+
+### 410 轮小结：又摘掉 varargs/fcntl、signal，并给纯算法用例放宽超时
+
+本轮（410）四处改动，全部只影响 exec 后端或差分脚本：
+
+1. **`fcntl` 宿主桥**：C varargs extern 不再一律 `extern_abi` 拒绝；`fcntl` 走
+   `@syscall(72, …)`。原负例改名 `test_exec_vm_extern_decl_varargs_supported.uya`，
+   负例改由脚本临时生成（`ioctl` 仍拒绝）。
+2. **信号三件套同步模拟**：`signal`/`raise`/`sigprocmask` 在 VM 里维护
+   「处理器表 + 掩码 + pending」，`raise` 直接同步调用 Uya 处理器，
+   解除屏蔽后补投递 → `test_signal` 转一致。
+3. **差分超时覆盖表** `tests/exec_vm_parity_timeouts.txt`：纯算法用例
+   （`crypto_bigint_modexp4096` 实测 VM 424s、三个 TLS 用例）放宽到 900s。
+   它们语义早已对齐，之前只是被默认 300s 判成 124。
+4. **差分/普查超时改按进程组 SIGKILL + 看门狗独立会话**：`async_dns` 这类
+   「打死父 shell 再挂死」的用例不再把整轮拖住。
+
+本轮之前的 `make check` 仍为 1191/0；上述 exec 侧改动只跑定向用例
+（`test_signal`、`test_exec_vm_extern_decl_varargs_supported`、
+`test_exec_vm_stdio_varargs`、pipeline/osal 抽样）。
