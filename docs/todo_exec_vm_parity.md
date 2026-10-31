@@ -6235,3 +6235,22 @@ ec_p384_ecdsa_sign_with_k <- ecdsa_sign_p384_with_k <- test_p384_rfc6979
 即问题在 `BC_CALL` 的**参数交接**（或 `ADDR_LOCAL` 产出的引用在交接中被当成空）。
 这是聚合/指针物化那一组的另一个面，单看字节码已无法定位，需要给 `BC_CALL`
 加「参数槽 kind 快照」探针；本轮到此为止。
+
+### 411 轮补充三：影子调用栈会引起回归，已回退
+
+影子调用栈（`exec_vm_shadow_names[&byte: 64]` + push/pop）加上后，
+`test_typed_pipeline_executor_single` 从通过变成失败：
+
+```
+LOAD_FIELD 字段越界(idx=0 kind=14 count=-1 pointee=16
+  fn=pipeline_read_startup_record ip=89 slot=7 line=2021)
+```
+
+A/B 确认：同一份源码去掉影子栈就恢复通过（`git checkout 117ffe1c -- src/exec/vm.uya`）。
+可疑点是「VM 全局数组 + 运行期下标写指针」这条路径（可能与全局聚合的存储路径冲突），
+但没继续深挖——诊断代码不值得冒回归。**已回退**，`test_typed_pipeline_executor_single`
+/ `test_signal` / `test_osal` 复跑均通过。
+
+保留的有效结论：`test_tls_ecdsa` 的失败点已经用一次性探针定位到
+「`p.z` 的字段槽在某个累加器实例里是 VOID（aggregate count=3 但 values[2] 为空）」，
+即**写入侧**（`p384_jac_*` 的聚合字段存储）而不是字段解析侧。
