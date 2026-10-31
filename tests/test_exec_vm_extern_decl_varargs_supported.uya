@@ -1,7 +1,9 @@
-// exec 边界负例：只有 extern 声明、没有 body、也不在宿主桥登记表里的 varargs
-// 函数必须继续稳定拒绝（原因码 extern_abi），避免"看起来能跑但语义不对"。
-// fcntl 是 C varargs，且不在 exec 的 hostcall 表里；C99 后端可以正常链接运行。
-extern "libc" fn fcntl(fd: i32, cmd: i32, ...) i32;
+// extern varargs 正向用例：`fcntl` 是 C varargs，exec VM 现在按 fcntl 系统调用
+// 实现（宿主桥 EXEC_HOST_CALL_FCNTL），C99 后端照常链接宿主 libc。
+// 注意这里用裸 `extern fn`（不是 `extern "libc"`）：hosted C99 对 `extern "libc"`
+// 的符号不发原型，而生成的 C 又不会 include <fcntl.h>，-Werror 下会报
+// implicit declaration。
+extern fn fcntl(fd: i32, cmd: i32, ...) i32;
 
 export fn main() i32 {
     const flags: i32 = fcntl(1, 3);

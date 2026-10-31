@@ -6169,3 +6169,18 @@ VM 里 `signal()`/`raise()`/`sigprocmask()` 之前都是空桩/真调宿主：�
 
 对上一轮（43）净减 5 例：varargs/fcntl、signal、bigint、x25519 四例转一致，
 tls_rsa 由 124 变 137（仍不一致）。
+
+### 410 轮收尾：varargs 用例改裸 `extern fn`，`make check` 回到 1192/0
+
+`test_exec_vm_extern_decl_varargs_supported.uya` 原来写 `extern "libc" fn fcntl(...)`：
+hosted C99 对 `extern "libc"` 的符号**不发原型**（认为宿主头文件会提供），而生成的 C
+并不 include `<fcntl.h>`，`make check`（带 `-Werror`）就报 implicit declaration。
+试过两条路都不可行：
+
+- 无条件 `#include <fcntl.h>`：与生成 C 自己的 `time_t`/`struct timespec` 冲突；
+- 对 extern "libc" 的 varargs 声明破例发原型：该分支后面还有别的 skip，没生效。
+
+最终改成**裸 `extern fn`**：这条路径本来就会发 `int32_t fcntl(int32_t, int32_t, ...)`
+原型（与 glibc 的 `int fcntl(int, int, ...)` 兼容），两个后端都能编能跑。
+
+`make check` 复测：**通过 1192 / 失败 0**（用例改名后总数从 1191 → 1192）。
