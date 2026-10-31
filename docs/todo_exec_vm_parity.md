@@ -6187,3 +6187,17 @@ hosted C99 对 `extern "libc"` 的符号**不发原型**（认为宿主头文件
 原型（与 glibc 的 `int fcntl(int, int, ...)` 兼容），两个后端都能编能跑。
 
 `make check` 复测：**通过 1192 / 失败 0**（用例改名后总数从 1191 → 1192）。
+
+### 411 轮：磁盘写满导致的「自举编译静默失败」
+
+现象：`make uya` 输出「编译失败（退出码: 1）」但**一行详细输出都没有**，
+`compile.sh` 的临时日志也是 0 字节；直接跑
+`bin/uya build src/main.uya -o /tmp/x.c --c99 --nostdlib --safety-proof` 却成功。
+
+真因：`/tmp` 是 32G 的 tmpfs，被我做 `--trace-vm` 时留下的一份 **14GB 逐指令日志**
+（`/tmp/tr.log`，2.2 亿行）写满到 100%。磁盘满后 `compile.sh` 的 mktemp/重定向全部
+静默失败，看起来就像编译器没报错直接退出。
+
+清理 `/tmp/tr.log`、旧的 parity/census 临时目录和上百个 `/tmp/uya_output_*.c` 之后，
+`make uya` 立刻恢复正常。经验：`--trace-vm` 的日志量是每指令一行，只适合跑极小的
+用例，且必须马上删。
