@@ -1302,8 +1302,14 @@ fn pipeline_registry_append_last_stage_env(input: &Pipeline, key: &const byte, v
     }
     const ops: &PipelineEnvOp = raw as &PipelineEnvOp;
     if old_count > 0usize {
-        _ = memcpy(raw, _pipeline_process_stages[storage_idx].env_ops as &const void,
-            old_count * @size_of(PipelineEnvOp));
+        // 逐元素搬：`memcpy` 拿不到 exec VM 里原生内存上聚合的表示
+        // （VM 用旁路表按 (基址, 下标) 存每个字段的 ExecValue），
+        // 复制原始字节等于复制空壳，第二个 op 之后所有字段读出来都是 VOID。
+        var copy_i: usize = 0usize;
+        while copy_i < old_count {
+            ops[copy_i] = _pipeline_process_stages[storage_idx].env_ops[copy_i];
+            copy_i = copy_i + 1usize;
+        }
         free(_pipeline_process_stages[storage_idx].env_ops as &void);
     }
     ops[old_count] = PipelineEnvOp { key: owned_key, value: owned_value, remove: remove };

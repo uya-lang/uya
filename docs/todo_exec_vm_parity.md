@@ -5819,3 +5819,20 @@ capture 读通了以后，`test_typed_pipeline_executor_single` 还剩两处挂�
 **不理会 `timeout` 发的 SIGTERM**（进程把 SIGTERM 接住了），单跑时要用
 `timeout -k` 才能收工；差分脚本用 `timeout 300` 无 `-k`，遇到这类用例会挂住整轮，
 需要手工 `kill -9` 那个 `bin/uya test --vm` 孤儿进程才放行。
+
+### 408 轮补充：env op 数组不能 `memcpy`
+
+`pipeline_registry_append_last_stage_env` 扩容时用
+`memcpy(new, old, old_count * sizeof(PipelineEnvOp))` 搬旧元素。exec VM 里
+原生结构体数组的内容在**旁路表**（按 `(基址, 下标)` 存每个字段的 ExecValue），
+原生缓冲区上只有未写过的原始字节 —— `memcpy` 复制到的是空壳，第二份 op 之后
+`env_ops[i].remove` 一读就 `LOAD_FIELD 字段越界`。
+
+改成逐元素 `ops[i] = old[i]` 赋值（两后端语义一致）。修后
+`test_typed_pipeline_capability` 从「env_ops 字段越界」推进到
+`lib/libc/heap.uya:859 try_tcache_free_fast` 的 `ADDR_FIELD 字段越界`：
+原生 `&FreeChunk` 上的 `chunk.header.size` 需要「裸指针 + 原生 pointee 结构体」
+的字段偏移，属已登记的聚合布局缺口，本轮不继续。
+
+回归：`test_typed_pipeline_executor_single` / `caller_buffers` /
+`std_script_pipeline_facade` / `test_osal` 在 VM 与 C99 两侧均通过。
