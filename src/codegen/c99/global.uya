@@ -483,6 +483,70 @@ fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode, init_ctx_typ
 }
 
 // 生成全局变量定义
+// ============================================================
+// 运行期全局初始化（`var g: i32 = init_fn();`）
+// ============================================================
+// C 的静态初始化器必须是常量表达式，而 Uya 允许全局变量用函数调用初始化
+// （exec VM 就是照 Uya 语义逐条执行）。这类声明改成「先留空定义，再把赋值
+// 收集到 __uya_rt_init_globals()，由 main_main 开头调用一次」。
+const C99_MAX_DYNAMIC_GLOBALS: i32 = 256;
+
+var g_c99_dyn_global_names: [&byte: 256] = [];
+var g_c99_dyn_global_exprs: [&ASTNode: 256] = [];
+var g_c99_dyn_global_types: [&ASTNode: 256] = [];
+var g_c99_dyn_global_count: i32 = 0;
+
+fn c99_global_init_contains_call(expr: &ASTNode) i32 {
+    if expr == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_CALL_EXPR {
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return 0;
+    }
+    return 0;
+}
+
+fn c99_register_dynamic_global_init(name: &byte, expr: &ASTNode, init_type: &ASTNode) void {
+    if name == null || expr == null {
+        return;
+    }
+    if g_c99_dyn_global_count < 0 || g_c99_dyn_global_count >= C99_MAX_DYNAMIC_GLOBALS {
+        return;
+    }
+    const idx: i32 = g_c99_dyn_global_count;
+    g_c99_dyn_global_names[idx] = name;
+    g_c99_dyn_global_exprs[idx] = expr;
+    g_c99_dyn_global_types[idx] = init_type;
+    g_c99_dyn_global_count = idx + 1;
+}
+
+fn c99_dynamic_global_init_count() i32 {
+    return g_c99_dyn_global_count;
+}
+
+fn c99_emit_dynamic_global_inits(codegen: &C99CodeGenerator) void {
+    if codegen == null || g_c99_dyn_global_count <= 0 {
+        return;
+    }
+    fputs("static void __uya_rt_init_globals(void) {\n" as *byte, codegen.emit_stream as *void);
+    var i: i32 = 0;
+    while i < g_c99_dyn_global_count {
+        const gname: &byte = g_c99_dyn_global_names[i];
+        const gexpr: &ASTNode = g_c99_dyn_global_exprs[i];
+        const gtype: &ASTNode = g_c99_dyn_global_types[i];
+        if gname != null && gexpr != null {
+            fprintf(codegen.emit_stream as *void, "    %s = " as *byte, gname as *byte);
+            gen_global_init_expr(codegen, gexpr, gtype);
+            fputs(";\n" as *byte, codegen.emit_stream as *void);
+        }
+        i = i + 1;
+    }
+    fputs("}\n\n" as *byte, codegen.emit_stream as *void);
+}
+
 fn gen_global_var(codegen: &C99CodeGenerator, var_decl: &ASTNode) void {
     if var_decl == null || var_decl.type != ASTNodeType.AST_VAR_DECL {
         return;
@@ -582,8 +646,14 @@ fn gen_global_var(codegen: &C99CodeGenerator, var_decl: &ASTNode) void {
     
     // 初始化表达式（使用全局作用域兼容的生成方式）
     if init_expr != null {
-        fputs(" = " as *byte, codegen.emit_stream as *void);
-        gen_global_init_expr(codegen, init_expr, var_type);
+        if c99_global_init_contains_call(init_expr) != 0 && codegen.split_dir == null {
+            // 非常量初始化器：C 静态初始化不合法，改由 __uya_rt_init_globals 运行期赋值。
+            // split-C（多文件并行）下初始化器可能落在与 main_main 不同的 TU，暂不接管。
+            c99_register_dynamic_global_init(var_name, init_expr, var_type);
+        } else {
+            fputs(" = " as *byte, codegen.emit_stream as *void);
+            gen_global_init_expr(codegen, init_expr, var_type);
+        }
     }
     
     c99_emit_semi_newline(codegen);
@@ -1054,8 +1124,13 @@ fn gen_extern_var_decl(codegen: &C99CodeGenerator, node: &ASTNode) void {
         }
 
         if init_expr != null {
-            fputs(" = " as *byte, codegen.emit_stream as *void);
-            gen_global_init_expr(codegen, init_expr, var_type);
+            if c99_global_init_contains_call(init_expr) != 0 && codegen.split_dir == null {
+                // 同 gen_global_var：非常量初始化器留空，由 __uya_rt_init_globals 赋值。
+                c99_register_dynamic_global_init(var_name, init_expr, var_type);
+            } else {
+                fputs(" = " as *byte, codegen.emit_stream as *void);
+                gen_global_init_expr(codegen, init_expr, var_type);
+            }
         }
 
         c99_emit_semi_newline(codegen);

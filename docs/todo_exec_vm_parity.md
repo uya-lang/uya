@@ -5863,3 +5863,21 @@ capture 读通了以后，`test_typed_pipeline_executor_single` 还剩两处挂�
 
 `test_exec_vm_extern_mkdir_bridge` 则是生成的 C 里 `mkdir`/`rmdir` 原型与
 `<sys/stat.h>` 冲突（测试自己声明了 `int32_t(uint8_t*, int32_t)` 版本），同属 C99 侧。
+
+### 408 轮补充三：C99 后端的运行期全局初始化
+
+`test_exec_vm_globals` 在 VM 里过、C99 里 `initializer element is not constant`
+（`var dep_counter: i32 = init_dep();`）。C 的静态初始化器必须常量，而 Uya 允许
+函数调用初始化，VM 就是按语义逐条执行。
+
+实现（`src/codegen/c99/global.uya` + `main.uya`）：
+
+- 全局定义里若初始化器是调用表达式（且非 split-C），不再生成 `= expr`，
+  只留空定义，并把 `(C 名, 表达式, 类型)` 登记到 `__uya_rt_init_globals`；
+- `main_main` 的三个变体（错误联合入口 / 普通 main / 测试运行器）开头统一
+  调用一次 `__uya_rt_init_globals()`，按声明顺序赋值。
+
+限制：split-C（多文件并行）暂不接管（初始化器可能与 `main_main` 不在同一 TU）。
+
+结果：`test_exec_vm_globals` C99/VM 双过；`test_exec_vm_globals_multi`
+（跨模块 import 全局）仍是 C99 侧编译失败，与改动前一致，非回归。

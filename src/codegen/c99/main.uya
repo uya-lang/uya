@@ -6726,7 +6726,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         // 入口 main 返回错误联合：用户函数已发射为 uya_main_result()，
         // 这里生成 int32_t main_main(void)：解包成功值作为退出码，出错打印错误名并返回 1。
         c99_mirror_emit_common(codegen);
+        c99_emit_dynamic_global_inits(codegen);
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
+        if c99_dynamic_global_init_count() > 0 {
+            fputs("    __uya_rt_init_globals();\n" as *byte, codegen.emit_stream as *void);
+        }
         fprintf(codegen.emit_stream as *void, "    %s _uya_main_r = uya_main_result();\n" as *byte,
             codegen.entry_main_err_union_c as *byte);
         fputs("    if (_uya_main_r.error_id != 0) {\n" as *byte, codegen.emit_stream as *void);
@@ -6742,7 +6746,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         c99_emit_close_brace_newline(codegen);
     } else if cg_emit_now != 0 && has_plain_user_main != 0 && c99_parallel_is_common_owner(codegen) != 0 {
         c99_mirror_emit_common(codegen);
+        c99_emit_dynamic_global_inits(codegen);
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
+        if c99_dynamic_global_init_count() > 0 {
+            fputs("    __uya_rt_init_globals();\n" as *byte, codegen.emit_stream as *void);
+        }
         fputs("    return uya_main();\n" as *byte, codegen.emit_stream as *void);
         c99_emit_close_brace_newline(codegen);
     }
@@ -6751,8 +6759,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     // std.runtime.entry 的 main 会调用 main_main()
     if cg_emit_now != 0 && has_user_main == 0 && test_count > 0 && c99_parallel_is_common_owner(codegen) != 0 {
         c99_mirror_emit_common(codegen);
+        c99_emit_dynamic_global_inits(codegen);
         // 测试计数变量已在第八步 c 中定义
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
+        if c99_dynamic_global_init_count() > 0 {
+            fputs("    __uya_rt_init_globals();\n" as *byte, codegen.emit_stream as *void);
+        }
         // 测试汇总同样以文本发射 printf，须与调用点使用同一权威名（见 c99_printf_c_name）。
         const summary_printf: &byte = c99_printf_c_name(codegen);
         fprintf(codegen.emit_stream as *void, "    %s(\"\\n=== Running %d tests ===\\n\");\n" as *byte, summary_printf as *byte, test_count);
