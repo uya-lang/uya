@@ -2125,12 +2125,14 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       （pthread/堆/OSAL 约 10 例，同步 VM 无并发语义）、`@c_import`（3 例）、
       `cleanup scope 嵌套过深`（8 例，第 343 轮已定位根因但修复方案三次证否）
       与超长函数（`bytecode 指令超出上限`）；这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿（第 408 轮收尾复测 **913 例（跳过 1）/ 一致 865 / 不一致 48**
-      —— 本轮把 `test_std_script_pipeline_facade`、`test_typed_pipeline_executor_single`、
+- [ ] `make exec-parity` 全绿（第 410 轮复测 **914 例 / 一致 876 / 不一致 38**；
+      第 408 轮收尾时是 913 例（跳过 1）/ 一致 865 / 不一致 48。
+      408 轮把 `test_std_script_pipeline_facade`、`test_typed_pipeline_executor_single`、
       `test_syscall_process`、`test_tflm_interpreter`、`test_tflm_phase2`、
       `test_exec_vm_globals`、`test_exec_vm_globals_multi`、`test_exec_vm_global_init_fail`、
       `test_exec_vm_extern_mkdir_bridge`、`test_mem` 十例从「不一致」转成「一致」；
-      跳过的那 1 例是会挂住整轮的 `test_async_runtime_shared_dns`（不理会 SIGTERM，需手工 kill）。
+      第 409 轮起差分脚本给 timeout 加了「进程组 SIGKILL + 独立会话看门狗」，
+      `test_async_runtime_shared_dns` 这类挂死用例不再拖住整轮，也不再需要跳过表。
       第 400 轮是 914/854/60，此前一轮 853/61），
       按方向拆分见第 397 轮小节：VM 领先 9、VM 落后 51、两边都失败 1；
       第 363 轮曾为 835/79，比文档原先记录的 832/81 多 3 例一致；
@@ -2139,7 +2141,8 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       async 帧布局与 `@await` 语义 40 例、线程/堆/OSAL 10 例、`@c_import` 3 例、
       超长函数 1 例、以及少量 `cleanup scope 嵌套过深`。
       libc 堆两例的共同根因已定位到「常量折叠把 `CHUNK_STATE_MASK` 算成 2」）
-- [x] `make check` 全绿（1191 个测试，通过 1191，失败 0；第 309/314/317/320/345/348/390/398 轮复测均绿）
+- [x] `make check` 全绿（第 410 轮复测 **1192 个测试，通过 1192，失败 0**；
+      第 309/314/317/320/345/348/390/398 轮复测均绿；用例改名后总数 1191 → 1192）
 - [ ] 合并到 main 并删除工作区
 
 ### 第 342 轮：错误联合 error_id 借用、INDEX 基引用、裸指针还原判定收窄
