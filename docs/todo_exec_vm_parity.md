@@ -5945,3 +5945,13 @@ signal 1（宿主回调）、typed_pipeline 2（聚合布局 / drop 语义）、
 
 自举注意：旧编译器会给每个整型除法包一层 `__uya_div_zero_abort()` 调用，
 换实现的第一轮需要一个临时定义才能自举；已在 `lib/libc/unistd.uya` 里用完即删。
+
+### 408 轮补充六：hosted 下裸 `extern fn` 系统原型重复声明
+
+`test_exec_vm_extern_mkdir_bridge` 在 C99 里 `conflicting types for 'mkdir'`：
+测试自己写了 `extern fn mkdir(pathname: *byte, mode: i32) i32;`，后端又发了一份
+Uya 侧原型，和 `<sys/stat.h>` 的 `int mkdir(const char *, mode_t)` 撞车。
+修法：hosted 模式下，裸 `extern fn`（无 `extern "libc"`、无函数体）且名字是已知
+系统 libc 符号时，不再发原型，直接沿用系统头里的声明。修后两后端都通过。
+
+本轮差分 913 例（跳过 1）/ 一致 863 / 不一致 **50**（起点 60）。

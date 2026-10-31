@@ -1605,7 +1605,15 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     if should_skip_libc_syscall_stub(codegen, fn_decl) != 0 {
         return;
     }
-    
+    // hosted 下裸 `extern fn mkdir(...)` 这类系统 libc 符号：不要再发一份 Uya 侧原型，
+    // 否则与 <sys/stat.h> 等头文件里的声明类型冲突（`int32_t(uint8_t*, int32_t)`
+    // vs `int(const char*, mode_t)`）。直接沿用系统头里的原型。
+    if codegen.is_nostdlib == 0 && fn_decl.fn_decl_body == null &&
+        fn_decl.fn_decl_extern_lib_name == null && fn_decl.fn_decl_name != null &&
+        c99_name_is_hosted_raw_libc_symbol(fn_decl.fn_decl_name) != 0 {
+        return;
+    }
+
     // 设置当前函数声明（用于 format_param_type 中的 copy_type 检查）
     const saved_current_function_decl: &ASTNode = codegen.current_function_decl;
     codegen.current_function_decl = fn_decl;
