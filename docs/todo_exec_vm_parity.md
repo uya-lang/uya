@@ -5803,3 +5803,19 @@ capture 读通了以后，`test_typed_pipeline_executor_single` 还剩两处挂�
 `test_runtime_environment` 全过。仍红的只剩两处已登记缺口：
 `test_typed_pipeline_capability`（聚合字段偏移）与 `test_typed_pipeline_lowering_error`
 （drop/cleanup 语义）。
+
+### 408 轮：全量差分复测 914 / 一致 858 / 不一致 56
+
+第 407 轮的四处修复（facade 模块限定调用、启动记录字节打包、`sys_poll` 原生编组、
+进程组族宿主桥 + 中断信号屏蔽消费）之后全量复测：
+
+- `test_std_script_pipeline_facade`：转为一致（facade 的 extern 空桩）；
+- `test_typed_pipeline_executor_single`：转为一致（34 例 VM 全过，C99 36 例全过）；
+- `test_osal` / `test_runtime_environment` / `test_typed_pipeline_caller_buffers` /
+  `test_typed_pipeline_cmd_argv` / `test_typed_pipeline_result_types` 保持一致；
+- 不一致从 60 → **56**（914 例）。
+
+运行时注意：`test_async_runtime_shared_dns` 这类 async 用例会卡在 `ep_poll` 且
+**不理会 `timeout` 发的 SIGTERM**（进程把 SIGTERM 接住了），单跑时要用
+`timeout -k` 才能收工；差分脚本用 `timeout 300` 无 `-k`，遇到这类用例会挂住整轮，
+需要手工 `kill -9` 那个 `bin/uya test --vm` 孤儿进程才放行。
