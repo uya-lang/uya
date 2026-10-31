@@ -129,11 +129,14 @@ run_one() {
     # `-k` 必不可少：解释器里互相等待的用例会忽略 SIGTERM，只发 TERM 的 timeout
     # 会一直等下去 —— 实测 test_std_dns_async_query_aggregate 卡了 50 分钟，
     # 整轮普查被它一个人拖死（TIMEOUT=240 完全没生效）。加 `-k` 后超时再补 SIGKILL。
+    # 进程组超时：个别用例会 kill 掉自己的父进程（timeout 消失、uya 变孤儿挂一小时），
+    # 所以放进独立会话，超时后对整组发 SIGKILL。
     if [ "$mem_mb" -gt 0 ]; then
-        err="$(bash -c 'ulimit -v "$1" 2>/dev/null; shift; exec timeout -k 10 "$@"' _ \
+        err="$(bash -c 'ulimit -v "$1" 2>/dev/null; shift; setsid "$@" & p=$!; ( sleep "$1"; kill -9 -"$p" ) & w=$!; wait "$p"; rc=$?; kill "$w" 2>/dev/null; exit $rc' _ \
             "$limit_kb" "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
     else
-        err="$(timeout -k 10 "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
+        err="$(bash -c 't="$1"; shift; setsid "$@" & p=$!; ( sleep "$t"; kill -9 -"$p" ) & w=$!; wait "$p"; rc=$?; kill "$w" 2>/dev/null; exit $rc' _ \
+            "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
     fi
     local st=$?
 

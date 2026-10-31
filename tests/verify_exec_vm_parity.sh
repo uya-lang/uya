@@ -69,6 +69,24 @@ normalize_stdout() {
     sed -E 's/0x[0-9a-fA-F]+/0xADDR/g' "$1"
 }
 
+# 按进程组超时执行：解释器里互相等待的用例会忽略 SIGTERM，个别用例的子进程
+# 甚至会 kill 掉自己的父进程（`timeout` 因此消失、uya 变孤儿挂一小时）。
+# 这里把命令放进独立会话，超时后对**整个进程组**发 SIGKILL。
+run_with_timeout() {
+    local t="$1"
+    shift
+    setsid "$@" &
+    local run_pid=$!
+    ( sleep "$t"; kill -9 -"$run_pid" 2>/dev/null ) &
+    local watch_pid=$!
+    wait "$run_pid"
+    local rc=$?
+    kill "$watch_pid" 2>/dev/null
+    wait "$watch_pid" 2>/dev/null
+    return $rc
+}
+export -f run_with_timeout
+
 run_one() {
     local uya_file="$1"
     local results_dir="$2"
@@ -93,19 +111,19 @@ run_one() {
     if [ -n "$extra_c" ] && [ -f "$extra_c" ]; then
         local cfile="$WORK_DIR/${base}.c"
         local cbin="$WORK_DIR/${base}.bin"
-        if timeout -k 10 "$timeout_s" "$compiler" build --c99 --nostdlib --no-strict-overflow "$uya_file" -o "$cfile" >/dev/null 2>&1 &&
+        if run_with_timeout "$timeout_s" "$compiler" build --c99 --nostdlib --no-strict-overflow "$uya_file" -o "$cfile" >/dev/null 2>&1 &&
            CC=gcc "$SCRIPT_DIR/link_cimports_posix.sh" "$cfile" "$cbin" "$extra_c" >/dev/null 2>&1; then
-            c99_out="$(timeout -k 10 "$timeout_s" "$cbin" 2>/dev/null)"
+            c99_out="$(run_with_timeout "$timeout_s" "$cbin" 2>/dev/null)"
             c99_st=$?
         else
             c99_st=1
             c99_out=""
         fi
     else
-        c99_out="$(timeout -k 10 "$timeout_s" "$compiler" test --no-strict-overflow "$uya_file" 2>/dev/null)"
+        c99_out="$(run_with_timeout "$timeout_s" "$compiler" test --no-strict-overflow "$uya_file" 2>/dev/null)"
         c99_st=$?
     fi
-    vm_out="$(timeout -k 10 "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>/dev/null)"
+    vm_out="$(run_with_timeout "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>/dev/null)"
     vm_st=$?
 
     local c99_sum vm_sum
@@ -129,9 +147,9 @@ run_one() {
         local c99_run_out vm_run_out c99_run_st vm_run_st
         c99_run_out="$WORK_DIR/${base}.c99run.out"
         vm_run_out="$WORK_DIR/${base}.vmrun.out"
-        timeout -k 10 "$timeout_s" "$compiler" run --no-strict-overflow "$uya_file" > "$c99_run_out" 2>/dev/null
+        run_with_timeout "$timeout_s" "$compiler" run --no-strict-overflow "$uya_file" > "$c99_run_out" 2>/dev/null
         c99_run_st=$?
-        timeout -k 10 "$timeout_s" "$compiler" run --vm --no-strict-overflow "$uya_file" > "$vm_run_out" 2>/dev/null
+        run_with_timeout "$timeout_s" "$compiler" run --vm --no-strict-overflow "$uya_file" > "$vm_run_out" 2>/dev/null
         vm_run_st=$?
         if [ "$c99_run_st" -ne "$vm_run_st" ]; then
             verdict="RUN_STATUS_MISMATCH"
