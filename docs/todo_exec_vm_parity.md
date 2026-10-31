@@ -5988,3 +5988,16 @@ globals）C99 全过。至此本轮差分 913 例（跳过 1）/ 一致 865 / �
   差分脚本用 `uya test` 直连，拿不到 `tests/*.c`）、`kernel_sim` 1（call gate 机器码）、
   `signal` 1（宿主回调）、`typed_pipeline` 2（聚合布局 / drop 语义）、
   `crypto_bigint_modexp4096` 1（纯算法超时）。
+
+### 408 轮补充八：差分脚本按 Makefile 补伴随 C 源
+
+`test_extern_union` / `test_ffi_cast` / `test_abi_calling_convention` 的 C99 侧需要
+`tests/external_functions.c`、`tests/test_abi_helpers.c` 才能链接，只有
+`tests/Makefile` 的路径会带上；差分脚本原本直接用 `uya test`，三例因此
+`undefined reference`。修法：`tests/verify_exec_vm_parity.sh` 里按 Makefile 同一张
+对应表，C99 侧改成 `build --c99 --nostdlib` + `link_cimports_posix.sh` + 直接跑，
+并 `export SCRIPT_DIR`（`run_one` 在 xargs 子 shell 里执行）。
+
+结果：`test_extern_union`、`test_ffi_cast` 转为一致；`test_abi_calling_convention`
+C99 侧现在能跑通（0），但 VM 侧返回 121 —— 该用例调的是真实 C 符号
+（`c_small_struct_param` 等），属 VM 的 C/FFI 互操作缺口，保留为不一致。

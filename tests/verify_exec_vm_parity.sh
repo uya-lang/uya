@@ -27,6 +27,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export SCRIPT_DIR
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
 export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
@@ -79,8 +80,29 @@ run_one() {
     local out_file="$results_dir/${base}.txt"
 
     local c99_out c99_st vm_out vm_st
-    c99_out="$(timeout "$timeout_s" "$compiler" test --no-strict-overflow "$uya_file" 2>/dev/null)"
-    c99_st=$?
+    # 需要伴随 C 源才能链接的 FFI 用例：按 tests/Makefile 的同一张对应表补上，
+    # 否则 `uya test` 直连会 undefined reference（那不是 exec VM 的缺口，
+    # 而是 C99 侧构建输入不全——差分口径要跟 Makefile 一致）。
+    local extra_c=""
+    case "$base" in
+        test_abi_calling_convention.uya) extra_c="$SCRIPT_DIR/test_abi_helpers.c" ;;
+        test_extern_union.uya|test_ffi_cast.uya) extra_c="$SCRIPT_DIR/external_functions.c" ;;
+    esac
+    if [ -n "$extra_c" ] && [ -f "$extra_c" ]; then
+        local cfile="$WORK_DIR/${base}.c"
+        local cbin="$WORK_DIR/${base}.bin"
+        if timeout "$timeout_s" "$compiler" build --c99 --nostdlib --no-strict-overflow "$uya_file" -o "$cfile" >/dev/null 2>&1 &&
+           CC=gcc "$SCRIPT_DIR/link_cimports_posix.sh" "$cfile" "$cbin" "$extra_c" >/dev/null 2>&1; then
+            c99_out="$(timeout "$timeout_s" "$cbin" 2>/dev/null)"
+            c99_st=$?
+        else
+            c99_st=1
+            c99_out=""
+        fi
+    else
+        c99_out="$(timeout "$timeout_s" "$compiler" test --no-strict-overflow "$uya_file" 2>/dev/null)"
+        c99_st=$?
+    fi
     vm_out="$(timeout "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>/dev/null)"
     vm_st=$?
 
