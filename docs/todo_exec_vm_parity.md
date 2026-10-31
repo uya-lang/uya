@@ -2125,9 +2125,13 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       （pthread/堆/OSAL 约 10 例，同步 VM 无并发语义）、`@c_import`（3 例）、
       `cleanup scope 嵌套过深`（8 例，第 343 轮已定位根因但修复方案三次证否）
       与超长函数（`bytecode 指令超出上限`）；这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿（第 408 轮复测 **914 例 / 一致 858 / 不一致 56**
-      （`test_std_script_pipeline_facade`、`test_typed_pipeline_executor_single` 转为一致；
-      第 400 轮是 914/854/60，`test_osal` 由不一致转一致，再往前一轮 853/61），
+- [ ] `make exec-parity` 全绿（第 408 轮收尾复测 **913 例（跳过 1）/ 一致 865 / 不一致 48**
+      —— 本轮把 `test_std_script_pipeline_facade`、`test_typed_pipeline_executor_single`、
+      `test_syscall_process`、`test_tflm_interpreter`、`test_tflm_phase2`、
+      `test_exec_vm_globals`、`test_exec_vm_globals_multi`、`test_exec_vm_global_init_fail`、
+      `test_exec_vm_extern_mkdir_bridge`、`test_mem` 十例从「不一致」转成「一致」；
+      跳过的那 1 例是会挂住整轮的 `test_async_runtime_shared_dns`（不理会 SIGTERM，需手工 kill）。
+      第 400 轮是 914/854/60，此前一轮 853/61），
       按方向拆分见第 397 轮小节：VM 领先 9、VM 落后 51、两边都失败 1；
       第 363 轮曾为 835/79，比文档原先记录的 832/81 多 3 例一致；
       81 例的分类见下。与第 342 轮（832/81）逐项一致，说明第 344~346 轮的三处
@@ -5972,3 +5976,15 @@ Uya 侧原型，和 `<sys/stat.h>` 的 `int mkdir(const char *, mode_t)` 撞车�
 
 验证：`test_mem` C99/VM 均通过；抽样回归（pipeline / kernel / dns / signal /
 globals）C99 全过。至此本轮差分 913 例（跳过 1）/ 一致 865 / 不一致 **48**。
+
+### 408 轮收尾（二）：差分 913 / 一致 865 / 不一致 48
+
+剩余 48 例的结构（本轮全量复测）：
+
+- async / http / websocket / mqtt / dns / tls：**30**（async 帧与 `@await` 语义、纯算法超时）；
+- pthread / thread：**7**（同步 VM 无并发语义）；
+- 其余 11：`@c_import` 3（模型不支持）、`exec_vm_*Unsupported` 负例 2（设计内拒绝）、
+  需要伴随 C 源的 FFI 3（`abi_calling_convention` / `extern_union` / `ffi_cast`，
+  差分脚本用 `uya test` 直连，拿不到 `tests/*.c`）、`kernel_sim` 1（call gate 机器码）、
+  `signal` 1（宿主回调）、`typed_pipeline` 2（聚合布局 / drop 语义）、
+  `crypto_bigint_modexp4096` 1（纯算法超时）。
