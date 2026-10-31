@@ -329,6 +329,13 @@ fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode, init_ctx_typ
     if expr == null {
         return;
     }
+    const saved_in_global_init: i32 = codegen.in_global_init;
+    codegen.in_global_init = 1;
+    gen_global_init_expr_inner(codegen, expr, init_ctx_type);
+    codegen.in_global_init = saved_in_global_init;
+}
+
+fn gen_global_init_expr_inner(codegen: &C99CodeGenerator, expr: &ASTNode, init_ctx_type: &ASTNode) void {
 
     if init_ctx_type != null && c99_emit_interface_box_global_init(codegen, init_ctx_type, expr) != 0 {
         return;

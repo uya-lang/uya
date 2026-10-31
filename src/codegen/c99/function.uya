@@ -1595,6 +1595,25 @@ fn c99_should_emit_static_top_level_function(codegen: &C99CodeGenerator, fn_decl
     return result;
 }
 
+/// 裸 `extern fn` 声明与系统头原型「签名不兼容」的少数符号。
+///
+/// 只覆盖已知会冲突的：`mkdir` 的 `mode_t`、`rmdir` 的参数指针类型。
+/// **不要**放宽到全部 libc 符号 —— 跳过原型会让 C 编译器改用系统头里带
+/// `__attribute__((alloc_size))` 等属性/更严格签名的声明，`-Werror` 下会
+/// 把一批本来能过的用例判成编译失败（实测 http 用例的 `alloc-size-larger-than`）。
+fn c99_name_is_hosted_conflicting_prototype(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "mkdir" as *byte) == 0 {
+        return 1;
+    }
+    if strcmp(name as *byte, "rmdir" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
         return;
@@ -1610,7 +1629,7 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     // vs `int(const char*, mode_t)`）。直接沿用系统头里的原型。
     if codegen.is_nostdlib == 0 && fn_decl.fn_decl_body == null &&
         fn_decl.fn_decl_extern_lib_name == null && fn_decl.fn_decl_name != null &&
-        c99_name_is_hosted_raw_libc_symbol(fn_decl.fn_decl_name) != 0 {
+        c99_name_is_hosted_conflicting_prototype(fn_decl.fn_decl_name) != 0 {
         return;
     }
 

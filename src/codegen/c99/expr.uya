@@ -8427,7 +8427,7 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 fputs(")))" as *byte, codegen.emit_stream as *void);
             }
         } else if ((op == TokenType.TOKEN_SLASH || op == TokenType.TOKEN_PERCENT) &&
-            codegen.current_function_decl != null &&
+            codegen.current_function_decl != null && codegen.in_global_init == 0 &&
             c99_c_type_is_integer_arith(get_c_type_of_expr(codegen, expr)) != 0) {
             // 整型 `/` `%` 先判除数为 0：Uya 语义是运行时错误（exec VM 直接
             // `exec: 除零` 并退出 1），C 里却是 UB（-O2 下会被折成任意值，

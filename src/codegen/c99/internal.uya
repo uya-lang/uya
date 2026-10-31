@@ -212,6 +212,9 @@ struct C99CodeGenerator {
     // 1=切片复合字面量只输出初始化列表 `{ .ptr = ..., .len = ... }`，不带 `(struct uya_slice_X)` 前缀。
     // 文件作用域常量不能用复合字面量初始化（C 要求常量表达式），只能退化成初始化列表。
     slice_init_no_type: i32,
+    // 正在发射文件作用域初始化器：这里的整型除法不能包成语句表达式（静态初始化
+    // 只接受常量表达式），运行期初始化会在 __uya_rt_init_globals 里补除零检查。
+    in_global_init: i32,
     
     // 用于优化 #line 指令生成
     current_line: i32,  // 当前行号
