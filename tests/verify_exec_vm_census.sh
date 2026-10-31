@@ -132,10 +132,10 @@ run_one() {
     # 进程组超时：个别用例会 kill 掉自己的父进程（timeout 消失、uya 变孤儿挂一小时），
     # 所以放进独立会话，超时后对整组发 SIGKILL。
     if [ "$mem_mb" -gt 0 ]; then
-        err="$(bash -c 'set -m; ulimit -v "$1" 2>/dev/null; shift; "$@" & p=$!; ( sleep "$1"; kill -9 -"$p" ) >/dev/null 2>&1 & w=$!; wait "$p"; rc=$?; kill "$w" 2>/dev/null; exit $rc' _ \
+        err="$(bash -c 'set -m; ulimit -v "$1" 2>/dev/null; shift; "$@" & p=$!; setsid bash -c "sleep $1; kill -9 -$p 2>/dev/null" >/dev/null 2>&1 & w=$!; wait "$p"; rc=$?; kill "$w" 2>/dev/null; exit $rc' _ \
             "$limit_kb" "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
     else
-        err="$(bash -c 't="$1"; shift; set -m; "$@" & p=$!; ( sleep "$t"; kill -9 -"$p" ) >/dev/null 2>&1 & w=$!; wait "$p"; rc=$?; kill "$w" 2>/dev/null; exit $rc' _ \
+        err="$(bash -c 't="$1"; shift; set -m; "$@" & p=$!; setsid bash -c "sleep $t; kill -9 -$p 2>/dev/null" >/dev/null 2>&1 & w=$!; wait "$p"; rc=$?; kill "$w" 2>/dev/null; exit $rc' _ \
             "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
     fi
     local st=$?

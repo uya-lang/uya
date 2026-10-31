@@ -80,7 +80,9 @@ run_with_timeout() {
     set -m
     "$@" &
     local run_pid=$!
-    ( sleep "$t"; kill -9 -"$run_pid" 2>/dev/null ) >/dev/null 2>&1 &
+    # 看门狗放进独立会话：个别用例会 kill 掉自己的父 shell，普通子 shell 会被一起
+    # 带走，看门狗死了孤儿就没人收（实测 async_dns 仍挂 12 分钟以上）。
+    setsid bash -c "sleep $t; kill -9 -$run_pid 2>/dev/null" >/dev/null 2>&1 &
     local watch_pid=$!
     wait "$run_pid"
     local rc=$?
