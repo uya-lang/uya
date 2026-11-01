@@ -7620,3 +7620,76 @@ fn p384_jac_double(r: &P384Jac, p: &const P384Jac) void {
 - 代码零改动（探针全部回退，树干净）；
 - 唯一实质进展：`test_tls_rsa` 超时放宽后**确认通过**（第 451 轮，+1 → 880/909）；
 - 门禁基线不变：`make check` 全绿、parity 不一致 30。
+
+---
+
+## 第 456 轮：ecdsa 收敛到「acc 的聚合在调用前已是 VOID」，并解开前几轮的取证迷雾
+
+**1. 取证迷雾的成因（重要，影响以后所有取证）**
+
+前几轮在 `BC_LOAD_FIELD` 越界分支里 `printf` 一直打不出来，而同一分支的
+`exec_backend_set_error` 又能显示。根因是**输出通道**：该用例运行到中途后
+fd1 的缓冲/去向不可靠，`printf` 的输出被吞掉。改用 `write(2, ...)` 直出后
+一次就打出来了：
+
+```
+[fld] fn=p384_jac_is_zero ip=10 basekind=0
+```
+
+以后 VM 取证统一用 `write(2, ...)`（`use libc.write` 已在 vm.uya 里）。
+
+**2. 静态证据：字节码是对的**
+
+`--dump-bytecode` 抓 `p384_jac_scalar_mul`（slots=32 params=3）：
+
+```
+11: MAKE_STRUCT a=19 ...            ; z 字段的 Fe384{l:[0:6]}
+15: MAKE_STRUCT a=10 b=23 c=3       ; P384Jac{x,y,z}
+16: STORE_LOCAL a=3 b=10            ; acc 就是槽 3，初始化正确写入
+17: ADDR_LOCAL  a=11 b=3            ; &acc
+19: CALL        a=10 b=12 c=1 imm=90 ; p384_jac_zero(&acc)
+...
+43: ADDR_LOCAL  a=14 b=5            ; &dbl
+44: ADDR_LOCAL  a=15 b=3            ; &acc
+45-47: MOV/MOV/CALL imm=92          ; p384_jac_double(&dbl, &acc)
+```
+
+即：`acc` 的声明、初始化、取址、传参**全部正确**。
+
+**3. 运行时证据：坏值出在第 43–47 那条调用之前**
+
+修正探针的入参位置后（`jac_double` 的 `p` 在 arg1，早先误读 arg0=输出 `r`）：
+
+```
+[bad] fn=p384_jac_double  arg=1 caller=p384_jac_scalar_mul diff=-1624
+[bad] fn=p384_jac_is_zero arg=0 caller=p384_jac_double    diff=-2688
+```
+
+`diff` 是「引用目标 − 当前帧起始」的字节差：两次都是**负数**，
+说明指针指向的是**调用方帧里的槽**（`-1624/56 ≈ -29` 槽 → 正是
+`p384_jac_scalar_mul` 的槽 3 即 `acc`），不是被调帧自己的槽。
+
+结论：`p384_jac_scalar_mul` 传给 `p384_jac_double` 的 `acc`
+在那一刻**已经是一个字段全 VOID 的聚合**。
+
+**4. 已排除**
+
+| 方向 | 依据 |
+| --- | --- |
+| 传参/取址错误 | 字节码 ip=16/44 正确；788 次调用里仅这一次坏 |
+| 帧重叠（引用落进被调帧） | diff 为负，落在调用方帧 |
+| 槽池搬迁 | 只有 `top==0` 才换块 |
+| 浅拷贝共享后回收 | `exec_value_clone` 对聚合是**深拷贝** |
+| 原地存储把结构体抹成 VOID | `exec_vm_store_aggregate_in_place` 先校验 `dst.kind == src.kind` |
+| 聚合内存被复用 | churn 复现（2000 次大结构体分配期间持有旧结构体）通过 |
+| 用例级二进制缓存 | 删除 `tests/build/tests/tests_test_tls_ecdsa/` 后形态不变 |
+
+**5. 下一步（一次 800s 运行）**
+
+在写路径上抓「把 VOID 写进结构体字段/元素」的**第一次**发生：
+`BC_STORE_FIELD` / `BC_STORE_INDEX` 里当 `slot_b.kind == VOID`（或整体结构体
+被写成 VOID）时用 `write(2, ...)` 打出 `fn/ip/字段号`，即可定位是谁把
+`acc` 的三层字段写空的。
+
+代码本轮零改动（探针已回退），基线不变：
+**880/909**（含第 451 轮 tls_rsa 转通过）、parity 不一致 30、`make check` 全绿。
