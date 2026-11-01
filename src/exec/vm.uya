@@ -1173,6 +1173,22 @@ fn exec_vm_await_find_poll(value: &ExecValue, depth: i32) &ExecUnionData {
 /// 参数：`program` 程序；`poll_fn_index` 方法入口下标；`self_cell` 数据格；
 ///       `out_value` 承载结果（Ready 载荷或 Pending 的 void）。
 /// 返回值：0 Ready；1 Pending；-1 错误。
+/// 给下层的 `poll` 位置备一个 waker：有上游 waker 就转发，没有才新建空 waker。
+///
+/// 参数：无（读 `g_exec_vm_await_waker_*`）。
+/// 返回值：指向 `Waker` 的指针值。
+fn exec_vm_await_make_waker() ExecValue {
+    if g_exec_vm_await_waker_addr != 0 {
+        return exec_make_pointer_with_kind(g_exec_vm_await_waker_addr, g_exec_vm_await_waker_kind);
+    }
+    const waker_cell: &ExecValue = exec_value_alloc_bytes(@size_of(ExecValue)) as &ExecValue;
+    if waker_cell == null {
+        return exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_STRUCT as i32);
+    }
+    waker_cell[0] = exec_value_make_aggregate(ExecValueKind.EXEC_VALUE_STRUCT, EXEC_AWAIT_WAKER_FIELDS);
+    return exec_make_pointer_with_kind(waker_cell as usize, TypeKind.TYPE_STRUCT as i32);
+}
+
 fn exec_vm_await_poll_once(program: &BCProgram, poll_fn_index: i32, self_cell: &ExecValue,
     out_value: &ExecValue) i32 {
     if program == null || self_cell == null || out_value == null {
@@ -1180,13 +1196,7 @@ fn exec_vm_await_poll_once(program: &BCProgram, poll_fn_index: i32, self_cell: &
     }
     var args: [ExecValue: 2] = [];
     args[0] = self_cell[0];
-    var waker_addr: usize = 0 as usize;
-    const waker_cell: &ExecValue = exec_value_alloc_bytes(@size_of(ExecValue)) as &ExecValue;
-    if waker_cell != null {
-        waker_cell[0] = exec_value_make_aggregate(ExecValueKind.EXEC_VALUE_STRUCT, EXEC_AWAIT_WAKER_FIELDS);
-        waker_addr = waker_cell as usize;
-    }
-    args[1] = exec_make_pointer_with_kind(waker_addr, TypeKind.TYPE_STRUCT as i32);
+    args[1] = exec_vm_await_make_waker();
     const rc: i32 = exec_vm_call_function(program, poll_fn_index, &args[0], 2, 0, out_value);
     if rc < 0 {
         return -1;
@@ -8415,6 +8425,13 @@ var g_exec_vm_cont_used: [i32: EXEC_VM_CONT_MAX] = [];
 /// 恢复的那一遍才对这个 await poll 一次（Ready 后在同一次 pass 里继续下一个 await）。
 /// `run_frame` 进出时保存/恢复，保证嵌套调用各自独立。
 var g_exec_vm_frame_resumed: i32 = 0;
+/// 当前续体 poll 拿到的 waker 指针（`Waker` 的地址），供 `@await` 往下转发。
+///
+/// 不转发的话每层 await 都会新建一个空 waker：下层 leaf future 把 IO 兴趣
+/// 注册在那个空 waker 上，调用方手里的 waker 永远看不到
+/// （`wk.has_io_interest()` 恒为 0、取消也传不下来）。
+var g_exec_vm_await_waker_addr: usize = 0;
+var g_exec_vm_await_waker_kind: i32 = 0;
 
 /// 把值里「指向 `[from_base, from_limit)`」的内部引用按同一偏移搬到 `to_base`。
 ///
@@ -8696,8 +8713,20 @@ fn exec_vm_cont_poll(program: &BCProgram, args: &ExecValue, arg_count: i32,
         return -1;
     }
     var resumed: ExecValue = exec_make_void();
+    // 把本次 poll 的 waker 记下来，`@await` 往下转发时用它。
+    const saved_waker_addr: usize = g_exec_vm_await_waker_addr;
+    const saved_waker_kind: i32 = g_exec_vm_await_waker_kind;
+    if args != null && arg_count >= 2 && args[1].kind == ExecValueKind.EXEC_VALUE_POINTER {
+        g_exec_vm_await_waker_addr = exec_vm_pointer_address(&args[1]);
+        g_exec_vm_await_waker_kind = args[1].aux_i64_value as i32;
+    } else {
+        g_exec_vm_await_waker_addr = 0 as usize;
+        g_exec_vm_await_waker_kind = 0;
+    }
     const rc: i32 = exec_vm_run_frame(program, function, null as &ExecValue, 0, 0, &resumed, base,
         snapshot, g_exec_vm_cont_ip[handle]);
+    g_exec_vm_await_waker_addr = saved_waker_addr;
+    g_exec_vm_await_waker_kind = saved_waker_kind;
     exec_vm_slot_pool_pop(base);
     if rc < 0 {
         return -1;
