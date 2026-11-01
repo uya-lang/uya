@@ -6471,3 +6471,24 @@ FFI/abi 1、kernel_sim 1、typed_pipeline 2。
   `test_http_uyagin`（`async_box_free_current` 收到 `ptr=1`）、
   `test_http_websocket_json` / `_reconnect`（事件循环）、
   `test_http_uyagin_websocket`（>150s 超时）。
+
+### 第 429 轮：接口/装箱的两处取证（未落地，供下一轮接手）
+
+1. **`Future_release$s20` 收到的 `self` 是 `1`**（`test_http_uyagin`、
+   `test_async_frame_pool_stats` 都崩在这里：`async_box_free_current` 里
+   `ptr - 16 = -15`，报「指针下标解引用地址非法 base=-15 kind=14」）。
+   `--trace-vm` 取证（`/tmp/trace_uyagin.log`，289480 行）显示调用方是
+   `__exec_test_1` 的
+   `LOAD_FIELD imm=1 → LOAD_FIELD imm=2 → CALL_INDIRECT`，
+   即接口值 `[方法入口…, 数据]` 的**数据字段**取出来是 `1`（一个小整数，
+   更像方法入口下标而不是指针）。下一步要把「装箱时 `dispatch_decl_count`」
+   与「调用点 `exec_lower_interface_method_index`」的取值打出来对账。
+2. **接口局部初始化可能不装箱**：合成用例
+   `const sh: Shape = y;`（`y: Sq`，`Sq` 实现 `Shape`）在 VM 里
+   `sh.area()` 直接报 `LOAD_FIELD 字段越界(idx=2 kind=16 count=1)` ——
+   `sh` 拿到的是裸 `Sq`（1 个字段），不是 `[fn0, fn1, data]`。
+   `exec_lower_coerce_expr` 里两条装箱分支都要求
+   `struct_implements_interface(...) != 0`，所以要么这条判据对「方法只写
+   声明 `;` 的接口」不成立，要么变量初始化路径没走 `coerce_expr`。
+   注意：`Future<T>` 这条主路径是好的（大量 async 用例通过），
+   所以更可能是接口声明形态的差异，不要为它去动 `box_interface` 主逻辑。
