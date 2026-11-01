@@ -21,6 +21,9 @@ test_crypto_bigint.uya	300
 # test_tls_x25519_pure：纯 Uya 大数实现的 X25519，解释器实测 **665s**
 # （C99 侧秒级），内容 1/1 全通过。默认 300s 会把它误判成失败。
 test_tls_x25519_pure.uya	900
+# test_tls_rsa：纯 Uya 大数实现的 RSA，解释器实测 **>900s**（第 442 轮在 900s 上限下
+# 未完成、被记成 rc=137）。CPU 打满说明是纯算得慢，给足 1500s 再判结论。
+test_tls_rsa.uya	1800
 test_crypto_ed25519.uya	300
 
 # ---- 阻塞型（收窄，快速失败）----
