@@ -1065,6 +1065,9 @@ fn exec_vm_realign_to_slot(addr: usize) &ExecValue {
 const EXEC_AWAIT_BUSY_CLOCKS: i64 = 1500000;
 /// `@await` 忙等时给 `Waker` 参数用的占位聚合字段数（够覆盖 Waker 的全部字段）。
 const EXEC_AWAIT_WAKER_FIELDS: i32 = 64;
+/// 合成占位聚合里 VOID 字段被按下标写入时实体化成的定长数组槽数。
+/// 取 `Waker` 里最大的定长数组字段（`[i32: 4]`）之上并留余量。
+const EXEC_VM_PLACEHOLDER_ARRAY_SLOTS: i32 = 8;
 
 /// `@await` 命中「始终 Pending」时的向上传播。
 ///
@@ -7149,7 +7152,12 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         if exec_value_is_raw_array(slot_b) != 0 {
             const raw_ptr_value3: ExecValue = exec_vm_raw_array_element_ptr(slot_b, index_value);
             if raw_ptr_value3.kind != ExecValueKind.EXEC_VALUE_POINTER {
-                exec_backend_set_error(function.decl, "exec: LOAD_INDEX 越界" as *byte, 0);
+                var idx_msg: [byte: 384] = [];
+                _ = snprintf(&idx_msg[0] as *byte, 384,
+                    "exec: LOAD_INDEX 越界(idx=%d base_kind=%d fn=%s ip=%d line=%d col=%d)" as *byte,
+                    index_value, slot_b.kind as i32, function.name as *byte, frame.ip,
+                    instr.source.line, instr.source.column);
+                exec_backend_set_error(function.decl, &idx_msg[0] as &byte, 0);
                 return -1;
             }
             if exec_vm_load_pointer_index(function, raw_ptr_value3, 0, 0 as usize, slot_a) != 0 {
@@ -7226,7 +7234,12 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             }
         } else {
             if index_value < 0 || index_value >= exec_value_count(slot_b) {
-                exec_backend_set_error(function.decl, "exec: LOAD_INDEX 越界" as *byte, 0);
+                var idx_msg2: [byte: 384] = [];
+                _ = snprintf(&idx_msg2[0] as *byte, 384,
+                    "exec: LOAD_INDEX 越界(idx=%d base_kind=%d count=%d fn=%s ip=%d line=%d col=%d)" as *byte,
+                    index_value, slot_b.kind as i32, exec_value_count(slot_b), function.name as *byte,
+                    frame.ip, instr.source.line, instr.source.column);
+                exec_backend_set_error(function.decl, &idx_msg2[0] as &byte, 0);
                 return -1;
             }
             // 同上：下标读是纯读，浅拷贝即可。
@@ -7272,6 +7285,20 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 exec_vm_pointer_address(base_target3) != 0 as usize {
                 if exec_vm_store_pointer_index(function, base_target3[0], slot_b.i64_value,
                     instr.imm as usize, slot_c[0]) != 0 {
+                    return -1;
+                }
+            } else if base_target3[0].kind == ExecValueKind.EXEC_VALUE_VOID {
+                // `@await` 忙等用的合成 Waker 只有字段个数，没有真实类型，字段值是 VOID。
+                // 里面的 `[i32: N]` 数组字段会在 `self._io_slot_fds[i] = fd` 时被写成
+                // 标量（走下面「整槽替换」分支），随后 `self._io_slot_fds[1]` 就变下标越界
+                // （test_async_fd 的现场）。这里按需把 VOID 字段实体化成定长零数组，
+                // 后续下标读写都能走通；没写过的字段保持 VOID（读出来是 0）。
+                if index_value2 >= 0 && index_value2 < EXEC_VM_PLACEHOLDER_ARRAY_SLOTS {
+                    base_target3[0] = exec_value_make_aggregate(ExecValueKind.EXEC_VALUE_ARRAY,
+                        EXEC_VM_PLACEHOLDER_ARRAY_SLOTS);
+                }
+                if exec_value_set_index(base_target3, index_value2, slot_c) != 0 {
+                    exec_backend_set_error(function.decl, "exec: STORE_INDEX 越界" as *byte, 0);
                     return -1;
                 }
             } else if index_value2 == 0 &&

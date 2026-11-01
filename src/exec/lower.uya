@@ -672,6 +672,12 @@ fn exec_lower_libc_macro(name: &byte, out_value: &i64) i32 {
     if str_equals(name, "libc_ECONNRESET" as &byte) != 0 { out_value[0] = 104; return 1; }
     if str_equals(name, "libc_ECONNREFUSED" as &byte) != 0 { out_value[0] = 111; return 1; }
     if str_equals(name, "libc_AGAIN" as &byte) != 0 { out_value[0] = 11; return 1; }
+    if str_equals(name, "libc_EISCONN" as &byte) != 0 { out_value[0] = 106; return 1; }
+    if str_equals(name, "libc_ETIMEDOUT" as &byte) != 0 { out_value[0] = 110; return 1; }
+    // 带模块前缀的常量名（`libc_AF_INET` 等）与上面的裸名同值。
+    if str_equals(name, "libc_AF_INET" as &byte) != 0 { out_value[0] = 2; return 1; }
+    if str_equals(name, "libc_IPPROTO_TCP" as &byte) != 0 { out_value[0] = 6; return 1; }
+    if str_equals(name, "libc_SOCK_STREAM" as &byte) != 0 { out_value[0] = 1; return 1; }
     // 编译器注入的编译期开关：`--async-frame-heap=on` 时 C99 才发成 1，
     // 默认和解释器里的取值都是 0。
     if str_equals(name, "_uya_async_frame_heap_fallback" as &byte) != 0 { out_value[0] = 0; return 1; }

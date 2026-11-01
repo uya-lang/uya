@@ -6301,3 +6301,30 @@ A/B 确认：同一份源码去掉影子栈就恢复通过（`git checkout 117ff
 - 差分脚本：进程组超时 + 独立会话看门狗 + 单用例超时覆盖表；
 - 运行时错误：`LOAD_FIELD`/`ADDR_FIELD` 带 fn/ip/slot/行列（影子调用栈已回退，
   加了会让 pipeline 用例回归）。
+
+### 第 425 轮：合成 Waker 的 VOID 字段实体化、libc 前缀常量补齐
+
+两处改动都来自 `test_async_fd` 的现场取证（从「`LOAD_INDEX 越界` 崩」推进到
+「poll 里 `LOAD_FIELD 字段越界`」，即从 Waker 占位问题推进到 async 帧布局那一层）：
+
+1. **`STORE_INDEX` 的 VOID 基值分支**（`src/exec/vm.uya`）。
+   `@await` 忙等给 poll 的合成 Waker 只有字段个数、没有类型，字段值是 VOID。
+   `self._io_slot_fds[i] = fd` 原先走「整槽替换」把字段写成标量，随后
+   `self._io_slot_fds[1]` 就下标越界。现在 VOID 字段被按下标写入时先实体化成
+   8 槽定长零数组（`EXEC_VM_PLACEHOLDER_ARRAY_SLOTS`），后续读写都走数组；
+   没写过的字段仍是 VOID（读出来是 0，`is_cancelled()` 恒 false，符合忙等语义）。
+2. **`exec_lower_libc_macro` 补 `libc_EISCONN` 等前缀常量**（`src/exec/lower.uya`）。
+   库文件里 `libc_EISCONN` / `libc_AF_INET` / `libc_IPPROTO_TCP` / `libc_SOCK_STREAM`
+   是 C 侧改名后的全局名，VM 的降级表里只有裸名，于是报
+   「当前仅支持局部变量/参数/全局标识符(libc_EISCONN)」，`async_connect` 第一个
+   错误分支就挂。
+3. **`LOAD_INDEX 越界` 带上 idx/base_kind/count/fn/ip/行列**，与 `LOAD_FIELD`
+   对齐；没有这些字段就只能看「越界」两个字猜现场。
+
+**实测（VM 侧，逐个 `uya test --vm`）**：async 家族 96 例 **77 通过 / 19 失败**
+（改动前该家族有 24 例不一致）。剩下的 17 例 C99 侧全绿，仍是文档里那三堵墙：
+6 例挂在事件循环等待（>120s 超时）、5 例是 `pending_seen == 1` 那类
+「C99 停在第一个 await、VM 把整个函数体跑完」、其余是帧池/cleanup 语义。
+`test_async_fd` 现在通过 4 个子测试后停在
+`AsyncWaitFdFuture::poll` 的 `self.deadline_ms`（`LOAD_FIELD 字段越界`，
+base 是 pointer-to-struct 但引用目标不是聚合）—— 下一轮入口。
