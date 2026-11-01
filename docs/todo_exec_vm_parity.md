@@ -7528,3 +7528,51 @@ ip=10 op=40 (LOAD_FIELD) a=8 b=7 kb=0       ; 对 VOID 取 .l → 报字段越�
 每次取证约 800s，预计 1–2 次可定位。
 
 代码本轮零改动（探针已回退）。
+
+---
+
+## 第 454 轮：`test_tls_ecdsa` 定位到具体一跳（jac_double → jac_is_zero）
+
+**1. 一次运行把范围收窄到一跳**
+
+给 P-384 Jacobian 链上 6 个函数（`jac_is_zero`/`jac_double`/`jac_add`/
+`jac_scalar_mul`/`jac_cpy`/`jac_to_affine`）加入口探针，打印
+「入参 0 的 kind + 该指针所指聚合的 x/y/z 三个字段 kind + 调用方」。
+1763 条记录，尾部就是现场：
+
+```
+[probe] fn=p384_jac_scalar_mul pk=14 f0=16 f1=16 f2=16 caller=ec_p384_ecdsa_sign_with_k
+[probe] fn=p384_jac_double     pk=14 f0=16 f1=16 f2=16 caller=p384_jac_scalar_mul   <-- 入参正常
+[probe] fn=p384_jac_is_zero    pk=14 f0=0  f1=0  f2=0  caller=p384_jac_double       <-- 入参全 VOID
+```
+
+`p384_jac_double` 的**入口**拿到的 `p` 三个字段都是 STRUCT(16)，
+它把同一个 `p` 传给 `p384_jac_is_zero`（源码第一句），
+**被调方入口看到的却是三个 VOID 字段**。对应源码：
+
+```uya
+fn p384_jac_double(r: &P384Jac, p: &const P384Jac) void {
+    if p384_jac_is_zero(p) != false {   // <-- 这一跳丢的
+```
+
+**2. 已排除**
+
+- 不是槽池搬迁：`exec_vm_slot_pool_reserve` 只在 `g_exec_vm_slot_top == 0`
+  时换块（活跃帧存在时直接返回 -1），调用中途不会搬；
+- 不是相对引用：`exec_vm_ref_target_value` 用的是**绝对地址**
+  （`@ptr_from_usize(target_addr)`）；
+- 不是参数传递少传：788 次调用全部 `argc=1 pk=14`；
+- 5 类构造形态复现（嵌套结构体字面量/重复数组/深递归持外部指针/
+  标量指针下标/`&const` 逐层转发）全部通过。
+
+**3. 结论与下一轮的一步**
+
+引用（绝对地址）所指的槽在**被调帧入口时已经是 VOID**，
+说明那块内存已经被「新帧初始化」覆盖过——即该引用指向了**被调帧自己的槽区间**
+（`exec_vm_run_frame` 进帧时把本帧所有槽清成 void）。
+下一步只需一次运行：在 `BC_LOAD_FIELD` 越界分支里打印
+「引用目标地址 − 当前帧 base」的差值（正数=在被调帧区间内，负数=在调用方区间内），
+即可确认这个判断，也就直接指到引用生成处（`&acc` 的降级路径）。
+
+代码本轮零改动（探针已回退），
+`879/909`、parity 不一致 30、`make check` 全绿的状态不变。
