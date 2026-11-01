@@ -8039,6 +8039,17 @@ fn exec_lower_block_expr(ctx: &ExecLowerContext, expr: &ASTNode, block_type: &Ty
 /// 参数：`ctx` 用于 arena 分配；`expr` 是最外层 pipeline 节点。
 /// 返回值：改写后的最外层调用节点；结构不合法返回 null。
 fn exec_lower_desugar_pipeline(ctx: &ExecLowerContext, expr: &ASTNode) &ASTNode {
+    return exec_lower_desugar_pipeline_with_base(ctx, expr, null);
+}
+
+/// 同 `exec_lower_desugar_pipeline`，但最左值由调用方提供（用于语句级
+/// 「先落到临时变量再喂链」的改写，见 `exec_lower_pipeline_stmt_cleanup`）。
+///
+/// 参数：`ctx` 上下文；`expr` 最外层 pipeline 节点；`base_override` 最左值替代品
+/// （null 表示用链自身的最左表达式）。
+/// 返回值：改写后的最外层调用节点；结构不合法返回 null。
+fn exec_lower_desugar_pipeline_with_base(ctx: &ExecLowerContext, expr: &ASTNode,
+        base_override: &ASTNode) &ASTNode {
     if ctx == null || expr == null || expr.type != ASTNodeType.AST_PIPELINE_EXPR {
         return null;
     }
@@ -8068,6 +8079,9 @@ fn exec_lower_desugar_pipeline(ctx: &ExecLowerContext, expr: &ASTNode) &ASTNode 
         return null;
     }
     var piped: &ASTNode = walk;
+    if base_override != null {
+        piped = base_override;
+    }
     var k: i32 = chain_len - 1;
     while k >= 0 {
         const right_call: &ASTNode = calls[k];
@@ -8116,6 +8130,257 @@ fn exec_lower_desugar_pipeline(ctx: &ExecLowerContext, expr: &ASTNode) &ASTNode 
         k = k - 1;
     }
     return piped;
+}
+
+/// pipeline 语句承接输入的临时变量名。
+///
+/// 同一个块里可能有多条 pipeline 语句，需要互不重名的局部变量；
+/// 这里用序号后缀查表（编译器内部没有 i32→字符串的分配辅助）。
+fn exec_lower_pipe_tmp_name(ordinal: i32) &byte {
+    if ordinal <= 0 {
+        return "__exec_pipe_in" as &byte;
+    }
+    if ordinal == 1 {
+        return "__exec_pipe_in1" as &byte;
+    }
+    if ordinal == 2 {
+        return "__exec_pipe_in2" as &byte;
+    }
+    if ordinal == 3 {
+        return "__exec_pipe_in3" as &byte;
+    }
+    if ordinal == 4 {
+        return "__exec_pipe_in4" as &byte;
+    }
+    if ordinal == 5 {
+        return "__exec_pipe_in5" as &byte;
+    }
+    if ordinal == 6 {
+        return "__exec_pipe_in6" as &byte;
+    }
+    if ordinal == 7 {
+        return "__exec_pipe_in7" as &byte;
+    }
+    return null;
+}
+
+/// 取语句里「顶层表达式就是 pipeline 链」的那个表达式。
+///
+/// 只认 `const x = <链>;` 与 `return <链>;` 两种形态——它们可以安全地拆成
+/// 「先建临时、再用临时喂链」两条语句，且不改变原有作用域与可见性。
+fn exec_lower_pipeline_stmt_operand(stmt: &ASTNode) &ASTNode {
+    if stmt == null {
+        return null;
+    }
+    var operand: &ASTNode = null;
+    if stmt.type == ASTNodeType.AST_VAR_DECL {
+        operand = stmt.var_decl_init;
+    } else if stmt.type == ASTNodeType.AST_RETURN_STMT {
+        operand = stmt.return_stmt_expr;
+    }
+    if operand == null || operand.type != ASTNodeType.AST_PIPELINE_EXPR {
+        return null;
+    }
+    return operand;
+}
+
+/// 解析 `std.process.pipeline_drop`：失败时整条改写放弃（保持原行为）。
+fn exec_lower_resolve_pipeline_drop_decl(ctx: &ExecLowerContext, stmt: &ASTNode) &ASTNode {
+    if ctx == null || ctx.checker == null || stmt == null || stmt.filename == null {
+        return null;
+    }
+    var decl: &ASTNode = exec_lower_resolve_function_decl_from_file(ctx.checker, stmt.filename,
+        "pipeline_drop" as &byte);
+    if decl == null {
+        decl = exec_lower_resolve_imported_decl_from_file(ctx.checker, stmt.filename,
+            "pipeline_drop" as &byte, 10);
+    }
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL {
+        return null;
+    }
+    return decl;
+}
+
+/// 该语句是否需要「错误路径清理 pipeline 输入」的改写。
+///
+/// 条件：顶层表达式是 pipeline 链、链的结果类型是错误联合（失败可被观察）、
+/// 且 `pipeline_drop` 在当前文件可见。
+fn exec_lower_pipeline_stmt_needs_cleanup(ctx: &ExecLowerContext, stmt: &ASTNode) i32 {
+    const operand: &ASTNode = exec_lower_pipeline_stmt_operand(stmt);
+    if operand == null {
+        return 0;
+    }
+    // 整条链的结果类型取决于**最外层段**（最右那个 transformer 调用），
+    // 不是最左值：`a |> inc() |> value_u64()` 的结果是 `u64`（错误联合来自
+    // 函数返回类型，不在链上）。按最左值判会把这种链也包进 catch，
+    // 降级时报 `catch 操作数不是错误联合`。
+    const last_seg: &ASTNode = operand.pipeline_expr_right;
+    if last_seg == null || last_seg.type != ASTNodeType.AST_CALL_EXPR {
+        return 0;
+    }
+    const result_type: Type = exec_lower_expr_type(ctx, last_seg);
+    if result_type.kind != TypeKind.TYPE_ERROR_UNION {
+        return 0;
+    }
+    if exec_lower_resolve_pipeline_drop_decl(ctx, stmt) == null {
+        return 0;
+    }
+    return 1;
+}
+
+fn exec_lower_make_synth_ident(ctx: &ExecLowerContext, like: &ASTNode, name: &byte) &ASTNode {
+    const ident: &ASTNode = exec_lower_alloc_synth_ast(ctx, like, ASTNodeType.AST_IDENTIFIER);
+    if ident == null {
+        return null;
+    }
+    ident.identifier_name = name;
+    return ident;
+}
+
+/// 把 `<链>` 语句改写成「临时承接输入 + 用临时喂链」两条语句，并在错误路径
+/// 上清理输入计划（对齐 C99 `gen_pipeline_expr`：`pipeline_drop` 清输入、
+/// 错误向当前函数返回）：
+/// ```
+/// const __exec_pipe_in = <最左值>;
+/// const x = (<链> catch { pipeline_drop(__exec_pipe_in); return; });
+/// ```
+/// 块表达式不是合法语法，所以只能在语句级做这个改写。
+///
+/// 参数：`ctx` 上下文；`stmt` 待改写语句；`ordinal` 本块内序号（决定临时变量名）。
+/// 返回值：长度 2 的语句数组；不适用或分配失败返回 null（调用方保持原语句）。
+fn exec_lower_pipeline_stmt_cleanup(ctx: &ExecLowerContext, stmt: &ASTNode, ordinal: i32) & & ASTNode {
+    const operand: &ASTNode = exec_lower_pipeline_stmt_operand(stmt);
+    if operand == null {
+        return null;
+    }
+    const tmp_name: &byte = exec_lower_pipe_tmp_name(ordinal);
+    if tmp_name == null {
+        return null;
+    }
+    var leftmost: &ASTNode = operand;
+    while leftmost != null && leftmost.type == ASTNodeType.AST_PIPELINE_EXPR {
+        leftmost = leftmost.pipeline_expr_left;
+    }
+    if leftmost == null {
+        return null;
+    }
+    var base_init: &ASTNode = leftmost;
+    const leftmost_type: Type = exec_lower_expr_type(ctx, leftmost);
+    if leftmost_type.kind == TypeKind.TYPE_ERROR_UNION {
+        const try_node: &ASTNode = exec_lower_alloc_synth_ast(ctx, stmt, ASTNodeType.AST_TRY_EXPR);
+        if try_node == null {
+            return null;
+        }
+        try_node.try_expr_operand = leftmost;
+        base_init = try_node;
+    }
+    const in_decl: &ASTNode = exec_lower_synth_const_decl(ctx, stmt, tmp_name, base_init);
+    const chain_base: &ASTNode = exec_lower_make_synth_ident(ctx, stmt, tmp_name);
+    const drop_arg: &ASTNode = exec_lower_make_synth_ident(ctx, stmt, tmp_name);
+    const drop_callee: &ASTNode = exec_lower_make_synth_ident(ctx, stmt, "pipeline_drop" as &byte);
+    if in_decl == null || chain_base == null || drop_arg == null || drop_callee == null {
+        return null;
+    }
+    const chain: &ASTNode = exec_lower_desugar_pipeline_with_base(ctx, operand, chain_base);
+    if chain == null {
+        return null;
+    }
+    // 改写后的链必须是错误联合，否则 catch 无从下手；此时放弃改写，
+    // 语句里留下的是已被改写成普通调用的链（等价于未加清理的旧行为）。
+    const chain_type: Type = exec_lower_expr_type(ctx, chain);
+    if chain_type.kind != TypeKind.TYPE_ERROR_UNION {
+        return null;
+    }
+    const drop_args: & & ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode)) as & & ASTNode;
+    const drop_call: &ASTNode = exec_lower_alloc_synth_ast(ctx, stmt, ASTNodeType.AST_CALL_EXPR);
+    const ret_stmt: &ASTNode = exec_lower_alloc_synth_ast(ctx, stmt, ASTNodeType.AST_RETURN_STMT);
+    if drop_args == null || drop_call == null || ret_stmt == null {
+        return null;
+    }
+    drop_args[0] = drop_arg;
+    drop_call.call_expr_callee = drop_callee;
+    drop_call.call_expr_args = drop_args;
+    drop_call.call_expr_arg_count = 1;
+    // `catch { ...; return; }`：裸 `return` 把捕获到的错误原样返回给上层。
+    var catch_stmts: [&ASTNode: 2] = [];
+    catch_stmts[0] = drop_call;
+    catch_stmts[1] = ret_stmt;
+    const catch_block: &ASTNode = exec_lower_synth_block(ctx, stmt, &catch_stmts[0], 2);
+    const catch_expr: &ASTNode = exec_lower_alloc_synth_ast(ctx, stmt, ASTNodeType.AST_CATCH_EXPR);
+    if catch_block == null || catch_expr == null {
+        return null;
+    }
+    catch_expr.catch_expr_operand = chain;
+    catch_expr.catch_expr_catch_block = catch_block;
+    const rewritten: &ASTNode = compiler_arena_alloc(ctx.arena, @size_of(ASTNode)) as &ASTNode;
+    if rewritten == null {
+        return null;
+    }
+    rewritten[0] = stmt[0];
+    if stmt.type == ASTNodeType.AST_VAR_DECL {
+        rewritten.var_decl_init = catch_expr;
+    } else {
+        rewritten.return_stmt_expr = catch_expr;
+    }
+    const pair: & & ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode) * 2) as & & ASTNode;
+    if pair == null {
+        return null;
+    }
+    pair[0] = in_decl;
+    pair[1] = rewritten;
+    return pair;
+}
+
+/// 把块里需要 pipeline 清理的语句原地展开成两条（**不**嵌套新块，保持声明可见性）。
+/// 不需要改写或改写失败时返回 null，调用方沿用原块。
+fn exec_lower_expand_pipeline_stmts(ctx: &ExecLowerContext, block: &ASTNode) &ASTNode {
+    if ctx == null || block == null || block.block_stmts == null || block.block_stmt_count <= 0 {
+        return null;
+    }
+    var extra: i32 = 0;
+    var i: i32 = 0;
+    while i < block.block_stmt_count {
+        if exec_lower_pipeline_stmt_needs_cleanup(ctx, block.block_stmts[i]) != 0 {
+            extra = extra + 1;
+        }
+        i = i + 1;
+    }
+    if extra <= 0 {
+        return null;
+    }
+    const total: i32 = block.block_stmt_count +| extra;
+    const stmts: & & ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode) * (total as usize)) as & & ASTNode;
+    if stmts == null {
+        return null;
+    }
+    var out: i32 = 0;
+    var ordinal: i32 = 0;
+    i = 0;
+    while i < block.block_stmt_count {
+        const stmt_node: &ASTNode = block.block_stmts[i];
+        if exec_lower_pipeline_stmt_needs_cleanup(ctx, stmt_node) != 0 {
+            const pair: & & ASTNode = exec_lower_pipeline_stmt_cleanup(ctx, stmt_node, ordinal);
+            if pair == null {
+                return null;
+            }
+            stmts[out] = pair[0];
+            out = out + 1;
+            stmts[out] = pair[1];
+            out = out + 1;
+            ordinal = ordinal + 1;
+        } else {
+            stmts[out] = stmt_node;
+            out = out + 1;
+        }
+        i = i + 1;
+    }
+    const expanded: &ASTNode = exec_lower_alloc_synth_ast(ctx, block, ASTNodeType.AST_BLOCK);
+    if expanded == null {
+        return null;
+    }
+    expanded.block_stmts = stmts;
+    expanded.block_stmt_count = out;
+    return expanded;
 }
 
 fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
@@ -10481,7 +10746,12 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
         exec_backend_set_error(block, "exec: block lowering 失败" as *byte, 0);
         return null;
     }
-    const hir_block: &HIRBlock = exec_lower_alloc_scoped_block(ctx, block, block.block_stmt_count);
+    var blk: &ASTNode = block;
+    const expanded_block: &ASTNode = exec_lower_expand_pipeline_stmts(ctx, block);
+    if expanded_block != null {
+        blk = expanded_block;
+    }
+    const hir_block: &HIRBlock = exec_lower_alloc_scoped_block(ctx, block, blk.block_stmt_count);
     if hir_block == null {
         return null;
     }
@@ -10489,8 +10759,8 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
         return null;
     }
     var i: i32 = 0;
-    while i < block.block_stmt_count {
-        const stmt_node: &ASTNode = block.block_stmts[i];
+    while i < blk.block_stmt_count {
+        const stmt_node: &ASTNode = blk.block_stmts[i];
         var stmt: &HIRStmt = null;
         if stmt_node.type == ASTNodeType.AST_VAR_DECL {
             // `var x: T;` 没有初值：按类型给零值（和 C99 侧 uya 的默认初始化一致），

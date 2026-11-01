@@ -2117,7 +2117,8 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
 ### T11 收口
 
 - [ ] `uya test --vm` 全量通过（跳过表只保留 C99 侧同样不适用的用例）
-      —— 现状 **878/909（96.6%）**（第 440 轮全量普查 + 第 442 轮
+      —— 现状 **879/909（96.7%）**（第 447 轮全量普查；第 440 轮曾为 878/909，
+      第 442 轮
       `test_tls_x25519_pure` 超时放宽；第 427 轮曾为 875/909）；
       第 426 轮为 872/909（95.9%）。历史：**864/907（95.3%）**（第 408 轮全量普查实测，失败 43、跳过 7；
       第 401 轮为 859/907、失败 48；
@@ -7180,3 +7181,70 @@ new_args[0] = seg_arg;
 这轮不改变任何用例的结论（两个失败用例的缺口分别是「stage 状态/错误传播」
 与「错误路径 `pipeline_drop`」），但把 VM 的 pipeline 语义从
 「只有最左段 try」修正成与 C99 一致的「逐段 try」。
+
+---
+
+## 第 447 轮：pipeline 错误路径清理输入计划（`test_typed_pipeline_lowering_error` 转通过）
+
+**1. 缺口的形态**
+
+`test_typed_pipeline_lowering_error` 有 4 个子用例，其中 2 个失败：
+
+```
+pipeline_error_path_cleans_input     assert_eq_u64 pipeline_drop_count() == 1 (actual: 0)
+pipeline_sink_failure_consumes_input assert_eq_u64 pipeline_drop_count() == 1 (actual: 0)
+```
+
+语义（C99 `gen_pipeline_expr`）是：transformer/sink 失败时，
+**输入计划要在错误路径上被 `pipeline_drop` 清掉**；成功路径转移所有权，不清理。
+
+`exec_lower_desugar_pipeline` 只把 `lhs |> f(a)` 改写成普通调用，没有任何清理。
+
+**2. 为什么不能只在表达式层做**
+
+Uya **没有块表达式**（实测 `const x = { ... };` 直接语法错误），
+所以「先建临时、再用临时喂链、错误时清理」这组语句不能放进表达式位置。
+C99 侧能顺手做是因为 codegen 直接往函数体里写语句。
+
+因此把改写放在**语句级**（与 `for`→`while` 的 `exec_lower_desugar_iterator_for` 同一层）：
+
+```
+const r: !Pipeline = pipeline() |> fail_transformer();
+```
+改写成
+
+```
+const __exec_pipe_in = pipeline();
+const r = (fail_transformer(__exec_pipe_in) catch { pipeline_drop(__exec_pipe_in); return; });
+```
+
+要点：
+
+- 只处理「语句顶层表达式就是 pipeline 链」的两种形态（`const x = <链>;`、
+  `return <链>;`），展开成**同一块内的两条语句**（不嵌套新块，声明可见性不变）；
+- `catch { ...; return; }` 是库里已在用的形态（`unmap_large_region`），
+  裸 `return` 把捕获到的错误原样返回；
+- 临时变量名按块内序号查表（`__exec_pipe_in`、`__exec_pipe_in1`…，
+  编译器内部没有 i32→字符串分配辅助），超过 8 条就放弃改写；
+- `pipeline_drop` 解析不到（文件没 `use std.process`）时放弃改写，保持旧行为。
+
+**3. 一个判别陷阱**
+
+第一版用「最左值的类型是错误联合」判断要不要清理，结果把
+`make_ok_pipeline() |> inc() |> value_u64()` 也包进了 catch ——
+整条链的结果类型由**最外层段**（最右的 transformer）决定，是 `u64`，
+错误联合来自函数返回类型而不是链本身。于是
+`test_typed_pipeline_try_forward_lowering` 报
+`exec: catch 操作数不是错误联合`。
+
+改法：判别看 `pipeline_expr_right`（最外层段）的结果类型，
+并在改写完成后再校验一次 `exec_lower_expr_type(chain)`，
+不满足就放弃改写（语句里留下的是已改写成普通调用的链，等价旧行为）。
+
+**4. 结果**
+
+- `test_typed_pipeline_lowering_error`：4/4 子用例通过（原 2 失败）；
+- `test_typed_pipeline_try_forward_lowering` 等其余 pipeline 用例不变；
+- 全量普查（`/tmp/census_447.tsv`）：**909 例 / 通过 879 / 失败 30**，
+  与改动前 `/tmp/census_443.tsv` 的失败集合相比**只少了
+  `test_typed_pipeline_lowering_error`**（零回归，净 +1）。
