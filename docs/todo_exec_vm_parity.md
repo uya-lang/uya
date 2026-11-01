@@ -7576,3 +7576,47 @@ fn p384_jac_double(r: &P384Jac, p: &const P384Jac) void {
 
 代码本轮零改动（探针已回退），
 `879/909`、parity 不一致 30、`make check` 全绿的状态不变。
+
+---
+
+## 第 455 轮：ecdsa 取证的元问题（先解决「哪份 VM 在跑」再谈修 bug）
+
+**1. 三条互相矛盾的观测**
+
+1. 在 `BC_LOAD_FIELD` 越界分支里加 `printf` + `fflush`：**堆那个用例**
+   （`test_typed_pipeline_capability`）能打出 `[fld] fn=get_size ip=1 diff=88237`；
+2. 同样的代码、同一个 `./bin/uya`、**单进程**（`ps` 在 12s/150s 两个时间点都只有
+   一个 `./bin/uya test --vm ...`，无子进程），**ecdsa 一次都不打**；
+3. 但加一条「构建标记横幅」（`[vm-banner] probe=B31`，进帧时打）后，
+   **ecdsa 也会打**——说明跑的确实是当前这份 `src/exec/vm.uya`。
+
+而 ecdsa 报出来的文本又和 `src/exec/vm.uya:7389` 的格式**逐字符一致**
+（`idx/kind/count/pointee/ref/aux/fn/ip/slot/line/col`），
+且诊断字段**全是默认值**（`kind=0 count=-1 pointee=-1 ref=0 aux=0`）——
+像是「没有真实现场」的报错。
+
+**2. 已排除**
+
+- 不是陈旧二进制：`bin/uya`、`src/.uyacache/uya_part1.{c,o}` 三者都含探针串，
+  且横幅证明运行时是当前代码；唯一不含探针的是
+  `tests/build/macos_hosted_seed_decl_verify/uya-hosted.c`（`make check` 产物）；
+- 不是用例级缓存：删掉 `tests/build/tests/tests_test_tls_ecdsa/` 后重跑，形态不变；
+- 不是输出缓冲：加了 `fflush(null)`，仍然不打；
+- 不是子进程：`ps` 两次采样都只有一个 `bin/uya`。
+
+**3. 结论**
+
+`test_tls_ecdsa` 的这条报错**来源不明**：文本与当前代码一致，但运行时探针证明
+那个分支没有执行。在弄清「这条消息是谁打的」之前，继续按它去改 VM 是没有意义的
+（前四轮 800s 级取证可能全部建立在一个非当前代码的报错上）。
+
+下一轮的第一步应该是**元验证**，而不是继续查 p384：
+在 `exec_backend_set_error` 里打印调用者的编译期标记（例如新增一个
+`g_exec_error_source_tag` 常量，每个错误点各写不同值），
+用一次运行确认这条 `LOAD_FIELD 字段越界` 到底由哪一处产生。
+
+**4. 本轮的净产出**
+
+- 代码零改动（探针全部回退，树干净）；
+- 唯一实质进展：`test_tls_rsa` 超时放宽后**确认通过**（第 451 轮，+1 → 880/909）；
+- 门禁基线不变：`make check` 全绿、parity 不一致 30。
