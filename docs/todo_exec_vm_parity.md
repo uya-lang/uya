@@ -2129,7 +2129,8 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       （pthread/堆/OSAL 约 10 例，同步 VM 无并发语义）、`@c_import`（3 例）、
       `cleanup scope 嵌套过深`（8 例，第 343 轮已定位根因但修复方案三次证否）
       与超长函数（`bytecode 指令超出上限`）；这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿（第 443 轮复测 **914 例（跳过 5）/ 一致 878 / 不一致 31**；
+- [ ] `make exec-parity` 全绿（第 447 轮复测 **913 例（跳过 5）/ 一致 878 / 不一致 30**；
+      第 443 轮为 914（跳过 5）/ 不一致 31；
       第 443 轮把不可链接的 `test_abi_calling_convention` 登记进 parity 跳过表，
       与 census 的失败集合对齐到同一批 31 个；
       第 428 轮 914/881/33，第 427 轮 914/880/34，第 426 轮 914/879/35，
@@ -7247,4 +7248,10 @@ const r = (fail_transformer(__exec_pipe_in) catch { pipeline_drop(__exec_pipe_in
 - `test_typed_pipeline_try_forward_lowering` 等其余 pipeline 用例不变；
 - 全量普查（`/tmp/census_447.tsv`）：**909 例 / 通过 879 / 失败 30**，
   与改动前 `/tmp/census_443.tsv` 的失败集合相比**只少了
-  `test_typed_pipeline_lowering_error`**（零回归，净 +1）。
+  `test_typed_pipeline_lowering_error`**（零回归，净 +1）；
+- `UYA_PARITY_JOBS=4 make exec-parity`：**913 例（跳过 5）/ 不一致 30**
+  （改前 31），`test_typed_pipeline_lowering_error` 两侧记 OK；
+- `make check`：全绿（自举 + 测试 + 证明优化 + SIMD + 切片形参 + `@syscall`
+  + NEON + http_bench，失败 0）。
+
+两侧失败集合再次对齐：census 30 == parity 30。
