@@ -6793,3 +6793,58 @@ future **原样返回**（`exec_vm_await_pass_through_pending`），异步函数
   最后才是 fd/websocket 这类带 I/O 的。
 - `CALL` / `CALL_INDIRECT` 要把「返回 1 = 挂起」与「-1 = 错误」区分开：
   挂起时把续体值当普通返回值写回目的槽，调用方继续跑。
+
+---
+
+## 第 439 轮：真状态机落地（async 续体表）
+
+**1. 设计稿里「每遍重跑 `@await` 操作数」是错的，实测纠正**
+
+`tests/test_async_state_machine.uya` 的 `FlipPending{polled:0}` 是**靠自身状态翻转**
+（第一次 poll 返回 Pending 并把 `polled` 置 1，之后再 poll 就是 Ready）。
+按「重跑操作数」实现时，每遍都新建一个 `FlipPending{polled:0}`，第一次 poll
+永远 Pending —— 与测试注释「p1 Pending、p2 Ready(7)」矛盾。
+
+从三个用例的注释反推出 C99 后端的真实语义（`make check` 下这三个用例是过的）：
+
+- **初始调用**走到 `@await` 只**构造** future 并挂起，**不 poll**；
+- **每次续体 poll** 对当前 await **poll 一次**：
+  Pending → 再挂起；Ready → **在同一次 pass 里**继续，遇到下一个 await 立即 poll 它。
+
+按这个模型推演 `await_three`：p1 Pending → p2 Pending（f1 Ready、f2 Pending）
+→ p3 Pending（f2 Ready、f3 Pending）→ p4 Ready(21)，与测试完全一致。
+
+**2. 实现**
+
+- `EXEC_VM_CONT_POLL_INDEX = -100000`、`EXEC_VM_CONT_RELEASE_INDEX = -100001`：
+  负下标征用成续体入口（真实函数下标非负，`BC_CALL_INDIRECT` 原本不校验下标来源）。
+- `g_exec_vm_cont_{fn,ip,dest,slot_count,slots,used}[EXEC_VM_CONT_MAX=256]`：
+  `slots` 是 `slot_count × sizeof(ExecValue)` 的深拷贝。
+- `exec_vm_cont_remap_refs`：把值内指向 `[from_base, from_limit)` 的内部引用
+  按同一偏移搬到 `to_base`（递归 STRUCT/ARRAY/TUPLE/UNION）；进快照时
+  帧槽 → 快照槽，恢复时反向。
+- `exec_vm_cont_suspend`：快照当前帧（`resume_ip = frame.ip`，即 `BC_AWAIT` 自己），
+  返回 `[poll, release, handle]` 形态的 box，`vm_step` 返回 **2**；
+  `exec_vm_run_frame` 把 2 折成 1（挂起），1 折成 0（正常返回）。
+- `exec_vm_cont_poll`：恢复帧跑到结束或再次挂起。再次挂起时新 handle 的状态
+  `exec_vm_cont_migrate` 到旧 handle 上，调用方手里的 box 继续有效。
+- `g_exec_vm_frame_resumed`（`run_frame` 进出保存/恢复，嵌套调用互不干扰）：
+  `@await` 据此区分「初次（只挂起）」与「恢复（poll 一次）」。
+- `exec_vm_await_poll_once` / `exec_vm_await_poll_interface_once`：单次 poll；
+  忙等只在**非 async 帧**里保留（那里没有 Future 可以返回给调用方）。
+- 续体 poll 交回 `Poll.Ready` 时要**剥掉 Future 外壳**取
+  `Future.state.Ready` 的载荷，否则调用方拿到的是整个 `Future`。
+
+`exec_vm_call_function` 的 `rc` 语义随之放开：`1` 不再是错误而是「被调函数
+是挂起的 async 函数、返回值是续体 box」，所有调用点从 `!= 0` 改成 `< 0`。
+
+**3. 效果**
+
+`test_async_state_machine`、`test_async_macro_expand`、`test_async_compound_try_await`
+三个用例从失败转为通过；`test_async_fn_basic`、`test_block_on`、
+`test_async_await_ready` 以及无 async 的抽样用例无回归。
+
+仍然失败的 async 用例分两类：`test_async_compute_*` /
+`test_async_compute_generic_wrapper` 要真实 worker 线程池 + event loop
+（模型级墙，VM 里无真并发）；`test_async_frame_pool_full` 要求「帧池耗尽返回错误」，
+与 VM 的槽位池实现不兼容。
