@@ -6616,12 +6616,48 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return 0;
         }
         const field_ref: &ExecValue = exec_vm_field_ref(slot_b, instr.imm as i32);
+        if field_ref == null && addr_native_kind > 0 && addr_native_base == 0 as usize {
+            // 严格基址判定把「地址落在 VM 驻留区里、内容其实是原生布局」的块当成
+            // VM 值拒绝了（见 `exec_vm_field_native_base_relaxed` 的注释：
+            // async 帧池、线程堆缓存这类分配器给出的字节块地址可能正好落在值
+            // arena 的范围内）。`STORE_FIELD` 早就有这条兜底，`ADDR_FIELD` 缺，
+            // 于是 `cache.counts[i]` 这类「对原生结构体取字段地址」会报字段越界。
+            // 这里退到宽松基址按编译期偏移算原生字段地址，与 STORE_FIELD 对齐。
+            const af_relaxed: usize = exec_vm_field_native_base_relaxed(slot_b);
+            if af_relaxed != 0 as usize {
+                var af_relaxed_pointee: i32 = instr.c & 0xFF;
+                const af_relaxed_elem: i32 = (instr.c >> 16) & 0xFF;
+                if af_relaxed_elem > 0 && (addr_native_kind - 1 == TypeKind.TYPE_ARRAY as i32 ||
+                    addr_native_kind - 1 == TypeKind.TYPE_SLICE as i32) {
+                    af_relaxed_pointee = af_relaxed_elem;
+                }
+                const af_relaxed_offset: usize = ((instr.imm >> 32) as i32) as usize;
+                slot_a[0] = exec_make_pointer_with_kind(af_relaxed +| af_relaxed_offset,
+                    af_relaxed_pointee);
+                frame.ip = frame.ip + 1;
+                return 0;
+            }
+        }
         if field_ref == null {
             var af_msg: [byte: 512] = [];
+            var af_isref: i32 = -1;
+            var af_target_kind: i32 = -1;
+            var af_pointee: i32 = -1;
+            if slot_b.kind == ExecValueKind.EXEC_VALUE_POINTER {
+                af_isref = exec_vm_pointer_is_internal_ref(slot_b);
+                af_pointee = exec_value_pointer_pointee_kind(&slot_b[0]);
+                const af_target: &ExecValue = exec_vm_ref_target_value(slot_b);
+                if af_target != null {
+                    af_target_kind = af_target.kind as i32;
+                }
+            }
             _ = snprintf(&af_msg[0] as *byte, 512,
-                "exec: ADDR_FIELD 字段越界(fn=%s ip=%d slot=%d kind=%d idx=%d line=%d col=%d)" as *byte,
+                "exec: ADDR_FIELD 字段越界(fn=%s ip=%d slot=%d kind=%d idx=%d nk=%d nb=%zx isref=%d pointee=%d tgt=%d addr=%zx res=%d line=%d col=%d)" as *byte,
                 function.name as *byte, frame.ip, instr.b, slot_b.kind as i32,
-                instr.imm as i32, instr.source.line, instr.source.column);
+                instr.imm as i32, addr_native_kind, addr_native_base, af_isref, af_pointee,
+                af_target_kind, exec_vm_pointer_address(slot_b),
+                exec_vm_address_is_vm_resident(exec_vm_pointer_address(slot_b)),
+                instr.source.line, instr.source.column);
             exec_backend_set_error(function.decl, &af_msg[0] as &byte, 0);
             return -1;
         }

@@ -6695,3 +6695,41 @@ tls 3 例、kernel_sim 1 例、typed_pipeline 2 例 —— 都在既有模型级
 **下一轮唯一还有意义的方向**：把 `@async_fn` 的 Pending 穿透从「返回内层 future」
 换成「可重入的续体」——也就是真正的状态机。其余方向（存储侧搬移、`BC_RET` 递归扫、
 `@frame` 字段实体化）都已在本轮或前几轮证否。
+
+### 第 437 轮：`ADDR_FIELD` 缺「宽松原生基址」兜底（`test_http_uyagin` 的 tcache 崩溃消除）
+
+上一轮把 `test_http_uyagin` 的崩溃点前移到 `lib/libc/heap.uya:884`
+`cache.counts[bin_index]`。这一轮把它查到了底：
+
+**定位过程（加了三轮打点）**
+1. `exec_lower_native_field_layout` 打点：只有 `Future` 解析失败，`pthread_heap_cache_t`
+   的布局是好的 —— 排除了「字段尺寸算不出来」。
+2. 把 `ADDR_FIELD` 的报错补齐（`nk` / `nb` / `isref` / `pointee` / `tgt` / `addr` / `res`）后拿到现场：
+   `nk=17 nb=0 isref=0 pointee=16 addr=0x8af0f94`。
+   `nk > 0` 说明编译期字段 kind / 偏移都在，`nb=0` 说明**严格基址判定**把这块地址拒了。
+3. 关键在 `exec_vm_field_native_base`：裸指针地址若被判成「VM 驻留」，它直接返回 0。
+   而 `exec_vm_field_native_base_relaxed` 的注释早就写明了这个坑 ——
+   「async 帧池这类分配器给出的字节块地址**可能**正好落在值 arena 的地址范围里，
+   但内容是按原生布局排的」。`STORE_FIELD` 早就为它准备了兜底分支
+   （`field_ref2 == null && stk_native_kind > 0 && stk_native_base == 0` 时退到 relaxed），
+   **`ADDR_FIELD` 漏了这条**，于是「对原生结构体取字段地址」直接报字段越界。
+
+**改动**（`src/exec/vm.uya` 两处）
+1. `BC_ADDR_FIELD`：`field_ref == null && nk > 0 && nb == 0` 时，退到
+   `exec_vm_field_native_base_relaxed` 按编译期偏移算原生字段地址，
+   元素 kind 的覆盖规则与主分支保持一致（定长数组退化成指向元素）。
+   与 `STORE_FIELD` 的兜底完全同构。
+2. `ADDR_FIELD` 的越界报错补上 `nk/nb/isref/pointee/tgt/addr/res` ——
+   以后再碰到同类现场不用再猜一轮。
+
+**实测（全量普查 `UYA_EXEC_CENSUS_JOBS=4`）**
+- **909 例 / 通过 877 / 失败 32 / 跳过 5 / 96.5%** —— 与上一轮**逐例一致**。
+- 逐例退出码比对：**唯一变化**是 `test_http_uyagin` `1 → 137`
+  （tcache 崩溃消失，改用例推进到 `uyagin_path_param` 后在 async 轮询里挂住）。
+  其余 908 例退出码完全相同 → 无回归。
+- 代价说明：这一例从「秒级失败」变成「300s 超时」，全量门禁因此慢约 5 分钟；
+  但崩溃点消失意味着它现在卡在**已经成型的那道墙**（async 轮询）上，
+  状态机落地后它会自然往下走。
+
+**当前结论**：32 例失败里，24 例是 async 真状态机，其余是线程体/回调蹦床与 drop 语义。
+本轮之后 VM 侧不再有已知的「字段地址解析」类缺陷。
