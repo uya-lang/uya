@@ -6938,3 +6938,58 @@ VM 里没有事件循环、没有真并发，**唯一让 leaf 往前走的机制
 4. **新增**：`Scheduler`/`block_on` 侧把 `w.has_io_interest()` 变成
    真正的 `epoll_ctl` 登记 + `epoll_wait` 阻塞，让 Pending 之后的
    重 poll 由事件驱动，而不是自旋。
+
+---
+
+## 第 442 轮：失败面重新分类（性能墙 / 模型墙 / 语义缺口）
+
+状态机回退后基线恢复 **877 / 909（96.5%）**。本轮把剩下的失败逐类核实，
+不再把它们笼统算成「未覆盖」。
+
+**1. 纯性能墙（内容其实全过，只是超时）**
+
+`test_tls_x25519_pure`：实跑 **665 秒**、`通过: 1 失败: 0`。
+纯 Uya 大数实现的 X25519，解释器比 C99 慢两个数量级（C99 侧秒级），
+默认 300s 超时把它误判成失败。
+已把它加进 `tests/exec_vm_census_timeouts.txt`（900s），与
+`test_crypto_bigint` / `test_crypto_bigint_modexp4096` 同一类处理。
+
+**2. 慢 + 真失败**
+
+`test_tls_ecdsa`：838 秒后 rc=1（不是超时，是断言失败）。
+`test_tls_rsa`：>900s 仍未结束。两者单跑一次要十几分钟，
+迭代成本过高，留待专门一轮处理（先做性能再做语义）。
+
+**3. 模型墙（VM 里没有真并发/事件循环，短期不碰）**
+
+`test_async_*`（thread pool / scheduler / task queue / shared runtime /
+multi_fd / runtime_shared_dns / task_queue_dynamic_growth）、
+`test_std_async_scheduler`、`test_std_dns_async_transport`、
+`test_std_thread*`、`test_pthread_heap_*`、`test_tls_async_runtime_io`、
+`test_kernel_sim`、`test_http_uyagin*`、`test_http_websocket_*`。
+判别依据：`block_on` 是纯自旋（`lib/std/async.uya:508`），VM 里没有
+`epoll_ctl` 登记与阻塞唤醒，任何真的 Pending 都只能靠 `@await` 内部忙等推进。
+第 439–441 轮的状态机实验已经证明：光有挂起没有唤醒，必然空转。
+
+**4. 明确的语义缺口（可做，范围清楚）**
+
+- `test_typed_pipeline_lowering_error`：`pipeline() |> f()` 里 transformer
+  返回错误时要 `pipeline_drop` 输入计划。这段只在 C99 后端实现
+  （`src/codegen/c99/expr.uya:gen_pipeline_expr`），
+  `src/exec/lower.uya:exec_lower_desugar_pipeline` 只改写成普通调用，
+  没有错误路径清理 → 2 个子用例 `pipeline_drop_count() == 1` 实际为 0。
+- `test_typed_pipeline_capability`：`get_size(hdr: &ChunkHeader)` 里
+  `hdr.size` 报 `LOAD_FIELD 字段越界`，实测 `nk=7 nb=0 raw=0 tkind=0`：
+  内部引用指向的槽位是 **VOID**（`count=-1` 只是「没找到聚合」的初始值）。
+  属于 `&chunk.header` 这类「取裸 C 结构体字段地址」的地址模型缺口，
+  不是布局缺失。
+
+**5. 容量语义不兼容（不修）**
+
+`test_async_frame_pool_full` 要求「帧池耗尽返回错误」，
+VM 的槽位池是共享池、不按用例预算，语义不同源。
+
+**6. 门禁状态**
+
+`make check` 通过（自举 + 测试 + 证明优化 + 默认顶层函数发射 + SIMD select C
++ 切片形参 C99 + `@syscall` C99 + SIMD NEON + http_bench C99，失败 0）。

@@ -18,6 +18,9 @@ test_crypto_bigint_modexp4096.uya	900
 # test_crypto_bigint / test_crypto_ed25519：同类纯 Uya 大数运算，解释器比 C99
 # 慢两个数量级，默认 120s 会被误判成失败（内容已对齐）。
 test_crypto_bigint.uya	300
+# test_tls_x25519_pure：纯 Uya 大数实现的 X25519，解释器实测 **665s**
+# （C99 侧秒级），内容 1/1 全通过。默认 300s 会把它误判成失败。
+test_tls_x25519_pure.uya	900
 test_crypto_ed25519.uya	300
 
 # ---- 阻塞型（收窄，快速失败）----
