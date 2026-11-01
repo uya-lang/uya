@@ -6862,3 +6862,79 @@ future **原样返回**（`exec_vm_await_pass_through_pending`），异步函数
 
 效果：`test_async_fd`（含 `async_fd_read_with_event_loop_wakes`、
 `nonblocking_helpers`、`leaf_futures_return_cancelled`）整例转通过。
+
+---
+
+## 第 441 轮：真状态机全量验证失败，回退（保留分析）
+
+**1. 做了什么**
+
+把 async 真状态机完整实现并跑通了（实现见 `f1d9066b`「真状态机续体表」、
+`bece7d73`「`@await` 转发上游 waker」两个提交）：
+
+- 负下标哨兵 `EXEC_VM_CONT_POLL_INDEX/-100001` 征用成续体入口；
+- `g_exec_vm_cont_*` 续体表 + 帧槽位深拷贝 + 内部引用按偏移重映射；
+- `@await` 命中 Pending 时快照成续体，`vm_step` 返回 2、`run_frame` 折成 1；
+- `g_exec_vm_frame_resumed` 实现 C99 的分段语义：
+  **初次进入只构造 future 不 poll，每次恢复 poll 一次，Ready 后同一次 pass
+  继续下一个 await**（这个语义是从 `test_async_state_machine` 的测试注释
+  逐条反推出来的，`await_three` 的 p1..p4 期望值与它完全吻合）；
+- 续体 poll 交回 `Poll.Ready` 时剥掉 `Future` 外壳取载荷；
+- `exec_vm_cont_migrate` 保住调用方手里的旧 box。
+
+单独验证：`test_async_state_machine`、`test_async_macro_expand`、
+`test_async_compound_try_await`、`test_async_fd` 四个用例转通过。
+
+**2. 全量普查结果：净负，必须回退**
+
+`/tmp/census_440.tsv`：**909 例 / 通过 874 / 失败 35**（回退前是 877/32）。
+
+- 新增通过 4 个：`test_async_state_machine`、`test_async_macro_expand`、
+  `test_async_compound_try_await`、`test_async_fd`；
+- **新增失败 9 个**：`test_http1_async_client`、`test_http_websocket_handshake`、
+  `test_http_websocket_async`、`test_http_websocket_backpressure`、
+  `test_http_websocket_heartbeat`、`test_http_websocket_read_message_semantics`、
+  `test_http_uyagin_websocket`、`test_http_uyagin_async_boundary`、
+  `test_http_websocket_json`（原本 rc=1，变成 137 超时）。
+
+**3. 根因**
+
+这些用例的 Future 链是 `block_on → read_message → read_frame_compact →
+read_exact → async_fd_read_future → leaf`，最内层是真实 socket 上的
+非阻塞 `sys_read`。`block_on` 是纯自旋（`while true { w.reset();
+w.clear_io_interest(); f.poll(&w) }`，见 `lib/std/async.uya:508`），
+VM 里没有事件循环、没有真并发，**唯一让 leaf 往前走的机制就是改造成前的
+「`@await` 内部忙等重试」**：忙等窗口里对端（同一进程里 inline 跑完的另一半、
+或宿主线程）写进来的数据才读得到。
+
+把 Pending 真的挂起交回 `block_on` 之后，重 poll 只会重新进续体、
+重新 poll 同一个 leaf，而 leaf 的状态没有任何东西去推进 —— 要么空转
+（137 超时），要么提前失败（rc=1/2/3/7）。
+
+试过三种缓解，都不够：
+
+1. 单次挂起 + 第二次 Pending 回到忙等穿透：超时变回失败，仍然不进过；
+2. per-await 连续 Pending 计数（换了 await 清零）：同上，并会破坏
+   `await_three` 的期望（同一 pass 里后续 await 被误判为「重复」）；
+3. `@await` 转发上游 waker：`test_async_fd` 需要它（否则
+   `wk.has_io_interest()` 恒 0），但对 websocket 链没有帮助。
+
+**4. 结论**
+
+状态机的**机制**是对的（4 个用例证明），缺的是配套的**唤醒机制**：
+`block_on`/scheduler 的 waker 必须把 IO 兴趣真正登记到 epoll，
+事件就绪后重 poll 才能推进 leaf。没有这一步，挂起必然退化成空转。
+
+**5. 回退**
+
+`src/exec/vm.uya` 回退到 `c7b7b1d9` 的版本，恢复 877/32 基线。
+实现完整保留在 `f1d9066b` / `bece7d73` 两个提交里，
+将来做「VM 事件循环 + waker 唤醒」时直接 `git show` 取回来，
+按下面的顺序接：
+
+1. `exec_vm_cont_*` 续体表与快照/重映射（`f1d9066b`）；
+2. `g_exec_vm_frame_resumed` 分段语义（同提交）；
+3. `@await` 转发 waker（`bece7d73`）；
+4. **新增**：`Scheduler`/`block_on` 侧把 `w.has_io_interest()` 变成
+   真正的 `epoll_ctl` 登记 + `epoll_wait` 阻塞，让 Pending 之后的
+   重 poll 由事件驱动，而不是自旋。
