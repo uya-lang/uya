@@ -8068,22 +8068,6 @@ fn exec_lower_desugar_pipeline(ctx: &ExecLowerContext, expr: &ASTNode) &ASTNode 
         return null;
     }
     var piped: &ASTNode = walk;
-    // 最左段是错误联合（`!Pipeline`）时，C 端会按 try 语义在这里向当前函数返回错误；
-    // 这里包一层 TRY 节点复用同样的 lowering。
-    if piped != null {
-        const piped_left_type: Type = exec_lower_expr_type(ctx, piped);
-        if piped_left_type.kind == TypeKind.TYPE_ERROR_UNION {
-            const try_wrap_node: &ASTNode = compiler_arena_alloc(ctx.arena, @size_of(ASTNode)) as &ASTNode;
-            if try_wrap_node == null {
-                return null;
-            }
-            try_wrap_node[0] = piped[0];
-            try_wrap_node.type = ASTNodeType.AST_TRY_EXPR;
-            try_wrap_node.try_expr_is_checked_arith = 0;
-            try_wrap_node.try_expr_operand = piped;
-            piped = try_wrap_node;
-        }
-    }
     var k: i32 = chain_len - 1;
     while k >= 0 {
         const right_call: &ASTNode = calls[k];
@@ -8096,7 +8080,25 @@ fn exec_lower_desugar_pipeline(ctx: &ExecLowerContext, expr: &ASTNode) &ASTNode 
         if new_args == null {
             return null;
         }
-        new_args[0] = piped;
+        // 每一段的**输入**只要类型是错误联合（`!Pipeline`/`!T`），都要按 try 语义
+        // 展开：出错时向当前函数返回错误。早先只包了最左一段，中间段出错时会把
+        // 错误联合当普通值塞给下一段，与 C99 的 `gen_pipeline_expr` 不一致。
+        var seg_arg: &ASTNode = piped;
+        if piped != null {
+            const seg_arg_type: Type = exec_lower_expr_type(ctx, piped);
+            if seg_arg_type.kind == TypeKind.TYPE_ERROR_UNION {
+                const try_wrap_node: &ASTNode = compiler_arena_alloc(ctx.arena, @size_of(ASTNode)) as &ASTNode;
+                if try_wrap_node == null {
+                    return null;
+                }
+                try_wrap_node[0] = piped[0];
+                try_wrap_node.type = ASTNodeType.AST_TRY_EXPR;
+                try_wrap_node.try_expr_is_checked_arith = 0;
+                try_wrap_node.try_expr_operand = piped;
+                seg_arg = try_wrap_node;
+            }
+        }
+        new_args[0] = seg_arg;
         var ai: i32 = 0;
         while ai < old_count {
             new_args[ai +| 1] = right_call.call_expr_args[ai];

@@ -7138,3 +7138,45 @@ ip=43 BC_ADDR_FIELD a=24 b=25
 **HIR 种类 + 声明类型**（`HIR_EXPR_LOCAL`/`GLOBAL` 且该局部/全局的
 声明类型就是 `&T`），或干脆在降级侧为 `&指针.字段` 合成
 `LOAD 指针` 再取字段地址的 HIR，把判别从 builder 挪到类型已确定的 lower。
+
+---
+
+## 第 446 轮：pipeline 降级改成逐段 try-forward（对齐 C99）
+
+**1. 缺口**
+
+`exec_lower_desugar_pipeline` 把 `lhs |> f(a) |> g(b)` 改写成
+`g(b, f(a, lhs))`，但**只给最左一段**包了 `AST_TRY_EXPR`（且只在最左类型是
+错误联合时）。中间段如果返回 `!T`，这个错误联合会被原样当成 `T` 塞给下一段。
+
+C99 侧的行为写得很明确（`src/codegen/c99/expr.uya:850` 注释）：
+
+> 左侧为 `!Pipeline` 时，以和普通 try 一致的方式 try-forward：
+> 先求值到错误联合临时变量，错误时从当前函数返回，成功时提取载荷继续链；
+> 后续 stage 消费该 `!Pipeline` 结果（try-forward）时，从错误联合中提取载荷。
+
+即：**每一段的输入都要 try-forward**，不只是最左一段。
+
+**2. 改法**
+
+把「最左段包 try」的特例删掉，改成在拼装每个 stage 实参时判断：
+
+```uya
+var seg_arg: &ASTNode = piped;
+if piped != null && exec_lower_expr_type(ctx, piped).kind == TYPE_ERROR_UNION {
+    <复制节点> seg_arg = AST_TRY_EXPR(piped)
+}
+new_args[0] = seg_arg;
+```
+
+**3. 验证**
+
+- 单点（15 个 pipeline 正例）：13 个通过用例保持通过，
+  `test_typed_pipeline_capability` / `test_typed_pipeline_lowering_error` 仍是
+  原有的失败形态，**无新增失败**；
+- 全量普查（`/tmp/census_446.tsv`）：**909 例 / 通过 878 / 失败 31**，
+  失败集合与改动前 `/tmp/census_443.tsv` **逐例相同（零回归）**。
+
+这轮不改变任何用例的结论（两个失败用例的缺口分别是「stage 状态/错误传播」
+与「错误路径 `pipeline_drop`」），但把 VM 的 pipeline 语义从
+「只有最左段 try」修正成与 C99 一致的「逐段 try」。
