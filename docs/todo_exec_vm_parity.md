@@ -6492,3 +6492,28 @@ FFI/abi 1、kernel_sim 1、typed_pipeline 2。
    声明 `;` 的接口」不成立，要么变量初始化路径没走 `coerce_expr`。
    注意：`Future<T>` 这条主路径是好的（大量 async 用例通过），
    所以更可能是接口声明形态的差异，不要为它去动 `box_interface` 主逻辑。
+
+### 第 430 轮：`Future.release` 崩溃定位到「装箱数据不是指针」这一层
+
+第 429 轮遗留第 1 条的根因已经查清，**不是** 方法表下标算错：
+
+1. `lib/std/async.uya:436` 的 `interface Future<T>` 有 2 个方法（`poll`/`release`），
+   装箱布局 `[poll_fn_idx, release_fn_idx, data]` 本身是对的
+   （`--trace-vm` 里 `uyagin_observe_leaf_route_future ip=233..243` 先写两个
+   函数下标常量，再 `MAKE_STRUCT c=3`）。
+2. 错的是**第 3 格 `data`**：`src/exec/lower.uya:4200` 的 `@async_fn` 返回包装
+   刻意写 `boxed.left = future_expr`（结构体**值**），注释说「数据用结构体值本身，
+   方法里的 `self` 由 VM 的字段访问自动解引用」。字段访问确实能自动解引用，
+   但 `Future_release` 里写的是 `async_box_free_current(self as &byte)`
+   —— 结构体值 CAST 成 `&byte` 时走 `exec_vm_cast_value` 的兜底分支，
+   得到的是聚合的 `i64_value`（= `1`），不是地址。
+3. 于是 `async_box_free_current` 算出 `ptr - 16 = -15`，
+   VM 的 `exec_vm_check_deref_addr` 直接判「地址非法」并终止整个程序
+   （C99 侧同样的代码拿到的是真指针，所以只有 VM 崩）。
+
+**为什么不能只加 magic 兜底**：想让 `async_box_free_current` 认不出盒就跳过，
+得先读 `ptr - header_size`，而 VM 的地址校验在**读之前**就把 `-15` 拦下了，
+程序已经终止 —— 兜底代码根本执行不到。同理，把 `&byte` 的聚合 CAST 改成
+「物化成连续字节缓冲」只会把 `-15` 变成别的非法地址，仍然过不了校验；
+真修必须让 `Future` 装箱拿到**真实堆块**（即 `async_box_alloc_current` /
+`async_frame_pool` 那条状态机路线），这是既有的模型级缺口之一。
