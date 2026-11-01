@@ -6366,3 +6366,22 @@ pointer-to-struct 但引用目标不是聚合，指向「双重间接」那一�
 - 不一致 35 例的构成：async 家族 16（其中 6 例是 >120s 事件循环等待）、
   http/websocket 4、pthread/thread 7、tls 4、FFI/abi 1、kernel_sim 1、
   typed_pipeline 2（含 `test_async_frame_pool_stats` 的悬垂 allocator 引用）。
+
+### 第 427 轮：async_compute/线程池簇取证（结论：不是几行能修的）
+
+把 `test_async_compute_*`（11 个子测试全 ERROR）追到具体错误码：
+`scheduler_run_with_event_loop(..., 200)` 返回 **`error.TimedOut`**（全局 error_id 9）。
+调用链是 `async_compute<T>` → `thread_async_compute_*` → `async_worker_compute`
+→ worker 线程真正算 → 结果经 epoll 事件回灌。
+
+VM 侧：`user pthread_create` 已经是「同步执行线程体」，但 **worker 线程体本身是
+`while true` 的取任务循环**，同步执行只会把 2000 万条指令预算烧光后被打断，
+队列里的任务永远没人取 → 主线程 `@await` 忙等到超时。
+要修必须给 VM 真并发（每线程独立帧栈）或可挂起/恢复的协作调度器 ——
+与文档里第 1 堵墙（async 状态机）是同一个根因，不是本轮能收口的量级。
+
+顺带把 `LOAD_FIELD 字段越界` 的错误信息补上 `ref`（是否内部引用）与 `aux`
+（引用编码），`test_async_fd` 的现场因此定位到
+`ref=1 aux=65552`（`EXEC_VM_REF_KIND_BASE + TYPE_STRUCT`）：`self` 是合法内部引用，
+但引用目标既不是聚合、也不是「指向聚合的引用」，而是第三种形态（帧对象里的
+`Future` 装箱指针），属于同一族的双重间接问题。

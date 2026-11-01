@@ -7227,8 +7227,9 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 fld_pointee = exec_value_pointer_pointee_kind(&slot_b[0]);
             }
             _ = snprintf(&fld_msg[0] as *byte, 640,
-                "exec: LOAD_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d fn=%s ip=%d slot=%d line=%d col=%d)" as *byte,
+                "exec: LOAD_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d ref=%d aux=%d fn=%s ip=%d slot=%d line=%d col=%d)" as *byte,
                 instr.imm as i32, slot_b.kind as i32, fld_count, fld_pointee,
+                exec_vm_pointer_is_internal_ref(slot_b), slot_b.aux_i64_value as i32,
                 function.name as *byte, frame.ip, instr.b as i32,
                 instr.source.line, instr.source.column);
             exec_backend_set_error(function.decl, &fld_msg[0] as &byte, 0);
