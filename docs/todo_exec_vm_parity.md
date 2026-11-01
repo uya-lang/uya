@@ -2127,9 +2127,10 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       （pthread/堆/OSAL 约 10 例，同步 VM 无并发语义）、`@c_import`（3 例）、
       `cleanup scope 嵌套过深`（8 例，第 343 轮已定位根因但修复方案三次证否）
       与超长函数（`bytecode 指令超出上限`）；这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿（第 427 轮复测 **914 例 / 一致 880 / 不一致 34**；
-      第 426 轮为 914/879/35，第 427 轮的 `pthread_getaffinity_np` 放行让
-      `test_pthread_affinity` 转一致；
+- [ ] `make exec-parity` 全绿（第 428 轮复测 **914 例 / 一致 881 / 不一致 33**；
+      第 427 轮为 914/880/34（`pthread_getaffinity_np` 放行让 `test_pthread_affinity`
+      转一致），第 426 轮 914/879/35，第 425 轮 914/872/42；
+      本轮 `setenv/unsetenv` 真正生效让 `test_http1_async_client` 转一致；
       第 425 轮为 914/872/42，第 426 轮的 `@frame` 同步帧 + 合成 Waker VOID 字段
       实体化 + libc 前缀常量合计让 7 例转一致；
       第 410 轮复测 **914 例 / 一致 876 / 不一致 38**；
@@ -6460,3 +6461,13 @@ FFI/abi 1、kernel_sim 1、typed_pipeline 2。
 
 **实测**：`test_http1_async_client`（VM）由 FAIL 转 **PASS**，
 `/tmp` 探针 `setenv→getenv` 在 VM 与 C99 上返回同一值。
+
+### 第 428 轮收口数据（全量实测）
+
+- `make check`：**1192 个测试 / 通过 1192 / 失败 0**（rc=0，含自举 + microapp）。
+- `make exec-parity`：**914 例 / 一致 881 / 不一致 33**（第 427 轮 880/34，
+  第 425 轮 872/42；四轮共净增 9 例一致）。
+- http/https 家族（36 例）在 VM 侧 **32 通过 / 4 失败**，剩下的是
+  `test_http_uyagin`（`async_box_free_current` 收到 `ptr=1`）、
+  `test_http_websocket_json` / `_reconnect`（事件循环）、
+  `test_http_uyagin_websocket`（>150s 超时）。
