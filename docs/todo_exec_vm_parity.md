@@ -6436,3 +6436,27 @@ FFI/abi 1、kernel_sim 1、typed_pipeline 2。
   `UYA_PARITY_GLOB='test_signal.uya' ./tests/verify_exec_vm_parity.sh` 只跑匹配用例，
   单点复测不必再等 37 分钟全量（这与任务目标里「先判影响范围再决定单点还是全量」
   直接对应）。
+
+### 第 428 轮：`setenv` / `unsetenv` 在解释器里真正生效
+
+`lib/libc/stdlib.uya` 的 `setenv`/`unsetenv` 一直是「简化实现：总是返回 0」的空壳，
+而 `C99` 后端给 `extern "libc"` 函数发的是**宿主声明**，链接到 libc 的真实现。
+于是「`setenv` 之后 `getenv` 能读到」在 C99 下成立、在解释器里不成立 ——
+`test_http1_async_client` 的 `http1_async_response_header_max_cap` 期望
+`setenv("UYA_HTTP1_RESPONSE_HEADER_MAX_CAP","131072")` 之后读到 131072，
+解释器里永远读到默认值。
+
+解释器没有可写的 `environ`（`saved_envp` 是只读快照），所以改成
+**运行期覆盖表**：定长 16 槽，每槽记「有值 / 已屏蔽」两种状态；
+`getenv` 先查覆盖表（被 `unsetenv` 屏蔽的名字直接返回 null，不回落到快照），
+未命中再扫 `saved_envp`。C99 侧行为不变（它链接的是真 libc）。
+
+**为什么不是把 `getenv`/`setenv` 接到宿主**：试过 `EXEC_HOST_CALL_GETENV`
+三件套，`exec_lower_match_host_call_impl` 里确实匹配上了（打点确认
+`setenv params=3 args=3`），但 `vm.uya` 里写的 `setenv(...)` 在 C 层解析到了
+**编译器自身**由 `lib/libc/stdlib.uya` 生成的那个同名符号（同样是空壳），
+所以调用「成功」却什么都没改；`system("printenv UYA_X")` 只拿到 256（未设置）。
+这条路被符号遮蔽堵死，方案已回退。
+
+**实测**：`test_http1_async_client`（VM）由 FAIL 转 **PASS**，
+`/tmp` 探针 `setenv→getenv` 在 VM 与 C99 上返回同一值。
