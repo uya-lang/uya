@@ -7303,3 +7303,60 @@ VM 驻留区、内容其实是原生结构体」的块判成 VM 值返回 0，�
 
 代码零改动（两次都回退），`879/909`（96.7%）、parity 不一致 30、
 `make check` 全绿的状态不变。
+
+---
+
+## 第 449 轮：剩余 30 例的逐例定性（T11 收口账目）
+
+全量普查 `/tmp/census_447.tsv`：**909 例 / 通过 879 / 失败 30 / 跳过 5（96.7%）**。
+parity 同集合：**913 例（跳过 5）/ 不一致 30**。下面是 30 例的逐例归因，
+以及「要真正修好需要什么」。**没有一项是「再来几轮小修」的量级。**
+
+### A. 需要真事件循环 / 真并发（22 例）——结构性
+
+`block_on` 在 VM 里是纯自旋（`lib/std/async.uya:508`），唯一能推进 leaf 的机制是
+「`@await` 内部忙等」。凡是「等待期间必须让别的任务/IO 推进」的用例都走不过去：
+
+| 用例 | 退出码 | 卡在哪 |
+| --- | --- | --- |
+| test_async_fd / async_multi_fd_concurrent / async_task_queue_dynamic_growth | 137 | 等 fd 就绪，自旋期间无人 poll |
+| test_async_runtime_shared_dns / _semantics / async_shared_runtime_semantics | 137 | 共享运行时调度 |
+| test_std_async_scheduler / std_dns_async_transport / http_uyagin(_websocket) | 137 | 调度器 / DNS 传输 / uyagin 落盘 |
+| test_async_fd / tls_ecdsa / tls_rsa | 137 | 同上（ecdsa 838s 也失败，rsa >900s 不完成） |
+| test_std_thread(23) / std_thread_async_boundary(3) / async_thread_pool_dynamic_growth(5) | 非 0 | 真线程池语义 |
+| test_pthread_heap_concurrency(139) / pthread_heap_cache_identity(239) | 非 0 | pthread 堆缓存身份 |
+| test_http_websocket_json(1) / _reconnect(1) / std_dns_async_query_aggregate(1) / tls_async_runtime_io(1) | 1 | 断言「并发行为可观察」 |
+| test_async_compute_types(11) / _generic_wrapper(2) | 非 0 | worker 池转发 |
+
+第 439/440 轮**实现并实测过**真状态机（续体表 + 挂起/恢复 + waker 转发，
+提交 `f1d9066b`、`bece7d73`），单测 4 例通过，但全量 **874/35（净 -5）**：
+`block_on` 不自旋就没人为 leaf 推进 IO，websocket/uyagin 九例从「超时」变成「更快失败」。
+没有事件循环（epoll/kqueue 轮询 + waker 唤醒队列），这条路是走不通的——
+这是 VM 侧最大的一块工作量，不是修 bug。
+
+### B. 需要 VM 侧「外部代码/栈切换」（2 例）
+
+- `test_kernel_sim(5)`：模拟 CPU 的 call gate、私有栈切换。VM 无法执行外来机器码。
+- `test_async_frame_pool_full(1)`：帧池耗尽的容量语义（第 4xx 轮已判定不修）。
+
+### C. 模型缺口，已有精确归因（2 例）
+
+- `test_typed_pipeline_capability(1)`：`ADDR_FIELD` 基址判定——`&head.header`
+  需要「指针值」当基址、`exec_vm_field_native_base` 对 VM 驻留地址返回 0、
+  旁路表陈旧登记给出 void 槽。第 445/448 轮试过 5 种组合，
+  只要在 `ADDR_FIELD` 里按启发式改判原生布局，`std_dns` / `pipeline_executor_single` /
+  `http1_async_client` 立刻回归。正解是让旁路表登记在块释放时失效，
+  或改成「编译期字段 kind + 是否已登记为 VM 聚合」两段式判定。
+  此外它还有 3 条 stage 状态/错误传播的语义断言差异。
+- `test_async_state_machine(3)` / `test_async_macro_expand(1)`：`pending_seen`
+  与 `@await` 分段求值——正是 A 类状态机要解决的问题的最小形态；
+  状态机版本下这两例是**通过**的（第 439 轮），说明修复方向对但代价是 A 类整体。
+
+### D. 结论
+
+- 可做且已做完的：pipeline 语义（第 446/447 轮，2 例转通过）、超时口径（第 442 轮）、
+  门禁口径对齐（第 443 轮）；
+- 剩下的 30 例里 **24 例**（A+B+D 类）需要 VM 增加真事件循环与外部执行能力，
+  其余 6 例各有精确归因但都不便宜；
+- 因此 T11 的「`uya test --vm` 全量通过」在只做单点修复的前提下**不可能达成**，
+  当前的 879/909（96.7%）就是这条路的终点。
