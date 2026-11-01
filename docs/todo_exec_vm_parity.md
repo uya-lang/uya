@@ -7031,3 +7031,56 @@ census 侧早就把它放进 `tests/exec_vm_census_skip.txt` 了。
 - `uya test --vm` 全量通过：31 个用例待处理，主体是模型墙；
 - `make exec-parity` 全绿：同一批 31 个；
 - 合并 main：等前两项。
+
+---
+
+## 第 444 轮：全量复测确认（878 / 909，与 parity 同集合）
+
+**1. 全量普查证据**
+
+`UYA_EXEC_CENSUS_JOBS=4 make exec-census`（报告 `/tmp/census_443.tsv`）：
+
+```
+pass=878 fail=31 total=909
+```
+
+31 个失败（按退出码）：
+
+| 退出码 | 用例 |
+| --- | --- |
+| 1 | async_compute_dynamic_resource_pressure / async_frame_pool_full / async_macro_expand / http_websocket_json / http_websocket_reconnect / std_dns_async_query_aggregate / tls_async_runtime_io / typed_pipeline_capability |
+| 2 | async_compound_try_await / async_compute_generic_wrapper / typed_pipeline_lowering_error |
+| 3 | async_state_machine / std_thread_async_boundary |
+| 5 | async_thread_pool_dynamic_growth / kernel_sim |
+| 11 / 23 | async_compute_types / std_thread |
+| 137 | async_fd / async_multi_fd_concurrent / async_runtime_shared_dns / async_runtime_shared_semantics / async_shared_runtime_semantics / async_task_queue_dynamic_growth / http_uyagin / http_uyagin_websocket / std_async_scheduler / std_dns_async_transport / tls_ecdsa / tls_rsa |
+| 139 / 239 | pthread_heap_concurrency / pthread_heap_cache_identity |
+
+与 `make exec-parity` 的 **31 个 STATUS_MISMATCH 完全同集合**（第 443 轮），
+两侧口径一致。`test_tls_x25519_pure` 已不在失败清单里（超时放宽到 900s 后转通过）。
+
+**2. `test_typed_pipeline_capability` 的现场证据（留给下一轮）**
+
+`--trace-vm` 抓到最后一条出错指令前后的序列（`lib/libc/heap.uya` 的 `malloc`）：
+
+```
+fn=malloc ip=42 op=BC_ADDR_LOCAL(3)  a=25 b=4  c=18
+fn=malloc ip=43 op=BC_ADDR_FIELD(5)  a=24 b=25 c=4368 imm=0     <-- c=0x1110
+fn=malloc ip=44 op=BC_MOV(2)         a=26 b=24
+fn=malloc ip=45 op=BC_CALL(62)       a=23 b=26 c=1 imm=193      <-- get_size
+fn=get_size ip=1 op=BC_LOAD_FIELD(40) a=2 b=1 c=8 imm=0x8_0000_0001  --> 字段越界
+```
+
+解读：`BC_ADDR_FIELD` 的 `c=4368=0x1110` 只编码了
+「native kind=0x11、pointee=0x10」「元素 kind=0」，`imm=0` 说明**字段下标是 0**；
+基址来自 `BC_ADDR_LOCAL` 的局部槽。判断链是：
+`exec_vm_field_native_base` 对 VM 驻留地址返回 0 → 走 `exec_vm_field_ref(slot_b, 0)`
+取聚合第 0 格 → 得到内部引用；而 `get_size` 收到的那个引用，
+实测 `exec_vm_debug_target_kind = 0`，**目标槽是 VOID**（`count=-1` 只是
+「没找到聚合」的初始值，第 441 轮曾据它误判过一次）。
+
+所以缺的不是字段布局，而是「取到的那个字段槽在当时还没有值」——
+要么 `ADDR_LOCAL` 指向的局部在那一刻仍是 `void`（赋值在后），
+要么这条路径本应走「原生基址 + 编译期偏移」而没有走到。
+下一轮从 `malloc` 的 ip=35..45 对应的 Uya 源码（`lib/libc/heap.uya` 里
+`&chunk.header` 那一段）入手，比继续在 VM 侧加兜底更靠得住。
