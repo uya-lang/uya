@@ -2127,10 +2127,11 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       （pthread/堆/OSAL 约 10 例，同步 VM 无并发语义）、`@c_import`（3 例）、
       `cleanup scope 嵌套过深`（8 例，第 343 轮已定位根因但修复方案三次证否）
       与超长函数（`bytecode 指令超出上限`）；这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿（第 428 轮复测 **914 例 / 一致 881 / 不一致 33**；
-      第 427 轮为 914/880/34（`pthread_getaffinity_np` 放行让 `test_pthread_affinity`
-      转一致），第 426 轮 914/879/35，第 425 轮 914/872/42；
-      本轮 `setenv/unsetenv` 真正生效让 `test_http1_async_client` 转一致；
+- [ ] `make exec-parity` 全绿（第 435 轮复测 **914 例 / 一致 882 / 不一致 32**；
+      第 428 轮 914/881/33，第 427 轮 914/880/34，第 426 轮 914/879/35，
+      第 425 轮 914/872/42。累计转一致：`test_pthread_affinity`
+      （第 427 轮）、`test_http1_async_client`（第 428 轮 `setenv/unsetenv`）、
+      `test_async_frame_pool_stats`（第 434 轮 `BC_BOX_VALUE` 走异步分配器）；
       第 425 轮为 914/872/42，第 426 轮的 `@frame` 同步帧 + 合成 Waker VOID 字段
       实体化 + libc 前缀常量合计让 7 例转一致；
       第 410 轮复测 **914 例 / 一致 876 / 不一致 38**；
@@ -6623,3 +6624,21 @@ VM 侧需要一个能「按字节尺寸分配 + 结构体写入」的降级形�
   `lib/libc/heap.uya:884` 的 `try_tcache_free_fast`（另一个既有 VM 缺陷：
   经 tcache 结构体指针做 `ADDR_FIELD` 时基值不是可解析聚合），
   留作下一轮的独立切口。
+
+### 第 435 轮收口：`@frame poll` 解引用回归修复 + 全量数据
+
+`BC_BOX_VALUE` 改堆装箱后，`@frame` 里存的接口值最后一格变成「指向堆块的引用」，
+`exec_vm_frame_poll` 原来直接把它当聚合取字段 0，`test_std_mqtt_async` 的
+`mqtt connect frame smoke` 因此读到 Pending（由 PASS 转 FAIL）。
+修法：在收敛到 `Poll<T>` 之前，先对内引用解一层（`exec_vm_ref_target_value`）。
+
+**全量实测**
+- `make check`：**1192 个测试 / 通过 1192 / 失败 0**（rc=0）。
+- `make exec-parity`：**914 例 / 一致 882 / 不一致 32**（第 428 轮 881/33）。
+- 全量 VM 普查：**909 例 / 通过 877 / 失败 32 / 通过率 96.5%**
+  （第 427 轮 875/34 = 96.3%）。
+- 本轮相对上一轮：`test_async_frame_pool_stats` 转 PASS，无新增失败；
+  相对第 427 轮基线共修好 2 例（另 1 例是第 428 轮的 `test_http1_async_client`）。
+
+剩余 32 例的结构没变：async 状态机/事件循环/线程体 24 例、http/websocket 4 例、
+tls 3 例、kernel_sim 1 例、typed_pipeline 2 例 —— 都在既有模型级缺口清单里。
