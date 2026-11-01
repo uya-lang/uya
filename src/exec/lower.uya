@@ -3423,6 +3423,81 @@ fn exec_lower_method_receiver_expr(ctx: &ExecLowerContext, object_expr: &ASTNode
     return exec_lower_expr(ctx, object_expr);
 }
 
+/// 把 `@frame(fn).start(...)` / `.poll(&waker)` 降级成 VM 的帧控制 hostcall。
+///
+/// VM 是同步执行模型：`start` 立刻把子函数跑完，把返回的 `Future<T>` 存回帧对象；
+/// `poll` 再从帧对象里取出其中的 `Poll<T>`。因此这里只需把 receiver 和实参原样
+/// 交给 hostcall，帧状态由 `exec_vm_frame_start` / `exec_vm_frame_poll` 维护。
+/// 参数说明：`ctx` 降级上下文；`expr` 方法调用节点；`object_ast` receiver 表达式；
+/// `frame_fn_name` 帧类型名去掉 `uya_async_` 前缀后的目标函数名；
+/// `frame_is_start` 非 0 表示 `start`，否则是 `poll`；`poll_type` 是 `poll` 的返回类型。
+/// 返回值说明：降级后的 `HIR_EXPR_CALL`；失败返回 null（已写入错误信息）。
+fn exec_lower_frame_control_call(ctx: &ExecLowerContext, expr: &ASTNode, object_ast: &ASTNode,
+    frame_fn_name: &byte, frame_is_start: i32, poll_type: &Type) &HIRExpr {
+    if ctx == null || expr == null || object_ast == null || frame_fn_name == null {
+        return null;
+    }
+    const frame_arg_count: i32 = expr.call_expr_arg_count +| 1;
+    if frame_arg_count > EXEC_MAX_CALL_ARGS {
+        return exec_lower_fail_expr(expr, "exec: @frame 调用参数过多" as *byte);
+    }
+    const frame_args: & & HIRExpr = compiler_arena_alloc(ctx.arena, @size_of(&HIRExpr) * frame_arg_count as usize) as & & HIRExpr;
+    if frame_args == null {
+        exec_backend_set_error(expr, "exec: @frame 参数分配失败" as *byte, 0);
+        return null;
+    }
+    const frame_object_type: Type = exec_lower_expr_type(ctx, object_ast);
+    var frame_receiver: &HIRExpr = null;
+    if frame_object_type.kind == TypeKind.TYPE_POINTER {
+        frame_receiver = exec_lower_expr(ctx, object_ast);
+    } else {
+        frame_receiver = exec_lower_make_ref_expr(ctx, object_ast);
+    }
+    if frame_receiver == null {
+        return exec_lower_fail_expr(expr, "exec: @frame receiver 构造失败" as *byte);
+    }
+    frame_args[0] = frame_receiver;
+    const frame_target_decl: &ASTNode = exec_lower_resolve_function_decl_from_file(ctx.checker,
+        expr.filename, frame_fn_name);
+    var fa: i32 = 0;
+    while fa < expr.call_expr_arg_count {
+        var lowered_frame_arg: &HIRExpr = null;
+        if frame_target_decl != null && frame_target_decl.fn_decl_params != null &&
+            fa + 1 < frame_target_decl.fn_decl_param_count &&
+            frame_target_decl.fn_decl_params[fa + 1] != null &&
+            frame_target_decl.fn_decl_params[fa + 1].type == ASTNodeType.AST_VAR_DECL &&
+            frame_target_decl.fn_decl_params[fa + 1].var_decl_type != null {
+            const expected_frame: Type = type_from_ast(ctx.checker, frame_target_decl.fn_decl_params[fa + 1].var_decl_type);
+            lowered_frame_arg = exec_lower_coerce_expr(ctx, expr.call_expr_args[fa], &expected_frame);
+        } else {
+            lowered_frame_arg = exec_lower_expr(ctx, expr.call_expr_args[fa]);
+        }
+        if lowered_frame_arg == null {
+            return null;
+        }
+        frame_args[fa + 1] = lowered_frame_arg;
+        fa = fa + 1;
+    }
+    var frame_call_type: Type = make_void_type();
+    if frame_is_start == 0 && poll_type != null {
+        frame_call_type = copy_type(poll_type);
+    }
+    const frame_call: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_CALL, &frame_call_type);
+    if frame_call == null {
+        return null;
+    }
+    frame_call.callee_name = frame_fn_name;
+    frame_call.callee_decl = frame_target_decl;
+    if frame_is_start != 0 {
+        frame_call.call_host_id = ExecHostCallId.EXEC_HOST_CALL_FRAME_START;
+    } else {
+        frame_call.call_host_id = ExecHostCallId.EXEC_HOST_CALL_FRAME_POLL;
+    }
+    frame_call.call_args = frame_args;
+    frame_call.call_arg_count = frame_arg_count;
+    return frame_call;
+}
+
 fn exec_lower_collect_interface_dispatch_decls(ctx: &ExecLowerContext, interface_type: &Type, concrete_type: &Type, out_decls: & & ASTNode, out_count: &i32) i32 {
     const struct_name: &byte = type_get_struct_name(concrete_type);
     if ctx == null || ctx.checker == null || ctx.checker.program_node == null || out_count == null {
@@ -6969,7 +7044,8 @@ fn exec_lower_collect_called_decls_from_expr(expr: &HIRExpr, out_decls: & & ASTN
     if expr.kind == HIRExprKind.HIR_EXPR_CALL && expr.callee_decl != null &&
         expr.callee_decl.type == ASTNodeType.AST_FN_DECL &&
         expr.callee_decl.fn_decl_body != null &&
-        expr.call_host_id == ExecHostCallId.EXEC_HOST_CALL_NONE &&
+        (expr.call_host_id == ExecHostCallId.EXEC_HOST_CALL_NONE ||
+         expr.call_host_id == ExecHostCallId.EXEC_HOST_CALL_FRAME_START) &&
         exec_lower_decl_index(out_decls, out_count[0], expr.callee_decl) < 0 {
         if out_count[0] < MAX_REACHABLE_FN_DECLS {
             out_decls[out_count[0]] = expr.callee_decl;
@@ -8964,10 +9040,23 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 call_method.call_arg_count = total_arg_count;
                 return call_method;
             }
-            // `@frame(fn)` 的合成帧在 VM 里已经同步执行完：`stop()` 这类帧控制方法
-            // 没有 AST 声明，按空操作处理（返回 void 零值）。
+            // `@frame(fn)` 的合成帧没有 AST 声明。VM 是同步执行模型：`start(...)`
+            // 等价于「立刻把子函数跑完，把返回的 `Future<T>` 存回帧对象」，
+            // `poll(&w)` 再从帧对象里取出其中的 `Poll<T>`。`stop()` 仍是空操作。
             if owner_type.kind == TypeKind.TYPE_STRUCT && owner_type.struct_name != null &&
                 exec_lower_name_has_prefix(owner_type.struct_name, "uya_async_" as &byte) != 0 {
+                const frame_fn_name: &byte = &owner_type.struct_name[10] as &byte;
+                var frame_is_start: i32 = 0;
+                var frame_is_poll: i32 = 0;
+                if str_equals(method_name, "start" as &byte) != 0 {
+                    frame_is_start = 1;
+                } else if str_equals(method_name, "poll" as &byte) != 0 {
+                    frame_is_poll = 1;
+                }
+                if frame_is_start != 0 || frame_is_poll != 0 {
+                    return exec_lower_frame_control_call(ctx, expr, object_ast, frame_fn_name,
+                        frame_is_start, &expr_type);
+                }
                 const frame_noop_type: Type = make_void_type();
                 return exec_lower_make_zero_expr(ctx, expr, &frame_noop_type);
             }

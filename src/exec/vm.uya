@@ -4749,6 +4749,142 @@ fn exec_vm_c_import_dispatch(site: &BCHostCallSite, frame: &ExecFrame, arg_base:
     return 0;
 }
 
+/// `@frame(...)` 的 start 直接调用子函数时允许的最大实参个数。
+const EXEC_VM_FRAME_MAX_ARGS: i32 = 16;
+
+/// 解析 `@frame(...)` 方法 receiver 指向的帧对象槽位。
+/// 参数：`value` 方法 receiver（通常是 `&frame` 的内部引用）。
+/// 返回值：帧对象自身的值槽位；无法解析时返回 null。
+fn exec_vm_frame_object_slot(value: &ExecValue) &ExecValue {
+    if value == null {
+        return null;
+    }
+    if exec_vm_pointer_is_internal_ref(value) != 0 {
+        return exec_vm_ref_target_value(value);
+    }
+    if value.kind == ExecValueKind.EXEC_VALUE_POINTER {
+        return value;
+    }
+    return null;
+}
+
+/// 按名字在字节码函数表里找函数下标（`@frame(fn)` 的 `start` 要直接调用子函数）。
+/// 参数：`program` 字节码程序；`name` 目标函数名。
+/// 返回值：函数下标；找不到返回 -1。
+fn exec_vm_find_function_index_by_name(program: &BCProgram, name: &byte) i32 {
+    if program == null || name == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < program.function_count {
+        const fn_candidate: &BCFunction = program.functions + i;
+        if fn_candidate != null && fn_candidate.name != null && str_equals(fn_candidate.name, name) != 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+/// `@frame(fn).start(...)`：同步跑完子函数，把返回的 `Future<T>` 存回帧对象。
+///
+/// VM 没有挂起点，`@async_fn` 一律同步执行到完成，因此帧的 `start` 就是
+/// 「立刻调用子函数并保存结果」，之后 `poll` 只需把结果里的 `Poll<T>` 交回去。
+/// 参数说明：`program` 字节码程序；`function` 当前函数（用于错误定位）；
+/// `site` hostcall 站点（`name` 是目标函数名）；`frame` 当前帧；
+/// `arg_base`/`arg_count` 实参槽位范围（第 0 个是 receiver）。
+/// 返回值说明：成功返回 0；失败返回 -1 并写入运行时错误。
+fn exec_vm_frame_start(program: &BCProgram, function: &BCFunction, site: &BCHostCallSite,
+    frame: &ExecFrame, arg_base: i32, arg_count: i32, out_value: &ExecValue) i32 {
+    if program == null || site == null || frame == null || out_value == null || arg_count < 1 {
+        exec_backend_set_error(function.decl, "exec: @frame start 参数非法" as *byte, 0);
+        return -1;
+    }
+    const receiver: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+    const frame_slot: &ExecValue = exec_vm_frame_object_slot(receiver);
+    if frame_slot == null {
+        exec_backend_set_error(function.decl, "exec: @frame start receiver 非法" as *byte, 0);
+        return -1;
+    }
+    const target_index: i32 = exec_vm_find_function_index_by_name(program, site.name);
+    if target_index < 0 {
+        var frame_msg: [byte: 256] = [];
+        _ = snprintf(&frame_msg[0] as *byte, 256, "exec: @frame 找不到目标函数(%s)" as *byte,
+            site.name as *byte);
+        exec_backend_set_error(function.decl, &frame_msg[0] as &byte, 0);
+        return -1;
+    }
+    const target_arg_count: i32 = arg_count - 1;
+    if target_arg_count > EXEC_VM_FRAME_MAX_ARGS {
+        exec_backend_set_error(function.decl, "exec: @frame start 参数过多" as *byte, 0);
+        return -1;
+    }
+    var frame_args: [ExecValue: EXEC_VM_FRAME_MAX_ARGS] = [];
+    var fi: i32 = 0;
+    while fi < target_arg_count {
+        const arg_ref: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1 +| fi);
+        if arg_ref == null {
+            exec_backend_set_error(function.decl, "exec: @frame start 参数槽位非法" as *byte, 0);
+            return -1;
+        }
+        frame_args[fi] = arg_ref[0];
+        fi = fi + 1;
+    }
+    var frame_result: ExecValue = exec_make_void();
+    if exec_vm_call_function(program, target_index, &frame_args[0], target_arg_count, 0, &frame_result) != 0 {
+        return -1;
+    }
+    frame_slot[0] = frame_result;
+    out_value[0] = exec_make_void();
+    return 0;
+}
+
+/// `@frame(fn).poll(&waker)`：把 `start` 存下的 `Future<T>` 里的 `Poll<T>` 交回去。
+/// 参数说明：`function` 当前函数（错误定位）；`frame` 当前帧；
+/// `arg_base`/`arg_count` 实参槽位范围（第 0 个是 receiver，`waker` 在同步模型里不用）。
+/// 返回值说明：成功返回 0 并把 `Poll<T>` 写入 `out_value`；失败返回 -1。
+fn exec_vm_frame_poll(function: &BCFunction, frame: &ExecFrame, arg_base: i32, arg_count: i32,
+    out_value: &ExecValue) i32 {
+    if frame == null || out_value == null || arg_count < 1 {
+        exec_backend_set_error(function.decl, "exec: @frame poll 参数非法" as *byte, 0);
+        return -1;
+    }
+    const receiver: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+    const frame_slot: &ExecValue = exec_vm_frame_object_slot(receiver);
+    if frame_slot == null {
+        exec_backend_set_error(function.decl, "exec: @frame poll receiver 非法" as *byte, 0);
+        return -1;
+    }
+    var future_cell: &ExecValue = frame_slot;
+    if future_cell.kind == ExecValueKind.EXEC_VALUE_POINTER {
+        const inner_cell: &ExecValue = exec_vm_ref_target_value(future_cell);
+        if inner_cell != null {
+            future_cell = inner_cell;
+        }
+    }
+    // 帧里存的是子函数返回的 `Future<T>`，有两种承载形态：
+    // - `Future<T>` 结构体本身（只有 `state` 一个字段）；
+    // - 接口装箱值 `[方法入口下标…, 数据]`：数据的字段 0 才是 `state`。
+    // 两者都可以用「取最后一个元素，若它还是聚合就再取字段 0」收敛到 `Poll<T>`。
+    const future_agg: &ExecAggregate = exec_value_as_aggregate(future_cell);
+    if future_agg != null && future_agg.values != null && future_agg.count >= 1 {
+        var candidate: ExecValue = future_agg.values[future_agg.count - 1];
+        if candidate.kind != ExecValueKind.EXEC_VALUE_UNION {
+            const inner_agg: &ExecAggregate = exec_value_as_aggregate(&candidate);
+            if inner_agg != null && inner_agg.values != null && inner_agg.count >= 1 {
+                candidate = inner_agg.values[0];
+            }
+        }
+        if candidate.kind == ExecValueKind.EXEC_VALUE_UNION {
+            out_value[0] = exec_value_clone(&candidate);
+            return 0;
+        }
+    }
+    // 没 start 过，或子函数返回的不是 Future：按 Pending 交回。
+    out_value[0] = exec_make_union(0, exec_make_void());
+    return 0;
+}
+
 fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCallSite, frame: &ExecFrame, arg_base: i32, arg_count: i32, out_value: &ExecValue) i32 {
     if function == null || site == null || frame == null || out_value == null {
         exec_backend_set_error(null, "exec: hostcall 输入无效" as *byte, 0);
@@ -4756,6 +4892,12 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_C_IMPORT_DYNAMIC {
         return exec_vm_c_import_dispatch(site, frame, arg_base, arg_count, out_value);
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_FRAME_START {
+        return exec_vm_frame_start(program, function, site, frame, arg_base, arg_count, out_value);
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_FRAME_POLL {
+        return exec_vm_frame_poll(function, frame, arg_base, arg_count, out_value);
     }
     if site.arg_count != arg_count {
         exec_backend_set_error(function.decl, "exec: hostcall 参数数量非法" as *byte, 0);

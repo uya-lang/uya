@@ -6328,3 +6328,27 @@ A/B 确认：同一份源码去掉影子栈就恢复通过（`git checkout 117ff
 `test_async_fd` 现在通过 4 个子测试后停在
 `AsyncWaitFdFuture::poll` 的 `self.deadline_ms`（`LOAD_FIELD 字段越界`，
 base 是 pointer-to-struct 但引用目标不是聚合）—— 下一轮入口。
+
+### 第 426 轮：`@frame` 的 `start`/`poll` 落地（同步帧模型）
+
+`@frame(fn)` 的合成帧以前在 VM 里是纯空操作（`start`/`poll`/`stop` 一律返回 void），
+于是 `poll(...)` 交回 void，调用方 `match p { .Ready(..) => ... }` 直接
+`LOAD_UNION_TAG 目标不是 union(kind=0)`。这一轮把 `start`/`poll` 接上：
+
+- **lower**：新增 `exec_lower_frame_control_call`，把 `uya_async_<fn>` 上的
+  `start(...)`/`poll(&w)` 降级成 `EXEC_HOST_CALL_FRAME_START` / `_FRAME_POLL`，
+  `callee_name` 存目标函数名、`callee_decl` 存目标声明；`stop()` 仍是空操作。
+- **可达性**：`exec_lower_collect_called_decls_from_expr` 原本只认
+  `call_host_id == NONE` 的调用边，帧 `start` 的目标函数因此永远不进函数表
+  （现场报 `@frame 找不到目标函数(frame_method_child)`）。改成同时认
+  `FRAME_START`（带真实 `callee_decl` 的 hostcall）。
+- **VM**：`exec_vm_frame_start` 在同步模型下「立刻把子函数跑完」，把返回的
+  `Future<T>` 存回帧对象；`exec_vm_frame_poll` 取出其中的 `Poll<T>` 交回。
+  `Future<T>` 在 VM 里有两种承载形态（`Future` 结构体本身 / 接口装箱值
+  `[方法入口下标…, 数据]`），统一按「取最后一个元素，还是聚合就再取字段 0」收敛。
+
+**实测**：`test_async_frame_methods` 与 `test_std_mqtt_async` 从 FAIL 转 PASS，
+async 家族 96 例 **78 通过 / 18 失败**（上一轮 77/19，无回归）。
+`test_async_fd` 仍停在 `AsyncWaitFdFuture::poll` 的 `self.deadline_ms`
+（`LOAD_FIELD 字段越界(idx=2 kind=14 count=-1 pointee=16)`：`self` 是
+pointer-to-struct 但引用目标不是聚合，指向「双重间接」那一层）。

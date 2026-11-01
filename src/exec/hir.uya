@@ -98,6 +98,10 @@ enum ExecHostCallId {
     // 声明）：具体函数名放在 hostcall 站点的 `name` 里，VM 按名字分派。
     EXEC_HOST_CALL_LIBM1,
     EXEC_HOST_CALL_LIBM2,
+    // `@frame(fn)` 的 `start(...)` / `poll(&waker)`：VM 侧同步执行子函数并把
+    // 结果存回帧对象本身（见 `exec_vm_frame_start` / `exec_vm_frame_poll`）。
+    EXEC_HOST_CALL_FRAME_START,
+    EXEC_HOST_CALL_FRAME_POLL,
 }
 
 enum HIRStmtKind {
