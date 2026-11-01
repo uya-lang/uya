@@ -6642,3 +6642,56 @@ VM 侧需要一个能「按字节尺寸分配 + 结构体写入」的降级形�
 
 剩余 32 例的结构没变：async 状态机/事件循环/线程体 24 例、http/websocket 4 例、
 tls 3 例、kernel_sim 1 例、typed_pipeline 2 例 —— 都在既有模型级缺口清单里。
+
+### 第 436 轮：返回 / Pending 穿透的逃逸搬移落地；存储侧搬移证否（打点零命中，已回退）
+
+第 433 轮留下的两条候选路子里，这一轮把「返回处补搬移」走通了，「存储处搬移」证否。
+
+**1. 落地（`fb29eec2`）：`BC_RET` 与 `@await` Pending 穿透前搬走帧内引用**
+
+接口装箱的数据格默认是 `&局部`（别名语义：方法里的 `self.field = ...` 要写回原对象，
+所以不能一律改值拷贝）。但值一离开本帧，槽位就被后续调用清空 —— 第 433 轮的取证是
+`refaddr - frame = 616 = 11 × 56`，正好是 poll 自己这一帧的第 11 号槽。
+
+这一轮在两个**逃逸点**做搬移（`exec_vm_relocate_escaped_box`）：
+`BC_RET` 的返回值，以及 `@await` 命中 Pending 时的穿透返回
+（`exec_vm_await_pass_through_pending` 现在带 `program`/`frame.slots`/`slot_count`）。
+判定规则只看「数据格指向的地址是否落在本帧 `[base, base + slots)` 区间」：
+落在区间内就换成 `async_box_alloc_current` 堆块的副本（不可用时回退竞技场），
+指向调用方 / 全局的引用一律不动。
+
+实测：`test_async_fd` 的 `LOAD_FIELD 字段越界(count=-1)` **崩溃消失**；
+但它退化成 `read_count == 4 (actual: 0)` —— `af.read()` 走到 Pending 穿透时
+直接把 readiness future 返回给调用方，第二次 `poll` 只会返回 `Ready(0)`，
+`async_fd_read_deadline_future` 的 `while true` 循环体（真正的 `sys_read`）不会重跑。
+这不是搬移没做好，是**真状态机**缺口，与其余 24 例同源。
+
+**2. 证否：存储侧搬移（`STORE_GLOBAL` / `STORE_FIELD`）—— 打点零命中，已回退**
+
+第 433 轮推断「盒子是被塞进字段 / 全局 / 队列之后才被消费，所以 `BC_RET` 拦不到」。
+按这个推断加了 `exec_vm_relocate_store_escape`：目标不在本帧、且值里含指向本帧的
+引用时，先 `clone` 再递归改写。配套的只读筛选函数 `exec_vm_value_holds_frame_ref`
+（深度 ≤ 3）负责让普通标量存储保持零拷贝。
+
+结果：
+- 打点 `UYA_DBG_ESCAPE` 在 `test_async_task_queue_dynamic_growth`、
+  `test_async_frame_pool_full`、`test_http_websocket_json`、`test_async_state_machine`、
+  `test_interface_value_assign` 上**一次都没命中**。
+- 175 例 async / interface 子集（含全部 32 个失败例）按普查基线逐例 A/B：
+  **0 例回归、0 例新增通过**。
+
+原因很直接：返回处搬移落地之后，盒子到达存储点时**已经是堆副本**，
+存储路径上不再存在指向本帧的引用 —— 第 433 轮的推断在返回处搬移之后不再成立。
+代码已整段回退，不留死代码。
+
+**3. 全量数据（`UYA_EXEC_CENSUS_JOBS=4`，回到 `fb29eec2` 的构建）**
+- 全量普查：**909 例 / 通过 877 / 失败 32 / 跳过 5 / 通过率 96.5%**
+  —— 与第 435 轮**逐例一致**（失败集合 diff 为空）。
+- 175 例 async / interface 子集：按普查基线退出码比对，**0 例改变**。
+- 结论：这一轮的搬移是**正确性铺垫**（消掉一例崩溃），不是通过数收益；
+  剩下 32 例的瓶颈仍是 async 真状态机（24 例）、线程体 / 宿主回调蹦床（约 6 例）、
+  drop 语义（2 例）。
+
+**下一轮唯一还有意义的方向**：把 `@async_fn` 的 Pending 穿透从「返回内层 future」
+换成「可重入的续体」——也就是真正的状态机。其余方向（存储侧搬移、`BC_RET` 递归扫、
+`@frame` 字段实体化）都已在本轮或前几轮证否。
