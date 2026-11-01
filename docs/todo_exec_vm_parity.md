@@ -6517,3 +6517,33 @@ FFI/abi 1、kernel_sim 1、typed_pipeline 2。
 「物化成连续字节缓冲」只会把 `-15` 变成别的非法地址，仍然过不了校验；
 真修必须让 `Future` 装箱拿到**真实堆块**（即 `async_box_alloc_current` /
 `async_frame_pool` 那条状态机路线），这是既有的模型级缺口之一。
+
+### 第 431 轮：`Future` 装箱改堆（已尝试，未落地，已回退）
+
+思路来源：C99 后端给 `@async_fn` 返回值装箱时用的就是
+`std_async_box_alloc_current(sizeof(struct Future_xxx))`
+（`src/codegen/c99/function.uya:6186`、`stmt.uya:1380`），
+所以「把 VM 接口装箱的数据也放到带 16 字节头的堆块上」是对的方向。改了两处：
+
+1. `src/exec/lower.uya` 的 `@async_fn` 返回包装：
+   `boxed.left = future_expr`（聚合值）→ `HIR_EXPR_ADDR{left=future_expr, int_value=-1}`，
+   让 builder 走 `BC_BOX_VALUE` 拿稳定引用。
+2. `src/exec/vm.uya` 的 `BC_BOX_VALUE` 改调新的
+   `exec_vm_async_box_value_ref`：在值竞技场里多留 16 字节头
+   （`header[0] = 0`（alloc_ptr）、`header[1] = sizeof(ExecValue)`），
+   返回指向值本身的引用。
+
+结果：`test_http_uyagin` / `test_async_frame_pool_stats` 的崩溃点从
+`async_box_free_current` 前移到 `lib/libc/heap.uya:884` 的
+`try_tcache_free_fast`（`ADDR_FIELD 字段越界 kind=14`），`test_async_fd`
+仍在 `poll` 的 `LOAD_FIELD count=-1`，**没有任何用例转 PASS**，已整体回退。
+
+本轮踩到的两个 VM 侧硬坑（下次别再踩）：
+- `@ptr_from_usize(@usize_from_ptr(p) + 16)` 在 VM 里会把地址截成 **32 位**
+  （`0x7f827c753310` → `0x7c753320`，随后段错误）。要挪指针请用
+  `&p[16]` 这种下标写法，别走指针↔整数往返。
+- `test_async_fd` 的 `LOAD_FIELD count=-1` **不是**跨帧引用：`--trace-vm` 显示
+  `BC_ADDR_LOCAL b=11` 取的就是当前帧的局部槽，
+  但 `BC_STORE_LOCAL` 对聚合是「浅存」（存的是临时聚合的引用），
+  临时槽被后面的语句覆盖后，`exec_vm_ref_target_value` 拿到的就是 VOID。
+  要修得先解决聚合值的浅存/生命周期，而不是改引用编码。
