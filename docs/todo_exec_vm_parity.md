@@ -7255,3 +7255,51 @@ const r = (fail_transformer(__exec_pipe_in) catch { pipeline_drop(__exec_pipe_in
   + NEON + http_bench，失败 0）。
 
 两侧失败集合再次对齐：census 30 == parity 30。
+
+---
+
+## 第 448 轮：`test_typed_pipeline_capability` 的第二次尝试（仍回退）
+
+**1. 精确到语句**
+
+第 445 轮定位到 `lib/libc/heap.uya:1294`：
+
+```uya
+var head: &FreeChunk = cache.heads[bin_index] as &FreeChunk;
+if !is_null(head as &void) && get_size(&head.header) >= ...
+```
+
+`&head.header` 的基址被编成 `ADDR_LOCAL`（取**指针变量**的地址），
+正确应为 `LOAD_LOCAL`（取指针的值）。修法只在 builder 的 ADDR 路径：
+`HIR_EXPR_ADDR` 基址走 `compile_addressable_expr_slot`（保持引用语义），
+其余走指针感知的 `compile_object_base_slot`。
+
+**2. 三次组合的实测结果**
+
+| 组合 | capability | std_dns | pipeline_executor_single | http1_async_client |
+| --- | --- | --- | --- | --- |
+| 基线 | `LOAD_FIELD 越界` 崩 | 通过 | 通过 | 通过 |
+| 仅 builder | 仍崩（同处） | 通过 | 通过 | 通过 |
+| builder + VM「probe 为 null 或 VOID 就改判原生布局」 | 崩溃消失，退化为断言失败 | **回归** | **回归** | **回归** |
+| builder + VM「仅 probe 确为 VOID 才改判」 | 崩溃消失，退化为断言失败 | **回归**（无输出） | **回归** | **回归**（无输出） |
+| **全部回退** | 崩（基线） | 通过 | 通过 | 通过 |
+
+结论：让 `&head.header` 拿到正确基址是必要但不充分的；崩溃的直接原因在
+`BC_ADDR_FIELD` 的**基址判定**——`exec_vm_field_native_base` 把「地址落在
+VM 驻留区、内容其实是原生结构体」的块判成 VM 值返回 0，随后
+`exec_vm_field_ref` 命中旁路表里的陈旧登记，拿到 `void` 槽。
+任何「在这个位置改判原生布局」的启发式都会同时把正常的 VM 聚合带偏，
+`std_dns` / `pipeline_executor_single` / `http1_async_client` 随即回归。
+
+**3. 下一步的正解（记下来，别再从启发式下手）**
+
+要么让旁路表登记在块被释放/复用时失效（VM 不知道堆的 free，
+需要 allocator 侧回调），要么在 `ADDR_FIELD` 里改用「编译期字段 kind +
+基址对象是否已登记为 VM 聚合」两段式判定，而不是靠「探测结果是不是 void」。
+在此之前 `test_typed_pipeline_capability` 保持失败——它同时还有
+「stage 状态 / 错误传播」的语义断言差异（3 条），不是单点修复能收口的。
+
+**4. 本轮净状态**
+
+代码零改动（两次都回退），`879/909`（96.7%）、parity 不一致 30、
+`make check` 全绿的状态不变。
