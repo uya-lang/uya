@@ -6569,3 +6569,29 @@ FFI/abi 1、kernel_sim 1、typed_pipeline 2。
 
 两处实验都没有让任何用例转 PASS，已 `git checkout` 回退，
 `src/exec/vm.uya` 与已验证状态（parity 914/881/33、make check 1192/0）一致。
+
+### 第 433 轮：把「装箱数据」钉死在帧上这件事查到底（结论 + 一条死路）
+
+**证据链（这次是硬数据）**：给 `LOAD_FIELD` 越界错误补了
+`frame=%p refaddr=%zx top=%d` 之后，`test_async_fd` 报：
+`frame=0x7f71377e7630 refaddr=377e7898 top=110 fn=poll ip=7`。
+`refaddr - frame = 0x268 = 616 = 11 × 56`，即**引用正好指向 poll 自己这一帧的
+第 11 号槽**。也就是说：盒子里的数据引用是本帧槽位地址，而产出它的那一帧
+**已经被弹出并交还槽位栈**，poll 的新帧恰好落在同一段基址上、进门就把那格
+清成了 VOID。这不是「引用编码算错」，是**盒子活过了它的帧**。
+
+**试过但不成立的两条路（都回退）**：
+1. 在 `BC_RET` 处把「接口盒子数据指向槽位栈」的引用搬到堆单元
+   （`exec_vm_relocate_boxed_data`，含 union/error-union/array 递归）。
+   加打点确认**一次都没触发** —— 说明这些盒子的存活路径不是「函数返回」，
+   而是被塞进字段/全局/队列表之后才被消费，`BC_RET` 拦不到。
+2. 在 `exec_lower_box_interface_expr` 里把所有「结构体值 → 接口」的装箱数据
+   都改成 `BC_BOX_VALUE`（堆单元）。结果 `test_http1_async_client`
+   由 PASS 转 FAIL（`test_async_fd` 等仍 FAIL）——堆拷贝破坏了接口方法里
+   `self.field = ...` 对原对象的可见性，方向和 C99 的语义不一致，**这条路封死**。
+
+下一步该往「谁在存盒子」看：把 `Future` 放进 struct 字段 / 全局 / 队列的那几处
+（`async_frame` 的帧池、`Task` 队列）在**存储时**就把数据搬出槽位栈，
+而不是在返回时补；或者干脆让 `@async_fn` 的返回装箱先 `async_box_alloc_current`
+再拷结构体（C99 就是这么干的，见 `src/codegen/c99/function.uya:6186`），
+VM 侧需要一个能「按字节尺寸分配 + 结构体写入」的降级形态。
