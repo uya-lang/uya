@@ -6848,3 +6848,17 @@ future **原样返回**（`exec_vm_await_pass_through_pending`），异步函数
 `test_async_compute_generic_wrapper` 要真实 worker 线程池 + event loop
 （模型级墙，VM 里无真并发）；`test_async_frame_pool_full` 要求「帧池耗尽返回错误」，
 与 VM 的槽位池实现不兼容。
+
+## 第 440 轮：`@await` 转发上游 waker
+
+续体表能跑之后 `test_async_fd` 只剩一处失败：`wk.has_io_interest()` 恒为 0。
+原因是 `@await` 给下层 `poll` 传的是**新建的空 waker**，leaf future 的 IO 兴趣
+注册在那个空 waker 上，调用方手里的 waker 永远看不到（取消标记同理）。
+
+修法：`exec_vm_cont_poll` 把本次 poll 的 waker（`args[1]`）记进
+`g_exec_vm_await_waker_{addr,kind}`，`exec_vm_await_poll_once` 用
+`exec_vm_await_make_waker()` 取它往下传；只有没有上游 waker（非续体路径）才新建。
+进出 `run_frame` 前后保存/恢复，嵌套 await 各层互不覆盖。
+
+效果：`test_async_fd`（含 `async_fd_read_with_event_loop_wakes`、
+`nonblocking_helpers`、`leaf_futures_return_cancelled`）整例转通过。
