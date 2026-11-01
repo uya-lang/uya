@@ -6547,3 +6547,25 @@ FFI/abi 1、kernel_sim 1、typed_pipeline 2。
   但 `BC_STORE_LOCAL` 对聚合是「浅存」（存的是临时聚合的引用），
   临时槽被后面的语句覆盖后，`exec_vm_ref_target_value` 拿到的就是 VOID。
   要修得先解决聚合值的浅存/生命周期，而不是改引用编码。
+
+### 第 432 轮：`@await` 忙等轮询的取证（两处实验，均无收益，已回退）
+
+给 `exec_vm_await_poll_interface`（`src/exec/vm.uya:1143`）加了临时打点，
+结论比上一轮更明确，值得下一轮直接从这儿接手：
+
+- `exec_vm_await_poll_interface` 里 `args[0] = aggregate.values[count-1]`
+  取到的 `self` 在**进入 poll 之前是好的**（打点显示 `tgtkind=16` STRUCT），
+  但一进 `AsyncWaitFdFuture::poll` 就变成 `tgtkind=0` VOID —— 也就是说
+  **槽位内存在嵌套 `exec_vm_call_function` 期间被清掉了**。
+- 把 `self` 先 `exec_value_clone` 到一个 `exec_value_alloc_bytes` 的**堆单元**
+  再传进去：ip=7 的 `LOAD_FIELD(idx=2)` 崩溃消失，但同一个 poll 到 ip=114
+  又报同样的 `tgtkind=0`。值竞技场只增不减（`value.uya:433` 只在初始化时
+  清零一次），所以不是竞技场被重置，更像是**引用本身**在深调用里被重写。
+- 已核对 `exec_vm_slot_pool_reserve`（`vm.uya:150`）：它只在 `top == 0` 时换块，
+  有活跃帧时直接返回 -1，理论上不会让 `ExecFrame.slots` 悬挂 —— 所以
+  「池扩容搬移」这条假设可以排除，下一轮请从
+  `exec_vm_run_frame` 里那次 `frame.slots[si] = exec_make_void()` 的
+  清槽循环（`vm.uya:8184`）和参数拷贝顺序入手。
+
+两处实验都没有让任何用例转 PASS，已 `git checkout` 回退，
+`src/exec/vm.uya` 与已验证状态（parity 914/881/33、make check 1192/0）一致。
