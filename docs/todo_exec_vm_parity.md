@@ -2126,7 +2126,10 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       （pthread/堆/OSAL 约 10 例，同步 VM 无并发语义）、`@c_import`（3 例）、
       `cleanup scope 嵌套过深`（8 例，第 343 轮已定位根因但修复方案三次证否）
       与超长函数（`bytecode 指令超出上限`）；这些不是「再来几轮」能收口的量级。
-- [ ] `make exec-parity` 全绿（第 410 轮复测 **914 例 / 一致 876 / 不一致 38**；
+- [ ] `make exec-parity` 全绿（第 426 轮复测 **914 例 / 一致 879 / 不一致 35**；
+      第 425 轮为 914/872/42，第 426 轮的 `@frame` 同步帧 + 合成 Waker VOID 字段
+      实体化 + libc 前缀常量合计让 7 例转一致；
+      第 410 轮复测 **914 例 / 一致 876 / 不一致 38**；
       第 408 轮收尾时是 913 例（跳过 1）/ 一致 865 / 不一致 48。
       408 轮把 `test_std_script_pipeline_facade`、`test_typed_pipeline_executor_single`、
       `test_syscall_process`、`test_tflm_interpreter`、`test_tflm_phase2`、
@@ -6352,3 +6355,14 @@ async 家族 96 例 **78 通过 / 18 失败**（上一轮 77/19，无回归）�
 `test_async_fd` 仍停在 `AsyncWaitFdFuture::poll` 的 `self.deadline_ms`
 （`LOAD_FIELD 字段越界(idx=2 kind=14 count=-1 pointee=16)`：`self` 是
 pointer-to-struct 但引用目标不是聚合，指向「双重间接」那一层）。
+
+### 第 426 轮收口数据（全量实测）
+
+- `make check`：**1192 个测试 / 通过 1192 / 失败 0**（rc=0，含自举与 microapp）。
+- `make exec-parity`：**914 例 / 一致 879 / 不一致 35**（第 410 轮为 876/38，
+  第 425 轮为 872/42）。
+- 全量 VM 普查：**909 例 / 通过 872 / 失败 37（95.9%）**（本轮普查中途重建过
+  `bin/uya`，夹具口径略有混杂；`test_async_frame_methods` 那一条是重建前的旧结果）。
+- 不一致 35 例的构成：async 家族 16（其中 6 例是 >120s 事件循环等待）、
+  http/websocket 4、pthread/thread 7、tls 4、FFI/abi 1、kernel_sim 1、
+  typed_pipeline 2（含 `test_async_frame_pool_stats` 的悬垂 allocator 引用）。
