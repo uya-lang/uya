@@ -4918,6 +4918,15 @@ fn exec_vm_frame_poll(function: &BCFunction, frame: &ExecFrame, arg_base: i32, a
     const future_agg: &ExecAggregate = exec_value_as_aggregate(future_cell);
     if future_agg != null && future_agg.values != null && future_agg.count >= 1 {
         var candidate: ExecValue = future_agg.values[future_agg.count - 1];
+        // 装箱数据现在可能是「指向堆块的引用」（`BC_BOX_VALUE` 之后，
+        // 与 C99 的 `std_async_box_alloc_current` 一致），先解一层引用。
+        if candidate.kind == ExecValueKind.EXEC_VALUE_POINTER &&
+            exec_vm_pointer_is_internal_ref(&candidate) != 0 {
+            const ref_cell: &ExecValue = exec_vm_ref_target_value(&candidate);
+            if ref_cell != null && ref_cell.kind != ExecValueKind.EXEC_VALUE_VOID {
+                candidate = ref_cell[0];
+            }
+        }
         if candidate.kind != ExecValueKind.EXEC_VALUE_UNION {
             const inner_agg: &ExecAggregate = exec_value_as_aggregate(&candidate);
             if inner_agg != null && inner_agg.values != null && inner_agg.count >= 1 {
