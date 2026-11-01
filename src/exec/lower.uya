@@ -60,6 +60,9 @@ struct ExecLowerContext {
     keep_scope_block: &ASTNode,
     // 上一次 exec_lower_make_block_prefix 是否留下了未弹出的作用域。
     catch_prefix_scope_open: i32,
+    // 非 0 表示当前正在降级 `return` 的返回值：接口装箱的数据必须搬到堆单元，
+    // 否则 `&局部` 会随着本帧弹出而失效（见 box_interface_expr 的注释）。
+    heap_box_interface_data: i32,
 }
 
 /// 取 `exec_lower_type_slot(ctx, 0, idx, EXEC_MAX_LOCALS)[0]` / `local_types` / `global_types` 的槽位地址，
@@ -3610,6 +3613,17 @@ fn exec_lower_box_interface_expr(ctx: &ExecLowerContext, expr: &ASTNode, interfa
         source_expr = exec_lower_expr(ctx, expr);
     } else {
         source_expr = exec_lower_make_ref_expr(ctx, expr);
+        // `return` 的返回值里，接口装箱数据不能是「指向本帧槽位」的引用：
+        // 帧一弹出，槽位就被下个调用清成 VOID，调用方读到的字段全是空
+        // （`test_async_fd` 的 `LOAD_FIELD count=-1`）。只在 return 语境下
+        // 改成堆单元（`int_value = -1` → BC_BOX_VALUE），其它语境保持别名语义，
+        // 否则方法里的 `self.field = ...` 写不到原对象
+        // （`test_http1_async_client` 曾因此回归）。
+        if ctx.heap_box_interface_data != 0 && source_expr != null &&
+            source_expr.local_slot >= 0 && source_expr.local_slot < EXEC_MAX_LOCALS {
+            source_expr.local_slot = -1;
+            source_expr.int_value = -1;
+        }
     }
     if source_expr == null {
         source_expr = exec_lower_expr(ctx, expr);
@@ -10714,7 +10728,9 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
                         return_type.struct_type_args != null {
                         coerce_target = copy_type(&return_type.struct_type_args[0]);
                     }
+                    ctx.heap_box_interface_data = 1;
                     var return_value: &HIRExpr = exec_lower_coerce_expr(ctx, stmt_node.return_stmt_expr, &coerce_target);
+                    ctx.heap_box_interface_data = 0;
                     if return_value == null {
                         exec_lower_pop_scope(ctx);
                         return null;
