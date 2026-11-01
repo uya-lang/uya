@@ -6385,3 +6385,29 @@ VM 侧：`user pthread_create` 已经是「同步执行线程体」，但 **work
 `ref=1 aux=65552`（`EXEC_VM_REF_KIND_BASE + TYPE_STRUCT`）：`self` 是合法内部引用，
 但引用目标既不是聚合、也不是「指向聚合的引用」，而是第三种形态（帧对象里的
 `Future` 装箱指针），属于同一族的双重间接问题。
+
+### 第 427 轮：`pthread_getaffinity_np` / `pthread_setaffinity_np` 放行到 VM
+
+`exec_lower_extern_can_run_in_vm` 原先对**所有** `pthread_*` 一律返回 0
+（「同步 VM 没有真线程语义，Uya 实现体跑出来的返回值没有意义」），
+于是 `pthread_getaffinity_np` / `pthread_setaffinity_np` 被降级成零值桩，
+恒返回 0 —— 而它们内部的第一句就是
+`if cpusetsize < @size_of(cpu_set_t) { return 22; }`，
+桩把「size==0 / thread==null 应返回 EINVAL」这条契约整个抹掉了，
+`test_pthread_affinity` 因此 FAIL（实测 `rc=4`，即
+`pthread_getaffinity_np(&th, 0, &set) == 22` 这一条）。
+
+新增 `exec_lower_pthread_body_runs_in_vm`：这两个入口只是
+「参数校验 + `sched_*affinity` syscall 包装」，不含 clone/futex，放行执行实现体。
+`pthread_yield` **刻意不放行**：`while true { pthread_testcancel(); yield(); }`
+这类线程体一旦真打 `sched_yield`，20M 指令预算就换成了墙钟时间，
+`test_pthread_api_cancel` 的取消时序随之被破坏（实测该用例由 PASS 转 FAIL，
+收回后恢复）。
+
+**实测**：`test_pthread_affinity` FAIL → PASS；pthread / osal / signal / syscall
+四个家族 28 例零回归。全量 VM 普查 **909 例 / 通过 875 / 失败 34（96.3%）**
+（第 426 轮为 872/37/95.9%）。
+
+剩余 34 例的构成不变：async 状态机与事件循环 19（其中 6 例 >120s）、
+http/websocket 5、tls 4、pthread 堆并发 2（VM 进程 SIGSEGV）、
+FFI/abi 1、kernel_sim 1、typed_pipeline 2。
