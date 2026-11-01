@@ -6733,3 +6733,63 @@ tls 3 例、kernel_sim 1 例、typed_pipeline 2 例 —— 都在既有模型级
 
 **当前结论**：32 例失败里，24 例是 async 真状态机，其余是线程体/回调蹦床与 drop 语义。
 本轮之后 VM 侧不再有已知的「字段地址解析」类缺陷。
+
+### 第 438 轮：async 真状态机 —— 可落地设计稿（下一步的唯一主线）
+
+前几轮把「逃逸搬移」「存储搬移」「`@frame` 字段实体化」「字段地址解析」逐条走完
+或证否，剩下 24 例全部压在同一件事上：`@await` 命中 Pending 时，VM 现在只能把内层
+future **原样返回**（`exec_vm_await_pass_through_pending`），异步函数体不会续跑。
+这一轮把「怎么真做」查通了，记录成可直接实施的设计稿。
+
+**1. 已有机制（可行性依据）**
+- 接口方法分派走 `BC_CALL_INDIRECT`，被调入口下标来自 `slot_b.i64_value`
+  （装箱布局 `[方法入口下标…, 数据]` 的第 0 格）。分派本身不校验下标来源，
+  所以**保留负下标**就能挂到 VM 侧的续体处理，不需要伪造 `BCFunction`。
+- `ExecFrame` 只有 5 个字段：`function` / `ip` / `slots` / `varargs` / `vararg_count`
+  （`src/exec/frame.uya`）。要快照的状态就是「ip + 整段 slots + varargs」，
+  没有隐藏的运行时作用域栈。
+- 槽位栈是共享池（`exec_vm_slot_pool_push/pop`），帧弹出后槽位会被复用 ——
+  这正是 `test_async_fd` 之前崩溃的根因，也是快照必须深拷贝的原因。
+
+**2. 语义要点（这次的关键发现）**
+`test_async_state_machine` 这类用例里，`flip_pending()` 是普通函数，靠全局计数
+决定这次返回 Ready 还是 Pending，测试期望的是：
+
+| poll | 期望 |
+| --- | --- |
+| 1 | Pending（第一次 `flip_pending` 给 Pending）|
+| 2 | Pending（重跑第一个 await 得 Ready(7)，推进到第二个 await 又 Pending）|
+| 3 | Pending |
+| 4 | Ready(21) |
+
+也就是说，C99 后端的状态机是**每次 poll 重跑一段**，`@await expr` 的 `expr`
+在每一遍里**重新求值**。所以 VM 侧不能「重 poll 已保存的 future 值」
+（`flip_pending` 返回的是新对象，旧的永远 Pending），必须
+**恢复 ip 到 await 操作数的求值起点、重新执行那段表达式**。
+
+**3. 实施步骤**
+1. **builder**：`BC_AWAIT` 的 `imm` 现在是空的，用来记录「操作数求值的第一条指令下标」
+   （编译 `expr.left` 之前先取 `ctx.instrs.count`）。
+2. **VM 续体表**：`g_exec_vm_cont_{fn,ip,dest,slot_count,slots,used}[]`，
+   `slots` 是 `slot_count × sizeof(ExecValue)` 的深拷贝（含 varargs）。
+3. **`BC_AWAIT` 命中 Pending**：分配/复用续体下标 `h`，快照当前帧，
+   返回接口值 `[EXEC_VM_CONT_POLL_INDEX, EXEC_VM_CONT_RELEASE_INDEX, h]`，
+   `exec_vm_run_frame` 返回 1（挂起）而不是 -1（错误）。
+4. **`exec_vm_call_function` 入口拦截**：`function_index <= EXEC_VM_CONT_BASE`
+   时转续体处理（这样 `BC_CALL_INDIRECT` 与 `exec_vm_await_poll_interface`
+   两个调用点都自动覆盖）。
+5. **续体 poll**：取回快照 → `slot_pool_push(slot_count)` → 按偏移把引用
+   从快照重映射回新槽段 → `ip = 保存的 imm`（重跑 await 操作数）→ 跑帧：
+   - 返回 0：得到值 → 回 `Poll.Ready(值)`；
+   - 返回 1：又挂起 → 覆盖同一 `h` 的快照 → 回 `Poll.Pending`。
+6. **引用重映射**：复用 `exec_vm_relocate_refs_out_of_frame` 的递归骨架，
+   加一个「按偏移表重映射」的变体（进快照时 帧槽 → 快照槽；恢复时反向）。
+
+**4. 风险与验收顺序**
+- 只在**命中 Pending** 时才进入新路径，Ready-only 的用例完全不受影响
+  （877 个通过的用例里绝大多数属于这一类）。
+- 先用 `test_async_state_machine`（纯计数、无 I/O）验收，再放到
+  `test_async_compound_try_await`、`test_async_macro_expand`，
+  最后才是 fd/websocket 这类带 I/O 的。
+- `CALL` / `CALL_INDIRECT` 要把「返回 1 = 挂起」与「-1 = 错误」区分开：
+  挂起时把续体值当普通返回值写回目的槽，调用方继续跑。
