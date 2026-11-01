@@ -7360,3 +7360,23 @@ parity 同集合：**913 例（跳过 5）/ 不一致 30**。下面是 30 例的
   其余 6 例各有精确归因但都不便宜；
 - 因此 T11 的「`uya test --vm` 全量通过」在只做单点修复的前提下**不可能达成**，
   当前的 879/909（96.7%）就是这条路的终点。
+
+---
+
+## 第 450 轮：跳过表复验（无过时项）
+
+`tests/exec_vm_census_skip.txt` 里 7 条逐条复跑：
+
+| 用例 | 实测 | 结论 |
+| --- | --- | --- |
+| test_simple_cast | `--vm` 下 rc=1，**没有任何 TEST 输出**（exec backend 已构建后直接退出） | 理由成立：C99 侧链接不到 `proc` |
+| test_pointer_cast | 同上（`process_data`） | 成立 |
+| test_comprehensive_cast | 同上（`pt`/`tn`） | 成立 |
+| test_abi_calling_convention | 同上（`c_small_struct_param`） | 成立，已同时登记进 parity 跳过表（第 443 轮） |
+| test_exec_vm_c_import_unsupported / global_init_fail / extern_decl_varargs_unsupported | 负向用例，断言 exec 必须拒绝 | 成立（不应计入通过率） |
+
+注意：这 3 个 cast 用例在 `make exec-parity` 里显示 `OK` 并不是「VM 能跑」，
+而是**两侧都以 rc=1 退出**（C99 侧 undefined reference），差分一致。口径容易被误读，
+记在这里。
+
+第 449 轮的 30 例归因仍然成立：本轮没有再发现可单点修复的项。
