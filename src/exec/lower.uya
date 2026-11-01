@@ -4216,8 +4216,12 @@ fn exec_lower_wrap_async_return(ctx: &ExecLowerContext, ast_node: &ASTNode, valu
     if needs_box == 0 {
         return future_expr;
     }
-    // 装箱：接口值 = [方法入口下标…, 数据指针]。数据用结构体值本身，
-    // 方法里的 `self` 由 VM 的字段访问自动解引用。
+    // 装箱：接口值 = [方法入口下标…, 数据指针]。数据必须放在**堆单元**里
+    // （`int_value = -1` → builder 走 `BC_BOX_VALUE`）：用结构体值本身的话，
+    // `self as &byte` 拿到的是聚合的 `i64_value`（=1），
+    // `async_box_free_current` 就会算出 `ptr-16 = -15` 被地址校验拦下；
+    // 而 C99 后端给 `@async_fn` 返回值装箱时用的也是分配器堆块
+    // （`src/codegen/c99/function.uya:6186`），这里与它对齐。
     var dispatch_buf: [&ASTNode: EXEC_MAX_INTERFACE_METHODS] = [];
     var dispatch_count: i32 = 0;
     if exec_lower_collect_interface_dispatch_decls(ctx, &interface_type, &declared,
@@ -4238,7 +4242,13 @@ fn exec_lower_wrap_async_return(ctx: &ExecLowerContext, ast_node: &ASTNode, valu
     if boxed == null {
         return value;
     }
-    boxed.left = future_expr;
+    const data_ref: &HIRExpr = exec_lower_make_addr_expr(ctx, ast_node, &declared);
+    if data_ref == null {
+        return value;
+    }
+    data_ref.left = future_expr;
+    data_ref.int_value = -1;
+    boxed.left = data_ref;
     boxed.dispatch_decls = dispatch_decls;
     boxed.dispatch_decl_count = dispatch_count;
     return boxed;

@@ -6595,3 +6595,31 @@ FFI/abi 1、kernel_sim 1、typed_pipeline 2。
 而不是在返回时补；或者干脆让 `@async_fn` 的返回装箱先 `async_box_alloc_current`
 再拷结构体（C99 就是这么干的，见 `src/codegen/c99/function.uya:6186`），
 VM 侧需要一个能「按字节尺寸分配 + 结构体写入」的降级形态。
+
+### 第 434 轮：`BC_BOX_VALUE` 改走解释执行的异步分配器 —— `test_async_frame_pool_stats` 转 PASS
+
+上一轮把根因钉死在「接口装箱的数据引用活不过它的帧」。这一轮换了正确的接法：
+
+**改动**（`src/exec/vm.uya` + `src/exec/lower.uya`）
+1. 新增 `exec_vm_box_value_ref_via_allocator`：`BC_BOX_VALUE` 不再直接从值竞技场切
+   一块 56 字节，而是先用 `exec_vm_find_function_index_by_name` 找到**解释执行侧**的
+   `async_box_alloc_current`，`exec_vm_call_function` 过去要一块 `sizeof(ExecValue)`，
+   再把聚合值按字节 `memcpy` 进去、登记到 boxed 表、返回指向块内的内部引用。
+   分配器写头/记账/释放语义全由库自己负责，VM 不再伪造头部 —— 这正是 C99 后端
+   `std_async_box_alloc_current(sizeof(struct Future_xxx))` 的同构做法。
+   程序里没有这个函数（非 async 用例）或分配失败时，回退原来的竞技场装箱。
+   加了 `g_exec_vm_box_alloc_active` 重入保护：分配器自己若用到 `BC_BOX_VALUE`，
+   直接回退，不会无限递归。
+2. `@async_fn` 返回包装的接口数据从「结构体值」改成
+   `HIR_EXPR_ADDR{left=future_expr, int_value=-1}`，让 builder 走 `BC_BOX_VALUE`。
+   这样 `Future.release` 里的 `self as &byte` 拿到的是真实堆块地址，
+   `async_box_free_current` 能按 16 字节头正常释放。
+
+**实测（全量普查，`UYA_EXEC_CENSUS_JOBS=4`）**
+- `test_async_frame_pool_stats` 由 FAIL 转 **PASS**。
+- 全量：**909 例 / 通过 876 / 失败 33 / 通过率 96.4%**（上一轮 875/34 = 96.3%），
+  无新增失败。
+- `test_http_uyagin` 的崩溃点从 `async_box_free_current` 前移到
+  `lib/libc/heap.uya:884` 的 `try_tcache_free_fast`（另一个既有 VM 缺陷：
+  经 tcache 结构体指针做 `ADDR_FIELD` 时基值不是可解析聚合），
+  留作下一轮的独立切口。

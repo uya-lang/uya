@@ -127,6 +127,13 @@ var g_exec_vm_slot_pool: &ExecValue = null;
 var g_exec_vm_slot_pool_capacity: i32 = 0;
 var g_exec_vm_slot_top: i32 = 0;
 
+/// `async_box_alloc_current` 在可达函数表里的下标缓存：-2 表示「还没找过」，
+/// -1 表示「这个程序里没有」。
+var g_exec_vm_box_alloc_fn_index: i32 = -2;
+/// 重入保护：`async_box_alloc_current` 自己要是也用到 `BC_BOX_VALUE`，
+/// 就直接回退到竞技场装箱，别在分配器里再调一次分配器。
+var g_exec_vm_box_alloc_active: i32 = 0;
+
 const EXEC_VM_SLOT_POOL_INITIAL: i32 = 8192;
 // 池的容量上限。`ExecValue` 是 56 字节，所以槽数直接决定内存：`1 << 18`
 //（26 万槽 ≈ 14.7MB）已经比任何真实调用链都宽裕得多。不要往上调 ——
@@ -1848,6 +1855,48 @@ fn exec_vm_ref_target_value(value: &ExecValue) &ExecValue {
 fn exec_vm_index_ref_element_addr(base: &ExecValue, index_value: i64) usize {
     const base_addr: usize = base.i64_value as usize;
     return base_addr + (@size_of(ExecValue) as usize) * (index_value as usize);
+}
+
+/// `BC_BOX_VALUE` 的「走解释执行的异步分配器」版本。
+///
+/// 为什么不用值竞技场：接口装箱的数据要能被 `Future.release` 里的
+/// `async_box_free_current` 释放，而竞技场块不能单独释放（释放它会把宿主堆写坏，
+/// 见 `test_typed_pipeline_capability` 的 tcache 崩溃）。C99 后端给这类盒子分配的
+/// 就是 `std_async_box_alloc_current`（`src/codegen/c99/function.uya:6186`），
+/// 所以这里也把分配动作**转成一次对解释执行侧同名函数的调用**：由它写头、
+/// 记账、返回 `&byte`，VM 只负责把聚合值按字节拷进去。
+///
+/// 参数：`program` 正在运行的程序；`value` 要装箱的值；`pointee_kind` 指针类型码。
+/// 返回值：指向堆块内值的内部引用；分配器不可用/失败时返回 null（调用方回退）。
+fn exec_vm_box_value_ref_via_allocator(program: &BCProgram, value: ExecValue, pointee_kind: i32) ExecValue {
+    if program == null {
+        return exec_make_void();
+    }
+    if g_exec_vm_box_alloc_fn_index == -2 {
+        g_exec_vm_box_alloc_fn_index = exec_vm_find_function_index_by_name(program,
+            "async_box_alloc_current" as &byte);
+    }
+    if g_exec_vm_box_alloc_fn_index < 0 || g_exec_vm_box_alloc_active != 0 {
+        return exec_make_void();
+    }
+    var box_args: [ExecValue: 1] = [];
+    box_args[0] = exec_make_usize(@size_of(ExecValue) as usize);
+    var box_ret: ExecValue = exec_make_void();
+    g_exec_vm_box_alloc_active = 1;
+    const box_call_rc: i32 = exec_vm_call_function(program, g_exec_vm_box_alloc_fn_index,
+        &box_args[0], 1, 0, &box_ret);
+    g_exec_vm_box_alloc_active = 0;
+    if box_call_rc != 0 {
+        return exec_make_void();
+    }
+    if exec_value_is_pointer_like(box_ret) == 0 || box_ret.ptr_value == null {
+        return exec_make_void();
+    }
+    const box_dst: &ExecValue = box_ret.ptr_value as &ExecValue;
+    var box_copy: ExecValue = exec_value_clone(&value);
+    _ = memcpy(box_dst as *byte, &box_copy as *byte, @size_of(ExecValue) as usize);
+    exec_value_register_boxed(@usize_from_ptr(box_dst as &void));
+    return exec_vm_make_value_ref(box_dst, pointee_kind);
 }
 
 fn exec_vm_box_value_ref(value: ExecValue, pointee_kind: i32) ExecValue {
@@ -6594,7 +6643,13 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, "exec: BOX_VALUE 槽位越界" as *byte, 0);
             return -1;
         }
-        slot_a[0] = exec_vm_box_value_ref(slot_b[0], instr.c);
+        const boxed_by_alloc: ExecValue = exec_vm_box_value_ref_via_allocator(program, slot_b[0], instr.c);
+        if boxed_by_alloc.kind == ExecValueKind.EXEC_VALUE_POINTER &&
+            exec_vm_pointer_address(&boxed_by_alloc) != 0 as usize {
+            slot_a[0] = boxed_by_alloc;
+        } else {
+            slot_a[0] = exec_vm_box_value_ref(slot_b[0], instr.c);
+        }
     } else if (instr.opcode == BCOpcode.BC_ADD || instr.opcode == BCOpcode.BC_SUB ||
         instr.opcode == BCOpcode.BC_MUL || instr.opcode == BCOpcode.BC_DIV ||
         instr.opcode == BCOpcode.BC_REM || instr.opcode == BCOpcode.BC_BIT_AND ||
