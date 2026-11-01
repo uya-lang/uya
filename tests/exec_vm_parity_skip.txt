@@ -6,3 +6,6 @@
 # 且跳过会同时影响差分两侧，不会掩盖 exec VM 的缺口。
 #
 # 目标终态：本表应保持最小；exec VM 自身的未实现不能写在这里。
+# 链接期缺符号：用例 `@c_import` 的 C 实现不在本仓库里，
+# C99 / VM 两侧都编不出可执行文件（census 侧同样跳过）。不是 exec VM 的缺口。
+test_abi_calling_convention.uya

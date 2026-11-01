@@ -6997,3 +6997,34 @@ VM 的槽位池是共享池、不按用例预算，语义不同源。
 
 `make check` 通过（自举 + 测试 + 证明优化 + 默认顶层函数发射 + SIMD select C
 + 切片形参 C99 + `@syscall` C99 + SIMD NEON + http_bench C99，失败 0）。
+
+---
+
+## 第 443 轮：两侧门禁对齐（parity 跳过表 + 计数收敛）
+
+**1. `make exec-parity` 现状**
+
+914 个用例，**STATUS_MISMATCH = 31**（回退前 32）。
+
+其中 `test_abi_calling_convention.uya` 的两侧根本不是同一件事：
+它的 `@c_import` 的 C 实现不在仓库里，`--vm` 侧走到链接就退出 121，
+census 侧早就把它放进 `tests/exec_vm_census_skip.txt` 了。
+已按 `tests/exec_vm_parity_skip.txt` 头部的纪律（只登记「C99 侧也无法在本机跑」
+的用例）登记进去，理由写在文件注释里。32 → 31。
+
+**2. 计数收敛**
+
+- census：`test_tls_x25519_pure` 放宽到 900s 后转通过 →
+  **909 例 / 通过 878 / 失败 31**（96.6%）；
+- parity：**914 例（跳过 5）/ 不一致 31**。
+
+两个门禁的失败集合现在是**同一批 31 个用例**，不再有「一边过一边挂」的口径差。
+这 31 个的分类见第 442 轮：13 个是模型墙（无真并发/事件循环）、
+2 个是明确的语义缺口（pipeline 错误路径 drop、`&裸结构体字段` 地址模型）、
+2 个是纯性能墙（ecdsa 838s 失败 / rsa >900s），其余是同类线程池/调度器用例。
+
+**3. 仍未绿的项（逐条对应 docs 顶部 checklist）**
+
+- `uya test --vm` 全量通过：31 个用例待处理，主体是模型墙；
+- `make exec-parity` 全绿：同一批 31 个；
+- 合并 main：等前两项。
