@@ -1244,6 +1244,24 @@ fn exec_lower_host_call_overrides_body(fn_decl: &ASTNode, host_call_id: ExecHost
     return exec_lower_extern_prefers_host_call(fn_decl);
 }
 
+/// 判断某个 `pthread_*` 的 Uya 实现体在同步 VM 里是否有意义。
+///
+/// 绝大多数 `pthread_*` 靠 clone/futex 实现，同步 VM 跑出来的返回值没有意义，
+/// 一律交给宿主桥或零值桩。少数几个只是「参数校验 + sched_* syscall 包装」，
+/// 执行实现体反而是唯一能得到正确错误码（比如 size 为 0 时的 EINVAL）的途径。
+/// 参数说明：`name` 函数名。
+/// 返回值说明：1 表示实现体可以在 VM 里执行；0 表示按宿主桥/零值桩处理。
+fn exec_lower_pthread_body_runs_in_vm(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if str_equals(name, "pthread_getaffinity_np" as &byte) != 0 ||
+        str_equals(name, "pthread_setaffinity_np" as &byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn exec_lower_extern_can_run_in_vm(checker: &TypeChecker, fn_decl: &ASTNode) i32 {
     if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
         return 0;
@@ -1255,7 +1273,8 @@ fn exec_lower_extern_can_run_in_vm(checker: &TypeChecker, fn_decl: &ASTNode) i32
     // 在解释器里跑出来的返回值没有意义，一律按「VM 不能执行」处理，
     // 能对上宿主桥的（`pthread_sigmask` 一类）仍然走宿主实现，其余退化成零值桩。
     if fn_decl.fn_decl_name != null &&
-        exec_lower_name_has_prefix(fn_decl.fn_decl_name, "pthread_" as &byte) != 0 {
+        exec_lower_name_has_prefix(fn_decl.fn_decl_name, "pthread_" as &byte) != 0 &&
+        exec_lower_pthread_body_runs_in_vm(fn_decl.fn_decl_name) == 0 {
         return 0;
     }
     if fn_decl.fn_decl_body == null {
