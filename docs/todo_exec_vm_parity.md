@@ -7084,3 +7084,57 @@ fn=get_size ip=1 op=BC_LOAD_FIELD(40) a=2 b=1 c=8 imm=0x8_0000_0001  --> 字段�
 要么这条路径本应走「原生基址 + 编译期偏移」而没有走到。
 下一轮从 `malloc` 的 ip=35..45 对应的 Uya 源码（`lib/libc/heap.uya` 里
 `&chunk.header` 那一段）入手，比继续在 VM 侧加兜底更靠得住。
+
+---
+
+## 第 445 轮：`&ptr.field` 基址取值的定位与回归（代码已回退）
+
+**1. 定位到具体源码**
+
+第 444 轮的现场（`malloc` ip=42/43）对应 `lib/libc/heap.uya:1294`：
+
+```uya
+var head: &FreeChunk = cache.heads[bin_index] as &FreeChunk;
+if !is_null(head as &void) && get_size(&head.header) >= ...
+```
+
+`head` 是**指针**，`&head.header` 的正确基址是「指针的值（目标地址）」。
+但 trace 显示编出来是：
+
+```
+ip=42 BC_ADDR_LOCAL a=25 b=4       <-- 取了指针变量的地址
+ip=43 BC_ADDR_FIELD a=24 b=25
+```
+
+即基址取了 `head` 这个**局部槽的地址**，于是 `ADDR_FIELD` 把「指向指针的槽」
+当成结构体，经旁路表解出的字段槽是 `void`，`get_size` 再 `LOAD_FIELD` 就越界。
+
+根因在 `src/exec/builder.uya`：`&x.field`（`HIR_EXPR_ADDR` 带字段下标这条路径，
+约 2149 行）用的是 `exec_builder_compile_addressable_expr_slot`，
+而同文件另一处 `HIR_EXPR_FIELD`（约 1681 行）用的是**指针感知**的
+`exec_builder_compile_object_base_slot`（POINTER 基址走 `compile_expr` 取指针值）。
+
+**2. 实验与结果（两处改动均已 `git checkout --` 回退）**
+
+| 改动 | `test_typed_pipeline_capability` | `test_http1_async_client` |
+| --- | --- | --- |
+| 基线 | `LOAD_FIELD 字段越界` 崩溃 | 通过 |
+| ① 基址改用 `compile_object_base_slot` | trace 变成 `LOAD_LOCAL`+`ADDR_FIELD`，**崩溃消失**，退化为 3 条断言失败 | **回归失败**（`listen:bind` 失败，rc=98） |
+| ② + `ADDR_FIELD` 对裸指针优先原生布局 | 同上 | 同上（回归由 ① 引起，② 不是原因） |
+
+② 换来的另一个发现：基址是裸指针时 `exec_vm_field_native_base` 会把
+「地址落在 VM 驻留区、内容其实是原生结构体」的块判成 VM 值返回 0，
+此时 `exec_vm_field_ref` 会命中旁路表里的**陈旧登记**，解出 `void` 字段槽。
+正确优先级应是「strict → relaxed 原生布局 → 旁路表」，但要加的前提是
+基址确实是原生布局的指针，不能只看 `slot_b.kind`。
+
+**3. 为什么 ① 会弄坏 socket**
+
+`exec_builder_effective_kind_code(&expr.type_ref.type)` 对部分 `&局部结构体.字段`
+的基址节点也判成了 POINTER（`type_ref` 不可靠），于是把局部结构体按**值**
+加载，`ADDR_FIELD` 写到副本上，`bind` 拿到的就是垃圾 sockaddr。
+
+下一轮的正确做法：不要靠 `type_ref.kind` 判别，改成看基址节点的
+**HIR 种类 + 声明类型**（`HIR_EXPR_LOCAL`/`GLOBAL` 且该局部/全局的
+声明类型就是 `&T`），或干脆在降级侧为 `&指针.字段` 合成
+`LOAD 指针` 再取字段地址的 HIR，把判别从 builder 挪到类型已确定的 lower。
