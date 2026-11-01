@@ -178,6 +178,15 @@ run_one() {
 
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$base" "$c99_st" "$c99_sum" "$vm_st" "$vm_sum" "$verdict" "$detail" > "$out_file"
+
+    # 实时进度：整轮差分要跑几十分钟，只在结尾打汇总会让人误以为卡死。
+    # 每完成一例就往共用计数文件追加一行并回报进度（小写入，PIPE_BUF 内原子）。
+    if [ -n "${PROGRESS_FILE:-}" ]; then
+        printf '.\n' >> "$PROGRESS_FILE" 2>/dev/null
+        local done_n
+        done_n="$(wc -l < "$PROGRESS_FILE" 2>/dev/null | tr -d ' ')"
+        printf '  [%s/%s] %-52s %s\n' "${done_n:-?}" "${PROGRESS_TOTAL:-?}" "$base" "$verdict" >&2
+    fi
 }
 export -f run_one extract_summary normalize_stdout
 export WORK_DIR
@@ -186,6 +195,11 @@ FILES=()
 SKIPPED=0
 while IFS= read -r f; do
     base="$(basename "$f")"
+    # 调试/单点复测时只跑匹配的用例：`UYA_PARITY_GLOB='test_signal*' make exec-parity`。
+    # 空值表示跑全量（默认）。
+    if [ -n "${UYA_PARITY_GLOB:-}" ] && [[ "$base" != $UYA_PARITY_GLOB ]]; then
+        continue
+    fi
     if [ -n "${SKIP_SET[$base]:-}" ]; then
         SKIPPED=$((SKIPPED + 1))
         continue
@@ -206,6 +220,10 @@ esac
 [ "$JOBS" -lt 1 ] && JOBS=1
 
 echo "exec VM / C99 差分: $TOTAL 个用例（跳过 $SKIPPED），并行度 $JOBS，stdout 差分=$PARITY_STDOUT"
+PROGRESS_FILE="$WORK_DIR/progress.count"
+: > "$PROGRESS_FILE"
+PROGRESS_TOTAL="$TOTAL"
+export PROGRESS_FILE PROGRESS_TOTAL
 printf '%s\n' "${FILES[@]}" | xargs -P "$JOBS" -I{} bash -c \
     'run_one "$@"' _ {} "$RESULTS_DIR" "$COMPILER" "$TIMEOUT" "$PARITY_STDOUT"
 

@@ -162,6 +162,14 @@ run_one() {
     fi
 
     printf '%s\t%s\t%s\t%s\n' "$base" "$st" "$reason" "$detail" > "$out_file"
+
+    # 实时进度：整轮普查十几分钟，只在结尾打汇总会让人误以为卡死。
+    if [ -n "${PROGRESS_FILE:-}" ]; then
+        printf '.\n' >> "$PROGRESS_FILE" 2>/dev/null
+        local done_n
+        done_n="$(wc -l < "$PROGRESS_FILE" 2>/dev/null | tr -d ' ')"
+        printf '  [%s/%s] %-52s %s\n' "${done_n:-?}" "${PROGRESS_TOTAL:-?}" "$base" "${reason:-ok}" >&2
+    fi
 }
 export -f run_one
 
@@ -204,6 +212,10 @@ if [ "$MEM_MB" = "0" ] && [ "${UYA_EXEC_CENSUS_ALLOW_UNLIMITED:-0}" != "1" ]; th
 fi
 
 echo "exec VM 覆盖普查: $TOTAL 个用例（跳过 $SKIPPED），并行度 $JOBS（单用例内存上限 ${MEM_MB}MB，0=不限）"
+PROGRESS_FILE="$WORK_DIR/progress.count"
+: > "$PROGRESS_FILE"
+PROGRESS_TOTAL="$TOTAL"
+export PROGRESS_FILE PROGRESS_TOTAL
 printf '%s\n' "${FILES[@]}" | xargs -P "$JOBS" -I{} bash -c \
     'run_one "$@"' _ {} "$RESULTS_DIR" "$COMPILER" "$TIMEOUT"
 

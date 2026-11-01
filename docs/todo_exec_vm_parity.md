@@ -6421,3 +6421,18 @@ FFI/abi 1、kernel_sim 1、typed_pipeline 2。
 - `make exec-parity`：**914 例 / 一致 880 / 不一致 34**（第 426 轮 879/35，
   第 425 轮 872/42；三轮共净增 8 例一致）。
 - 全量 VM 普查：**909 例 / 通过 875 / 失败 34（96.3%）**。
+
+### 第 428 轮：给两道门禁加实时进度 + 单点复测开关
+
+差分/普查整轮要跑 37 分钟 / 13 分钟，脚本却把输出攒到结尾才打印，
+中途看起来就是「卡死、CPU 也不高」（其实是在等尾部几个 300~900 秒的超时
+看门狗）。这一轮只动脚本，不动编译器：
+
+- `tests/verify_exec_vm_parity.sh` / `tests/verify_exec_vm_census.sh`：
+  `run_one` 每完成一例就往 `$WORK_DIR/progress.count` 追加一行，并往 stderr
+  打 `  [已完成/总数] 用例名 判定`。小写入（PIPE_BUF 内）在并行 worker 里是原子的。
+  实测：`[11/909] test_as_force_cast.uya  ok`。
+- `tests/verify_exec_vm_parity.sh` 新增 `UYA_PARITY_GLOB`：
+  `UYA_PARITY_GLOB='test_signal.uya' ./tests/verify_exec_vm_parity.sh` 只跑匹配用例，
+  单点复测不必再等 37 分钟全量（这与任务目标里「先判影响范围再决定单点还是全量」
+  直接对应）。
