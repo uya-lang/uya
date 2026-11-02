@@ -168,7 +168,9 @@ run_one() {
         printf '.\n' >> "$PROGRESS_FILE" 2>/dev/null
         local done_n
         done_n="$(wc -l < "$PROGRESS_FILE" 2>/dev/null | tr -d ' ')"
-        printf '  [%s/%s] %-52s %s\n' "${done_n:-?}" "${PROGRESS_TOTAL:-?}" "$base" "${reason:-ok}" >&2
+        # 必须带上退出码：`reason` 只是「匹配到哪种错误模式」，为空时默认打 ok，
+        # 于是断言失败的用例（退出码非 0）在进度里也显示成 ok，会误导排查。
+        printf '  [%s/%s] %-52s st=%-3s %s\n' "${done_n:-?}" "${PROGRESS_TOTAL:-?}" "$base" "${st:-?}" "${reason}" >&2
     fi
 }
 export -f run_one
