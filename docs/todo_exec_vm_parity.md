@@ -8982,3 +8982,21 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
 - 结论：真并发这条路已经**实质跑通**。默认仍关闭（`UYA_EXEC_REAL_THREADS` 门控），
   下一步是跑一次 `UYA_EXEC_REAL_THREADS=1 make exec-census` 评估整体影响，
   再决定是否默认打开。
+
+### 第 482 轮：真线程全量评估（`UYA_EXEC_REAL_THREADS=1 make exec-census`）
+
+结果：**909 例 / 通过 886 / 失败 23**，与基线数量相同，但内部有进出：
+
+| 用例 | 基线 | 真线程 |
+|---|---|---|
+| `test_pthread_heap_concurrency` | 139 | **0（全过）** |
+| `test_pthread_heap_cache_identity` | 239 | **181** |
+| `test_pthread_api_cancel` | 通过 | **137（超时被杀）** |
+
+- 唯一回退是 `test_pthread_api_cancel`：真线程下 cancel/join 组合会挂死
+  （137 是 timeout 杀掉的返回码）。这说明 `pthread_cancel` 没有对真线程实现，
+  join 侧会一直等一个不会被取消的线程。
+- 结论：真线程**能力已就绪且收益明确**，但还不能默认打开；
+  默认仍然由 `UYA_EXEC_REAL_THREADS` 门控关闭，保证门禁稳定。
+  下一轮：给真实线程补 `pthread_cancel`（设置取消标志 + 让 join 能被打断），
+  修好后即可默认启用并重跑 census/parity。
