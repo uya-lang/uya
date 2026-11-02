@@ -7977,3 +7977,42 @@ A30   // len=3（正确），slot.active 读出来是 0
 代码零改动（插桩全部回退，`make uya` 通过）；
 三个关键用例复验仍通过：`test_http1_async_client`、`test_async_fd`、`test_async_state_machine`。
 全量基线维持第 460 轮的 **884/909（失败 25）**。
+
+**第 461 轮补充（同一轮内继续）**
+
+再做两次判定：
+
+1. `queue.slots == null`？→ 打印 `SO`，**不是 null**。
+   所以队列槽位数组存在，问题在**元素内容不可用**：`active` 读成 0（或
+   `done != 0` 恒真），两种都会让内层循环直接跳过全部槽位。
+
+2. 五个隔离复现**全部通过**：
+
+| 复现形状 | 结果 |
+| --- | --- |
+| 固定数组字段 `[GSlot<T>: 4]` 元素赋值 | 通过 |
+| `slots: &GSlot<T>` 堆指针数组 + 元素赋值 | 通过 |
+| `calloc(4, @size_of(GSlot3<i32>))` + 17 字段大结构体 | 通过 |
+| 泛型结构体**固有方法** `push(self: &Self)` + calloc + 元素写入 | 通过 |
+| 方法转调 `self`（嵌套 `&Self` 接收者）写字段 / 自由函数转发写字段 | 通过 |
+
+结论：**触发条件必须是真实 `TaskQueue<T>` 的某种组合**，单个形状都不够。
+
+**下一轮做法（机械二分，不要再猜）**
+
+把 `lib/std/async_scheduler.uya` 里的 `TaskQueue<T>` + `TaskQueueSlot<T>` +
+`push`/`ensure_capacity_for_push`/`ensure_slots` + 运行器读槽位这一小段
+原样拷进一个测试文件（这五个函数是自包含的），确认能复现；
+然后按下列顺序逐项删除直到复现消失，即可锁定触发点：
+
+1. `scheduler_prepare_waker(&slot.waker)` 与 waker 相关字段（先删掉整个 `wk` 字段）；
+2. `Future<!T>` 接口字段（换成具体 `i32` 占位字段）；
+3. `result: T` 泛型字段；
+4. `capacity_limit()` 的间接调用（换成常量 64）；
+5. `push` 里的 `ensure_capacity_for_push()` 嵌套方法（改成内联分配）。
+
+每次只改一项、跑一次（该用例 2–3 秒），4 轮内必能定位。
+
+**当前净状态**：代码零改动，`make uya` 通过；
+`test_http1_async_client` / `test_async_fd` / `test_async_state_machine` 复验通过；
+全量基线 **884/909（失败 25）**。
