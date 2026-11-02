@@ -573,6 +573,16 @@ export fn pthread_current_heap_cache() &pthread_heap_cache_t {
     }
     if _pthread_has_created_thread == 0 {
         _pthread_init_main_thread_if_needed();
+        // 解释器（exec VM）会绕过 Uya 的 pthread_create 直接起宿主线程，
+        // 那些线程**没有登记**进这张表。如果让它们也拿到主线程的 tcache，
+        // 多个线程会无锁共用同一份 tcache 链，直接把堆写坏（实测段错误/超时）。
+        // 这里用 gettid 对比主线程：不是主线程就不给 tcache，退回加锁的全局堆路径。
+        const self_tid: i64 = sys_gettid() catch {
+            return &_pthread_main_desc.heap_cache;
+        };
+        if self_tid != _pthread_main_desc.tid {
+            return null as &pthread_heap_cache_t;
+        }
         return &_pthread_main_desc.heap_cache;
     }
     const desc: &pthread_desc = _pthread_desc_self();
