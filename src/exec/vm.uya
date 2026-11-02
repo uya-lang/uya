@@ -5817,6 +5817,15 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                     g_exec_vm_thread_body_budget = 20000000i64;
                     const thread_rc2: i32 = exec_vm_call_function(frame.vm, program, routine_index, &thread_args[0], 1, 0, &thread_ret);
                     g_exec_vm_thread_body_budget = 0i64;
+                    // 线程体以 pthread_exit(PTHREAD_CANCELED) 结束时返回的就是取消标记，
+                    // 记到 state 上，join 侧据此转交 PTHREAD_CANCELED。
+                    if exec_value_is_pointer_like(thread_ret) != 0 &&
+                        @usize_from_ptr(thread_ret.ptr_value) == (0usize -| 1usize) {
+                        const mark_state: &ExecVmState = exec_vm_thread_states[free_slot];
+                        if mark_state != null {
+                            mark_state.cancel_pending = 1;
+                        }
+                    }
                     if thread_rc2 != 0 {
                         // 线程体没跑完（预算超限/内部错误）：清掉错误状态，让父线程
                         // 继续跑（join 拿到默认返回值），不要污染整个程序。
@@ -5836,10 +5845,14 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                 if cancel_state_ptr != null {
                     cancel_state_ptr.cancel_pending = 1;
                 }
+                // 串行模式下 cancel 可能落在 create 已经把线程体跑完之后：
+                // 此时 join 必须回 PTHREAD_CANCELED，不能拿线程体原来的返回值。
+                exec_vm_thread_result[th_slot] = exec_make_pointer_with_kind(0usize -| 1usize,
+                    TypeKind.TYPE_VOID as i32);
                 // PTHREAD_CANCELED == (void*)-1：join 侧要把它交给调用方。
-                exec_vm_thread_result[th_slot] = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
-                var canceled_ret: ExecValue = exec_make_i64(0 - 1);
-                canceled_ret.ptr_value = @ptr_from_usize(@usize_from_ptr(0 as &void) -| 1usize);
+                var canceled_ret: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+                canceled_ret.ptr_value = @ptr_from_usize(0usize -| 1usize);
+                canceled_ret.i64_value = (0usize -| 1usize) as i64;
                 exec_vm_thread_result[th_slot] = canceled_ret;
             }
             out_value[0] = exec_make_i32(0);
@@ -5889,12 +5902,37 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                     var join_result: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
                     if th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
                         join_result = exec_vm_thread_result[th_slot];
+                        const join_state_ptr: &ExecVmState = exec_vm_thread_states[th_slot];
+                        if join_state_ptr != null && join_state_ptr.cancel_pending != 0 {
+                            // 被取消线程的 join 结果固定是 PTHREAD_CANCELED，
+                            // 不依赖线程体自己有没有把值传出来。
+                            join_result = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+                            join_result.ptr_value = @ptr_from_usize(0usize -| 1usize);
+                            join_result.i64_value = (0usize -| 1usize) as i64;
+                        }
                     }
                     exec_vm_store_slot(retval_target, join_result);
                 }
             }
         }
         if th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
+            // 串行模式下线程体在 create 里就跑完了；只要调用点之后发过 cancel，
+            // 语义上 join 必须拿到 PTHREAD_CANCELED（C 侧线程也可能在
+            // pthread_testcancel 处被取消）。
+            const done_state: &ExecVmState = exec_vm_thread_states[th_slot];
+            if done_state != null && done_state.cancel_pending != 0 &&
+                arg_count >= 2 {
+                const rv_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+                if rv_slot != null && rv_slot.ptr_value != null {
+                    const rv_target: &ExecValue = exec_vm_ref_target_value(rv_slot);
+                    if rv_target != null {
+                        var canceled_val: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+                        canceled_val.ptr_value = @ptr_from_usize(0usize -| 1usize);
+                        canceled_val.i64_value = (0usize -| 1usize) as i64;
+                        exec_vm_store_slot(rv_target, canceled_val);
+                    }
+                }
+            }
             exec_vm_thread_used[th_slot] = 0;
         }
         out_value[0] = exec_make_i32(0);
@@ -6323,7 +6361,17 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
             }
         }
         g_exec_vm_thread_exit_requested = 1;
-        out_value[0] = exec_make_i32(0);
+        // `out_value` 会一路传成 `exec_vm_call_function` 的返回值，也就是线程体
+        // 传给 `pthread_join` 的结果。这里必须把 `pthread_exit(retval)` 的 retval
+        // 放进去，否则线程体里 `pthread_exit(PTHREAD_CANCELED)` 的取消标记会丢。
+        if arg_count == 1 {
+            const exit_out_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+            if exit_out_arg != null {
+                out_value[0] = exec_value_clone(exit_out_arg);
+            }
+        }
+        // 关键：立刻让当前帧返回。`pthread_exit` 在 C 语义里不返回，
+        // 而解释器里如果继续跑下去，后面的 `BC_RET` 会把 out_value 覆盖成普通返回值。
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SIGMASK {
@@ -9095,17 +9143,19 @@ fn exec_vm_run_frame(vm: &ExecVmState, program: &BCProgram, function: &BCFunctio
             vm.frame_resumed = saved_resumed;
             return -1;
         }
-        if step_result > 0 {
-            // `BC_RET` 给 1（正常返回），`@await` 挂起给 2（帧已快照成续体）。
-            vm.frame_resumed = saved_resumed;
-            return step_result -| 1;
-        }
-        // `pthread_exit(v)`：当前帧直接带 v 返回（C 语义里它不返回）。
+        // `pthread_exit(v)` 必须在 `BC_RET` 之前判定：解释器里做完 host call 后，
+        // 线程体还会继续跑到自己的 `BC_RET`，那次返回会把 out_value 覆盖成普通返回值，
+        // join 就拿不到 pthread_exit 的 retval（`PTHREAD_CANCELED` 会丢）。
         if g_exec_vm_thread_exit_requested != 0 {
             g_exec_vm_thread_exit_requested = 0;
             exec_vm_store_slot(out_value, exec_value_clone(&g_exec_vm_thread_exit_value));
             vm.frame_resumed = saved_resumed;
             return 0;
+        }
+        if step_result > 0 {
+            // `BC_RET` 给 1（正常返回），`@await` 挂起给 2（帧已快照成续体）。
+            vm.frame_resumed = saved_resumed;
+            return step_result -| 1;
         }
     }
     out_value[0] = exec_make_void();

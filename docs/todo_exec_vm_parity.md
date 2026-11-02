@@ -9237,3 +9237,20 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   - 这是「模块名归并」与「全局槽收集」之间的错配，不是取消功能的问题；
     修法应该按**文件**而不是按模块名收集（`decl.filename` 落在 uya root 且被 import 到的文件）。
     该修法涉及全局收集主流程，风险面较大，留作独立任务。
+
+### 第 497 轮：`pthread_exit` 返回值丢失的真根因（真修复）+ 一次回退
+
+- **真根因（两处，都已修）**：
+  1. `pthread_exit(retval)` 的 handler 写了 `out_value[0] = exec_make_i32(0)`，
+     把 retval 丢掉了；而且解释器里 host call 之后线程体还会继续跑到自己的 `BC_RET`，
+     那次返回会再覆盖 `out_value`。修法：handler 用 `exec_value_clone` 把 retval 放进
+     `out_value`，并把 `pthread_exit` 的判定**提到 `BC_RET` 之前**。
+  2. 手工构造 `PTHREAD_CANCELED`（全 1 指针）时只设了 `ptr_value`、没设 `i64_value`，
+     而 `exec_vm_compare_values` 用的是 `i64_value` → 比较恒不等。三处手工构造全部补齐。
+- 验证：`/tmp/exit_probe2.uya`（`pthread_exit(-1)` → join 取回）、
+  `/tmp/join3.uya`（create→cancel→join→`result == PTHREAD_CANCELED`）现在都过。
+- **一次失败尝试（已回退）**：把 `pthread_cancel` 的宿主拦截改成「两种模式都拦」，
+  以及把符号表全局收集的 `allow_uya_root_runtime` 从 0 改成 1
+  （本意是修跨模块 `export var`）。后者会让 `test_async_frame_pool_stats` **稳定挂死**（137），
+  二分确认后回退。所以跨模块 `export var` 的收集缺口仍在，需要更精确的做法（按文件而非放开 uya root）。
+- 最终 census：**909 / 887 通过 / 22 失败**，与基线逐项一致。
