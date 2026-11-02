@@ -8761,3 +8761,25 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
 而同一个 `encode_to_to_json` 宏包装出来的 `to_json<JsonUser>` 单独跑是 OK 的
 （`/tmp/json_to_repro.uya` 打印 `OK to_json`）——
 下一轮从这里查 JSON 宏在 websocket 这条调用链上的展开。
+
+### 第 474 轮：`test_http_websocket_json` 的失败点定位到「宏生成的 JSON 编码块在 VM 里误报 overflow」
+
+`block_on` 改真等待后，传输层已经通了（`/tmp/ws_repro.uya` 的握手+写帧+读帧在 VM 里端到端 OK），
+所以剩下的失败只可能在「写 JSON」这一段。逐层切分后证据如下：
+
+1. `websocket_conn_write_json<JsonUser>` 返回的错误 id = 85；
+   同程序里实测 `error.BufferTooSmall` 也是 85 → 确实是 `BufferTooSmall`。
+2. 把 `lib/std/json/macros.uya` 里 `encode_to_to_json` 的**桩体**临时改成
+   `error.WebSocketProtocolError`（同程序实测 id = 204），返回值**仍是 85**
+   → 走的不是桩体，是宏生成块自己报的 `BufferTooSmall`。
+3. 失败后 `arena.used` 比调用前多 65536 → 块前的 `arena_alloc(arena, 65536)` 成功，
+   排除 `payload == null` 那条分支。
+4. 同一个结构体走 `to_json<JsonUser>`（同一个 `build_encode_to_to_json_block` 生成同一份块）
+   在 VM 里是 OK 的；把结构体换成只有 `id: i64` 一个字段，`websocket_conn_write_json` 仍然复现。
+5. 给 `websocket_json.uya` 补 `use std.json.encoder;`（让 `JsonWriter`/`json_writer_init`
+   等符号在展开点可见）**没有效果** → 不是导入可见性问题。
+
+**结论**：同一份生成块，在 `to_json` 的单态体里正常，在 `websocket_conn_write_json`
+的单态体里让 `JsonWriter.overflow` 被置位（两三个字段、容量 65536 显然不该溢出）。
+下一步要在 VM 侧对比这两份生成块的字节码，重点看 `json_writer_init` 的 `buf`/`cap`
+实参在单态体里是不是被搬错（这是「宏生成代码在单态体里实参错位」的典型形态）。
