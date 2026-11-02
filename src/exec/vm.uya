@@ -8470,6 +8470,28 @@ fn exec_vm_cont_remap_refs(value: &ExecValue, from_base: usize, from_limit: usiz
     }
 }
 
+/// 把**其它**活跃续体槽位里指向 `[from_base, from_limit)` 的内部引用改指到 `to_base`。
+///
+/// 快照/恢复时本帧槽段会换地址（快照后原槽段立即释放），别的续体手里指向它的
+/// 内部引用必须先跟着搬，否则恢复后就是悬垂引用 —— 那块内存会被后来的续体盒子
+/// （3 字段聚合）复用，表现为 `LOAD_FIELD 字段越界(... count=3 ...)`。
+fn exec_vm_cont_remap_blocks(skip_block: &ExecValue, from_base: usize, from_limit: usize,
+        to_base: usize) void {
+    var h: i32 = 0;
+    while h < EXEC_VM_CONT_MAX {
+        const other: &ExecValue = g_exec_vm_cont_slots[h];
+        if other != null && other != skip_block && g_exec_vm_cont_used[h] != 0 {
+            var si: i32 = 0;
+            const cnt: i32 = g_exec_vm_cont_slot_count[h];
+            while si < cnt {
+                exec_vm_cont_remap_refs(&other[si], from_base, from_limit, to_base);
+                si = si + 1;
+            }
+        }
+        h = h + 1;
+    }
+}
+
 /// 分配一个续体下标；表满返回 -1。
 /// 返回值：续体下标；失败返回 -1。
 fn exec_vm_cont_alloc() i32 {
@@ -8570,6 +8592,7 @@ fn exec_vm_cont_snapshot(program: &BCProgram, function: &BCFunction, frame: &Exe
         exec_vm_cont_remap_refs(&block[i], from_base, from_limit, to_base);
         i = i +| 1;
     }
+    exec_vm_cont_remap_blocks(block, from_base, from_limit, to_base);
     g_exec_vm_cont_slots[handle] = block;
     g_exec_vm_cont_slot_count[handle] = count;
     g_exec_vm_cont_fn[handle] = fn_index;
@@ -8828,6 +8851,7 @@ fn exec_vm_run_frame(program: &BCProgram, function: &BCFunction, args: &ExecValu
             exec_vm_cont_remap_refs(&frame.slots[si], snap_base, snap_limit, frame_base);
             si = si + 1;
         }
+        exec_vm_cont_remap_blocks(resume_slots, snap_base, snap_limit, frame_base);
         si = 0;
         while si < EXEC_MAX_CALL_ARGS {
             frame.varargs[si] = exec_make_void();
