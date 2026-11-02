@@ -9166,3 +9166,13 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   `test_pthread_heap_cache_identity` **239 → rc=0 全过**，malloc/free 探针 4/4 稳定。
 - 仍不默认打开：`test_libc_heap_tcache`(52，它本身就在验证被我们关掉的快路径)、
   `test_pthread_cancel`/`test_pthread_api_cancel`（cancel 未对真线程实现）在真线程模式下会坏。
+
+### 第 493 轮：最终默认路径验收（权威数字）
+
+- `make check`：**rc=0**
+- `make exec-census`：**909 例 / 886 通过 / 23 失败**；失败清单 = 基线 22 例
+  **+ `test_async_runtime_shared_dns`（已知 DNS 网络 flake）** → 零回归。
+- `make exec-parity`：**913 / 一致 889 / 不一致 24**（与基线相同）。
+- 真线程能力（`UYA_EXEC_REAL_THREADS=1`）已能让 `test_pthread_heap_concurrency`、
+  `test_pthread_heap_cache_identity` 全过，但会坏掉 `test_libc_heap_tcache`（它验证的正是
+  我们为适配 nostdlib 关掉的 TLS 快路径）与两个 cancel 用例 → **默认保持关闭**。
