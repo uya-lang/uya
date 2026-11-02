@@ -590,6 +590,9 @@ fn gen_global_var(codegen: &C99CodeGenerator, var_decl: &ASTNode) void {
     c99_emit_global_macro_undef_guard(codegen, var_name);
 
     fputs("__attribute__((used)) " as *byte, codegen.emit_stream as *void);
+    if var_decl.var_decl_is_thread_local != 0 {
+        fputs("_Thread_local " as *byte, codegen.emit_stream as *void);
+    }
     
     var type_c: &byte = null;
     

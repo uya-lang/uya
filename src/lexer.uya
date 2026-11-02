@@ -1367,6 +1367,8 @@ fn lexer_next_token(lexer: &Lexer, arena: &CompilerArena) &Token {
             if str_equals_lexer(value, "mask" as &byte) != 0 { is_builtin = 1; }
             // 函数对齐属性（@align(N)）
             if str_equals_lexer(value, "align" as &byte) != 0 { is_builtin = 1; }
+            // 线程本地全局属性（@thread_local）
+            if str_equals_lexer(value, "thread_local" as &byte) != 0 { is_builtin = 1; }
 
             if is_builtin != 0 {
                 return make_token(arena, TokenType.TOKEN_AT_IDENTIFIER, value, line, column);
