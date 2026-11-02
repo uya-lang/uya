@@ -8892,3 +8892,15 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
 - 结论：在这套入口下 C 的 `_Thread_local` 不可用（除非自己实现 TLS 引导）。
   真并发改走「显式线程状态 + 绿色线程/协程挂起」这条线，不再依赖 TLS。
   已回退 `vm.uya` 的标记，编译器特性保留（对普通 libc 程序是有用的）。
+
+### 第 478 轮：确认 `test_std_thread` 的 ERROR 不是「VM 线程槽不够」
+
+- `src/exec/vm.uya` 的 `EXEC_VM_THREAD_SLOTS` 从 16 提到 256，重建后重跑
+  `tests/test_std_thread.uya`：**逐一对比每个用例状态，输出完全一致**（11 通过 / 23 失败），
+  所以那些 ERROR（`thread_pool_config_can_exceed_legacy_static_limits` 等）不是槽位耗尽，
+  而是「`pthread_create` 把线程体当场跑完」这个语义本身：
+  worker 线程的循环体在 create 内被跑掉，回到调用点时 worker 已经退出，
+  于是 `thread_wait_started_workers(&pool, 1) == 1` 拿到 0。
+- 该改动无收益，已回退（`EXEC_VM_THREAD_SLOTS` 保持 16）。
+- 真解还是「绿色线程 + 在阻塞点挂起」：`pthread_create` 只登记线程体，
+  在 `join` 或阻塞系统调用处按需推进，这样 worker 循环才不会在 create 里跑完。
