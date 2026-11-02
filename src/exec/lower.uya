@@ -909,6 +909,11 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
             param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_ONCE;
         }
+        if str_equals(fn_name, "pthread_cancel" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 &&
+            exec_lower_get_env_byte("UYA_EXEC_REAL_THREADS" as *byte) != null {
+            return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CANCEL;
+        }
         if str_equals(fn_name, "pthread_exit" as &byte) != 0 &&
             param_count == 1 && call_arg_count == 1 {
             return ExecHostCallId.EXEC_HOST_CALL_PTHREAD_EXIT;
@@ -9469,7 +9474,9 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 str_equals(thr_name, "pthread_self" as *byte) != 0 ||
                 str_equals(thr_name, "pthread_equal" as *byte) != 0 ||
                 str_equals(thr_name, "pthread_once" as *byte) != 0 ||
-                str_equals(thr_name, "pthread_exit" as *byte) != 0 {
+                str_equals(thr_name, "pthread_exit" as *byte) != 0 ||
+                (str_equals(thr_name, "pthread_cancel" as *byte) != 0 &&
+                 exec_lower_get_env_byte("UYA_EXEC_REAL_THREADS" as *byte) != null) {
                 thread_host_call = 1;
             }
         }
