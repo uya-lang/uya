@@ -8960,3 +8960,10 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
   `UYA_EXEC_REAL_THREADS=1` 下仍然 8 个线程起得来但整体 139 —— 说明还有共享状态没隔离。
   下一轮用最小两线程探针逐项排除（候选：`g_exec_vm_globals_base/end`、
   `exec_vm_thread_*` 表、box 分配缓存、以及 libc 堆本身的并发安全）。
+- 第 480 轮续二：最小两线程探针 `/tmp/thr_probe.uya`（create → worker 打印 `W` → join → 打印 `OK thr`）
+  在 `UYA_EXEC_REAL_THREADS=1` 下**真的并发了**：默认模式输出 `W|OK thr`，
+  真线程模式输出 `OK thr|W`（join 没阻塞住对应顺序，两条线程同时跑），进程 rc=0。
+  → **真宿主线程这条路本身是通的**（状态抽取 + pthread 蹦床 + 按名拦截都生效）。
+- 剩下的崩溃集中在会**并发分配内存**的用例（`test_pthread_heap_*`）：
+  VM 的 libc 堆不是线程安全的。下一轮要么给堆加锁/线程缓存，
+  要么让每个线程用自己的 arena —— 这是真并发剩下的最后一块。
