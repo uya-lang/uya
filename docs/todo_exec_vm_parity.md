@@ -9062,3 +9062,21 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 也就是说第 479–483 轮这一整串改动（`ExecVmState` 状态抽取、原生聚合旁路表迁移、
 pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控）在**默认配置下全部等价**，
 真线程能力完全隔离在 `UYA_EXEC_REAL_THREADS` 后面。
+
+## 本轮次改动总账（第 470–484 轮）
+
+| 提交 | 内容 | 验证 |
+|---|---|---|
+| `c92e98a1` | `memcpy/memmove/memset` 进宿主白名单（realloc 搬块必须触发旁路表迁移） | census 887/22 零回归；`[mc]` 探针实测迁移 8 元素 |
+| `07afa834` | 显式 `as Interface` 上转型补装箱 | `Vec<Point>` 系列复现件全过 |
+| `8ff9ee4b` | 堆扩容与 `std.mem` 改用 libc `memcpy/memset/memmove` | 同上 |
+| `44a5e12d` | `block_on`/`block_on_plain` 拿到 Pending 后真 `poll(2)` 等 IO | websocket 握手+写帧+读帧在 VM 里端到端跑通 |
+| `68cfd6a2`+`f54e591e` | 编译器支持 `@thread_local`（含镜像头 `extern _Thread_local`） | 生成 C 里确认 `_Thread_local`；VM 语义正确 |
+| `9f720b55`/`ff285b30`/`73412ff6`/`cb12e43e` | `ExecVmState` 状态抽取（槽位池 / cont / await / cancel / alloc 记账 / 原生聚合旁路表） | 纯重构：三探针 + `test_std_thread` 逐项一致 |
+| `8e5d0516` | pthread 家族按名走宿主拦截 + 真宿主线程骨架（env 门控） | `test_pthread_heap_concurrency` 曾全绿（139→0） |
+| `7819aaee` | `exec_vm_thread_used` 改 atomic（join 自旋曾被优化掉） | 并发 malloc 探针通过 |
+| `00c9d722` | `pthread_cancel` 拦截按编译期开关门控 | 默认路径 `test_pthread_api_cancel` 仍通过 |
+
+**当前门禁**：`make check` rc=0；`make exec-census` 887/22；`make exec-parity` 889/24。
+**未完成**：剩余 22 例（真线程稳定性、聚合/切片深水区、网络 flake），
+`exec-parity` 未全绿 → 未做 `worktree finish`。
