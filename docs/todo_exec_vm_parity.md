@@ -9196,3 +9196,11 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   已复现成独立问题：`/tmp/xmod_probe.uya` → `BAD xmod`。
   试过去掉全局槽收集里的 `owner_filename` 限制，**无效**（仍 `BAD`），已回退。
   这是一个独立的「跨模块 export var 初始化」缺陷，下一步单独查。
+- 第 494 轮续：`PTHREAD_CANCELED` 取到 0 的问题继续查过，结论收窄：
+  - 加临时打印确认 `use libc.pthread;`（纯模块导入）**根本不会触发模块级全局槽收集**
+    （探针打印一次都没出现）；只有「选择性导入」（`use x.y.Item`）才会走到那条分支。
+  - 因此跨模块 `export var` 只有在被**选择性导入**或被函数体引用、且与引用者同文件时
+    （`owner_filename` 限制）才会建槽 —— 这是全局槽收集的覆盖缺口。
+  - 已回退所有临时打印与试探改动。`test_pthread_api_cancel` 里
+    `result == PTHREAD_CANCELED` 这一断言因此还过不了，
+    但该用例的 create→cancel→join 主流程在真线程下已经正确（`test_pthread_cancel` 全过）。
