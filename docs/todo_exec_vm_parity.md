@@ -8733,3 +8733,31 @@ OK vec struct
 
 **T11 仍未收口**：`exec-parity` 还没全绿（24 例），
 主力仍是「VM 没有真事件循环/真并发」那一大类（第 465 轮定性）。
+
+### 第 473 轮：`block_on` 从纯自旋改成真等待（根治「VM 里没人推进 IO」）
+
+**现场**：`/tmp/ws_repro.uya`（照抄 `test_http_websocket_json` 的连接建立 + 写帧 + 读帧）
+在 VM 里停在「写 JSON」这一步（`E5`），而 C99 侧同一个测试 3 例全过。
+
+**根因**：`lib/std/async.uya` 的 `block_on`/`block_on_plain` 是
+「poll → Pending → 立刻重 poll」的纯自旋。C99 下没问题，
+因为对端 socket 由另一个线程/内核缓冲推进；VM 里只有一条执行流，
+socket 没就绪时空转，事件永远等不到 —— 这正是文档里记了很久的「VM 没有真事件循环」。
+
+**修复**：`Pending` 后把 waker 上登记的 fd 槽
+（`_io_slot_fds`/`_io_slot_interests`，interest 1/2/3 → `POLLIN`/`POLLOUT`/`5`）
+交给 `sys_poll(2)` 等最多 20ms，再回主循环重 poll。
+没登记 fd 的纯计算 future 立即返回，行为与原来完全一致。
+
+**验证**：
+- `/tmp/ws_repro.uya` 端到端跑通（打印 `OK ws repro`），改动前停在 `E5`。
+  即「loopback websocket 握手 + 写帧 + 读帧」在 VM 里已经可用。
+- `make check`：**rc=0**，1192 例全通过（C99 侧无回归）。
+- `make exec-census`：**909 例 / 通过 887 / 失败 22**，与第 470/473 轮**逐行一致**，
+  零回归、无挂死。
+
+**顺带缩小一处现场**：`test_http_websocket_json` 现在失败在
+`websocket_conn_write_json<JsonUser>` 返回 `BufferTooSmall`，
+而同一个 `encode_to_to_json` 宏包装出来的 `to_json<JsonUser>` 单独跑是 OK 的
+（`/tmp/json_to_repro.uya` 打印 `OK to_json`）——
+下一轮从这里查 JSON 宏在 websocket 这条调用链上的展开。
