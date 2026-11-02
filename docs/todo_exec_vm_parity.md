@@ -8197,3 +8197,40 @@ assert_eq_i32 failed: queue.result(compute_idx) as i32 == 42 (actual: 0)
 即 `async_compute` 的结果没有回填到 `queue.result` —— 与既有的短失败
 （`test_async_compute_types`、`test_async_compute_generic_wrapper` 等）同一族。
 **下一轮从 `async_compute` 的 result 回填写入路径查**（一条根因可能同时收割 5～7 例）。
+
+**全量普查实测（第 464 轮，`/tmp/census_464.tsv`）**
+
+| 指标 | 第 460 轮 | 第 464 轮 |
+| --- | --- | --- |
+| 通过 | 884 | **885** |
+| 失败 | 25 | **24** |
+| 超时（挂死） | 10 | 4（全部是 TLS/网络重负载） |
+
+与 460 轮逐条对比：
+
+- **完全修好**：`test_async_multi_fd_concurrent`、`test_async_runtime_shared_dns`
+- **不再挂死**（超时 → 快速失败，失败数从「超时」变成 1～5 条断言）：
+  `test_std_async_scheduler`、`test_async_task_queue_dynamic_growth`、
+  `test_async_runtime_shared_semantics`、`test_async_shared_runtime_semantics`
+- **新出现**：`test_https_google`（退出码 141 = SIGPIPE，网络相关，与本次改动无关）
+
+剩下 24 例的构成已经很清楚，**全部集中在两块**：
+
+1. **没有真并发/真线程**（14 例）：`test_pthread_heap_*`(139/239)、`test_std_thread`(23)、
+   `test_kernel_sim`(5)、`test_std_thread_async_boundary`(3)、
+   `test_async_thread_pool_dynamic_growth`(5)、`test_async_compute_*`(1+2+11)、
+   `test_async_frame_pool_full`、`test_async_runtime_shared_semantics`、
+   `test_async_shared_runtime_semantics`、`test_std_async_scheduler`(1)、
+   `test_typed_pipeline_capability`(1)、`test_tls_async_runtime_io`(1)、
+   `test_http_websocket_json`/`_reconnect`(1)。
+2. **重网络/TLS 超时**（4 例）：`test_http_uyagin`(137)、`test_http_uyagin_websocket`(137)、
+   `test_std_dns_async_transport`(137)、`test_tls_ecdsa`(137)。
+
+**顺带修了普查工具的一个误导点**：进度行原来打印的是 `reason`（匹配到的错误模式），
+为空就默认打 `ok`，所以**断言失败的用例在进度里也显示 ok**，真正的判定在结尾按退出码。
+现在进度行带上 `st=<退出码>`。
+
+**下一轮**：第 1 块的共同根因是「VM 里 `pthread_create` 是当场跑完、但没有真并发」，
+先从 `thread_pool` 的提交/结果回填链路查（第 464 轮已定位到
+`thread_async_compute_resolve_raw_value` 会在槽位状态不是 `DONE` 时返回 generic error），
+一条根因有机会收割 10+ 例。
