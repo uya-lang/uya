@@ -8957,6 +8957,19 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 return slice_from_string;
             }
         }
+        // `x as IAllocator`（显式上转型）：接口值在 VM 里是「方法入口下标… + 数据」的
+        // 聚合，不是裸指针。不装箱的话后续方法调用会对裸指针做 `LOAD_FIELD`，
+        // 取到 count=0 的空聚合（`LOAD_FIELD 字段越界 idx=0 kind=14 count=0`）。
+        // 参数/赋值/返回这些位置走的是 `exec_lower_coerce_expr` 的装箱分支，
+        // 只有显式 `as` 转换在这里漏了。
+        if expr_type.kind == TypeKind.TYPE_INTERFACE && expr_type.interface_name != null &&
+            expr.cast_expr_expr != null {
+            const boxed_iface_cast: &HIRExpr =
+                exec_lower_box_interface_expr(ctx, expr.cast_expr_expr, &expr_type);
+            if boxed_iface_cast != null {
+                return boxed_iface_cast;
+            }
+        }
         // 字面量直接按目标整数类型取值：否则大字面量会先被当成 i32 截断
         // （`3000000000 as i64` 会得到 1705032704，与 C99 后端不一致）。
         if expr.cast_expr_expr != null && is_integer_type(expr_type.kind) != 0 {

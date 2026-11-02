@@ -8637,3 +8637,40 @@ if callee_decl == null || callee_decl.fn_decl_name == null {
 `test_async_frame_pool_full` 设计缺口、`test_http_websocket_*`/`tls_async_runtime_io`/
 `typed_pipeline_capability` 的事件循环现场、以及 `test_https_google` 一类的网络/超时
 （`test_tls_ecdsa` 依旧 137 超时）。
+
+## 第 471 轮：显式 `as Interface` 上转型没装箱（已修）
+
+第 470 轮记录的「含接口字段的结构体丢方法表」进一步收窄到**最小条件**：
+
+```
+const a: IAllocator = get_heap_allocator() as IAllocator;   // 就是这一句
+const p: !&byte = a.alloc(16usize);                          // 这里炸
+→ exec: LOAD_FIELD 字段越界(idx=0 kind=14 count=0 pointee=16 ref=1 aux=65552)
+```
+
+不需要结构体字段、也不需要函数返回 —— 只要显式 `as <Interface>` 就会坏。
+
+**根因**：接口值在 VM 里是「方法入口下标… + 数据」的聚合。
+`exec_lower_box_interface_expr()` 负责建方法表并装箱，它挂在
+`exec_lower_coerce_expr()`（赋值 / 传参 / return 这些**有期望类型**的位置），
+但**显式 `as` 转换**的那条路（`lower.uya` 的 `AST_CAST_EXPR` 非强制转换分支）
+漏了这一步，直接发了个 `BC_CAST imm=15`，VM 侧 `exec_vm_cast_value` 对接口没有分支，
+原值（一个裸指针）就留在槽位里。于是后续方法调用对裸指针做 `LOAD_FIELD`，
+取到 `count=0` 的空聚合。
+
+**修复**：在 `AST_CAST_EXPR` 的非强制转换分支里，目标类型是具名接口时
+改走 `exec_lower_box_interface_expr()`。
+
+验证（`--vm`）：
+
+| 复现件/用例 | 修复前 | 修复后 |
+| --- | --- | --- |
+| `/tmp/iface_local2.uya`（局部 `as IAllocator` + 调方法） | `LOAD_FIELD count=0` | **OK** |
+| `/tmp/iface_field_repro.uya`（结构体接口字段 + 调方法 + 函数返回） | `LOAD_FIELD count=0` | **OK** |
+| `test_async_task_queue_dynamic_growth` | 通过 | 通过（209 断言） |
+| `test_async_frame_pool_dynamic_growth` | 通过 | 通过 |
+
+`/tmp/vec_struct_repro.uya`（`Vec<Point>` push 100 + `get`）现在越过了
+`Vec_grow_if_needed`，但**又暴露下一个问题**：`fn=main ip=94` 处
+`LOAD_FIELD 字段越界(idx=0 kind=0 count=-1 pointee=-1 ref=0 aux=0)`
+（基值是 VOID）—— 即 `Vec::get` 取回的元素是空的，下一轮从这里接。
