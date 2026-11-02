@@ -8535,3 +8535,35 @@ if callee_decl == null || callee_decl.fn_decl_name == null {
 用 `write(2, ...)`（`print` 在 VM 里会被吞）。跑 `/tmp/vec_struct_repro.uya`，
 三条信息一出就知道该在哪一层加判断；这也决定了根治是落在
 「调用点降级」还是「函数体 vs 宿主的选择处（`exec_lower_host_call_overrides_body`）」。
+
+## 第 469 轮：两条重要修正（含一次被证伪的推断）
+
+**修正 1：`/tmp/vec_struct_repro.uya` 不是 memcpy 丢元素的复现件。**
+它的实际失败点是 `Vec_grow_if_needed` 里的 `self.allocator`（接口字段）：
+`LOAD_FIELD idx=0 kind=14 count=0 pointee=16 ref=1 aux=65552`，
+即**接口值的方法表根本不在**——这是另一个 bug 类（含接口字段的结构体在
+返回/拷贝后丢了接口聚合），与 memcpy/realloc 无关。上一轮「`Vec<Struct>` 扩容
+被 memcpy 弄坏」的推断**不成立**，需要另找一个不含接口字段的复现件
+（例如 `struct Row{...}` 的 `[Row: N]` 用原生数组 + realloc，或直接用 `Vec<Row>`
+但把 allocator 换成全局单例以免撞上接口 bug）。
+
+**修正 2：VM 层「字节拷贝族直接走宿主」的尝试也没修好。**
+在 `vm_step` 的 `BC_CALL` 汇总处插了一道：被调函数名是 `memcpy/memmove/memset`
+且 `param_count == 3` 时，构造 `BCHostCallSite` 直接调 `exec_vm_call_host`
+（同一处 `exec_vm_call_host(program, function, &site, frame, instr.b, instr.c, &out)`，
+与 `BC_HOSTCALL` 分支完全一致的用法）。回退前后对比：
+
+| 状态 | `test_async_task_queue_dynamic_growth`（`grow_slots` 用 `realloc`） |
+| --- | --- |
+| 无 VM 改动 | 快速失败：`LOAD_FIELD ... count=-1` |
+| 有 VM 改动 | **挂死**（240s 超时） |
+
+行为确实变了，说明宿主 `MEMCPY` 分支被走到了；但仍未搬全元素
+（否则队列会正常跑完）。所以 `exec_vm_native_agg_migrate` 本身在
+`realloc` 场景下也不够（很可能与「旧块长度/基址在迁移时已经变了」有关），
+根治还要继续。
+
+**当前状态（已提交、可交付）**：
+- `TaskQueue::grow_slots`、`async_frame_pool_grow_bucket_table` 两处容器级修复仍在（逐元素拷贝），
+  `test_async_task_queue_dynamic_growth` 通过（209 断言），`test_async_frame_*` 9/10 通过；
+- VM 层的实验性改动已全部回退，工作树干净。
