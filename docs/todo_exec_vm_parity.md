@@ -2116,7 +2116,7 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
 
 ### T11 收口
 
-- [ ] **含接口字段的结构体在返回/拷贝后丢方法表**（第 470 轮新发现，独立 bug）
+- [x] **显式 `as Interface` 上转型没装箱**（第 470 轮发现、第 471 轮修好，见文末第 471 轮）—— 连带把「结构体接口字段」与「函数返回接口」两种表现一并修掉
       —— 复现件 `/tmp/vec_struct_repro.uya`：`Vec<Point>` push 100 个后，
       第一次扩容在 `Vec_grow_if_needed` 的 `self.allocator` 上失败：
       `LOAD_FIELD idx=0 kind=14 count=0 pointee=16 ref=1 aux=65552 fn=Vec_grow_if_needed$s1 ip=50`。
