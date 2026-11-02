@@ -4824,6 +4824,7 @@ const EXEC_VM_THREAD_SLOTS: i32 = 16;
 var exec_vm_thread_used: [atomic i32: EXEC_VM_THREAD_SLOTS] = [];
 var exec_vm_thread_detached: [i32: EXEC_VM_THREAD_SLOTS] = [];
 var exec_vm_thread_result: [ExecValue: EXEC_VM_THREAD_SLOTS] = [];
+var exec_vm_thread_states: [&ExecVmState: EXEC_VM_THREAD_SLOTS] = [];
 
 /// ---- 真宿主线程（env 门控）----
 /// `UYA_EXEC_REAL_THREADS=1` 时 `pthread_create` 用裸 `sys_clone` 起真线程；
@@ -4898,6 +4899,11 @@ fn exec_vm_spawn_host_thread(program: &BCProgram, fn_index: i32, arg: ExecValue,
         return -1;
     }
     _ = memset(state_ptr as &void, 0, @size_of(ExecVmState) as usize);
+    state_ptr.is_host_thread = 1;
+    state_ptr.cancel_pending = 0;
+    if slot >= 0 && slot < EXEC_VM_THREAD_SLOTS {
+        exec_vm_thread_states[slot] = state_ptr;
+    }
     desc.state = state_ptr;
     desc.program = program;
     desc.fn_index = fn_index;
@@ -5826,7 +5832,15 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         }
         if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CANCEL {
             if th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
-                exec_vm_thread_used[th_slot] = 0;
+                const cancel_state_ptr: &ExecVmState = exec_vm_thread_states[th_slot];
+                if cancel_state_ptr != null {
+                    cancel_state_ptr.cancel_pending = 1;
+                }
+                // PTHREAD_CANCELED == (void*)-1：join 侧要把它交给调用方。
+                exec_vm_thread_result[th_slot] = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+                var canceled_ret: ExecValue = exec_make_i64(0 - 1);
+                canceled_ret.ptr_value = @ptr_from_usize(@usize_from_ptr(0 as &void) -| 1usize);
+                exec_vm_thread_result[th_slot] = canceled_ret;
             }
             out_value[0] = exec_make_i32(0);
             return 0;
@@ -9061,6 +9075,13 @@ fn exec_vm_run_frame(vm: &ExecVmState, program: &BCProgram, function: &BCFunctio
     }
 
     while frame.ip < function.instr_count {
+        if vm != null && vm.is_host_thread != 0 && vm.cancel_pending != 0 {
+            // 真宿主线程被 pthread_cancel 打断：让当前帧正常返回、逐层退栈。
+            // 不能用 sys_exit —— 那是进程级退出，会把整个程序杀掉；
+            // 外层帧同样带同一个 vm，每轮循环都会命中这里，于是整条调用链退干净。
+            out_value[0] = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+            return 0;
+        }
         if g_exec_vm_thread_body_budget > 0i64 {
             g_exec_vm_thread_body_budget = g_exec_vm_thread_body_budget -| 1i64;
             if g_exec_vm_thread_body_budget == 0i64 {

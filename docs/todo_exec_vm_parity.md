@@ -9179,3 +9179,20 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 - T11 收口状态（第 493 轮实测）：全量 `uya test --vm` = 909/886 通过（23 失败 = 基线 22 + 既有 DNS flake）；
   `make exec-parity` = 913/889/24；`make check` rc=0。
   因此清单前两项仍未满足（差 22–24 例，均属深水区），第三项（合并 main）暂不具备条件。
+
+### 第 494 轮：真线程可取消（`pthread_cancel` 对宿主线程生效）
+
+- 新增：`ExecVmState.cancel_pending` + `is_host_thread`；`exec_vm_thread_states[slot]` 保存每槽 state。
+- `EXEC_HOST_CALL_PTHREAD_CANCEL` 现在**只置取消标志**，不再抢先把 `thread_used` 清零
+  （否则 `join` 会判「线程不存在」回 ESRCH）。
+- 解释器检查点：命中 `cancel_pending` 时让当前帧**正常返回并逐层退栈**。
+  这里踩过一个坑：最初用 `sys_exit(0)`，那是进程级退出，会把整个程序杀掉；必须退栈。
+- 效果（真线程模式）：
+  - `/tmp/cancel_probe.uya`（create→cancel→join）从 `J!`（join 失败）变成 **`C0 X0 J0`**；
+  - `test_pthread_cancel`（create→cancel→join）**rc=1 → rc=0 全过**；
+  - `test_pthread_heap_concurrency` 仍会偶发段错误（另有原因）。
+- 仍差 `test_pthread_api_cancel`：它还断言 `result == PTHREAD_CANCELED`，
+  而 **`PTHREAD_CANCELED` 这个跨模块 `export var` 在 VM 里取到 0**（不是 -1）。
+  已复现成独立问题：`/tmp/xmod_probe.uya` → `BAD xmod`。
+  试过去掉全局槽收集里的 `owner_filename` 限制，**无效**（仍 `BAD`），已回退。
+  这是一个独立的「跨模块 export var 初始化」缺陷，下一步单独查。

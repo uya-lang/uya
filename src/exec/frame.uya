@@ -33,6 +33,9 @@ struct ExecVmState {
     await_waker_kind: i32,
     cancel_state: i32,
     cancel_type: i32,
+    // 真宿主线程：1 表示这是由 VM 起的宿主线程（可被 pthread_cancel 打断）
+    is_host_thread: i32,
+    cancel_pending: i32,
     // 堆分配记账 + 装箱重入保护
     alloc_keys: [usize: EXEC_ALLOC_TRACK_MAX],
     alloc_sizes: [usize: EXEC_ALLOC_TRACK_MAX],
