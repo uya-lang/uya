@@ -8367,3 +8367,33 @@ worker 在创建时就 EOF 退出，压根没有可重放的线程体。
 
 **本轮净状态**：代码零改动（所有探针与试探性改动已回退，`make uya` 通过），
 全量基线维持 **885/909（失败 24）**。
+
+**修正（同一轮内的追加取证）：写路径其实是写全了的**
+
+第 465 轮末尾「表里只有 68 个元素 ⇒ 写路径漏写」的判断**不成立**，因为
+测试里的 `TARGET_TASK_COUNT = LEGACY_TASK_QUEUE_CAPACITY + 4 = 68` —— 队列里
+本来就只 push 了 68 个任务，旁路表 `count == 68` 是**完全正确**的。
+
+探针实测（已回退）也证实写入正常：
+
+```
+[sb] b=4 idx=0   ← 4 = exec_vm_native_agg_slot(base, idx) 分支（旁路表）
+[na] new=0 base32=... used=0
+[sb] b=4 idx=1
+...
+[sb] b=4 idx=67  ← 68 次，全部走旁路表
+```
+
+即 `push` 的 68 次写入**全部**落进旁路表，一次都没漏。
+
+那失败点就变成：**读取侧在 i < 68 时拿到的元素引用，目标却是 VOID**。
+`exec_vm_pointer_element_ptr` 里 `peek` 命中（`[pa]` 探针一次未触发，说明没走
+「按字节数提示步进」那条路），返回 `exec_vm_make_value_ref(agg_slot, pointee_kind)`，
+但随后 `LOAD_FIELD` 解出来的 `count == -1`。
+
+**下一轮第一步（比上一版更准）**
+
+在 `BC_STORE_INDEX` 的旁路表分支里打印 `src_value.kind`（第 0 与第 67 次各一次），
+确认写进去的是**聚合（STRUCT/ARRAY）**还是指针/接口盒子；再在
+`exec_vm_pointer_element_ptr` 的旁路表命中分支打印 `agg_slot.kind`。
+两者不一致，就说明 `exec_value_clone`/`store_slot` 这一路把元素「拍平」成了别的形态。
