@@ -7919,3 +7919,61 @@ exec runtime: lib/std/http/http1_async.uya:767:8:
 
 **本轮净状态**：`src/exec/vm.uya` +28 行（`exec_vm_cont_remap_blocks` 及两处调用），
 全量 **884/909**、失败 **25**。
+
+---
+
+## 第 461 轮：13x 超时类的根因缩到「TaskQueue 槽位元素读不回来」
+
+**1. 定位过程（插桩，全部已回退）**
+
+`test_std_async_scheduler` 卡在 `scheduler_run_task_queue_i32_with_shared_event_loop`：
+输出 `P1/P2` 后不再前进（P3 是 `scheduler_run...` 之后打的）。进到
+`scheduler_run_task_queue_with_event_loop<i32>` 里打点得到序列：
+
+```
+SA S1 S2 S3 SX   ← 每轮循环
+```
+
+即：外层循环在跑，但**内层 `while i < queue.len` 一次都没进**，于是
+`completed` 永远不动、`loop.poll(1)` 一直被调用 —— 死循环。
+
+进一步打印 `queue.len` 与 `slot.active`：
+
+```
+A30   // len=3（正确），slot.active 读出来是 0
+```
+
+`slot.active == 0` 为真才走 `continue`。所以：**`push` 写了 `active: 1`，
+运行器读到 0**，而同一结构体里的 `len=3` 是对的。
+
+**2. 已证否的复现形状（三个都通过，说明不是这些）**
+
+| 复现 | 结构 |
+| --- | --- |
+| 固定数组字段 `[GSlot<T>: 4]` + 元素赋值 | 通过 |
+| `slots: &GSlot<T>` 堆指针数组 + 元素赋值 | 通过 |
+| `calloc(4, @size_of(GSlot3<i32>))` + 17 字段大结构体元素读写 | 通过 |
+
+**3. 剩余嫌疑（下一轮从这里开始）**
+
+`ensure_slots` 用 `calloc(limit, @size_of(TaskQueueSlot<T>))` 分配**原生字节块**，
+而 VM 里每个字段占 56 字节的 `ExecValue` 槽。
+
+- 若 VM 的 `@size_of(TaskQueueSlot<i32>)` 给的是**C99 布局**大小（约 160–200 字节），
+  而 VM 指针下标写入用的步长是「字段数 × 56」（约 1000 字节），
+  那么第 0 号元素就已经越过了 malloc 块尾 —— 写会落到块外，
+  读也读同一地址却拿到 0/void。
+- 这与第 444–457 轮在 `test_tls_ecdsa` / `test_typed_pipeline_capability` 上
+  反复出现的「聚合身份/内容不一致」很可能是同一个根：**VM 侧结构体数组的
+  元素步长与 `@size_of` 不一致**。
+
+下一轮第一步：在 VM 里打一次 `@size_of(TaskQueueSlot<i32>)` 与
+`exec_vm_type_kind_size(TYPE_STRUCT)` 以及指针下标写入实际用的步长，
+三者一比即可判定；然后决定是修 `@size_of`（VM 侧按字段数×56 返回）还是
+修指针下标写入的步长。
+
+**4. 本轮净状态**
+
+代码零改动（插桩全部回退，`make uya` 通过）；
+三个关键用例复验仍通过：`test_http1_async_client`、`test_async_fd`、`test_async_state_machine`。
+全量基线维持第 460 轮的 **884/909（失败 25）**。
