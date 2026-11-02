@@ -9091,3 +9091,15 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
     一刀切展开会破坏别的单态体。
   已回退。正确做法是**只对「正文里确实有宏调用」的单态体展开**（按 AST 扫描，而不是按函数名），
   这是下一轮该做的事。
+
+### 第 487 轮：修「泛型体里再调泛型」的单态宏展开（真根因修复，census 无变化）
+
+- 根因：`exec_lower_mono_body_for_instance` 一上来就要求 `inst.type_arg_nodes` 非空，
+  而**传递性实例**（泛型体里再调泛型时创建的）只有解析好的 `type_args`，
+  于是直接 `return null` → 内层单态体不做宏展开 → 正文里的 `encode_to_to_json`
+  原样进 lowering，报「仅支持局部变量/参数/全局标识符(T)」。
+- 修复：用 `type_to_string` 把 `type_args` 合成 `AST_TYPE_NAMED` 节点再走展开路径。
+- 验证：`/tmp/nested_generic_probe.uya`（`nested_len<T>` 里调 `to_json<T>`）
+  从「报错/返回 999」变成**正确返回 22**（JSON 长度）。
+- `make exec-census`：**909 / 887 通过 / 22 失败**，无新增失败、也无意外修好
+  —— 说明这条路径现有用例没覆盖到，但它是「泛型调泛型」的通用正确性问题，值得留着。
