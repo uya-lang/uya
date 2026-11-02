@@ -11,10 +11,18 @@ const EXEC_MAX_FRAME_SLOTS: i32 = 8192;
 /// 就撞墙，报错点落在一个只占 10 个槽的 `sql_bytes_view_from_ptr` 上）。
 const EXEC_MAX_FRAME_SLOT_POOL: i32 = 32768;
 
+/// 一个宿主线程的 VM 执行状态（真并发时每线程一份；单线程时只有 main 一份）。
+struct ExecVmState {
+    slot_pool: &ExecValue,
+    slot_pool_capacity: i32,
+    slot_top: i32,
+}
+
 struct ExecFrame {
     function: &BCFunction,
     ip: i32,
     slots: &ExecValue,  // 指向 vm.uya 的槽位栈（按 function.slot_count 切片）
     varargs: [ExecValue: EXEC_MAX_CALL_ARGS],
     vararg_count: i32,
+    vm: &ExecVmState,  // 本帧归属的执行状态（真并发时区分线程）
 }

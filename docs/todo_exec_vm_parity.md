@@ -8904,3 +8904,20 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
 - 该改动无收益，已回退（`EXEC_VM_THREAD_SLOTS` 保持 16）。
 - 真解还是「绿色线程 + 在阻塞点挂起」：`pthread_create` 只登记线程体，
   在 `join` 或阻塞系统调用处按需推进，这样 worker 循环才不会在 create 里跑完。
+
+### 第 479 轮：真并发第一步——把槽位池从进程全局改成 `ExecVmState`
+
+- 先量了规模：每个「每线程可变」全局在 `src/exec/vm.uya` 里只有 4–13 处引用
+  （slot_pool 13、slot_top 7、cont_used 9、thread_exit_requested 4、await_waker 7、
+  alloc_used 5、frame_resumed 10，合计约 55 处），且**整台 VM 只有 1 处构造 `ExecFrame`**
+  —— 所以「状态挂到 frame 上」是可行的，不需要线程本地存储。
+- 本轮落地：
+  - `src/exec/frame.uya` 新增 `ExecVmState`（先含槽位池三件套）与 `ExecFrame.vm`；
+  - `src/exec/vm.uya` 的三条全局 `g_exec_vm_slot_pool/_capacity/_top` 收进
+    `g_exec_vm_state_main`，5 个槽位 helper 改为收 `vm: &ExecVmState`，
+    8 处调用点与帧构造点统一接 `exec_vm_main_vm()`；
+  - 编译 `make uya` 绿；`/tmp/tls_test.uya`（OK tls）、`/tmp/json_parse_probe.uya`（OK parse）、
+    `/tmp/ws_plain22_probe.uya` 全部照旧；`tests/test_std_thread.uya` 仍是 11 通过 / 23 失败
+    （与改动前逐项一致）→ 纯重构、零行为变化。
+- 下一步（第 480 轮）：把 cont/await/cancel/frame_resumed/alloc 那批也搬进 `ExecVmState`，
+  然后 `pthread_create` 用 `sys_clone` 起真宿主线程，线程入口带上自己的 `ExecVmState`。
