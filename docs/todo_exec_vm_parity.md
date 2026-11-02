@@ -9000,3 +9000,8 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
   默认仍然由 `UYA_EXEC_REAL_THREADS` 门控关闭，保证门禁稳定。
   下一轮：给真实线程补 `pthread_cancel`（设置取消标志 + 让 join 能被打断），
   修好后即可默认启用并重跑 census/parity。
+- 第 482 轮续：试给 `pthread_cancel` 加宿主拦截（真线程下 Uya 的 cancel 体走 `tkill`，
+  会把整个进程打死）——结果**默认路径反而把 `test_pthread_api_cancel` 弄挂**
+  （原来通过，改后 0/1）。已 revert（提交 `52247715`），默认恢复通过。
+  说明 cancel 不能只做「标记槽位结束」，必须让真实线程真能被打断（或在 join 侧正确返回 ECANCELED），
+  这是默认启用真线程前必须解决的最后一件事。
