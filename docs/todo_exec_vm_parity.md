@@ -9084,3 +9084,10 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   （都是 `[blk] JsonUser fields=2`），所以问题不在宏展开产物，而在
   `websocket_conn_write_json` 这个单态体的 **lowering/执行** 上（同样的块在 `to_json` 的单态体里就对）。
   这进一步坐实「宏生成代码在特定单态体里被错误 lower」这个方向，属于深水区。
+- 第 486 轮：把 `exec_lower_mono_body_needs_macro_expand` 的白名单整个去掉（对所有单态体都做宏展开）试过：
+  - 好的一面：`to_json<T>` 被别的泛型调用时**不再报**「仅支持局部变量/参数/全局标识符(T)」，说明
+    「泛型体里再调泛型的单态体没做宏展开」这个判断成立；
+  - 坏的一面：`websocket_json` 直接 **block lowering 失败**，`nested_len` 里 `to_json` 也返回错误 →
+    一刀切展开会破坏别的单态体。
+  已回退。正确做法是**只对「正文里确实有宏调用」的单态体展开**（按 AST 扫描，而不是按函数名），
+  这是下一轮该做的事。
