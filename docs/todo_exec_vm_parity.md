@@ -8234,3 +8234,34 @@ assert_eq_i32 failed: queue.result(compute_idx) as i32 == 42 (actual: 0)
 先从 `thread_pool` 的提交/结果回填链路查（第 464 轮已定位到
 `thread_async_compute_resolve_raw_value` 会在槽位状态不是 `DONE` 时返回 generic error），
 一条根因有机会收割 10+ 例。
+
+**「无真并发」这块的具体机制（已定位到代码，下一轮直接改）**
+
+`src/exec/vm.uya` 里 `pthread_create` 是**当场跑线程体**：
+
+```uya
+g_exec_vm_thread_body_budget = 20000000i64;   // 20M 条指令
+const thread_rc2 = exec_vm_call_function(program, routine_index, &thread_args[0], 1, 0, &thread_ret);
+g_exec_vm_thread_body_budget = 0i64;
+if thread_rc2 != 0 {
+    // 线程体没跑完（预算超限/内部错误）：清掉错误状态，让父线程继续跑
+    g_exec_last_error_message[0] = 0 as byte;
+}
+```
+
+线程池的 worker 是一个**永不返回的循环**：它阻塞在条件变量上等任务。
+预算 20M 用完后 `exec_vm_call_function` 返回非 0，VM 只是「清掉错误接着跑」，
+于是 **worker 被永久丢弃**；之后主线程提交的 compute 任务没有任何人去执行，
+`pool._shared_state.slots[i].state` 永远是初始态，不是 `THREAD_SLOT_STATE_DONE`，
+`thread_async_compute_resolve_raw_value` 于是返回 generic error →
+`queue.result(compute_idx)` 保持默认值 0（就是那批 `== 42 (actual: 0)` 的来源）。
+
+**下一轮的改法（协作式调度，收益 10+ 例）**
+
+不用真线程，把「冻结的线程体」变成可恢复的：阻塞点（条件变量/futex 的 wait 这类
+host call）在执行前，先拿一个新的 20M 预算把**已有的冻结线程体**再跑一轮。
+线程池的「put → signal → wait 结果」正好能跑通：
+主线程 wait 时推进 worker，worker 取到任务算完写回 slot，再阻塞时再冻结，
+主线程醒来就能读到 `state == DONE`。
+线程体必须能「跑到阻塞点就返回」，这正好复用第 439/440 轮的续体机制
+（`exec_vm_cont_snapshot` / `exec_vm_cont_remap_blocks`）。
