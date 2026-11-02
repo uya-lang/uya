@@ -504,6 +504,55 @@ export fn task_ready_ok<T>(value: T) Task<!T> {
     return Task<!T>{ state: poll_ready_ok<T>(value) };
 }
 
+/// 把 waker 的 interest 编码翻成 `poll(2)` 的 events 位。
+/// 1(READABLE)→POLLIN(1)、2(WRITABLE)→POLLOUT(4)、3(RDWR)→5。
+fn block_on_poll_events(interest: i32) i16 {
+    var ev: i32 = 0;
+    if interest == WAKER_INTEREST_READABLE || interest == 3 {
+        ev = ev | 1;
+    }
+    if interest == WAKER_INTEREST_WRITABLE || interest == 3 {
+        ev = ev | 4;
+    }
+    return ev as i16;
+}
+
+/// `block_on` 拿到 `Pending` 后真正等一次 I/O。
+///
+/// 纯自旋的 `block_on` 在原实现里会「立刻重新 poll」，可 I/O 还没就绪，
+/// 于是空转到天荒地老（VM 里没有别的线程推进 socket）。
+/// 这里把 waker 上登记的 fd 交 `poll(2)` 等一小段，事件到了再回主循环重 poll。
+/// 没有登记任何 fd（纯计算 future）时立即返回，行为与原来一致。
+///
+/// 参数说明：`w` 刚从 `poll` 拿回来的 waker。
+/// 返回值说明：无。超时也会返回，由上层的 `while true` 继续重试。
+fn block_on_wait_io(w: &Waker) void {
+    const n: i32 = w.io_slot_count();
+    if n <= 0 {
+        return;
+    }
+    var fds: [PollFd: WAKER_IO_SLOT_MAX] = [];
+    var used: i32 = 0;
+    var i: i32 = 0;
+    while i < n && i < WAKER_IO_SLOT_MAX {
+        const fd: i32 = w.io_slot_fd(i);
+        const interest: i32 = w.io_slot_interest(i);
+        if fd >= 0 && interest != WAKER_INTEREST_NONE {
+            fds[used as usize] = PollFd{
+                fd: fd,
+                events: block_on_poll_events(interest),
+                revents: 0 as i16,
+            };
+            used = used + 1;
+        }
+        i = i + 1;
+    }
+    if used <= 0 {
+        return;
+    }
+    _ = sys_poll(&fds[0], used as usize, 20);
+}
+
 /// 同步运行 Future<!T> 直到 Ready，返回 !T。Pending 时轮询直到就绪（忙等待，测试用）。
 export fn block_on<T>(f: Future<!T>) !T {
     var w: Waker = Waker{};
@@ -513,7 +562,7 @@ export fn block_on<T>(f: Future<!T>) !T {
         const p: Poll<!T> = f.poll(&w);
         match p {
             .Ready(ok_val) => { return ok_val; },
-            .Pending(_) => { },
+            .Pending(_) => { block_on_wait_io(&w); },
         };
     }
 }
@@ -527,7 +576,7 @@ export fn block_on_plain<T>(f: Future<T>) T {
         const p: Poll<T> = f.poll(&w);
         match p {
             .Ready(n) => { return n; },
-            .Pending(_) => { },
+            .Pending(_) => { block_on_wait_io(&w); },
         };
     }
 }
