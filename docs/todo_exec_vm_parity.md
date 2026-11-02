@@ -8806,3 +8806,23 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
 把「快速失败」换成「确定性挂死」不划算，本轮**回退**这次 lib 改动，把它记成下一轮入口：
 拿 `/tmp/ws_full_probe.uya`（挂死）和 `/tmp/ws_plain22_probe.uya`（通过）这一对最小对照，
 去比 `websocket_conn_write_message` 在两个单态体里 lowering 出来的字节码差异。
+
+### 第 475 轮补充：把挂死范围切成「只在泛型单态体内部」
+
+继续用最小对照排除：
+
+- **arena 切片本身没问题**：`/tmp/ws_arena_payload_probe.uya` 在 `main`（非泛型）里
+  先 `to_json<JsonUser>(&arena, user)` 拿到 `&[byte]`，再用**同一个**
+  `websocket_conn_write_message` 写这 22 字节 → 握手 + 读 + 解码全流程打印 `OK full`。
+  也就是说「切片指针/长度」和「从 arena 内存往 socket 写」都是好的。
+- **拆分切片字段不是解**：把 `payload_slice.ptr` / `payload_slice.len` 拆成独立局部量再传参，
+  `websocket_conn_write_json<T>` 仍然确定性挂死 → 排除「切片字段提取」。
+- 想在 lib 里加打印来继续定位走不通：加了 `use libc.unistd;` + 打印后，
+  VM 在 `lib/std/http/websocket_json.uya:70` 直接 lowering 失败（`exec: 期望定义 lowering 失败`），
+  需要换手段（例如给 VM 加一个「打印 usize 到 stderr」的宿主调用，或让 lib 侧调试代码也能被 lowering）。
+
+**当前定位**：坏在「泛型单态体内部再去调另一个泛型 `to_json<T>`」这条链上——
+同样的代码放在 `main` 里完全正常。
+下一轮入口就是这一对最小对照：
+`/tmp/ws_arena_payload_probe.uya`（通过）vs `/tmp/ws_full_probe.uya`（挂死），
+差异只有「写操作在 `main` 还是在 `websocket_conn_write_json<T>` 的单态体里」。
