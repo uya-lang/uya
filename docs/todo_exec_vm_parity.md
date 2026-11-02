@@ -8265,3 +8265,58 @@ host call）在执行前，先拿一个新的 20M 预算把**已有的冻结线�
 主线程醒来就能读到 `state == DONE`。
 线程体必须能「跑到阻塞点就返回」，这正好复用第 439/440 轮的续体机制
 （`exec_vm_cont_snapshot` / `exec_vm_cont_remap_blocks`）。
+
+---
+
+## 第 465 轮：协作式线程重放原型（实测零收益，已回退）+ 剩余失败逐条定性
+
+**1. 先确认线程池 worker 的真实形态**
+
+`lib/std/thread.uya:698` 的 `thread_worker_loop` 阻塞在**管道读取**上：
+
+```uya
+const read_result: !isize = sys_read(cmd_read_fd, (&cmd) as *byte, @size_of(ThreadWorkerCommand));
+const n: isize = read_result catch { (0 - 1) as isize; };
+if n < 0 { break; }
+if n == 0 { break; }        // ← VM 里空管道 read 返回 0，worker 立刻 break 退出
+```
+
+VM 是单线程，空管道上不可能真阻塞；`read` 返回 0 → worker 当成 EOF **直接退出**。
+于是池子里根本没有 worker，提交的 compute 任务没人执行 →
+`slots[i].state` 永远不是 `DONE` → `thread_async_compute_resolve_raw_value` 返回
+generic error → `queue.result(...)` 保持 0（就是那批 `== 42 (actual: 0)`）。
+
+**2. 实现并实测了「协作式重放」原型，结论：这条路走不通**
+
+思路：`pthread_create` 里线程体被 20M 指令预算打断时不丢弃，登记成「可重放」；
+主线程隔 1M 指令后在 host call 处把冻结的线程体**从头重跑一轮**（worker 会读到
+刚写进管道的命令）。实现约 60 行（外加两个探针），`make uya` 通过。
+
+实测结果：
+
+| 用例 | 探针 | 结果 |
+| --- | --- | --- |
+| `test_async_compute_types` | `[tc]` 0 次、`[rp]` 0 次 | 仍 11 条失败 |
+| `test_pthread_heap_concurrency` | `[tc]` 8 次、`[rp]` 1 次 | rc=139，**与基线完全一致** |
+
+即：机制在 pthread 用例上确实触发了，但**零收益**；而 compute 那批因为
+worker 在创建时就 EOF 退出，压根没有可重放的线程体。
+
+判断：`worker 在 read 处 break` 意味着重放（从头重跑）永远救不了它 ——
+要救必须让 `sys_read` 在空管道上**挂起当前帧**（真正的协程化 syscall），
+或者上真线程。这是「真并发」那件事的本体，不是几十行能收的。
+**原型已全部回退，工作树干净**（避免重复副作用带来的隐性风险）。
+
+**3. 剩余 24 例的逐条定性（下一轮按这个优先级挑）**
+
+| 类别 | 用例 | 定性 |
+| --- | --- | --- |
+| 需要真并发/协程化阻塞 | `pthread_heap_*`(139/239)、`std_thread`(23)、`kernel_sim`(5)、`thread_async_boundary`(3)、`async_thread_pool_dynamic_growth`(5)、`async_compute_*`(1+2+11)、`async_runtime/shared_semantics`(2/1) | worker 被 EOF 杀掉，见上 |
+| **具体 VM bug（值得下轮先做）** | `test_async_task_queue_dynamic_growth`(1) | `LOAD_FIELD idx=2 kind=14 count=-1 pointee=16 ref=1 aux=65552`：内部引用指向**已被 grow 释放的旧 slots 存储**，字段访问取不到聚合。查 `grow_slots` 的 realloc 与 `exec_vm_native_agg_rebase`/`_migrate` |
+| 设计缺口 | `test_async_frame_pool_full`(1) | `@async_fn` 的盒子由 **VM 自己**分配，不走 `get_async_frame_allocator`，所以测试里的 `FailingAlloc` 无法制造 `AsyncFramePoolFull` |
+| 环境/网络相关 | `std_dns_async_query_aggregate`(2，`st>>8&255 == 32`)、`https_google`(141 SIGPIPE)、`http_uyagin*`/`std_dns_async_transport`/`tls_ecdsa`(137 超时) | 依赖真实网络或耗时过长 |
+| 异步事件循环 | `http_websocket_json`(1)、`http_websocket_reconnect`(1)、`tls_async_runtime_io`(1)、`typed_pipeline_capability`(1) | 都是在 `run_with_loop_*` 里 `try`  propagate 出一个无消息的 error；`typed_pipeline` 现场在 `lib/libc/heap.uya:221` 的 `LOAD_FIELD` |
+
+**下轮第一步**：`test_async_task_queue_dynamic_growth` —— 它有一个 1 秒级复现、
+错误信息带 `aux=65552`（ref kind 16）和 `count=-1`（聚合查不到），
+属于「grow 时引用悬垂」，大概率能直接定位到 `grow_slots` 之后的 rebase 漏项。
