@@ -7851,3 +7851,71 @@ exec runtime: lib/std/http/http1_async.uya:767:8:
 
 **本轮净状态**：`src/exec/vm.uya` 增加 541 行（三个提交），单点 +4/-1；
 全量基线待下一轮普查确认（预计 **883/909**）。
+
+---
+
+## 第 460 轮：修掉续体悬垂引用，全量 **884/909（97.2%）**，失败 25 例
+
+**1. 修的 bug**
+
+第 459 轮发现的回归（`test_http1_async_client` 2 秒内
+`LOAD_FIELD 字段越界(idx=3 kind=14 count=3 pointee=16 ...)`）根因查明：
+
+- 快照把本帧槽段整段拷进续体块后，**原槽段随帧返回立即释放**；
+- 但**别的活跃续体**手里可能还有指向本帧槽段的内部引用（`ref=1 aux=65536+16`）；
+- 那段内存随后被新的续体盒子复用 —— 盒子正是 `exec_vm_make_cont_box` 造的
+  **3 字段聚合** `[poll, release, handle]`；
+- 于是恢复后那个引用取字段 3 就越界，报出 `count=3`。
+
+修法（`exec_vm_cont_remap_blocks`）：快照/恢复时除了搬本帧自己的引用，
+还要扫一遍**所有其它活跃续体**的槽位，把指向 `[旧槽段)` 的内部引用搬到最后的位置：
+
+- 快照：旧槽段 → 新快照块；
+- 恢复：快照块 → 新槽段。
+
+**2. 单点复验（全部通过）**
+
+| 用例 | 结果 |
+| --- | --- |
+| `test_http1_async_client` | **通过**（回归消除） |
+| `test_async_fd` | 通过 |
+| `test_async_state_machine` | 通过 |
+| `test_async_compound_try_await` | 通过 |
+| `test_async_macro_expand` | 通过 |
+
+**3. 全量普查（`UYA_EXEC_CENSUS_JOBS=4`，909 例）**
+
+```
+总数 909 / 通过 884 / 失败 25   → 97.2%
+```
+
+对比：第 447 轮 879/30（909 例），第 451 轮 tls_rsa 放宽超时后应记 880/29，
+本轮 4 个 async 用例转通过 → **884/25** ✓ 与预期完全一致，无其它回归。
+
+**剩余 25 例（按类）**
+
+- **13x 超时类（真任务队列/线程池，仍缺）10 例**：
+  `test_async_multi_fd_concurrent`、`test_async_runtime_shared_dns`、
+  `test_async_runtime_shared_semantics`、`test_async_shared_runtime_semantics`、
+  `test_async_task_queue_dynamic_growth`、`test_http_uyagin`、
+  `test_http_uyagin_websocket`、`test_std_async_scheduler`、
+  `test_std_dns_async_transport`、`test_tls_ecdsa`
+- **其它超时/退出码类**：`test_pthread_heap_cache_identity`(239)、
+  `test_pthread_heap_concurrency`(139)、`test_std_thread`(23)
+- **模型缺口/短失败**：`test_async_compute_types`(11)、`test_async_compute_generic_wrapper`(2)、
+  `test_async_compute_dynamic_resource_pressure`(1)、`test_async_frame_pool_full`(1)、
+  `test_async_thread_pool_dynamic_growth`(5)、`test_kernel_sim`(5)、
+  `test_http_websocket_json`(1)、`test_http_websocket_reconnect`(1)、
+  `test_std_dns_async_query_aggregate`(2)、`test_std_thread_async_boundary`(3)、
+  `test_tls_async_runtime_io`(1)、`test_typed_pipeline_capability`(1)
+
+**4. 下一步**
+
+1. 真任务队列（10 个 13x 类）：续体表已有，缺的是「多任务就绪队列 + 单线程事件循环 +
+   线程池」，这一层做出来才能动它们。
+2. `test_typed_pipeline_capability` / `test_tls_ecdsa` 属于另一类（聚合身份），
+   现在有 `test_http1_async_client` 这条 2 秒级通路可以交叉验证。
+3. `make exec-parity` 待失败集稳定后再跑（约 40 分钟）。
+
+**本轮净状态**：`src/exec/vm.uya` +28 行（`exec_vm_cont_remap_blocks` 及两处调用），
+全量 **884/909**、失败 **25**。
