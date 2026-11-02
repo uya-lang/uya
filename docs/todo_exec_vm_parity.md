@@ -8505,3 +8505,33 @@ worker 在创建时就 EOF 退出，压根没有可重放的线程体。
 
 **当前已落地的两个容器级修复**（在根治生效前先保住正确性，生效后可以回退成 `realloc`）：
 `TaskQueue::grow_slots`、`async_frame_pool_grow_bucket_table` 改成 `calloc` + 逐元素拷贝 + `free`。
+
+### 三次根治尝试都未生效 —— 结论与下一轮的确切探针
+
+尝试 1：把 `memcpy/memmove/memset` 加进 `exec_lower_extern_prefers_host_call()`
+（`lower.uya` 约 1200 行，`pthread_*`/`setjmp` 同一张白名单）→ **无效**；
+尝试 2：在 `exec_lower_extern_can_run_in_vm()` 的 `fn_decl_is_extern == 0` 分支**之前**
+对这三个名字直接 `return 0` → **无效**；
+尝试 3：在调用降级处（`lower.uya` 约 9437 行的闸门之前）用
+`fn_decl_extern_lib_name != null` 识别 `export extern "libc"` 并把 `naked_host_call` 置 1
+（复用 `setjmp` 已有的强制宿主机制）→ **仍然无效**，
+`/tmp/vec_struct_repro.uya` 依旧 `Vec_grow_if_needed` 里 `LOAD_FIELD count=0`。
+
+三次都不生效说明：`_realloc_impl` 里那次 `memcpy` 调用**根本没有带着可用的
+`callee_decl` 走到 call 降级**（`callee_decl` 为 null、或不是 `AST_FN_DECL`、
+或 `fn_decl_extern_lib_name` 为 null —— 三选一，`--dump-bytecode` 在 `run` 模式下
+只 dump 主模块，看不到 lib 侧的 `_realloc_impl`，无法从 dump 反查）。
+
+**下一轮第一步（一行调试打印即可定性）**：在 `lower.uya` 约 9437 行那个 `if` 之上插入
+
+```
+if callee_decl == null || callee_decl.fn_decl_name == null {
+    // 打印 expr 的位置 + callee_decl==null
+} else if str_equals(callee_decl.fn_decl_name, "memcpy" as *byte) != 0 {
+    // 打印 callee_decl.type / fn_decl_is_extern / fn_decl_extern_lib_name!=null / fn_decl_body!=null
+}
+```
+
+用 `write(2, ...)`（`print` 在 VM 里会被吞）。跑 `/tmp/vec_struct_repro.uya`，
+三条信息一出就知道该在哪一层加判断；这也决定了根治是落在
+「调用点降级」还是「函数体 vs 宿主的选择处（`exec_lower_host_call_overrides_body`）」。
