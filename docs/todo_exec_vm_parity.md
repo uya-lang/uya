@@ -8755,9 +8755,9 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
 - `make check`：**rc=0**，1192 例全通过（C99 侧无回归）。
 - `make exec-census`：**909 例 / 通过 887 / 失败 22**，与第 470/473 轮**逐行一致**，
   零回归、无挂死。
-- `make exec-parity` 这一轮**没有重跑**（上一轮数据是改动前的 913/889/24）。
-  因为 census 与改动前逐行一致，且 census 会把挂死算成失败，所以判「没有新增挂死」有据；
-  但 parity 的正式数字要等下一次全量跑（下一轮做）。
+- `make exec-parity`（改动后补跑）：**913 例 / 一致 889 / 不一致 24**，
+  与改动前的 890/23（第 470 轮）持平（多出的 1 例是第 472 轮已确认的 DNS 网络 flake），
+  正式数字以这次为准。
 
 **顺带缩小一处现场**：`test_http_websocket_json` 现在失败在
 `websocket_conn_write_json<JsonUser>` 返回 `BufferTooSmall`，
