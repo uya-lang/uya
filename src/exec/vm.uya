@@ -87,7 +87,7 @@ fn exec_vm_sig_deliver_pending(program: &BCProgram, trace_vm: i32) void {
             if handler_idx >= 0 {
                 var sig_args: [ExecValue: 1] = [exec_make_i32(sig)];
                 var sig_ret: ExecValue = exec_make_void();
-                _ = exec_vm_call_function(program, handler_idx, &sig_args[0], 1, trace_vm, &sig_ret);
+                _ = exec_vm_call_function(exec_vm_main_vm(), program, handler_idx, &sig_args[0], 1, trace_vm, &sig_ret);
             }
         }
         sig = sig + 1;
@@ -111,7 +111,7 @@ fn exec_vm_sig_deliver_one(program: &BCProgram, signum: i32, trace_vm: i32) void
     if handler_idx >= 0 {
         var sig_args: [ExecValue: 1] = [exec_make_i32(signum)];
         var sig_ret: ExecValue = exec_make_void();
-        _ = exec_vm_call_function(program, handler_idx, &sig_args[0], 1, trace_vm, &sig_ret);
+        _ = exec_vm_call_function(exec_vm_main_vm(), program, handler_idx, &sig_args[0], 1, trace_vm, &sig_ret);
     }
 }
 
@@ -1230,7 +1230,7 @@ fn exec_vm_await_poll_once(program: &BCProgram, poll_fn_index: i32, self_cell: &
     var args: [ExecValue: 2] = [];
     args[0] = self_cell[0];
     args[1] = exec_vm_await_make_waker();
-    const rc: i32 = exec_vm_call_function(program, poll_fn_index, &args[0], 2, 0, out_value);
+    const rc: i32 = exec_vm_call_function(exec_vm_main_vm(), program, poll_fn_index, &args[0], 2, 0, out_value);
     if rc < 0 {
         return -1;
     }
@@ -2027,7 +2027,7 @@ fn exec_vm_box_value_ref_via_allocator(program: &BCProgram, value: ExecValue, po
     box_args[0] = exec_make_usize(@size_of(ExecValue) as usize);
     var box_ret: ExecValue = exec_make_void();
     exec_vm_main_vm().box_alloc_active = 1;
-    const box_call_rc: i32 = exec_vm_call_function(program, g_exec_vm_box_alloc_fn_index,
+    const box_call_rc: i32 = exec_vm_call_function(exec_vm_main_vm(), program, g_exec_vm_box_alloc_fn_index,
         &box_args[0], 1, 0, &box_ret);
     exec_vm_main_vm().box_alloc_active = 0;
     if box_call_rc != 0 {
@@ -5079,7 +5079,7 @@ fn exec_vm_frame_start(program: &BCProgram, function: &BCFunction, site: &BCHost
         fi = fi + 1;
     }
     var frame_result: ExecValue = exec_make_void();
-    if exec_vm_call_function(program, target_index, &frame_args[0], target_arg_count, 0, &frame_result) < 0 {
+    if exec_vm_call_function(exec_vm_main_vm(), program, target_index, &frame_args[0], target_arg_count, 0, &frame_result) < 0 {
         return -1;
     }
     frame_slot[0] = frame_result;
@@ -5691,7 +5691,7 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                     }
                     var thread_ret: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
                     g_exec_vm_thread_body_budget = 20000000i64;
-                    const thread_rc2: i32 = exec_vm_call_function(program, routine_index, &thread_args[0], 1, 0, &thread_ret);
+                    const thread_rc2: i32 = exec_vm_call_function(exec_vm_main_vm(), program, routine_index, &thread_args[0], 1, 0, &thread_ret);
                     g_exec_vm_thread_body_budget = 0i64;
                     if thread_rc2 != 0 {
                         // 线程体没跑完（预算超限/内部错误）：清掉错误状态，让父线程
@@ -5763,7 +5763,7 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
             const once_index: i32 = exec_vm_fn_ref_index(once_routine);
             if once_index >= 0 {
                 var once_ret: ExecValue = exec_make_void();
-                if exec_vm_call_function(program, once_index, null, 0, 0, &once_ret) < 0 {
+                if exec_vm_call_function(exec_vm_main_vm(), program, once_index, null, 0, 0, &once_ret) < 0 {
                     return -1;
                 }
             }
@@ -8272,7 +8272,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             ai = ai + 1;
         }
         var call_result: ExecValue = exec_make_void();
-        if exec_vm_call_function(program, callee_idx, &call_args[0], instr.c, trace_vm, &call_result) < 0 {
+        if exec_vm_call_function(exec_vm_main_vm(), program, callee_idx, &call_args[0], instr.c, trace_vm, &call_result) < 0 {
             return -1;
         }
         if slot_a == null {
@@ -8307,7 +8307,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             ai3 = ai3 + 1;
         }
         var indirect_result: ExecValue = exec_make_void();
-        if exec_vm_call_function(program, callee_idx2, &call_args3[0], instr.imm as i32, trace_vm, &indirect_result) < 0 {
+        if exec_vm_call_function(exec_vm_main_vm(), program, callee_idx2, &call_args3[0], instr.imm as i32, trace_vm, &indirect_result) < 0 {
             return -1;
         }
         exec_vm_store_slot(slot_a, indirect_result);
@@ -8783,7 +8783,7 @@ fn exec_vm_cont_poll(program: &BCProgram, args: &ExecValue, arg_count: i32,
         exec_vm_main_vm().await_waker_addr = 0 as usize;
         exec_vm_main_vm().await_waker_kind = 0;
     }
-    const rc: i32 = exec_vm_run_frame(program, function, null as &ExecValue, 0, 0, &resumed, base,
+    const rc: i32 = exec_vm_run_frame(exec_vm_main_vm(), program, function, null as &ExecValue, 0, 0, &resumed, base,
         snapshot, exec_vm_main_vm().cont_ip[handle]);
     exec_vm_main_vm().await_waker_addr = saved_waker_addr;
     exec_vm_main_vm().await_waker_kind = saved_waker_kind;
@@ -8810,7 +8810,7 @@ fn exec_vm_cont_poll(program: &BCProgram, args: &ExecValue, arg_count: i32,
     return 0;
 }
 
-fn exec_vm_call_function(program: &BCProgram, function_index: i32, args: &ExecValue, arg_count: i32, trace_vm: i32, out_value: &ExecValue) i32 {
+fn exec_vm_call_function(vm: &ExecVmState, program: &BCProgram, function_index: i32, args: &ExecValue, arg_count: i32, trace_vm: i32, out_value: &ExecValue) i32 {
     if program == null || out_value == null {
         exec_backend_set_error(null, "exec: VM 调用参数无效" as *byte, 0);
         return -1;
@@ -8840,7 +8840,7 @@ fn exec_vm_call_function(program: &BCProgram, function_index: i32, args: &ExecVa
         exec_backend_set_error(function.decl, "exec: VM frame slot 超限" as *byte, 0);
         return -1;
     }
-    const rc: i32 = exec_vm_run_frame(program, function, args, arg_count, trace_vm, out_value, base,
+    const rc: i32 = exec_vm_run_frame(exec_vm_main_vm(), program, function, args, arg_count, trace_vm, out_value, base,
         null as &ExecValue, 0);
     exec_vm_slot_pool_pop(exec_vm_main_vm(), base);
     return rc;
@@ -8849,7 +8849,7 @@ fn exec_vm_call_function(program: &BCProgram, function_index: i32, args: &ExecVa
 /// 在已经切好的槽位栈段上执行一个函数体（配对 `exec_vm_call_function`）。
 /// 参数：`base` 槽位栈起始下标。
 /// 返回值：0 表示执行完成，-1 表示运行时错误。
-fn exec_vm_run_frame(program: &BCProgram, function: &BCFunction, args: &ExecValue, arg_count: i32,
+fn exec_vm_run_frame(vm: &ExecVmState, program: &BCProgram, function: &BCFunction, args: &ExecValue, arg_count: i32,
     trace_vm: i32, out_value: &ExecValue, base: i32,
     resume_slots: &ExecValue, resume_ip: i32) i32 {
     var slots_ptr: &ExecValue = exec_vm_slot_pool_base(exec_vm_main_vm(), base);
@@ -8865,7 +8865,7 @@ fn exec_vm_run_frame(program: &BCProgram, function: &BCFunction, args: &ExecValu
         slots: slots_ptr,
         varargs: [],
         vararg_count: 0,
-        vm: exec_vm_main_vm(),
+        vm: vm,
     };
     exec_vm_trace_call_enter(trace_vm, function.name, arg_count);
     const saved_resumed: i32 = exec_vm_main_vm().frame_resumed;
@@ -8979,7 +8979,7 @@ export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
     }
     if program.global_init_function_index >= 0 {
         var init_result: ExecValue = exec_make_void();
-        if exec_vm_call_function(program, program.global_init_function_index, null, 0, trace_vm, &init_result) < 0 {
+        if exec_vm_call_function(exec_vm_main_vm(), program, program.global_init_function_index, null, 0, trace_vm, &init_result) < 0 {
             if g_exec_vm_exit_requested != 0 {
                 return g_exec_vm_exit_code;
             }
@@ -9018,7 +9018,7 @@ export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
             printf("  TEST: %s ... " as *byte, test_desc);
             _ = fflush(libc.stdout);
             var test_result: ExecValue = exec_make_void();
-            if exec_vm_call_function(program, program.test_function_indices[test_i], null, 0, trace_vm, &test_result) < 0 {
+            if exec_vm_call_function(exec_vm_main_vm(), program, program.test_function_indices[test_i], null, 0, trace_vm, &test_result) < 0 {
                 if g_exec_vm_exit_requested != 0 {
                     return g_exec_vm_exit_code;
                 }
@@ -9046,7 +9046,7 @@ export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
         }
     }
     var result: ExecValue = exec_make_void();
-    if exec_vm_call_function(program, program.entry_function_index, null, 0, trace_vm, &result) < 0 {
+    if exec_vm_call_function(exec_vm_main_vm(), program, program.entry_function_index, null, 0, trace_vm, &result) < 0 {
         if g_exec_vm_exit_requested != 0 {
             return g_exec_vm_exit_code;
         }

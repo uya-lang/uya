@@ -8926,3 +8926,7 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
   `make uya` 绿；三个探针 + `test_std_thread`（11/23）逐项与改动前一致 → 仍是纯重构。
   现在 `ExecVmState` 已经是「一个宿主线程跑 VM 所需的全部可变状态」，
   剩下的 `pthread_create` 只要给子线程一份新 state 并用 `sys_clone` 起真线程即可。
+- 第 479 轮再续：`exec_vm_run_frame` / `exec_vm_call_function` 都加了 `vm: &ExecVmState` 首参
+  （14 处调用点统一传 `exec_vm_main_vm()`，帧构造改为 `vm: vm`），`make uya` 绿、三个探针 +
+  `test_std_thread`（11/23）依旧逐项一致。下一步就是把这两个函数体内部的 `exec_vm_main_vm()`
+  换成形参 `vm`，然后 `pthread_create` 用 `sys_clone` 起真线程并把新 state 传进去。
