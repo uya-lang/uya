@@ -9076,6 +9076,7 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 | `8e5d0516` | pthread 家族按名走宿主拦截 + 真宿主线程骨架（env 门控） | `test_pthread_heap_concurrency` 曾全绿（139→0） |
 | `7819aaee` | `exec_vm_thread_used` 改 atomic（join 自旋曾被优化掉） | 并发 malloc 探针通过 |
 | `00c9d722` | `pthread_cancel` 拦截按编译期开关门控 | 默认路径 `test_pthread_api_cancel` 仍通过 |
+| `180d48e9` | 传递性单态实例合成 `type_arg_nodes`（泛型调泛型拿不到宏展开） | 探针从报错变成正确返回 22；census 无回归 |
 
 **当前门禁**：`make check` rc=0；`make exec-census` 887/22；`make exec-parity` 889/24。
 **未完成**：剩余 22 例（真线程稳定性、聚合/切片深水区、网络 flake），
