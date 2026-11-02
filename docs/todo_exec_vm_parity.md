@@ -9204,3 +9204,12 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   - 已回退所有临时打印与试探改动。`test_pthread_api_cancel` 里
     `result == PTHREAD_CANCELED` 这一断言因此还过不了，
     但该用例的 create→cancel→join 主流程在真线程下已经正确（`test_pthread_cancel` 全过）。
+- 第 494 轮再续：`PTHREAD_CANCELED` 问题的排查进展（已回退全部临时改动）：
+  - 用 `[itbl]`/`[itbl2]` 打印确认：`use libc.pthread;` 的确在 import table 里（59 条条目，
+    其中含 `libc.pthread`），`module_imports` 收集器也被调用（cap=512）；
+  - 但按「模块文件」整体收集全局的那条新路径没有命中（探针打印一次都没出现），
+    说明从 module table 反查模块文件名这步失败——**这条线索留给后续**，
+    目前 `PTHREAD_CANCELED` 仍读到 0。
+  - 已确认这不是本轮取消功能引入的问题：`test_pthread_api_cancel` 的
+    create→cancel→join 主流程在真线程下已正确（`test_pthread_cancel` 全过），
+    只有 `result == PTHREAD_CANCELED` 这一条断言受该缺陷影响。
