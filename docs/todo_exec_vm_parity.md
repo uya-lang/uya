@@ -8397,3 +8397,34 @@ worker 在创建时就 EOF 退出，压根没有可重放的线程体。
 确认写进去的是**聚合（STRUCT/ARRAY）**还是指针/接口盒子；再在
 `exec_vm_pointer_element_ptr` 的旁路表命中分支打印 `agg_slot.kind`。
 两者不一致，就说明 `exec_value_clone`/`store_slot` 这一路把元素「拍平」成了别的形态。
+
+**再追加取证（同一轮）：旁路表里出现了「同一逻辑数组的两条记录」**
+
+在 `exec_vm_pointer_element_ptr` 命中旁路表时把整张表 dump 出来：
+
+```
+[ws] idx=0  base32=-51592256 after=16 fields=9     // push 写第 0 个元素
+[ws] idx=67 base32=-51608640 after=16 fields=9     // push 写第 67 个元素（基址已经变了）
+[rs] idx=0  slotkind=0 base32=-515858368 dup=1 firstcnt=68 used=4
+[rs2] i=0 base32=-515796928 cnt=64  cap=64         // ← 扩容前的旧块，还留着
+[rs2] i=1 base32=-515813312 cnt=68  cap=128
+[rs2] i=2 base32=-515841984 cnt=64  cap=64
+[rs2] i=3 base32=-515858368 cnt=68  cap=128        // ← 读的时候用的新块，前 64 个是 VOID
+```
+
+所以**扩容换了基址，旧基址的 64 个元素没有搬到新基址名下**：
+新基址只有 `cnt=68`（写 64..67 时把 count 顶到 68），元素 0..63 是 VOID，
+于是 `q.slots[0].active` 读不到 → `LOAD_FIELD count=-1`。
+
+**但机制还没解释通**（下一轮从这里接）：
+
+- `lib/std/async_scheduler.uya:22` 是 `extern fn realloc(...)`，`:443` 的 `grow_slots` 调它；
+- 在 `exec_vm_call_host` 入口按 `site.name == "realloc"` 打探针，**一次都没触发**，
+  且该用例的字节码里 `host_calls` 只有 5 条（pthread/atomic），**没有 alloc 类**；
+- 也就是说这几个 extern 分配函数根本没走「按名字」的 host call 表，
+  但块确实搬家了（基址变了）。
+
+下一轮第一步：在 `EXEC_HOST_CALL_REALLOC` / `CALLOC` / `FREE` 三个分支的**入口**各打一条探针
+（不要用 `^` 锚定 grep，用例输出带前缀），确认到底哪条路径分配了新块；
+如果确认是 REALLOC，再查为什么紧随其后的 `exec_vm_native_agg_rebase(old,new)`
+没能把旧条目改名（dump 里旧条目 `cnt=64` 还在）。
