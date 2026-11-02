@@ -7730,3 +7730,57 @@ fd1 的缓冲/去向不可靠，`printf` 的输出被吞掉。改用 `write(2, .
 
 注：本轮起把 `tests/exec_vm_census_timeouts.txt` 里 `test_tls_rsa` 的超时放宽
 计入基线（第 451 轮已单点验证通过），下一次全量普查应为 880/909。
+
+---
+
+## 第 458 轮：先推进 leaf IO —— `@await` 的 Pending 路径改成按登记的 fd 真等 OS
+
+**1. leaf 原语本身没问题（自建复现）**
+
+`pipe2 → write → poll → read` 在 VM 里逐值正确（4 字节内容、`revents`、返回值全对）。
+所以「leaf IO 不推进」不在 syscall 编组层。
+
+**2. 实现：把自旋换成「按 waker 登记的 fd 等 OS」**
+
+`exec_vm_await_poll_interface` 里每轮 poll 返回 Pending 后：
+
+- 从合成 waker 聚合里读 `_io_fd`（字段 2）与 `_io_interest`（字段 3）；
+- 有 fd 且 interest 非 0 → `sys_poll(&pfd{fd, POLLIN/POLLOUT}, 1, 1ms)` **真等**，
+  数据一到立刻返回，CPU 让给宿主线程/子进程；
+- 没有登记 fd（状态翻转、就绪队列这类纯内存 Future）→ **保持原来的纯自旋**。
+
+第一版曾对「无 fd」也加 1ms 让出 + 2000 轮上限，实测会误伤需要更多轮的小 Future
+（`test_std_pipeline` 这类多段 await 直接挂住），已改回：**只有登记了 fd 才让出，且不设轮数上限**。
+
+**3. 样例回归（改动后实测，均与基线一致）**
+
+通过：`test_http1_async_client`、`test_std_dns`、`test_typed_pipeline_executor_single`、
+`test_typed_pipeline_lowering_error`、`test_async_await_capacity_dynamic`、
+`test_async_await_direct_err_union`、`test_async_await_limits_and_segments`。
+仍失败（基线也失败）：`test_async_state_machine`、`test_async_compound_try_await`、`test_std_thread`。
+仍超时（基线也超时）：`test_async_fd`、`test_std_async_scheduler`。
+
+**4. 关键收获：找到 2 秒级的 async 快速替身**
+
+`tests/test_async_fd.uya` 全套只需 1–2 秒（不是 800s），而且它的首个失败子用例
+`async_fd_read_returns_pending_on_eagain_then_ready` 就是 async 状态机的典型症状：
+
+- 第一次 poll 正确 Pending；
+- 测试往 pipe 写入 4 字节；
+- 第二次 poll 返回 `Ready(0)`；
+- **探针证明此时 pipe 里那 4 字节还在**（`sys_read(fd,&dst,8)` 仍读到 4）。
+
+即第二次 poll 既没读出数据、也没报错，直接返回 0 —— 形如 `count` 变 0
+或循环顶的 `async_fd_read_try_step` 没被执行。
+
+**5. 已证否（三个 2 秒 repro 全通过）**
+
+- `@await` 的内层结果在协程恢复后仍正确（`inner→7`，外层 +1 得 8）；
+- 协程**参数**在 Pending 恢复后仍正确（`x=5` → 12）；
+- `while true { @await ...; continue; }` 里参数与局部仍正确。
+
+所以不是「恢复丢变量」这么简单，下一步直接在 `async_fd_read_try_step` 临时打点
+（`count`/`step`/`n`），用 `test_async_fd` 做 2 秒迭代 —— 不要再用 ecdsa 的 800s 去试。
+
+**本轮净状态**：代码 +42 行（仅 `src/exec/vm.uya`），样例零回归；
+基线 **880/909**、parity 不一致 30、`make check` 全绿（本轮未改编译器与库，只改 VM 等待策略）。

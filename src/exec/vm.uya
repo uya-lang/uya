@@ -13,6 +13,10 @@ use libc.fprintf;
 use libc.clock;
 use std.runtime.saved_envp;
 use libc.printf;
+use libc.sys_poll;
+use libc.PollFd;
+use libc.POLLIN;
+use libc.POLLOUT;
 use libc.sprintf;
 use libc.snprintf;
 use libc.write;
@@ -1070,6 +1074,14 @@ fn exec_vm_realign_to_slot(addr: usize) &ExecValue {
 /// 返回值：找到的联合值数据；没找到返回 null。
 /// `@await` 忙等真实 Future 的 CPU 时间上限（`clock()` 单位，1e6 = 1 秒）。
 const EXEC_AWAIT_BUSY_CLOCKS: i64 = 1500000;
+/// leaf IO 等待时每轮在 OS 上最多停多久（毫秒）。
+///
+/// 纯自旋会把这台机器上**别的线程/子进程**饿死：这些用例的 leaf IO 对端
+/// 往往是子进程或宿主线程，VM 把 CPU 占满时它们拿不到时间片，
+/// `sys_poll(fd, 0)` 永远看不到就绪 —— 这正是「13x 超时」那一类。
+/// 登记了 fd 的 Future 改成用 `poll(fd, 1ms)` 真等，CPU 让出去、就绪立刻返回。
+/// 没登记 fd 的 Future（状态翻转、就绪队列）保持原来的纯自旋，行为不变。
+const EXEC_AWAIT_SLEEP_MS: i32 = 1;
 /// `@await` 忙等时给 `Waker` 参数用的占位聚合字段数（够覆盖 Waker 的全部字段）。
 const EXEC_AWAIT_WAKER_FIELDS: i32 = 64;
 /// 合成占位聚合里 VOID 字段被按下标写入时实体化成的定长数组槽数。
@@ -1186,7 +1198,9 @@ fn exec_vm_await_poll_interface(program: &BCProgram, value: &ExecValue, out_valu
     // `clock()` 给的是 CPU 时间（CLOCKS_PER_SEC = 1e6），忙等时同样在走。
     const wait_clocks: i64 = EXEC_AWAIT_BUSY_CLOCKS;
     const start_clocks: i64 = clock();
+    var await_iters: i32 = 0;
     while clock() - start_clocks < wait_clocks {
+        await_iters = await_iters + 1;
         const rc: i32 = exec_vm_call_function(program, poll_fn_index, &args[0], 2, 0, out_value);
         if rc < 0 {
             return -1;
@@ -1199,6 +1213,34 @@ fn exec_vm_await_poll_interface(program: &BCProgram, value: &ExecValue, out_valu
             }
         } else {
             return -1;
+        }
+        // 仍然 Pending：**按 waker 上登记的 fd 真等 OS**（推进 leaf IO），
+        // 没登记 fd 时前几轮继续自旋、之后让出 1ms，避免把宿主线程/子进程饿死。
+        var await_wait_fd: i32 = -1;
+        var await_wait_events: i16 = 0 as i16;
+        const await_waker_agg: &ExecAggregate = exec_value_as_aggregate(&waker_cell[0]);
+        if await_waker_agg != null && await_waker_agg.count > 3 {
+            const await_fd_value: i32 = await_waker_agg.values[2].i64_value as i32;
+            const await_interest: i32 = await_waker_agg.values[3].i64_value as i32;
+            if await_fd_value >= 0 && await_interest != 0 {
+                await_wait_fd = await_fd_value;
+                if await_interest == 1 {
+                    await_wait_events = POLLIN;
+                } else if await_interest == 2 {
+                    await_wait_events = POLLOUT;
+                } else {
+                    await_wait_events = POLLIN | POLLOUT;
+                }
+            }
+        }
+        if await_wait_fd >= 0 {
+            var await_pfd: PollFd = PollFd {
+                fd: await_wait_fd,
+                events: await_wait_events,
+                revents: 0 as i16,
+            };
+            const await_ready: !i32 = sys_poll(&await_pfd, 1 as usize, EXEC_AWAIT_SLEEP_MS);
+            _ = await_ready catch { 0; };
         }
     }
     // 忙等窗口内一直是 Pending：和「根本不是 Future」区分开，
