@@ -9113,3 +9113,16 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   断言 `(st >> 8) & 0xff == 0` 实际拿到 **32**，即 `waitpid` 等到的子进程以 32 退出。
   该子进程在 VM 里需要真 DNS socket 交互（现有用例本身也依赖网络），属「网络/子进程」类，
   不是解释器语义 bug，故不再深挖。
+
+### 剩余 22 例的完整归因表（第 489 轮，按 `census_486.tsv`）
+
+| 类 | 用例（失败数） | 归因 |
+|---|---|---|
+| 真并发/线程池（11 例） | `pthread_heap_cache_identity`(239)、`pthread_heap_concurrency`(139)、`std_thread`(23)、`async_compute_types`(11)、`async_thread_pool_dynamic_growth`(5)、`std_thread_async_boundary`(3)、`async_compute_generic_wrapper`(2)、`async_runtime_shared_semantics`(2)、`async_compute_dynamic_resource_pressure`(1)、`async_shared_runtime_semantics`(1)、`std_async_scheduler`(1) | 真线程能力已打通但**不稳定**（连跑 8 次仅 1 成功）；需先隔离最后一批共享状态 |
+| 网络/子进程/超时（4 例） | `tls_ecdsa`(137)、`std_dns_async_transport`(137)、`http_uyagin_websocket`(137)、`std_dns_async_query_aggregate`(2) | 真 DNS/TLS/子进程交互；后者实测子进程以 **32** 退出，属环境类 |
+| 裸汇编/栈对齐（1 例） | `kernel_sim`(5) | 解释器没有寄存器/栈现场，基本不可做 |
+| 单态体 lowering 深水区（5 例） | `typed_pipeline_capability`(1)、`tls_async_runtime_io`(1)、`http_websocket_reconnect`(1)、`http_websocket_json`(1)、`http_uyagin`(1) | 宏生成块在特定单态体里误执行（已在第 485 轮证明块本身一致） |
+| 能力缺失（1 例） | `async_frame_pool_full`(1) | VM 缺「让被解释程序抛指定错误」的能力 |
+
+**结论**：22 例里没有「一行就能修」的了。收益最高的顺序是
+①真线程稳定性（11 例）②单态体 lowering（5 例）③VM 抛错误能力（1 例）。
