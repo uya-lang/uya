@@ -9026,3 +9026,10 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 真线程现状（门控开启时）：简单并发与并发 malloc 都跑通、`test_pthread_heap_concurrency`
 曾全绿过，但结果**非确定性**（同一配置下一次全绿、下一次段错误）→ 暂不默认开启；
 剩余工作是隔离最后一批共享可变状态 + 让 `pthread_cancel` 真能打断线程。
+- 第 483 轮压力测试：`/tmp/thr_alloc_probe.uya`（两线程各 2000 次 malloc/free）在
+  `UYA_EXEC_REAL_THREADS=1` 下连跑 8 次——**只有 1 次 rc=0，6 次超时(137)、2 次段错误(139)**。
+  之前那次「OK alloc thr」是运气。
+- 结论：真线程目前**远未稳定**，不能默认启用。要稳定必须先找出剩余的共享可变状态
+  （候选：`g_exec_vm_thread_exit_*`、`g_exec_vm_box_alloc_fn_index`、libc 堆的自旋锁在
+  多核上的公平性/重入、以及 agg 句柄的跨线程可见性）。这是一块独立的大工程，
+  当前状态是「能力打通、稳定性未达线」，全部藏在 `UYA_EXEC_REAL_THREADS` 后面。
