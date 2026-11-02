@@ -564,6 +564,76 @@ fn _pthread_desc_self() &pthread_desc {
 /// 功能说明：返回当前线程绑定的 malloc thread cache 槽位。
 /// 参数说明：无。
 /// 返回值说明：成功时返回当前线程的缓存结构；若当前线程描述符不可用则返回 `null`。
+/// 让「非 Uya pthread_create 创建」的宿主线程（exec VM 直接起的）也登记进线程表。
+///
+/// 不登记的话这些线程会：①拿到主线程的 heap_cache（无锁共用 tcache，写坏堆）
+/// ②`pthread_self/equal` 认不出自己 ③`pthread_cancel` 找不到线程。
+/// 线程入口第一件事调用它即可。
+///
+/// 返回值：登记成功返回本线程的 desc；失败返回 null。
+export fn pthread_register_external_thread(stack_base: &void, stack_size: usize) &pthread_desc {
+    const self_tid: i64 = sys_gettid() catch {
+        return null as &pthread_desc;
+    };
+    _pthread_init_main_thread_if_needed();
+    if self_tid == _pthread_main_desc.tid {
+        return &_pthread_main_desc;
+    }
+    const desc_mem: !*void = sys_mmap(null as *void, PTHREAD_DESC_MAP_SIZE,
+                                      PROT_READ | PROT_WRITE,
+                                      MAP_PRIVATE | MAP_ANONYMOUS, 0 - 1, 0);
+    const desc: &pthread_desc = (desc_mem catch {
+        return null as &pthread_desc;
+    }) as &pthread_desc;
+    if desc == null {
+        return null as &pthread_desc;
+    }
+    desc.tid = self_tid;
+    desc.self = desc;
+    desc.fast_heap_cache = &desc.heap_cache;
+    desc.stack = stack_base;
+    desc.stack_size = stack_size;
+    desc.detached = 1;
+    desc.exited = 0;
+    desc.resources_released = 0;
+    desc.started = 1;
+    desc.result = null;
+    desc.pub_handle = null;
+    desc.start_routine = null;
+    desc.arg = null;
+    desc.joinstate = PTHREAD_JOINSTATE_DETACHED;
+    desc.cancel_state = PTHREAD_CANCEL_ENABLE;
+    desc.cancel_type = PTHREAD_CANCEL_DEFERRED;
+    desc.cancel_pending = 0;
+    desc.tsd_values = null;
+    desc.alloc_base = desc as &void;
+    desc.alloc_size = PTHREAD_DESC_MAP_SIZE;
+    desc.tid_clear = 0;
+    desc.heap_cache = pthread_heap_cache_t{
+        heads: [],
+        counts: [],
+        last_region_start: 0usize,
+        last_region_end: 0usize,
+        last_find_start_bin: 0usize,
+        last_find_steps: 0usize,
+        last_split_remainder_bin: 0 - 1,
+        alloc_hit_count: 0u64,
+        alloc_miss_count: 0u64,
+        debug_lookup_hint_count: 0u64,
+        debug_lookup_stack_count: 0u64,
+        debug_lookup_tid_count: 0u64,
+        debug_free_fast_count: 0u64,
+        debug_free_locked_count: 0u64,
+        debug_free_global_count: 0u64,
+    };
+    _pthread_registry_insert(self_tid, desc);
+    // 发布栈区间提示，让 _pthread_desc_self() 能按栈地址找回这个 desc
+    // （否则 tcache/self/equal 都认不出这个线程）。
+    _pthread_stack_hint_remember(_pthread_stack_marker_addr(), desc);
+    _pthread_has_created_thread = 1;
+    return desc;
+}
+
 export fn pthread_current_heap_cache() &pthread_heap_cache_t {
     if _pthread_fast_heap_cache_ready != 0 {
         const fast_cache: &pthread_heap_cache_t = _pthread_fast_heap_cache();

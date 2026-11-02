@@ -38,6 +38,7 @@ use libc.sys_setsid;
 use libc.sys_kill;
 use libc.sys_clone;
 use libc.pthread_create;
+use libc.pthread_register_external_thread;
 use libc.pthread_t;
 
 const EXEC_VM_REF_KIND_BASE: i32 = 65536;
@@ -4832,6 +4833,8 @@ struct ExecVmThreadSpawn {
     fn_index: i32,
     arg: ExecValue,
     slot: i32,
+    stack_base: &void,
+    stack_size: usize,
 }
 
 var g_exec_vm_spawn: &ExecVmThreadSpawn = null;
@@ -4853,6 +4856,11 @@ fn exec_vm_real_threads_enabled() i32 {
 /// 子线程入口（pthread 蹦床直接调用它，arg 就是 desc）。
 fn exec_vm_thread_trampoline(arg: &void) &void {
     const d: &ExecVmThreadSpawn = arg as &ExecVmThreadSpawn;
+    // 先把自己登记进 libc 的线程表：拿到本线程的 desc/tcache，并让
+    // pthread_self/equal/cancel 能认出自己（不登记就会共用主线程 tcache）。
+    if d != null {
+        _ = pthread_register_external_thread(d.stack_base, d.stack_size);
+    }
     if d != null {
         g_exec_vm_spawn = d;
         exec_vm_thread_bootstrap();
@@ -4894,6 +4902,8 @@ fn exec_vm_spawn_host_thread(program: &BCProgram, fn_index: i32, arg: ExecValue,
     desc.fn_index = fn_index;
     desc.arg = arg;
     desc.slot = slot;
+    desc.stack_base = stack_mem as &void;
+    desc.stack_size = EXEC_VM_THREAD_STACK_BYTES as usize;
     g_exec_vm_spawn = desc;
     if getenv("UYA_EXEC_TRACE_SPAWN" as *byte) != null {
         fprintf(libc.stderr, "[spawn] fn=%d slot=%d\n" as *byte, fn_index, slot);
