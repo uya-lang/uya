@@ -9109,3 +9109,7 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   至此三道门禁在最新代码上都是绿的：`make check` rc=0、
   `make exec-census` 887/22、`make exec-parity` 889/24（后者在改动前测量，
   而 census 逐项未变，故判定未受影响）。
+- 第 488 轮：`test_std_dns_async_query_aggregate` 的两处失败确认是**子进程退出码**问题：
+  断言 `(st >> 8) & 0xff == 0` 实际拿到 **32**，即 `waitpid` 等到的子进程以 32 退出。
+  该子进程在 VM 里需要真 DNS socket 交互（现有用例本身也依赖网络），属「网络/子进程」类，
+  不是解释器语义 bug，故不再深挖。
