@@ -8674,3 +8674,47 @@ const p: !&byte = a.alloc(16usize);                          // 这里炸
 `Vec_grow_if_needed`，但**又暴露下一个问题**：`fn=main ip=94` 处
 `LOAD_FIELD 字段越界(idx=0 kind=0 count=-1 pointee=-1 ref=0 aux=0)`
 （基值是 VOID）—— 即 `Vec::get` 取回的元素是空的，下一轮从这里接。
+
+## 第 472 轮：`Vec<T>`/`HashMap` 扩容丢元素的最后一环 —— 堆扩容用了手写字节循环
+
+第 471 轮修好接口上转型后，`/tmp/vsr_10.uya`（`Vec<Point>` push 10 个再 `get(0)`）
+仍然 `LOAD_FIELD kind=0`（取回 VOID）。逐步二分定位：
+
+| 规模 | 结果 |
+| --- | --- |
+| `Vec<Point>` push 5（容量 8，**不扩容**） | 通过 |
+| push 10 / 20 / 100（至少扩容一次） | 失败 |
+
+在 VM 的 `MEMCPY` 宿主分支打探针（`[mc] d=.. s=.. n=.. c=<迁移数>`），
+**一次都没触发** —— 说明扩容时的拷贝根本没走 `memcpy`。查下去：
+
+- `lib/std/mem/heap.uya` 的 `HeapAllocator.realloc` 是
+  `alloc(new) + mem_copy(q, ptr, old_user) + dealloc(ptr)`；
+- 它 `use mem.mem_copy`，指向 `lib/mem/mem.uya`（**freestanding** 的那份纯 Uya 字节循环），
+  不是 `lib/std/mem/mem.uya`，也不是 libc 的 `memcpy`。
+
+所以第 470 轮「把 `memcpy` 收进宿主白名单」的根治只覆盖了**显式调用 `memcpy`** 的路径；
+凡是自己手写字节循环搬家的代码，旁路表依然不会迁移。
+
+**修复（三处）**：
+
+1. `lib/std/mem/heap.uya::HeapAllocator.realloc` —— 拷贝改用 libc `memcpy`；
+2. `lib/std/mem/mem.uya` 的 `mem_copy` / `mem_set` / `mem_move` —— 改为委托
+   `memcpy` / `memset` / `memmove`（这三个在 `lib/libc/mem.uya` 里都带纯 Uya 回退体，
+   无 libc 目标仍然可用）；
+3. `lib/mem/mem.uya`（freestanding）保持原样不动，避免给零依赖模块引入 libc。
+
+探针实测（修复后，`Vec<Point>` 第一次扩容）：
+
+```
+[mc] d=597422088 s=597426184 n=96 c=8      ← c=8：搬到新基址的元素数
+OK vec struct
+```
+
+验证：`Vec<Point>` push 5 / 10 / 100 全部通过（含多次扩容）；
+`test_async_task_queue_dynamic_growth` 通过（209 断言）；
+`test_async_frame_pool_dynamic_growth` 通过。
+
+**通用结论（写进准则）**：VM 里凡是「结构体元素存在旁路表」的数据，
+搬运**必须**落到 libc 的 `memcpy`/`memmove`/`memset`（宿主分支带迁移），
+不要手写字节循环。
