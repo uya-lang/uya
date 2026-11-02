@@ -8877,3 +8877,18 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
 **风险与顺序**：第 1 步可以独立验证（写个 `@thread_local var` 的 C99 小例子，
 看生成的 C 里有没有 `_Thread_local`），先做它；第 2 步是机械替换但量大；
 第 3 步才动语义。任何一步没通过就停在那一步，不要往下叠。
+
+### 第 477 轮：`@thread_local` 通了，但「用它做 VM 线程本地状态」被 nostdlib 入口挡住
+
+- 编译器特性已落地并验证（提交 `68cfd6a2` + `fix(c99)` 镜像头也发 `_Thread_local`）：
+  `/tmp/tls_test.uya` 在 VM 里跑出 `OK tls`，生成的 C 里
+  `__attribute__((used)) _Thread_local int32_t g_counter = 0;` ✓
+- 但把 `src/exec/vm.uya` 的执行状态全局（哪怕只标 **1 个**）改成 `@thread_local`，
+  编译器二进制一跑目标程序就在 `exec_vm_run_frame` 段错误：
+  gdb 显示 `fs_base = 0`，崩溃指令是 `mov %fs:0xfffffffffffffff8,%rax`。
+- 根因：编译器本体是 `--nostdlib -static` 自建 `_start`（Makefile 的
+  `UYA_CMD_STATIC_BUILD_FLAGS := --nostdlib --no-split-c`，回退链接用
+  `crti.o + uya.o + crtn.o`），根本没走 libc 启动流程，**TLS 寄存器没人建立**。
+- 结论：在这套入口下 C 的 `_Thread_local` 不可用（除非自己实现 TLS 引导）。
+  真并发改走「显式线程状态 + 绿色线程/协程挂起」这条线，不再依赖 TLS。
+  已回退 `vm.uya` 的标记，编译器特性保留（对普通 libc 程序是有用的）。
