@@ -9272,3 +9272,34 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 **放弃的尝试（已回退，均有记录）**：放开符号表全局收集的 uya root 限制
 （会让 `test_async_frame_pool_stats` 稳定挂死）；`pthread_cancel` 无条件拦截
 （会破坏默认路径）。跨模块 `export var` 的收集缺口仍未解决，需要按文件精确收集。
+
+---
+
+## 交接摘要（第 470–498 轮，分支 `dsh/session-c7f98113-…`）
+
+**已完成（默认配置，门禁全绿）**
+- `make check` **rc=0**；`make exec-census` **887/22**（与基线逐项一致）；`make exec-parity` **889/24**。
+
+**真修复清单**（按价值）
+1. `memcpy/memmove/memset` 进宿主白名单 —— realloc 搬块必须触发原生聚合旁路表迁移；
+2. 显式 `as Interface` 上转型补装箱；
+3. `block_on` 拿到 Pending 后真 `poll(2)` 等 IO（websocket 帧传输在 VM 里跑通）；
+4. 编译器 `@thread_local`（含镜像头 `_Thread_local`）；
+5. `ExecVmState` 状态抽取（槽位池/cont/await/cancel/alloc 记账/原生聚合旁路表）；
+6. pthread 家族**按名**走宿主拦截（此前只认 extern 声明，`std.thread` 从未被拦）；
+7. 真宿主线程 + `thread_used` 改 atomic + 未登记线程不得共用主线程 tcache
+   + `pthread_register_external_thread` + `pthread_disable_fast_heap_cache`；
+8. 真线程 `pthread_cancel`（取消标志 + 检查点退栈）；
+9. `pthread_exit` retval 不再丢弃；手工构造的全 1 指针补齐 `i64_value`；
+10. 传递性单态实例合成 `type_arg_nodes`（泛型调泛型拿不到宏展开）。
+
+**已知未解决（下一步入口）**
+- 跨模块 `export var` 全局槽收集缺口：`use libc.pthread` 在导入表里归并为 `libc`，
+  按模块名的收集永远漏掉 `pthread.uya` 的 `export var`。放开 `allow_uya_root_runtime`
+  会让 `test_async_frame_pool_stats` 稳定挂死（已验证），需要**按文件**精确收集。
+- 真线程默认关闭（`UYA_EXEC_REAL_THREADS` 门控）：门控下 `test_libc_heap_tcache`
+  与 cancel 用例仍会坏。
+- 宏生成编码块在 `websocket_conn_write_json` 单态体里误报 overflow（块本身已验证一致）。
+- 剩余 22 例归因见上一节表格。
+
+**复现件**：`docs/probes/`（9 个，含索引 README）。
