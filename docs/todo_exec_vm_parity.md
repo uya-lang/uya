@@ -9080,3 +9080,7 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 **当前门禁**：`make check` rc=0；`make exec-census` 887/22；`make exec-parity` 889/24。
 **未完成**：剩余 22 例（真线程稳定性、聚合/切片深水区、网络 flake），
 `exec-parity` 未全绿 → 未做 `worktree finish`。
+- 第 485 轮：给 `build_encode_to_to_json_block` 临时加打印对比两条路径——**两边生成的块完全一样**
+  （都是 `[blk] JsonUser fields=2`），所以问题不在宏展开产物，而在
+  `websocket_conn_write_json` 这个单态体的 **lowering/执行** 上（同样的块在 `to_json` 的单态体里就对）。
+  这进一步坐实「宏生成代码在特定单态体里被错误 lower」这个方向，属于深水区。
