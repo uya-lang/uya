@@ -9254,3 +9254,21 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   （本意是修跨模块 `export var`）。后者会让 `test_async_frame_pool_stats` **稳定挂死**（137），
   二分确认后回退。所以跨模块 `export var` 的收集缺口仍在，需要更精确的做法（按文件而非放开 uya root）。
 - 最终 census：**909 / 887 通过 / 22 失败**，与基线逐项一致。
+
+### 第 498 轮：本轮次最终门禁确认
+
+| 门禁 | 结果 |
+|---|---|
+| `make check` | **rc=0**（自举 + 测试 + 证明优化 + microapp 全套） |
+| `make exec-census` | **909 例 / 887 通过 / 22 失败**（失败清单与基线逐项一致） |
+| `make exec-parity` | 913 / 一致 889 / 不一致 24（与基线相同，本轮未重跑，census 逐项未变） |
+
+本轮（第 494–497 轮）净增的**真修复**：
+1. 真宿主线程支持 `pthread_cancel`（取消标志 + 检查点退栈，不能用 `sys_exit`）；
+2. `pthread_exit(retval)` 的返回值不再丢失（原来 handler 写死 i32 零，且被后续 `BC_RET` 覆盖）；
+3. `PTHREAD_CANCELED` 这类手工构造的全 1 指针补齐 `i64_value`，
+   否则 `exec_vm_compare_values`（用 `i64_value`）恒判不等。
+
+**放弃的尝试（已回退，均有记录）**：放开符号表全局收集的 uya root 限制
+（会让 `test_async_frame_pool_stats` 稳定挂死）；`pthread_cancel` 无条件拦截
+（会破坏默认路径）。跨模块 `export var` 的收集缺口仍未解决，需要按文件精确收集。
