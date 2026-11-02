@@ -1170,8 +1170,34 @@ fn gen_extern_var_decl(codegen: &C99CodeGenerator, node: &ASTNode) void {
 }
 
 // 镜像分 TU：c99_type_to_c 对数组得到 "uint8_t[4096]"，C 的 extern 须写为 "extern uint8_t name[4096];"
-fn c99_mirror_emit_extern_global_line(codegen: &C99CodeGenerator, tc: &byte, cname: &byte, is_const: i32) void {
+fn c99_mirror_emit_extern_global_line(codegen: &C99CodeGenerator, tc: &byte, cname: &byte, is_const: i32, is_tls: i32) void {
     if codegen == null || tc == null || cname == null {
+        return;
+    }
+    // @thread_local 全局：镜像头里的前向声明必须同为 _Thread_local，
+    // 否则 C 编译器会报「thread-local declaration follows non-thread-local declaration」。
+    if is_tls != 0 {
+        c99_emit_global_macro_undef_guard(codegen, cname);
+        const tfb: *byte = strchr(tc as *byte, 91);
+        if tfb != null {
+            const tblen: i32 = ptr_diff(tfb, tc as *byte);
+            const tbt: &u8 = compiler_arena_alloc(codegen.arena, tblen + 1) as &u8;
+            if tbt != null {
+                memcpy(tbt as *void, tc as *void, tblen);
+                tbt[tblen] = 0;
+                if is_const != 0 && c99_c_type_str_leading_const(tbt) == 0 {
+                    fprintf(codegen.emit_stream as *void, "extern _Thread_local const %s %s%s;\n" as *byte, tbt as *byte, cname as *byte, tfb);
+                } else {
+                    fprintf(codegen.emit_stream as *void, "extern _Thread_local %s %s%s;\n" as *byte, tbt as *byte, cname as *byte, tfb);
+                }
+                return;
+            }
+        }
+        if is_const != 0 && c99_c_type_str_leading_const(tc) == 0 {
+            fprintf(codegen.emit_stream as *void, "extern _Thread_local const %s %s;\n" as *byte, tc as *byte, cname as *byte);
+        } else {
+            fprintf(codegen.emit_stream as *void, "extern _Thread_local %s %s;\n" as *byte, tc as *byte, cname as *byte);
+        }
         return;
     }
     // 镜像头在每个 TU 里紧随系统头被包含，同名宏同样会吞掉这条 extern，先撤销宏。
@@ -1251,7 +1277,7 @@ export fn c99_mirror_emit_extern_const_fwd(codegen: &C99CodeGenerator, program: 
                     di = di + 1;
                     continue;
                 }
-                c99_mirror_emit_extern_global_line(codegen, tc, cname, decl.var_decl_is_const);
+                c99_mirror_emit_extern_global_line(codegen, tc, cname, decl.var_decl_is_const, decl.var_decl_is_thread_local);
             }
         } else if decl != null && decl.type == ASTNodeType.AST_EXTERN_VAR_DECL && decl.extern_var_decl_name != null &&
             decl.extern_var_decl_var_type != null {
@@ -1301,7 +1327,7 @@ export fn c99_mirror_emit_extern_const_fwd(codegen: &C99CodeGenerator, program: 
                 di = di + 1;
                 continue;
             }
-            c99_mirror_emit_extern_global_line(codegen, tc, cname, decl.extern_var_decl_is_const);
+            c99_mirror_emit_extern_global_line(codegen, tc, cname, decl.extern_var_decl_is_const, 0);
         }
         di = di + 1;
     }
