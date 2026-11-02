@@ -8139,3 +8139,61 @@ try assert_eq_i32(b_run_i32(&q, 0), 3);     // 失败，返回 0
 `test_http1_async_client`、`test_async_fd` 复验通过，`test_std_async_scheduler`
 维持原样（仍超时）；全量基线维持 **884/909（失败 25）**。
 复现件保存在 `/tmp/vm_generic_repro_a.uya`（失败版）与 `/tmp/vm_generic_repro_b.uya`（通过版）。
+
+---
+
+## 第 464 轮：13x 挂死类的根因修掉（取地址路径漏查原生聚合旁路表）
+
+**根因**
+
+VM 里 `&container[i]`（结构体元素）走 `exec_vm_pointer_element_ptr`：
+结构体元素的 `elem_size == 0`，于是直接拿指令 `imm` 高 32 位的**C 布局字节数**
+步进，返回一个指向 `calloc` 缓冲区的裸指针。但这些元素的真实内容并不在原生缓冲区里
+——它们由 `STORE_INDEX` 写进了**原生聚合旁路表**（`g_native_agg_*`）。
+
+读路径 `exec_vm_load_pointer_index` 早就处理了这一点（先 `exec_vm_native_agg_peek`，
+并在注释里写明「必须先取旁路槽位，否则读回的是从未写过的原始字节」），
+**取地址路径漏了同样的一步**。
+
+于是 `&queue.slots[i].active` 读到的是零值 → 任务队列在泛型运行器里
+永远看不到待跑任务 → `while i < queue.len` 一次都不进 → `block_on` 纯自旋 → 挂死。
+这正好解释了第 462 轮那个反常现象：同一块内存、同一个指针，
+测试里读 `active == 1`，泛型运行器里读成 0。
+
+**修法**（`src/exec/vm.uya`，`exec_vm_pointer_element_ptr`）
+
+```uya
+const agg_stored_addr: &ExecValue = exec_vm_native_agg_peek(base_addr, index_value);
+if agg_stored_addr == null && elem_size_hint > 0 as usize &&
+    !exec_vm_address_is_vm_resident(base_addr) {
+    return exec_make_pointer_with_kind(base_addr + index * elem_size_hint, pointee_kind);
+}
+```
+
+与读路径完全对称：旁路表里已有元素就用旁路表，只有「表里没有、且不在 VM 竞技场里」
+（真正的原生外部内存，如 `&EpollEvent` 下标）才按编译期字节数步进。
+
+**1 秒级复现件的验证**
+
+第 463 轮保存的 `/tmp/vm_generic_repro_a.uya`（`b_run_i32(&q, 0)` 应返回 3）：
+**修复前返回 0，修复后返回 3** ✓
+
+**修复带来的实测变化（原来全是 300s 超时）**
+
+| 用例 | 修复前 | 修复后 |
+| --- | --- | --- |
+| `test_std_async_scheduler` | 挂死 | 跑完，仅剩 1 条线程池用例失败 |
+| `test_async_multi_fd_concurrent` | 挂死 | **通过** |
+| `test_async_task_queue_dynamic_growth` | 挂死 | 不再挂死（1 条失败） |
+| `test_async_runtime_shared_semantics` | 挂死 | 不再挂死（1 条失败） |
+| `test_async_shared_runtime_semantics` | 挂死 | 不再挂死（1 条失败） |
+
+剩下的失败已经变成可诊断的形态，全部是同一句：
+
+```
+assert_eq_i32 failed: queue.result(compute_idx) as i32 == 42 (actual: 0)
+```
+
+即 `async_compute` 的结果没有回填到 `queue.result` —— 与既有的短失败
+（`test_async_compute_types`、`test_async_compute_generic_wrapper` 等）同一族。
+**下一轮从 `async_compute` 的 result 回填写入路径查**（一条根因可能同时收割 5～7 例）。
