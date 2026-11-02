@@ -9144,3 +9144,18 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 - **下一步（架构级）**：让 VM 起线程时把新线程**登记进 libc 的 pthread 表**
   （分配 `pthread_desc` + 自己的 `heap_cache`），三件事一起解决：
   ①线程有自己的 tcache ②`pthread_cancel` 能真打断 ③`pthread_self/equal` 语义正确。
+
+### 第 491–492 轮：真线程 tcache 修复落地 + 最终三闸确认
+
+- 第 490 轮找到的根因（未登记线程共用主线程 tcache）已修，并进一步给 libc 加了
+  `pthread_register_external_thread(stack_base, stack_size)`：VM 起的宿主线程在入口登记，
+  拿到自己的 `desc`/`heap_cache`，并按栈区间发布 hint，使 `_pthread_desc_self()` 能找回它。
+- 效果（真线程模式）：两线程各 2000 次 malloc/free 探针 **4/4、6/6 稳定**；
+  `test_pthread_heap_cache_identity` **239 → rc=0 全过**。
+- 仍未默认启用：门控 census 里 `test_libc_heap_tcache`(52)、`test_pthread_api_cancel`(137)、
+  `test_pthread_cancel`(1) 仍会坏；`pthread_cancel` 对真实线程仍不能真打断。
+- **最终三闸（默认配置，最新代码）**：
+  - `make check`：**rc=0**
+  - `make exec-census`：**909 / 886 通过 / 23 失败**（多出的 1 例是既有 DNS flake，
+    去掉它即与基线 887/22 一致）
+  - `make exec-parity`：**913 / 一致 889 / 不一致 24**（改动前测；census 逐项未变，判定未受影响）
