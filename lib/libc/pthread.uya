@@ -571,6 +571,15 @@ fn _pthread_desc_self() &pthread_desc {
 /// 线程入口第一件事调用它即可。
 ///
 /// 返回值：登记成功返回本线程的 desc；失败返回 null。
+/// 关掉 `pthread_current_heap_cache` 的 TLS 快路径（`%gs:8`）。
+///
+/// 该快路径依赖宿主 TLS；exec VM 所在的编译器二进制是 nostdlib 自建入口，
+/// TLS 寄存器根本没建立（`fs_base = 0`），一旦 `_pthread_fast_heap_cache_ready`
+/// 被置 1，取快路径就会踩空段错误。VM 起真线程前调用它，强制走线程表路径。
+export fn pthread_disable_fast_heap_cache() void {
+    _pthread_fast_heap_cache_ready = 0;
+}
+
 export fn pthread_register_external_thread(stack_base: &void, stack_size: usize) &pthread_desc {
     const self_tid: i64 = sys_gettid() catch {
         return null as &pthread_desc;

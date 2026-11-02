@@ -9159,3 +9159,10 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   - `make exec-census`：**909 / 886 通过 / 23 失败**（多出的 1 例是既有 DNS flake，
     去掉它即与基线 887/22 一致）
   - `make exec-parity`：**913 / 一致 889 / 不一致 24**（改动前测；census 逐项未变，判定未受影响）
+- 第 492 轮再进一步：`pthread_current_heap_cache` 的 TLS 快路径用 `%gs:8`，而编译器二进制
+  `fs_base=0`（nostdlib 自建入口），一旦 `_pthread_fast_heap_cache_ready` 被置 1 就踩空段错误。
+  新增 `pthread_disable_fast_heap_cache()`，VM 起真线程前调用，强制走线程表 + 加锁路径。
+- 效果（真线程模式）：`test_pthread_heap_concurrency` **139 → rc=0 全过**，
+  `test_pthread_heap_cache_identity` **239 → rc=0 全过**，malloc/free 探针 4/4 稳定。
+- 仍不默认打开：`test_libc_heap_tcache`(52，它本身就在验证被我们关掉的快路径)、
+  `test_pthread_cancel`/`test_pthread_api_cancel`（cancel 未对真线程实现）在真线程模式下会坏。
