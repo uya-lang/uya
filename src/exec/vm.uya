@@ -149,6 +149,12 @@ var g_exec_vm_state_main: ExecVmState = ExecVmState {
     alloc_sizes: [],
     alloc_used: 0,
     box_alloc_active: 0,
+    native_agg_base: [],
+    native_agg_count: [],
+    native_agg_caps: [],
+    native_agg_storage: [],
+    native_agg_handles: [],
+    native_agg_used: 0,
 };
 
 /// 主线程的执行状态。子线程（真并发）会各自持有一份，不再走这个入口。
@@ -413,8 +419,8 @@ fn exec_vm_alloc_hash(addr: usize) i32 {
 /// 登记一块解释器分配的宿主内存。
 /// 参数：`addr` 起始地址；`size` 字节数。
 /// 返回值：无。
-fn exec_vm_alloc_track(addr: usize, size: usize) void {
-    if addr == 0 as usize || exec_vm_main_vm().alloc_used >= EXEC_ALLOC_TRACK_MAX {
+fn exec_vm_alloc_track(vm: &ExecVmState, addr: usize, size: usize) void {
+    if addr == 0 as usize || vm.alloc_used >= EXEC_ALLOC_TRACK_MAX {
         return;
     }
     var probe: i32 = 0;
@@ -423,10 +429,10 @@ fn exec_vm_alloc_track(addr: usize, size: usize) void {
         if idx < 0 || idx >= EXEC_ALLOC_TRACK_MAX {
             return;
         }
-        if exec_vm_main_vm().alloc_keys[idx] == 0 as usize {
-            exec_vm_main_vm().alloc_keys[idx] = addr;
-            exec_vm_main_vm().alloc_sizes[idx] = size;
-            exec_vm_main_vm().alloc_used = exec_vm_main_vm().alloc_used +| 1;
+        if vm.alloc_keys[idx] == 0 as usize {
+            vm.alloc_keys[idx] = addr;
+            vm.alloc_sizes[idx] = size;
+            vm.alloc_used = vm.alloc_used +| 1;
             return;
         }
         probe = probe +| 1;
@@ -436,7 +442,7 @@ fn exec_vm_alloc_track(addr: usize, size: usize) void {
 /// 注销一块解释器分配过的宿主内存。
 /// 参数：`addr` 起始地址。
 /// 返回值：1 表示登记过（调用方可以真正释放）；0 表示不是解释器分配的。
-fn exec_vm_alloc_untrack(addr: usize) i32 {
+fn exec_vm_alloc_untrack(vm: &ExecVmState, addr: usize) i32 {
     if addr == 0 as usize {
         return 0;
     }
@@ -446,15 +452,15 @@ fn exec_vm_alloc_untrack(addr: usize) i32 {
         if idx < 0 || idx >= EXEC_ALLOC_TRACK_MAX {
             return 0;
         }
-        if exec_vm_main_vm().alloc_keys[idx] == addr {
-            exec_vm_main_vm().alloc_keys[idx] = 0 as usize;
-            exec_vm_main_vm().alloc_sizes[idx] = 0 as usize;
-            if exec_vm_main_vm().alloc_used > 0 {
-                exec_vm_main_vm().alloc_used = exec_vm_main_vm().alloc_used -| 1;
+        if vm.alloc_keys[idx] == addr {
+            vm.alloc_keys[idx] = 0 as usize;
+            vm.alloc_sizes[idx] = 0 as usize;
+            if vm.alloc_used > 0 {
+                vm.alloc_used = vm.alloc_used -| 1;
             }
             return 1;
         }
-        if exec_vm_main_vm().alloc_keys[idx] == 0 as usize {
+        if vm.alloc_keys[idx] == 0 as usize {
             return 0;
         }
         probe = probe +| 1;
@@ -2119,7 +2125,7 @@ fn exec_vm_aggregate_ref_from_value(value: &ExecValue) &ExecAggregate {
         // 裸指针指向聚合：`p.field` 等价于旁路表第 0 个元素。
         const pointee_kind_code: i32 = exec_value_pointer_pointee_kind(value);
         if exec_vm_type_kind_size(pointee_kind_code) == 0 as usize {
-            const elem: &ExecValue = exec_vm_native_agg_slot(exec_vm_pointer_address(value), 0);
+            const elem: &ExecValue = exec_vm_native_agg_slot(exec_vm_main_vm(), exec_vm_pointer_address(value), 0);
             if elem != null {
                 return exec_value_as_aggregate(elem);
             }
@@ -2228,7 +2234,7 @@ fn exec_vm_field_object(value: &ExecValue) &ExecValue {
                 if exec_vm_type_kind_size(pointee_kind_code) != 0 as usize {
                     return null;
                 }
-                const elem: &ExecValue = exec_vm_native_agg_slot(raw_field_addr, 0);
+                const elem: &ExecValue = exec_vm_native_agg_slot(exec_vm_main_vm(), raw_field_addr, 0);
                 if elem == null {
                     return null;
                 }
@@ -2670,17 +2676,11 @@ const EXEC_NATIVE_AGG_MAX_BASES: i32 = 256;
 // 直接判越界（`exec: 当前不支持该指针元素类型`）。
 const EXEC_NATIVE_AGG_MAX_ELEMS: i32 = 65536;
 
-var g_native_agg_base: [usize: 256] = [];
-var g_native_agg_count: [i32: 256] = [];
-var g_native_agg_caps: [i32: 256] = [];
-var g_native_agg_storage: [&ExecValue: 256] = [];
-var g_native_agg_handles: [ExecAggregate: 256] = [];
-var g_native_agg_used: i32 = 0;
 
 /// 保证某条旁路表基址至少能容纳 `need` 个元素（倍增扩容，旧内容整体搬过去）。
 /// 参数：`slot` 基址条目下标；`need` 需要的元素个数。
 /// 返回值：0 成功，-1 无法分配。
-fn exec_vm_native_agg_ensure(slot: i32, need: i32) i32 {
+fn exec_vm_native_agg_ensure(vm: &ExecVmState, slot: i32, need: i32) i32 {
     if slot < 0 || slot >= EXEC_NATIVE_AGG_MAX_BASES || need <= 0 {
         return -1;
     }
@@ -2688,7 +2688,7 @@ fn exec_vm_native_agg_ensure(slot: i32, need: i32) i32 {
     if want > EXEC_NATIVE_AGG_MAX_ELEMS {
         want = EXEC_NATIVE_AGG_MAX_ELEMS;
     }
-    const old_cap: i32 = g_native_agg_caps[slot];
+    const old_cap: i32 = vm.native_agg_caps[slot];
     if old_cap >= want {
         return 0;
     }
@@ -2710,7 +2710,7 @@ fn exec_vm_native_agg_ensure(slot: i32, need: i32) i32 {
     // 新槽位一律先清零（kind=VOID）：越界读永远走不到这里，但扩容时未初始化
     // 的字节一旦被当成 ExecValue 解出来就是随机 kind，必须抹掉。
     _ = memset(mem as *void, 0, bytes);
-    const old_mem: &ExecValue = g_native_agg_storage[slot];
+    const old_mem: &ExecValue = vm.native_agg_storage[slot];
     if old_mem != null {
         var i: i32 = 0;
         while i < old_cap {
@@ -2718,23 +2718,23 @@ fn exec_vm_native_agg_ensure(slot: i32, need: i32) i32 {
             i = i + 1;
         }
     }
-    g_native_agg_storage[slot] = mem;
-    g_native_agg_caps[slot] = cap;
-    g_native_agg_handles[slot].values = mem;
+    vm.native_agg_storage[slot] = mem;
+    vm.native_agg_caps[slot] = cap;
+    vm.native_agg_handles[slot].values = mem;
     return 0;
 }
 
 /// 查找或建立原生指针聚合元素旁路表的条目。
 /// 参数：base 指针地址。
 /// 返回值：条目下标；无法建立返回 -1。
-fn exec_vm_native_agg_slot_index(base: usize) i32 {
+fn exec_vm_native_agg_slot_index(vm: &ExecVmState, base: usize) i32 {
     if base == 0 as usize {
         return -1;
     }
     var slot: i32 = -1;
     var i: i32 = 0;
-    while i < g_native_agg_used {
-        if g_native_agg_base[i] == base {
+    while i < vm.native_agg_used {
+        if vm.native_agg_base[i] == base {
             slot = i;
             break;
         }
@@ -2743,16 +2743,17 @@ fn exec_vm_native_agg_slot_index(base: usize) i32 {
     if slot >= 0 {
         return slot;
     }
-    if g_native_agg_used < 0 || g_native_agg_used >= EXEC_NATIVE_AGG_MAX_BASES {
+    var used_slot: i32 = vm.native_agg_used;
+    if used_slot < 0 || used_slot >= EXEC_NATIVE_AGG_MAX_BASES {
         return -1;
     }
-    slot = g_native_agg_used;
-    g_native_agg_base[slot] = base;
-    g_native_agg_count[slot] = 0;
-    g_native_agg_handles[slot].count = 0;
-    g_native_agg_caps[slot] = 0;
-    g_native_agg_storage[slot] = null;
-    g_native_agg_used = slot + 1;
+    slot = used_slot;
+    vm.native_agg_base[slot] = base;
+    vm.native_agg_count[slot] = 0;
+    vm.native_agg_handles[slot].count = 0;
+    vm.native_agg_caps[slot] = 0;
+    vm.native_agg_storage[slot] = null;
+    vm.native_agg_used = slot +| 1;
     return slot;
 }
 
@@ -2762,14 +2763,14 @@ fn exec_vm_native_agg_slot_index(base: usize) i32 {
 /// 旁路表按基址**线性**查找（`exec_vm_native_agg_slot_index`），改键不影响
 /// 任何顺序不变量；但漏搬就会让扩容前写进去的元素读不回来
 /// （`env_ops[0]` 在追加第二项后变成 VOID，接着 `.remove` 就 LOAD_FIELD 越界）。
-fn exec_vm_native_agg_rebase(old_base: usize, new_base: usize) void {
+fn exec_vm_native_agg_rebase(vm: &ExecVmState, old_base: usize, new_base: usize) void {
     if old_base == 0 as usize || new_base == 0 as usize || old_base == new_base {
         return;
     }
     var i: i32 = 0;
-    while i < g_native_agg_used {
-        if g_native_agg_base[i] == old_base {
-            g_native_agg_base[i] = new_base;
+    while i < vm.native_agg_used {
+        if vm.native_agg_base[i] == old_base {
+            vm.native_agg_base[i] = new_base;
         }
         i = i + 1;
     }
@@ -2781,17 +2782,17 @@ fn exec_vm_native_agg_rebase(old_base: usize, new_base: usize) void {
 /// `malloc + memcpy + free` 这种「每追加一项就换块」的写法（`process.uya` 的
 /// `env_ops`）里，结构体元素只活在旁路表，原生字节是空的：memcpy 抄过去的是
 /// 没写过的内存，之后按新基址读自然全是 VOID。搬键就是把语义上的值一起搬。
-fn exec_vm_native_agg_carry(src_base: usize, dst_base: usize) void {
+fn exec_vm_native_agg_carry(vm: &ExecVmState, src_base: usize, dst_base: usize) void {
     if src_base == 0 as usize || dst_base == 0 as usize || src_base == dst_base {
         return;
     }
     var i: i64 = 0;
     while i < (EXEC_NATIVE_AGG_MAX_ELEMS as i64) {
-        const src_elem: &ExecValue = exec_vm_native_agg_peek(src_base, i);
+        const src_elem: &ExecValue = exec_vm_native_agg_peek(vm, src_base, i);
         if src_elem == null {
             return;
         }
-        const dst_elem: &ExecValue = exec_vm_native_agg_slot(dst_base, i);
+        const dst_elem: &ExecValue = exec_vm_native_agg_slot(vm, dst_base, i);
         if dst_elem == null {
             return;
         }
@@ -2804,17 +2805,17 @@ fn exec_vm_native_agg_carry(src_base: usize, dst_base: usize) void {
 /// 参数：`base` 即将释放的原生基址。
 /// 返回值：无。不丢的话，地址被后续 `malloc` 复用时会把上一位使用者的
 /// 元素值「复活」（读到本不该存在的数据）。
-fn exec_vm_native_agg_forget(base: usize) void {
+fn exec_vm_native_agg_forget(vm: &ExecVmState, base: usize) void {
     if base == 0 as usize {
         return;
     }
     var i: i32 = 0;
-    while i < g_native_agg_used {
-        if g_native_agg_base[i] == base {
-            g_native_agg_base[i] = 0 as usize;
-            g_native_agg_count[i] = 0;
-            g_native_agg_handles[i].count = 0;
-            g_native_agg_storage[i] = null;
+    while i < vm.native_agg_used {
+        if vm.native_agg_base[i] == base {
+            vm.native_agg_base[i] = 0 as usize;
+            vm.native_agg_count[i] = 0;
+            vm.native_agg_handles[i].count = 0;
+            vm.native_agg_storage[i] = null;
             return;
         }
         i = i + 1;
@@ -2830,15 +2831,15 @@ fn exec_vm_native_agg_forget(base: usize) void {
 ///
 /// 参数：`base` 原生基址；`index` 元素下标。
 /// 返回值：已写入的旁路槽位；未登记或未写到该下标返回 null。
-fn exec_vm_native_agg_peek(base: usize, index: i64) &ExecValue {
+fn exec_vm_native_agg_peek(vm: &ExecVmState, base: usize, index: i64) &ExecValue {
     if base == 0 as usize || index < 0 || index >= (EXEC_NATIVE_AGG_MAX_ELEMS as i64) {
         return null;
     }
     var i: i32 = 0;
-    while i < g_native_agg_used {
-        if g_native_agg_base[i] == base {
-            if (index as i32) < g_native_agg_count[i] {
-                const storage: &ExecValue = g_native_agg_storage[i];
+    while i < vm.native_agg_used {
+        if vm.native_agg_base[i] == base {
+            if (index as i32) < vm.native_agg_count[i] {
+                const storage: &ExecValue = vm.native_agg_storage[i];
                 if storage == null {
                     return null;
                 }
@@ -2859,14 +2860,14 @@ fn exec_vm_native_agg_peek(base: usize, index: i64) &ExecValue {
 ///
 /// 参数：`dst_base` 目标基址；`src_base` 源基址。
 /// 返回值：迁移的元素个数；源没有登记返回 0。
-fn exec_vm_native_agg_migrate(dst_base: usize, src_base: usize) i32 {
+fn exec_vm_native_agg_migrate(vm: &ExecVmState, dst_base: usize, src_base: usize) i32 {
     if dst_base == 0 as usize || src_base == 0 as usize || dst_base == src_base {
         return 0;
     }
     var src_slot: i32 = -1;
     var i: i32 = 0;
-    while i < g_native_agg_used {
-        if g_native_agg_base[i] == src_base {
+    while i < vm.native_agg_used {
+        if vm.native_agg_base[i] == src_base {
             src_slot = i;
             break;
         }
@@ -2875,17 +2876,17 @@ fn exec_vm_native_agg_migrate(dst_base: usize, src_base: usize) i32 {
     if src_slot < 0 || src_slot >= EXEC_NATIVE_AGG_MAX_BASES {
         return 0;
     }
-    if g_native_agg_count[src_slot] <= 0 {
+    if vm.native_agg_count[src_slot] <= 0 {
         return 0;
     }
-    const count: i32 = g_native_agg_count[src_slot];
+    const count: i32 = vm.native_agg_count[src_slot];
     var j: i32 = 0;
     while j < count && j < EXEC_NATIVE_AGG_MAX_ELEMS {
-        const dst_elem: &ExecValue = exec_vm_native_agg_slot(dst_base, j as i64);
+        const dst_elem: &ExecValue = exec_vm_native_agg_slot(vm, dst_base, j as i64);
         if dst_elem == null {
             break;
         }
-        const src_storage: &ExecValue = g_native_agg_storage[src_slot];
+        const src_storage: &ExecValue = vm.native_agg_storage[src_slot];
         if src_storage == null {
             break;
         }
@@ -2898,11 +2899,11 @@ fn exec_vm_native_agg_migrate(dst_base: usize, src_base: usize) i32 {
 /// 取原生指针第 index 个聚合元素对应的 ExecValue 槽位（按需建表）。
 /// 参数：base 指针地址；index 元素下标。
 /// 返回值：指向该元素 ExecValue 的指针；越界或表满返回 null。
-fn exec_vm_native_agg_slot(base: usize, index: i64) &ExecValue {
+fn exec_vm_native_agg_slot(vm: &ExecVmState, base: usize, index: i64) &ExecValue {
     if index < 0 || index >= (EXEC_NATIVE_AGG_MAX_ELEMS as i64) {
         return null;
     }
-    const slot: i32 = exec_vm_native_agg_slot_index(base);
+    const slot: i32 = exec_vm_native_agg_slot_index(vm, base);
     if slot < 0 || slot >= EXEC_NATIVE_AGG_MAX_BASES {
         return null;
     }
@@ -2910,26 +2911,26 @@ fn exec_vm_native_agg_slot(base: usize, index: i64) &ExecValue {
     if idx < 0 || idx >= EXEC_NATIVE_AGG_MAX_ELEMS {
         return null;
     }
-    if exec_vm_native_agg_ensure(slot, idx + 1) != 0 {
+    if exec_vm_native_agg_ensure(vm, slot, idx + 1) != 0 {
         return null;
     }
-    if idx >= g_native_agg_count[slot] {
-        g_native_agg_count[slot] = idx + 1;
-        g_native_agg_handles[slot].count = idx + 1;
+    if idx >= vm.native_agg_count[slot] {
+        vm.native_agg_count[slot] = idx + 1;
+        vm.native_agg_handles[slot].count = idx + 1;
     }
-    return &g_native_agg_storage[slot][idx];
+    return &vm.native_agg_storage[slot][idx];
 }
 
 /// 取原生指针聚合元素旁路表的聚合视图（按需建表）。
 /// `&Token` 这类裸指针切片的元素是 ExecValue，只能落在旁路表里。
 /// 参数：base 指针地址。
 /// 返回值：覆盖该表的聚合句柄；无法建立返回 null。
-fn exec_vm_native_agg_handle(base: usize) &ExecAggregate {
-    const slot: i32 = exec_vm_native_agg_slot_index(base);
+fn exec_vm_native_agg_handle(vm: &ExecVmState, base: usize) &ExecAggregate {
+    const slot: i32 = exec_vm_native_agg_slot_index(vm, base);
     if slot < 0 || slot >= EXEC_NATIVE_AGG_MAX_BASES {
         return null;
     }
-    return &g_native_agg_handles[slot];
+    return &vm.native_agg_handles[slot];
 }
 
 /// 内存函数（memset/memcpy/memmove）目标/源的三态视图。
@@ -3287,7 +3288,7 @@ fn exec_vm_pointer_element_ptr(function: &BCFunction, base: ExecValue, index_val
         // 原生内存里的结构体数组（`&EpollEvent` 之类）：编译期把元素字节数放在
         // 指令 imm 里，这里直接按 C 布局步进，返回真正的原生指针。退化成旁路表
         // 槽位引用会让字段访问找不到原生基址（表现为 `LOAD_FIELD 字段越界`）。
-        const agg_stored_addr: &ExecValue = exec_vm_native_agg_peek(base_addr, index_value);
+        const agg_stored_addr: &ExecValue = exec_vm_native_agg_peek(exec_vm_main_vm(), base_addr, index_value);
         // 与 `exec_vm_load_pointer_index` 对称：该元素此前被 `STORE_INDEX` 写进过
         // 旁路表，真实内容在那里。先按编译期字节数步进会返回指向原生缓冲区零值的
         // 指针（`&queue.slots[i]` 之后读字段全是 0，13x 那批用例挂住就是这个）。
@@ -3296,7 +3297,7 @@ fn exec_vm_pointer_element_ptr(function: &BCFunction, base: ExecValue, index_val
             return exec_make_pointer_with_kind(base_addr + (index_value as usize) * elem_size_hint,
                 pointee_kind);
         }
-        const agg_slot: &ExecValue = exec_vm_native_agg_slot(base_addr, index_value);
+        const agg_slot: &ExecValue = exec_vm_native_agg_slot(exec_vm_main_vm(), base_addr, index_value);
         if agg_slot == null {
             exec_backend_set_error(function.decl, "exec: 当前不支持该指针元素类型" as *byte, 0);
             return exec_make_void();
@@ -3471,7 +3472,7 @@ fn exec_vm_load_pointer_index(function: &BCFunction, base: ExecValue, index_valu
         }
         // 该元素此前被 `STORE_INDEX` 写进过旁路表：真实内容在那里，不在原生缓冲区。
         // 必须先取旁路槽位，否则读回的是从未写过的原始字节。
-        const agg_stored: &ExecValue = exec_vm_native_agg_peek(base_addr, index_value);
+        const agg_stored: &ExecValue = exec_vm_native_agg_peek(exec_vm_main_vm(), base_addr, index_value);
         if agg_stored != null {
             out_value[0] = exec_value_clone(agg_stored);
             return 0;
@@ -3481,7 +3482,7 @@ fn exec_vm_load_pointer_index(function: &BCFunction, base: ExecValue, index_valu
                 pointee_kind);
             return 0;
         }
-        const agg_slot: &ExecValue = exec_vm_native_agg_slot(base_addr, index_value);
+        const agg_slot: &ExecValue = exec_vm_native_agg_slot(exec_vm_main_vm(), base_addr, index_value);
         if agg_slot == null {
             exec_backend_set_error(function.decl, "exec: 当前不支持该指针元素类型" as *byte, 0);
             return -1;
@@ -3618,7 +3619,7 @@ fn exec_vm_store_pointer_index(function: &BCFunction, base: ExecValue, index_val
         }
         // 原生结构体数组：不可就地写到 C 布局里（元素类型是 VM 聚合），
         // 只能按旁路表槽位写入；有元素步长时至少保证下标不串位。
-        const agg_slot: &ExecValue = exec_vm_native_agg_slot(base_addr, index_value);
+        const agg_slot: &ExecValue = exec_vm_native_agg_slot(exec_vm_main_vm(), base_addr, index_value);
         if agg_slot == null {
                         exec_backend_set_error(function.decl, "exec: 当前不支持该指针元素类型" as *byte, 0);
             return -1;
@@ -5396,7 +5397,7 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
             site.id == ExecHostCallId.EXEC_HOST_CALL_MEMMOVE) &&
             dst_view != EXEC_MEM_VIEW_VALUE && src_view != EXEC_MEM_VIEW_VALUE &&
             mem_dst_ptr != null && mem_src_ptr != null {
-            exec_vm_native_agg_carry(@usize_from_ptr(mem_src_ptr as &void),
+            exec_vm_native_agg_carry(frame.vm, @usize_from_ptr(mem_src_ptr as &void),
                 @usize_from_ptr(mem_dst_ptr as &void));
         }
         // 目标是 VM 值本体（`&local`/`&field`）：不能按字节写，按语义整体处理。
@@ -5499,7 +5500,7 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
             }
             mem_copy_len = mem_copy_count;
             // 两端是原生聚合数组时，真实内容在旁路表里，字节搬完还要迁表。
-            _ = exec_vm_native_agg_migrate(@usize_from_ptr(mem_dst_ptr as &void),
+            _ = exec_vm_native_agg_migrate(frame.vm, @usize_from_ptr(mem_dst_ptr as &void),
                 @usize_from_ptr(mem_src_ptr as &void));
             var mem_forward: i32 = 1;
             if site.id == ExecHostCallId.EXEC_HOST_CALL_MEMMOVE &&
@@ -6472,7 +6473,7 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                 alloc_block = malloc(alloc_total) as &byte;
             }
         }
-        exec_vm_alloc_track(@usize_from_ptr(alloc_block as &void), alloc_total);
+        exec_vm_alloc_track(frame.vm, @usize_from_ptr(alloc_block as &void), alloc_total);
         out_value[0] = exec_make_pointer_with_kind(@usize_from_ptr(alloc_block as &void), TypeKind.TYPE_VOID as i32);
         return 0;
     }
@@ -6491,11 +6492,11 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         // 只 realloc 解释器分配过的块；别人的地址原样忽略（返回 null），
         // 否则宿主堆会被 realloc 的原地搬移写坏。
         var realloc_block: &byte = null;
-        if exec_vm_alloc_untrack(@usize_from_ptr(realloc_ptr.ptr_value as &void)) != 0 {
+        if exec_vm_alloc_untrack(frame.vm, @usize_from_ptr(realloc_ptr.ptr_value as &void)) != 0 {
             const realloc_old_addr: usize = @usize_from_ptr(realloc_ptr.ptr_value as &void);
             realloc_block = realloc(realloc_ptr.ptr_value as &void, realloc_bytes) as &byte;
-            exec_vm_alloc_track(@usize_from_ptr(realloc_block as &void), realloc_bytes);
-            exec_vm_native_agg_rebase(realloc_old_addr, @usize_from_ptr(realloc_block as &void));
+            exec_vm_alloc_track(frame.vm, @usize_from_ptr(realloc_block as &void), realloc_bytes);
+            exec_vm_native_agg_rebase(frame.vm, realloc_old_addr, @usize_from_ptr(realloc_block as &void));
         }
         out_value[0] = exec_make_pointer_with_kind(@usize_from_ptr(realloc_block as &void), TypeKind.TYPE_VOID as i32);
         return 0;
@@ -6511,8 +6512,8 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
             return -1;
         }
         if free_arg.ptr_value != null &&
-            exec_vm_alloc_untrack(@usize_from_ptr(free_arg.ptr_value as &void)) != 0 {
-            exec_vm_native_agg_forget(@usize_from_ptr(free_arg.ptr_value as &void));
+            exec_vm_alloc_untrack(frame.vm, @usize_from_ptr(free_arg.ptr_value as &void)) != 0 {
+            exec_vm_native_agg_forget(frame.vm, @usize_from_ptr(free_arg.ptr_value as &void));
             free(free_arg.ptr_value as &void);
         }
         out_value[0] = exec_make_void();
@@ -7537,7 +7538,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             const ptr_elem_size: usize = exec_vm_type_kind_size(ptr_elem_kind);
             if ptr_elem_size == 0 as usize {
                 // 裸指针指向聚合（`&Token` 之类）：元素在旁路表里，切片直接建在表上。
-                const agg_handle: &ExecAggregate = exec_vm_native_agg_handle(exec_vm_pointer_address(&slice_base));
+                const agg_handle: &ExecAggregate = exec_vm_native_agg_handle(frame.vm, exec_vm_pointer_address(&slice_base));
                 if agg_handle == null {
                     var slice_kind_msg: [byte: 128] = [];
                     _ = snprintf(&slice_kind_msg[0] as *byte, 128,

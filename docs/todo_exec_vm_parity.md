@@ -8954,3 +8954,9 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
   这是下一轮的第一件事。
 - 默认（门控关闭）语义**未变**：`test_std_thread` 23、`test_pthread_heap_concurrency` 139、
   `test_pthread_heap_cache_identity` 239，与改动前逐项一致。
+- 第 480 轮续：原生聚合旁路表（base/count/caps/storage/handles/used）也进了 `ExecVmState`，
+  11 个 `exec_vm_native_agg_*` / `exec_vm_alloc_track/untrack` 收 `vm` 形参、22 处调用点接状态；
+  `make uya` 绿，默认行为不变（`test_std_thread` 23、`test_pthread_heap_concurrency` 139）。
+  `UYA_EXEC_REAL_THREADS=1` 下仍然 8 个线程起得来但整体 139 —— 说明还有共享状态没隔离。
+  下一轮用最小两线程探针逐项排除（候选：`g_exec_vm_globals_base/end`、
+  `exec_vm_thread_*` 表、box 分配缓存、以及 libc 堆本身的并发安全）。

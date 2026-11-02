@@ -12,6 +12,7 @@ const EXEC_MAX_FRAME_SLOTS: i32 = 8192;
 const EXEC_MAX_FRAME_SLOT_POOL: i32 = 32768;
 
 const EXEC_ALLOC_TRACK_MAX: i32 = 8192;
+const EXEC_NATIVE_AGG_MAX: i32 = 256;
 const EXEC_VM_CONT_MAX: i32 = 256;
 
 /// 一个宿主线程的 VM 执行状态（真并发时每线程一份；单线程时只有 main 一份）。
@@ -37,6 +38,13 @@ struct ExecVmState {
     alloc_sizes: [usize: EXEC_ALLOC_TRACK_MAX],
     alloc_used: i32,
     box_alloc_active: i32,
+    // 原生聚合旁路表（结构体/数组元素的真实内容）
+    native_agg_base: [usize: EXEC_NATIVE_AGG_MAX],
+    native_agg_count: [i32: EXEC_NATIVE_AGG_MAX],
+    native_agg_caps: [i32: EXEC_NATIVE_AGG_MAX],
+    native_agg_storage: [&ExecValue: EXEC_NATIVE_AGG_MAX],
+    native_agg_handles: [ExecAggregate: EXEC_NATIVE_AGG_MAX],
+    native_agg_used: i32,
 }
 
 struct ExecFrame {
