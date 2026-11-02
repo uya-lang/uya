@@ -8934,3 +8934,23 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
   与基线（887/22）只差 `test_async_runtime_shared_dns` 一例，单独连跑两次
   **一次通过一次失败** → 是既有 DNS 网络 flake（第 472 轮 parity 里也翻过一次），
   不是本轮重构的回归。三个纯重构提交（9f720b55 / ff285b30 / 73412ff6）行为等价。
+
+### 第 480 轮：真线程打通到「能起 8 个宿主线程」，剩子线程崩
+
+- 关键发现：`std.thread` 调的是 **Uya 实现**的 `pthread_create`（`lib/libc/pthread.uya`），
+  `fn_decl_is_extern == 0`，所以 VM 里那套 `EXEC_HOST_CALL_PTHREAD_*` 拦截**从来没生效**
+  （`src/exec/lower.uya` 的闸门只认 `fn_decl_is_extern != 0 || naked_host_call != 0`）。
+  这也是那 14 个「要真并发」用例长期原地不动的直接原因。
+- 修复：pthread 家族（create/join/detach/self/equal/once/exit）按**名字**也走宿主拦截
+  （`thread_host_call`），与 `naked_host_call` 同等待遇。
+- 真线程实现（`UYA_EXEC_REAL_THREADS=1` 门控，默认关）：
+  - `ExecVmThreadSpawn` + 每线程一份 `ExecVmState`（复用第 479 轮抽出来的状态结构）；
+  - 起线程走 **libc 的 `pthread_create`**（它内部是带蹦床的裸 clone）。
+    直接用裸 `sys_clone` 不行：子线程在新栈上返回到垃圾返回地址，gdb 里就是 `0x0` 处 SIGSEGV；
+  - `pthread_join` 在门控打开时自旋等 `exec_vm_thread_used[slot]` 归零。
+- 现状：`test_pthread_heap_concurrency` 在门控打开时**确实起了 8 个宿主线程**（spawn=8），
+  但随后整个程序仍以 139 退出 —— 子线程还在踩共享状态，最可能是**原生聚合旁路表**
+  （`g_native_agg_base/count/caps/storage/handles/used`）没进 `ExecVmState`。
+  这是下一轮的第一件事。
+- 默认（门控关闭）语义**未变**：`test_std_thread` 23、`test_pthread_heap_concurrency` 139、
+  `test_pthread_heap_cache_identity` 239，与改动前逐项一致。

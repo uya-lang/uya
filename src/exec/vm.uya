@@ -36,6 +36,9 @@ use libc.sys_getpgid;
 use libc.sys_getpgrp;
 use libc.sys_setsid;
 use libc.sys_kill;
+use libc.sys_clone;
+use libc.pthread_create;
+use libc.pthread_t;
 
 const EXEC_VM_REF_KIND_BASE: i32 = 65536;
 // 线程体指令预算：解释器没有并发，`pthread_create` 是「当场把 routine 跑完」。
@@ -4819,6 +4822,101 @@ var exec_vm_thread_used: [i32: EXEC_VM_THREAD_SLOTS] = [];
 var exec_vm_thread_detached: [i32: EXEC_VM_THREAD_SLOTS] = [];
 var exec_vm_thread_result: [ExecValue: EXEC_VM_THREAD_SLOTS] = [];
 
+/// ---- 真宿主线程（env 门控）----
+/// `UYA_EXEC_REAL_THREADS=1` 时 `pthread_create` 用裸 `sys_clone` 起真线程；
+/// 默认关闭，保证既有语义/门禁不变。
+struct ExecVmThreadSpawn {
+    state: &ExecVmState,
+    program: &BCProgram,
+    fn_index: i32,
+    arg: ExecValue,
+    slot: i32,
+}
+
+var g_exec_vm_spawn: &ExecVmThreadSpawn = null;
+var g_exec_vm_real_threads: i32 = -1;
+
+const EXEC_VM_THREAD_STACK_BYTES: i32 = 262144;
+
+fn exec_vm_real_threads_enabled() i32 {
+    if g_exec_vm_real_threads < 0 {
+        g_exec_vm_real_threads = 0;
+        const raw: *byte = getenv("UYA_EXEC_REAL_THREADS" as *byte);
+        if raw != null && raw[0] != 0 && raw[0] != 48 {
+            g_exec_vm_real_threads = 1;
+        }
+    }
+    return g_exec_vm_real_threads;
+}
+
+/// 子线程入口（pthread 蹦床直接调用它，arg 就是 desc）。
+fn exec_vm_thread_trampoline(arg: &void) &void {
+    const d: &ExecVmThreadSpawn = arg as &ExecVmThreadSpawn;
+    if d != null {
+        g_exec_vm_spawn = d;
+        exec_vm_thread_bootstrap();
+    }
+    return null as &void;
+}
+
+/// 子线程入口：从全局取装配好的 desc（子线程栈上的局部量不可信，只用全局）。
+fn exec_vm_thread_bootstrap() void {
+    const desc: &ExecVmThreadSpawn = g_exec_vm_spawn;
+    if desc != null {
+        var targs: [ExecValue: 1] = [];
+        targs[0] = desc.arg;
+        var tret: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+        const rc: i32 = exec_vm_call_function(desc.state, desc.program, desc.fn_index, &targs[0], 1, 0, &tret);
+        if desc.slot >= 0 && desc.slot < EXEC_VM_THREAD_SLOTS {
+            if rc == 0 {
+                exec_vm_thread_result[desc.slot] = tret;
+            }
+            exec_vm_thread_used[desc.slot] = 0;
+        }
+    }
+}
+
+/// 起一个真宿主线程跑线程体。返回值：0 已起线程；-1 未起（调用方回退到串行）。
+fn exec_vm_spawn_host_thread(program: &BCProgram, fn_index: i32, arg: ExecValue, slot: i32) i32 {
+    if program == null || fn_index < 0 || slot < 0 || slot >= EXEC_VM_THREAD_SLOTS {
+        return -1;
+    }
+    const state_ptr: &ExecVmState = exec_value_alloc_bytes(@size_of(ExecVmState) as usize) as &ExecVmState;
+    const stack_mem: &byte = exec_value_alloc_bytes(EXEC_VM_THREAD_STACK_BYTES as usize) as &byte;
+    const desc: &ExecVmThreadSpawn = exec_value_alloc_bytes(@size_of(ExecVmThreadSpawn) as usize) as &ExecVmThreadSpawn;
+    if state_ptr == null || stack_mem == null || desc == null {
+        return -1;
+    }
+    _ = memset(state_ptr as &void, 0, @size_of(ExecVmState) as usize);
+    desc.state = state_ptr;
+    desc.program = program;
+    desc.fn_index = fn_index;
+    desc.arg = arg;
+    desc.slot = slot;
+    g_exec_vm_spawn = desc;
+    if getenv("UYA_EXEC_TRACE_SPAWN" as *byte) != null {
+        fprintf(libc.stderr, "[spawn] fn=%d slot=%d\n" as *byte, fn_index, slot);
+    }
+    // 走 libc 的 pthread_create：它内部用带蹦床的裸 clone，
+    // 子线程从 `exec_vm_thread_trampoline` 开始跑（裸 sys_clone 会从新栈上
+    // 返回到垃圾返回地址，直接段错误）。
+    var handle: pthread_t = pthread_t {
+        tid: 0,
+        stack: null,
+        stack_size: 0,
+        detached: 0,
+        exited: 0,
+        result: null,
+        start_routine: null,
+        arg: null,
+    };
+    const prc: i32 = pthread_create(&handle, null, &exec_vm_thread_trampoline as &void, desc as &void);
+    if prc != 0 {
+        return -1;
+    }
+    return 0;
+}
+
 /// `pthread_key_*` 的线程局部存储：键下标 → 值（同步 VM 只有一条"线程"）。
 const EXEC_VM_TLS_KEYS: i32 = 16;
 var exec_vm_tls_values: [ExecValue: EXEC_VM_TLS_KEYS] = [];
@@ -5689,6 +5787,11 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                     if thread_arg != null {
                         thread_args[0] = thread_arg[0];
                     }
+                    if exec_vm_real_threads_enabled() != 0 &&
+                        exec_vm_spawn_host_thread(program, routine_index, thread_args[0], free_slot) == 0 {
+                        out_value[0] = exec_make_i32(0);
+                        return 0;
+                    }
                     var thread_ret: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
                     g_exec_vm_thread_body_budget = 20000000i64;
                     const thread_rc2: i32 = exec_vm_call_function(frame.vm, program, routine_index, &thread_args[0], 1, 0, &thread_ret);
@@ -5727,6 +5830,12 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         if th_detached != 0 {
             out_value[0] = exec_make_i32(22);
             return 0;
+        }
+        if exec_vm_real_threads_enabled() != 0 && th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
+            var join_spin: i64 = 0i64;
+            while exec_vm_thread_used[th_slot] != 0 && join_spin < 4000000000i64 {
+                join_spin = join_spin +| 1i64;
+            }
         }
         if arg_count >= 2 {
             const retval_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);

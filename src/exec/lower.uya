@@ -9456,16 +9456,33 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
              str_equals(callee_decl.fn_decl_name, "sigsetjmp" as *byte) != 0) {
             naked_host_call = 1;
         }
+        // pthread 家族即使由 Uya 实现（`lib/libc/pthread.uya`），解释器也跑不了它
+        // 里面的裸 `sys_clone`：子线程会带着共享的 VM 状态继续解释字节码。
+        // 所以按名字强制走宿主线程模拟（或 `UYA_EXEC_REAL_THREADS=1` 时的真线程）。
+        var thread_host_call: i32 = 0;
+        if callee_decl != null && callee_decl.type == ASTNodeType.AST_FN_DECL &&
+            callee_decl.fn_decl_name != null {
+            const thr_name: &byte = callee_decl.fn_decl_name;
+            if str_equals(thr_name, "pthread_create" as *byte) != 0 ||
+                str_equals(thr_name, "pthread_join" as *byte) != 0 ||
+                str_equals(thr_name, "pthread_detach" as *byte) != 0 ||
+                str_equals(thr_name, "pthread_self" as *byte) != 0 ||
+                str_equals(thr_name, "pthread_equal" as *byte) != 0 ||
+                str_equals(thr_name, "pthread_once" as *byte) != 0 ||
+                str_equals(thr_name, "pthread_exit" as *byte) != 0 {
+                thread_host_call = 1;
+            }
+        }
         if callee_decl != null &&
             callee_decl.type == ASTNodeType.AST_FN_DECL &&
-            (callee_decl.fn_decl_is_extern != 0 || naked_host_call != 0) {
+            (callee_decl.fn_decl_is_extern != 0 || naked_host_call != 0 || thread_host_call != 0) {
             var extern_can_run: i32 = exec_lower_extern_can_run_in_vm(ctx.checker, callee_decl);
-            if naked_host_call != 0 {
+            if naked_host_call != 0 || thread_host_call != 0 {
                 extern_can_run = 0;
             }
             var matched_host_call: ExecHostCallId =
                 exec_lower_match_host_call(callee_decl, expr.call_expr_arg_count);
-            if naked_host_call != 0 {
+            if naked_host_call != 0 || thread_host_call != 0 {
                 matched_host_call = exec_lower_match_host_call_name(callee_decl.fn_decl_name,
                     callee_decl.fn_decl_param_count, expr.call_expr_arg_count);
             }
