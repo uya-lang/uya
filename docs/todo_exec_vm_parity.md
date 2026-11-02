@@ -9176,3 +9176,6 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 - 真线程能力（`UYA_EXEC_REAL_THREADS=1`）已能让 `test_pthread_heap_concurrency`、
   `test_pthread_heap_cache_identity` 全过，但会坏掉 `test_libc_heap_tcache`（它验证的正是
   我们为适配 nostdlib 关掉的 TLS 快路径）与两个 cancel 用例 → **默认保持关闭**。
+- T11 收口状态（第 493 轮实测）：全量 `uya test --vm` = 909/886 通过（23 失败 = 基线 22 + 既有 DNS flake）；
+  `make exec-parity` = 913/889/24；`make check` rc=0。
+  因此清单前两项仍未满足（差 22–24 例，均属深水区），第三项（合并 main）暂不具备条件。
