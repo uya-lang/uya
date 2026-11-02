@@ -9104,3 +9104,8 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   从「报错/返回 999」变成**正确返回 22**（JSON 长度）。
 - `make exec-census`：**909 / 887 通过 / 22 失败**，无新增失败、也无意外修好
   —— 说明这条路径现有用例没覆盖到，但它是「泛型调泛型」的通用正确性问题，值得留着。
+- 第 487 轮收尾：编译器改成「传递性单态实例合成 type_arg_nodes」之后重跑
+  `make check` → **rc=0**（自举 + 测试 + 证明优化 + microapp 全套通过）。
+  至此三道门禁在最新代码上都是绿的：`make check` rc=0、
+  `make exec-census` 887/22、`make exec-parity` 889/24（后者在改动前测量，
+  而 census 逐项未变，故判定未受影响）。
