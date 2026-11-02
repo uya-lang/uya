@@ -1,0 +1,22 @@
+use libc.unistd;
+use std.http.websocket_json;
+use std.http.websocket_types;
+use std.json.value.JsonValue;
+use std.mem.arena.Arena;
+use std.mem.arena.arena_init;
+
+fn main() !i32 {
+    var buf: [byte: 262144] = [];
+    var arena: Arena = Arena{ buffer: null, size: 0, used: 0 };
+    arena_init(&arena, &buf[0], 262144);
+    var msg: [byte: 32] = [123, 34, 105, 100, 34, 58, 52, 50, 44, 34, 110, 97, 109, 101, 34, 58, 34, 97, 98, 99, 34, 125];
+    _ = write(2, "before parse\n" as *byte, 13);
+    const dv: !JsonValue = websocket_json_decode_value(&arena, WebSocketOpcode.Text, &msg[0], 22);
+    _ = write(2, "after parse\n" as *byte, 12);
+    if dv.error_id != 0u32 {
+        _ = write(2, "parse err\n" as *byte, 10);
+        return 1;
+    }
+    _ = write(2, "OK parse\n" as *byte, 9);
+    return 0;
+}

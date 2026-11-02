@@ -1,0 +1,28 @@
+use libc.unistd;
+
+interface Shape {
+    fn size(self: &Self) i32;
+}
+
+struct Sq : Shape {
+    n: i32,
+    fn size(self: &Self) i32 {
+        return self.n;
+    }
+}
+
+struct Holder {
+    s: Shape,
+}
+
+fn main() !i32 {
+    var sq: Sq = Sq{ n: 7 };
+    var h: Holder = Holder{ s: sq };
+    const v: i32 = h.s.size();
+    if v != 7 {
+        _ = write(2, "BAD value\n" as *byte, 10);
+        return 1;
+    }
+    _ = write(2, "OK field iface\n" as *byte, 15);
+    return 0;
+}
