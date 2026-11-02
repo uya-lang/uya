@@ -8829,3 +8829,51 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
 下一轮入口就是这一对最小对照：
 `/tmp/ws_arena_payload_probe.uya`（通过）vs `/tmp/ws_full_probe.uya`（挂死），
 差异只有「写操作在 `main` 还是在 `websocket_conn_write_json<T>` 的单态体里」。
+
+### 第 476 轮：硬骨头（VM 真并发）调研与实施方案
+
+**现状（已确认的事实）**
+
+- `pthread_create` 在 lower 阶段被识别成 `EXEC_HOST_CALL_PTHREAD_CREATE`
+  （`src/exec/lower.uya:886-890`，注释写得很直白：「同步解释器没有真线程，
+  这几个 pthread 入口在 VM 里按『顺序执行 + 状态表』模拟」）。
+  线程体是在宿主**同一条线程**里跑完的，靠 `g_exec_vm_thread_body_budget`
+  （`src/exec/vm.uya:5660`，2000 万条指令）防止自旋死锁，
+  超了就直接报「线程体超出指令预算（解释器无并发，自旋会死锁）」。
+- 需要真并发才能过的用例约 14 例：
+  `test_pthread_heap_cache_identity`(239)、`test_pthread_heap_concurrency`(139)、
+  `test_std_thread`(23)、`test_async_compute_types`(11)、
+  `test_async_thread_pool_dynamic_growth`(5)、`test_std_thread_async_boundary`(3)、
+  `test_async_compute_generic_wrapper`(2)、`test_async_runtime_shared_semantics`(2)、
+  `test_async_compute_dynamic_resource_pressure`(1)、`test_async_shared_runtime_semantics`(1)、
+  `test_std_async_scheduler`(1) 等。
+- 编译器**没有** TLS 支持：`grep -rn "_Thread_local|__thread|thread_local" src/ lib/` 为空。
+  atomics 是有的（C99 侧会发 `__atomic_load_n(..., __ATOMIC_SEQ_CST)`）。
+- VM 的执行状态是 30 个进程级全局（`grep -c '^var g_exec' src/exec/vm.uya`）：
+  `g_exec_vm_slot_pool / _slot_pool_capacity / _slot_top`、`g_exec_vm_cont_*`、
+  `g_exec_vm_thread_exit_*`、`g_exec_vm_cancel_*`、`g_exec_vm_await_waker_*`、
+  `g_exec_alloc_keys/sizes/used`、原生聚合旁路表的 `g_native_agg_*`。
+  两条宿主线程同时解释字节码会互相踩这些全局。
+
+**方案（三步，按依赖顺序）**
+
+1. **给编译器加 `@thread_local` 全局属性**（`_Thread_local`）。
+   VM 自己是 C99 编出来的，所以只需要 C99 后端支持，exec 后端不用管。
+   落点：
+   - `src/parser/main.uya:758-790` 是现有函数属性（`@align` / `@async_fn` / `@naked_fn`）
+     的解析方式——纯字符串比较，照着加即可；
+   - AST 加字段：`src/ast.uya:258-266` 的 `var_decl_*` 组里加 `var_decl_is_thread_local`，
+     并在 `ast_new_node`（约 605 行）初始化 0；
+   - 全局变量发射：`src/codegen/c99/global.uya:566-592`，现在发的是
+     `__attribute__((used)) ` 前缀，加上 `_Thread_local ` 即可。
+2. **把 VM 的可变执行状态改标 `@thread_local`**：只标真正可变的那些；
+   `g_exec_vm_globals_base/_end` 这类只读的保持共享。
+   原生聚合旁路表也必须是线程本地的——第一版先假定「线程内分配、线程内释放」，
+   跨线程 free 的问题单独记。
+3. **`EXEC_HOST_CALL_PTHREAD_CREATE` 换成真 `pthread_create`**：
+   线程体 = 目标字节码函数，用自己那套（线程本地的）slot pool 跑 `exec_vm_run_function`；
+   `pthread_join` 用真 join，`pthread_self/equal` 直接用宿主线程 id。
+
+**风险与顺序**：第 1 步可以独立验证（写个 `@thread_local var` 的 C99 小例子，
+看生成的 C 里有没有 `_Thread_local`），先做它；第 2 步是机械替换但量大；
+第 3 步才动语义。任何一步没通过就停在那一步，不要往下叠。
