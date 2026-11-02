@@ -11,11 +11,32 @@ const EXEC_MAX_FRAME_SLOTS: i32 = 8192;
 /// 就撞墙，报错点落在一个只占 10 个槽的 `sql_bytes_view_from_ptr` 上）。
 const EXEC_MAX_FRAME_SLOT_POOL: i32 = 32768;
 
+const EXEC_ALLOC_TRACK_MAX: i32 = 8192;
+const EXEC_VM_CONT_MAX: i32 = 256;
+
 /// 一个宿主线程的 VM 执行状态（真并发时每线程一份；单线程时只有 main 一份）。
 struct ExecVmState {
     slot_pool: &ExecValue,
     slot_pool_capacity: i32,
     slot_top: i32,
+    // 续体槽（异步/挂起用）
+    cont_fn: [i32: EXEC_VM_CONT_MAX],
+    cont_ip: [i32: EXEC_VM_CONT_MAX],
+    cont_dest: [i32: EXEC_VM_CONT_MAX],
+    cont_slot_count: [i32: EXEC_VM_CONT_MAX],
+    cont_slots: [&ExecValue: EXEC_VM_CONT_MAX],
+    cont_used: [i32: EXEC_VM_CONT_MAX],
+    // 帧/唤醒/取消
+    frame_resumed: i32,
+    await_waker_addr: usize,
+    await_waker_kind: i32,
+    cancel_state: i32,
+    cancel_type: i32,
+    // 堆分配记账 + 装箱重入保护
+    alloc_keys: [usize: EXEC_ALLOC_TRACK_MAX],
+    alloc_sizes: [usize: EXEC_ALLOC_TRACK_MAX],
+    alloc_used: i32,
+    box_alloc_active: i32,
 }
 
 struct ExecFrame {

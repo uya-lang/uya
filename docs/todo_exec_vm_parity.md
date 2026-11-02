@@ -8921,3 +8921,8 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
     （与改动前逐项一致）→ 纯重构、零行为变化。
 - 下一步（第 480 轮）：把 cont/await/cancel/frame_resumed/alloc 那批也搬进 `ExecVmState`，
   然后 `pthread_create` 用 `sys_clone` 起真宿主线程，线程入口带上自己的 `ExecVmState`。
+- 第 479 轮续：cont（6 个数组）/ frame_resumed / await_waker / cancel / alloc 记账 / box_alloc_active
+  也全部搬进 `ExecVmState`（`EXEC_ALLOC_TRACK_MAX`、`EXEC_VM_CONT_MAX` 两个常量随之下放到 frame.uya），
+  `make uya` 绿；三个探针 + `test_std_thread`（11/23）逐项与改动前一致 → 仍是纯重构。
+  现在 `ExecVmState` 已经是「一个宿主线程跑 VM 所需的全部可变状态」，
+  剩下的 `pthread_create` 只要给子线程一份新 state 并用 `sys_clone` 起真线程即可。
