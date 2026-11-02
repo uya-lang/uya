@@ -5691,7 +5691,7 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                     }
                     var thread_ret: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
                     g_exec_vm_thread_body_budget = 20000000i64;
-                    const thread_rc2: i32 = exec_vm_call_function(exec_vm_main_vm(), program, routine_index, &thread_args[0], 1, 0, &thread_ret);
+                    const thread_rc2: i32 = exec_vm_call_function(frame.vm, program, routine_index, &thread_args[0], 1, 0, &thread_ret);
                     g_exec_vm_thread_body_budget = 0i64;
                     if thread_rc2 != 0 {
                         // 线程体没跑完（预算超限/内部错误）：清掉错误状态，让父线程
@@ -5763,7 +5763,7 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
             const once_index: i32 = exec_vm_fn_ref_index(once_routine);
             if once_index >= 0 {
                 var once_ret: ExecValue = exec_make_void();
-                if exec_vm_call_function(exec_vm_main_vm(), program, once_index, null, 0, 0, &once_ret) < 0 {
+                if exec_vm_call_function(frame.vm, program, once_index, null, 0, 0, &once_ret) < 0 {
                     return -1;
                 }
             }
@@ -5849,16 +5849,16 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
             const cancel_old: &ExecValue = exec_vm_ref_target_value(exec_vm_slot_ref(frame, arg_base +| 1));
             if cancel_old != null {
                 if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETCANCELTYPE {
-                    exec_vm_store_slot(cancel_old, exec_make_i32(exec_vm_main_vm().cancel_type));
+                    exec_vm_store_slot(cancel_old, exec_make_i32(frame.vm.cancel_type));
                 } else {
-                    exec_vm_store_slot(cancel_old, exec_make_i32(exec_vm_main_vm().cancel_state));
+                    exec_vm_store_slot(cancel_old, exec_make_i32(frame.vm.cancel_state));
                 }
             }
         }
         if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SETCANCELTYPE {
-            exec_vm_main_vm().cancel_type = cancel_in.i64_value as i32;
+            frame.vm.cancel_type = cancel_in.i64_value as i32;
         } else {
-            exec_vm_main_vm().cancel_state = cancel_in.i64_value as i32;
+            frame.vm.cancel_state = cancel_in.i64_value as i32;
         }
         out_value[0] = exec_make_i32(0);
         return 0;
@@ -8190,7 +8190,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             // 不在 async 帧里（没有 Future 可返回）才退回忙等，保持旧行为。
             var awaited: ExecValue = exec_make_void();
             var poll_rc: i32 = -1;
-            if exec_vm_main_vm().frame_resumed == 0 {
+            if frame.vm.frame_resumed == 0 {
                 // 状态机语义：**初次**走到这个 await 只挂起、不 poll。
                 // （C99 后端把「构造 future」和「poll 它」分成两遍；
                 //   测试里 p1 看到 Pending、p2 才看到 Ready 就是这个原因。）
@@ -8272,7 +8272,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             ai = ai + 1;
         }
         var call_result: ExecValue = exec_make_void();
-        if exec_vm_call_function(exec_vm_main_vm(), program, callee_idx, &call_args[0], instr.c, trace_vm, &call_result) < 0 {
+        if exec_vm_call_function(frame.vm, program, callee_idx, &call_args[0], instr.c, trace_vm, &call_result) < 0 {
             return -1;
         }
         if slot_a == null {
@@ -8307,7 +8307,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             ai3 = ai3 + 1;
         }
         var indirect_result: ExecValue = exec_make_void();
-        if exec_vm_call_function(exec_vm_main_vm(), program, callee_idx2, &call_args3[0], instr.imm as i32, trace_vm, &indirect_result) < 0 {
+        if exec_vm_call_function(frame.vm, program, callee_idx2, &call_args3[0], instr.imm as i32, trace_vm, &indirect_result) < 0 {
             return -1;
         }
         exec_vm_store_slot(slot_a, indirect_result);
@@ -8606,10 +8606,10 @@ fn exec_vm_cont_snapshot(program: &BCProgram, function: &BCFunction, frame: &Exe
     if count <= 0 || count > EXEC_MAX_FRAME_SLOTS || resume_ip < 0 {
         return -1;
     }
-    const old_slots: &ExecValue = exec_vm_main_vm().cont_slots[handle];
+    const old_slots: &ExecValue = frame.vm.cont_slots[handle];
     if old_slots != null {
         free(old_slots as &void);
-        exec_vm_main_vm().cont_slots[handle] = null;
+        frame.vm.cont_slots[handle] = null;
     }
     const block: &ExecValue = malloc(@size_of(ExecValue) as usize * count as usize) as &ExecValue;
     if block == null {
@@ -8630,12 +8630,12 @@ fn exec_vm_cont_snapshot(program: &BCProgram, function: &BCFunction, frame: &Exe
         i = i +| 1;
     }
     exec_vm_cont_remap_blocks(block, from_base, from_limit, to_base);
-    exec_vm_main_vm().cont_slots[handle] = block;
-    exec_vm_main_vm().cont_slot_count[handle] = count;
-    exec_vm_main_vm().cont_fn[handle] = fn_index;
-    exec_vm_main_vm().cont_ip[handle] = resume_ip;
-    exec_vm_main_vm().cont_dest[handle] = dest_slot;
-    exec_vm_main_vm().cont_used[handle] = 1;
+    frame.vm.cont_slots[handle] = block;
+    frame.vm.cont_slot_count[handle] = count;
+    frame.vm.cont_fn[handle] = fn_index;
+    frame.vm.cont_ip[handle] = resume_ip;
+    frame.vm.cont_dest[handle] = dest_slot;
+    frame.vm.cont_used[handle] = 1;
     return 0;
 }
 
@@ -8835,14 +8835,14 @@ fn exec_vm_call_function(vm: &ExecVmState, program: &BCProgram, function_index: 
         exec_backend_set_error(function.decl, "exec: VM frame slot 超限" as *byte, 0);
         return -1;
     }
-    const base: i32 = exec_vm_slot_pool_push(exec_vm_main_vm(), function.slot_count);
+    const base: i32 = exec_vm_slot_pool_push(vm, function.slot_count);
     if base < 0 {
         exec_backend_set_error(function.decl, "exec: VM frame slot 超限" as *byte, 0);
         return -1;
     }
-    const rc: i32 = exec_vm_run_frame(exec_vm_main_vm(), program, function, args, arg_count, trace_vm, out_value, base,
+    const rc: i32 = exec_vm_run_frame(vm, program, function, args, arg_count, trace_vm, out_value, base,
         null as &ExecValue, 0);
-    exec_vm_slot_pool_pop(exec_vm_main_vm(), base);
+    exec_vm_slot_pool_pop(vm, base);
     return rc;
 }
 
@@ -8852,7 +8852,7 @@ fn exec_vm_call_function(vm: &ExecVmState, program: &BCProgram, function_index: 
 fn exec_vm_run_frame(vm: &ExecVmState, program: &BCProgram, function: &BCFunction, args: &ExecValue, arg_count: i32,
     trace_vm: i32, out_value: &ExecValue, base: i32,
     resume_slots: &ExecValue, resume_ip: i32) i32 {
-    var slots_ptr: &ExecValue = exec_vm_slot_pool_base(exec_vm_main_vm(), base);
+    var slots_ptr: &ExecValue = exec_vm_slot_pool_base(vm, base);
     if slots_ptr == null {
         // 拿不到自己的槽段时绝不能退回 pool[0]：那会和最深层的帧重叠，
         // 表现为「参数刚拷进去是对的，一次内层调用回来就变了别的类型」。
@@ -8868,11 +8868,11 @@ fn exec_vm_run_frame(vm: &ExecVmState, program: &BCProgram, function: &BCFunctio
         vm: vm,
     };
     exec_vm_trace_call_enter(trace_vm, function.name, arg_count);
-    const saved_resumed: i32 = exec_vm_main_vm().frame_resumed;
+    const saved_resumed: i32 = vm.frame_resumed;
     if resume_slots != null {
-        exec_vm_main_vm().frame_resumed = 1;
+        vm.frame_resumed = 1;
     } else {
-        exec_vm_main_vm().frame_resumed = 0;
+        vm.frame_resumed = 0;
     }
     var si: i32 = 0;
     if resume_slots != null {
@@ -8926,30 +8926,30 @@ fn exec_vm_run_frame(vm: &ExecVmState, program: &BCProgram, function: &BCFunctio
             g_exec_vm_thread_body_budget = g_exec_vm_thread_body_budget -| 1i64;
             if g_exec_vm_thread_body_budget == 0i64 {
                 exec_backend_set_error(function.decl, "exec: 线程体超出指令预算（解释器无并发，自旋会死锁）" as *byte, 0);
-                exec_vm_main_vm().frame_resumed = saved_resumed;
+                vm.frame_resumed = saved_resumed;
                 return -1;
             }
         }
         const step_result: i32 = vm_step(program, &frame, trace_vm, out_value);
         if step_result < 0 {
-            exec_vm_main_vm().frame_resumed = saved_resumed;
+            vm.frame_resumed = saved_resumed;
             return -1;
         }
         if step_result > 0 {
             // `BC_RET` 给 1（正常返回），`@await` 挂起给 2（帧已快照成续体）。
-            exec_vm_main_vm().frame_resumed = saved_resumed;
+            vm.frame_resumed = saved_resumed;
             return step_result -| 1;
         }
         // `pthread_exit(v)`：当前帧直接带 v 返回（C 语义里它不返回）。
         if g_exec_vm_thread_exit_requested != 0 {
             g_exec_vm_thread_exit_requested = 0;
             exec_vm_store_slot(out_value, exec_value_clone(&g_exec_vm_thread_exit_value));
-            exec_vm_main_vm().frame_resumed = saved_resumed;
+            vm.frame_resumed = saved_resumed;
             return 0;
         }
     }
     out_value[0] = exec_make_void();
-    exec_vm_main_vm().frame_resumed = saved_resumed;
+    vm.frame_resumed = saved_resumed;
     return 0;
 }
 

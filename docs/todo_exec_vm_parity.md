@@ -8930,3 +8930,7 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
   （14 处调用点统一传 `exec_vm_main_vm()`，帧构造改为 `vm: vm`），`make uya` 绿、三个探针 +
   `test_std_thread`（11/23）依旧逐项一致。下一步就是把这两个函数体内部的 `exec_vm_main_vm()`
   换成形参 `vm`，然后 `pthread_create` 用 `sys_clone` 起真线程并把新 state 传进去。
+- 第 479 轮验证：`make exec-census` → **909 例 / 通过 886 / 失败 23**。
+  与基线（887/22）只差 `test_async_runtime_shared_dns` 一例，单独连跑两次
+  **一次通过一次失败** → 是既有 DNS 网络 flake（第 472 轮 parity 里也翻过一次），
+  不是本轮重构的回归。三个纯重构提交（9f720b55 / ff285b30 / 73412ff6）行为等价。
