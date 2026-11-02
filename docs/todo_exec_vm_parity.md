@@ -8967,3 +8967,18 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
 - 剩下的崩溃集中在会**并发分配内存**的用例（`test_pthread_heap_*`）：
   VM 的 libc 堆不是线程安全的。下一轮要么给堆加锁/线程缓存，
   要么让每个线程用自己的 arena —— 这是真并发剩下的最后一块。
+
+### 第 481 轮：真线程跑通并发分配，`test_pthread_heap_concurrency` 全绿
+
+- 挂死根因：`exec_vm_thread_used` 是普通 `[i32]`，join 侧的自旋读被 C 编译器提到循环外
+  → 死循环。改成 `[atomic i32: EXEC_VM_THREAD_SLOTS]` 后正常。
+- 并发分配探针 `/tmp/thr_alloc_probe.uya`（两个线程各 2000 次 malloc/free）：
+  默认模式 rc=0；`UYA_EXEC_REAL_THREADS=1` 也 rc=0（输出 `W done` + `OK alloc thr`）。
+  说明 libc 堆本身有 `_heap_lock` 保护，是线程安全的。
+- 真实用例（`UYA_EXEC_REAL_THREADS=1`）：
+  - `test_pthread_heap_concurrency`：**rc=0 全部通过**（改动前 139 个失败）
+  - `test_pthread_heap_cache_identity`：139→**181**（仍有失败，但在减少）
+  - `test_std_thread`：仍是 11 通过 / 23 失败（它更多依赖线程池/调度语义，不是纯并发）
+- 结论：真并发这条路已经**实质跑通**。默认仍关闭（`UYA_EXEC_REAL_THREADS` 门控），
+  下一步是跑一次 `UYA_EXEC_REAL_THREADS=1 make exec-census` 评估整体影响，
+  再决定是否默认打开。

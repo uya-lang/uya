@@ -4819,7 +4819,7 @@ fn exec_vm_atomic_update(function: &BCFunction, frame: &ExecFrame, arg_base: i32
 /// 块上限与 pthread 用例规模匹配（远小于真实线程数上限）。
 const EXEC_VM_THREAD_SLOTS: i32 = 16;
 
-var exec_vm_thread_used: [i32: EXEC_VM_THREAD_SLOTS] = [];
+var exec_vm_thread_used: [atomic i32: EXEC_VM_THREAD_SLOTS] = [];
 var exec_vm_thread_detached: [i32: EXEC_VM_THREAD_SLOTS] = [];
 var exec_vm_thread_result: [ExecValue: EXEC_VM_THREAD_SLOTS] = [];
 
@@ -5834,7 +5834,15 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         }
         if exec_vm_real_threads_enabled() != 0 && th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
             var join_spin: i64 = 0i64;
-            while exec_vm_thread_used[th_slot] != 0 && join_spin < 4000000000i64 {
+            var th_done: i32 = 1;
+            while join_spin < 4000000000i64 {
+                th_done = 1;
+                if exec_vm_thread_used[th_slot] != 0 {
+                    th_done = 0;
+                }
+                if th_done != 0 {
+                    break;
+                }
                 join_spin = join_spin +| 1i64;
             }
         }
