@@ -7784,3 +7784,70 @@ fd1 的缓冲/去向不可靠，`printf` 的输出被吞掉。改用 `write(2, .
 
 **本轮净状态**：代码 +42 行（仅 `src/exec/vm.uya`），样例零回归；
 基线 **880/909**、parity 不一致 30、`make check` 全绿（本轮未改编译器与库，只改 VM 等待策略）。
+
+---
+
+## 第 459 轮：leaf IO 一到位，第 439/440 轮的「真状态机」就转正了（重放 + 净 +3）
+
+**1. 结论先行**
+
+第 439/440 轮那两个提交当年全量净 **-5** 被回退，判据是「没人推进 leaf IO」。
+本轮先按你的要求把 leaf IO 推进（第 458 轮：`@await` 的 Pending 路径按 waker 登记的
+fd 真等 OS），再把这两个提交原样重放：
+
+| 提交 | 内容 |
+| --- | --- |
+| `d6b39136`（原 `f1d9066b`） | BC_AWAIT 命中 Pending 时把当前帧快照成**续体**，返回 `[poll, release, handle]` box；`exec_vm_call_function` 入口识别负下标哨兵转续体 poll/release；恢复时按偏移重映射帧内内部引用 |
+| `07d2c1c5`（原 `bece7d73`） | `@await` 转发上游 waker，修 IO 兴趣与取消丢失 |
+
+重放后实测（单点）：
+
+| 用例 | 回退前 | 现在 |
+| --- | --- | --- |
+| `test_async_fd` | 超时（120s，无输出） | **通过** |
+| `test_async_state_machine` | 失败 | **通过** |
+| `test_async_compound_try_await` | 失败 | **通过** |
+| `test_async_macro_expand` | 失败 | **通过** |
+| `test_http1_async_client` | 通过 | **失败（新回归，见 3）** |
+
+净 **+3**。当年 -5 的原因确实就是 leaf IO 不推进：状态机把 await 挂起后，
+下层的 fd 永远等不到事件，于是「挂起」被当成「卡死」。
+
+**2. 仍然超时（与基线一致，本轮未变化）**
+
+`test_std_async_scheduler`、`test_async_runtime_shared_semantics`、
+`test_async_task_queue_dynamic_growth`、`test_std_thread_pool_dynamic_growth`
+（13x 类：需要真正的任务队列/线程池，续体表只解决「单个 Future 分段恢复」）。
+
+仍然失败（非 13x 类）：`test_async_compute_types`、`test_std_dns_async_query_aggregate`、
+`test_tls_async_runtime_io`、`test_typed_pipeline_capability`、`test_async_frame_pool_full`。
+
+**3. 新回归同时也是**重要的**快速复现**
+
+`test_http1_async_client` 现在 2 秒内报：
+
+```
+exec runtime: lib/std/http/http1_async.uya:767:8:
+  exec: LOAD_FIELD 字段越界(idx=3 kind=14 count=3 pointee=16 ref=1 aux=65552
+  fn=http1_async_request_header_required_capacity ...)
+```
+
+`count=3` 正是续体盒子的形状（`exec_vm_make_cont_box` 造的就是 3 字段聚合
+`[poll, release, handle]`），`ref=1 aux=65552(=65536+16)` 是「指向结构体的内部引用」。
+即：**一个 3 字段的续体盒子被当成请求结构体指针**传给了
+`http1_async_request_header_required_capacity`。
+
+这条错误与我在 `test_tls_ecdsa` 上追了几小时的
+`LOAD_FIELD 字段越界(... count=3 ...)` 是**同一形状**，但它 2 秒就能复现 ——
+以后查这一类必须用 `test_http1_async_client`，不要再用 ecdsa 的 800s。
+
+**4. 下一步**
+
+1. 顺着 `exec_vm_make_cont_box` 的返回值查「续体转 Ready 时，box 是否被当成结果留在槽里」；
+   重点看 `exec_vm_cont_remap_refs` 双侧重映射（快照 `8570` 行 / 恢复 `8828` 行）
+   对**指向调用方帧**的内部引用不生效，以及恢复后 `dest_slot` 回填的时序。
+2. 修好后重跑 `test_http1_async_client`（2 秒），再单点复验 4 个转通过用例。
+3. 真任务队列（13x 类）另立一轮：续体表 + 就绪队列 + 单线程事件循环。
+
+**本轮净状态**：`src/exec/vm.uya` 增加 541 行（三个提交），单点 +4/-1；
+全量基线待下一轮普查确认（预计 **883/909**）。
