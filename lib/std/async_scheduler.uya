@@ -439,12 +439,25 @@ export struct TaskQueue<T> {
         if next_capacity <= 0 {
             return error.TaskQueueFull;
         }
-        const bytes: usize = (next_capacity as usize) * @size_of(TaskQueueSlot<T>);
-        const ptr: &void = realloc(self.slots as &void, bytes);
+        // 注意：这里**不能**用 `realloc`。VM 里结构体元素的内容存在旁路表
+        // （按基址寻址），而 `realloc` 的搬运走的是纯 Uya 的 `memcpy` 字节循环，
+        // 不会迁表 —— 扩容后新基址下前 len 个元素全是 VOID，
+        // `queue.slots[i].active` 读出来恒为 0，运行器看不到任务卡死。
+        // 逐元素拷贝是 VM 与 C99 两边都正确的写法。
+        const ptr: &void = calloc(next_capacity as usize, @size_of(TaskQueueSlot<T>));
         if ptr == null {
             return error.TaskQueueFull;
         }
-        self.slots = ptr as &TaskQueueSlot<T>;
+        const next_slots: &TaskQueueSlot<T> = ptr as &TaskQueueSlot<T>;
+        var i: i32 = 0;
+        while i < self.len {
+            next_slots[i as usize] = self.slots[i as usize];
+            i = i + 1;
+        }
+        if self.slots != null {
+            free(self.slots as &void);
+        }
+        self.slots = next_slots;
         self.capacity = next_capacity;
         return 0;
     }

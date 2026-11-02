@@ -8428,3 +8428,40 @@ worker 在创建时就 EOF 退出，压根没有可重放的线程体。
 （不要用 `^` 锚定 grep，用例输出带前缀），确认到底哪条路径分配了新块；
 如果确认是 REALLOC，再查为什么紧随其后的 `exec_vm_native_agg_rebase(old,new)`
 没能把旧条目改名（dump 里旧条目 `cnt=64` 还在）。
+
+## 第 467 轮：真根因 —— `memcpy` 是纯 Uya 实现，旁路表的迁移钩子永远不触发（已修）
+
+继续第 466 轮的疑点「`extern realloc` 不走按名 host call」，用 `--dump-bytecode` 静态取证，
+链条一次性打通：
+
+1. `TaskQueue::grow_slots` 的 `realloc` 编译成 `BC_CALL fn[85]`（`realloc` 是个**有函数体的 Uya 包装**，
+   不是 host call）。`exec_vm_call_host` 里按名字/按 id 打的探针（`[al]`/`[rb]`）**一次都没触发** ✓
+2. `fn[85] realloc` → `fn[115] _realloc_impl`（`lib/libc/heap.uya`）→ ip=57 `BC_CALL c=3 imm=172`
+3. `fn[172] memcpy` 是**纯 Uya 的字节循环**（`lib/libc/mem.uya:10` 的 `extern "libc" fn memcpy` 带了
+   fallback 函数体，VM 走的是函数体而不是 libc 符号）
+4. VM 里「原生聚合数组」的真实元素存在旁路表（按基址寻址），把元素搬到新基址的钩子
+   `exec_vm_native_agg_migrate` **只挂在 `EXEC_HOST_CALL_MEMCPY` 分支上**
+   （`src/exec/vm.uya` 里 `memcpy`/`memmove` 处理段）—— 字节循环这条路永远走不到
+
+于是 `realloc` 把块搬到新地址后：旧基址条目还在（`cnt=64 cap=64`），
+新基址条目只有扩容后新写的 4 个（`cnt=68 cap=128`，前 64 个是 VOID），
+`queue.slots[i].active` 读出来恒 0 → 运行器看不到任务 → 卡死/失败。
+
+**修复**（`lib/std/async_scheduler.uya` 的 `TaskQueue::grow_slots`）：不再用 `realloc`，
+改成 `calloc` + **逐元素赋值**拷贝 `self.len` 个槽位 + `free` 旧块。
+逐元素走的是 `STORE_INDEX`/`LOAD_INDEX`，VM 会正常写旁路表，C99 侧等价（只是少了一次 memcpy 优化）。
+
+```
+测试前：test_async_task_queue_dynamic_growth  卡死 / LOAD_FIELD count=-1
+测试后：通过，209 断言
+```
+
+**给后续的通用结论**：任何「结构体元素存在旁路表」的数据结构，在 VM 里**都不能靠
+`realloc`/`memcpy` 搬家**，必须逐元素拷贝（`Vec` 等已经在这么做，`TaskQueue` 是漏网的一个）。
+如果以后要根治，可让 `lib/libc/mem.uya` 的 `memcpy` 在 VM 构建下走 host call，
+或在 `_realloc_impl` 里显式迁表 —— 影响面大，优先按「逐元素」在容器层解决。
+
+相邻用例复查（`--vm`）：`test_std_async_scheduler`、`test_async_shared_runtime_semantics`、
+`test_async_compute_dynamic_resource_pressure` 的失败仍是
+`wait_thread_pool_pending_at_least`/`queue.result == 42`/`wait_started_workers` 这一类
+**「需要真并发」**的既有问题（与第 465 轮定性一致），非本轮改动引入。
