@@ -8016,3 +8016,70 @@ A30   // len=3（正确），slot.active 读出来是 0
 **当前净状态**：代码零改动，`make uya` 通过；
 `test_http1_async_client` / `test_async_fd` / `test_async_state_machine` 复验通过；
 全量基线 **884/909（失败 25）**。
+
+---
+
+## 第 462 轮：13x 的触发点锁定到「泛型实例化的调用解析」（有 1 秒级复现）
+
+**1. 关键实验：同一个槽位，里外读到不同值**
+
+在 `test_std_async_scheduler` 的 `scheduler_run_task_queue_i32_with_shared_event_loop`
+里，**在调用运行器之前**直接读：
+
+```uya
+try assert_eq_i32(queue.len, 3);              // 通过
+try assert_eq_i32(queue.slots[0].active, 1);  // 通过
+try assert_eq_i32(queue.slots[1].active, 1);  // 通过
+try assert_eq_i32(queue.slots[2].active, 1);  // 通过
+const completed: i32 = try scheduler_run_task_queue_i32_with_event_loop(&s, loop, &queue, 0);  // 挂住
+```
+
+而运行器（泛型 `scheduler_run_task_queue_with_event_loop<i32>`）里读到 `active == 0`。
+**同一块内存、同一个指针，测试里读 1、泛型运行器里读 0。**
+
+**2. 把真实 `TaskQueue` 原样拷进测试文件后复现成功（1 秒级）**
+
+复现件：`/tmp/vm_generic_queue_repro.uya`（`BSlot<T>`/`BQueue<T>` 与库里逐字段一致）。
+
+```
+struct BSlot<T> { future: Future<!T>, waker: Waker, active: i32, done: i32, ... }
+struct BQueue<T> { len, capacity, fixed_capacity, slots: &BSlot<T> }
+
+fn b_run<T>(q: &BQueue<T>) i32 { ...读 q.slots[i].active... }      // 直接泛型调用：通过
+fn b_run_wrapper<T>(q: &BQueue<T>, extra: i32) i32 { return b_run<T>(q); }
+fn b_run_i32(q: &BQueue<i32>, extra: i32) i32 { return b_run_wrapper<i32>(q, extra); }
+```
+
+结果：
+
+| 调用方式 | 结果 |
+| --- | --- |
+| `b_run<i32>(&q)` 直接调用 | **通过**（读到 active=1） |
+| `b_run_i32(&q, 0)`（非泛型 → 泛型 → 泛型 两级转发） | **失败，返回 0**（所有槽被跳过） |
+| 先直调一次 `b_run<i32>`，再走 `b_run_i32` | **通过** |
+
+返回码区分证明：转发链里 `q.slots` 非 null、`q.len == 3`，**只有元素字段读错**。
+
+**3. 触发条件**
+
+- 小结构体（`struct S2 { a: i32, b: i32 }` + 泛型包装链）**不复现**；
+- 必须是「含 `Future<!T>` 接口字段 + `Waker` 字段的结构体 + 指针数组 + 泛型包装链」。
+
+结合「先直调一次就正常」，最可能的根因是：
+**泛型实例化的调用解析在冷路径上选中了错误的实例化**（不同 `T` 下
+`Future<!T>` 接口字段的布局宽度不同，于是后面 `active` 的字段偏移就错位），
+一旦同一实例化被直调过（注册/缓存就绪），后续转发调用也能命中正确实例。
+
+这正好解释了为什么 10 个 13x 用例全部在「第一次进泛型运行器」时卡死。
+
+**4. 下一轮直接从这里下手**
+
+1. 在 builder 里查「泛型函数调用的被调函数解析」：是按名字（`b_run`）还是按
+   `名字 + 类型实参`（`b_run$i32`）查表；冷路径是否回落到「泛型原型」。
+2. 顺带查 `Future<!T>` 这类**接口字段在泛型结构体里的宽度**是否随 `T` 变化
+   （如果变化，就必须在实例化键里带上 T）。
+3. 用 `/tmp/vm_generic_queue_repro.uya` 做 1 秒级回归：修好后它应稳定通过；
+   再单点跑 `test_std_async_scheduler` 验证 13x 类是否松动。
+
+**本轮净状态**：代码零改动（所有插桩/临时测试已回退），
+`make uya` 通过；全量基线维持 **884/909（失败 25）**。
