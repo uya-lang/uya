@@ -8783,3 +8783,26 @@ socket 没就绪时空转，事件永远等不到 —— 这正是文档里记�
 的单态体里让 `JsonWriter.overflow` 被置位（两三个字段、容量 65536 显然不该溢出）。
 下一步要在 VM 侧对比这两份生成块的字节码，重点看 `json_writer_init` 的 `buf`/`cap`
 实参在单态体里是不是被搬错（这是「宏生成代码在单态体里实参错位」的典型形态）。
+
+### 第 475 轮：试把 `websocket_conn_write_json` 改走 `to_json<T>`（有效但引出挂死，暂时回退）
+
+承第 474 轮的结论（生成块在 `websocket_conn_write_json` 的单态体里误报 overflow），
+本轮先验证一个「绕开不可靠路径」的改法：把 `websocket_conn_write_json<T>` 改成
+`to_json<T>(arena, value)` + `websocket_conn_write_message(...)`（`to_json` 的单态展开已被证明可靠）。
+
+结果：
+
+- 写这一半**修好了**：`/tmp/ws_json_probe.uya` 从 `E5 write json` 变成 `OK write_json`。
+- `to_json<T>` 返回的切片本身完全正确：`/tmp/json_slice_probe.uya` 打印
+  `len` 正确、`ptr ok`、`head=[{"id":42,"name":"abc"}]`。
+- 但**服务端的 `read_message` 确定性挂死**：`/tmp/ws_full_probe.uya` 两次 45s 均被杀，
+  最后一行都停在 `OK write_json`，`after read` 从不打印。
+- 对照实验排除了「payload 大小」这个因素：同样的 22 字节 payload 直接走
+  `websocket_conn_write_message` + `read_message` + `decode`，全流程打印 `OK full`。
+- 帧头探针（读 `tx[0]`/`tx[1]`）是**不确定的**：小帧很可能根本不经过 `tx` 缓冲，
+  两个字节都不是预期的 `0x81`/`22`，所以这条不能当证据。
+
+结论：`to_json<T>` 的结果是对的，坏在「**泛型单态体里再调另一个泛型 `to_json<T>`** 之后的帧写/握手路径」。
+把「快速失败」换成「确定性挂死」不划算，本轮**回退**这次 lib 改动，把它记成下一轮入口：
+拿 `/tmp/ws_full_probe.uya`（挂死）和 `/tmp/ws_plain22_probe.uya`（通过）这一对最小对照，
+去比 `websocket_conn_write_message` 在两个单态体里 lowering 出来的字节码差异。
