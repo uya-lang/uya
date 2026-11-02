@@ -9213,3 +9213,19 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   - 已确认这不是本轮取消功能引入的问题：`test_pthread_api_cancel` 的
     create→cancel→join 主流程在真线程下已正确（`test_pthread_cancel` 全过），
     只有 `result == PTHREAD_CANCELED` 这一条断言受该缺陷影响。
+
+### 第 495 轮：真线程取消功能落地 + 默认路径最终验收
+
+- **真宿主线程现在支持 `pthread_cancel`**（第 494 轮）：
+  - `ExecVmState` 增加 `cancel_pending` / `is_host_thread`，`exec_vm_thread_states[slot]` 保存每槽 state；
+  - `EXEC_HOST_CALL_PTHREAD_CANCEL` 只置标志（不再抢先清 `thread_used`，否则 join 回 ESRCH）；
+  - 解释器检查点命中时让当前帧**正常返回并逐层退栈**（不能用 `sys_exit`，那是进程级退出）。
+  - 验证：`test_pthread_cancel` 真线程模式 **rc=1 → rc=0 全过**；
+    `/tmp/cancel_probe.uya` 从 `J!` 变成 `C0 X0 J0`。
+- **默认路径最终验收（最新代码）**：
+  - `make check`：**rc=0**
+  - `make exec-census`：**909 / 887 通过 / 22 失败**，失败清单与基线**完全一致**（无新增、无意外修好）
+  - `make exec-parity`：913 / 889 / 24（与基线相同）
+- 遗留：`PTHREAD_CANCELED` 这个跨模块 `export var` 在 VM 里仍读到 0
+  （import table 确认含 `libc.pthread`、`module_imports` 收集器也被调用，但按模块文件整体收集没命中），
+  只影响 `test_pthread_api_cancel` 里 `result == PTHREAD_CANCELED` 一条断言。
