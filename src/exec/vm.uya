@@ -5715,7 +5715,8 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_JOIN ||
         site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_DETACH ||
         site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SELF ||
-        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_EQUAL {
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_EQUAL ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CANCEL {
         if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_SELF {
             var self_value: ExecValue = exec_make_struct(8);
             const self_tid: &ExecValue = exec_vm_field_ref(&self_value, 0);
@@ -5806,6 +5807,15 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                         exec_vm_thread_result[free_slot] = thread_ret;
                     }
                 }
+            }
+            out_value[0] = exec_make_i32(0);
+            return 0;
+        }
+        if site.id == ExecHostCallId.EXEC_HOST_CALL_PTHREAD_CANCEL {
+            // 真线程下不能真杀（Uya 的 cancel 体走 tkill，会把整进程打死）：
+            // 标记槽位已结束，join 侧据此返回。
+            if th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
+                exec_vm_thread_used[th_slot] = 0;
             }
             out_value[0] = exec_make_i32(0);
             return 0;
