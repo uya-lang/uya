@@ -9052,3 +9052,13 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 
 **下一步建议**：先做 A 里的 `typed_pipeline_capability`（字段拷贝保接口方法表），
 它属于「聚合拷贝语义」的根因问题，修好可能连带改善其它 interface 相关用例。
+
+### 第 484 轮：重构后三道门禁全部复验
+
+- `make check`：**rc=0**（自举 + 测试 + 证明优化 + microapp 等全套通过）。
+- `make exec-census`：**909 / 887 通过 / 22 失败**（与基线逐项一致）。
+- `make exec-parity`：**913 / 一致 889 / 不一致 24**（与基线相同）。
+
+也就是说第 479–483 轮这一整串改动（`ExecVmState` 状态抽取、原生聚合旁路表迁移、
+pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控）在**默认配置下全部等价**，
+真线程能力完全隔离在 `UYA_EXEC_REAL_THREADS` 后面。
