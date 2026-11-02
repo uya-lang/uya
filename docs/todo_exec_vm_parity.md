@@ -8465,3 +8465,13 @@ worker 在创建时就 EOF 退出，压根没有可重放的线程体。
 `test_async_compute_dynamic_resource_pressure` 的失败仍是
 `wait_thread_pool_pending_at_least`/`queue.result == 42`/`wait_started_workers` 这一类
 **「需要真并发」**的既有问题（与第 465 轮定性一致），非本轮改动引入。
+
+**同类问题一并修掉**：`lib/std/async_frame.uya:308` 的 `async_frame_pool_grow_bucket_table`
+也是 `realloc` 桶数组（`AsyncFramePoolBucket` 结构体数组），扩容后老桶全变 VOID。
+改成 `calloc` + 逐元素拷贝 + `free`。
+（`async_frame_bucket_grow_slots` 的 `realloc` 是 `&&byte` 指针数组，指针存原生字节不进旁路表，无需改。）
+
+复查 `--vm`：`test_async_frame_*` 10 个用例中 9 个通过，
+只有 `test_async_frame_pool_full` 仍失败（`assert failed: got_pool_full`）——
+那是第 465 轮定性的**设计缺口**（`@async_fn` 的盒子由 VM 自己分配，不走
+`get_async_frame_allocator`，所以池永远统计不到「满」），与本次改动无关。

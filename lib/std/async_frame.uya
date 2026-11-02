@@ -306,12 +306,24 @@ fn async_frame_pool_grow_bucket_table(pool: &AsyncFramePool) bool {
     if new_capacity <= old_capacity {
         return false;
     }
-    const bytes: usize = (new_capacity as usize) * @size_of(AsyncFramePoolBucket);
-    const new_ptr: &void = realloc(pool.buckets as &void, bytes);
+    // 同 TaskQueue::grow_slots：桶数组的元素是结构体，VM 里内容存在按基址寻址的
+    // 旁路表，`realloc` 的字节搬运不会迁表 —— 扩容后老桶全变 VOID。
+    // 必须逐元素拷贝。
+    const prev_capacity: i32 = pool.max_buckets;
+    const new_ptr: &void = calloc(new_capacity as usize, @size_of(AsyncFramePoolBucket));
     if new_ptr == null {
         return false;
     }
-    pool.buckets = new_ptr as &AsyncFramePoolBucket;
+    const next_buckets: &AsyncFramePoolBucket = new_ptr as &AsyncFramePoolBucket;
+    var copy_i: i32 = 0;
+    while copy_i < prev_capacity && pool.buckets != null {
+        next_buckets[copy_i as usize] = pool.buckets[copy_i as usize];
+        copy_i = copy_i + 1;
+    }
+    if pool.buckets != null {
+        free(pool.buckets as *void);
+    }
+    pool.buckets = next_buckets;
     pool.max_buckets = new_capacity;
     async_frame_pool_init_bucket_range(pool, old_capacity, new_capacity);
     return true;
