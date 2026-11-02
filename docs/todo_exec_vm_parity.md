@@ -8475,3 +8475,33 @@ worker 在创建时就 EOF 退出，压根没有可重放的线程体。
 只有 `test_async_frame_pool_full` 仍失败（`assert failed: got_pool_full`）——
 那是第 465 轮定性的**设计缺口**（`@async_fn` 的盒子由 VM 自己分配，不走
 `get_async_frame_allocator`，所以池永远统计不到「满」），与本次改动无关。
+
+## 第 468 轮：根治方向的尝试与结论（**未生效，但定位到确切位置**）
+
+用户要求「要根治，不要修修补补」。已确认根因是**语义分叉**：
+
+- C99 侧对 `export extern "libc" fn memcpy(...) { 回退函数体 }` 链接的是**真 libc 符号**；
+- VM 侧跑的是**回退函数体**（`fn[172] memcpy` 的字节循环，见第 467 轮的 dump）；
+- 而 VM 的旁路表迁移钩子 `exec_vm_native_agg_migrate` 只挂在
+  `EXEC_HOST_CALL_MEMCPY/MEMMOVE/MEMSET` 分支上 → 字节循环这条路永远不迁表。
+
+因此**任何**「结构体数组 + realloc/memcpy 搬家」的容器在 VM 里都会丢元素，
+不是个别容器的问题。已复现确认：`Vec<Struct>` 扩容后 `Vec_grow_if_needed` 立刻
+`LOAD_FIELD idx=0 kind=14 count=0`（复现件 `/tmp/vec_struct_repro.uya`，push 100 个 `Point` 后 `get(0)`）。
+
+**尝试的根治点（未生效，下一轮从这里接）**：
+`src/exec/lower.uya` 的 `exec_lower_extern_prefers_host_call()` 是「extern 必须走宿主实现」
+的白名单（现有 `pthread_*`/`setjmp` 等）。已尝试把 `memcpy/memmove/memset` 加进去，
+**但 `/tmp/vec_struct_repro.uya` 仍然在同一处失败** —— 说明该白名单**管不到
+「带函数体的 extern」的调用点降级**：`_realloc_impl` 里那次 `memcpy` 依旧编译成
+`BC_CALL fn[172]`。
+
+下一轮要查的是**调用点**如何选择「函数体 vs 宿主」：`exec_lower_extern_can_run_in_vm()`
+（`lower.uya` 约 1272 行）返回 1 就跑函数体，那里对「带函数体的 extern」无条件返回 1
+（在 `exec_lower_extern_prefers_host_call` 之前只挡了 `pthread_*` 和无函数体的情况）。
+把 `memcpy/memmove/memset` 的判断前移到那里、或直接让 `exec_lower_host_call_overrides_body`
+对这些名字返回 1，就能让 `BC_CALL` 变成 `BC_HOSTCALL`，迁移钩子生效，
+`Vec<Struct>`/`TaskQueue`/`AsyncFramePool` 全部一并根治。
+
+**当前已落地的两个容器级修复**（在根治生效前先保住正确性，生效后可以回退成 `realloc`）：
+`TaskQueue::grow_slots`、`async_frame_pool_grow_bucket_table` 改成 `calloc` + 逐元素拷贝 + `free`。
