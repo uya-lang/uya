@@ -8610,3 +8610,19 @@ if callee_decl == null || callee_decl.fn_decl_name == null {
 （`LOAD_FIELD idx=0 kind=14 count=0 pointee=16 ref=1 aux=65552` 落在 `self.allocator` 上），
 `Vec<T>` 正好带 `allocator: IAllocator` 字段，所以 `Vec<Struct>` 的复现件要
 先把 allocator 换成全局单例才能避开它。
+
+### 全量验证结果（第 470 轮，根治改动之后）
+
+- `make check`：**rc=0**（自举 + 测试 + 证明优化 + microapp 聚合套件全绿）。
+- `make exec-census`（909 例）：**通过 887 / 失败 22**（基线第 464 轮是 885 / 24）。
+- 与第 464 轮逐行对比，**只有两行变化、零回归**：
+
+| 用例 | 第 464 轮 | 第 470 轮 |
+| --- | --- | --- |
+| `test_async_task_queue_dynamic_growth` | runtime 失败 | **通过** |
+| `test_https_google` | 失败（网络 flake） | **通过** |
+
+剩余 22 例仍全部是第 465 轮定性的四大类：需真并发（14 例）、
+`test_async_frame_pool_full` 设计缺口、`test_http_websocket_*`/`tls_async_runtime_io`/
+`typed_pipeline_capability` 的事件循环现场、以及 `test_https_google` 一类的网络/超时
+（`test_tls_ecdsa` 依旧 137 超时）。
