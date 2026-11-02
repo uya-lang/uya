@@ -9126,3 +9126,21 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 
 **结论**：22 例里没有「一行就能修」的了。收益最高的顺序是
 ①真线程稳定性（11 例）②单态体 lowering（5 例）③VM 抛错误能力（1 例）。
+
+### 第 490 轮：找到真线程不稳定的根因——未登记线程共用主线程 tcache
+
+- 根因：`pthread_current_heap_cache()` 在 `_pthread_has_created_thread == 0` 时**无条件**返回
+  主线程的 tcache；而 exec VM 绕过 Uya 的 `pthread_create` 直接起宿主线程，
+  这些线程没进 libc 的线程表 → 多线程**无锁共用一份 tcache 链** → 堆写坏（段错误/超时）。
+- 修复：用 `sys_gettid()` 对比主线程，非主线程不给 tcache，退回加锁的全局堆路径。
+- 效果：
+  - `/tmp/thr_alloc_probe`（两线程各 2000 次 malloc/free）：**1/8 成功 → 6/6 全过**；
+  - `test_pthread_heap_cache_identity`：真线程模式 **239 → rc=0 全过**；
+  - 默认模式完全不受影响：`test_libc_heap_tcache`/`test_pthread_cancel`/`test_pthread_api_cancel`
+    都是 rc=0（默认只有主线程，行为不变）。
+- 但真线程**仍不能默认打开**：门控 census 反而 885/24（多出 `test_libc_heap_tcache` 52、
+  `test_pthread_api_cancel` 137、`test_pthread_cancel` 1）。其中 `test_libc_heap_tcache`
+  是因为 VM 起的线程拿不到 tcache、而该用例正好在验证 tcache 行为。
+- **下一步（架构级）**：让 VM 起线程时把新线程**登记进 libc 的 pthread 表**
+  （分配 `pthread_desc` + 自己的 `heap_cache`），三件事一起解决：
+  ①线程有自己的 tcache ②`pthread_cancel` 能真打断 ③`pthread_self/equal` 语义正确。
