@@ -8083,3 +8083,59 @@ fn b_run_i32(q: &BQueue<i32>, extra: i32) i32 { return b_run_wrapper<i32>(q, ext
 
 **本轮净状态**：代码零改动（所有插桩/临时测试已回退），
 `make uya` 通过；全量基线维持 **884/909（失败 25）**。
+
+---
+
+## 第 463 轮：泛型槽位读取错误是**可达集合相关**的（复现条件已精确到两行之差）
+
+**1. 先否掉一个假设**
+
+`exec_builder_find_function_index` 里那条「只按 `callee_decl` 指针匹配、返回第一个」
+的兜底看起来很可疑（泛型多实例时会错位）。给它加探针（`[fb] want=... got=...`）后，
+在复现件上**一次都没触发** —— 调用点都按名字精确命中，兜底路不是元凶。
+
+**2. 真正可疑的点：同一个调用，加/不加另一处调用结果不同**
+
+在复现件 `/tmp/vm_generic_repro_a.uya` 里，测试体只有一行：
+
+```uya
+try assert_eq_i32(b_run_i32(&q, 0), 3);     // 失败，返回 0
+```
+
+但只要在它**后面**再加一行 `try assert_eq_i32(b_run<i32>(&q), 3);`（版本
+`/tmp/vm_generic_repro_b.uya`），**两行都通过**。
+
+即：**同样的数据、同样的函数，是否出错取决于还有哪些实例化是可达的。**
+这排除了「引用传错」「指针为 null」「len 读错」—— 探针已证明在失败的调用里
+`q.slots != null` 且 `q.len == 3`，只有**元素字段**（`active`）读出来不对。
+
+**3. 结论（下一步方向明确）**
+
+这是**同一泛型结构体在两个函数里按不同布局读写**的典型症状：
+写入方（`push`，来自 `BQueue<T>` 的固有方法）与读取方（`b_run<T>`）各自
+按自己的实例化上下文算字段偏移，当可达集合不同时，被降级的那一份用错了
+`T`（或用了未替换的泛型原型），`active` 的偏移就错位。
+
+**4. 下一轮第一步（不用再猜，直接对比字节码）**
+
+对两个版本各跑一次：
+
+```
+./bin/uya test --vm --dump-bytecode tests/<repro>.uya > /tmp/bc_a.log
+./bin/uya test --vm --dump-bytecode tests/<repro_b>.uya > /tmp/bc_b.log
+```
+
+抽 `fn[...] b_run` 那一段，逐条对比访问 `q.slots[i].active` 用的
+`BC_LOAD_FIELD` 的字段下标：
+
+- 若两个版本字段下标不同 → 直接定位到「实例化时结构体布局不一致」，
+  修 builder/lower 里的 `T` 替换（重点是 `Future<!T>` 这类接口字段的宽度）。
+- 若下标相同 → 说明是 `exec_value_make_aggregate` 侧的 element count/layout，
+  转去 VM 的数组元素访问。
+
+**5. 本轮净状态**
+
+代码零改动（探针已回退，`make uya` 通过）；
+`test_http1_async_client`、`test_async_fd` 复验通过，`test_std_async_scheduler`
+维持原样（仍超时）；全量基线维持 **884/909（失败 25）**。
+复现件保存在 `/tmp/vm_generic_repro_a.uya`（失败版）与 `/tmp/vm_generic_repro_b.uya`（通过版）。
