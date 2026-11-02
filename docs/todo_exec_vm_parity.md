@@ -2116,6 +2116,17 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
 
 ### T11 收口
 
+- [ ] **含接口字段的结构体在返回/拷贝后丢方法表**（第 470 轮新发现，独立 bug）
+      —— 复现件 `/tmp/vec_struct_repro.uya`：`Vec<Point>` push 100 个后，
+      第一次扩容在 `Vec_grow_if_needed` 的 `self.allocator` 上失败：
+      `LOAD_FIELD idx=0 kind=14 count=0 pointee=16 ref=1 aux=65552 fn=Vec_grow_if_needed$s1 ip=50`。
+      `Vec<T>` 带 `allocator: IAllocator` 字段，`vec_new<T>()` 按值返回整个结构体，
+      接口成员（vtable + 数据）在返回/拷贝后变成一个 **count=0** 的空聚合。
+      对照：`/tmp/realloc_struct_repro.uya`（纯标量字段）、
+      `/tmp/realloc_nested_repro.uya`（嵌套结构体）、
+      `/tmp/realloc_generic_repro.uya`（泛型结构体 + 逐元素读写 + realloc）**全部通过**，
+      说明「结构体数组 + realloc」本身没问题，问题在**接口字段的传递**。
+      影响面可能很大（`Vec`/`HashMap` 等容器都持有 `IAllocator`）。
 - [ ] `uya test --vm` 全量通过（跳过表只保留 C99 侧同样不适用的用例）
       —— 现状 **879/909（96.7%）**（第 447 轮全量普查；第 440 轮曾为 878/909，
       第 442 轮
