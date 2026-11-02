@@ -9229,3 +9229,11 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 - 遗留：`PTHREAD_CANCELED` 这个跨模块 `export var` 在 VM 里仍读到 0
   （import table 确认含 `libc.pthread`、`module_imports` 收集器也被调用，但按模块文件整体收集没命中），
   只影响 `test_pthread_api_cancel` 里 `result == PTHREAD_CANCELED` 一条断言。
+- 第 496 轮：`PTHREAD_CANCELED` 取到 0 的**真正根因**找到了（临时打印已全部回退）：
+  - `use libc.pthread;` 在导入表里登记为模块 **`libc`**（按目录归并），不是 `libc.pthread`；
+    条目形如 `mod=libc orig=pthread_t t=2`（t=2 是**类型**，不是变量）。
+  - 于是 `exec_lower_collect_global_slots_from_module_import` 从来没为 `pthread.uya` 建过槽，
+    `PTHREAD_CANCELED` 自然读不到初值。
+  - 这是「模块名归并」与「全局槽收集」之间的错配，不是取消功能的问题；
+    修法应该按**文件**而不是按模块名收集（`decl.filename` 落在 uya root 且被 import 到的文件）。
+    该修法涉及全局收集主流程，风险面较大，留作独立任务。
