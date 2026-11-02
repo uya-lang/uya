@@ -1198,6 +1198,15 @@ fn exec_lower_extern_prefers_host_call(fn_decl: &ASTNode) i32 {
     }
     // 这些入口在 VM 里有宿主实现，Uya 实现体（线程/信号/内存系统调用）在解释器里
     // 既跑不通也没有等价语义，优先走宿主实现。
+    // 字节拷贝族必须走宿主实现：C99 侧链接的是真 libc 符号（`extern "libc"` 声明的
+    // 函数体只是回退），而 VM 的 MEMCPY/MEMMOVE/MEMSET 宿主分支里带「原生聚合旁路表
+    // 迁移」。跑回退体等于抄了字节却没迁表：结构体数组一旦 realloc 搬家，
+    // 新基址下前若干个元素就全变 VOID（扩容后立刻 LOAD_FIELD 越界）。
+    if str_equals(name, "memcpy" as *byte) != 0 ||
+        str_equals(name, "memmove" as *byte) != 0 ||
+        str_equals(name, "memset" as *byte) != 0 {
+        return 1;
+    }
     if str_equals(name, "pthread_create" as *byte) != 0 ||
         str_equals(name, "pthread_once" as *byte) != 0 ||
         str_equals(name, "pthread_exit" as *byte) != 0 ||

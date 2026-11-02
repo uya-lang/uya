@@ -8567,3 +8567,46 @@ if callee_decl == null || callee_decl.fn_decl_name == null {
 - `TaskQueue::grow_slots`、`async_frame_pool_grow_bucket_table` 两处容器级修复仍在（逐元素拷贝），
   `test_async_task_queue_dynamic_growth` 通过（209 断言），`test_async_frame_*` 9/10 通过；
 - VM 层的实验性改动已全部回退，工作树干净。
+
+## 第 470 轮：**根治落地** —— 字节拷贝族强制走宿主实现（一处修，全容器受益）
+
+第 468/469 轮的结论要再修正一次：**白名单尝试（第 468 轮尝试 1）本来是有效的**，
+当时拿 `/tmp/vec_struct_repro.uya` 验证，而那个复现件其实先撞上了**另一个 bug**
+（`Vec_grow_if_needed` 里 `self.allocator` 接口字段的方法表丢了，`count=0`），
+于是被误判成「白名单无效」。换成正确的对照实验后立刻验证通过。
+
+**根治改动（`src/exec/lower.uya`，`exec_lower_extern_prefers_host_call()`）**：
+把 `memcpy` / `memmove` / `memset` 加入「extern 必须走宿主实现」白名单。
+
+为什么这才是根治：这三个函数在 `lib/libc/mem.uya` 里是
+`export extern "libc" fn ... { 回退函数体 }`。
+
+- C99 侧链接的是**真 libc 符号**，那个函数体只是给「没有 libc 的目标」的回退；
+- VM 侧却会去跑函数体，而旁路表迁移钩子 `exec_vm_native_agg_migrate`
+  只挂在 `EXEC_HOST_CALL_MEMCPY/MEMMOVE/MEMSET` 宿主分支上 ——
+  跑回退体就是「抄了字节却没迁表」，结构体数组一旦 `realloc` 搬家，
+  新基址下前若干元素全变 VOID。
+
+所以这是**语义分叉**，不是某个容器写错了；把它收进白名单后，
+所有走 `realloc`/`memcpy` 的容器（`Vec`、`TaskQueue`、`AsyncFramePool`、用户自己的
+结构体数组…）一次性对齐 C99。
+
+**连带回退了前两轮的两个容器级绕过**（它们只是绕开，不是根治）：
+
+- `lib/std/async_scheduler.uya::TaskQueue::grow_slots` 恢复成原生 `realloc`；
+- `lib/std/async_frame.uya::async_frame_pool_grow_bucket_table` 恢复成原生 `realloc`。
+
+回退后复查（`--vm`）：
+
+| 用例 | 结果 |
+| --- | --- |
+| `test_async_task_queue_dynamic_growth` | **通过**（209 断言，`realloc` 版） |
+| `test_async_frame_pool_dynamic_growth` | **通过**（`realloc` 版） |
+| `test_async_frame_pool_stats` / `_methods` | 通过 |
+| `test_async_frame_pool_full` | 仍失败（`got_pool_full`，既有**设计缺口**：`@async_fn` 盒子由 VM 自己分配） |
+
+**附带发现（下一轮的独立条目）**：`/tmp/vec_struct_repro.uya` 暴露的
+「含接口字段的结构体在返回/拷贝后方法表丢失」是**另一个 bug**
+（`LOAD_FIELD idx=0 kind=14 count=0 pointee=16 ref=1 aux=65552` 落在 `self.allocator` 上），
+`Vec<T>` 正好带 `allocator: IAllocator` 字段，所以 `Vec<Struct>` 的复现件要
+先把 allocator 换成全局单例才能避开它。
