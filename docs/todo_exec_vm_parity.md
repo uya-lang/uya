@@ -9033,3 +9033,22 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   （候选：`g_exec_vm_thread_exit_*`、`g_exec_vm_box_alloc_fn_index`、libc 堆的自旋锁在
   多核上的公平性/重入、以及 agg 句柄的跨线程可见性）。这是一块独立的大工程，
   当前状态是「能力打通、稳定性未达线」，全部藏在 `UYA_EXEC_REAL_THREADS` 后面。
+
+## 当前状态与后续菜单（第 484 轮整理）
+
+**已验证的基线**：默认配置 `make exec-census` = **909 例 / 887 通过 / 22 失败**，
+`make check` rc=0，`make exec-parity` = 913 / 一致 889 / 不一致 24。
+
+**剩余 22 例按「可做性」排序**（供后续单点取舍）：
+
+| 类别 | 用例 | 说明 / 卡点 |
+|---|---|---|
+| A. 单点可试 | `test_async_frame_pool_full`(1) | `@async_fn` 装箱失败时应抛 `AsyncFramePoolFull`；VM 侧的 `exec_backend_set_error` 只记编译器错误，**没有「让被解释程序抛错误」的接口**，需要先加这个能力 |
+| A. 单点可试 | `test_typed_pipeline_capability`(1) | `LOAD_FIELD idx=1 kind=14 count=-1 pointee=16`（`fn=get_size` 行 222）：结构体字段里的接口值在拷贝后丢了方法表，和 471 轮修的「显式 as 上转型」同类，但发生在**字段拷贝**路径 |
+| B. 深水区 | `test_http_websocket_json`/`_reconnect`、`tls_async_runtime_io`(3) | 生成编码块在特定单态体里误报 overflow（已定位到但未修） |
+| B. 深水区 | `test_kernel_sim`(5) | 栈对齐/裸汇编探针，VM 无寄存器现场，基本不可做 |
+| C. 真并发 | `test_pthread_*` / `test_std_thread` / `test_async_compute_*` / `scheduler`（约 14 例） | 真线程能力已打通但**非确定性**（连跑 8 次 1 成功），需先隔离共享状态 |
+| D. 网络 flake | `test_async_runtime_shared_dns`、`tls_ecdsa` | 偶发，非确定性 |
+
+**下一步建议**：先做 A 里的 `typed_pipeline_capability`（字段拷贝保接口方法表），
+它属于「聚合拷贝语义」的根因问题，修好可能连带改善其它 interface 相关用例。
