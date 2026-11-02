@@ -5775,10 +5775,36 @@ fn exec_lower_mono_body_needs_macro_expand(name: &byte) i32 {
 /// 返回值：替换后的函数体；无需替换时返回 null。
 fn exec_lower_mono_body_for_instance(checker: &TypeChecker, fn_decl: &ASTNode, inst: &MonoInstance) &ASTNode {
     if checker == null || fn_decl == null || inst == null || fn_decl.fn_decl_body == null ||
-        fn_decl.fn_decl_name == null || inst.type_arg_nodes == null || inst.type_arg_count <= 0 {
+        fn_decl.fn_decl_name == null || inst.type_arg_count <= 0 {
         return null;
     }
-    const arg0: &ASTNode = inst.type_arg_nodes[0];
+    // 传递性单态实例（泛型体里再调泛型时创建的那种）只有解析好的 `type_args`，
+    // 没有 `type_arg_nodes`。原来的判断直接 return null，于是内层单态体拿不到宏展开，
+    // 正文里的 encode_to_to_json 调用会原样进 lowering 报错。
+    // 这里用已解析的类型合成 AST_TYPE_NAMED 节点，让展开路径可用。
+    var type_nodes: & & ASTNode = inst.type_arg_nodes;
+    if type_nodes == null && inst.type_args != null && fn_decl.filename != null {
+        const synth: & & ASTNode = compiler_arena_alloc(checker.arena, @size_of(&ASTNode) * inst.type_arg_count as usize) as & & ASTNode;
+        if synth != null {
+            var si: i32 = 0;
+            while si < inst.type_arg_count {
+                const tname: &byte = type_to_string(checker.arena, inst.type_args[si]);
+                if tname != null {
+                    const tn: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, fn_decl.line, fn_decl.column, checker.arena, fn_decl.filename);
+                    if tn != null {
+                        tn.type_named_name = tname;
+                        synth[si] = tn;
+                    }
+                }
+                si = si + 1;
+            }
+            type_nodes = synth;
+        }
+    }
+    if type_nodes == null {
+        return null;
+    }
+    const arg0: &ASTNode = type_nodes[0];
     if strcmp(fn_decl.fn_decl_name as *byte, "from_json" as *byte) == 0 && arg0 != null &&
         arg0.type == ASTNodeType.AST_TYPE_NAMED && arg0.type_named_name != null {
         var filename: &byte = null;
@@ -5792,7 +5818,7 @@ fn exec_lower_mono_body_for_instance(checker: &TypeChecker, fn_decl: &ASTNode, i
     }
     return prepare_mono_body_expand_macros(checker, fn_decl.fn_decl_body,
         fn_decl.fn_decl_type_params, fn_decl.fn_decl_type_param_count,
-        inst.type_arg_nodes, inst.type_arg_count);
+        type_nodes, inst.type_arg_count);
 }
 
 fn exec_lower_generic_instances(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &ASTNode,
