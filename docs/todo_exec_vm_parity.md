@@ -13662,3 +13662,66 @@ const target = exec_vm_ref_target_value(slot_b);
   不对称。
 
 本轮实验改动已全部回退，工作树干净，`bin/uya` 由 HEAD 重建。
+
+### 第 563 轮：探针拿到 `index_ref` 内部现场 —— `ref_kind=ARRAY` 但 target 是 TUPLE 聚合
+
+在 `exec_vm_index_ref` 里 `is_index_base` 判定之后打点，打印解引用后的 target：
+
+```
+IR2 tgtkind=17 tgtptr=fdda6cc8 tgtagg=8192 refkind=19 isidx=0 aux=65555 idx=0
+```
+
+| 字段 | 值 | 含义 |
+| --- | --- | --- |
+| `tgtkind=17` | `EXEC_VALUE_TUPLE` | 解引用后的 target 是 TUPLE 聚合 |
+| `tgtagg=8192` | 8192 | target 有 aggregate，8192 个元素 |
+| `refkind=19` | `TYPE_ARRAY` | 引用的元素类型是数组 |
+| `isidx=0` | 0 | **不是 index-base 引用** |
+| `aux=65555` | `65536 + 19` | 引用编码完全正确 |
+
+### 这解释了一切
+
+`exec_vm_index_ref` 的第一个「下标 0 直接返回本体」分支条件是：
+
+```uya
+if is_index_base == 0 && index_value == 0 && target_aggregate != null &&
+    (ref_kind == STRUCT || ref_kind == TUPLE || ref_kind == INTERFACE || ref_kind == UNION) {
+    return target;
+}
+```
+
+`ref_kind == 19 (ARRAY)` **不在这个列表里**，所以不命中；
+继续往下，`is_index_base == 0` 让「index 基引用」分支也不命中；
+最后落到 `exec_vm_index_ref(target, index_value)` 递归 ——
+而 `target` 是 TUPLE 聚合（`tgtkind=17`），`exec_value_as_aggregate` 此时
+按理应能取到……但实测返回 null，递归返回 null，于是报越界。
+
+### 做了两次修正尝试，都未成功
+
+**尝试 A**：把 `ref_kind == TYPE_ARRAY` 加进第一个分支 → `return target`
+（返回数组本体）。
+结果：`ADDR_INDEX 越界` 消失，但推进到
+`uyagin_router.uya:271: STORE_FIELD 字段越界(idx=0 ... pointee=16)` ——
+因为把整个数组当结构体去写字段。**说明不能返回本体**。
+
+**尝试 B**：改成在下标 0 时返回 `&target_aggregate.values[0]`（首元素）。
+结果：**又退回原来的 `ADDR_INDEX 越界`**，说明这个分支根本没命中 ——
+最可能是 `target_aggregate.values == null`（探针里只测了 `count`，没测 `values`）。
+`count=8192` 而 `values == null` 正是「原生数组视图」
+（`exec_value_make_raw_array_view`）的特征：元素按需读取，不预先铺 `ExecValue` 数组。
+
+### 下一轮的正确修法（已经非常具体）
+
+对于 `ref_kind == ARRAY` 且 `values == null` 的原生数组视图，下标访问应该走
+**原生地址步进**而不是 `aggregate.values`：
+
+1. 在探针里补打 `target_aggregate.values` 是否为 null、`target.i64_value`、
+   `exec_value_raw_array_element_kind(target)`；
+2. 若是原生视图，用 `exec_vm_native_agg_slot` / `exec_vm_raw_array_element_ptr`
+   取元素地址，返回 `exec_vm_make_value_ref(...)`。
+
+这两条路径在 `exec_vm_pointer_element_ptr` 里都有现成实现（`elem_size == 0`
+那段就是处理「原生内存里的结构体数组」），可以直接复用 ——
+但**必须确认 `values` 确实为 null 之后**再动手，否则又会像尝试 B 一样打空。
+
+本轮所有改动已回退，工作树干净。
