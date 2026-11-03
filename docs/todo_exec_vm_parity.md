@@ -10443,3 +10443,51 @@ replay/幂等用例**——这是与前四次尝试最本质的区别。
 **唯一还值得走的方向**（第 538 轮定稿，未实施）：把「是否已提交」的状态从
 `AsyncWorkerComputeFuture` 对象挪到 `ThreadPool` 侧做去重，**不动 `@await` 语义**。
 这是唯一不会打翻那 4 个 replay 用例的路子。
+
+### 第 540 轮：全量 `make exec-parity` 实测——**913 例 / 一致 891 / 不一致 22（97.6%）**
+
+在**完全干净的工作树**（所有实验性改动已回退、二进制由基线重建）上跑完整门禁：
+
+```
+UYA_PARITY_JOBS=4 make exec-parity     →  rc=2
+913 例，STATUS_MISMATCH 22 例，一致 891 例（97.6%）
+```
+
+**22 例清单**（退出码对比 `C99=0` 全为 VM 侧非 0）：
+
+| # | 用例 | VM 退出码 |
+|---|---|---|
+| 1 | `test_async_compute_dynamic_resource_pressure` | 1 |
+| 2 | `test_async_compute_generic_wrapper` | 2 |
+| 3 | `test_async_compute_types` | 11 |
+| 4 | `test_async_frame_pool_full` | 1 |
+| 5 | `test_async_runtime_shared_semantics` | 2 |
+| 6 | `test_async_shared_runtime_semantics` | 1 |
+| 7 | `test_async_thread_pool_dynamic_growth` | 5 |
+| 8 | `test_http_uyagin` | — |
+| 9 | `test_http_websocket_json` | — |
+| 10 | `test_http_websocket_reconnect` | — |
+| 11 | `test_kernel_sim` | — |
+| 12 | `test_http_uyagin_websocket` | — |
+| 13 | `test_pthread_heap_cache_identity` | — |
+| 14 | `test_std_async_scheduler` | — |
+| 15 | `test_std_dns_async_query_aggregate` | — |
+| 16 | `test_std_thread_async_boundary` | 3 |
+| 17 | `test_std_thread` | 23 |
+| 18 | `test_tls_async_runtime_io` | 1 |
+| 19 | `test_std_dns_async_transport` | — |
+| 20 | `test_typed_pipeline_capability` | — |
+| 21 | `test_tls_ecdsa` | — |
+| 22 | `test_tls_rsa` | — |
+
+**与上次普查（`/tmp/census_509.tsv`，909 例 / 887 通过 / 22 失败）对比**：
+失败数持平（22），但 `test_tls_rsa` 已不在差异清单里、`test_std_dns_async_transport`
+从「崩溃」变成「状态不一致」（程度减轻）。整体稳定在 **97.6%**。
+
+**结论**：本轮所有异步/线程池方向的实验**没有带来净改善**（也确实全部回退了），
+基线保持在 97.6%。22 例的归类与第 519 轮那张表一致，全部指向
+「串行模拟架构」的系统性边界：真并发/线程池 11、网络 socket 6、大聚合 1、
+性能 1、子进程 1、裸汇编 1、分配器跨线程 1。
+
+`docs/todo_exec_vm_parity.md` 的 3 个收口项仍无法勾选（`test_std_thread` 等 22 例未清零），
+按纪律**不做 `worktree finish`**。
