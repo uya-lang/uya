@@ -668,6 +668,17 @@ export fn pthread_current_heap_cache() &pthread_heap_cache_t {
     if desc == null {
         return null as &pthread_heap_cache_t;
     }
+    // 关键：`_pthread_desc_self()` 命中「栈地址 hint」时只按栈区间匹配，
+    // 一个已退出/已 join 的线程留下的 hint 仍可能把**别的**线程指到它的 desc。
+    // 那样就拿到了别人的 tcache 链（无锁共用 → 堆写坏），
+    // 或者一个已经回收的 desc（悬垂指针 → `exec_vm_native_field_store` 段错误）。
+    // 这里用 gettid 做最后一道强校验：tid 不符一律不给 tcache，退回加锁的全局堆。
+    const self_tid2: i64 = sys_gettid() catch {
+        return null as &pthread_heap_cache_t;
+    };
+    if desc.tid != self_tid2 {
+        return null as &pthread_heap_cache_t;
+    }
     return &desc.heap_cache;
 }
 
