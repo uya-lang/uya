@@ -4173,7 +4173,14 @@ fn expand_macros_in_node_simple(checker: &TypeChecker, node_ptr: & & ASTNode) vo
                 i = i + 1;
             }
         }
-        expand_macros_in_node_simple(checker, &node.fn_decl_body);
+        // 泛型函数的 body 不能在这里展开：此处类型实参尚未代入，宏体里的
+        // `@mc_type(T)` 会把 `TypeInfo{type_id: 16}` 这种「T 未知」的结果直接
+        // 烤成 AST_STRUCT_INIT 字面量，此后单态化再代入 T 也无法纠正
+        // （实测条件已固化为 `StructInit.type_id == 2`，恒 false）。
+        // 留给 prepare_mono_body_expand_macros 在单态化时按具体类型实参展开。
+        if node.fn_decl_type_param_count <= 0 {
+            expand_macros_in_node_simple(checker, &node.fn_decl_body);
+        }
     } else if node.type == ASTNodeType.AST_STRUCT_DECL {
         if node.struct_decl_fields != null {
             var i: i32 = 0;
