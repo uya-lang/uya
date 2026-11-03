@@ -9819,3 +9819,38 @@ export struct Engine {
 
 **本轮不动手**：exec-parity 正在跑，且这是会触及 `BC_BOX_VALUE` 全局行为的改动，
 必须在门禁空闲时做并全量复测。
+
+### 第 521–525 轮：`test_std_thread` 的 `_started_workers == 0` 定位
+
+**先纠正上一轮（第 510 轮）留下的一条无效探针结论**：`/tmp/pool3.uya` 用
+`thread_call_i32` 却去查自己局部 `pool._started_workers`——`thread_call_i32`
+用的是**全局默认池**，跟那个局部 `pool` 没关系，`started=0` 是探针错误，
+不是缺陷证据。
+
+**重写探针**走测试真实路径（`async_compute<i32>(&pool, ...)` + 两次 `poll`，
+`/tmp/pool5.uya`）：
+```
+p1=1 sw1=0 p2=1 sw2=0
+```
+- `p1=1` 是 `Poll.Ready`（tag=1）—— **第一次 poll 就返回 Ready**；
+- 两次 poll 之间 `_started_workers` 一直是 0。
+
+对照 `AsyncWorkerComputeFuture.poll`（`lib/std/thread.uya:1569`）的正确语义：
+第一次 poll 必须 `waker.wake(); return Pending`，第二次才走 `async_worker_submit`
+（进而触发 `thread_pool_ensure_worker_started` 里的 `active = 1` /
+`_started_workers +| 1`，`thread.uya:878-880`）。
+
+**根因**：`async_compute` 是 `@async_fn`，体内 `@await thread_async_compute_i32(...)`
+再到 `@await async_worker_compute(...)`。VM 对 `@await` **不做真挂起**——整个
+状态机在**一次 poll 内被同步跑完**，于是外层 future 直接 Ready，内部的
+`submit`/worker 启动/`_started_workers` 递增全被跳过（或者说，即使跑了也不反映到
+外面的计数上，因为第一次 poll 就走了完整链路而 `first_poll` 的 Pending 语义没有
+传导到调用方）。
+
+这与第 511 轮 `err_id = 9` 的结论同源：`async_compute` 的 future 在 VM 里
+首次 poll 就是 Ready，导致线程池永远看起来是空的。
+
+**归属**：这不是「计数被覆盖」的实现 bug，而是 **VM 的 `@await` 缺少真挂起/
+真状态机**这一架构缺口的直接表现，与剩余 11 例（`async_compute_*`、
+`async_thread_pool_dynamic_growth`、`std_async_scheduler`、`std_thread_async_boundary`
+等）**同一个根**。修 `@await` 才能一起解决，单点补 `_started_workers` 无意义。
