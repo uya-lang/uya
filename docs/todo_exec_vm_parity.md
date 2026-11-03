@@ -12640,3 +12640,76 @@ VM 侧 `@async_fn` 的降级在 `src/exec/lower.uya`
 需要让「已完成的 future」在 `poll` 时短路返回缓存的 Ready ——
 最可能是状态机缺一个和 C99 `state` 对应的「已完成」标志，
 或者 `BC_RET` 之后 frame 状态被丢弃、下次 poll 重新建帧。
+
+### 第 551 轮（最简复现，20 行）：`@await` 一个**立即 Ready** 的 future，外层 future 就只 Ready 一次
+
+```uya
+var g_polls: i32 = 0;
+struct G2 : Future<!i32> {
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        g_polls = g_polls + 1;
+        return Poll<!i32>.Ready(42);          // 每次调用都立即 Ready
+    }
+    fn release(self: &Self) void { async_box_free_current(self as &byte); }
+}
+
+@async_fn fn outer() Future<!i32> {
+    const f: Future<!i32> = G2{};
+    const v: i32 = try @await f;
+    return v;
+}
+```
+
+连续 poll 5 次 `outer()` 的返回值：
+
+```
+i=0 t=1 v=42 gp=1      ← 第 1 次：Ready(42)，完全正确
+i=1 t=0 v=0  gp=1      ← 第 2 次起：Pending，且 gp 不再增长
+i=2 t=0 v=0  gp=1
+i=3 t=0 v=0  gp=1
+i=4 t=0 v=0  gp=1
+```
+
+`gp` 停在第 1 次不再增长 —— **body 从第 2 次 poll 起就完全不再执行**，
+外层 future 直接交回 Pending。
+
+这是**整个「VM 侧永不 Ready / 卡死」问题族的最小复现**：20 行、
+不含线程池、不含 `async_compute`、不含任何库。
+
+### 三个层次的对照实验（都已跑过）
+
+| 形状 | 结果 |
+| --- | --- |
+| `@async_fn` **无** `@await`，直接 `return 7`（`r77`） | 持续 Ready，**正常** |
+| `@async_fn` + `@await` 立即 Ready 的 future（`r79`） | 只 Ready 一次，之后 Pending，body 不再执行 |
+| `@async_fn` + `@await` 需要 3 次 poll 才 Ready 的 future（`r78`） | `gp` 到 3 后 Ready 一次，之后 Pending |
+
+### 结论（可以据此直接改代码了）
+
+VM 侧 `@async_fn` 的降级注释（`src/exec/lower.uya:11228-11231`）写的是：
+
+> `@async_fn`：VM 按「同步执行到完成」降级——函数体当普通函数跑，
+> 返回值包成 `Future{ state: Poll.Ready(...) }`，`@await` 直接取载荷。
+
+**但实测行为不是这样**：含 `@await` 时 body 并不是「一次跑完」，
+而是每次 poll 推进一次（`r78` 的 `gp` 1→2→3 就是证据）；并且在完成后
+**第二次 poll 会退回到 Pending 且 body 不再执行**。
+
+也就是说 VM 实际实现的是一个**重跑式 / 半状态机**，而它对外的 poll 语义
+与注释承诺的「SyncReady」不一致，也与 C99 的持久完成态不一致。
+
+### 下一轮直接检查的地方
+
+1. `exec_lower_wrap_async_return`（`src/exec/lower.uya:4197`）—— 异步返回到底包成了
+   什么表达式；
+2. `exec_vm_make_cont_box` / `exec_vm_cont_poll`（`src/exec/vm.uya:8998` / `:9165`）——
+   含 `@await` 的 `@async_fn` 返回的其实是一个**续体 box**（`[POLL_INDEX, RELEASE_INDEX, handle]`），
+   而 `exec_vm_cont_poll` 在续体已完成后再次被调用时返回了什么；
+3. 重点看 `exec_vm_cont_poll` 里「handle 已用尽 / `cont_used[handle]==0`」的分支
+   —— 它当前返回 `Poll.Pending`（`vm.uya:9174-9177` 那段
+   `out_value[0] = exec_make_union(0, exec_make_void())`），
+   **这正好就是「完成后再次 poll 返回 Pending」的直接来源**。
+
+第 3 点是本轮最有价值的线索：`exec_vm_cont_poll` 在 handle 无效时返回 tag=0（Pending），
+如果续体完成时把 handle 释放了，那么「完成后再次 poll」就必然返回 Pending ——
+与 `r79` 的观测完全吻合。
