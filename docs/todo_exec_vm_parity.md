@@ -13830,3 +13830,62 @@ if index_ref == null {
 
 本轮所有实验改动已回退，工作树干净；核心 5 例 parity 清零与
 `test_std_thread` 27 通过保持不变。
+
+### 第 566 轮（最终定位）：失败点是 `self.routes[idx].handler`，target 不是聚合
+
+把打点移进 `index_ref == null` 失败分支（按上一条的方法论教训），
+只对真正失败的那一次打印：
+
+```
+FAILPROBE kind=14 isidx=0 refk=19 idxv=0 sbagg=-1 tgtnull=0 tgtkind=-1 tgtagg=-1 tvalsnull=-1 line=628
+```
+
+| 字段 | 值 | 含义 |
+| --- | --- | --- |
+| `line=628` | 628 | **`self.routes[idx].handler = handler;`** |
+| `isidx=0` | 0 | 不是 index-base |
+| `refk=19` | `TYPE_ARRAY` | 元素类型是数组 |
+| `idxv=0` | 0 | 下标 0 |
+| `sbagg=-1` | -1 | `slot_b` 本身**没有** aggregate |
+| `tgtnull=0` | 0 | target 非 null |
+| `tgtkind=-1` | -1 | **target 不是指针**（也不是聚合） |
+| `tgtagg=-1` | -1 | **target 没有 aggregate** |
+| `tvalsnull=-1` | -1 | 同上 |
+
+### 结论
+
+628 行是：
+
+```uya
+self.routes[idx].handler = handler;
+```
+
+`self.routes` 是 `[GinRoute: UYAGIN_MAX_ROUTES]`。这一处解引用后得到的东西
+**既不是聚合、也不是指针**（`tgtkind=-1`、`tgtagg=-1`），
+所以 `exec_vm_index_ref` 里所有分支都不命中，最后递归
+`exec_vm_index_ref(target, 0)` 返回 null。
+
+**关键差异**：同一个 `add` 方法里，`self.route_meta`（626/627 行）的 target
+是有 aggregate 的（`tgtagg=1024`），而 `self.routes`（628 行）的 target 没有 ——
+**两个同为定长数组的结构体字段，在 VM 里的承载形态不一样**。
+很可能是 `self.routes` 被判定成「原生布局」（因为 `GinRoute` 里有
+`AsyncHandler` 接口字段/函数指针），走了原生旁路表，而 `route_meta` 走了 VM 聚合。
+
+### 这是本轮能到达的最深位置
+
+要继续修需要：
+1. 确认 `GinRoute` 与 `UyaginRouteMeta` 在 VM 里的承载差异（原生 vs 聚合）；
+2. 让 `index_ref` 对「原生旁路表里的元素」也能取出引用。
+
+第 2 一步在 `exec_vm_field_object` / `exec_vm_native_agg_slot` 里有类似实现
+（`elem_size == 0` 那批分支），但适配到 `index_ref` 需要先确认原生旁路表里
+这个下标有没有被 `STORE_INDEX` 填过。风险与工作量都不小。
+
+### 本轮收尾（第 562~566 轮的诊断产出）
+
+- 彻底摸清了 `ADDR_INDEX` 的失败路径，并把打点方法论错误纠正过来
+  （**必须打在失败分支内**，不能打在调用之前）；
+- 定位到 `test_http_uyagin` 的确切失败语句（`uyagin.uya:628`）；
+- 发现同一结构体的两个定长数组字段在 VM 里承载形态不同（一个聚合、一个非聚合）；
+- 所有实验改动已回退，工作树干净；
+- 核心成果（5 例 parity VM 清零、`test_std_thread` 27 通过）不受影响。
