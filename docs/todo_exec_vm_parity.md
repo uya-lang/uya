@@ -11696,3 +11696,61 @@ drain 完再回到读命令；入口 drain 后若 `pending_count == 0` 才允许
   根治 `@mc_type(T)` 被提前烤成 `StructInit`，`make check` rc=0 零回归；
 - 完整定位了 worker 不消费的 EPIPE 闭环（本轮新结论，此前只知道「读到 EAGAIN 就 break」）；
 - 所有实验性改动与打点已回退，`git status` 干净，`bin/uya` 由 HEAD 重建。
+
+### 第 547 轮（补记）：复用已有 drain 路径的改写同样无效
+
+上一条提出「入口先 drain、drain 空了才退出」的形态。本轮按最省改动的版本实施：
+在 `n < 0` 时若 `thread_shared_pending_nonempty(shared_state) != 0`，
+把 `cmd.slot_idx` 置为 `THREAD_WORKER_DRAIN_QUEUE` 后**落到下面已有的 drain 路径**
+（不新增函数、不复制执行体）：
+
+```uya
+if n < 0 {
+    if thread_shared_pending_nonempty(shared_state) == 0 {
+        break;
+    }
+    cmd.slot_idx = THREAD_WORKER_DRAIN_QUEUE;
+}
+if n == 0 {
+    break;
+}
+```
+
+结果：`/tmp/r57.uya` 仍是
+
+```
+i=0 pending sw=1
+i=1 pending sw=1
+...
+```
+
+**任务依旧不被消费。** 这是同一思路在本轮的第二次失败
+（第 545 轮 stash、本轮前面一次、这次复用路径版，共三次）。
+
+### 这说明什么
+
+`thread_worker_loop` 的 `n < 0` 分支**不是**决定性的那一点。已经确认：
+
+- `KICKENTER pend=1` × 20 —— `try_kick_drain` 被调用、队列有任务；
+- `KICKWR ok=0 n=-1 fd=6` —— 写端 EPIPE，因为读端已关；
+- worker 只读一次 `sys_read` 得 `-11`。
+
+如果 worker 保持存活（无论用哪种方式不退出），写端就不会 EPIPE —— 但实际
+三次改写后**写端行为没有变化**，说明 worker 的存活状态本身就没被这些改动影响。
+最可能的解释是：**串行 VM 里 `pthread_create` 是「当场把 routine 跑完」**
+（`src/exec/vm.uya:46` 的注释），`thread_worker_loop` 在这次同步调用里
+跑完就返回、线程对象随即结束，后续主线程再 `sys_write` 时读端自然已关。
+也就是说，问题不在「循环里怎么处理 EAGAIN」，而在
+**exec 的线程模型本身不支持「先创建后通信」**。
+
+这与 22 例里 11 例「真并发/线程池」的归类完全吻合，也印证了此前的判断：
+**这些用例的边界就是「串行模拟架构」，需要作为独立任务做 async 运行时重设计**
+（不能靠改 `thread.uya` 的分支解决）。
+
+### 本轮总结（写进收口清单）
+
+- **已根治并提交**：`54b87ef0`（checker 层泛型宏展开时机），`make check` rc=0；
+  `async_compute<i32>` 从「立即 EBADF」变为「真正提交并 Pending」；
+- **已完整定位但未修**：线程池的 EPIPE 闭环，根因是 exec 串行线程模型
+  （需要 async 运行时重设计，不是库层分支能修）；
+- 所有实验改动已回退，`git status` 干净。
