@@ -9581,3 +9581,26 @@ create 里执行必然耗尽 2000 万指令预算被切断，worker 从不推进
 
 **本轮净成果**：`test_pthread_heap_concurrency` 139 → **0**（真修复），
 `make check` rc=0，树干净。
+
+### 第 511 轮：`test_std_thread` 根因确认（与串行模式语义直接冲突）
+
+`thread_pool_acquire_worker`（`lib/std/thread.uya:952`）的扩容条件是：
+```
+pool._started_workers < pool.worker_count
+  && thread_pool_has_shared_state(pool)
+  && pool._shared_state.pending_count > 0      ← 关键
+```
+只有「确实还有待处理任务」时才 spawn worker。而串行模式下
+`pthread_create` **当场把线程体跑完**，等到 acquire 检查 `pending_count` 时
+任务早已被做完、计数归零 → spawn 永远不触发 → `_started_workers` 恒 0。
+
+所以 `thread_wait_started_workers(&pool, 1) == 1` 这类断言在串行模式下
+**必然失败**：它们观察的是「同一个任务正在被某个 worker 并发处理」这个瞬时状态，
+而串行模拟里那段时间根本不存在。这与 `test_pthread_heap_cache_identity`
+（要求不同线程不同 tcache）是同一类**串行模拟的固有语义差距**，
+不是可以修的实现缺陷。
+
+**推论**：剩余 22 例里，「真并发/线程池」这一类（约 11 例）在
+「串行模拟 + 预算切断」的架构下都无法根治，必须先把真线程做成默认路径；
+而真线程目前卡在堆的多线程安全（`exec_vm_native_field_store` 的 use-after-free），
+是更大的结构性工作。
