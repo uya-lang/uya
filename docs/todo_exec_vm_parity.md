@@ -12300,3 +12300,68 @@ resolver 去 `result_bits` 里取。我那次改动让 ready 分支**提前在
    需要引用计数或延迟回收；
 4. `test_kernel_sim`（VM=5）：裸汇编；
 5. 其余 VM=1/2/3 的小差异。
+
+### 第 550 轮（关键新发现）：两个任务其实都算对了，问题在「完成后再 poll」
+
+用带错误码的探针 `/tmp/r72.uya`（两个 `async_compute` + 每轮各 poll 一次）拿到完整数据：
+
+```
+i=0 t1=0 v1=0 e1=0 t2=0 v2=0 e2=0
+i=1 t1=1 v1=20 e1=0 t2=1 v2=10 e2=0      ← 两个都 Ready，值都正确！
+i=2 t1=0 v1=0 e1=0 t2=0 v2=0 e2=0      ← 又变回 Pending
+i=3..9 同上
+```
+
+**`i=1` 那一轮，两个 future 都正确返回了 Ready：`v1=20`、`v2=10`，`error_id` 都是 0。**
+所以任务执行、结果计算、resolve、finish 全都是对的 —— 与我之前所有的打点结论一致。
+
+问题只出在**之后再 poll 会返回 Pending**：`t1` 从 1 变回 0。
+
+### 为什么
+
+`AsyncWorkerComputeFuture::finish` 之后调用方通常会 `release`：
+
+```uya
+fn release(self: &Self) void {
+    async_box_free_current(self as &byte);   // 释放整个 future box
+}
+```
+
+box 一旦释放，同一地址再被 `poll` 读到的 `done` / `state` 就是脏数据
+（实测读回全 0，正好对应「新分配 box 的初始值」）。
+
+### 为什么这不是 `test_std_thread` 卡死的原因
+
+`scheduler_run_with_event_loop` 在 `Ready` 时立刻 `return ok_val`，
+**不会再 poll 已完成 future**。所以正常的 scheduler 路径不受影响。
+
+真正卡死的用例走的是「永不 Ready」那条路（`test_std_thread` 的
+`thread_pool_config_can_exceed_legacy_static_limits` 里手动 poll 两次后交给
+scheduler，而此时 worker 已退出、任务在队列里没人消费）。
+
+### 对照组：普通结构体字段持久化完全正常
+
+`/tmp/r74.uya`（普通 struct + `fn bump(self: &Self)`，无 Future box）：
+
+```
+i=0 r=-1  done=0 first=1
+i=1 r=99  done=1 first=1
+i=2 r=99  done=1 first=1
+...
+```
+
+`done` 正确保持 1，值持续返回 99。**说明 VM 的结构体字段写入是持久且正确的**
+（这也再次确认第 548 轮那条「泛型 union 字段往返正常」的结论）。
+
+两相对照，可以断定：**问题不是字段持久化，而是 future box 的生命周期**
+—— 「release 之后又被 poll」是未定义行为，而某些路径（手动 poll 的探针、
+以及 `test_std_thread` 那个用例的手动 poll 循环）确实会踩到。
+
+### 这个发现的价值
+
+它把剩余 17 例里「VM 侧永不 Ready」这一类，从「结果没算出来」细化为
+「结果算出来了，但交付/生命周期管理有问题」。下一轮应该：
+1. 确认 `test_std_thread` 那个用例里，`first` / `second` 在被交给 scheduler 之前
+   是否已经因为手动 `poll` 走完 `finish` + `release`（若是，scheduler 拿到的是死 box）；
+2. 若是，修法在 `thread_test_drive_future_i32` 这种「先手动 poll 再交给 scheduler」
+   的用法上 —— 或者更根本地，让 `Future` 在 `done` 之后 `release` 不再被调用。
