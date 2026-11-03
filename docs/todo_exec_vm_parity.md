@@ -9764,3 +9764,32 @@ export struct Engine {
 （结构体指针化）、要么需要把 `Engine` 拆小，都不是小改动。
 
 **类归属修正**：`test_http_uyagin` 从「子进程」改判为 **VM 大聚合承载上限**。
+
+### 第 519 轮：`test_http_websocket_json` 归类修正——是网络，不是宏展开
+
+上一轮把它归为「单态体宏展开」，**归错了**。实测证据：
+
+- 同一文件里三个用例，只有第一个 `websocket_json_struct_roundtrip_as_text_message` ERROR，
+  另外两个 `websocket_json_decode_requires_text_opcode`、
+  `websocket_json_decode_invalid_json_returns_error` **都 OK**；
+- 差别在 `make_pair`（测试文件 36 行）：它建**真实 TCP 连接**——
+  `http_server_listen` → `http_tcp_connect_loopback(srv.port)` → `http_server_accept`；
+  两个 OK 的用例不调 `make_pair`；
+- 宏展开白名单本身没问题：`exec_lower_mono_body_needs_macro_expand`（`lower.uya:5789`）
+  已经含 `to_json` 与 `websocket_conn_write_json`；
+- 「256 KB 栈数组」也不是原因：`/tmp/big1.uya`（`var buf: [byte: 262144]`，
+  读写首尾）**正常**。
+
+**所以这条是网络/socket 类**，与 `test_http_websocket_reconnect`、
+`test_std_dns_async_transport` 同族。修正后的分类：
+
+| 类别 | 数量 | 用例 |
+|---|---|---|
+| 真并发/线程池 | 11 | `async_compute_*`、`async_runtime_shared_*`、`async_thread_pool_dynamic_growth`、`std_async_scheduler`、`std_thread_async_boundary`、`std_thread`、`tls_async_runtime_io` |
+| 网络/socket | 6 | `http_uyagin_websocket`、`http_websocket_json`、`http_websocket_reconnect`、`std_dns_async_query_aggregate`、`std_dns_async_transport`、`async_runtime_shared_dns` |
+| 大聚合/容量 | 1 | `http_uyagin`（`Engine` 8192 nodes ≈330 KB） |
+| 性能 | 1 | `tls_ecdsa`（ECDSA 解释执行） |
+| 子进程 | 1 | `typed_pipeline_capability`（fork/exec） |
+| 裸汇编 | 1 | `kernel_sim`（x86 call gate） |
+| 分配器跨线程 | 1 | `pthread_heap_cache_identity`（串行模式固有） |
+| VM 缺程序错误抛出 | 1 | `async_frame_pool_full` |
