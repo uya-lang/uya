@@ -10623,3 +10623,77 @@ if (p._tag == 0) { return (...){ ._tag = 0 }; }
 `/tmp/r12.uya`（手工复刻其嵌套形状）在修复前后都是 `p0=0 p1=0 p2=0`，
 与真实 `async_compute` 的 `p0=1` 表现不同 —— 说明宏展开后的实际形态与推测不一致，
 下一步应从宏展开产物入手，而不是继续在 `BC_AWAIT` 上调整。
+
+---
+
+## 第 543 轮：定位线程池类 11 例的根因 —— 串行 `pthread_create` 会当场执行线程体
+
+沿用第 542 轮的结论（22 例不在 `@await` 层），改为自底向上逐层验证
+`async_compute` 的调用链：
+`async_compute<T>` → `thread_async_compute_<T>` → `async_worker_compute`
+→ `AsyncWorkerComputeFuture` → `async_worker_submit` / `async_worker_result`
+→ `ThreadPool` 的 worker 线程。
+
+### 逐层探针结果
+
+| 探针 | 内容 | 结果 |
+| --- | --- | --- |
+| `/tmp/r15.uya` | `async_worker_submit(...).poll()` | `p=1 sw=0 pc=1` —— 任务入队成功，但 `started_workers` 一直是 0 |
+| `/tmp/r16.uya` | 裸 `pthread_create` + `pthread_join` | `rc=0`，worker 真的跑了（`g_ran=1`） |
+| `/tmp/r17.uya` | submit 后手动 `async_thread_slot_wait(...).poll()` | **挂死**（rc=137） |
+| `/tmp/r26.uya` | `pthread_create` 的线程体里 `sys_read` 阻塞在 pipe 上 | **挂死**（rc=137） |
+
+第 543 轮的关键链路：`thread_pool_enqueue_slot`（`lib/std/thread.uya:1110`）
+只把 slot 塞进 pending 队列、**不启动 worker**；真正启动 worker 的
+`thread_pool_try_kick_drain` 只在 `thread_pool_try_progress_slot`（1058）里被调，
+而后者只由 `AsyncThreadSlotWaitFuture.poll`（1284）调用。
+`kick_drain → thread_pool_acquire_worker → thread_pool_spawn_worker`（798）
+最后 `pthread_create`（862）起线程。
+
+### 根因
+
+`src/exec/vm.uya:46` 的设计注释写得很清楚：
+
+> 线程体指令预算：解释器没有并发，`pthread_create` 是「**当场把 routine 跑完**」。
+
+配套机制在 `src/exec/vm.uya:4883` 的线程槽位表：
+`pthread_create` 当场跑线程体，靠 `g_exec_vm_thread_body_budget = 20000000`
+（`vm.uya:4926`）在预算耗尽时中止并记下 `redo`，留到 `pthread_join` 再跑。
+
+但 `ThreadPool` 的 worker 是 `thread_worker_loop`（`lib/std/thread.uya:698`）
+—— 一个**无限循环**，第一句就是 `sys_read(cmd_read_fd, ...)` 阻塞等命令。
+串行模拟下的结果是：`pthread_create` 当场进入这个循环 →
+阻塞在 `sys_read` 上 → **永不返回、也不消耗指令预算** →
+`thread_pool_spawn_worker` 卡死 → `started_workers` 永远为 0。
+
+`/tmp/r26.uya` 是对此的最小复现（只有 1 个字段的结构体 + 一次阻塞 `sys_read`）。
+
+### 影响面
+
+这一条同时解释了 22 例里的 11 个线程池/并发类用例：
+`test_std_thread`、`test_std_async_scheduler`、`test_async_compute_types`、
+`test_async_compute_generic_wrapper`、`test_async_compute_dynamic_resource_pressure`、
+`test_async_thread_pool_dynamic_growth`、`test_std_thread_async_boundary`、
+`test_async_runtime_shared_semantics`、`test_async_shared_runtime_semantics`、
+`test_async_runtime_shared_dns`、`test_std_dns_async_query_aggregate`。
+
+### 为什么不能靠调预算解决
+
+预算是按 `vm_step` 次数递减的（`vm.uya:9293`），而阻塞 `sys_read` 停在
+**一次** `vm_step` 内部，预算根本没机会递减。加预算、加超时都无效。
+
+### 真正的根治方向（供后续）
+
+`ThreadPool` 的 worker 之所以必须是无限循环，是因为它要长期驻留承接任务；
+而 VM 串行模拟要求「线程体能跑到结束」。两者只能二选一：
+
+1. **让 worker 可被抢占**：给 `sys_read` 之类阻塞宿主调用加「串行模式下立即返回」
+   的钩子，让 `thread_worker_loop` 能在预算内轮转（等价于协作式调度）。
+   改动集中在 `vm.uya` 的宿主调用分派，`lib/std/thread.uya` 不用动。
+2. **让 worker 变成一次性任务**：在 VM 下改走 `thread_pool_try_progress_slot`
+   的同步执行路径，不 spawn 常驻线程。这会改变 `started_workers` 的语义，
+   需要同时放宽 `test_std_thread` 里对 `started_workers == 1` 的断言（风险高）。
+3. **真线程**：`UYA_EXEC_REAL_THREADS=1`，但已知有 `BC_STORE_FIELD` 的
+   use-after-free，且 `test_pthread_heap_concurrency` 仅 2/8 通过。
+
+方向 1 与「协作式调度」的既有设计目标一致，且不动库层语义，是下一步首选。
