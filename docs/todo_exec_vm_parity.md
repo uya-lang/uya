@@ -9976,3 +9976,40 @@ BC_AWAIT
 
 这条改动覆盖面很大（所有 async 用例），必须在 `make exec-parity` 与
 `make check` 都空闲时做，并全量复测。
+
+### 第 529 轮：修复方案的可行性已全部验证（等 parity 完成后实施）
+
+三个关键前提都做了实验确认：
+
+1. **VM 的 poll 机制本身完好**
+   `/tmp/aw7.uya`：`MyF` 转接口后**直接反复调** `iface.poll(&w)`：
+   ```
+   poll0 p=0 g=1
+   poll1 p=1 g=2
+   poll2 p=1 g=3
+   ```
+   Pending（tag=0）→ 第二次 poll 推进到 Ready，`g`（poll 调用计数）逐次递增。
+   **poll 的挂起/推进语义是对的。**
+
+2. **`@async_fn` 的 future 直接 poll 也正常**
+   `/tmp/aw6.uya`：`@async_fn fn simple(v: i32) Future<!i32>` 返回值直接
+   `f.poll(&w)` 三次都是 `p=1`（Ready）。
+   → 删掉分支 1、改成走 poll 路径后，**靠同步执行通过的 `@async_fn` 用例行为不变**，
+   这是修复安全性的关键依据。
+
+3. **接口方法调用机制正常**
+   `/tmp/aw4.uya`：`via_iface p=1 g=1`。
+   → 坏的不是接口调用，只是 `BC_AWAIT` 内部那段「读 state 字段代替 poll」的逻辑。
+
+**影响面**：`grep -rln "@await" tests/*.uya` = 81 个测试，占 914 个的 8.9%。
+集中在 `test_async_*` / `test_std_thread*` / `test_pthread_api_*`。
+
+**实施方案**（parity 与 `make check` 都空闲时做）：
+- `builder.uya:2730` 发 `BC_AWAIT` 时，`c`/`imm` 目前都空着，用 `imm` 填
+  「该静态类型的 `poll` 方法函数下标」（lowering 期用
+  `find_instance_method_in_struct(program_node, struct_name, "poll")` 查，
+  `lower.uya:3588` 已有同款用法）；
+- `vm.uya:8517` 的 `BC_AWAIT`：先看 `imm` 是否给了 poll 方法下标，
+  给了就 `exec_vm_await_poll_once(program, imm, slot_b, &awaited)`；
+  没给（老字节码/查不到）才退回现在的 `find_poll` 读 state 行为，
+  这样不会一次打翻靠同步执行通过的用例。
