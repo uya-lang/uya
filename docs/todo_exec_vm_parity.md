@@ -10929,3 +10929,85 @@ WL1 v=-11 → WL2 v=1 → 进 DRAIN 分支消费队列
 `p0=1` 是直接返回了一个预置 Ready 的值。
 这才是下一步要查的东西：单态体宏展开 + `@async_fn` lowering 的交互，
 而不是继续在 thread pool 一侧调整。
+
+---
+
+## 第 546 轮：`async_compute<T>` 的宏分支在 VM 单态体里全部判为 false（走兜底返回 EBADF）
+
+第 545 轮留下的入口是「`async_compute<i32>` 的函数体在 VM 里没被执行」。
+本轮把它彻底钉死了，而且结论比预期更具体。
+
+### 决定性证据
+
+`/tmp/r49.uya` 直接 poll `async_compute<i32>` 并把返回值拆开看：
+
+```
+tag=1 err_id=9 val=-999
+```
+
+- `tag=1` 是 `Poll.Ready`，不是 Pending —— 所以不是「挂起」；
+- `err_id=9` 是 **EBADF**；
+- `val=-999` 说明走了 `catch` 分支，载荷是 Err。
+
+EBADF 的来源是 `async_compute` 的兜底分支（`lib/std/thread.uya:1939`）：
+
+```uya
+const close_result: !i32 = sys_close(0 - 1);
+const _unreachable: i32 = close_result catch |err| { return err; };
+return _unreachable as T;
+```
+
+`sys_close(-1)` 必然返回 EBADF。也就是说：
+**`thread_type_is_i32(T)` / `_usize` / `_u32` … 全部 12 个 `mc` 宏分支都判成了 false，
+函数直接落到了最后的兜底。**
+
+`usize` 类型 (`/tmp/r50.uya`) 也是 `err_id=9`，与类型无关 —— 全部落兜底。
+
+### 对照组（排除了一堆可能）
+
+| 探针 | 形状 | 结果 |
+| --- | --- | --- |
+| `/tmp/r41.uya` | 非泛型 `@async_fn` 包一层 `thread_async_compute_i32` | `p0=0 sw=1` —— 正常 |
+| `/tmp/r42.uya` | **用户文件里**复刻 `export @async_fn` + 泛型 `T` + `mc` 分派 | `p0=0 sw=1` —— **正常** |
+| `/tmp/r43.uya` | 同上，且把内层 `@async_fn` 也放进同一文件 | `p0=0 sw=1` —— 正常 |
+| `/tmp/r44.uya` | 在 `lib/std/thread.uya` 里加一个**非泛型**版本 | `p0=0 sw=1 calls=1` —— 正常 |
+| `/tmp/r51.uya` | 从用户文件直接调库里的 `thread_type_is_i32(i32)` 等 | `i32=1 usize=1 u8=1` —— **宏本身正常** |
+| `/tmp/r49` / `/tmp/r50` | 库里的 `async_compute<i32>` / `<usize>` | `err_id=9` —— 落兜底 |
+
+结论：宏没错、库文件没错、非泛型没错、同文件嵌套没错、`async_compute` 也不在
+`exec_lower_mono_body_needs_macro_expand` 之外（第 545 轮已验证把白名单里的
+`async_compute` 移除后行为完全不变）。
+
+**唯一出问题的组合是：`lib/std/thread.uya` 里那个泛型 `async_compute<T>`
+经 `exec_lower_generic_instances` 走单态化时，`mc` 宏没有被展开成常量。**
+
+### 旁证：加一行代码就让 lowering 直接报错
+
+在 `async_compute` 函数体首行插入 `const _ac_touch: i32 = 1; _ = _ac_touch;` 后，
+VM 直接报：
+
+```
+lib/std/thread.uya:1891:18: exec: 泛型实例 lowering 失败
+```
+
+而在 `exec_lower_generic_instances` 里打点拿到 `last_err=<null>` ——
+`exec_lower_function` 返回 null 时没有设置错误信息，
+所以这个失败在**不加打点时是静默的**：单态体被丢掉，调用点拿到的就是兜底桩。
+这正是第 545 轮「连 `AC1` 都没打印」的原因。
+
+### 下一步
+
+问题收敛到 `prepare_mono_body_expand_macros`
+（`src/checker/macro_expand.uya:2459`）→ `expand_macros_in_node_simple`
+这条路径对 `mc ... expr` 表达式宏的处理：
+
+```uya
+const copied = deep_copy_ast_substitute_type_params(body, type_params, type_param_count, type_args, type_arg_count, ...);
+expand_macros_in_node_simple(checker, &ptr);
+```
+
+`async_compute` 的 `if thread_type_is_i32(T) { ... }` 是**语句里嵌表达式宏**的形状，
+而 `/tmp/r42` 能在用户文件里通，说明同样形状在用户文件的单态化路径上能展开。
+下一步要对比这两条路径的差异（尤其是 `deep_copy_ast_substitute_type_params`
+之后 `if` 条件里的 `AST_CALL_EXPR` 是否还认得出 `mc` 声明），
+而不是继续在 thread pool 或 `BC_AWAIT` 一侧调整。
