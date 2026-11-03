@@ -11501,3 +11501,69 @@ i=1 pending sw=1
 - 目标用例做**单点**验证（`test_async_compute_types` / 三个探针 / 非泛型对照）；
 - 结论：checker 层修复已被全量验证认可，剩下的问题（worker 不消费 + 深递归段错误）
   都在 exec 运行期，属于独立课题，不影响已提交的修复。
+
+### 第 547 轮（再续）：worker 只读一次就退出，drain 分支改写后控制流在 VM 下异常
+
+对 `thread_worker_loop` 打点（`/tmp/r57.uya`）：
+
+```
+WLOOP enter w=0
+WLOOP read n=-11 pend=1
+```
+
+三件事同时确定：
+1. worker **确实被调起来了**（`enter w=0`），与 `sw=1` 一致；
+2. 它只读**一次** `sys_read`，拿到 `n=-11`（EAGAIN）；
+3. 读的那一刻 `pending_count=1` —— **队列里确实有任务**。
+
+所以「worker 不消费」的直接原因就是：拿到 EAGAIN 立刻 `break`，
+而任务已经在队列里等着。
+
+按这个思路改写 drain 分支（`n < 0 && pending_count > 0` 时把 `cmd` 当作
+DRAIN 命令继续循环），打点确认赋值生效：
+
+```
+WLOOP DRAIN pend=1 cmd=-2      ← cmd.slot_idx 确实被写成 THREAD_WORKER_DRAIN_QUEUE(-2)
+```
+
+但**紧接着的 `WLOOP POP`（`thread_shared_pop_slot` 之后）从未打印**，
+而下一轮循环的 `WLOOP read` 也没有 —— 等于这段代码在 drain 赋值之后、
+`pop_slot` 调用之前就把整个 `while true` 跳出了。
+
+为排除「`else if` 结构问题」和「内层 `break` 被误判」，先后试了：
+- 把 `else if n == 0` 拆成独立的第二个 `if`（无效）；
+- 把内层的 `if pending<=0 { break; }` 提升成一个 `_should_break` 标志
+  再单独 `if`（无效）。
+
+对照组 `/tmp/r58.uya`（
+`while i<3 { const n: i64 = -11; if n < 0 { cnt += 10; } cnt += 1; }`
+）在 VM 下得 `cnt=33`，**完全正确**。
+
+结论：这不是「VM 的 `if` 块流程普遍错误」，而是
+**在 `sys_read` 的 `!isize` → `const n = rr catch {...}` 这条解包路径之后，
+紧跟的 `if n < 0 { …含 write 打点与结构体字段赋值… }` 块的后续控制流会丢**。
+这是一个独立的、值得单独定位的 VM 缺陷，但它不是本轮修复引入的，
+也没有影响已提交的 checker 修复（`make check` rc=0）。
+
+### 本轮收尾状态
+
+已提交：
+- `54b87ef0` fix(checker)：泛型函数 body 宏展开推迟到单态化（**本轮核心成果**，零回归）；
+- 三份文档提交记录完整推理链与所有否定结论。
+
+已回退（未提交）：
+- `lib/std/thread.uya` 的 drain-on-EAGAIN 改动 —— 编辑器层赋值生效但控制流异常，
+  且对指标无收益；
+- 一切打点。
+
+`git status` 干净，`bin/uya` 由 HEAD 重建。
+
+### 下一步优先级
+
+1. **VM 控制流缺陷**（新发现，优先级最高）：
+   `sys_read` 的 `catch` 解包后接 `if` 块时后续语句丢失。
+   用最小复现（`sys_read` + `catch` + `if` 块 + 后续语句）先稳定复现，
+   再看 `BC_AWAIT`/`BC_CALL` 在错误联合解包后的 `ip` 处理。
+   这个缺陷可能同时解释「deep recursion 段错误」的成因。
+2. worker 消费问题在上面的控制流修好之后再看，很可能一并解决。
+3. 最后再回到 22 例 parity。
