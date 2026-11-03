@@ -10864,3 +10864,68 @@ VM 把 `sigprocmask` 降级成只改 `g_exec_vm_sig_mask` 这个**模拟变量**
 与修复前完全相同。说明 SIGPIPE 只是让进程不再被打死，
 `async_compute` 的 `@await` 依旧首轮 Ready（`p0=1 sw=0 pc=0`），线程池没有真正参与。
 下一步仍要从「宏展开后 `async_compute` 的实际字节码形态」入手。
+
+---
+
+## 第 545 轮：worker 拿到 EAGAIN 就退出（线程池不消费任务的直接原因）
+
+延续第 543/544 轮。第 544 轮的 SIGPIPE 修复让进程不再被杀，本轮继续往下走。
+
+### 逐层探针
+
+| 探针 | 内容 | 结果 |
+| --- | --- | --- |
+| `/tmp/r34.uya` | 直接 poll `thread_async_compute_i32`（中间层） | `p0=0 sw=1 pc=1` —— worker **起来了**，任务也进了队列，但 30 次 poll 全 Pending |
+| `/tmp/r35.uya` | 同上，看 `thread_pool_metrics` | `queue_depth=1` —— 任务确实在队列里，没人消费 |
+| `/tmp/r39.uya` | 同上，统计到 Ready 的轮数 | `ready_at=10 last=0` —— 10 次 poll 全 Pending |
+| `/tmp/r37.uya` | 手工复刻 `async_compute<i32>` 的两层泛型 `@async_fn` | `p0=0 → p1=1` —— **手工版本能通** |
+| `/tmp/r28.uya` | 真实 `async_compute<i32>` | `p0=1 sw=0 pc=0` —— 首轮就 Ready，线程池完全没参与 |
+
+### 机制
+
+`thread_worker_loop`（`lib/std/thread.uya`）第一句是
+`sys_read(cmd_read_fd, ...)` 读命令；`n < 0` 时直接 `break` 退出整个循环。
+串行解释器下这个 read 被第 543 轮改成了 poll 探测 + 非阻塞，没数据就回 `-EAGAIN`，
+于是 worker **拿到 EAGAIN 的瞬间就退出了线程体**，
+`pthread_create` 当场执行结束、再也不会有人从 pending 队列取任务。
+
+打点实测（`WL` 是探针）：
+
+```
+WL1 v=-11        ← sys_read 返回 -EAGAIN
+WL2 v=1          ← pending_count = 1，队列里确实有任务
+（然后 break，worker 退出，任务永远留在队列里）
+```
+
+### 尝试过的修复（已 stash，未采用）
+
+把 `n < 0` 的 `break` 改成「pending 非空时当作一次 `DRAIN_QUEUE` 命令」：
+
+```
+WL1 v=-11 → WL2 v=1 → 进 DRAIN 分支消费队列
+```
+
+效果：`/tmp/r34.uya` 从 30 次全 Pending 变成 **`p0=0 → p1=1`**，
+`/tmp/r37.uya` 同形探针也能 `p0=0 → p1=1`。**这是第一次让这条链路真正跑通**。
+
+但**没有采用**，理由是收益不足且行为不稳：
+- `test_std_thread` 仍是 11 OK、`test_std_async_scheduler` 仍是 30 OK，
+  与基线完全相同，没有任何指标改善；
+- 同一条探针在不同次运行里表现不一致（一次 `p1=1`，另一次 10 轮全 Pending），
+  说明还依赖 worker 线程体的执行时机，机制没真正走稳；
+- 改动落在 `lib/std/thread.uya` 的核心热路径上，在指标没有收益时不值得增加不确定性。
+
+改动存为 `stash@{0}: drain-on-eagain`，供后续重设计时参考。
+
+### 下一步的真正入口
+
+`/tmp/r37.uya`（手工复刻的泛型两层 `@async_fn`）能通、`/tmp/r28.uya`
+（库里的 `async_compute<i32>`）不能通，两者语义等价，差别只在
+`async_compute` 用了 `mc thread_type_is_i32(T)` 宏分派 + 在
+`exec_lower_mono_body_needs_macro_expand` 白名单里。
+
+给 `async_compute` 的 i32 分支加打点后，**连第一个打点（`AC1`）都没打印**，
+说明 `async_compute<i32>` 的函数体在 VM 里根本没被执行 ——
+`p0=1` 是直接返回了一个预置 Ready 的值。
+这才是下一步要查的东西：单态体宏展开 + `@async_fn` lowering 的交互，
+而不是继续在 thread pool 一侧调整。
