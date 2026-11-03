@@ -9854,3 +9854,27 @@ p1=1 sw1=0 p2=1 sw2=0
 真状态机**这一架构缺口的直接表现，与剩余 11 例（`async_compute_*`、
 `async_thread_pool_dynamic_growth`、`std_async_scheduler`、`std_thread_async_boundary`
 等）**同一个根**。修 `@await` 才能一起解决，单点补 `_started_workers` 无意义。
+
+### 第 526 轮：重要纠正——VM 的 `@await` **已经**有真状态机
+
+上一轮（521–525）我写「VM 的 `@await` 缺少真挂起」，**这个结论是错的**，必须纠正。
+
+证据：`BC_AWAIT`（`vm.uya:8517`）的实现相当完整：
+- `poll_data.tag == 1`（Ready）→ 取载荷；
+- `poll_data.tag == 0`（明确 Pending）→ **`exec_vm_cont_suspend`** 把当前帧快照成续体，返回给调用方；
+- 自己实现 poll 的 Future → 按 `frame_resumed` 区分「初次走到 await 只挂起、不 poll」
+  （注释里明确说是对齐 C99 后端「构造 future」和「poll 它」分两遍，
+  测试里 `p1` 看到 Pending、`p2` 才看到 Ready 就是这个原因）；
+- 有 `exec_vm_await_pass_through_pending`、`exec_vm_await_poll_interface_once` 等配套。
+
+`src/exec/lower.uya` 里 `@await` 的注释也是旧注释（「VM 里 async 函数同步执行到完成」），
+与 `vm.uya` 的现状不符——**不要被那条注释误导**。
+
+**所以 `test_std_thread` 的 `p1=1 / sw=0 / pc=0` 不是「没有状态机」，而是别的环节**
+让第一次 poll 就走了 Ready 分支。下一步要用探针拆「谁把 state 变成了 Ready」，
+重点嫌疑：
+1. `exec_vm_await_find_poll`（`vm.uya:1207`）在 struct 里**递归找第一个 union**，
+   若 `AsyncWorkerComputeFuture` 的字段承载形式让它在 `state` 之前先摸到别的
+   union/Ready 值，就会误判；
+2. `async_compute` 是 `@async_fn` 包 `@await`，嵌套两层时续体快照
+   （`exec_vm_cont_suspend`）可能在**外层**把内层的 Pending 吞掉。
