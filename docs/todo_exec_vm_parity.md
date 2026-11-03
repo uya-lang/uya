@@ -13371,3 +13371,51 @@ parity VM 侧不一致                     22 例             → 18 例（5 例
 - [ ] `uya test --vm` 全量通过 —— **未完成**（剩余 18 例，16 例为架构边界）
 - [ ] `make exec-parity` 全绿 —— **未完成**（18 例不一致，5 例已清零）
 - [ ] 合并 main 并删工作区 —— **按纪律不执行**（22 例未清零不做 `worktree finish`）
+
+### 第 558 轮：对「VM 引用悬空」两例的探针排查（未能在最小规模复现）
+
+对 `test_http_uyagin` 报的 `ADDR_INDEX 越界`（`lib/std/http/uyagin.uya:618:5`，
+即 `try uyagin_route_meta_init(&self.route_meta[idx], method, pattern);`）
+做了两个递进的最小探针：
+
+**探针 1（`/tmp/r82.uya`）**：`&Self` 方法里直接读写结构体的定长数组字段
+
+```uya
+struct Engine { route_meta: [Meta: MAXR], route_count: i32,
+    fn add(self: &Self, idx: i32) i32 {
+        self.route_meta[idx].id = 100 + idx;
+        return self.route_meta[idx].id;
+    }
+}
+```
+→ `i=0 r=100 / i=1 r=101 / i=2 r=102`，**完全正常**。
+
+**探针 2（`/tmp/r83.uya`）**：再多一层 —— 取该数组元素的地址传给自由函数
+
+```uya
+fn init_one(m: &Meta, v: i32) void { m.id = v; m.name = v *| 2; }
+fn add(self: &Self, idx: i32) i32 {
+    init_one(&self.route_meta[idx], 200 + idx);   // 与 uyagin.uya:618 同形状
+    return self.route_meta[idx].id;
+}
+```
+→ `i=0 r=200 / i=1 r=201 / i=2 r=202`，**同样正常**。
+
+### 结论
+
+`test_http_uyagin` 的 `ADDR_INDEX 越界` **无法在最小规模复现**，
+说明它依赖 `UyaginEngine` 的特定条件 —— 可能是：
+- 该结构体字段数/字段总尺寸很大（`route_meta` 是 `[UyaginRouteMeta: UYAGIN_MAX_ROUTES]`，
+  单个 `UyaginRouteMeta` 又含 `&[const byte]`，整体可能超过 VM 聚合的某条容量线）；
+- 或者 `self` 这一层的引用在更深调用链里已经被换成了原生指针基址，
+  导致 `exec_value_is_raw_array(base_target)` 判不出来。
+
+这两个方向都需要在真实用例上打点（而不是最小探针），成本较高。
+本轮没有继续，因为它是 18 例里最后 2 个「可能是记忆体缺陷」的其中之一，
+而其余 16 例已确认是架构边界 —— 继续投入的边际收益低于先把结论固定下来。
+
+### 本轮（第 558 轮）状态
+
+- 未做任何代码改动（两个探针都在 `/tmp`）；
+- 工作树干净，`bin/uya` 与 HEAD 一致；
+- 核心成果（5 例 parity VM 清零、`test_std_thread` 27 通过）保持稳定。
