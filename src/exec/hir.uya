@@ -103,6 +103,10 @@ enum ExecHostCallId {
     // 结果存回帧对象本身（见 `exec_vm_frame_start` / `exec_vm_frame_poll`）。
     EXEC_HOST_CALL_FRAME_START,
     EXEC_HOST_CALL_FRAME_POLL,
+    // `uya_thread_call_<T>(fn, arg)`：C99 前导里的 static inline 就是
+    // `((T (*)(T))fn)(arg)`。VM 里没有真实函数指针，改为按名字直接调 Uya 函数
+    // 并把返回值按调用点的静态类型还原（非 i32 类型此前一律拿到 0）。
+    EXEC_HOST_CALL_THREAD_CALL,
 }
 
 enum HIRStmtKind {

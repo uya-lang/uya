@@ -781,6 +781,30 @@ fn exec_lower_is_libm_binary_name(fn_name: &byte) i32 {
     return 0;
 }
 
+/// `uya_thread_call_<T>(fn, arg)` 家族识别（C99 侧是 static inline 的类型化调用）。
+/// 参数：fn_name - 被调函数名。
+/// 返回值：1 表示是这族函数，0 表示不是。
+fn exec_lower_is_thread_call_name(fn_name: &byte) i32 {
+    if fn_name == null {
+        return 0;
+    }
+    if str_equals(fn_name, "uya_thread_call_i32" as &byte) != 0 ||
+        str_equals(fn_name, "uya_thread_call_u32" as &byte) != 0 ||
+        str_equals(fn_name, "uya_thread_call_usize" as &byte) != 0 ||
+        str_equals(fn_name, "uya_thread_call_i64" as &byte) != 0 ||
+        str_equals(fn_name, "uya_thread_call_u64" as &byte) != 0 ||
+        str_equals(fn_name, "uya_thread_call_i16" as &byte) != 0 ||
+        str_equals(fn_name, "uya_thread_call_u16" as &byte) != 0 ||
+        str_equals(fn_name, "uya_thread_call_i8" as &byte) != 0 ||
+        str_equals(fn_name, "uya_thread_call_u8" as &byte) != 0 ||
+        str_equals(fn_name, "uya_thread_call_bool" as &byte) != 0 ||
+        str_equals(fn_name, "uya_thread_call_f32" as &byte) != 0 ||
+        str_equals(fn_name, "uya_thread_call_f64" as &byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn exec_lower_match_host_call_name(fn_name: &byte, param_count: i32, call_arg_count: i32) ExecHostCallId {
     return exec_lower_match_host_call_impl(fn_name, param_count, call_arg_count, 0);
 }
@@ -1151,6 +1175,14 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
         if exec_lower_is_libm_binary_name(fn_name) != 0 &&
             param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_LIBM2;
+        }
+        // `uya_thread_call_<T>(fn, arg)`：C99 前导里是
+        // `((T (*)(T))fn)(arg)` 的 static inline。VM 里 `fn` 是字节码函数引用，
+        // 直接按名分派到 `EXEC_HOST_CALL_THREAD_CALL`，在 VM 里真调那个 Uya 函数，
+        // 并按调用点的静态返回类型还原结果（否则 i64/u64/f32/... 一律拿到 0）。
+        if exec_lower_is_thread_call_name(fn_name) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_THREAD_CALL;
         }
         if str_equals(fn_name, "strcmp" as &byte) != 0 &&
             param_count == 2 && call_arg_count == 2 {
@@ -9502,7 +9534,11 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 str_equals(thr_name, "pthread_once" as *byte) != 0 ||
                 str_equals(thr_name, "pthread_exit" as *byte) != 0 ||
                 (str_equals(thr_name, "pthread_cancel" as *byte) != 0 &&
-                 exec_lower_get_env_byte("UYA_EXEC_REAL_THREADS" as *byte) != null) {
+                 exec_lower_get_env_byte("UYA_EXEC_REAL_THREADS" as *byte) != null) ||
+                // `uya_thread_call_<T>`：C99 前导里的 static inline，`extern` 声明没有
+                // Uya 实现体。解释器里必须按名分派，否则 `extern_can_run` 判它「不可跑」
+                // 后落到空实现，非 i32 返回类型（i64/u64/i16/f32/f64/…）一律拿到 0。
+                exec_lower_is_thread_call_name(thr_name) != 0 {
                 thread_host_call = 1;
             }
         }

@@ -5274,6 +5274,36 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
     if site.id == ExecHostCallId.EXEC_HOST_CALL_FRAME_POLL {
         return exec_vm_frame_poll(function, frame, arg_base, arg_count, out_value);
     }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_THREAD_CALL {
+        // `uya_thread_call_<T>(fn, arg)`：C99 侧是 `((T (*)(T))fn)(arg)`。
+        // VM 里 `fn` 是函数引用（`EXEC_VM_FN_REF_BASE + 下标`），直接调对应函数，
+        // 返回值保留字节码里的真实类型（此前 extern 落空实现，i64/u64/f32 全拿到 0）。
+        if arg_count != 2 {
+            exec_backend_set_error(function.decl, "exec: uya_thread_call 参数数量非法" as *byte, 0);
+            return -1;
+        }
+        const tc_fn: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const tc_arg: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        if tc_fn == null || tc_arg == null {
+            exec_backend_set_error(function.decl, "exec: uya_thread_call 参数槽位非法" as *byte, 0);
+            return -1;
+        }
+        const tc_index: i32 = exec_vm_fn_ref_index(tc_fn);
+        if tc_index < 0 || tc_index >= program.function_count {
+            exec_backend_set_error(function.decl, "exec: uya_thread_call 函数引用非法" as *byte, 0);
+            return -1;
+        }
+        var tc_args: [ExecValue: 1] = [];
+        tc_args[0] = tc_arg[0];
+        var tc_ret: ExecValue = exec_make_void();
+        const tc_rc: i32 = exec_vm_call_function(exec_vm_main_vm(), program, tc_index,
+            &tc_args[0], 1, 0, &tc_ret);
+        if tc_rc != 0 {
+            return -1;
+        }
+        out_value[0] = tc_ret;
+        return 0;
+    }
     if site.arg_count != arg_count {
         exec_backend_set_error(function.decl, "exec: hostcall 参数数量非法" as *byte, 0);
         return -1;
