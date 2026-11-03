@@ -13769,3 +13769,64 @@ if function.name != null && strcmp(function.name as *byte, "add" as *byte) == 0 
 拿到 `add` 自己的数据之后再决定修法。**不要再用 `uyagin_router_new` 的数据推断。**
 
 本轮所有实验改动已回退，工作树干净。
+
+### 第 565 轮：`fn=add` 的现场实测，以及为什么修改仍未命中
+
+只对 `fn == "add"` 打点，拿到确切的键值：
+
+```
+ADDPROBE isidx=0 refk=19 idxv=0 valsnull=0 tgtagg=1024 line=626
+ADDPROBE isidx=0 refk=19 idxv=0 valsnull=0 tgtagg=1024 line=627
+```
+
+| 字段 | 值 | 判定 |
+| --- | --- | --- |
+| `isidx=0` | 0 | 不是 index-base 引用 |
+| `refk=19` | `TYPE_ARRAY` | 元素类型是数组 |
+| `idxv=0` | 0 | 取下标 0 |
+| `valsnull=0` | 0 | `values` **不为 null** |
+| `tgtagg=1024` | 1024 | 解引用后 target 有 1024 个元素 |
+
+**所有条件都指向「应该能取到 `values[0]`」**。据此把已有那条
+「嵌套数组」分支的 `is_index_base != 0` 放宽（允许 `== 0`），
+并用 `values != null` + 下标范围 做守卫。
+
+**结果：仍然报同一个 `ADDR_INDEX 越界(IDXREF fn=add ... line=628)`。**
+
+### 这说明什么 —— 打点位置和出错位置不是同一条路径
+
+打点打在 `handled_raw_addr == 0` 之后的 `exec_vm_index_ref` **调用点**，
+而 `line` 显示 626/627。但最终报错是 **628**。
+
+626/627 两行是：
+
+```uya
+try uyagin_route_meta_init(&self.route_meta[idx], method, pattern);          // 626
+try uyagin_router_add(&self.router, &self.route_meta[0] as &..., idx, &self.route_meta[idx]);  // 627
+```
+
+628 是 `self.routes[idx].handler = handler;`。
+
+**所以 `add` 里至少有三处 `ADDR_INDEX`，我只在「失败的那一处」之外打了点**，
+而我改的分支服务的是另外两处（它们本来就能成功）。628 那一处走的是不同的
+`slot_b` 形态（很可能是 `self.routes` 而不是 `self.route_meta`）。
+
+### 下一轮：把打点移到 `index_ref == null` 的分支里
+
+当前打点在调用**之前**，看到的是「前两次成功的调用」。正确做法是把打点放进：
+
+```uya
+const index_ref = exec_vm_index_ref(slot_b, slot_c.i64_value as i32);
+if index_ref == null {
+    // ← 打点放这里，只打印真正失败的那一次
+}
+```
+
+这样拿到的才是 628 那次失败的真实 `slot_b`。本轮之前几轮的打点全在调用之前，
+所以一直看到的是「看起来一切正常」的数据 —— 这是本轮绕了远路的根因。
+
+**教训（写进方法论）**：诊断「偶发/多处同名操作中的某一次失败」时，
+打点必须放在**失败分支内**，不能放在操作调用之前，否则看到的是别的成功调用。
+
+本轮所有实验改动已回退，工作树干净；核心 5 例 parity 清零与
+`test_std_thread` 27 通过保持不变。
