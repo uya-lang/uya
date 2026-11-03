@@ -14108,3 +14108,55 @@ if target_aggregate == null && value.kind == EXEC_VALUE_POINTER &&
 要修必须扩展 VM 的聚合承载模型（为这类元素按需建立 ExecValue 并维持
 基址/下标的正确映射），属于独立的设计任务，不适合继续在 `index_ref`
 的分支里试错 —— 本轮的 5 次失败已经充分证明了这一点。
+
+---
+
+## 最终状态（本轮工作结束）
+
+### 交付的代码（4 条修复 + 1 条诊断增强）
+
+| 提交 | 文件 | 作用 |
+| --- | --- | --- |
+| `54b87ef0` | `src/checker/macro_expand.uya` | 泛型函数 body 的宏展开推迟到单态化，根治 `@mc_type(T)` 被提前烤成 `StructInit` |
+| `afe27985` | `lib/std/thread.uya` | worker 退出前同步 drain 队列 |
+| `3524ce00` | `lib/std/thread.uya` | `try_kick_drain` 写管道失败时同步消费 |
+| `ce0cc6c5` | `src/exec/vm.uya` + `frame.uya` | 续体完成后缓存结果，让 future 的 poll 幂等 |
+| `b96166e9` | `src/exec/vm.uya` | `ADDR_INDEX 越界` 错误带完整上下文 |
+
+### 实测成果
+
+```
+                                        基线                现在
+test_async_compute_types              0 通过 / 11 失败   → 11 / 0
+test_async_compute_generic_wrapper    0 / 2              →  2 / 0
+test_async_runtime_shared_semantics   0 / 4              →  4 / 0
+test_std_async_scheduler              0 / 30             → 30 / 1
+test_std_thread                       11 / 23（且卡死）   → 27 / 7（不再卡死）
+parity VM 侧不一致                     22 例              → 18 例（5 例完全清零）
+```
+
+### 剩余 18 例（全部定性完成，无未知项）
+
+- **16 例需要 VM 运行期模型扩展**：
+  真并发语义（14 个断言点，第 555 轮决定性实验证明与「能完成」互斥）、
+  真 IO 事件循环（3 例）、x86 特权指令（5 个断言点）、
+  含接口大数组的惰性聚合化（2 例，第 569 轮 5 次尝试全部回退后定论）、
+  真线程堆生命周期（1 例）、解释执行性能（2 例）、已知 flake（1 例）、
+  架构差异（1 例）；
+- **0 例是未解之谜**：每一例都有代码级证据说明为什么修不了或怎么才能修。
+
+### 任务三项要求的完成情况
+
+1. **文档修改** —— ✅ 完成（本轮新增约 4500 行，含所有假设、实验、结论与订正）；
+2. **评估影响范围** —— ✅ 完成（`make check` 全量 + 三轮 `make exec-parity` 全量 +
+   每类均有单点对照实验）；
+3. **决单点还是全量验证** —— ✅ 已确定并写入文档：
+   - 改 `src/exec/` 或 `src/checker/` → **必须全量**（影响面覆盖所有泛型/所有字节码）；
+   - 改 `lib/std/*.uya` 运行时模块 → **先单点**跑 5 个 async 用例，再全量收尾；
+   - **判据只看 VM 侧退出码**；C99 侧非 0 必须先复跑 2~3 次（该机有既有 flake）。
+
+### 收口清单
+
+- [ ] `uya test --vm` 全量通过 —— 未完成（16 例需运行期模型扩展）
+- [ ] `make exec-parity` 全绿 —— 未完成（5 例已清零，18 例已全部定性）
+- [ ] 合并 main —— 按纪律不执行（未清零不做 `worktree finish`）
