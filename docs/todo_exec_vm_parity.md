@@ -13146,3 +13146,55 @@ C99 侧既有 flake（本次改动不经过 C99 路径）。
 
 **没有一项是「改一处就全好」的**，都是各自独立的深水区问题。
 本轮已经把「可一次性根治」的那条根因链（宏展开 → 投递 → 消费 → 交付）走完了。
+
+### 第 555 轮：决定性对照实验 —— sync drain 不可移除，「排队」与「能完成」在串行 VM 里不可兼得
+
+上一轮把「`pending_count == 1` 观测不到」归因于 submit 与 poll 同栈。
+本轮做了一个**决定性实验**来验证「能不能通过去掉 sync drain 来造出排队窗口」。
+
+实验：把 `thread_pool_try_kick_drain` 里「写管道失败 → 同步 drain」那段整个删掉，
+只保留 `release_worker` + `return 0`。
+
+结果：**`test_std_thread` 直接卡死，连统计都打不出来**（回到修复前的 137 状态）。
+
+恢复后立刻回到 **27 通过 / 7 失败**。
+
+### 这个实验证明了两件事
+
+1. **`sync drain` 是串行 VM 下任务被完成的唯一途径** ——
+   worker 读端提前关闭、管道写不进去，除了在调用方线程同步执行，没有别的路；
+2. **「任务留在队列里可观测」与「任务最终能完成」在这个架构下互斥** ——
+   想把任务留在队列（让 `pending_count == 1` 成立），就必然卡死；
+   想让它完成，就必然在 poll 的同一栈里跑完，`pending_count` 瞬间归零。
+
+所以这 13 个失败点（`test_std_thread` 7 + `test_std_thread_async_boundary` 2 +
+`test_async_compute_dynamic_resource_pressure` 1 + `test_async_thread_pool_dynamic_growth` 3）
+**不是可以靠调整实现顺序来解决的**，而是串行模拟架构的硬边界。
+
+### 已统计的「排队类」失败点分布
+
+```
+test_async_compute_dynamic_resource_pressure    1 处（wait_pending_at_least）
+test_std_thread_async_boundary                  2 处（pending_count == 1）
+test_async_thread_pool_dynamic_growth           3 处（pending_count == 1）
+test_std_thread                                 7 处（pending_count == 1 / saw_error / cancelled）
+```
+
+合计 13 个断言点，全部指向同一性质。
+
+### 要真正清零它，需要的是
+
+1. **任务队列 + 独立执行上下文**：submit 只入队，由一个独立的「执行器」
+   在另一条执行流上消费 —— 这样 submit 返回时 `pending_count` 确实 >= 1；
+2. **可观测的运行中状态**：任务要有「RUNNING」这个能被外部看到、且能被打断的
+   阶段，才谈得上「运行中取消」；
+3. **容量上限的真实语义**：队列真的会满，才谈得上「池满报错」。
+
+这就是文档开头记的「async 运行时重设计」——本轮的 4 条修复已经把它前面
+能修的部分（宏展开、投递、消费、交付）全部修通了，剩下的必须换架构。
+
+### 本轮收尾
+
+- 实验性改动全部回退，`git status` 干净；
+- `test_std_thread` 稳定 27 通过 / 7 失败；
+- 核心 5 例 parity VM 侧清零保持不变。
