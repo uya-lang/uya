@@ -14059,3 +14059,52 @@ if target_aggregate == null && exec_vm_address_is_vm_resident(target_addr_of(val
 
 `test_http_uyagin` 正式归入「需要 VM 运行期模型扩展」的 A 类，
 不再在 `index_ref` 的分支里试错（已经试过 4 种改法，全部回退）。
+
+### 第 569 轮：第五次尝试（带「已登记」守卫）仍导致卡死，这条路彻底关闭
+
+上一轮直接调 `exec_vm_native_agg_slot` 导致卡死，归因于「可能误匹配到别的基址」。
+本轮加了守卫再试 —— 先确认该基址确实登记在旁路表里：
+
+```uya
+if target_aggregate == null && value.kind == EXEC_VALUE_POINTER &&
+    exec_vm_address_is_vm_resident(exec_vm_pointer_address(value)) == false {
+    const _native_base: usize = exec_vm_pointer_address(value);
+    if _native_base != 0 &&
+        exec_vm_native_agg_slot_index(exec_vm_main_vm(), _native_base) >= 0 {   // ← 守卫
+        const _native_elem = exec_vm_native_agg_slot(exec_vm_main_vm(), _native_base, index_value);
+        if _native_elem != null { return _native_elem; }
+    }
+}
+```
+
+**结果：仍然 rc=137 卡死。**
+
+也就是说：旁路表里**确实登记了这个基址**（守卫通过），取出的 ExecValue
+也能返回，但它代表的不是 `self.routes[index]` 那个元素 ——
+后半段逻辑于是在错误的数据上打转，最终死循环。
+
+### 这条路为什么修不通
+
+`exec_vm_native_agg_slot(base, index)` 的语义是
+「以 `base` 为基址的原生缓冲区里的第 `index` 个 ExecValue 槽」，
+而 `self.routes` 这个场景需要的是「**结构体字段内部**那块数组的第 `index` 个元素」。
+两者基址不同：前者是数组首地址，后者在这个用例里被传成了结构体或别的偏移，
+而且 `GinRoute` 里还嵌着 `AsyncHandler` 接口字段和 `[AsyncHandler: N]` 数组 ——
+单个元素本身也不是一个扁平的 ExecValue 能表达的。
+
+**五次尝试全部回退**（第 561 轮两次、第 568 轮一次、第 569 轮一次，
+外加第 563 轮的 `values[0]` 版），每一次都是「错误消息变了但没真正修好」
+或「变成卡死」。这条路径到此关闭。
+
+### 最终定性（写进结论，不再重复尝试）
+
+`test_http_uyagin` / `test_typed_pipeline_capability` 的根因是：
+
+> **VM 对「含接口字段的大定长数组」没有惰性聚合化能力。**
+> 这类字段（`[GinRoute: 1024]`，`GinRoute` 内含 `AsyncHandler` 接口）
+> 只能退化成原生布局 + 旁路表承载，而「取其中一个元素的引用」在
+> VM 的引用模型里没有对应表达。
+
+要修必须扩展 VM 的聚合承载模型（为这类元素按需建立 ExecValue 并维持
+基址/下标的正确映射），属于独立的设计任务，不适合继续在 `index_ref`
+的分支里试错 —— 本轮的 5 次失败已经充分证明了这一点。
