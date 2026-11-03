@@ -10191,3 +10191,48 @@ VM 运行期没有「struct 类型 → poll 方法下标」的映射，所以必
 
 这样判据是**编译期静态确定的**，不会像启发式那样误伤。工作量：HIR 无需改
 （`HIR_EXPR_AWAIT` 已有位置），主要是 lower + builder + vm 三处。
+
+### 第 534 轮：✗ 第二个修复尝试也失败并全部回退——`async_compute` 病灶确认不在 `BC_AWAIT`
+
+在第 533 轮分析基础上又试了两个变体，**都以 4 个回归告终**，已全部回退，
+工作树回到 `0875e502` 的基线状态（4 个基线用例已验证恢复 PASS）。
+
+**变体 A：编译期填 poll 方法下标**
+- `lower.uya` 的 `@await` lowering 处：`type_get_struct_name(await_operand.type_ref.type)`
+  → `find_instance_method_in_struct(..., "poll")` → 记进 `hir_await.callee_decl`；
+- `builder.uya` 的 `BC_AWAIT` 发射处：`imm = exec_builder_find_function_index(...)`；
+- `vm.uya`：`imm >= 0` 就用 `exec_vm_await_poll_once(program, imm, slot_b, ...)`。
+- **结果：完全没生效**。加临时调试打印实测 `@await` 操作数的类型：
+  ```
+  4 await-dbg kind=15 struct=0
+  ```
+  `kind=15` 是 `TYPE_INTERFACE`（`src/checker/types.uya:47` 的枚举，从 0 起数）。
+  **`@await` 的操作数静态类型是接口 `Future<T>`，不是具体 struct**，
+  所以 `type_get_struct_name` 返回 null，`imm` 永远是 -1，这条路径永远不启用。
+  （调试打印已删除，该变体代码已 `git checkout` 回退。）
+
+**变体 B：收紧接口判据后优先走接口 poll**
+- 在 `exec_vm_await_poll_interface_once` 里加严格校验
+  （`poll_fn_index` 必须落在 `[0, program.function_count)`）；
+- `BC_AWAIT` 里 `imm < 0` 时尝试 `exec_vm_await_poll_interface_once`。
+- **结果：仍然是同样 4 个回归**
+  （`test_async_compound_try_await`、`test_async_fd`、`test_async_macro_expand`、
+  `test_async_state_machine` 全部 FAIL），而 `test_std_thread` 依然 FAIL。
+  收紧判据并没有消除误伤——说明这 4 个用例的 Future 值确实满足「首元素是合法函数下标」，
+  接口启发式**在原理上不可靠**。
+
+### 本轮结论：不要再从 `BC_AWAIT` 入手
+
+两次修复、三种变体、共 8 个回归、0 个改善。可以确定：
+
+1. **`async_compute` 的病不在 `BC_AWAIT`**。修复后 `/tmp/pool8.uya` 始终
+   `p0=1 sw=0`，一点没变。它的问题在更上游——`async_compute` 外层 future 抵达
+   `@await` 时 `state` 已是 Ready。
+2. **接口启发式（首元素是整数/合法函数下标）不可用于识别 Future**，会稳定误伤
+   4 个既有用例。任何在这个判据上做文章的方案都不可行。
+3. 若要继续，正确方向是给 VM 增加**运行期类型信息**（结构体/接口的类型标识），
+   让 `BC_AWAIT` 能确定性地知道「这是哪个类型的 Future、它的 poll 在第几个函数」。
+   这属于 VM 数据模型的改动，不是能在一轮内安全收口的小修补。
+
+**建议**：这 11 个「真并发/线程池」类用例在串行模拟架构下维持已知失败，
+先把精力放在别处，或单独立项做「VM 运行期类型标识」。
