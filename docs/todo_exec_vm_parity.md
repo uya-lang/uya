@@ -9417,3 +9417,29 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   而不是在 9 个内部函数上各加一把。本轮已回退，树保持基线。
 
 **当前状态**：`make check` rc=0、census 887/22、parity 889/24，均与基线一致。
+
+### 第 505 轮：旁路表进程级共享落地（架构性根治，已提交）
+
+第 504 轮记录的方向本轮已完成落地并通过全部门禁。
+
+**改动**
+1. `g_exec_native_agg_base/count/caps/storage/handles/used` 六张表从
+   `ExecVmState` 移回**进程级全局**（`ExecVmState` 删字段、65 处引用改名）。
+2. 加锁位置定在**宿主调用边界**：`exec_vm_run_frame` 里包住整次
+   `exec_vm_call_host`，内部 9 个旁路表函数不再各自加锁 —— 这正是上一轮
+   在 9 个函数上各加一把锁导致默认路径死锁的原因。
+3. 锁**可重入**（`g_exec_native_agg_lock_depth` 递归计数）：`pthread_create`
+   的串行路径会在宿主调用内再次进入宿主调用（跑线程体时又调 malloc / pthread_*），
+   不可重入的自旋锁必然自锁。
+
+**门禁**
+| 项 | 结果 |
+|---|---|
+| `make check` | **rc=0** |
+| `make exec-census` | **909 / 887 通过 / 22 失败**，与基线逐项一致 |
+
+**效果与遗留**
+- `STORE_FIELD 字段越界(count=-1)` 这类旁路表失效已消除（真线程模式下不再出现）。
+- 真线程模式下 `test_pthread_heap_concurrency` 仍会间歇段错误（5 次里约 4 次），
+  但**不再是旁路表问题**，而是分配器（tcache/bin）自身的并发安全，
+  需要单独排查 —— 这是让真线程成为默认路径的最后一个已知拦路点。
