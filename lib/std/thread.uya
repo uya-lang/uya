@@ -1347,6 +1347,17 @@ struct AsyncThreadSlotWaitFuture : Future<!usize> {
     slot_idx: i32,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        // 槽位已经跑完（DONE）就直接交回 slot_idx：结果值已经写在
+        // `slots[slot_idx].result_bits` 里，由 AsyncWorkerComputeFuture 的
+        // resolve 步骤读取，不需要再走 result pipe。
+        //
+        // 这一条在串行解释器下是必需的：worker 被「当场跑完」之后 active 会清 0，
+        // 而 `thread_async_try_slot_result_fd` 要求 active != 0，
+        // 于是同步 drain 出来的结果永远拿不到，调用方只能一直 Pending。
+        if thread_async_slot_is_done(self.pool, self.slot_idx) {
+            return async_poll_ready_ok_usize(self.slot_idx as usize);
+        }
+
         const read_fd: i32 = thread_async_try_slot_result_fd(self.pool, self.slot_idx);
         if read_fd >= 0 {
             return async_poll_ready_ok_usize(read_fd as usize);

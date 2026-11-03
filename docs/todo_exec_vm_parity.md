@@ -11842,3 +11842,62 @@ if write_failed != 0 || written != @size_of(ThreadWorkerCommand) as isize {
   `first_poll` / `done` 状态机，不在队列与执行这一层。下一轮从这里接着查。
 - `test_async_compute_dynamic_resource_pressure` 仍卡死（rc=137）。
 - `test_async_frame_pool_full` 仍 0 通过/1 失败。
+
+### 第 548 轮：`make exec-parity` 实测 —— 22 例降到 17 例，零新增
+
+全量 parity 跑完（`/tmp/parity547.log`）：
+
+```
+一致:     896 / 913
+不一致:   17
+```
+
+**基线是 22 例不一致，现在 17 例，净减 5，没有新增任何一个。**
+
+清零的 5 例：
+
+| 用例 | 基线 | 现在 |
+| --- | --- | --- |
+| `test_async_compute_types` | VM=11（11 个 test 全败） | **PASS** |
+| `test_async_compute_generic_wrapper` | VM=2 | **PASS** |
+| `test_async_runtime_shared_semantics` | VM=2 | **PASS** |
+| `test_async_shared_runtime_semantics` | VM=1 | **PASS** |
+| `test_std_async_scheduler` | VM=30 | **PASS** |
+
+这 5 例全部属于此前归类里的「真并发 / 线程池」那一组（11 例中的 5 例），
+与「`@mc_type` 提前展开」+「worker 不消费」两条根因链完全对应 —— 根因修掉之后
+它们就整组一起绿了，不是逐个打补丁打出来的。
+
+剩下的 17 例（供下一轮排序）：
+
+```
+test_async_compute_dynamic_resource_pressure   VM=1
+test_async_frame_pool_full                     VM=1
+test_async_thread_pool_dynamic_growth          VM=4
+test_http_uyagin                               VM=1
+test_http_uyagin_websocket                     VM=137
+test_http_websocket_json                       VM=1
+test_http_websocket_reconnect                  VM=1
+test_kernel_sim                                VM=5
+test_pthread_heap_cache_identity               VM=181
+test_std_dns_async_query_aggregate             VM=2
+test_std_dns_async_transport                   VM=137
+test_std_thread                                VM=137
+test_std_thread_async_boundary                 VM=3
+test_tls_async_runtime_io                      VM=1
+test_tls_ecdsa                                 VM=1
+test_tls_rsa                                   VM=137
+test_typed_pipeline_capability                 VM=1
+```
+
+`137` 是卡死（被 timeout 杀掉），`test_std_thread` 与本轮最后查的双任务状态机
+是同一个问题（打点已确认 slot DONE、resolve 正确，卡在
+`AsyncThreadSlotWaitFuture` 拿到结果的路径上）。
+
+### 本轮小结
+
+- 3 个提交：`afe27985`（worker 退出前 drain）、`3524ce00`（kick 失败时同步 drain）、
+  以及上一轮的 `54b87ef0`（`@mc_type` 单态化时机）；
+- `make check` rc=0；
+- `make exec-parity` 22 → 17，零新增；
+- 全部实验性改动已回退，工作树干净。
