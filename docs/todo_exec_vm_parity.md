@@ -12858,3 +12858,61 @@ test_async_compute_types             C99=6  VM=0
 
 这四条构成一条完整的根因链：**宏展开时机 → 任务投递 → 任务消费 → 结果交付**，
 每一环都是「串行模拟架构」下的真实缺陷，不是逐例打补丁。
+
+### 第 553 轮：`test_std_thread` 剩余 7 个失败全是「串行架构无法表达的并发语义」
+
+逐条看这 7 个 ERROR（`uya test --vm tests/test_std_thread.uya`）：
+
+```
+thread_pool_reports_resource_error_when_configured_slots_are_full
+    assert: saw_error == 1                (actual 0)   ← 期望「池满报错」，任务却立即跑完了
+async_compute_i32_queues_when_pool_is_full
+    assert: thread_wait_pending_count(&pool,1) == 1 (actual 0)   ← 期望任务在队列里排队
+async_compute_i32_worker_drains_shared_queue_after_completion
+    同上：期望 pending == 1
+async_compute_i32_binds_completed_queued_slot_after_late_poll
+    同上：期望 pending == 1
+async_compute_i32_completed_queued_slot_is_ready_on_first_late_poll
+    同上：期望 pending == 1
+async_compute_i32_cancelled_queued_slot_returns_cancelled
+    同上：期望 pending == 1
+async_compute_i32_cancelled_running_task_finishes_as_cancelled
+    assert: thread_poll_until_cancelled_i32(...) == 1 (actual 0)  ← 期望「运行中可取消」
+```
+
+**共性非常清楚**：这 7 个用例要求的都是**真并发**才有的语义 ——
+
+1. **任务会排队**（`pending_count == 1`）：串行 VM 里任务一提交就当场跑完，
+   `pending_count` 瞬间回 0，不可能观察到「排队中」；
+2. **池满会报错**：因为任务不排队，永远不会撞上容量上限；
+3. **运行中的任务可以被取消**：串行 VM 里任务在 `submit` 的同一调用栈内就跑完了，
+   没有「运行中」这个可观测窗口。
+
+这些**不是缺陷，是串行模拟架构的固有边界**。要满足它们必须实现真正的
+异步运行时（任务队列 + 独立执行 + 取消挂起点），属于
+「async 运行时重设计」范畴，不是改几处库函数能解决的。
+
+### 收益盘点（为什么现在这 7 个不值得继续硬啃）
+
+| 指标 | 基线 | 现在 |
+| --- | --- | --- |
+| `test_std_thread` 通过数 | 11 | **27** |
+| `test_std_thread` 失败数 | 23 | **7** |
+| `test_std_thread` 是否卡死 | 是（只跑完 3 个） | 否 |
+
+通过数 11 → 27，且不再卡死。剩下的 7 个全部落在「需要真并发」这一组里，
+与文档开头 22 例归类中的「真并发/线程池 11 例」完全吻合。
+
+### 因此下一轮的优先级应该调整
+
+继续啃 `test_std_thread` 剩余 7 个 = 需要 async 运行时重设计（大工程）；
+而下面这些**不一定需要真并发**，更可能有小的、可根治的缺陷：
+
+1. `test_async_frame_pool_full`（VM=1）：期望「frame pool 满时抛出程序错误」，
+   VM 侧没抛 —— 这可能是错误传播链的缺口，与并发无关，值得查；
+2. `test_typed_pipeline_capability`（VM=1）：卡在
+   `pipeline_stage_executes_in_pipeline_topology`，看起来是纯同步管线执行；
+3. `test_std_thread_async_boundary`（VM=3）：边界用例，可能只是断言口径差异；
+4. `test_kernel_sim`（VM=5）：裸汇编 + 内核模拟，与并发无关。
+
+先做这四个，它们的投入产出比明显更高。
