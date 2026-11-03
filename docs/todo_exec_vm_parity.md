@@ -12559,3 +12559,84 @@ C99 侧对应的是 `c99_emit_await_fut_assign_from_expr` + vtable poll，
 `src/codegen/c99/function.uya:7373`）。VM 侧应该保证等价语义。
 
 这一条修好，剩余 17 例里「VM 侧永不 Ready / 卡死」的那一类很可能成组转绿。
+
+### 第 551 轮（根因再收窄）：`@async_fn` **含 `@await`** 的 future 完成后，第 3 次 poll 不再执行 body
+
+三个逐层递进的探针把范围压到了最小：
+
+**1. 无 `@await` 的 `@async_fn`（`/tmp/r77.uya`）——完全正常**
+
+```uya
+@async_fn fn outer() Future<!i32> { return 7; }
+```
+```
+i=0 t=1 v=7
+i=1 t=1 v=7      ← 连续 Ready，正确
+i=2 t=1 v=7
+```
+
+**2. 含 `@await` + 被 await 的 future 用**局部**状态（`/tmp/r76.uya`）——第 2 次就退回 Pending**
+
+**3. 含 `@await` + 被 await 的 future 用**全局**状态（`/tmp/r78.uya`）——结果最有信息量**
+
+```uya
+var g_polls: i32 = 0;
+struct GlobalOnce : Future<!i32> {
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        g_polls = g_polls + 1;
+        if g_polls < 3 { waker.wake(); return Poll<!i32>.Pending({}); }
+        return Poll<!i32>.Ready(42);
+    }
+    ...
+}
+@async_fn fn outer() Future<!i32> {
+    const f: Future<!i32> = GlobalOnce{};
+    const v: i32 = try @await f;
+    return v;
+}
+```
+```
+i=0 t=0 v=0  gp=1     ← 第 1 次 poll：执行到 await，GlobalOnce 返回 Pending
+i=1 t=0 v=0  gp=2     ← 第 2 次：继续，仍 Pending
+i=2 t=1 v=42 gp=3     ← 第 3 次：GlobalOnce 返回 Ready(42)，外层 Ready
+i=3 t=0 v=0  gp=3     ← 第 4 次：又退回 Pending，而且 gp 不再增长
+i=4 t=0 v=0  gp=3
+i=5 t=0 v=0  gp=3
+```
+
+`gp` 停在第 3 步不再增长，说明 **第 4 次 poll 时 body 根本没有被执行**
+（否则 `g_polls` 会继续加）。也就是说外层状态机交回了一个「未完成」的状态。
+
+### 结论
+
+- **无 `@await`** 的 `@async_fn`：VM 正确，完成后持续 Ready；
+- **有 `@await`** 的 `@async_fn`：完成（Ready）之后**再 poll 会退回到 Pending，
+  且不再执行 body**。
+
+这说明 VM 侧 `@async_fn` 状态机的**终态标记没有保存在 future 上**：
+完成之后，后续 poll 走的是「初始状态」那条路，于是永远 Pending。
+
+### 与 C99 的语义对照
+
+C99 侧（`src/codegen/c99/function.uya:7373`）把被 await 的 future 存在状态机字段
+`s->await_fut` 里，每次一律 `vtable->poll(s->await_fut.data, waker)`，
+`if (p._tag == 0) return Pending;`。状态机位置由 `state` 驱动、结果由 poll 返回，
+**完成态是持久的**。
+
+VM 侧需要保证同样的语义：`@async_fn` 的状态机一旦返回过 Ready，
+后续 poll 必须直接返回同一个 Ready，而不是重新走初始状态。
+
+### 这解释了剩余用例里的一大类
+
+`test_std_thread`（VM=137）、三个卡死用例
+（`test_http_uyagin_websocket` / `test_std_dns_async_transport` / `test_tls_rsa`）
+以及 `/tmp/r72` 里「两个任务在 i=1 都正确 Ready、i=2 又全变 Pending」——
+全部是同一个根因：**外层 `@async_fn` future 的完成态不持久**。
+
+### 下一轮切入点（非常明确）
+
+VM 侧 `@async_fn` 的降级在 `src/exec/lower.uya`
+（`@async_fn` 同步降级注释在 `:11228-11231`，`exec_lower_wrap_async_return` 在 `:4197`）。
+需要让「已完成的 future」在 `poll` 时短路返回缓存的 Ready ——
+最可能是状态机缺一个和 C99 `state` 对应的「已完成」标志，
+或者 `BC_RET` 之后 frame 状态被丢弃、下次 poll 重新建帧。
