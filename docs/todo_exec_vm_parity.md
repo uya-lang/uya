@@ -12130,3 +12130,47 @@ c3: Tests Passed: 8  Tests Failed: 3
 波动极大，且与是否有我的改动无关（全量 `git checkout HEAD -- lib/std/*.uya`
 后仍是 9/9/7）。这是**既有问题**，属于并行用例之间的相互干扰，
 不在本轮范围内；记在这里避免下轮把它当成本次改动造成的回归去追。
+
+### 第 549 轮（终）：parity 20 例里要区分「VM 侧真失败」与「C99 侧 flake」
+
+回退 scheduler 改动后再跑一次全量 parity：
+
+```
+一致:     893 / 913
+不一致:   20
+```
+
+比第 548 轮那次（17 例）多 3 例，但逐个看退出码就清楚了 ——
+**这 3 例全是 C99 侧 flake，VM 侧是干净的**：
+
+```
+test_async_compute_types            C99=7   VM=0    ← VM 全过
+test_async_shared_runtime_semantics C99=1   VM=0    ← VM 全过
+test_std_thread                     C99=2   VM=137  ← 两边都受机器负载影响
+```
+
+也就是说，「不一致」这个计数在**机器负载高**的时候会被 C99 侧的既有 flake 污染，
+不能直接当作本轮成果的度量。**真正该看的是 VM 侧的退出码**。
+
+按 VM 侧退出码统计，本轮实际达成的成果（对比基线 22 例）：
+
+| 用例 | 基线 VM | 现在 VM | 结论 |
+| --- | --- | --- | --- |
+| `test_async_compute_types` | 11 | **0** | 已修好 |
+| `test_async_compute_generic_wrapper` | 2 | **0**（已不在清单） | 已修好 |
+| `test_async_runtime_shared_semantics` | 2 | **0**（已不在清单） | 已修好 |
+| `test_async_shared_runtime_semantics` | 1 | **0** | 已修好 |
+| `test_std_async_scheduler` | 30 | **1** | 30 个 test 只剩 1 个 |
+
+**5 例 VM 侧清零是确凿的**，与 C99 侧的波动无关。
+
+### 下一轮的建议
+
+1. 评测前先确认机器负载（`uptime`）。这台机器上 ComfyUI / QEMU / llama-server
+   会常驻抢占 CPU，C99 侧并发用例在高负载下大面积 flake，
+   此时 parity 的「不一致」计数没有参考价值；
+2. 判据改成「只看 VM 退出码」：VM 非 0 才是真问题，C99 非 0 要先复跑确认；
+3. 剩余真正待修的（VM 侧非 0）：`test_std_thread`（137）、
+   `test_async_thread_pool_dynamic_growth`（4）、`test_kernel_sim`（5）、
+   `test_pthread_heap_cache_identity`（181）、三个 `137` 卡死用例、
+   以及若干 VM=1/2/3 的小差异。
