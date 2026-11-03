@@ -10520,3 +10520,106 @@ make check  →  rc=0
 **给后续的建议**：22 例全部指向「串行模拟架构」的边界。若要清零，
 应作为独立任务做「VM 运行期类型标识 / async 运行时重设计」，
 而不是在 `BC_AWAIT` 上继续试错。
+
+---
+
+## 第 542 轮：参照 C99 lowering 修正 `@await` 的 state 读取（推翻第 539 轮「不要再试」结论）
+
+**用户指示**：参考 C99 的 lowering。
+
+### 先纠正第 537/539 轮的两个错误结论
+
+用 `/tmp/r1.uya`（全局计数器统计 `flip_pending()` 调用次数）实测：
+
+```
+p0=0 creates=1
+p1=1 creates=1
+p2=0 creates=1
+```
+
+`creates` 恒为 1 → **操作数只求值一次，不会被重跑**。
+结合 `exec_vm_cont_snapshot`（`vm.uya:8945`）确实逐槽保存 `frame.slots`，
+可以确认：**VM 续体是快照还原式，不是重跑式**。
+第 537/539 轮「重跑式续体，所以读 `state` 是必要幂等设计」的判断是错的，
+据此得出的「不要再试调 poll」也因此失效。
+
+`/tmp/r5.uya` 进一步证明挂起/恢复本来就能工作：
+
+```
+after_call entered=1 left=0    ← 调用时函数体立即执行并停在 await
+p0=0 entered=1 left=0          ← 首次 poll 挂起
+p1=1 entered=1 left=1          ← 第二次 poll 推进到 Ready
+```
+
+### C99 的模型（`src/codegen/c99/function.uya:7373`）
+
+```c
+%s p = ((struct uya_vtable_%s *)s->await_fut.vtable)->poll(s->await_fut.data, waker);
+if (p._tag == 0) { return (...){ ._tag = 0 }; }
+```
+
+要点：future 存进状态机字段 `s->await_fut`（`{vtable, data}`），
+**每次 poll 一律走 vtable 调 `poll`**，`state` 只作为推进位置，从不被当作结果真相。
+能内联时（`c99_async_await_operand_is_inlineable`）直接调内联 `_poll`，语义相同。
+
+### 根因：带 `state` 字段的 Future 的 poll 从不被调用
+
+`/tmp/r13.uya`（`struct Idem { state: Poll<!usize> }`，`poll` 幂等地置 Ready 并返回）：
+
+```
+基线:   p0=0 calls=0 / p1=0 calls=0 / p2=0 calls=0    ← 永远 Pending，poll 一次没调
+```
+
+原因是 `exec_vm_await_find_poll`（`vm.uya:1207`）会递归遍历聚合的所有字段，
+命中初值为 `Poll.Pending` 的 `state` 字段后，`BC_AWAIT` 直接走 tag==0 分支挂起，
+`exec_vm_await_poll_interface_once` 那条真正调用 poll 的路径永远到不了。
+`AsyncWorkerComputeFuture`（`lib/std/thread.uya:1520`）正是这个形态。
+
+### 修复（`src/exec/vm.uya`，10 增 2 删）
+
+`tag == 0` 分支先真的调一次接口 poll，对齐 C99；poll 不可用才维持原挂起行为：
+
+```uya
+} else if poll_data != null && poll_data.tag == 0 {
+    var pending_awaited: ExecValue = exec_make_void();
+    const pending_poll_rc: i32 = exec_vm_await_poll_interface_once(program, slot_b, &pending_awaited);
+    if pending_poll_rc == 0 {
+        slot_a[0] = pending_awaited;
+        return 0;
+    }
+    if exec_vm_await_pass_through_pending(...) != 0 {
+        return exec_vm_cont_suspend(program, function, frame, instr, out_value);
+    }
+```
+
+注意**没有**动 `find_poll`、没有动 `tag == 1` 分支、没有动接口 poll 的判据，
+所以此前 5 个变体打翻的 4 个 replay 类用例不受影响。
+
+### 验证
+
+`/tmp/r13.uya` 修复后：`p0=1 calls=1 / p1=1 calls=1 / p2=1 calls=1` —— 正常推进。
+`/tmp/r5.uya` 修复后不变（`p0=0 → p1=1`）。
+
+4 个历史回归用例**全部 PASS**：
+`test_async_compound_try_await`、`test_async_fd`、`test_async_macro_expand`、`test_async_state_machine`。
+
+`@await` 相关用例全量（68 个文件）：修复前 62/6、修复后 62/6，失败集相同。
+
+**两道门禁**：
+- `make check` → **rc=0 通过**
+- `make exec-parity` → **rc=2，913 例 / 不一致 22（97.6%）**，
+  与基线逐一比对**完全一致**；仅 `test_async_runtime_shared_dns` 在并行负载下
+  抖成 `VM=1` 一次，单跑 3 次全过，且文档早前已记为「已知 DNS 网络 flake」。
+  排除该 flake 后差异清单与基线 `diff` 为空 → **零回归**。
+
+### 结论
+
+这是一个**修复真实缺陷、零回归**的改动，但没有减少 22 例中的任何一个：
+`test_std_thread`（11 OK / 34）、`test_std_async_scheduler`（30 OK / 31）、
+`test_async_compute_types`（0 OK）在修复前后完全相同。
+
+说明这 22 例的成因不在 `@await` 的 state 读取，而在更下游：
+`async_compute` 走的是 `thread_type_is_i32(T)` 宏展开后的路径，
+`/tmp/r12.uya`（手工复刻其嵌套形状）在修复前后都是 `p0=0 p1=0 p2=0`，
+与真实 `async_compute` 的 `p0=1` 表现不同 —— 说明宏展开后的实际形态与推测不一致，
+下一步应从宏展开产物入手，而不是继续在 `BC_AWAIT` 上调整。
