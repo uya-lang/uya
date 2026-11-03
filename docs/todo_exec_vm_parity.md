@@ -9924,3 +9924,55 @@ p1=1 sw1=0 p2=1 sw2=0
 `exec_vm_await_poll_interface_once` 只认接口布局，需要一个
 「struct 类型 → `poll` 方法入口下标」的可查表（lowering 侧登记）。
 这条改动会触及所有 async 用例，必须在门禁空闲时做并全量复测。
+
+### 第 528 轮：✓ 根因链补全——分支 1/2 的 `find_poll` 抢先于 poll，接口形态也逃不掉
+
+上一轮猜「分支 3 只对接口形态有效」，本轮验证后发现**连接口形态也走不到分支 3**。
+
+探针 `/tmp/aw5.uya`：`@await` 的操作数**显式声明成接口** `Future<!i32>`（`f as Future<!i32>`），
+内层 `poll` 里 `g = g + 1`。结果：
+```
+poll0 p=0 g=0
+poll1 p=0 g=0
+poll2 p=0 g=0
+poll3 p=0 g=0
+```
+`g=0` —— **poll 一次都没被调用**。
+
+对照组 `/tmp/aw4.uya`：同一个 `MyF` 转成接口后**直接调** `iface.poll(&w)`，
+得到 `via_iface p=1 g=1` —— **接口方法调用机制本身完全正常**。
+
+所以根因链是：
+```
+BC_AWAIT
+  ├─ exec_vm_await_find_poll(slot_b, 0)          ← 在值里**递归**找任何 Poll union
+  │    ├─ 找到且 tag==1 → 直接取载荷             ← 抢在 poll 之前
+  │    └─ 找到且 tag==0 → 直接挂起               ← 抢在 poll 之前
+  └─ 找不到 → exec_vm_await_poll_interface_once  ← 这才是唯一会真调 poll 的路径
+```
+关键点：`exec_vm_await_find_poll`（`vm.uya:1207`）对
+`EXEC_VALUE_STRUCT`/`EXEC_VALUE_TUPLE` 会**遍历所有字段递归找 union**
+（`vm.uya:1219-1232`），而任何 `Future` 实现都必然带一个 `state: Poll<T>` 字段。
+所以分支 3 **实际上永远不可达**（除非 Future 实现里没有 Poll 字段，那不合法）。
+
+**这三个分支让 `@await` 变成了「读 state 字段」而不是「调 poll」。**
+
+`find_poll` 的另一处用法（`vm.uya:9157`，续体恢复时读已求值结果）是合理的，
+不在本次要改的范围内。
+
+### 修复方案（下一步实施）
+
+把 `BC_AWAIT`（`vm.uya:8517`）的分支 1/2 **删掉**，让 `@await` 统一走 poll 路径。
+需要补的两件事：
+1. `exec_vm_await_poll_interface_once` 目前只认接口布局
+   （`values[0]` 是方法入口、`values[count-1]` 是数据）。具体 struct Future
+   （`AsyncWorkerComputeFuture`、用户的 `MyF`）需要另一条路：在 `@await` 的
+   **lowering** 阶段（`builder.uya:2730` 发 `BC_AWAIT` 处，`c`/`imm` 都空着）
+   把「该静态类型对应的 `poll` 方法下标」填进去，VM 直接用它调
+   `exec_vm_await_poll_once`。lowering 侧已有现成能力：
+   `find_instance_method_in_struct(program_node, struct_name, "poll")`（`lower.uya:3588` 在用）。
+2. 保留「找不到 poll 方法」时回退到读 `state` 字段的旧行为，避免一次性打翻
+   那些靠同步执行通过的 `@async_fn` 用例。
+
+这条改动覆盖面很大（所有 async 用例），必须在 `make exec-parity` 与
+`make check` 都空闲时做，并全量复测。
