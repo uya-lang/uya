@@ -11131,3 +11131,60 @@ SUBST name=T act=0 sname=<null>
 
 本轮到这里为止**没有改动落库**（实验性 patch 已 `git checkout` 还原），
 工作树干净，`bin/uya` 由基线重建。
+
+### 第 546 轮（收尾）：已提交 `AST_TYPE_NAMED` 形参代入修复，`make check` rc=0
+
+**已落库的修复**（`3685be84`）：
+
+`deep_copy_ast_substitute_type_params`（`src/checker/macro_expand.uya:2245`）
+原来只在 `node.type == AST_IDENTIFIER` 时做「类型形参 → 具体类型」代入：
+
+```uya
+if node.type == ASTNodeType.AST_IDENTIFIER && node.identifier_name != null && ... {
+    ... strcmp(type_params[i].name, node.identifier_name) == 0 { return type_args[i]; }
+}
+```
+
+但泛型函数体里 `thread_type_is_i32(T)` 这类宏调用，实参 `T` 在 AST 里是
+**`AST_TYPE_NAMED`**（不是 `AST_IDENTIFIER`）。打点实测：`NAMEDSEEN T` 出现 13 次，
+替换命中 **0 次**。于是 `T` 原样漏进宏展开，宏体里 `@mc_type(T)` 拿到字面 `"T"`，
+`type_id` 停在初值 16，整条 `strcmp(type_name, "i32"/…)` 链全不命中，
+`async_compute<T>` 的 12 个分支全部落空、走到兜底 `sys_close(-1)`（EBADF=9）。
+
+修复后统一取名字：
+
+```uya
+const type_param_candidate: &byte =
+    if node.type == ASTNodeType.AST_IDENTIFIER { node.identifier_name; }
+    else if node.type == ASTNodeType.AST_TYPE_NAMED { node.type_named_name; }
+    else { null; };
+```
+
+打点复核：替换命中 **0 → 13 次**。`make check` **rc=0 通过，无回归**
+（`/tmp/check546.log`）。
+
+### 仍未解决的第二层
+
+替换已生效，但 `create_type_info_struct` 收到的仍是 `name=T`（12 次全为 `T`），
+所以 `async_compute<i32>` 依旧 `err_id=9`。定位到下一处：
+`extract_macro_output_with_params` 的 `@mc_type` 局部绑定环节
+（`src/checker/macro_expand.uya:1974`）：
+
+```uya
+if init.type == ASTNodeType.AST_MC_TYPE && local_binding_count < @len(local_bindings) {
+    const operand: &ASTNode = init.mc_type_operand;
+    const resolved_operand: &ASTNode = deep_copy_ast_with_params(operand, ctx, filename);
+    ...
+    const type_info: &ASTNode = create_type_info_struct(actual_operand, ctx.arena, ...);
+```
+
+`operand` 是宏体里的 `T`（`AST_TYPE_NAMED`），应经 `ctx.bindings`
+（`T` → 调用点实参，此时已是 `i32`）取到具体类型，但打点显示没取到。
+
+下一步就在这一处打点 `ctx.binding_count` / `find_param_binding(ctx,"T")` 的返回值，
+确认是「绑定没带进来」还是「带进来了但 `deep_copy_ast_with_params` 没按
+`AST_TYPE_NAMED` 分支查绑定」。这两者修法不同，但都在同一个函数里，改动面小。
+
+注意：`AST_MC_TYPE` 的 `deep_copy_ast_internal` 分支（`:1459`）在
+`async_compute` 路径上**一次都没被执行**（打点无输出），所以那条分支不是入口；
+真正的入口是上面 `extract_macro_output_with_params` 里的 VAR_DECL 编译期绑定循环。
