@@ -14207,3 +14207,65 @@ test_async_compute_types   c1: 8 通过 / 3 失败
 - 无代码改动（只有一次对照实验，已恢复）；
 - 工作树干净；
 - 核心成果保持：5 例 parity VM 清零、`test_std_thread` 27 通过。
+
+## 第 571 轮（重要发现）：checker 修复对 C99 侧有真实回归，不能简单视为 flake
+
+### 直接 bisect 的结果
+
+用本轮起点提交 `f3c7fe17`（`54b87ef0` 之前）作为基线，逐个对照：
+
+| 代码状态 | C99 `test_async_compute_types` | C99 `test_std_thread` |
+| --- | --- | --- |
+| `f3c7fe17`（本轮起点） | **11 通过 / 0 失败** | **34 / 0** |
+| 当前 HEAD（含全部修复） | 9/2、4/7、7/4（波动，但**总有失败**） | 31~33 / 1~3 |
+| 只回退 checker，保留 thread | 8 / 3 | 34 / 0 |
+| checker + thread 都回退 | **11 / 0** | **34 / 0** |
+
+**结论：`54b87ef0`（泛型 body 宏展开推迟到单态化）让 C99 侧退化了。**
+
+前几轮把它误判为「既有 flake」是**错误的** —— 当时只看到「禁用修复后波动幅度相同」，
+但那几次测量恰好都落在低值，掩盖了 `11/0` 这个稳定基线。
+
+### 为什么
+
+`src/codegen/c99/function.uya:9014` 的白名单只有三个名字：
+
+```uya
+if (... (orig_name == "to_json" || orig_name == "websocket_conn_write_json"
+         || orig_name == "async_compute") && ...) {
+    const expanded = prepare_mono_body_expand_macros(...);   // 单态化时展开
+    if (expanded != null) { body_to_gen = expanded; }
+}
+```
+
+也就是说 **C99 侧的泛型函数（除这三个）本来就依赖声明期的常规宏展开**。
+我把声明期展开关掉之后，它们带着未展开的宏进入代码生成，于是失败。
+
+### 试过的两个修法（都不成立）
+
+1. **去掉 C99 的白名单**（让所有泛型函数都在单态化时展开）
+   → 链接失败：`undefined reference to std_poll_ready_ok`
+   （展开后引用了只在另一条路径生成的函数）。
+
+2. **让 `create_type_info_struct` 在遇到泛型形参时返回 null**
+   （指望宏调用得以保留、留到单态化再展开）
+   → 两侧都退化：C99 7/4、VM **0/11**。
+   因为 `@mc_type` 求不出值时整个宏展开就失败了，调用点原样留着，
+   而 `type_id == 2` 这种比较在运行时没有任何意义。
+
+### 现在的状态与建议
+
+- 当前 HEAD 保持 `54b87ef0`（VM 侧 5 例清零依赖它）；
+- **C99 侧因此有 1~2 个用例退化**（`test_async_compute_types`、
+  `test_async_compute_generic_wrapper`），展现在 `make check` 里；
+- 两个修法都已回退，工作树干净。
+
+**下一轮的正确方向**：需要给 `expand_macros_in_node_simple` 一个
+「当前是否在执行泛型声明期展开」的上下文标记，让它在那种情况下
+**只展开与 `@mc_type` 无关的宏**、把 `@mc_type` 留给单态化；
+而不是像现在这样一刀切地跳过整个 body。
+
+这个思路的难点在于：`@mc_type` 常常嵌在宏体内部（`thread_type_is_i32` 的
+宏体里就有），外层宏必须展开才能看到它 —— 所以不能简单「跳过含 @mc_type 的宏」，
+需要在展开宏体之后、固化 `@mc_type` 之前做判断。这是下一轮要动的地方
+（`extract_macro_output_with_params` 的 `AST_MC_TYPE` 分支 + 局部绑定循环那一处）。
