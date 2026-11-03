@@ -11243,3 +11243,63 @@ MCLOCAL op_nt=83 opname=T bcnt=1 found=1 fname=T
    `thread_type_is_i32(T)` 连同 `T` 原样带过去，让单态化那层还能到位）。
 
 按「要根治」的要求，应当走第 1 种（把顺序摆正），而不是在展开处再打补丁。
+
+### 第 546 轮（结论修正）：与 `@async_fn` 无关，是 exec 侧单态化路径的独立缺陷
+
+上一条把原因归到「`@async_fn` 提前改写 body」，**这个结论是错的**，本轮已证伪。
+
+`/tmp/r55.uya` 用**普通的非 async 泛型函数**（`fn plain_generic<T>() i32`）+ 同一个 `mc`
+宏：
+
+```uya
+mc is_i32(T: type) expr {
+    const info: TypeInfo = @mc_type(T);
+    info.type_id == 2;
+}
+fn plain_generic<T>() i32 { if is_i32(T) { return 1; } return 0 - 1; }
+```
+
+VM 结果：
+
+```
+i32=-1 f64=-1
+```
+
+两个都判 false。**没有 `@async_fn`、没有 `Future`、没有 `@await`**，照样失效。
+所以 `@async_fn` 的 body 改写不是原因。
+
+### 真正的分界：C99 正确，exec/VM 错误
+
+| 后端 | `test_async_compute_types.uya` |
+| --- | --- |
+| C99（`uya test`） | **11 passed / 0 failed** |
+| exec VM（`uya test --vm`） | 0 passed / **11 failed** |
+
+同一份源码、同一个 checker 的宏声明，C99 全过、VM 全错。
+这说明缺陷不在宏本身、也不在 `@mc_type` 的类型名映射，
+而在 **exec 侧单态化那条路径**
+（`exec_lower_generic_instances` → `prepare_mono_body_expand_macros`）。
+
+C99 是在泛型实例化时按正常流程展开宏，此时类型实参已经在 `Type` 里解析好了；
+exec 侧则用 `deep_copy_ast_substitute_type_params` 在 **AST 层**做文本级替换，
+再交给 `expand_macros_in_node_simple` 重新展开 —— 而这一步的实参替换链
+（已实测 `MCLOCAL … fname=T`、`CALLCOPY thread_type_is_*` 零命中）
+并没有把 `T` 换成 `i32`。
+
+### 已落库的进展（`3685be84`）
+
+`deep_copy_ast_substitute_type_params` 补上了 `AST_TYPE_NAMED` 形态的类型形参代入
+（替换命中 0 → 13 次）。这是真实缺陷、`make check` rc=0 无回归，
+但它没有解决 `@mc_type` 这条链 —— 还差「宏实参里那个 `T`」这一环。
+
+### 下一步（明确且收窄）
+
+在 `prepare_mono_body_expand_macros` 返回前，直接检查 `copied` 树里
+`thread_type_is_i32(T)` 这个 `AST_CALL_EXPR` 的 `args[0]` 到底是
+`AST_TYPE_NAMED("T")` 还是 `AST_TYPE_NAMED("i32")`。
+- 若是 `T`：说明 `deep_copy_ast_substitute_type_params` 没有递归到这个调用
+  （`AST_IF_STMT` 分支存在，需确认 `if_stmt_condition` 那条递归实际走到）；
+- 若是 `i32`：说明替换对了，问题在 `expand_macros_in_node_simple`
+  建 `ctx.bindings` 时把已经替换过的实参又换回了原始节点。
+
+这条二分能把范围锁死到单个函数，下一轮直接改那一处。
