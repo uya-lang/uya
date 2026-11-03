@@ -13318,3 +13318,56 @@ epoll 事件上报。VM 里 epoll 是模拟的，没有真正的可读/可写事
 
 **结论：18 例里只剩 2 例（VM 引用悬空）是「可独立攻的记忆体缺陷」，
 其余 16 例都落在架构边界上**（真并发 / 真 IO / 特权指令 / 真线程 / 性能）。
+
+---
+
+## 阶段总结：本轮（第 542~557 轮）的完整交付
+
+### 一、任务要求的三件事
+
+1. **完成 `docs/todo_exec_vm_parity.md` 的修改** —— 4 条根因修复 + 约 3000 行分析文档；
+2. **评估影响范围** —— `make check`（全量）+ `make exec-parity`（三轮全量，
+   分别在 17/21/20 例，差异来自 C99 侧既有 flake）+ 逐用例单点对照实验；
+3. **决单点还是全量验证** —— 已确定并写入文档：
+   **改动落在 `src/exec/` 或 checker 时用全量（影响面宽）；
+   改动落在 `lib/std/thread.uya` 这类运行时模块时，先单点跑 5 个 async 用例，
+   再跑一次全量 parity 收尾。判据只看 VM 侧退出码，不看 parity 总数。**
+
+### 二、4 条根因修复（都有对照实验支撑）
+
+| 提交 | 文件 | 根因 | 效果 |
+| --- | --- | --- | --- |
+| `54b87ef0` | `src/checker/macro_expand.uya` | 泛型函数 body 在单态化前被展开，`@mc_type(T)` 把 `type_id:16` 烤成 `StructInit` 字面量 | `async_compute<T>` 从「立即 EBADF」变为真正提交任务 |
+| `afe27985` | `lib/std/thread.uya` | worker 读到 EAGAIN 就退出，读端关闭 | 队列里的任务被同步跑完 |
+| `3524ce00` | `lib/std/thread.uya` | kick 写管道失败（EPIPE），任务永远排在队列 | 覆盖「任务晚于 worker 退出」的时序 |
+| `ce0cc6c5` | `src/exec/vm.uya` + `frame.uya` | `cont_poll` 完成后 release handle，再 poll 返回 Pending | future 的 poll 幂等，与 C99 语义对齐 |
+
+### 三、量化成果
+
+```
+                                        基线              现在
+test_async_compute_types              0 通过/11 失败    → 11 / 0
+test_async_compute_generic_wrapper    0 / 2             →  2 / 0
+test_async_runtime_shared_semantics   0 / 4             →  4 / 0
+test_std_async_scheduler              0 / 30            → 30 / 1
+test_std_thread                       11 / 23（且卡死）  → 27 / 7（不再卡死）
+parity VM 侧不一致                     22 例             → 18 例（5 例完全清零）
+```
+
+### 四、剩余 18 例的结论
+
+**16 例是架构边界**（真并发 / 真 IO 事件循环 / x86 特权指令 / 真线程 / 性能），
+**2 例是既有内存语义缺陷**（VM 引用悬空），都不是本轮改动引入的
+（每一类都有对照实验：去掉 sync drain 即卡死、回退 checker 结果不变、
+`AsyncFramePoolFull` 在 `src/exec/` 中不存在等）。
+
+按用户「要根治不要修修补补」的要求：这 4 条修复都是根治性的，
+剩下 16 例的根治方案是「async 运行时重设计」，属于独立任务，
+继续在现有串行架构上打补丁只会引入回归（本轮已有 1 项（scheduler deadline）
+因净效果为负被 revert）。
+
+### 五、收口清单状态
+
+- [ ] `uya test --vm` 全量通过 —— **未完成**（剩余 18 例，16 例为架构边界）
+- [ ] `make exec-parity` 全绿 —— **未完成**（18 例不一致，5 例已清零）
+- [ ] 合并 main 并删工作区 —— **按纪律不执行**（22 例未清零不做 `worktree finish`）
