@@ -9793,3 +9793,29 @@ export struct Engine {
 | 裸汇编 | 1 | `kernel_sim`（x86 call gate） |
 | 分配器跨线程 | 1 | `pthread_heap_cache_identity`（串行模式固有） |
 | VM 缺程序错误抛出 | 1 | `async_frame_pool_full` |
+
+### 第 520 轮：`test_async_frame_pool_full` 的修法分析（暂不改，风险高）
+
+实测 `assert failed: got_pool_full`：VM 里 `@async_fn` 的帧池分配失败时**没有**抛出
+`AsyncFramePoolFull`，测试拿到的 future 正常返回了。
+
+链路：
+1. `async_box_alloc_current`（`lib/std/async.uya:94`）在 allocator 的 `alloc` 失败时
+   `catch { return null; }` —— 契约就是「池满返回 null」；
+2. VM 侧 `BC_BOX_VALUE`（`vm.uya:7237`）：
+   ```
+   const boxed_by_alloc = exec_vm_box_value_ref_via_allocator(program, slot_b[0], instr.c);
+   if (boxed_by_alloc.kind == POINTER && address != 0) { slot_a[0] = boxed_by_alloc; }
+   else { slot_a[0] = exec_vm_box_value_ref(slot_b[0], instr.c); }   // ← 静默回退竞技场
+   ```
+   回退本身是**必需的**（很多非 async 上下文里根本没有 allocator，
+   不退回竞技场会大面积回归——这一条第 494 轮试过并回退了）。
+
+正确修法：`exec_vm_box_value_ref_via_allocator` 需要区分三种结果
+「找不到分配器 / 分配器存在但返回 null / 成功」，只在**中间那种**（真池满）
+让 `BC_BOX_VALUE` 报 `AsyncFramePoolFull`。难点是 VM 无法廉价判断
+`get_async_frame_allocator()` 是否为 null —— 得再调一次解释执行侧函数，
+或者让 `async_box_alloc_current` 用一个全局标记区分失败原因。
+
+**本轮不动手**：exec-parity 正在跑，且这是会触及 `BC_BOX_VALUE` 全局行为的改动，
+必须在门禁空闲时做并全量复测。
