@@ -8519,21 +8519,42 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, "exec: AWAIT 槽位越界" as *byte, 0);
             return -1;
         }
-        // `@await f`：Future 只有 `state: Poll<T>` 一个字段；Poll 的 Ready 变体下标是 1
-        // （`union Poll<T> { Pending: void, Ready: T }`）。
-        // VM 里 async 函数同步执行到完成，所以这里只会见到 Ready。
-        const poll_data: &ExecUnionData = exec_vm_await_find_poll(slot_b, 0);
-        if poll_data != null && poll_data.tag == 1 {
-            slot_a[0] = exec_value_clone(&poll_data.payload);
-        } else if poll_data != null && poll_data.tag == 0 {
-            // 明确的 Pending：把当前帧快照成续体返回给调用方（真状态机）。
-            // 调用方每次 poll 都从 `imm`（`@await` 操作数求值起点）重跑这一段。
+        // 接口形态的 Future（`[方法入口下标…, 数据]`，`values[0]` 是 `poll` 入口）
+        // 必须**真的调 poll** 才能推进：`state` 字段只是上一次 poll 的结果缓存，
+        // 不是真相来源。以前这里直接按 `state` 的标签取值/挂起，导致
+        // 依赖 poll 推进的 Future 全部失效（要么永远 Pending，要么立刻 Ready）——
+        // 典型症状是 `async_compute` 首次 poll 就 Ready、线程池 `_started_workers`
+        // 恒为 0（见 docs/todo_exec_vm_parity.md 第 527–530 轮）。
+        // 所以先尝试接口 poll；形态不匹配（具体 struct 字面量等）才退回下面读
+        // `state` 的旧路径，保证靠同步执行通过的用例行为不变。
+        var iface_awaited: ExecValue = exec_make_void();
+        const iface_poll_rc: i32 = exec_vm_await_poll_interface_once(program, slot_b, &iface_awaited);
+        if iface_poll_rc == 0 {
+            slot_a[0] = iface_awaited;
+        } else if iface_poll_rc == 1 {
             if exec_vm_await_pass_through_pending(program, function, frame.slots, function.slot_count, slot_b, out_value) != 0 {
                 return exec_vm_cont_suspend(program, function, frame, instr, out_value);
             }
             exec_backend_set_error(function.decl,
                 "exec: @await 操作数始终 Pending，且当前函数不返回 Future" as *byte, 0);
             return -1;
+        } else if exec_vm_await_find_poll(slot_b, 0) != null {
+            // 下面是旧路径：按 `state: Poll<T>` 字段的当前标签处理。
+            // `@await f`：Future 只有 `state: Poll<T>` 一个字段；Poll 的 Ready 变体下标是 1
+            // （`union Poll<T> { Pending: void, Ready: T }`）。
+            const poll_data: &ExecUnionData = exec_vm_await_find_poll(slot_b, 0);
+            if poll_data != null && poll_data.tag == 1 {
+                slot_a[0] = exec_value_clone(&poll_data.payload);
+            } else if poll_data != null && poll_data.tag == 0 {
+                // 明确的 Pending：把当前帧快照成续体返回给调用方（真状态机）。
+                // 调用方每次 poll 都从 `imm`（`@await` 操作数求值起点）重跑这一段。
+                if exec_vm_await_pass_through_pending(program, function, frame.slots, function.slot_count, slot_b, out_value) != 0 {
+                    return exec_vm_cont_suspend(program, function, frame, instr, out_value);
+                }
+                exec_backend_set_error(function.decl,
+                    "exec: @await 操作数始终 Pending，且当前函数不返回 Future" as *byte, 0);
+                return -1;
+            }
         } else {
             // 自己实现 poll 的 Future：**先只 poll 一次**。
             // async 帧里 Pending 就是「挂起」，由调用方下次 poll 再推进；
