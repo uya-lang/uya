@@ -11353,3 +11353,87 @@ if exec_lower_mono_body_needs_macro_expand(fn_decl.fn_decl_name) == 0 {
 （可能被内联退化或在 `copied == null` 之前就返回了）；下一轮要先把探针的
 「无条件首行打点」打出来，确认探针可达，再逐层收紧条件，
 不要在不确定探针是否生效的情况下解读「无输出」。
+
+## 第 547 轮：根治 —— 泛型函数 body 的宏展开必须在单态化时做
+
+### 真正的根因（前几轮一直没抓到的最后一层）
+
+`expand_macros_in_node_simple`（`src/checker/macro_expand.uya:4170`）的
+`AST_FN_DECL` 分支**对 body 无条件展开**：
+
+```uya
+} else if node.type == ASTNodeType.AST_FN_DECL {
+    expand_macros_in_node_simple(checker, &node.fn_decl_return_type);
+    ...
+    expand_macros_in_node_simple(checker, &node.fn_decl_body);   // ← 泛型函数也走这里
+}
+```
+
+泛型函数在这一步展开时，**类型实参还没代入**。于是 `thread_type_is_i32(T)`
+宏体里的 `const info: TypeInfo = @mc_type(T);` 求出的是「T 未知」的
+`TypeInfo{type_id: 16}`，并被 `create_type_info_struct` **固化成
+`AST_STRUCT_INIT` 字面量**写回 AST。
+
+打点实测（`/tmp/r49.uya`，检查 `prepare_mono_body_expand_macros` 拿到的 body）：
+
+```
+STMT[0..11] nt=15 cond_nt=27        ← 12 条 if，condition 全是 AST_BINARY_EXPR
+BIN[0] lnt=31 objnt=34 field=type_id rval=2
+BIN[1] lnt=31 objnt=34 field=type_id rval=7
+...
+```
+
+- `nt=15` = `AST_IF_STMT`，`cond_nt=27` = `AST_BINARY_EXPR`
+- `lnt=31` = `AST_MEMBER_ACCESS`，`objnt=34` = **`AST_STRUCT_INIT`**，`field=type_id`
+- `rval` = 2 / 7 / 6 / 3 … 对应各分支期望的 type_id
+
+也就是说，条件在进入单态化之前就已经是
+`StructInit{type_id:16}.type_id == 2` 这样的固化了，
+**`T` 在 AST 里已经彻底消失**。此后无论怎么代入 `T`、怎么补
+`deep_copy_ast_substitute_type_params` 都无济于事 —— 这正是前几轮反复碰壁的原因。
+
+### 修复
+
+`fn_decl_type_param_count > 0` 时跳过 body 展开，留给
+`prepare_mono_body_expand_macros` 在单态化时按具体类型实参展开：
+
+```uya
+if node.fn_decl_type_param_count <= 0 {
+    expand_macros_in_node_simple(checker, &node.fn_decl_body);
+}
+```
+
+### 效果
+
+| 探针 | 修复前 | 修复后 |
+| --- | --- | --- |
+| `/tmp/r49.uya` `async_compute<i32>` | `tag=1 err_id=9`（立即 EBADF） | `tag=0`（**Pending**） |
+| `/tmp/r50.uya` `async_compute<usize>` | `tag=1 err_id=9` | `tag=0`（**Pending**） |
+| `/tmp/r57.uya` 轮询循环 | — | `sw=1`（**worker 成功启动**）、持续 Pending |
+| `/tmp/r52.uya` 非泛型对照 | `i32=1 f64=0` | `i32=1 f64=0`（不变） |
+
+`async_compute` 终于真正走到「提交任务 → 挂起等待」这条路上，
+worker 也成功起来了（`thread_pool_started_workers=1`）。
+
+**`make check` rc=0，零回归**（`/tmp/check_fix.log`）。
+
+### 影响范围评估（本轮任务要求）
+
+改动点在 checker 的通用宏展开器，只影响 `fn_decl_type_param_count > 0` 的
+泛型函数：它们的 body 不再在声明期展开，改由单态化路径展开。
+- 非泛型函数：完全不受影响（条件不成立）；
+- 泛型函数：从「声明期用未解析的 T 展开一次」变为「单态化时用具体类型展开一次」，
+  后者是唯一正确的时机；C99 侧本来就有 `prepare_mono_body_expand_macros`
+  这条单态化展开路径，因此两侧行为对齐。
+
+### 剩下的问题（下一轮）
+
+修复后暴露了两个更靠后的问题，都不在 checker：
+
+1. `tests/test_async_compute_types.uya` 在 VM 下 **段错误（rc=139）** ——
+   单态体终于被执行到了，暴露出 exec lowering / 运行期的崩溃点；
+2. 轮询探针持续 Pending、任务不被消费 —— 即第 545 轮已定位但未采用的
+   「`thread_worker_loop` 拿到 `-EAGAIN` 就 `break`」问题
+   （stash@{0}: drain-on-eagain）。
+
+先修第 2 个（有现成 stash 与打点结论），再处理第 1 个的段错误。
