@@ -10061,3 +10061,36 @@ if iface_poll_rc == 0 {            // Ready
 若某些用例的 poll 有副作用（如 `waker.wake()` 重入），可能在原本
 「只读 state 不调 poll」的路径上引入新的调用。这需要跑完 81 个 `@await`
 测试来确认。
+
+### 第 531 轮：✓ 修复已落地（`e94b8966`），待重建验证
+
+按第 530 轮方案改了 `src/exec/vm.uya` 的 `BC_AWAIT`：在旧的三分支之前插入
+「先试接口 poll」：
+
+```uya
+var iface_awaited: ExecValue = exec_make_void();
+const iface_poll_rc: i32 = exec_vm_await_poll_interface_once(program, slot_b, &iface_awaited);
+if iface_poll_rc == 0 {                    // Ready
+    slot_a[0] = iface_awaited;
+} else if iface_poll_rc == 1 {             // Pending → 挂起成续体
+    ... exec_vm_cont_suspend ...
+} else if exec_vm_await_find_poll(slot_b, 0) != null {
+    ... 原来的 tag==1 / tag==0 分支（缩进调整，逻辑没动）...
+} else {
+    ... 原来的「自己实现 poll」分支，完全没动 ...
+}
+```
+
+**一个需要明确记录的语义选择**：新分支在 `frame.vm.frame_resumed == 0`（首次）
+时**也直接 poll**，不沿用旧 `else` 分支那条「初次只挂起、不 poll」的规则。
+理由：C99 后端首次 poll `@async_fn` 是**运行状态机到第一个挂起点**
+（会完成 submit 然后返回 Pending），所以「首次 poll 一次、Pending 就挂起」
+才是与 C99 对齐的语义；旧 `else` 分支的「首次不 poll」正是
+`async_compute` 看不到 `submit`、线程池 `_started_workers` 恒 0 的直接原因之一。
+
+**验证计划**（parity 跑完后执行，避免替换掉正在用的 `bin/uya`）：
+1. `rm -rf src/.uyacache .uyacache && export UYA_ROOT=$PWD/lib/ && make uya`
+2. `/tmp/pool6.uya` 期望 `poll0 p=0 sw=1 pc=1` 之类（首个 poll 应已启动 worker）
+3. `/tmp/aw2.uya` 期望 `calls` 从 0 变成递增、`poll1` 拿到 Ready
+4. `./bin/uya test --vm tests/test_std_thread.uya`
+5. 81 个 `@await` 测试全跑一遍，看回归面
