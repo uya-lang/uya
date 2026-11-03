@@ -13949,3 +13949,54 @@ VM 很可能没有为它铺出逐元素的 `ExecValue`（`values == null` → `t
 
 至此剩余 18 例的定性**全部完成**：16 例是架构边界，2 例是「含接口大数组的
 惰性聚合化」缺失（同一根因，本轮已彻底查清）。
+
+---
+
+## 全局收尾：18 例全部定性完成
+
+经过第 542~567 轮的持续排查，parity 剩余的 18 例已经**每一例都有代码级证据**
+说明其性质。按「能否靠改代码解决」分成两类：
+
+### A 类：VM 运行期模型扩展（16 例，需要独立任务）
+
+| 性质 | 用例 | 证据 |
+| --- | --- | --- |
+| 真并发（排队/池满/运行中取消） | `test_std_thread`(7)、`thread_async_boundary`(2)、`compute_dynamic_resource_pressure`(1)、`thread_pool_dynamic_growth`(4) | 去掉 sync drain 即卡死；保留则 `pending_count` 瞬间归零（第 555 轮决定性实验） |
+| 真 IO 事件循环 | `test_std_dns_async_transport`、`test_http_uyagin_websocket`、`test_tls_async_runtime_io` | 卡在 `dns_query_all_async_any_tcp_fallback` / epoll 兴趣注册 |
+| x86 特权指令 | `test_kernel_sim`(5) | 全是 call gate / trampoline，`loaded_exit_code` 恒 0 |
+| 含接口大数组的惰性聚合化 | `test_http_uyagin`、`test_typed_pipeline_capability` | `self.routes[idx]`（1024 × `GinRoute`，含接口字段）`tgtagg=-1`，而纯值数组 `route_meta` 的 `tgtagg=1024`（第 567 轮） |
+| 真线程堆生命周期 | `test_pthread_heap_cache_identity` | 需引用计数 / 延迟回收 |
+| 架构差异 | `test_async_frame_pool_full` | `AsyncFramePoolFull` 在 `src/exec/` 中根本不存在 |
+| 解释执行性能 | `test_tls_rsa`(137)、`test_tls_ecdsa`(894s) | RSA/ECDSA 大数运算 15 分钟未完成 |
+| 已知 flake | `test_async_runtime_shared_dns` | 文档早先已记录 |
+
+### B 类：本轮已根治（5 例，全部清零）
+
+`test_async_compute_types`、`test_async_compute_generic_wrapper`、
+`test_async_runtime_shared_semantics`、`test_async_shared_runtime_semantics`、
+`test_std_async_scheduler`。
+
+### 本轮交付的 5 条代码提交
+
+| 提交 | 文件 | 作用 |
+| --- | --- | --- |
+| `54b87ef0` | `src/checker/macro_expand.uya` | 泛型 body 宏展开推迟到单态化 |
+| `afe27985` | `lib/std/thread.uya` | worker 退出前同步 drain |
+| `3524ce00` | `lib/std/thread.uya` | kick 写管道失败时同步消费 |
+| `ce0cc6c5` | `src/exec/vm.uya` + `frame.uya` | 续体完成态缓存，poll 幂等 |
+| `b96166e9` | `src/exec/vm.uya` | `ADDR_INDEX` 错误带完整上下文 |
+
+### 任务要求的三件事，完成情况
+
+1. **完成文档修改** —— ✅ 约 4000 行新增分析，覆盖每一轮的假设、实验、结论与订正；
+2. **评估影响范围** —— ✅ 全量 `make check` + 三轮全量 `make exec-parity` + 每类都有单点对照实验；
+3. **决单点还是全量验证** —— ✅ 已写入文档：
+   改 `src/exec/` 或 checker → 全量（影响面宽）；
+   改 `lib/std/*.uya` 运行时模块 → 先单点跑 5 个 async 用例再全量收尾；
+   **判据只看 VM 侧退出码**（C99 侧有既有 flake，会污染 parity 计数）。
+
+### 收口清单
+
+- [ ] `uya test --vm` 全量通过 —— 未完成（16 例需 VM 运行期模型扩展）
+- [ ] `make exec-parity` 全绿 —— 未完成（5 例已清零，剩 18 例已全部定性）
+- [ ] 合并 main —— 按纪律不执行（未清零不做 `worktree finish`）
