@@ -10762,3 +10762,40 @@ exec runtime: lib/tls/crypto/ec_p384.uya:588:1:
 894s 与 900s 之间的 6 秒差额是评测机噪声（当时 `load average` 在 3.8–24.5 之间波动），
 不是本改动引入。恢复后复测：`/tmp/r26.uya` 从 rc=137 死锁变为 rc=0；
 `/tmp/r5.uya` 仍是 `p0=0 → p1=1`；4 个 replay 类用例全部 PASS。
+
+### 第 543 轮最终验证（带两个修复的干净基线）
+
+- `make check` → **rc=0 通过**
+- `make exec-parity` → **rc=2，913 例 / 不一致 22（97.6%）**
+  - 不一致清单与基线 `diff` **完全为空** → 零回归
+  - `test_tls_ecdsa` / `test_tls_rsa` 均正常跑完全程（未超时），
+    再次印证 read 改动对不用线程的用例零开销
+
+### 本轮（第 542–543 轮）净产出
+
+**修复（2 个，均有零回归验证）**
+
+1. `b9274339` `@await` 在 `state` 字段为 Pending 时先真调一次接口 poll
+   （对齐 C99 的 `await_fut.vtable->poll(...)`）。
+   修复「带 `state: Poll<T>` 字段的 Future 的 poll 从不被调用」——
+   `/tmp/r13.uya` 从 `p0=0 calls=0`（永远 Pending）变为 `p0=1 calls=1`。
+2. `ffb6fdbd`/`20d2a4f7` 串行线程体窗口内的 `read` 改为 `sys_poll` 探测 + 非阻塞。
+   修复 ThreadPool worker 的阻塞读死锁 —— `/tmp/r26.uya` 从 rc=137 卡死变为 rc=0。
+
+**认知纠正（推翻此前多条结论）**
+
+- 第 537/539 轮「VM 续体是重跑式、`state` 是必要幂等设计」→ **错**。
+  `/tmp/r1.uya` 的 `creates` 恒为 1，证明操作数只求值一次，续体是快照还原式。
+- 第 542 轮据此恢复的「让 `@await` 调 poll」方向是对的，且能零回归落地。
+- 22 例的成因**不在** `@await` 层，而在 thread pool / 网络 / 大聚合等运行时边界。
+
+**根因定位（第 543 轮，对后续重设计最关键的产出）**
+
+22 例中的 11 个线程池类源于同一个机制：
+`vm.uya:46` 明写「解释器没有并发，`pthread_create` 是当场把 routine 跑完」；
+而 `ThreadPool` 的 worker（`lib/std/thread.uya:698`）是无限循环、第一句就阻塞读命令管道。
+两者相遇即死锁。
+彻底根治需要把「当场跑完」改成「跑一段 + 挂起 + 恢复」（复用
+`exec_vm_cont_suspend` / `exec_vm_cont_poll`），本轮的 read 改造只是消除了死锁表象，
+worker 能起来了，但 `async_compute` 的 `@await` 仍是首轮 Ready（`p0=1 sw=0 pc=0`），
+说明宏展开后的实际形态还没对上，是下一步的入口。
