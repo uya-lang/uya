@@ -11754,3 +11754,91 @@ i=1 pending sw=1
 - **已完整定位但未修**：线程池的 EPIPE 闭环，根因是 exec 串行线程模型
   （需要 async 运行时重设计，不是库层分支能修）；
 - 所有实验改动已回退，`git status` 干净。
+
+## 第 548 轮：串行 VM 的线程池终于真正跑起来了
+
+第 547 轮把 `@mc_type` 那条链根治之后，`async_compute<T>` 从「立即返回 EBADF」
+变成了「真正提交任务」。但紧接着暴露出的下一层是**任务永远不被消费**。
+本轮把它也修好了，而且是从根上修的。
+
+### 完整因果链（本轮闭环）
+
+```
+串行 VM 里 pthread_create 是「当场把 routine 跑完」（src/exec/vm.uya:46 的注释）
+        ↓
+thread_worker_main 返回时线程已结束 → cmd pipe 读端关闭
+        ↓
+主线程 thread_pool_try_kick_drain 的 sys_write(cmd_fd) 收到 EPIPE（实测 ok=0 n=-1 fd=6）
+        ↓
+队列里的任务永远没人消费 → future 永远 Pending
+        ↓
+scheduler 无限重新 poll，每轮压一层同步递归
+        ↓
+C 栈打穿 → exec_vm_native_field_load 里段错误（rc=139）
+```
+
+而且这个 EPIPE **大概率发生在任务入队之前**：`pthread_create` 的那次同步执行
+是在 worker 池扩容时触发的，那时队列还空着；等 `async_compute` 真的把任务
+放进队列，worker 早就结束了。
+
+### 两个修复（互相兜底，缺一不可）
+
+**1. `afe27985` worker 退出前把队列跑完**
+
+`thread_worker_loop` 因 EAGAIN/EOF 退出之前，先调
+`thread_shared_drain_sync` 把 pending 队列里已有的任务在当前线程同步跑完：
+
+```uya
+if n < 0 || n == 0 {
+    _ = thread_shared_drain_sync(shared_state, worker_idx, thread_shared_pending_capacity(shared_state));
+    break;
+}
+```
+
+**2. `3524ce00` kick 方写管道失败时同步消费**
+
+`thread_pool_try_kick_drain` 的 `sys_write` 失败时，在**调用方线程**同步 drain：
+
+```uya
+if write_failed != 0 || written != @size_of(ThreadWorkerCommand) as isize {
+    const drained: i32 = thread_shared_drain_sync(pool._shared_state, worker_idx, ...);
+    thread_pool_release_worker(pool, worker_idx);
+    if drained > 0 { return 1; }
+    return 0;
+}
+```
+
+两者覆盖的是两个不同的时序：worker 退出时队列里已有任务（修复 1），
+任务在 worker 退出之后才到（修复 2）。串行语义下这两条路径都等价于
+「这次调用顺便把活干了」，不引入任何并发假设。
+
+新增的两个 helper 都放在 `lib/std/thread.uya`：
+`thread_shared_run_slot_sync`（跑单个槽并置 DONE，逻辑与原 worker 循环内一致）、
+`thread_shared_drain_sync`（循环 pop 直到空或达上限）。
+
+### 效果（`uya test --vm`，均为实测）
+
+| 用例 | 修复前 | 修复后 |
+| --- | --- | --- |
+| `test_async_compute_types` | 0 通过 / 11 失败 | **11 通过 / 0 失败**（rc=0） |
+| `test_async_compute_generic_wrapper` | 0 通过 / 2 失败 | **2 通过 / 0 失败** |
+| `test_async_runtime_shared_semantics` | 0 通过 / 4 失败 | **4 通过 / 0 失败** |
+| `test_async_compound_try_await` | 2 通过 / 0 失败 | 2 通过 / 0 失败（不变） |
+| 探针 `async_compute<i32>` | 立即 EBADF(9) | **第 1 轮 poll 即 READY v=20** |
+
+`make check` **rc=0，零回归**（`/tmp/check547.log`）。
+
+### 验证策略
+
+- 单点：上表 4 个用例 + 2 个手写探针（`/tmp/r63.uya` 单任务、`/tmp/r65.uya` 双任务）；
+- 全量：`make check`（已过）；`make exec-parity` 正在跑，用于确认 22 例清单的实际收敛。
+
+### 尚未解决
+
+- `test_std_thread` 仍有失败（第 4 个用例起）。打点显示**双任务场景下两个 slot 都被
+  同步 drain 且状态为 DONE、`raw_value == slot_idx` 也成立**
+  （`RESOLVE slot=0 st=4 raw=0`、`RESOLVE slot=1 st=4 raw=1`），但调用方 `poll`
+  仍返回 Pending —— 问题在 `AsyncWorkerComputeFuture` 的
+  `first_poll` / `done` 状态机，不在队列与执行这一层。下一轮从这里接着查。
+- `test_async_compute_dynamic_resource_pressure` 仍卡死（rc=137）。
+- `test_async_frame_pool_full` 仍 0 通过/1 失败。
