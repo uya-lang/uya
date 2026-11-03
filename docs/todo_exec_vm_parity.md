@@ -11011,3 +11011,79 @@ expand_macros_in_node_simple(checker, &ptr);
 下一步要对比这两条路径的差异（尤其是 `deep_copy_ast_substitute_type_params`
 之后 `if` 条件里的 `AST_CALL_EXPR` 是否还认得出 `mc` 声明），
 而不是继续在 thread pool 或 `BC_AWAIT` 一侧调整。
+
+## 第 546 轮（续）：根因落到 `@mc_type(T)` 在单态体里拿到字面 `"T"`
+
+第 546 轮前半把问题收敛到「`async_compute<T>` 的 12 个 `mc` 宏分支全判 false、
+落兜底返回 EBADF(9)」。本轮把最后一层也钉死了。
+
+### 最小复现（脱离 std.thread，可独立跑）
+
+`/tmp/r52.uya`（非泛型）与 `/tmp/r53.uya`（泛型 `@async_fn`）用**完全相同**的宏：
+
+```uya
+mc my_is_i32(T: type) expr {
+    const info: TypeInfo = @mc_type(T);
+    info.type_id == 2;
+}
+```
+
+| 探针 | 上下文 | 结果 |
+| --- | --- | --- |
+| `/tmp/r52.uya` | 普通函数里 `if my_is_i32(i32)` / `if my_is_i32(f64)` | `i32=1 f64=0` —— **正确** |
+| `/tmp/r53.uya` | `@async_fn fn generic_user<T>` 里 `if my_is_i32(T)` | `tag=1 val=-1` —— **判 false，落兜底** |
+
+### 打点定位
+
+在 `create_type_info_struct`（`src/checker/macro_expand.uya:286`）里打印
+`get_type_name_from_ast` 拿到的名字：
+
+```
+非泛型： TINFO node_type=41 name=i32        ← 41 = AST_TYPE_NAMED
+         TINFO node_type=41 name=f64
+泛型：   TINFO node_type=41 name=T          ← 类型形参名原样传进来了
+         TINFO node_type=41 name=T
+```
+
+也就是说：**单态化路径下，宏体里的 `@mc_type(T)` 拿到的操作数仍是字面
+`AST_IDENTIFIER("T")`，而不是替换后的 `AST_TYPE_NAMED("i32")`。**
+`type_name` 成了 `"T"`，`create_type_info_struct` 的整条
+`strcmp(type_name, "i32"/"i64"/...)` 链全部不命中，`type_id` 保持初值 16，
+于是 `type_id == 2` 恒为 false。
+
+### 链路
+
+`exec_lower_generic_instances`（`src/exec/lower.uya:5856`）里：
+
+```uya
+checker.subst_active = 1;
+checker.subst_name = param_name;          // "T"
+checker.subst_type = copy_type(&inst.type_args[0]);
+const mono_body = exec_lower_mono_body_for_instance(checker, fn_decl, inst);
+```
+
+→ `prepare_mono_body_expand_macros`（`src/checker/macro_expand.uya:2459`）：
+
+```uya
+const copied = deep_copy_ast_substitute_type_params(body, type_params, type_param_count, type_args, type_arg_count, ...);
+expand_macros_in_node_simple(checker, &ptr);
+```
+
+`deep_copy_ast_substitute_type_params` 会把 body 里**直接出现**的 `T`
+（也就是 `thread_type_is_i32(T)` 那个实参）替换成 `type_args[i]`。
+但宏体内的 `@mc_type(T)` 是**展开时才产生的节点**，
+`extract_macro_output_with_params` 重新按 `merged_ctx` 复制宏体，
+这一步没有再代入 `subst_type`，于是 `"T"` 原样留着。
+
+### 修复方向
+
+让 `create_type_info_struct`（或 `extract_macro_output_with_params` 里处理
+`AST_MC_TYPE` 的分支，`src/checker/macro_expand.uya:2067`）在
+`get_type_name_from_ast` 返回的正是当前类型形参名时，改用
+`checker.subst_type` 对应的具体类型名。
+
+即：把「类型形参名 → 具体类型」的代入补到 `@mc_type` 这一层，
+而不是只补在 body 的直接 AST 上。
+
+改动面很小（一处名字解析回退），且不动 `@await` / thread pool / VM 任何一侧，
+是下一轮的首选入口。
