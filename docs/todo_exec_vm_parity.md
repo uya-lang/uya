@@ -9878,3 +9878,49 @@ p1=1 sw1=0 p2=1 sw2=0
    union/Ready 值，就会误判；
 2. `async_compute` 是 `@async_fn` 包 `@await`，嵌套两层时续体快照
    （`exec_vm_cont_suspend`）可能在**外层**把内层的 Pending 吞掉。
+
+### 第 527 轮：✓ 定位到根因——VM 的 `@await` **从不调用 Future 的 `poll()`**
+
+用两个只差一个字的探针做了**对照实验**（`/tmp/aw2.uya` / `/tmp/aw3.uya`），
+自定义一个 `MyF : Future<!i32>`，它的 `poll` 里给全局 `g_calls` 加一：
+
+| `MyF.state` 初值 | 3 次 poll 结果 | 内层 `poll` 被调用次数 |
+|---|---|---|
+| `Poll<!i32>.Pending({})` | `p=0 p=0 p=0`（永远 Pending） | **`calls=0`** |
+| `Poll<!i32>.Ready(99)`      | `p=1 p=1 p=1`（首次就 Ready） | **`calls=0`** |
+
+**结论**：`@await f` 在 VM 里根本**不调用 `f.poll(&waker)`**，它只是
+`exec_vm_await_find_poll`（`vm.uya:1207`）在 Future 值里递归找出那个
+`state: Poll<T>` union，然后按它的**当前标签**办事：
+- `tag == 1` → 直接取载荷当结果；
+- `tag == 0` → 直接 `exec_vm_cont_suspend` 挂起。
+
+所以 `state` 字段从「poll 结果的缓存」被误用成了「真相来源」。任何依赖
+`poll()` 推进的 Future 在 VM 里必然坏掉——要么永远 Pending，要么立刻 Ready，
+取决于是 struct 字面量时 `state` 初始化成什么。
+
+`BC_AWAIT`（`vm.uya:8517`）的三分支结构就是这个问题的完整形态：
+
+| 分支 | 条件 | 行为 | 问题 |
+|---|---|---|---|
+| 1 | `find_poll` 返回 union 且 `tag==1` | 直接取载荷 | **不 poll** |
+| 2 | `find_poll` 返回 union 且 `tag==0` | 直接挂起 | **不 poll** |
+| 3 | `find_poll` 返回 null | 才走 `exec_vm_await_poll_interface_once` | 只在**接口形态** Future 上有效 |
+
+分支 3 的有效范围很窄：`exec_vm_await_poll_interface_once`（`vm.uya:1306`）只认
+`[方法入口下标…, 数据]` 的接口布局（`values[0]` 是入口、`values[count-1]` 是数据），
+**具体 struct Future（像 `AsyncWorkerComputeFuture`、`MyF`）完全走不到这条路**。
+
+**这解释了剩余绝大多数失败**：
+- `test_std_thread`：`AsyncWorkerComputeFuture.state` 初值 Pending →
+  但 `async_compute` 是 `@async_fn` 包 `@await`，外层 future 的 `state` 被
+  内层的求值结果写成 Ready，于是 `p1=1 sw=0 pc=0`；
+- `test_async_*` 系列里凡是依赖「第一次 poll 返回 Pending、第二次才 Ready」
+  的用例都会错；
+- `test_pthread_api_cancel` 之类依赖挂起语义的也不会对。
+
+**正确的修法**（未实施）：`tag == 0` 分支不能直接挂起，必须像分支 3 那样
+**调用 Future 自己的 `poll`**。难点是具体 struct Future 的方法下标：
+`exec_vm_await_poll_interface_once` 只认接口布局，需要一个
+「struct 类型 → `poll` 方法入口下标」的可查表（lowering 侧登记）。
+这条改动会触及所有 async 用例，必须在门禁空闲时做并全量复测。
