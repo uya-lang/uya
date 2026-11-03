@@ -20,6 +20,7 @@ use libc.POLLOUT;
 use libc.sprintf;
 use libc.snprintf;
 use libc.write;
+use libc.read_bytes_fd;
 use libc.strlen;
 use libc.fflush;
 use libc.fopen;
@@ -4633,6 +4634,34 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
     if arg_count > 6 {
         exec_backend_set_error(function.decl, "exec: syscall 参数数量非法" as *byte, 0);
         return -1;
+    }
+    // 串行模拟线程体（`pthread_create` 当场执行 routine 的那段窗口，见
+    // `g_exec_vm_thread_body_budget`）里不允许出现**会阻塞的 read**：
+    // ThreadPool 的 worker 是 `thread_worker_loop`，第一句就是阻塞读命令管道
+    // （`lib/std/thread.uya:702`）。串行模式下这段阻塞发生在 create 内部，
+    // 父线程永远回不来 —— 线程池用例（`test_std_thread` 等 11 例）就是卡在这里。
+    // 处理：把该窗口内的 read 改成非阻塞 read；没有数据就回 -EAGAIN，
+    // 让 worker 循环能按「暂时没命令」继续轮转，而不是把整个进程拖死。
+    if g_exec_vm_thread_body_budget > 0i64 && nr_value == 0i64 && arg_count >= 3 {
+        const rfd: i32 = args[0] as i32;
+        const rbuf: &byte = @ptr_from_usize(args[1] as usize) as &byte;
+        const rcount: usize = args[2] as usize;
+        // 先用 0 超时 poll 探一次：不可读就直接回 -EAGAIN(11)，绝不进阻塞 read。
+        // 不用改 fd 的 O_NONBLOCK 标志，避免污染父线程后续的阻塞语义。
+        var probe: [PollFd: 1] = [];
+        probe[0] = PollFd{ fd: rfd, events: POLLIN, revents: 0 };
+        const poll_res: !i32 = sys_poll(&probe[0], 1, 0);
+        const ready: i32 = poll_res catch { 0; };
+        var read_raw: ExecValue = exec_make_i64(0i64);
+        if ready <= 0 {
+            read_raw = exec_make_i64(0i64 - 11i64);
+        } else {
+            const nread: i64 = read_bytes_fd(rbuf, rcount, rfd as i64);
+            read_raw = exec_make_i64(nread);
+        }
+        const read_cast: ExecValue = exec_vm_cast_value(read_raw, target_kind, target_pointee_kind);
+        out_value[0] = exec_make_error_union_ok(read_cast);
+        return 0;
     }
     // clone 出来的线程与父线程共享地址空间，却会各自持有解释器状态，
     // 父线程等待子线程就永远等不到（普查里表现为整例超时）。fork/vfork 是
