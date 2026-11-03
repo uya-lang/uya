@@ -9502,3 +9502,35 @@ gdb 三次抓到同一个现场：
 
 **真线程稳定性实测**：`test_pthread_heap_concurrency` 由 0/6 通过改善到 2/8 通过，
 间歇段错误仍在。默认路径 census 887/22 逐项与基线一致。
+
+### 第 508 轮：串行模式「create 当场执行」的语义冲突（两个用例互相排斥）
+
+**已定位的确定性 bug**
+`test_pthread_heap_concurrency` 在**默认（串行）模式**下稳定返回 139，不是 flake。
+拆开退出码约定后确认：139 = `40 +| 99`，而 99 正是 `WorkerState.status` 的**初始值** ——
+说明 8 个 worker **一个都没执行**，status 从未被写回。
+最小复现 `/tmp/argarr2.uya`（create → 置 `g_start=1` → join）→ `bad=8 s0=99`。
+
+**根因**
+串行模式在 `pthread_create` 里**同步跑完线程体**。而 worker 的第一句是
+`while g_start == 0 { }`，`g_start` 要等 create 返回后父线程才置 1 →
+create 里跑线程体必然死等/耗尽预算，worker 写回不了 status。
+这是「串行模拟并发」与 pthread 语义（create 返回后线程「可能正在跑」）的**固有冲突**。
+
+**尝试过的修法（已实现并验证有效，但已回退）**
+把 create 改成只登记 routine+arg，真正执行推迟到 `pthread_join`
+（新增 `exec_vm_thread_routine/arg/pending` 三个槽 +
+`exec_vm_run_deferred_thread`）。效果：
+- `test_pthread_heap_concurrency` **3/3 全过**（此前稳定 139）；
+- 最小复现 `bad=8 s0=99` → **`bad=0 s0=0`**。
+
+**为什么回退**
+推迟到 join 会破坏另一个用例：`test_pthread_api_cancel` 的 worker 第一句是
+`_cancel_started = 1`，主线程紧跟 `while _cancel_started == 0 { pthread_yield(); }`。
+worker 若推迟到 join 才跑，主线程这个循环**永远等不到**，测试 137 超时。
+两个用例对「create 是否立刻执行线程体」的要求正好相反，串行模式无法同时满足 ——
+需要真正的协程/抢占式调度（在线程体第一次阻塞时让出、让父线程继续），
+而不是「全跑」或「全不跑」。
+
+**当前状态**：已回退，树保持基线；`pthread_current_heap_cache` 的 gettid 强校验、
+旁路表进程级共享、槽位复用三项修复保留并已夹具验证。
