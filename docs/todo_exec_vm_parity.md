@@ -9623,3 +9623,30 @@ pool._started_workers < pool.worker_count
 **本轮净成果（第 509–512）**：
 - `test_pthread_heap_concurrency` **139 → 0**（真修复：create 被预算切断的线程体在 join 重跑）；
 - `make check` rc=0、树干净、census 887/22（唯一新增是已知 DNS 网络 flake）。
+
+### 第 513 轮：真线程模式的用例权衡（重要结论）
+
+对真线程模式（`UYA_EXEC_REAL_THREADS=1`）重测，结果与默认（串行）模式**正好互补**：
+
+| 用例 | 默认（串行） | 真线程 |
+|---|---|---|
+| `test_pthread_heap_concurrency` | **0（已修好）** | 139（use-after-free） |
+| `test_pthread_heap_cache_identity` | 181（不同线程 tcache 必须不同 → 串行下必然相同） | **0（通过）** |
+| `test_libc_heap_tcache` | 0 | 52（`state.status=4`：free 后 tcache 计数没 +1） |
+| `test_pthread_cancel` | 0 | 0 |
+
+这两组用例的语义要求**互相排斥**：串行模拟做不到「不同线程不同 tcache」，
+真线程又暴露堆的 use-after-free 竞争。当前默认走串行，因此
+`heap_cache_identity` 必然失败、`heap_concurrency` 可以修（本轮已修）。
+
+**已验证可靠的实现细节**（真线程模式）
+- `exec_vm_thread_trampoline` 在线程体之前调
+  `pthread_register_external_thread(stack_base, stack_size)`，登记正确
+  （`desc.tid = self_tid`、`desc.self = desc`、`desc.heap_cache` 独立）。
+- `pthread_current_heap_cache()` 末尾的 gettid 强校验与这套登记相容：
+  真线程模式下能正确拿到自己的 cache（这正是 `heap_cache_identity` 通过的原因）。
+
+**`test_libc_heap_tcache` 的 status=4**：worker 里 `free(target)` 之后
+`heap_debug_tcache_total_count()` 没有 +1。只有「free 走了全局路径而非 tcache」
+才会这样，与本轮加的 gettid 校验方向一致，但真线程下 desc 已正确登记、
+校验应该通过 —— 说明还有一处让该线程的 cache 解析落空，需单独插桩。
