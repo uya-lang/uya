@@ -695,6 +695,61 @@ fn thread_pool_release_slot(pool: &ThreadPool, slot_idx: i32) void {
     thread_shared_clear_slot(pool._shared_state, slot_idx);
 }
 
+// 同步执行一个任务槽（串行解释器专用）。
+//
+// 串行 VM 里没有并发，`pthread_create` 会把 routine 当场跑完。此时靠管道
+// 通知 worker 干活是不可行的（worker 一返回，读端就关了），必须在
+// 「这次调用」里直接把队列里的任务跑掉。
+fn thread_shared_run_slot_sync(shared_state: &ThreadPoolSharedState, worker_idx: i32, slot_idx: i32) void {
+    if shared_state == null as &ThreadPoolSharedState {
+        return;
+    }
+    if slot_idx < 0 || slot_idx >= thread_shared_task_slot_capacity(shared_state) {
+        return;
+    }
+    if shared_state.slots[slot_idx as usize].state != THREAD_SLOT_STATE_QUEUED {
+        return;
+    }
+    shared_state.slots[slot_idx as usize].worker_idx = worker_idx;
+    shared_state.slots[slot_idx as usize].state = THREAD_SLOT_STATE_RUNNING;
+    const fn_ptr: &void = (shared_state.slots[slot_idx as usize].fn_bits as usize) as &void;
+    var result_bits: usize = 0 as usize;
+    if shared_state.slots[slot_idx as usize].task_kind == THREAD_TASK_KIND_USIZE {
+        result_bits = thread_call_usize(fn_ptr, shared_state.slots[slot_idx as usize].arg_bits);
+    } else if shared_state.slots[slot_idx as usize].task_kind == THREAD_TASK_KIND_U32 {
+        const value_u32: u32 = thread_call_u32(fn_ptr, shared_state.slots[slot_idx as usize].arg_bits as u32);
+        result_bits = value_u32 as usize;
+    } else if shared_state.slots[slot_idx as usize].task_kind == THREAD_TASK_KIND_F32 {
+        const value_u32: u32 = thread_call_f32(fn_ptr, shared_state.slots[slot_idx as usize].arg_bits as u32);
+        result_bits = value_u32 as usize;
+    } else if shared_state.slots[slot_idx as usize].task_kind == THREAD_TASK_KIND_F64 {
+        const value_u64: u64 = thread_call_f64(fn_ptr, shared_state.slots[slot_idx as usize].arg_bits as u64);
+        result_bits = value_u64 as usize;
+    } else {
+        const value_i32: i32 = thread_call_i32(fn_ptr, shared_state.slots[slot_idx as usize].arg_bits as i32);
+        result_bits = value_i32 as usize;
+    }
+    shared_state.slots[slot_idx as usize].result_bits = result_bits;
+    shared_state.slots[slot_idx as usize].state = THREAD_SLOT_STATE_DONE;
+}
+
+// 把 pending 队列里的任务在当前线程同步消费掉（最多 limit 个），返回消费数量。
+fn thread_shared_drain_sync(shared_state: &ThreadPoolSharedState, worker_idx: i32, limit: i32) i32 {
+    if shared_state == null as &ThreadPoolSharedState || limit <= 0 {
+        return 0;
+    }
+    var done: i32 = 0;
+    while done < limit {
+        const slot_idx: i32 = thread_shared_pop_slot(shared_state);
+        if slot_idx < 0 {
+            break;
+        }
+        thread_shared_run_slot_sync(shared_state, worker_idx, slot_idx);
+        done = done + 1;
+    }
+    return done;
+}
+
 fn thread_worker_loop(worker_idx: i32, cmd_read_fd: i32, result_write_fd: i32, shared_state: &ThreadPoolSharedState) void {
     while true {
         var drain_started_us: u64 = 0u64;
@@ -703,10 +758,16 @@ fn thread_worker_loop(worker_idx: i32, cmd_read_fd: i32, result_write_fd: i32, s
         const n: isize = read_result catch {
             (0 - 1) as isize;
         };
-        if n < 0 {
-            break;
-        }
-        if n == 0 {
+        if n < 0 || n == 0 {
+            // 串行解释器下 `pthread_create` 是「当场把 routine 跑完」：本函数
+            // 返回之后线程对象就结束了，读端随之关闭，主线程再往 cmd pipe 写
+            // 命令只会拿到 EPIPE，队列里的任务永远没人消费（表现为持续
+            // Pending + 无限轮询 + 同步递归把 C 栈打穿）。
+            //
+            // 所以在退出前把队列里已经排好的任务全部在本线程跑完 ——
+            // 这正是「串行」语义下 worker 该做的事：没有并发，就让这次
+            // 调用把活干完。
+            _ = thread_shared_drain_sync(shared_state, worker_idx, thread_shared_pending_capacity(shared_state));
             break;
         }
         if n != @size_of(ThreadWorkerCommand) as isize {
