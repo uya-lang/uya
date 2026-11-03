@@ -12087,3 +12087,46 @@ C99 侧 `test_std_thread` 仍是 34 / 0（一次跑到 33/1 属既有 flake）�
 验证方法：`git checkout HEAD -- lib/std/*.uya` 全量回退后连跑三次，
 仍是 9 / 9 / 7。**说明这个 flake 是既有的、与本次改动无关**，
 不能拿它当回归证据，也不要在这上面浪费时间。
+
+### 第 549 轮（回退）：scheduler 的 deadline 保护净效果为负，已撤销
+
+上一条的 scheduler 总时长上限虽然把 VM 侧 `test_std_thread` 从「卡死只跑 3 个」
+提升到「22 通过」，但**全量 parity 反而从 17 例回升到 21 例**：
+
+```
+一致:     892
+不一致:   21
+```
+
+新增的 4 例全部是 **C99 侧**出了问题（不是 VM 侧）：
+
+```
+test_async_compute_generic_wrapper   C99=1  VM=0
+test_async_compute_types             C99=2  VM=0
+test_std_async_scheduler             C99=2  VM=0
+test_async_runtime_shared_dns        C99=0  VM=1（已知网络 flake）
+```
+
+原因很直接：给 `scheduler_run_with_event_loop` 加绝对的 `timeout_ms` deadline 后，
+C99 侧原本能正常跑完的用例在**负载高时会先撞上 deadline**、返回 `error.TimedOut`，
+于是 C99 退出码从 0 变成非 0。
+
+**取舍**：这个改动让 VM 侧多赢 19 个 test，但让 C99 侧 3 个用例确定性回归。
+按「不引入回归」的要求，不能保留。已 `git revert`（`f7dc453d`）。
+
+保留的是第 548 轮那两个 `lib/std/thread.uya` 的修复（`afe27985`、`3524ce00`），
+它们让 5 例 parity 清零且 C99 侧无影响。
+
+### 顺带确认：C99 侧的 `test_async_compute_types` 确实有严重既有 flake
+
+回退后同一份源码连跑三次（C99 后端）：
+
+```
+c1: Tests Passed: 7  Tests Failed: 4
+c2: Tests Passed: 3  Tests Failed: 8
+c3: Tests Passed: 8  Tests Failed: 3
+```
+
+波动极大，且与是否有我的改动无关（全量 `git checkout HEAD -- lib/std/*.uya`
+后仍是 9/9/7）。这是**既有问题**，属于并行用例之间的相互干扰，
+不在本轮范围内；记在这里避免下轮把它当成本次改动造成的回归去追。
