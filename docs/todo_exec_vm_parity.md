@@ -13605,3 +13605,60 @@ aggregate.count），确认：
 
 只有这三点确认之后，步进公式才能写对。当前结论：**方向明确（imm 里有 pointee
 和 elem_size），但基址语义还没确认，不宜再猜**。
+
+### 第 562 轮：探针拿到 `ADDR_INDEX` 失败点的完整现场
+
+按上一轮定的方法，在 `exec_vm_index_ref` 调用前打点，打印
+`slot_b` 的全字段 + `instr.imm`（`/tmp/r*` 探针跑 `test_http_uyagin`）：
+
+```
+IDXPROBE fn=uyagin_router_new ip=57 idx=0 kind=14 aggcnt=8192 isref=1
+         ptr=a98abcc8 pointee=19 imm=0x3000000010 line=315
+```
+
+逐项解读：
+
+| 字段 | 值 | 含义 |
+| --- | --- | --- |
+| `fn=uyagin_router_new` | — | 出错函数（`uyagin_router.uya:315`，不是 618/628） |
+| `kind=14` | `EXEC_VALUE_POINTER` | 基值是指针 |
+| `aggcnt=8192` | 8192 | **`slot_b` 本身能取到 aggregate，8192 个元素** |
+| `isref=1` | 1 | 是内部引用 |
+| `ptr=a98abcc8` | — | 指针地址 |
+| `pointee=19` | `TYPE_ARRAY` | 指向整个数组 |
+| `imm=0x3000000010` | — | 低 32 位 `0x10`=16(`TYPE_STRUCT`)，高 32 位 `0x3`=3 |
+
+### 两个重要发现
+
+1. **`aggcnt=8192` 说明 `slot_b` 这一层是有 aggregate 的**，
+   而且 `idx=0` 远小于 8192 —— 按 `exec_vm_index_ref` 的逻辑，
+   走到 `if target_aggregate != null && index_value < target_aggregate.count`
+   就该成功返回。它返回 null 说明 **`exec_vm_ref_target_value(slot_b)` 解出来的
+   `target` 不是 aggregate**（解引用后变成了原生基址，或者引用的 aux 编码让
+   `exec_vm_decode_ref_kind` 判错）。
+
+2. **`imm` 的编码与源码注释不符**：注释说「低 32 位是 pointee kind，
+   高 32 位是元素字节数」，实测 `0x3000000010` 解出来是
+   `pointee=16(TYPE_STRUCT)`、`elem_size=3`。结构体不可能 3 字节，
+   所以这个 opcode（`BC_ADDR_INDEX`）的 imm 布局与注释不一致，
+   **不能按注释去拼步进公式**（上一轮那次「用 imm 里的 pointee」的.
+   尝试失败并卡死，原因就在这里）。
+
+### 下一轮的切入点（已经非常窄）
+
+在同一个打点位置补打 `target` 的字段：
+
+```uya
+const target = exec_vm_ref_target_value(slot_b);
+// 打印 target.kind / target.i64_value / exec_value_as_aggregate(target) 是否为 null
+//       / exec_vm_decode_ref_kind(slot_b.aux_i64_value as i32)
+```
+
+三种可能，修法各不相同：
+- `target == null` → `exec_vm_ref_target_value` 对这个 aux 编码解析失败；
+- `target != null` 但 `exec_value_as_aggregate(target) == null` → 解到了原生基址，
+  需要按原生数组处理；
+- `decode_ref_kind` 返回值不是 `TYPE_ARRAY`(19) → aux 编码约定与 `encode_ref_kind`
+  不对称。
+
+本轮实验改动已全部回退，工作树干净，`bin/uya` 由 HEAD 重建。
