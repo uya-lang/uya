@@ -10147,3 +10147,47 @@ if iface_poll_rc == 0 {                    // Ready
 `BC_AWAIT` 之前为什么已经是 Ready——即 `thread_async_compute_i32` 里
 `@await async_worker_compute(...)` 的**求值时机**，而不是 `BC_AWAIT` 本身。
 注意别再用 `exec_vm_await_poll_interface_once` 的宽松启发式做判定。
+
+### 第 533 轮：病灶收敛到「`AsyncWorkerComputeFuture.state` 初值 Pending 导致直接挂起、不 poll」
+
+回退后继续按 A/B 的结论往下查，病灶已经收敛得比较清楚了。
+
+**先用 `/tmp/aw9.uya` 修正一个我之前的错误印象**：`@async_fn` **不是**「调用时同步
+跑完函数体」。探针里 `var fut: Future<!i32> = run();` 之后立刻打印 `g=0`，且函数体末尾
+的 `[run reached end ...]` **没有**打印——说明 `run()` 返回时函数体**停在 `@await` 处挂起**，
+状态机语义是对的。
+
+**再看两条对比链**：
+
+| 场景 | 首次 poll | 判定 |
+|---|---|---|
+| `/tmp/aw10.uya` `outer()` → `@await inner()`，`inner` 无挂起点直接 `return 5` | `p0=1` Ready | **正确**（inner 确实已完成） |
+| `/tmp/pool8.uya` `async_compute<i32>(...)` → `@await thread_async_compute_i32(...)` → `@await async_worker_compute(...)` | `p0=1 sw=0` | **错误**（worker 应被启动） |
+
+关键差异在 `AsyncWorkerComputeFuture`（`lib/std/thread.uya:1520`）：
+- 它有 `state: Poll<!usize>` 字段，初值 `Poll<!usize>.Pending({})`；
+- `BC_AWAIT` 的 `exec_vm_await_find_poll` 命中这个 `state` 且 `tag==0`
+  → **直接 `exec_vm_cont_suspend` 挂起，一次 poll 都不调**；
+- 而真正能把任务提交出去的是它 `poll()` 里的 `async_worker_submit`
+  （`AsyncWorkerSubmitFuture`，`thread.uya:1334`）；
+- 所以任务永远不提交 → worker 永不启动 → `_started_workers` 恒 0。
+
+对比 `AsyncWorkerSubmitFuture`：它**没有** `state` 字段（只有 `pool`/`compute_fn`/
+`task_kind`/`arg_bits`），`find_poll` 返回 null，于是能走到 `@await` 的第三条分支真调 poll。
+
+**所以第 527 轮的观测（`@await` 从不调 poll）确实是真 bug**，只是第 531 轮那个
+「优先试 `exec_vm_await_poll_interface_once`」的修法选错了入口——该函数靠
+「`values[0]` 是整数」猜接口布局，判据太宽，误伤普通聚合，造成 4 个回归。
+
+**真正需要的修法**：`BC_AWAIT` 要能调用**具体 struct Future** 的 `poll` 方法。
+VM 运行期没有「struct 类型 → poll 方法下标」的映射，所以必须在编译期填进去：
+- `builder.uya:2730` 发 `BC_AWAIT` 时 `c`/`imm` 都空着，可用 `imm` 承载
+  「该静态类型的 `poll` 方法函数下标」；
+- lowering 期用 `find_instance_method_in_struct(program_node, struct_name, "poll")`
+  （`lower.uya:3588` 已有同款用法）拿到 decl，再
+  `exec_builder_find_function_index(module, decl, "poll")`（`builder.uya:160`）转成下标；
+- VM 侧：`imm >= 0` 就用 `exec_vm_await_poll_once(program, imm, slot_b, &awaited)`，
+  否则保持现有行为。
+
+这样判据是**编译期静态确定的**，不会像启发式那样误伤。工作量：HIR 无需改
+（`HIR_EXPR_AWAIT` 已有位置），主要是 lower + builder + vm 三处。
