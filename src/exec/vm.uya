@@ -4888,6 +4888,51 @@ var exec_vm_thread_used: [atomic i32: EXEC_VM_THREAD_SLOTS] = [];
 var exec_vm_thread_detached: [i32: EXEC_VM_THREAD_SLOTS] = [];
 var exec_vm_thread_result: [ExecValue: EXEC_VM_THREAD_SLOTS] = [];
 var exec_vm_thread_states: [&ExecVmState: EXEC_VM_THREAD_SLOTS] = [];
+// 串行模式的两个诉求天然冲突：
+//   * `test_pthread_api_cancel` 的 worker 第一句就是置 flag，主线程紧跟等待它 ——
+//     要求 create **立刻**执行线程体；
+//   * `test_pthread_heap_concurrency` 的 worker 先 `while g_start == 0 {}`，
+//     g_start 在 create 返回后才置 1 —— create 里执行会耗尽预算，worker 从不推进。
+// 折中：create 里照常执行（满足前者），若因预算耗尽中止则记下 routine/arg，
+// join 时再跑一次（此时 g_start 已置 1，后者也能正常跑完）。
+var exec_vm_thread_redo_routine: [i32: EXEC_VM_THREAD_SLOTS] = [];
+var exec_vm_thread_redo_arg: [ExecValue: EXEC_VM_THREAD_SLOTS] = [];
+var exec_vm_thread_redo: [i32: EXEC_VM_THREAD_SLOTS] = [];
+
+/// 串行模式：重跑一个在 create 阶段因预算耗尽而未完成、且未被取消的线程体。
+/// 参数：program - 字节码程序；slot - 线程槽位。
+/// 返回值：0 表示处理完成（结果已写入 `exec_vm_thread_result[slot]`）。
+fn exec_vm_rerun_deferred_thread(vm: &ExecVmState, program: &BCProgram, slot: i32) i32 {
+    if slot < 0 || slot >= EXEC_VM_THREAD_SLOTS {
+        return -1;
+    }
+    if exec_vm_thread_redo[slot] == 0 {
+        return 0;
+    }
+    exec_vm_thread_redo[slot] = 0;
+    const st: &ExecVmState = exec_vm_thread_states[slot];
+    if st != null && st.cancel_pending != 0 {
+        // 已被取消：不再调度，join 直接拿 PTHREAD_CANCELED（调用方负责填）。
+        exec_vm_thread_result[slot] = exec_make_void();
+        return 0;
+    }
+    const routine_index: i32 = exec_vm_thread_redo_routine[slot];
+    if routine_index < 0 || routine_index >= program.function_count {
+        return 0;
+    }
+    var targs: [ExecValue: 1] = [];
+    targs[0] = exec_vm_thread_redo_arg[slot];
+    var ret: ExecValue = exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32);
+    g_exec_vm_thread_body_budget = 20000000i64;
+    const rc: i32 = exec_vm_call_function(vm, program, routine_index, &targs[0], 1, 0, &ret);
+    g_exec_vm_thread_body_budget = 0i64;
+    if rc != 0 {
+        g_exec_last_error_message[0] = 0 as byte;
+        return 0;
+    }
+    exec_vm_thread_result[slot] = ret;
+    return 0;
+}
 
 /// ---- 真宿主线程（env 门控）----
 /// `UYA_EXEC_REAL_THREADS=1` 时 `pthread_create` 用裸 `sys_clone` 起真线程；
@@ -5920,9 +5965,12 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                         }
                     }
                     if thread_rc2 != 0 {
-                        // 线程体没跑完（预算超限/内部错误）：清掉错误状态，让父线程
-                        // 继续跑（join 拿到默认返回值），不要污染整个程序。
+                        // 线程体没跑完（通常是自旋等父线程置的标志，被预算切断）：
+                        // 清掉错误状态，登记到 join 时重跑一次。
                         g_exec_last_error_message[0] = 0 as byte;
+                        exec_vm_thread_redo_routine[free_slot] = routine_index;
+                        exec_vm_thread_redo_arg[free_slot] = thread_args[0];
+                        exec_vm_thread_redo[free_slot] = 1;
                     }
                     if thread_rc2 == 0 {
                         exec_vm_thread_result[free_slot] = thread_ret;
@@ -5972,6 +6020,14 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         if th_detached != 0 {
             out_value[0] = exec_make_i32(22);
             return 0;
+        }
+        // 串行模式：create 阶段被预算切断的线程体在这里重跑一次
+        // （此时父线程该置的标志都已置好）。
+        if exec_vm_real_threads_enabled() == 0 && th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
+            if exec_vm_rerun_deferred_thread(exec_vm_main_vm(), program, th_slot) != 0 {
+                out_value[0] = exec_make_i32(3);
+                return 0;
+            }
         }
         if exec_vm_real_threads_enabled() != 0 && th_slot >= 0 && th_slot < EXEC_VM_THREAD_SLOTS {
             var join_spin: i64 = 0i64;
