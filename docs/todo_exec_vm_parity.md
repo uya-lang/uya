@@ -10372,3 +10372,40 @@ fn compound_assign_then_return() Future<!i32> {
 风险面小得多，也不需要动 `@await` 的语义。
 
 `docs/todo_exec_vm_parity.md` 至此对「真并发/线程池」这 11 例给出了明确、可执行的下一步方向。
+
+### 第 538 轮：下一步方案定稿（改库不改 VM），本轮不动手
+
+第 537 轮确立方向后，核实了 `AsyncWorkerComputeFuture.poll`（`lib/std/thread.uya:1569`）
+自身的逻辑其实是幂等友好的：
+
+```uya
+if self.done != 0 { return self.state; }
+if self.first_poll == 0 { self.first_poll = 1; waker.wake(); return Pending; }
+...
+if self.slot_idx < 0 {
+    const submit_future = async_worker_submit(...);   // ← 只在这里提交
+    ... self.slot_idx = submitted;                    // 提交后记下来
+}
+```
+
+它已经用 `slot_idx >= 0` 做了「只提交一次」的保护。**问题不在它自己，而在
+VM 的重跑式续体会把整个 `AsyncWorkerComputeFuture` **重建**
+（`async_worker_compute(...)` 是局部调用，重跑时重新求值），
+于是 `slot_idx` 又被初始化成 -1、`first_poll` 又归 0。
+
+而 `thread_pool_submit_slot_raw`（`thread.uya:1093`）每次都会
+`thread_pool_reserve_slot_raw` 占一个新槽，**不幂等**，重跑会重复占槽。
+
+**所以正确修法**（下一轮或独立任务）：把「已提交」的状态从 Future 对象里
+挪到 **ThreadPool** 里——即让提交动作按某个稳定键去重，例如：
+- 在 `ThreadPoolSharedState` 里加一张「待提交任务指纹 → slot_idx」表，
+  `async_worker_submit` 先查表，命中就复用已有 slot；
+- 或者由 VM 在 `BC_AWAIT` 首次执行时把 Future 的**引用**连同结果一起快照进续体
+  （而不是重跑表达式），这是更彻底但更动 VM 的方案。
+
+两条路都不动 `@await` 的既有语义（读 `state`），所以**不会打翻那 4 个
+replay/幂等用例**——这是与前四次尝试最本质的区别。
+
+**本轮不再动手**：已连续四次失败（共 5 个变体、8 个回归），在没有把
+「pool 侧去重」的语义想清楚之前，反复改 VM 只会继续制造回归。
+现状（工作树干净、二进制为基线、4 个用例 PASS）是安全状态。
