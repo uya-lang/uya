@@ -11303,3 +11303,53 @@ exec 侧则用 `deep_copy_ast_substitute_type_params` 在 **AST 层**做文本�
   建 `ctx.bindings` 时把已经替换过的实参又换回了原始节点。
 
 这条二分能把范围锁死到单个函数，下一轮直接改那一处。
+
+### 第 546 轮（补充实验）：白名单门禁不是根因
+
+上一条推测「`exec_lower_mono_body_needs_macro_expand` 白名单挡掉了
+`plain_generic` 的单态体宏展开」。本轮直接做了实验验证，**结论是否定的**。
+
+`exec_lower_mono_body_for_instance` 里的门禁：
+
+```uya
+if exec_lower_mono_body_needs_macro_expand(fn_decl.fn_decl_name) == 0 {
+    return null;          // 白名单只有 to_json / websocket_conn_write_json / async_compute
+}
+```
+
+把这个 `return null` 整段删掉（即所有泛型单态实例都走宏展开），重建后重测：
+
+| 探针 | 删门禁前 | 删门禁后 |
+| --- | --- | --- |
+| `/tmp/r55.uya`（普通泛型 `plain_generic<T>` + `@mc_type`） | `i32=-1 f64=-1` | `i32=-1 f64=-1` |
+| `/tmp/r49.uya`（库内 `async_compute<i32>`） | `err_id=9` | `err_id=9` |
+
+**两项都没有任何变化。** 说明 `async_compute` 本来就在白名单里、本来就走展开；
+而 `plain_generic` 即使强行纳入展开也照样失败。所以问题不在「是否调用
+`prepare_mono_body_expand_macros`」，而在**这个函数内部的替换/展开本身**。
+
+实验改动已 `git checkout` 还原，`bin/uya` 由基线重建，工作树干净。
+
+### 目前确定的事实汇总（避免下一轮重复走弯路）
+
+1. `@mc_type(<类型形参>)` 在 **exec/VM 的泛型单态化路径**下拿到的永远是字面类型形参名，
+   `type_id` 停在初值 16，所有类型分支判 false。
+2. 与 `@async_fn` / `Future` / `@await` **无关**（`/tmp/r55` 普通泛型函数同样失败）。
+3. 与 **白名单**无关（去掉门禁无变化）。
+4. 与 **`AST_TYPE_NAMED` 形参代入缺失**有关，但只是其中一环：
+   该环已修（`3685be84`，替换命中 0 → 13 次，`make check` rc=0），
+   `@mc_type` 这条链仍未打通。
+5. C99 侧同一份源码 `test_async_compute_types.uya` **11/11 全过**，exec 侧 11 全败
+   —— 缺陷严格限定在 exec 侧单态化。
+
+### 下一轮的唯一下一步
+
+在 `prepare_mono_body_expand_macros` 内部对 `copied` 做一次**结构定点检查**：
+定位 `AST_CALL_EXPR(callee = thread_type_is_i32)` 这个节点，打印
+`call_expr_arg_count`、`call_expr_args[0].type`、`call_expr_args[0].type_named_name`、
+以及 `call_expr_type_args` / `call_expr_type_arg_count`。
+
+本轮试写的 `probe_scan_macro_calls` 递归探针**没有任何输出**，说明探针本身没被调到
+（可能被内联退化或在 `copied == null` 之前就返回了）；下一轮要先把探针的
+「无条件首行打点」打出来，确认探针可达，再逐层收紧条件，
+不要在不确定探针是否生效的情况下解读「无输出」。
