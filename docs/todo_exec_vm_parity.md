@@ -14346,3 +14346,57 @@ C99 侧要真正修好，需要在 `expand_macros_in_node_simple` 的 `AST_FN_DE
 - VM 侧：5 例 parity 清零、`test_std_thread` 27 通过；
 - C99 侧：`test_async_compute_types` 有 -1~2 的退化（已量化，见第 571 轮）；
 - 工作树干净，`bin/uya` 与 HEAD 一致。
+
+### 第 573 轮：第 6 次尝试（声明期展开 + 登记类型形参 + 保留 `@mc_type` 节点）—— 两侧都退化
+
+按第 571 轮定的方向做了完整实施：
+
+1. **撤销**「泛型 body 不展开」，改为照常展开（C99 侧非白名单泛型函数依赖它）；
+2. 展开期间把本函数的类型形参登记到 checker：
+   ```uya
+   const saved_tp = checker.current_type_params;
+   const saved_tpc = checker.current_type_param_count;
+   if node.fn_decl_type_param_count > 0 {
+       checker.current_type_params = node.fn_decl_type_params;
+       checker.current_type_param_count = node.fn_decl_type_param_count;
+   }
+   expand_macros_in_node_simple(checker, &node.fn_decl_body);
+   checker.current_type_params = saved_tp;
+   checker.current_type_param_count = saved_tpc;
+   ```
+   （之前几轮之所以「判断不生效」，是因为 `current_type_params` 只在
+   `check_call.uya` 的调用检查里设置，宏展开时从来没设过 —— 这是本轮
+   才发现的关键事实。）
+3. 在 `deep_copy_ast_internal` 的 `AST_MC_TYPE` 分支（真正的固化点）加判断，
+   遇未解析形参时把节点原样带过去。
+
+**结果：两侧都退化**
+
+```
+VM  test_async_compute_types:  0 通过 / 11 失败
+C99 test_async_compute_types:  5 通过 /  6 失败
+```
+
+**原因**：`@mc_type` 保留成裸节点之后，**没有哪条路径再去固化它**。
+单态化路径（`prepare_mono_body_expand_macros` → `expand_macros_in_node_simple`）
+只在**宏调用**里处理 `AST_MC_TYPE`（`extract_macro_output_with_params` 的
+局部绑定循环），而这里它已经脱离了宏上下文、散落在普通语句里，
+那条代码不认识它。于是 `type_id` 从未被求值，两侧全挂。
+
+### 这条路到此为止
+
+要让「保留节点」成立，还要在**普通表达式 lowering** 里补一条
+「遇到裸 `AST_MC_TYPE` 就当场求值」的路径（VM 的 `exec_lower_expr` 和
+C99 的表达式发射都要）。那是比现在大得多的改动，且会碰到所有
+`@mc_type` 的使用点。
+
+**6 次尝试全部回退**（第 561×2、563、568、569、573）。
+当前 HEAD 恢复为「VM 11/0 + C99 7~8/3~4」的最佳已知状态。
+
+### 结论（最终，不再尝试）
+
+C99 侧 `test_async_compute_types` 的 -1~2 退化，是 `54b87ef0` 的已知代价。
+要在不退化 C99 的前提下修好 VM，需要让 `@mc_type` 的固化时机可配置 ——
+而这要求 VM/C99 两侧的表达式 lowering 都能处理「未固化的 `@mc_type` 节点」。
+这属于跨后端的结构性改动，应作为独立任务（连同「async 运行时重设计」
+一起）规划，不适合在当前 parity 收尾阶段继续试错。
