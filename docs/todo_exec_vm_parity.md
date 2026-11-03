@@ -12174,3 +12174,73 @@ test_std_thread                     C99=2   VM=137  ← 两边都受机器负载
    `test_async_thread_pool_dynamic_growth`（4）、`test_kernel_sim`（5）、
    `test_pthread_heap_cache_identity`（181）、三个 `137` 卡死用例、
    以及若干 VM=1/2/3 的小差异。
+
+## 第 550 轮：`test_std_thread` 卡死的最后一跳已定位，但修法需要改 `resolve` 约定
+
+### 已经追到底了
+
+对 `/tmp/r71.uya`（scheduler 驱动一个「已被手动 poll 过两次」的 future）逐层打点，
+拿到完整时序：
+
+```
+PROG2 pend=1 haspend=1        ← try_progress_slot 入口：pending 队列里确实有 1 个任务
+PROG  slot=0 st=2             ← 槽位状态 = QUEUED
+DS    drain lim=8 pend=1      ← try_kick_drain 写管道失败 → 走同步 drain
+DS    pop=0 st=2              ← 从队列 pop 出 slot 0
+RUNSYNC slot=0 res=20 st=4    ← **任务当场跑完，结果 20，状态 DONE**
+DS    pop=-1                  ← 队列排空
+SW    poll slot=0 prog=0 isdone=1 st=4    ← slot-wait future 看到 DONE
+SW    READY slot=0            ← 于是走了 ready 分支
+```
+
+**任务确实被执行了、结果 20 是正确的、槽位状态也确实变成 DONE 了。**
+所有底层环节都是对的。
+
+### 但这一跳不能这么修 —— 会破坏 resolve 约定
+
+在 `AsyncThreadSlotWaitFuture::poll` 里，`try_progress_slot` 之后补一次
+`thread_async_slot_is_done` 检查并返回 `Ready(slot_idx)`，确实让
+`SW READY` 打印出来了，但**结果值变成了错的**：
+
+```
+修复前：i=1 READY v=20     ← 正确
+修复后：i=0 READY v=1      ← 错，返回的是 slot_idx 而不是计算结果
+```
+
+原因在 `AsyncWorkerComputeFuture` 的约定：
+
+```uya
+const raw_poll: Poll<!usize> = raw_future.poll(waker);   // slot-wait 返回 (slot_idx as usize)
+...
+const raw_result: !usize = thread_async_compute_resolve_raw_value(self.pool, self.slot_idx, submitted_slot_bits);
+```
+
+resolver 里有一道**刻意的一致性校验**：
+
+```uya
+if raw_value != slot_idx as usize {
+    return thread_generic_error_usize();
+}
+const slot_state = ...state;
+if slot_state != THREAD_SLOT_STATE_DONE { return thread_generic_error_usize(); }
+return slots[slot_idx].result_bits;
+```
+
+也就是说 `slot-wait` 返回的 `usize` 是**「哪个槽完成了」的凭据**，真正结果要靠
+resolver 去 `result_bits` 里取。我那次改动让 ready 分支**提前在
+`try_progress_slot` 之后触发**，绕过了 `AsyncWorkerComputeFuture` 里
+「先 submit 再 result」的既有顺序，于是调用方拿到的是裸 slot_idx。
+
+### 下一步（方向已收窄到一处）
+
+不要改 `AsyncThreadSlotWaitFuture` 的返回值语义。正确的做法是：
+**让 `AsyncWorkerComputeFuture::poll` 在 `raw_poll` 是 Ready 之后，
+如果 resolver 因为 `slot_state` 还不是 DONE 而失败，就重新走一轮
+`submit → result`，而不是把这个错误直接交给调用方。**
+
+或者更简单：确认 `AsyncWorkerComputeFuture` 里 `self.slot_idx` 在
+`finish` 之后被 `thread_async_cleanup_slot` 置成了什么 —— 第二步那个 future
+之所以不再被 poll，很可能就是它的 `slot_idx` 被前一个 future 的 cleanup 影响。
+
+本轮所有实验改动已回退，`git status` 干净，HEAD 仍保留第 548 轮那两个
+有效修复（5 例 parity VM 侧清零）。
