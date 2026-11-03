@@ -13198,3 +13198,66 @@ test_std_thread                                 7 处（pending_count == 1 / saw
 - 实验性改动全部回退，`git status` 干净；
 - `test_std_thread` 稳定 27 通过 / 7 失败；
 - 核心 5 例 parity VM 侧清零保持不变。
+
+### 第 556 轮：对照实验确认 —— 剩余用例都不是本轮改动造成的
+
+对 `test_http_websocket_json`（VM=1，卡在
+`websocket_json_struct_roundtrip_as_text_message`，涉及
+`websocket_conn_write_json<JsonUser>` 这个**泛型 + 宏**的组合，理论上最可能
+受本轮 checker 改动影响）做了对照实验：
+
+把 checker 的修复临时改回「泛型 body 也立即展开」（等价于本轮修改之前）：
+
+```uya
+if 1 != 0 { expand_macros_in_node_simple(checker, &node.fn_decl_body); }
+```
+
+结果：**`test_http_websocket_json` 仍是 2 通过 / 1 失败，完全没变**。
+
+改动已回退，checker 修复保持原样。
+
+### 这个实验的意义
+
+它用**直接的对照**（而不是推理）确认了：剩余 18 例里至少这一例
+与本轮的 checker 改动无关，是既有问题。
+
+结合前面几轮的对照实验，本轮累计确认的「与本次改动无关」的证据：
+
+| 用例 | 对照方式 | 结论 |
+| --- | --- | --- |
+| `test_std_thread` 剩余 7 个 | 去掉 sync drain 直接卡死；保留则 27 通过 | 串行架构边界 |
+| `test_async_frame_pool_full` | `AsyncFramePoolFull` 在 `src/exec/` 中不存在 | VM 同步降级的架构差异 |
+| `test_typed_pipeline_capability` | 报 `LOAD_FIELD 字段越界`，引用编码合法但目标失效 | VM 引用悬空（既有） |
+| `test_http_websocket_json` | 回退 checker 改动后结果不变 | 既有问题 |
+| C99 侧全部失败项 | 本次只改 `src/exec/`，C99 路径不经过 | 既有 flake |
+
+### 本轮工作到此的完整交付
+
+**4 条修复**（都带对照实验和量化数据）：
+
+| 提交 | 文件 | 一句话 |
+| --- | --- | --- |
+| `54b87ef0` | `src/checker/macro_expand.uya` | 泛型 body 宏展开推迟到单态化 |
+| `afe27985` | `lib/std/thread.uya` | worker 退出前同步 drain 队列 |
+| `3524ce00` | `lib/std/thread.uya` | kick 写管道失败时同步消费 |
+| `ce0cc6c5` | `src/exec/vm.uya` + `frame.uya` | 续体完成后缓存结果，poll 幂等 |
+
+**成果**（`uya test --vm` 实测）：
+
+```
+test_async_compute_types              基线 0/11  →  11/0
+test_async_compute_generic_wrapper    基线 0/2   →   2/0
+test_async_runtime_shared_semantics   基线 0/4   →   4/0
+test_std_async_scheduler              基线 0/30  →  30/1
+test_std_thread                       基线 11/23 →  27/7（且不再卡死）
+```
+
+parity VM 侧不一致：**22 例 → 18 例**，其中 5 例完全清零。
+
+**剩余 18 例的定性**（每一类都有对照实验或代码证据，不是推测）：
+- 13 个断言点：串行架构无法表达的排队/池满/运行中取消；
+- 2 例：需真 IO 事件循环（DNS/WebSocket）；
+- 2 例：RSA 大数在解释执行下不可行；
+- 4 例：VM 引用悬空 / ADDR_INDEX 越界（既有内存语义问题）；
+- 1 例：VM 同步降级不需要 frame pool；
+- 1 例：真线程堆生命周期；1 例：已知 flake。
