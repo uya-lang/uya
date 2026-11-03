@@ -9470,3 +9470,35 @@ Thread 8 "uya" received signal SIGSEGV, Segmentation fault.
 - 给堆加真正的**多线程安全**：`lib/libc/heap.uya` 的 bin/tcache 操作需要
   在真实多线程下串行化（目前只靠 `_Thread_local` 语义，而 VM 下 `fs_base = 0`，
   已用 `pthread_disable_fast_heap_cache()` 规避了快路径，但常规路径仍非线程安全）。
+
+### 第 507 轮：真线程崩溃链条完整还原（heap cache 误指 + 悬垂描述符）
+
+**本轮修复（已提交，默认路径无回归）**
+`pthread_current_heap_cache()` 增加 **gettid 强校验**：
+`_pthread_desc_self()` 命中「栈地址 hint」时只按栈区间匹配，
+一个已退出/已 join 的线程留下的 hint 仍可能把别的线程指到它的 desc，于是
+- 拿到**别人的 tcache 链** → 多线程无锁共用同一个 cache，把堆写坏；
+- 拿到**已回收的 desc** → 悬垂指针。
+
+实测证据（`UYA_EXEC_REAL_THREADS=1`）：
+- 主线程 `pthread_current_heap_cache()` = `0x1e8c40c8`，子线程 = **0**；
+- 但**连续两个**子线程里，第一个拿到 `0xfd5c8eb8`（非 null！）、第二个拿到 0 ——
+  说明确实存在「指到别人/已回收 desc」的路径。
+加 gettid 校验后该路径被堵住。
+
+**仍未根治的部分（完整链条）**
+gdb 三次抓到同一个现场：
+```
+#0 exec_vm_native_field_store ()   ← *u64 写入失效地址
+#1 vm_step ()
+#2 exec_vm_run_frame ()
+```
+调用点是 `BC_STORE_FIELD`：
+`stf_native_base = exec_vm_field_native_base(slot_a)`，即**结构体对象自身的裸地址**；
+地址非 0 但所属块已被另一个线程 `free` 回收 → use-after-free。
+这正是 `test_pthread_heap_concurrency` 的测试语义（多线程并发 malloc/free 同一池），
+不是 VM 记账错误。要根治需要让堆在块仍被 VM 侧引用时不能立即回收
+（引用计数 / 延迟回收 / 或给 VM 的对象访问加生命周期屏障），属较大的结构性工作。
+
+**真线程稳定性实测**：`test_pthread_heap_concurrency` 由 0/6 通过改善到 2/8 通过，
+间歇段错误仍在。默认路径 census 887/22 逐项与基线一致。
