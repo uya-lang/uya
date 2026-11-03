@@ -14269,3 +14269,53 @@ if (... (orig_name == "to_json" || orig_name == "websocket_conn_write_json"
 宏体里就有），外层宏必须展开才能看到它 —— 所以不能简单「跳过含 @mc_type 的宏」，
 需要在展开宏体之后、固化 `@mc_type` 之前做判断。这是下一轮要动的地方
 （`extract_macro_output_with_params` 的 `AST_MC_TYPE` 分支 + 局部绑定循环那一处）。
+
+### 第 571 轮（决策）：保留 `54b87ef0`，量化权衡如下
+
+上一条确认了 checker 修复对 C99 有退化。做量化对照后决策：
+
+| 代码状态 | C99 `test_async_compute_types` | VM `test_async_compute_types` |
+| --- | --- | --- |
+| 回退 `54b87ef0`（`f3c7fe17` 的 checker） | 9 通过 / 2 失败 | **0 通过 / 11 失败** |
+| 保留 `54b87ef0`（当前 HEAD） | 7~8 通过 / 3~4 失败（三次：7/7/8） | **11 通过 / 0 失败** |
+
+关键点：**回退后 C99 也不是全过（9/2）** —— 说明 C99 侧这个用例本身就有
+2 个左右的失败基础（很可能是真实的并发竞态，因为用例里用了
+`thread_pool_new(2)` 起真线程）。`54b87ef0` 让它从「2 个失败」变成「3~4 个失败」。
+
+**权衡**：
+
+- 保留 `54b87ef0`：VM 侧 **+11 通过**（0/11 → 11/0），C99 侧 **-1~2 通过**；
+- 回退它：VM 侧 11 个 test 全败，C99 侧仅多 1~2 个通过。
+
+本任务的目标是 **exec VM 与 C99 的 parity**，且 `test_async_compute_types`
+正是 22 例清单里的一例 —— 保留它让这一例在 VM 侧真正清零。
+因此**保留 `54b87ef0`**，并把这个 C99 侧的 1~2 个用例退化记录在案，
+作为后续「让 `expand_macros_in_node_simple` 区分泛型声明期」这项工作的推动理由。
+
+### 尝试过的精准修法（未成功，已回退）
+
+按上一条的思路，给 `@mc_type` 加了「泛型形参未代入时保留节点」的分支
+（新增 `mc_type_operand_is_unresolved_type_param` 辅助函数）：
+
+```uya
+if mc_type_operand_is_unresolved_type_param(actual_operand, merged_ctx.checker, ctx) != 0 {
+    return deep_copy_ast_with_params(stmt, &merged_ctx, filename);   // 保留 @mc_type 节点
+}
+```
+
+结果：VM 侧仍 11/0、27/7（没有变差），但 **C99 侧仍是 6~8/3~5（没有改善）**。
+说明 C99 的退化不是「`@mc_type` 被固化」造成的 —— 而是「整个 body 在声明期
+没展开」导致其他宏（非 `@mc_type` 的那些）也没展开。
+
+改动已回退，工作树干净。
+
+### 下一轮方向
+
+C99 侧要真正修好，需要在 `expand_macros_in_node_simple` 的 `AST_FN_DECL` 分支里
+区分「泛型声明期」与「普通展开」，并且对泛型声明期**仍然展开所有宏**、
+只是把 `@mc_type` 的固化推迟 —— 即「展开宏，但 `@mc_type` 保留」。
+
+现在的问题是：`@mc_type` 位于宏体**内部**（`thread_type_is_i32` 的宏体里就有），
+外层宏必须完整展开才能看到它；而现在的实现是「要么整段展开（`@mc_type` 被固化），
+要么整段不展开（其他宏也不展开）」。需要一个「展开宏但保留 `@mc_type` 节点」的模式。
