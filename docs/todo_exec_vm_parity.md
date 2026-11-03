@@ -9443,3 +9443,30 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 - 真线程模式下 `test_pthread_heap_concurrency` 仍会间歇段错误（5 次里约 4 次），
   但**不再是旁路表问题**，而是分配器（tcache/bin）自身的并发安全，
   需要单独排查 —— 这是让真线程成为默认路径的最后一个已知拦路点。
+
+### 第 506 轮：真线程崩溃已精确定位到 `exec_vm_native_field_store`（use-after-free）
+
+**gdb 现场（`UYA_EXEC_REAL_THREADS=1`，`test_pthread_heap_concurrency`）**
+```
+Thread 8 "uya" received signal SIGSEGV, Segmentation fault.
+#0  exec_vm_native_field_store ()
+#1  vm_step ()
+#2  exec_vm_run_frame ()   … 交替递归
+```
+- 崩点在 `exec_vm_native_field_store` 的 `*u8/*u16/*u32/*u64` 写入，
+  说明传进来的 `addr` 非 0 但**已失效** —— 典型的 use-after-free：
+  一个线程 `free` 了结构体，另一个线程还在按旧地址写字段。
+- 这批测试做的正是「多线程同时 malloc/free 同一个池」，所以这是**真实的数据竞争**，
+  不是旁路表或 VM 的记账错误（旁路表相关的 `count=-1` 已在本轮前两步消除）。
+
+**同时完成的修复（第 505–506 轮，均已提交）**
+1. 旁路表六张表改为**进程级共享**（`ExecVmState` 移除字段）+ 宿主调用边界
+   **可重入**锁（递归计数，避免 `pthread_create` 串行路径自锁）。
+2. 旁路表基址槽位**可复用**（`forget` 后 `base == 0` 的空槽优先复用），
+   此前只增不回收，累计 256 个基址后永久耗尽 → 新结构体拿不到槽 →
+   `STORE_FIELD … count=-1` 并段错误。
+
+**下一步入口（真线程成为默认路径的最后一关）**
+- 给堆加真正的**多线程安全**：`lib/libc/heap.uya` 的 bin/tcache 操作需要
+  在真实多线程下串行化（目前只靠 `_Thread_local` 语义，而 VM 下 `fs_base = 0`，
+  已用 `pthread_disable_fast_heap_cache()` 规避了快路径，但常规路径仍非线程安全）。
