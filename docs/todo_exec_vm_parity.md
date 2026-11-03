@@ -11188,3 +11188,58 @@ if init.type == ASTNodeType.AST_MC_TYPE && local_binding_count < @len(local_bind
 注意：`AST_MC_TYPE` 的 `deep_copy_ast_internal` 分支（`:1459`）在
 `async_compute` 路径上**一次都没被执行**（打点无输出），所以那条分支不是入口；
 真正的入口是上面 `extract_macro_output_with_params` 里的 VAR_DECL 编译期绑定循环。
+
+### 第 546 轮（再追一层）：宏实参绑定里拿到的 `arg_ast` 本身仍是 `T`
+
+在 `extract_macro_output_with_params` 的 `@mc_type` 编译期绑定处
+（`src/checker/macro_expand.uya:1974`）打点，打印
+`find_param_binding(ctx, "T")` 的结果：
+
+```
+MCLOCAL op_nt=83 opname=T bcnt=1 found=1 fname=T
+```
+
+即：绑定**找到了**（`found=1`、`binding_count=1`），
+但绑定里的 `arg_ast` **本身就是 `AST_TYPE_NAMED("T")`**，不是 `i32`。
+
+也就是说，宏展开时 `node.call_expr_args[0]` 还是原来的 `T` ——
+替换没有作用到 `thread_type_is_i32(T)` 这个调用的实参上。
+
+### 为什么替换没作用到它
+
+在 `deep_copy_ast_substitute_type_params` 的 `AST_CALL_EXPR` 分支加了
+`CALLCOPY callee=… args=… targs=…` 打点，结果 **`thread_type_is_*` 一次都没出现**：
+
+```
+（无 CALLCOPY thread_type_is 输出）
+```
+
+而该函数本身是支持 `AST_IF_STMT` 的（`:2447`，会递归
+`copy.if_stmt_condition`），所以不是「没实现」的问题。
+
+结论：走 `prepare_mono_body_expand_macros` 时拿到的 `body`，
+里面**已经不含 `thread_type_is_i32(T)` 这个调用形态**了。
+`async_compute` 是 `export @async_fn`，它的 body 在 checker 的 async 处理阶段
+就被改写/预展开过，单态化这一层看到的是改写后的形态，
+原始的「宏调用 + 实参 `T`」对应关系已经丢了。
+
+这解释了此前所有矛盾观测：
+- `MONOBODY` / `MONORES` 打点都触发（确实走到了单态化入口）；
+- 12 个 `thread_type_is_*` 的 `EXPAND-TRY` / `EXPAND-OUT` 都 `found=1 exp=1`（展开动作确实执行）；
+- 但 `create_type_info_struct` 一律拿到 `name=T`（实参从未变成 `i32`）；
+- `SUBSTHIT` 有 13 次命中（替换确实在工作，只是作用在别的节点上）。
+
+### 下一步
+
+不要再在 `deep_copy_ast_substitute_type_params` 和 `create_type_info_struct`
+上继续加分支 —— 那两处的行为都是自洽的。
+
+真正的入口是 `@async_fn` 的 body 改写：需要确认
+`src/checker/*` 里 async lowering 是否在**泛型单态化之前**就展开了宏或重写了 body。
+如果确认是，两种修法：
+
+1. **推迟**：`@async_fn` 的 body 改写不要在泛型声明期做，留到单态化之后；
+2. **补全**：改写时保留「类型形参 → 实参」的映射（例如把
+   `thread_type_is_i32(T)` 连同 `T` 原样带过去，让单态化那层还能到位）。
+
+按「要根治」的要求，应当走第 1 种（把顺序摆正），而不是在展开处再打补丁。
