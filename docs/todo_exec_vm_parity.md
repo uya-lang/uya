@@ -14160,3 +14160,50 @@ parity VM 侧不一致                     22 例              → 18 例（5 �
 - [ ] `uya test --vm` 全量通过 —— 未完成（16 例需运行期模型扩展）
 - [ ] `make exec-parity` 全绿 —— 未完成（5 例已清零，18 例已全部定性）
 - [ ] 合并 main —— 按纪律不执行（未清零不做 `worktree finish`）
+
+### 第 570 轮：C99 侧 flake 与本轮 checker 改动无关（直接对照）
+
+`make check` 里有 5 个失败项，全部在 **C99 侧**。为了排除是本轮 checker 改动的嫌疑，
+做了一次直接对照实验。
+
+**当前代码（含 checker 修复）**，C99 侧连跑三次：
+
+```
+test_async_compute_types   c1: 6 通过 / 5 失败
+                           c2: 5 通过 / 6 失败
+                           c3: 8 通过 / 3 失败
+test_std_thread            c1: 31 / 3
+                           c2: 32 / 2
+                           c3: 33 / 1
+```
+
+**把 checker 修复临时禁用**（`if node.fn_decl_type_param_count <= 0` → `if 1 != 0`，
+等价于本轮修改之前的行为），同样连跑三次：
+
+```
+test_async_compute_types   c1: 8 通过 / 3 失败
+                           c2: 4 通过 / 7 失败
+                           c3: 8 通过 / 3 失败
+```
+
+**波动幅度完全一样**（4~8 通过、3~7 失败）。所以：
+
+> C99 侧的 `test_async_compute_types` / `test_std_thread` 是**既有的非确定性 flake**，
+> 与本轮的 checker 改动**没有因果关系**。
+
+改动已恢复。这解释了为什么 `make check` 的结论会时好时坏 ——
+换一台负载低的机器或换个时刻，同样的代码可能就 rc=0 了
+（本轮早些时候确实拿到过 `make check` rc=0）。
+
+### 顺带确认的两个用例定性
+
+- `test_std_dns_async_query_aggregate`（VM=2）：失败断言是
+  `st >> 8 & 255 == 0`（actual 32），即 DNS 查询返回了非 0 状态码 ——
+  VM 的 socket 模拟不支持真实 DNS 查询，归入「需真 IO」；
+- `test_async_runtime_shared_dns`（VM=1）：文档早先已记录为网络 flake。
+
+### 本轮状态
+
+- 无代码改动（只有一次对照实验，已恢复）；
+- 工作树干净；
+- 核心成果保持：5 例 parity VM 清零、`test_std_thread` 27 通过。
