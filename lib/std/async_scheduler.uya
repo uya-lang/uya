@@ -947,27 +947,9 @@ export fn scheduler_run_with_event_loop<T>(self: &Scheduler, loop: EventLoop, f:
     var io_registered_fd: i32 = 0 - 1;
     var event_registered_fd: i32 = 0 - 1;
     var inline_repoll_count: i32 = 0;
-    // 必须有「总时长」上限：`timeout_ms` 原本只被当作单次 epoll_wait 超时，
-    // 不是循环上限。future 永远 Pending 时这个 `while true` 永不退出，
-    // 在 bytecode VM 里每轮 `f.poll` 都是同步递归、栈帧只增不减（最终把 C 栈
-    // 打穿），即使侥幸不溢出调用方也会永远挂住。语义与
-    // block_on_with_event_loop_deadline 一致：过期返回 error.TimedOut。
-    var run_deadline_ms: u64 = 0u64;
-    if timeout_ms > 0 {
-        const base_ms: u64 = sched_now_ms() catch { 0u64; };
-        if base_ms != 0u64 {
-            run_deadline_ms = base_ms +| timeout_ms as u64;
-        }
-    }
     defer { scheduler_cleanup_waker(loop, &w, &io_registered_fd, &event_registered_fd); }
 
     while true {
-        if run_deadline_ms != 0u64 {
-            const run_expired: bool = try sched_deadline_expired(run_deadline_ms);
-            if run_expired {
-                return error.TimedOut;
-            }
-        }
         scheduler_record_wake_source(self, &w);
         w.reset();
         w.clear_io_interest();
