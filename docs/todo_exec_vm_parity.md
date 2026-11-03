@@ -10697,3 +10697,26 @@ if (p._tag == 0) { return (...){ ._tag = 0 }; }
    use-after-free，且 `test_pthread_heap_concurrency` 仅 2/8 通过。
 
 方向 1 与「协作式调度」的既有设计目标一致，且不动库层语义，是下一步首选。
+
+### 第 543 轮的补充验证（方向 1 的可行性探针）
+
+`/tmp/r27.uya`：把 worker 的 cmd pipe 读端设为 `O_NONBLOCK` 后，
+`pthread_create` **不再卡死**（`rc=0`）。这确认了：
+
+* 卡死点确实是 `sys_read` 的真实阻塞系统调用（`lib/libc/syscall.uya:1232`
+  的 `@syscall(SYS_read, ...)`），不是 VM 的调度问题；
+* 阻塞是**可以**从库层绕开的。
+
+但只加 `O_NONBLOCK` 不够：`thread_worker_loop`（`lib/std/thread.uya:706`）
+遇到 `n < 0` 直接 `break`，worker 会立刻退出，等于没启动。
+若改成「EAGAIN 就重试」，又会在 `pthread_create` 当场执行期间忙等，
+父线程依然回不来。
+
+**结论**：方向 1 必须落在 VM 层而不是库层 —— `pthread_create` 执行线程体时，
+遇到会阻塞的宿主调用应让出、把线程体存成续体，等父线程下次调度再推进。
+这正好复用 `exec_vm_cont_suspend` / `exec_vm_cont_poll` 已有机制，
+是后续唯一自洽的路径。
+
+改动面：`vm.uya` 的 `EXEC_HOST_CALL_PTHREAD_CREATE` 分派 + 线程槽位表
+（`vm.uya:4883` 起的 `exec_vm_thread_*`）需要从「当场跑完 + redo」改为
+「跑一段 + 挂起 + 恢复」。库层 `lib/std/thread.uya` 语义不用动。
