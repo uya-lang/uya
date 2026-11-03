@@ -11629,3 +11629,70 @@ worker 拿到 EAGAIN 时队列里已有任务，说明**命令管道没有被写
 
 下一轮直接对**写端**打点（`thread_pool_try_kick_drain` 里的 `sys_write` 返回值），
 确认到底是「没写」还是「写了但读不到」，而不是继续改 `thread_worker_loop`。
+
+### 第 547 轮（终）：worker 不消费的完整因果闭环 —— EPIPE 死锁
+
+按订正后的方向查**写端**，拿到了整条因果链。
+
+对 `thread_pool_try_kick_drain`（`lib/std/thread.uya:1020`）打点：
+
+```
+KICKENTER pend=1        ← 被调用 20 次（对应 20 次 poll），队列确实有任务
+KICKWR ok=0 n=-1 fd=6   ← sys_write 到 cmd pipe 每次都失败
+```
+
+`cmd_write_fd = 6`，与第 544 轮 SIGPIPE 事故里那个 fd=6 是同一个管道。
+
+### 闭环
+
+```
+worker 启动 → sys_read(cmd_fd) 拿到 -11(EAGAIN) → break 退出
+      ↓
+管道读端随之关闭
+      ↓
+主线程 thread_pool_try_kick_drain 的 sys_write(cmd_fd) 收到 EPIPE（ok=0）
+      ↓
+任务永远投递不进来 → 队列里那 1 个任务永远 pending
+      ↓
+scheduler 轮询无限重试 → 深递归 → 段错误
+```
+
+这**同时解释了**第 547 轮早期 gdb 看到的深递归调用栈
+（`exec_vm_cont_poll → exec_vm_await_poll_once → …` 环）：
+轮询永远等不到完成，栈帧只增不减。
+
+### 试过的两个改法（都不成立，但结论明确）
+
+1. **EAGAIN 当 DRAIN 命令**（第 545 轮 stash@{0} 的思路）：
+   `cmd.slot_idx` 赋值确实生效（打点 `cmd=-2`），但对最终结果无收益，
+   任务仍不完成。本机复测：`i=0..19` 全程 `pending sw=1`。
+2. **EAGAIN 时 `continue` 继续等**：
+   ```uya
+   if n < 0 { continue; }
+   ```
+   结果变成**只有 `i=0 pending` 一行就卡住** —— 串行解释器里
+   worker 的循环会把执行权一直占住，主线程再也没机会推进。
+
+### 根治方向（下一轮，方向已明确）
+
+串行 VM 里 worker **不能阻塞等待、也不能空转**。正确形态是：
+
+**worker 在进入循环时就把队列里所有任务一次性 drain 干净，
+drain 空了就退出并正常关闭读端。**
+
+这样：
+- 任务在主线程第一次 `try_kick_drain` 之前/同时就被消费；
+- 写端不会因为读端提前关闭而 EPIPE；
+- 也不会出现 worker 占住 CPU 空转。
+
+实现要点：`thread_worker_loop` 的入口处先无条件 drain（而不是等命令），
+drain 完再回到读命令；入口 drain 后若 `pending_count == 0` 才允许因 EAGAIN 退出。
+这属于库层的结构性调整，需要配合 `thread_pool_acquire_worker` /
+`thread_pool_release_worker` 的语义一起确认，不能只改一个 `break`。
+
+### 本轮最终状态
+
+- **核心成果**（`54b87ef0`）：泛型函数 body 宏展开推迟到单态化，
+  根治 `@mc_type(T)` 被提前烤成 `StructInit`，`make check` rc=0 零回归；
+- 完整定位了 worker 不消费的 EPIPE 闭环（本轮新结论，此前只知道「读到 EAGAIN 就 break」）；
+- 所有实验性改动与打点已回退，`git status` 干净，`bin/uya` 由 HEAD 重建。
