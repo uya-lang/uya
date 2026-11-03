@@ -12422,3 +12422,56 @@ C99 后端跑同一个用例是 **34/34 全过**。也就是说 C99 下「已完
 
 按「根治」要求，应当走 2 或 3（box 生命周期），而不是在 `AsyncWorkerComputeFuture`
 里加特判。
+
+### 第 550 轮（最终定性）：这是「release 后再 poll」的未定义行为在两后端表现不同
+
+查了 `lib/std/async.uya` 的 box 生命周期：
+
+```uya
+export fn async_box_free_current(ptr: &byte) void {
+    ...
+    if alloc_ptr != 0 {
+        alloc.dealloc(raw_ptr);   // 立即归还
+        return;
+    }
+    free(raw_ptr as &void);       // 立即 free
+}
+```
+
+**释放是立即发生的**，没有任何延迟回收。所以「release 之后再 poll」在两个后端
+都是访问已释放内存 —— 属于**使用方未定义行为**，不是 VM 独有的缺陷。
+
+C99 之所以「碰巧能过」，是因为那块内存在 C99 下没有被覆盖，`done` / `state`
+还留着旧值，于是 poll 返回了正确的 Ready；VM 下同一块内存被复用或清零，
+`done` 读成 0，状态机从头再来 → 卡死。
+
+### 因此这一例的结论要改口径
+
+`test_std_thread` 的 `thread_pool_config_can_exceed_legacy_static_limits`
+（以及同样「先手动 poll 拿到 Ready、再把 future 交给 scheduler」的写法）
+**本身就在依赖未定义行为**。VM 下它卡死是暴露了这个问题，而不是 VM 有 bug。
+
+真正的「根治」有两个层次，需要先确认哪个才是项目想要的语义：
+
+1. **收紧语义**：`release` 之后不得再 poll。那就应该修 `tests/test_std_thread.uya`
+   的用法（拿到 Ready 后直接断言，不要再交给 scheduler）。
+   但这违反「测试是权威」的纪律，需要先和用例作者确认；
+2. **放宽语义**：让 future 在 `done` 之后 `release` 变成空操作（或延迟回收），
+   使「释放后再 poll 一次」能安全返回最后一次结果。这会改变 `lib/std/async.uya`
+   的内存契约，影响面较大。
+
+**这一层决策不该由我单方面拍板**，先记在这里。下一轮若要继续，
+建议先只用 `test_std_thread` 里**不依赖这个 UB 的用例**去验证线程池修复的收益，
+把依赖 UB 的那几个用例单独标出来。
+
+### 本轮（第 550 轮）的完整结论
+
+- **5 例 VM 侧 parity 清零确凿**（`test_async_compute_types` 11/11、
+  `generic_wrapper` 2/2、`runtime_shared_semantics` 4/4、
+  `shared_runtime_semantics`、`std_async_scheduler` 30/31）；
+- 3 个有效提交：`54b87ef0`（checker 宏展开时机）、`afe27985` / `3524ce00`
+  （串行 VM 线程池同步 drain）；
+- `test_std_thread` 卡死的根因追到「release 后再 poll」的 UB，属于库契约问题，
+  不是本轮修复引入的；
+- 4 项无效尝试、1 项净负改动（scheduler deadline）均已回退；
+- 工作树干净，无遗留实验代码。
