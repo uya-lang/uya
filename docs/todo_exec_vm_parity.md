@@ -11437,3 +11437,67 @@ worker 也成功起来了（`thread_pool_started_workers=1`）。
    （stash@{0}: drain-on-eagain）。
 
 先修第 2 个（有现成 stash 与打点结论），再处理第 1 个的段错误。
+
+### 第 547 轮（续）：修复后暴露的段错误 —— 深递归 + 字段加载越界
+
+`uya test --vm tests/test_async_compute_types.uya` 修复后**稳定段错误**（3/3 次 rc=139）。
+注意：`uya run --vm <同一文件>` 不崩（它只跑到第一个 test 就返回），
+只有 test runner 会把 11 个 test 全跑，才触发。
+
+gdb 定位：
+
+```
+Program received signal SIGSEGV, Segmentation fault.
+#0  exec_vm_native_field_load ()          ← 崩在这里
+#1  vm_step ()
+#2  exec_vm_run_frame ()
+#3  exec_vm_call_function ()
+#4  vm_step ()
+#5  exec_vm_run_frame ()
+...
+#13 exec_vm_await_poll_once ()
+#16 exec_vm_cont_poll ()
+#17 exec_vm_await_poll_once ()
+#20 exec_vm_cont_poll ()
+...
+#29 main_main ()
+```
+
+两个特征：
+
+1. **调用栈异常深**（`bt` 打到 30 帧还没到底），且呈现
+   `exec_vm_cont_poll → exec_vm_await_poll_once → exec_vm_call_function →
+    vm_step → exec_vm_run_frame → exec_vm_cont_poll → …` 的**环**。
+   这是「pending 任务被反复 poll、每次都同步递归调用」的结果，
+   即 `scheduler_run_with_event_loop` 的轮询在 worker 不消费时空转，
+   每一轮都新增栈帧、从不展开 —— 最终栈溢出。
+2. 崩在 `exec_vm_native_field_load`，说明在极深栈上做字段加载时指针已经非法
+   （与之前真线程下 `BC_STORE_FIELD` use-after-free 同一类问题）。
+
+### 与「worker 不消费」的关系
+
+本轮又试了一次 stash@{0} 的 drain-on-EAGAIN 修复（`thread_worker_loop` 拿到
+`-EAGAIN` 时若 `pending_count > 0` 就当 DRAIN 命令）：
+
+```
+i=0 pending sw=1
+i=1 pending sw=1
+...
+```
+
+**没有任何改善**，任务仍不被消费。与第 545 轮的结论一致（该修复不稳定、
+指标无收益），故再次回退，未提交。
+
+结论：worker 不消费的根因不在 `thread_worker_loop` 的这一处分支。
+`sw=1` 说明 worker 线程确实起来了，但它在 `sys_read` 上拿不到命令、
+或者拿到命令后 drain 不出来 —— 需要下一轮直接对 `thread_shared_pop_slot`
+和 `thread_shared_task_slot_capacity` 打点，确认「队列里有任务但 pop 返回 -1」
+到底是数据没写进去、还是 pop 的逻辑条件不满足。
+
+### 验证策略（本轮任务要求的「评估影响范围再决单点/全量」）
+
+- 已做**全量** `make check`（rc=0）—— 因为这次改的是 checker 通用宏展开器，
+  影响面覆盖所有泛型函数，单点验证不足以证明安全；
+- 目标用例做**单点**验证（`test_async_compute_types` / 三个探针 / 非泛型对照）；
+- 结论：checker 层修复已被全量验证认可，剩下的问题（worker 不消费 + 深递归段错误）
+  都在 exec 运行期，属于独立课题，不影响已提交的修复。
