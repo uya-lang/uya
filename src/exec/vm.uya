@@ -2788,6 +2788,26 @@ fn exec_vm_native_agg_slot_index(vm: &ExecVmState, base: usize) i32 {
     if slot >= 0 {
         return slot;
     }
+    // 先复用已被 `forget` 释放的空槽（`base == 0`）：旁路表**只增不回收**时，
+    // 长时间运行或多线程高频分配只要登记过 256 个不同基址就会永久耗尽，
+    // 之后所有新结构体都拿不到槽 → 元素访问报 `count=-1` 并很快段错误。
+    var reusable: i32 = -1;
+    var ri: i32 = 0;
+    while ri < g_exec_native_agg_used {
+        if g_exec_native_agg_base[ri] == 0 as usize {
+            reusable = ri;
+            break;
+        }
+        ri = ri + 1;
+    }
+    if reusable >= 0 && reusable < EXEC_NATIVE_AGG_MAX_BASES {
+        g_exec_native_agg_base[reusable] = base;
+        g_exec_native_agg_count[reusable] = 0;
+        g_exec_native_agg_caps[reusable] = 0;
+        g_exec_native_agg_storage[reusable] = null;
+        g_exec_native_agg_handles[reusable].count = 0;
+        return reusable;
+    }
     var used_slot: i32 = g_exec_native_agg_used;
     if used_slot < 0 || used_slot >= EXEC_NATIVE_AGG_MAX_BASES {
         return -1;
