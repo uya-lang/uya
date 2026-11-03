@@ -12020,3 +12020,70 @@ unionfield tag=1 got=42 n=1
 先确认 `test_std_thread` 卡住的那个用例（`thread_pool_config_can_exceed_legacy_static_limits`）
 走的是不是 `scheduler_run_pair_*`。如果是，问题就在 scheduler 的双 future 调度，
 与 `thread.uya` 无关 —— 那是一个更小、更明确的修法。
+
+## 第 549 轮：scheduler 补上总时长上限，test_std_thread 从卡死变 22 通过
+
+### 问题
+
+`test_std_thread` 在 VM 下从第 4 个用例起**卡死**（rc=137），只能跑完 3 个。
+第 548 轮已把「第二个 future 为什么不再被 poll」追到调用方，本轮确认：
+那个调用方就是 `scheduler_run_with_event_loop`。
+
+```uya
+while true {
+    ...
+    const p: Poll<!T> = f.poll(&w);
+    match p {
+        .Ready(ok_val) => { return ok_val; },
+        .Pending(_) => { ... continue; },
+    };
+}
+```
+
+**这个 `while true` 没有任何总时长上限。** `timeout_ms` 只被当作单次
+`epoll_wait`（`loop.poll(timeout_ms)`）的超时，超时返回 0 后循环继续。
+future 永远 Pending 就是无限循环 —— 在 bytecode VM 里每轮 `f.poll` 都是同步
+递归，栈帧只增不减（这是第 547 轮 gdb 里那个 `cont_poll → await_poll_once →
+call_function → …` 深递归环的来源）；不溢出的时候则表现为调用方永远挂住。
+
+### 修复（`5adc0d33`）
+
+同文件里其实**已经有**带 deadline 的正确实现
+（`block_on_with_event_loop_deadline`，`:1348`），只是
+`scheduler_run_with_event_loop` 没用它。本轮把同样的保护补上：
+
+```uya
+var run_deadline_ms: u64 = 0u64;
+if timeout_ms > 0 {
+    const base_ms: u64 = sched_now_ms() catch { 0u64; };
+    if base_ms != 0u64 { run_deadline_ms = base_ms +| timeout_ms as u64; }
+}
+while true {
+    if run_deadline_ms != 0u64 {
+        if try sched_deadline_expired(run_deadline_ms) { return error.TimedOut; }
+    }
+    ...
+}
+```
+
+### 效果
+
+| 用例（`uya test --vm`） | 修复前 | 修复后 |
+| --- | --- | --- |
+| `test_std_thread` | rc=137，只跑完 3 个 test | **rc=12，22 通过 / 12 失败**（基线 11 通过 / 23 失败） |
+| `test_async_compute_types` | 11 通过 / 0 失败 | 11 通过 / 0 失败（不变） |
+| `test_async_compute_generic_wrapper` | 2 / 0 | 2 / 0（不变） |
+| `test_async_runtime_shared_semantics` | 4 / 0 | 4 / 0（不变） |
+| `test_std_async_scheduler` | 30 / 1 | 30 / 1（不变） |
+
+C99 侧 `test_std_thread` 仍是 34 / 0（一次跑到 33/1 属既有 flake）。
+
+### 一个必须记下来的观察：C99 侧存在既有 flake
+
+本轮发现 `uya test tests/test_async_compute_types.uya`（**C99 后端**）
+在**完全相同的二进制**上连跑三次分别是 7 / 8 / 10 个通过 ——
+`make check` 早先 rc=0 只是赶上了负载低的时候。
+
+验证方法：`git checkout HEAD -- lib/std/*.uya` 全量回退后连跑三次，
+仍是 9 / 9 / 7。**说明这个 flake 是既有的、与本次改动无关**，
+不能拿它当回归证据，也不要在这上面浪费时间。
