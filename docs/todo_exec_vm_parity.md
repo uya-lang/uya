@@ -10013,3 +10013,51 @@ BC_AWAIT
   给了就 `exec_vm_await_poll_once(program, imm, slot_b, &awaited)`；
   没给（老字节码/查不到）才退回现在的 `find_poll` 读 state 行为，
   这样不会一次打翻靠同步执行通过的用例。
+
+### 第 530 轮：最小修复方案定稿（"先试接口 poll，失败退回旧路径"）
+
+上一轮提的「lowering 填 poll 下标」方案太重（要改 builder + 传参 + 单态化）。
+本轮找到一个**更小、更安全**的等价方案，只需改 `vm.uya` 一处。
+
+观察：`exec_vm_await_poll_interface_once`（`vm.uya:1306`）的判定就是
+「struct/tuple 且 `values[0]` 是整数（方法入口下标）且 `count >= 2`」。
+这个判定对**所有转成接口的 Future 都成立**——包括 `@async_fn` 生成的 future。
+实测 `/tmp/aw8.uya`：
+```uya
+var i1: Future<!i32> = m as Future<!i32>;      // 用户 struct Future
+var i2: Future<!i32> = simple(3);              // @async_fn 的 future
+i1.poll(&w) → 1     i2.poll(&w) → 1            // 两个都正常 Ready
+```
+
+所以最小修复是：**在 `BC_AWAIT` 里，先尝试 `exec_vm_await_poll_interface_once`；
+只有它返回 -1（形态不匹配）才退回现在的 `find_poll` 读 state 老路径。**
+
+```uya
+// BC_AWAIT 开头，在现有 find_poll 探测之前插入：
+var iface_awaited: ExecValue = exec_make_void();
+const iface_poll_rc: i32 = exec_vm_await_poll_interface_once(program, slot_b, &iface_awaited);
+if iface_poll_rc == 0 {            // Ready
+    slot_a[0] = iface_awaited;
+} else if iface_poll_rc == 1 {     // Pending → 挂起成续体
+    if exec_vm_await_pass_through_pending(...) != 0 {
+        return exec_vm_cont_suspend(program, function, frame, instr, out_value);
+    }
+    // 不能挂起时的报错与现有分支保持一致
+    ...
+} else {                           // -1：不是接口形态，走原来三条分支
+    ...现有 find_poll 逻辑...
+}
+```
+
+**为什么安全**：
+- 走新路径的只有「`values[0]` 是整数入口」的接口形态 Future，这类值原本走
+  分支 1/2 也只会读 `state` 字段（错的）；改成真 poll 是**修正**；
+- 走不到新路径的（具体 struct 字面量、没有方法表的值）**完全保持原行为**，
+  所以靠同步执行通过的用例不受影响；
+- `@async_fn` 的 future 两条路都能 Ready（`/tmp/aw6.uya` 直接 poll 是 `p=1`），
+  行为等价。
+
+**待验证的风险**：`exec_vm_await_poll_interface_once` 会真的**调用** poll，
+若某些用例的 poll 有副作用（如 `waker.wake()` 重入），可能在原本
+「只读 state 不调 poll」的路径上引入新的调用。这需要跑完 81 个 `@await`
+测试来确认。
