@@ -8526,8 +8526,16 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         if poll_data != null && poll_data.tag == 1 {
             slot_a[0] = exec_value_clone(&poll_data.payload);
         } else if poll_data != null && poll_data.tag == 0 {
-            // 明确的 Pending：把当前帧快照成续体返回给调用方（真状态机）。
-            // 调用方每次 poll 都从 `imm`（`@await` 操作数求值起点）重跑这一段。
+            // `state` 字段是 Pending。它可能只是**尚未 poll**：用户自己实现 poll 的
+            // Future 常把 `state` 初始化成 Pending，真正的推进要靠它自己的 poll。
+            // 对齐 C99（`await_fut.vtable->poll(await_fut.data, waker)`）：
+            // 先真的 poll 一次；poll 不可用（不是接口形态）时才维持原来的挂起行为。
+            var pending_awaited: ExecValue = exec_make_void();
+            const pending_poll_rc: i32 = exec_vm_await_poll_interface_once(program, slot_b, &pending_awaited);
+            if pending_poll_rc == 0 {
+                slot_a[0] = pending_awaited;
+                return 0;
+            }
             if exec_vm_await_pass_through_pending(program, function, frame.slots, function.slot_count, slot_b, out_value) != 0 {
                 return exec_vm_cont_suspend(program, function, frame, instr, out_value);
             }
