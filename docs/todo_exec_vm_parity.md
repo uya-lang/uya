@@ -13261,3 +13261,60 @@ parity VM 侧不一致：**22 例 → 18 例**，其中 5 例完全清零。
 - 4 例：VM 引用悬空 / ADDR_INDEX 越界（既有内存语义问题）；
 - 1 例：VM 同步降级不需要 frame pool；
 - 1 例：真线程堆生命周期；1 例：已知 flake。
+
+### 第 557 轮：`test_kernel_sim`(VM=5) 与 `test_tls_async_runtime_io`(VM=1) 定性
+
+**`test_kernel_sim`（25 通过 / 5 失败）**
+
+5 个失败全部是 x86 **call gate / 汇编 trampoline**：
+
+```
+sim_load_image_x86_call_gate_records_nonzero_exit_code   k.loaded_exit_code[0] == 7  (actual 0)
+call_gate_stack_helper_switches_to_private_stack         switched_ret == 1         (actual 0)
+x86_call_gate_trampoline_invokes_target                  ret == 7                  (actual 0)
+x86_call_gate_trampoline_keeps_stack_alignment           probe_ret == 8            (actual 0)
+x86_call_gate_trampoline_stack_helper_keeps_stack_alignment  同上
+```
+
+这些用例要求**真实的 x86 段描述符、特权级切换、私有栈切换**，
+在 bytecode VM 里没有对应语义。属明确的架构边界（裸汇编 + 特权指令），
+与 `test_pthread_heap_concurrency` 那类「需要真实宿主线程」同性质。
+
+值得一提的是：这个用例的另外 **25 个** test（容器调度、轮转、优先级、
+退出、崩溃重启、fuse 僵尸、syscall yield、镜像加载）在 VM 下**全部通过** ——
+说明 VM 对 KernelSim 的模拟主体是好的，只是 call gate 这一小块做不到。
+
+**`test_tls_async_runtime_io`（0 通过 / 1 失败）**
+
+它的唯一 test 是 4 个子测试的组合：
+
+```uya
+test "tls async runtime io futures register scheduler interests" {
+    try test_tls_read_future_pending_registers_linux_epoll();
+    try test_tls_read_future_scheduler_epoll_ready();
+    try test_tls_write_future_pending_sets_writable_interest();
+    try test_tls_handshake_future_pending_sets_readable_interest();
+}
+```
+
+这四个要求的都是「future 在 Pending 时向 epoll 注册兴趣」—— 需要真实的
+epoll 事件上报。VM 里 epoll 是模拟的，没有真正的可读/可写事件，
+所以第一个子测试就 `try` 传播错误，整个 test 报 ERROR。
+
+### 至此，剩余 18 例全部定性完毕
+
+| 类别 | 断言点 | 用例 | 性质 |
+| --- | --- | --- | --- |
+| 排队/池满/运行中取消 | 13 | `test_std_thread`(7)、`thread_async_boundary`(2)、`compute_dynamic_resource_pressure`(1)、`thread_pool_dynamic_growth`(3) | 串行架构硬边界（已用对照实验证明互斥） |
+| 真 IO 事件循环 | 2 | `test_std_dns_async_transport`、`test_http_uyagin_websocket` | epoll/socket 模拟不足 |
+| epoll 兴趣注册 | 1 | `test_tls_async_runtime_io` | 同上 |
+| x86 call gate / 特权指令 | 5 | `test_kernel_sim` | 裸汇编，VM 无语义 |
+| RSA 大数性能 | 1 | `test_tls_rsa`(137) | 解释执行 15 分钟未完成 |
+| VM 引用悬空 | 2 | `test_typed_pipeline_capability`、`test_http_uyagin` | 既有内存语义缺陷（可独立攻） |
+| 架构差异 | 1 | `test_async_frame_pool_full` | VM 同步降级不分配 frame box |
+| 真线程堆 | 1 | `test_pthread_heap_cache_identity`(181) | 需引用计数/延迟回收 |
+| 基准慢 | 1 | `test_tls_ecdsa`(1) | 894s，性能问题 |
+| 已知 flake | 1 | `test_async_runtime_shared_dns` | 文档已记录 |
+
+**结论：18 例里只剩 2 例（VM 引用悬空）是「可独立攻的记忆体缺陷」，
+其余 16 例都落在架构边界上**（真并发 / 真 IO / 特权指令 / 真线程 / 性能）。
