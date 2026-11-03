@@ -10409,3 +10409,37 @@ replay/幂等用例**——这是与前四次尝试最本质的区别。
 **本轮不再动手**：已连续四次失败（共 5 个变体、8 个回归），在没有把
 「pool 侧去重」的语义想清楚之前，反复改 VM 只会继续制造回归。
 现状（工作树干净、二进制为基线、4 个用例 PASS）是安全状态。
+
+### 第 539 轮：给后续 agent 的「不要再试」清单（本轮四次失败的沉淀）
+
+关于「真并发/线程池」这 11 例，**以下方向的尝试在真实 A/B 实验里全部失败并回退**，
+不要再重复（每次都会打翻同样 4 个用例：`test_async_compound_try_await`、
+`test_async_fd`、`test_async_macro_expand`、`test_async_state_machine`）：
+
+| # | 尝试 | 判据/实现 | 结果 |
+|---|---|---|---|
+| 1 | `BC_AWAIT` 优先调接口 poll | 运行期：`values[0]` 是整数 | 4 回归 / 0 改善 |
+| 2 | 同上 + 收紧 | 再要求下标落在 `[0, function_count)` | 4 回归 / 0 改善 |
+| 3 | 编译期填 poll 函数下标 | `find_instance_method_in_struct(.., "poll")` → `BC_AWAIT.imm` | 永不触发（操作数是接口，`kind=15`） |
+| 4 | 编译期判接口 | `type_ref.kind == TYPE_INTERFACE` → `BC_AWAIT.c` | 4 回归 / 0 改善 |
+| 5 | 摘掉宏展开白名单 | 把 `async_compute` 从 `exec_lower_mono_body_needs_macro_expand` 移除 | 结果完全不变 |
+
+**根因（第 537 轮确立）**：VM 的续体恢复是**重跑式**的——恢复点记在 `BC_AWAIT`
+自己，恢复后重跑该指令、重新求值操作数。所以：
+- 「直接读 `state: Poll<T>` 字段」在这个模型下是**必要的幂等设计**，不是缺陷；
+- 任何「让 `@await` 真调 poll」的改法，都会让靠自身状态翻转的 Future
+  （`FlipPending` 这类）在重跑时被**重建**，永远推进不了；
+- `tests/test_async_compound_try_await.uya` 的注释
+  「必须能在 poll/resume 间正确重放」和
+  `tests/test_async_macro_expand.uya` 的
+  `async_expr_macro_block_keeps_preawait_eval_once` 就是在守这个语义。
+
+**另外两个已验证的事实**（省得再查）：
+- `async_compute<i32>(...)` 那条路径上 **`BC_AWAIT` 执行 0 次**却返回 `p=1` Ready
+  （第 535 轮，用 `UYA_AWAIT_DBG` 打点实测）；
+- 泛型带参 `@async_fn`（如 `generic_outer<i32>`）里 `@await` **正常**执行
+  `BC_AWAIT`，所以「泛型」不是病灶。
+
+**唯一还值得走的方向**（第 538 轮定稿，未实施）：把「是否已提交」的状态从
+`AsyncWorkerComputeFuture` 对象挪到 `ThreadPool` 侧做去重，**不动 `@await` 语义**。
+这是唯一不会打翻那 4 个 replay 用例的路子。
