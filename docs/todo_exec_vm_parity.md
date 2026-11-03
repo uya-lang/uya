@@ -9368,3 +9368,24 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 - **新线索**：`scheduler_run_with_event_loop` 路径上 `err_id = 9`，i32/i64 同样命中，
   与返回类型无关；`linux_epoll_create` 与直接 `loop.register` 都正常，
   缺口在这一层的 waker 注册。
+
+### 第 503 轮：`err_id = 9` 追查结论（归入真并发类）
+
+- 探针事实：
+  - `async_compute<i32>` 的 future 在 VM 里第一次 `poll` 就是 **`Poll.Ready`**（`tag=1`），
+    因为默认配置下 `pthread_create` 是**串行**执行（create 当场把线程体跑完）；
+  - 同一个 future 交给 `scheduler_run_with_event_loop` 却返回 `err_id = 9`。
+- 排除项：`linux_epoll_create`（epfd=5、slot_capacity=1024）、
+  直接 `loop.register(...)`（返回 1）、引用写回（`*p = -1` 正常）、
+  `sys_eventfd`（fd=5）都正常；`error.EventLoopSlotsFull` 的 id 是 1457317801，不是 9。
+- 关键对照：`tests/test_std_async_scheduler.uya` 里用**测试内假 future**
+  （`pending_then_ready_future` 等）的用例全过；唯一失败的是
+  `async_runtime_metrics_linux_epoll_with_thread_pool_…`，
+  断言 `wait_thread_pool_pending_at_least(&pool, 1) == 1` 拿到 0 ——
+  也就是**线程池 worker 从未真正并发运行**（串行 create 已经把任务做完，
+  队列深度恒 0）。
+- 结论：`test_async_compute_types` / `generic_wrapper` / `dynamic_resource_pressure` /
+  `scheduler` 的这一项，**共同根因是 VM 默认不真并发**，属于同一类，
+  不是返回值类型或 waker 注册的 bug。要清这批必须让真线程成为默认路径
+  （目前 `UYA_EXEC_REAL_THREADS=1` 下 `test_pthread_heap_concurrency` 仍段错误，
+  是更底层的分配器并发问题）。
