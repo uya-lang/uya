@@ -9604,3 +9604,22 @@ pool._started_workers < pool.worker_count
 「串行模拟 + 预算切断」的架构下都无法根治，必须先把真线程做成默认路径；
 而真线程目前卡在堆的多线程安全（`exec_vm_native_field_store` 的 use-after-free），
 是更大的结构性工作。
+
+### 第 512 轮：`err_id = 9` 进一步收窄（scheduler 与 VM 的 `!T` 交互）
+
+- `/tmp/us2.uya`（`async_compute<usize>` + `scheduler_run_with_event_loop<usize>`）
+  返回 `err = 9`；同一函数的 `thread_call_usize(&dbl, 21)` **直接调用返回 42 正确**
+  （第 501 轮的宿主桥修复是有效的）。
+- 基础 `!T` 语义正常：`fn ok_usize() !usize { return 42usize; }` 读出来
+  `error_id = 0`、`value = 42`，说明「成功时 error_id 为 0」没问题。
+- 所以 err=9 是 `scheduler_run_with_event_loop` 内部某条 `as! T` 带出来的，
+  不是返回值类型或错误联合表示的问题。候选点：
+  `scheduler_sync_waker_registrations` / `scheduler_prepare_waker` / `loop.poll`。
+  但 `linux_epoll_create`（epfd=5）与直接 `loop.register(...)`（返回 1）都验证正常，
+  说明差异在 scheduler 传进去的 waker 状态上。
+- 本轮到此为止：继续追需要给 scheduler 内部逐点插桩，而它的失败形态
+  与「线程池/事件循环依赖真并发」这一类高度重合。
+
+**本轮净成果（第 509–512）**：
+- `test_pthread_heap_concurrency` **139 → 0**（真修复：create 被预算切断的线程体在 join 重跑）；
+- `make check` rc=0、树干净、census 887/22（唯一新增是已知 DNS 网络 flake）。
