@@ -192,6 +192,8 @@ var g_exec_vm_state_main: ExecVmState = ExecVmState {
     cont_slot_count: [],
     cont_slots: [],
     cont_used: [],
+    cont_done: [],
+    cont_result: [],
     frame_resumed: 0,
     await_waker_addr: 0 as usize,
     await_waker_kind: 0,
@@ -8957,6 +8959,12 @@ fn exec_vm_cont_alloc() i32 {
             exec_vm_main_vm().cont_used[i] = 1;
             exec_vm_main_vm().cont_slots[i] = null;
             exec_vm_main_vm().cont_slot_count[i] = 0;
+            // 复用槽位时必须清掉上一个续体留下的完成态和结果，否则新续体
+            // 会被误判成「已完成」并交回别人的结果。
+            if exec_vm_main_vm().cont_done[i] != 0 {
+                exec_vm_main_vm().cont_result[i] = exec_make_void();
+                exec_vm_main_vm().cont_done[i] = 0;
+            }
             return i;
         }
         i = i +| 1;
@@ -9172,6 +9180,15 @@ fn exec_vm_cont_poll(program: &BCProgram, args: &ExecValue, arg_count: i32,
         handle = exec_vm_cont_handle_of(&args[0]);
     }
     if handle < 0 || handle >= EXEC_VM_CONT_MAX || exec_vm_main_vm().cont_used[handle] == 0 {
+        // 已经完成过的续体：重复 poll 必须返回同一个 Ready。
+        // 接口契约里 poll 是幂等的，C99 侧（把 future 存在状态机字段里、
+        // 每次都走 vtable poll）天然满足；VM 侧续体在完成时会被 release，
+        // 若不在这里把结果留下，第二次 poll 就会错误地返回 Pending，
+        // 导致「明明 Ready 过的 future 永远不再 Ready」。
+        if handle >= 0 && handle < EXEC_VM_CONT_MAX && exec_vm_main_vm().cont_done[handle] != 0 {
+            out_value[0] = exec_make_union(1, exec_value_clone(&exec_vm_main_vm().cont_result[handle]));
+            return 0;
+        }
         out_value[0] = exec_make_union(0, exec_make_void());
         return 0;
     }
@@ -9223,6 +9240,12 @@ fn exec_vm_cont_poll(program: &BCProgram, args: &ExecValue, arg_count: i32,
     const done_poll: &ExecUnionData = exec_vm_await_find_poll(&resumed, 0);
     if done_poll != null && done_poll.tag == 1 {
         final_payload = exec_value_clone(&done_poll.payload);
+    }
+    // 先把完成态和结果留在 handle 上，再 release —— 这样即使续体表项被回收，
+    // 后续重复 poll 也能从这里取回同一个 Ready（见上面的无效-handle 分支）。
+    if handle >= 0 && handle < EXEC_VM_CONT_MAX {
+        exec_vm_main_vm().cont_done[handle] = 1;
+        exec_vm_main_vm().cont_result[handle] = exec_value_clone(&final_payload);
     }
     exec_vm_cont_release(handle);
     out_value[0] = exec_make_union(1, final_payload);

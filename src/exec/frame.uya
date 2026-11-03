@@ -27,6 +27,15 @@ struct ExecVmState {
     cont_slot_count: [i32: EXEC_VM_CONT_MAX],
     cont_slots: [&ExecValue: EXEC_VM_CONT_MAX],
     cont_used: [i32: EXEC_VM_CONT_MAX],
+    // 续体**已完成**后缓存的最终载荷。
+    //
+    // `exec_vm_cont_poll` 在恢复执行到 `BC_RET` 时会 `cont_release(handle)`，
+    // 之后如果调用方再次 poll（这是接口允许的：poll 幂等），
+    // 原来的 `cont_used[handle] == 0` 分支会返回 Pending —— 于是
+    // 「future 明明已经 Ready 过，再 poll 却永远 Pending」。
+    // 这里把完成态和结果一起留下，让 poll 可以重复返回同一个 Ready。
+    cont_done: [i32: EXEC_VM_CONT_MAX],
+    cont_result: [ExecValue: EXEC_VM_CONT_MAX],
     // 帧/唤醒/取消
     frame_resumed: i32,
     await_waker_addr: usize,
