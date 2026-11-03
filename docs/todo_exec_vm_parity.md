@@ -12475,3 +12475,87 @@ C99 之所以「碰巧能过」，是因为那块内存在 C99 下没有被覆�
   不是本轮修复引入的；
 - 4 项无效尝试、1 项净负改动（scheduler deadline）均已回退；
 - 工作树干净，无遗留实验代码。
+
+## 第 551 轮：找到极简确定性复现 —— `@async_fn` 的 future 一旦 Ready，再 poll 就变 Pending
+
+### 极简复现（`/tmp/r76.uya`，120 行，零依赖线程池）
+
+```uya
+struct Once : Future<!i32> {
+    polls: i32, done: i32, state: Poll<!i32>,
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        if self.done != 0 { return self.state; }      // 第二次起直接返回缓存结果
+        self.polls = self.polls + 1;
+        if self.polls < 2 { waker.wake(); return Poll<!i32>.Pending({}); }
+        self.state = Poll<!i32>.Ready(42);
+        self.done = 1;
+        return self.state;                             // 第二次 poll：Ready(42)
+    }
+    fn release(self: &Self) void { async_box_free_current(self as &byte); }
+}
+
+@async_fn fn outer() Future<!i32> {
+    const f: Future<!i32> = Once{ polls: 0, done: 0, state: Poll<!i32>.Pending({}) };
+    const v: i32 = try @await f;
+    return v;
+}
+```
+
+主程序连续 poll 8 次 `outer()` 返回的 future：
+
+```
+i=0 t=1 v=42      ← 第 1 次就 Ready(42)，完全正确
+i=1 t=0 v=0       ← 第 2 次变回 Pending！
+i=2 t=0 v=0
+...
+```
+
+**用一个 120 行、不碰线程池、不碰 async_compute 的探针就复现了。**
+`Once` 这个 future 在 `done != 0` 之后无条件返回 `self.state`，
+按接口契约，外层 `outer()` 的 future 一旦 Ready 也应该持续返回 Ready。
+
+### 这是本轮最重要的发现
+
+它把此前所有「VM 下 future 永不 Ready / 卡死」的现象，归结到一个**单一、
+可独立复现的缺陷**：**`@async_fn` 生成的状态机在完成之后再被 poll，会退回 Pending。**
+
+对比第 550 轮 `/tmp/r72.uya`（两个 `async_compute`）的输出：
+
+```
+i=1 t1=1 v1=20 e1=0 t2=1 v2=10 e2=0      ← 完成那一轮
+i=2 t1=0 v1=0 e1=0 t2=0 v2=0 e2=0        ← 下一轮全部退回 Pending
+```
+
+与 `/tmp/r76.uya` 的现象**完全一致**。所以 `test_std_thread` 的卡死
+（手动 poll 拿到 Ready 后，scheduler 再 poll 就永远 Pending）也是同一个根因。
+
+第 550 轮把原因归结为「`release` 释放 box 后读脏」——**这个归因是不准确的**：
+`/tmp/r76.uya` 里根本没有调用 `release()`（全仓库也确实没有任何 `.release()`
+调用点），box 不可能被释放。真正的原因是**状态机自身的完成标记没有持久化**。
+
+### 对照组：普通结构体的字段持久化是正常的
+
+第 550 轮的 `/tmp/r74.uya`（普通 struct + `fn bump(self: &Self)`）：
+
+```
+i=1 r=99 done=1     ← done 保持 1
+i=2 r=99 done=1
+```
+
+所以不是「VM 结构体字段写不进去」，而是**`@async_fn` 状态机这条路径特有**：
+它的完成状态（对应 C99 里的 `state` 字段 / 状态机终态）在 VM 的实现里没有
+被正确保存和读取。
+
+### 下一轮的具体切入点
+
+`@async_fn` 在 VM 侧走的是：
+`src/exec/lower.uya` 的 async 降级（`exec_lower_wrap_async_return`、`@await` lowering）
+→ `src/exec/builder.uya` 的 `HIR_EXPR_AWAIT` / `BC_AWAIT`
+→ `src/exec/vm.uya` 的 `BC_AWAIT` 三分支 + `exec_vm_cont_*` 续体。
+
+重点看：**状态机走到终态（返回 Ready）之后，再被 poll 时走的是哪条路径**。
+C99 侧对应的是 `c99_emit_await_fut_assign_from_expr` + vtable poll，
+它把 future 存在 `s->await_fut` 字段里、每次都调 poll（见
+`src/codegen/c99/function.uya:7373`）。VM 侧应该保证等价语义。
+
+这一条修好，剩余 17 例里「VM 侧永不 Ready / 卡死」的那一类很可能成组转绿。
