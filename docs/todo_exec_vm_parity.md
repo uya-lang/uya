@@ -9351,3 +9351,20 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   与返回类型无关。`linux_epoll_create` 返回 epfd=5、`loop.register` 直接调用返回 1
   都正常，所以 err=9 出在 `scheduler_run_with_event_loop` 这一层的 waker 注册，
   需要单独排查。census 计数未变（11），本改动无回归。
+
+### 第 502 轮：本轮门禁确认（`uya_thread_call_<T>` 修复后）
+
+| 门禁 | 结果 |
+|---|---|
+| `make check` | **rc=0** |
+| `make exec-census` | **909 / 887 通过 / 22 失败**，与基线逐项一致（无回归） |
+
+本轮（第 499–501 轮）产出：
+- **真修复**：`uya_thread_call_<T>` 宿主桥接 —— 非 i32 类型的线程调用
+  （i64/u64/i16/u16/i8/u8/bool/f32/f64/usize）此前一律返回 0，现在真调 Uya 函数。
+- **机理查清**：`test_async_frame_pool_full`（VM 的 `BC_BOX_VALUE` 失败静默回退，
+  需在 async 返回路径加检查分支，属结构性改动）；
+  `test_kernel_sim`（5 个失败全是 x86 call gate 裸汇编，VM 架构性不适用）。
+- **新线索**：`scheduler_run_with_event_loop` 路径上 `err_id = 9`，i32/i64 同样命中，
+  与返回类型无关；`linux_epoll_create` 与直接 `loop.register` 都正常，
+  缺口在这一层的 waker 注册。
