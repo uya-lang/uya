@@ -132,6 +132,55 @@ const EXEC_VM_REF_KIND_INDEX_BASE: i32 = 131072;
 // 固定容量有两个麻烦：小则深调用链撞墙，大则白占内存且必须把容量抄到
 // 每一处判界的地方（历史上就是因为把单函数帧上限 8192 当成了池容量，
 // 导致 base ≥ 8192 的帧拿不到自己的槽段、退回 pool[0] 与别的帧重叠）。
+// 原生聚合旁路表：**进程级共享**。堆是进程级共享的，A 线程分配的结构体，
+// B 线程 `realloc` 时必须在同一张表里找到基址才能搬运旁路内容；放进每线程的
+// `ExecVmState` 会让 B 看不到 A 的基址 → 不迁移 → 旁路表失效
+// （`STORE_FIELD … count=-1` 紧跟段错误）。
+var g_exec_native_agg_base: [usize: EXEC_NATIVE_AGG_MAX] = [];
+var g_exec_native_agg_count: [i32: EXEC_NATIVE_AGG_MAX] = [];
+var g_exec_native_agg_caps: [i32: EXEC_NATIVE_AGG_MAX] = [];
+var g_exec_native_agg_storage: [&ExecValue: EXEC_NATIVE_AGG_MAX] = [];
+var g_exec_native_agg_handles: [ExecAggregate: EXEC_NATIVE_AGG_MAX] = [];
+var g_exec_native_agg_used: i32 = 0;
+
+/// 旁路表锁**可重入**：宿主调用内部可能再次进入宿主调用
+/// （`pthread_create` 的串行路径会直接调 `exec_vm_call_function` 跑线程体，
+/// 线程体里又会调 malloc/pthread_* 等宿主函数）。用递归计数避免自锁。
+var g_exec_native_agg_lock: atomic i32 = 0;
+var g_exec_native_agg_lock_depth: i32 = 0;
+
+fn exec_vm_native_agg_lock_acquire() void {
+    if g_exec_native_agg_lock_depth > 0 {
+        g_exec_native_agg_lock_depth = g_exec_native_agg_lock_depth +| 1;
+        return;
+    }
+    var spins: i32 = 0;
+    while true {
+        if g_exec_native_agg_lock == 0 {
+            g_exec_native_agg_lock = 1;
+            if g_exec_native_agg_lock == 1 {
+                g_exec_native_agg_lock_depth = 1;
+                return;
+            }
+        }
+        spins = spins +| 1;
+        if spins >= 64 {
+            spins = 0;
+            const yr: !i64 = @syscall(SYS_sched_yield, 0, 0, 0, 0, 0, 0);
+            _ = yr catch { 0 as i64; };
+        }
+    }
+}
+
+fn exec_vm_native_agg_lock_release() void {
+    if g_exec_native_agg_lock_depth > 1 {
+        g_exec_native_agg_lock_depth = g_exec_native_agg_lock_depth -| 1;
+        return;
+    }
+    g_exec_native_agg_lock_depth = 0;
+    g_exec_native_agg_lock = 0;
+}
+
 var g_exec_vm_state_main: ExecVmState = ExecVmState {
     slot_pool: null,
     slot_pool_capacity: 0,
@@ -151,12 +200,6 @@ var g_exec_vm_state_main: ExecVmState = ExecVmState {
     alloc_sizes: [],
     alloc_used: 0,
     box_alloc_active: 0,
-    native_agg_base: [],
-    native_agg_count: [],
-    native_agg_caps: [],
-    native_agg_storage: [],
-    native_agg_handles: [],
-    native_agg_used: 0,
 };
 
 /// 主线程的执行状态。子线程（真并发）会各自持有一份，不再走这个入口。
@@ -2690,7 +2733,7 @@ fn exec_vm_native_agg_ensure(vm: &ExecVmState, slot: i32, need: i32) i32 {
     if want > EXEC_NATIVE_AGG_MAX_ELEMS {
         want = EXEC_NATIVE_AGG_MAX_ELEMS;
     }
-    const old_cap: i32 = vm.native_agg_caps[slot];
+    const old_cap: i32 = g_exec_native_agg_caps[slot];
     if old_cap >= want {
         return 0;
     }
@@ -2712,7 +2755,7 @@ fn exec_vm_native_agg_ensure(vm: &ExecVmState, slot: i32, need: i32) i32 {
     // 新槽位一律先清零（kind=VOID）：越界读永远走不到这里，但扩容时未初始化
     // 的字节一旦被当成 ExecValue 解出来就是随机 kind，必须抹掉。
     _ = memset(mem as *void, 0, bytes);
-    const old_mem: &ExecValue = vm.native_agg_storage[slot];
+    const old_mem: &ExecValue = g_exec_native_agg_storage[slot];
     if old_mem != null {
         var i: i32 = 0;
         while i < old_cap {
@@ -2720,9 +2763,9 @@ fn exec_vm_native_agg_ensure(vm: &ExecVmState, slot: i32, need: i32) i32 {
             i = i + 1;
         }
     }
-    vm.native_agg_storage[slot] = mem;
-    vm.native_agg_caps[slot] = cap;
-    vm.native_agg_handles[slot].values = mem;
+    g_exec_native_agg_storage[slot] = mem;
+    g_exec_native_agg_caps[slot] = cap;
+    g_exec_native_agg_handles[slot].values = mem;
     return 0;
 }
 
@@ -2735,8 +2778,8 @@ fn exec_vm_native_agg_slot_index(vm: &ExecVmState, base: usize) i32 {
     }
     var slot: i32 = -1;
     var i: i32 = 0;
-    while i < vm.native_agg_used {
-        if vm.native_agg_base[i] == base {
+    while i < g_exec_native_agg_used {
+        if g_exec_native_agg_base[i] == base {
             slot = i;
             break;
         }
@@ -2745,17 +2788,17 @@ fn exec_vm_native_agg_slot_index(vm: &ExecVmState, base: usize) i32 {
     if slot >= 0 {
         return slot;
     }
-    var used_slot: i32 = vm.native_agg_used;
+    var used_slot: i32 = g_exec_native_agg_used;
     if used_slot < 0 || used_slot >= EXEC_NATIVE_AGG_MAX_BASES {
         return -1;
     }
     slot = used_slot;
-    vm.native_agg_base[slot] = base;
-    vm.native_agg_count[slot] = 0;
-    vm.native_agg_handles[slot].count = 0;
-    vm.native_agg_caps[slot] = 0;
-    vm.native_agg_storage[slot] = null;
-    vm.native_agg_used = slot +| 1;
+    g_exec_native_agg_base[slot] = base;
+    g_exec_native_agg_count[slot] = 0;
+    g_exec_native_agg_handles[slot].count = 0;
+    g_exec_native_agg_caps[slot] = 0;
+    g_exec_native_agg_storage[slot] = null;
+    g_exec_native_agg_used = slot +| 1;
     return slot;
 }
 
@@ -2770,9 +2813,9 @@ fn exec_vm_native_agg_rebase(vm: &ExecVmState, old_base: usize, new_base: usize)
         return;
     }
     var i: i32 = 0;
-    while i < vm.native_agg_used {
-        if vm.native_agg_base[i] == old_base {
-            vm.native_agg_base[i] = new_base;
+    while i < g_exec_native_agg_used {
+        if g_exec_native_agg_base[i] == old_base {
+            g_exec_native_agg_base[i] = new_base;
         }
         i = i + 1;
     }
@@ -2812,12 +2855,12 @@ fn exec_vm_native_agg_forget(vm: &ExecVmState, base: usize) void {
         return;
     }
     var i: i32 = 0;
-    while i < vm.native_agg_used {
-        if vm.native_agg_base[i] == base {
-            vm.native_agg_base[i] = 0 as usize;
-            vm.native_agg_count[i] = 0;
-            vm.native_agg_handles[i].count = 0;
-            vm.native_agg_storage[i] = null;
+    while i < g_exec_native_agg_used {
+        if g_exec_native_agg_base[i] == base {
+            g_exec_native_agg_base[i] = 0 as usize;
+            g_exec_native_agg_count[i] = 0;
+            g_exec_native_agg_handles[i].count = 0;
+            g_exec_native_agg_storage[i] = null;
             return;
         }
         i = i + 1;
@@ -2838,10 +2881,10 @@ fn exec_vm_native_agg_peek(vm: &ExecVmState, base: usize, index: i64) &ExecValue
         return null;
     }
     var i: i32 = 0;
-    while i < vm.native_agg_used {
-        if vm.native_agg_base[i] == base {
-            if (index as i32) < vm.native_agg_count[i] {
-                const storage: &ExecValue = vm.native_agg_storage[i];
+    while i < g_exec_native_agg_used {
+        if g_exec_native_agg_base[i] == base {
+            if (index as i32) < g_exec_native_agg_count[i] {
+                const storage: &ExecValue = g_exec_native_agg_storage[i];
                 if storage == null {
                     return null;
                 }
@@ -2868,8 +2911,8 @@ fn exec_vm_native_agg_migrate(vm: &ExecVmState, dst_base: usize, src_base: usize
     }
     var src_slot: i32 = -1;
     var i: i32 = 0;
-    while i < vm.native_agg_used {
-        if vm.native_agg_base[i] == src_base {
+    while i < g_exec_native_agg_used {
+        if g_exec_native_agg_base[i] == src_base {
             src_slot = i;
             break;
         }
@@ -2878,17 +2921,17 @@ fn exec_vm_native_agg_migrate(vm: &ExecVmState, dst_base: usize, src_base: usize
     if src_slot < 0 || src_slot >= EXEC_NATIVE_AGG_MAX_BASES {
         return 0;
     }
-    if vm.native_agg_count[src_slot] <= 0 {
+    if g_exec_native_agg_count[src_slot] <= 0 {
         return 0;
     }
-    const count: i32 = vm.native_agg_count[src_slot];
+    const count: i32 = g_exec_native_agg_count[src_slot];
     var j: i32 = 0;
     while j < count && j < EXEC_NATIVE_AGG_MAX_ELEMS {
         const dst_elem: &ExecValue = exec_vm_native_agg_slot(vm, dst_base, j as i64);
         if dst_elem == null {
             break;
         }
-        const src_storage: &ExecValue = vm.native_agg_storage[src_slot];
+        const src_storage: &ExecValue = g_exec_native_agg_storage[src_slot];
         if src_storage == null {
             break;
         }
@@ -2916,11 +2959,11 @@ fn exec_vm_native_agg_slot(vm: &ExecVmState, base: usize, index: i64) &ExecValue
     if exec_vm_native_agg_ensure(vm, slot, idx + 1) != 0 {
         return null;
     }
-    if idx >= vm.native_agg_count[slot] {
-        vm.native_agg_count[slot] = idx + 1;
-        vm.native_agg_handles[slot].count = idx + 1;
+    if idx >= g_exec_native_agg_count[slot] {
+        g_exec_native_agg_count[slot] = idx + 1;
+        g_exec_native_agg_handles[slot].count = idx + 1;
     }
-    return &vm.native_agg_storage[slot][idx];
+    return &g_exec_native_agg_storage[slot][idx];
 }
 
 /// 取原生指针聚合元素旁路表的聚合视图（按需建表）。
@@ -2932,7 +2975,7 @@ fn exec_vm_native_agg_handle(vm: &ExecVmState, base: usize) &ExecAggregate {
     if slot < 0 || slot >= EXEC_NATIVE_AGG_MAX_BASES {
         return null;
     }
-    return &vm.native_agg_handles[slot];
+    return &g_exec_native_agg_handles[slot];
 }
 
 /// 内存函数（memset/memcpy/memmove）目标/源的三态视图。
@@ -8549,7 +8592,10 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return -1;
         }
         var host_result: ExecValue = exec_make_void();
-        if exec_vm_call_host(program, function, host_site, frame, instr.b, instr.c, &host_result) != 0 {
+        exec_vm_native_agg_lock_acquire();
+        const host_rc: i32 = exec_vm_call_host(program, function, host_site, frame, instr.b, instr.c, &host_result);
+        exec_vm_native_agg_lock_release();
+        if host_rc != 0 {
             return -1;
         }
         if slot_a == null {

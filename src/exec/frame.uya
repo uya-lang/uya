@@ -41,13 +41,8 @@ struct ExecVmState {
     alloc_sizes: [usize: EXEC_ALLOC_TRACK_MAX],
     alloc_used: i32,
     box_alloc_active: i32,
-    // 原生聚合旁路表（结构体/数组元素的真实内容）
-    native_agg_base: [usize: EXEC_NATIVE_AGG_MAX],
-    native_agg_count: [i32: EXEC_NATIVE_AGG_MAX],
-    native_agg_caps: [i32: EXEC_NATIVE_AGG_MAX],
-    native_agg_storage: [&ExecValue: EXEC_NATIVE_AGG_MAX],
-    native_agg_handles: [ExecAggregate: EXEC_NATIVE_AGG_MAX],
-    native_agg_used: i32,
+    // 原生聚合旁路表不在这里：堆是进程级共享的，旁路表也必须是进程级全局
+    // （见 vm.uya 的 g_exec_native_agg_*）。
 }
 
 struct ExecFrame {
