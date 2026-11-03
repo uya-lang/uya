@@ -10236,3 +10236,39 @@ VM 运行期没有「struct 类型 → poll 方法下标」的映射，所以必
 
 **建议**：这 11 个「真并发/线程池」类用例在串行模拟架构下维持已知失败，
 先把精力放在别处，或单独立项做「VM 运行期类型标识」。
+
+### 第 535 轮：决定性诊断——`async_compute` 路径上 `BC_AWAIT` **执行次数为 0**
+
+加了临时调试打印（`UYA_AWAIT_DBG=1` 时在 `BC_AWAIT` 入口打印
+`fn`/`kind`/`tag`/`imm`），得到一组决定性对照（打印已删除，代码已回退）：
+
+| 探针 | 场景 | `BC_AWAIT` 打印 | 结果 |
+|---|---|---|---|
+| `/tmp/aw10.uya` | `@await inner()`，`inner` 是同文件 `@async_fn` | **有**：`BC_AWAIT fn=outer kind=16 tag=1 imm=0` | `p0=1`（正确，inner 已完成） |
+| `/tmp/aw12.uya` | 泛型 `@async_fn generic_outer<i32>` 里 `@await` 接口 Future | **有**：`BC_AWAIT fn=generic_outer$m22 kind=16 tag=0 imm=0`（两次） | `p=0`（正确挂起） |
+| `/tmp/aw14.uya` | 同文件 `@async_fn outer_same` 里 `@await` 一个转接口的自定义 `MyF` | **没有** | `p=0 g=0`（挂起但内层 poll 没调） |
+| `/tmp/aw13.uya` | `async_compute<i32>(&pool, ...)` + 一次 `poll` | **一次都没有**（`grep -c` = 0） | `p=1 sw=0 pc=0` |
+
+**最关键的一条**：`async_compute` 那个探针里，`BC_AWAIT` **执行了 0 次**，
+却是 `p=1`（Ready）。也就是说：**`async_compute` 返回的 future 在 poll 时
+根本没有经过任何 `@await` 指令**，直接就 Ready 了。
+
+交互对照还排除了两个我原先怀疑的方向（都做了实际实验并回退）：
+- **不是泛型/参数问题**：`aw12` 的泛型带参 `@async_fn` 里 `BC_AWAIT` 正常执行；
+- **不是宏展开白名单问题**：把 `async_compute` 从
+  `exec_lower_mono_body_needs_macro_expand` 的白名单里临时摘掉、重建、重测，
+  `/tmp/aw11.uya` 结果**完全不变**（`after create sw=0 pc=0` / `after poll p=1 sw=0 pc=0`）。
+
+所以 `async_compute` 的病在**更上游**：它的函数体（或 `@async_fn` 的状态机生成）
+在 VM 这条链路上根本没有包含那个 `@await`，或者 `@async_fn` 的 `poll` 在进入函数体
+之前就返回了 Ready。
+
+### 本轮的净结论
+
+- 三次修复尝试（第 531/534/535 轮，共 5 种变体）全部失败并已回退，**8 个回归、0 个改善**；
+- 已确立：改 `BC_AWAIT` 治不到 `async_compute`；接口启发式不可靠；不是泛型/宏展开问题；
+- 真正的病灶在 `@async_fn` 的**状态机生成**或 `async_compute` **函数体的跨模块 lowering**，
+  这两处都不是能在一轮内安全收口的小改动。
+
+**建议维持现状**：11 个「真并发/线程池」类用例继续作为已知失败记录，
+若要继续推进，应单独立项做「VM 运行期类型标识 + `@async_fn` 状态机生成」的系统性改造。
