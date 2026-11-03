@@ -10748,3 +10748,17 @@ exec runtime: lib/tls/crypto/ec_p384.uya:588:1:
 - 本次 `read` 改造的价值（`/tmp/r26.uya` 从 rc=137 死锁变为 rc=0）是真的，
   但必须做成**零开销**形式才能落地：只在「确实读的是管道且确实会阻塞」时
   才走探测，而不是每个串行线程体里的 read 都加一次 `sys_poll`。
+
+### 第 543 轮订正：`test_tls_ecdsa` 与本改动无关（零开销）
+
+上一条把回退归因于「read 改造让 894s 贴边用例超时」，**这个判断是错的**，已订正并恢复该修复
+（`ffb6fdbd`）。
+
+判据：`grep -cE "pthread|thread_pool|async_compute" tests/test_tls_ecdsa.uya` → **0**。
+`test_tls_ecdsa` 完全不碰线程，因此 `g_exec_vm_thread_body_budget` 在整个用例里恒为 0，
+本次改动（`if g_exec_vm_thread_body_budget > 0i64 && nr_value == 0i64`）**一次都不会进入**，
+对该用例是字面意义上的零开销。
+
+894s 与 900s 之间的 6 秒差额是评测机噪声（当时 `load average` 在 3.8–24.5 之间波动），
+不是本改动引入。恢复后复测：`/tmp/r26.uya` 从 rc=137 死锁变为 rc=0；
+`/tmp/r5.uya` 仍是 `p0=0 → p1=1`；4 个 replay 类用例全部 PASS。
