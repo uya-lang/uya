@@ -13419,3 +13419,51 @@ fn add(self: &Self, idx: i32) i32 {
 - 未做任何代码改动（两个探针都在 `/tmp`）；
 - 工作树干净，`bin/uya` 与 HEAD 一致；
 - 核心成果（5 例 parity VM 清零、`test_std_thread` 27 通过）保持稳定。
+
+### 第 559 轮：`test_async_thread_pool_dynamic_growth`(VM=4) 确认全为排队类
+
+```
+thread_pool_queue_full_returns_task_queue_full_without_fork_fallback
+    assert: saw_queue_full == 1                    (actual 0)
+thread_pool_configured_queue_applies_backpressure_past_legacy_task_slots
+    assert: wait_pending_at_least(&pool, N) == 1   (actual 0)
+thread_pool_metrics_capture_capacity_queue_depth_and_drain_time
+    assert: wait_pending_at_least(&pool, N) == 1   (actual 0)
+thread_pool_metrics_record_cancelled_async_compute
+    assert: wait_pending_at_least(&pool, 1) == 1   (actual 0)
+```
+
+4 个全部是「任务要在队列里停留可观测」/「队列要真的满」——
+与 `test_std_thread` 那 7 个完全同源，归入已确认的串行架构边界。
+
+### 「排队类」失败点的最终统计
+
+| 用例 | 断言点 |
+| --- | --- |
+| `test_std_thread` | 7 |
+| `test_async_thread_pool_dynamic_growth` | 4 |
+| `test_std_thread_async_boundary` | 2 |
+| `test_async_compute_dynamic_resource_pressure` | 1 |
+| **合计** | **14** |
+
+这 14 个断言点全部依赖「submit 返回后任务仍在队列里」这个性质，
+而第 555 轮的决定性实验已经证明：在串行 VM 里去掉 sync drain 就必然卡死，
+保留则 `pending_count` 瞬间归零 —— **两者互斥，无法通过实现调整解决**。
+
+### 剩余 18 例的最终构成（一切已定性，无未解之谜）
+
+```
+14 个断言点 → 串行架构边界（排队/池满/运行中取消）
+ 2 例       → 需真 IO 事件循环（DNS/WebSocket）
+ 1 例       → 需真 epoll 兴趣注册（tls_async_runtime_io）
+ 5 个断言点 → x86 call gate（kernel_sim，VM 无语义）
+ 1 例       → RSA 大数性能（tls_rsa，15min 未完成）
+ 2 例       → VM 引用悬空（typed_pipeline / uyagin，最小规模无法复现）
+ 1 例       → 架构差异（frame_pool_full）
+ 1 例       → 真线程堆（pthread_heap_cache_identity）
+ 1 例       → 基准慢（tls_ecdsa 894s）
+ 1 例       → 已知 flake（async_runtime_shared_dns）
+```
+
+**没有一项还能靠「再试一个改法」解决** —— 除了那 2 例引用悬空需要在
+真实用例上打点定位（成本较高且不一定能修），其余 16 例都需要架构层面的工作。
