@@ -9736,3 +9736,31 @@ lib/std/http/uyagin.uya:618:5: exec: ADDR_INDEX 越界
 **附带发现**：带 `--exec-trace` 跑同一个用例会在
 `lib/libc/pthread.uya:2047` 报 `exec: global 数量超出上限`（`EXEC_MAX_GLOBALS`，`lower.uya:6221`）。
 这是容量限制：trace 模式会额外收集全局变量。记录备查。
+
+### 第 518 轮：`test_http_uyagin` 根因——`Engine` 是超大结构体
+
+顺着 `ADDR_INDEX 越界` 追到规模问题：
+
+```
+export struct Engine {
+    router: UyaginRouter,                       // 内含 nodes: [UyaginRouterNode: 8192]
+    route_meta: [UyaginRouteMeta: 1024],
+    routes: [GinRoute: 1024],
+    middlewares: [AsyncHandler: 8],
+    ...
+}
+```
+- `UYAGIN_ROUTER_MAX_NODES = 8192`（`uyagin_router.uya:8`），
+  `UyaginRouterNode` 有 10 个字段（`kind` + i32/usize/u32 混合，约 40 字节），
+  单 `nodes` 就约 **330 KB**；
+- 再加 `route_meta`/`routes` 各 1024 个元素 → `Engine` 单实例是**数百 KB 级的值类型**；
+- VM 的真线程栈 `EXEC_VM_THREAD_STACK_BYTES = 262144`（`vm.uya:4953`，仅 256 KB）
+  **装不下**；
+- 旁路表侧：`EXEC_NATIVE_AGG_MAX_BASES = 256`、`EXEC_NATIVE_AGG_MAX_ELEMS = 65536`
+  是按元素/基址计的，`Engine` 嵌套展开后元素数很高。
+
+**最小复现都通过**（`/tmp/ag1.uya` 小数组、`/tmp/ag2.uya` 3×1024 数组），
+说明机制本身没问题，是**规模**超限。这条用例要么需要堆上承载大结构体
+（结构体指针化）、要么需要把 `Engine` 拆小，都不是小改动。
+
+**类归属修正**：`test_http_uyagin` 从「子进程」改判为 **VM 大聚合承载上限**。
