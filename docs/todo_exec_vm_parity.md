@@ -13029,3 +13029,75 @@ VM 的引用（`exec_vm_make_value_ref`）指向的是某个槽位/旁路表位�
 - **只看 VM 侧退出码**：VM 非 0 才是真问题；
 - C99 侧非 0 先复跑 2~3 次确认；
 - 跑 parity 前先 `uptime` 看负载。
+
+### 第 554 轮：`pending_count == 1` 这一类失败的确切机制（10 个失败点同源）
+
+`test_std_thread`(7 个) + `test_std_thread_async_boundary`(3 个) 的失败点高度一致：
+
+```
+assert: thread_wait_pending_count(&pool, 1) == 1   (actual 0)
+assert: saw_error == 1                              (actual 0)   ← 池满没报错
+assert: thread_poll_until_cancelled_i32(...) == 1   (actual 0)   ← 运行中不能取消
+```
+
+测试的等待助手是轮询式：
+
+```uya
+fn thread_wait_pending_count(pool: &ThreadPool, target: i32) i32 {
+    while i < THREAD_TEST_WAIT_RETRIES {
+        if thread_pool_pending_count(pool) == target { return 1; }
+        sleep_wait_poll();
+        i = i + 1;
+    }
+    return 0;
+}
+```
+
+它要求 `pending_count` 在某次 `sleep_wait_poll()` 之间**能被观测到等于 1**。
+
+### 做了对照实验，排除了一个错误猜想
+
+猜想：是「worker 入口 drain」（`afe27985`）把任务瞬间消费掉。
+把那段 drain 整个删掉后重测 —— **仍然是 27 通过 / 7 失败，完全没变**。
+所以不是 worker 入口 drain 造成的，猜想被否掉（改动已回退）。
+
+### 真实机制
+
+`submit` 路径本身**只入队、不执行**：
+
+```uya
+fn thread_pool_submit_slot_raw(...) !i32 {
+    const slot_idx = try thread_pool_reserve_slot_raw(...);
+    return try thread_pool_apply_submission_strategy(pool, slot_idx);   // → enqueue_slot
+}
+```
+
+但测试在 `async_compute` 之后会 **poll** 那个 future，而 poll 走
+`AsyncThreadSlotWaitFuture` → `thread_pool_try_progress_slot` →
+`thread_pool_try_kick_drain` → 写管道失败 → **同步 drain**（`3524ce00`）。
+于是任务在**第一次 poll 内**就跑完了，`pending_count` 从 1 直接回到 0，
+`thread_wait_pending_count` 的轮询窗口里根本抓不到 1。
+
+所以这三个断言要求的都是「任务在队列里停留一段可观测时间」——
+这正是**真并发**才有的性质。串行 VM 里 submit→poll 是同一条调用栈，
+中间不存在可观测的排队窗口。
+
+### 能不能人为造出这个窗口？
+
+理论上可以：让 `try_kick_drain` 在第一次 poll 时**只观测不执行**，
+第二次才真正 drain。但这会：
+- 让 `async_compute` 的完成延迟一轮 poll（所有现有用例多一层调度）；
+- 与「串行 VM 下当场跑完」的注释语义相矛盾；
+- 且「运行中可取消」「池满报错」这两类仍然造不出来
+  （任务要么没开始、要么已经结束，永远没有「运行中」这个中间态）。
+
+**结论**：这 10 个失败点确实是串行模拟架构的固有边界，
+需要真正的异步运行时（任务队列 + 独立执行上下文 + 取消挂起点）才能满足。
+不应通过让 poll 变懒来「凑」出排队窗口 —— 那会牺牲现有 27 个通过的用例。
+
+### 本轮结论
+
+- 排除了「worker 入口 drain 导致 pending 归零」这个猜想（有对照实验）；
+- 定位真实机制：submit 与 poll 在同一条调用栈上，排队窗口不可观测；
+- 这 10 个失败点统一归入「需 async 运行时重设计」，不再逐个硬啃；
+- 工作树干净，`bin/uya` 由 HEAD 重建。
