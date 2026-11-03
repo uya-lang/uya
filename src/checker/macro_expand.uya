@@ -2246,10 +2246,19 @@ export fn deep_copy_ast_substitute_type_params(node: &ASTNode, type_params: &Typ
     if node == null || arena == null {
         return null;
     }
-    if node.type == ASTNodeType.AST_IDENTIFIER && node.identifier_name != null && type_params != null && type_args != null {
+    // 类型形参在 AST 里有两种落地形态：裸标识符 `T`（AST_IDENTIFIER）和
+    // 具名类型 `T`（AST_TYPE_NAMED）。泛型函数体里的 `thread_type_is_i32(T)`
+    // 这类宏调用的实参走的是后者；只匹配 AST_IDENTIFIER 会让 T 原样漏过去，
+    // 于是宏体里的 `@mc_type(T)` 拿到字面 "T"、type_id 停在初值 16，
+    // 所有类型分支判 false（`async_compute<T>` 因此落兜底返回 EBADF）。
+    const type_param_candidate: &byte =
+        if node.type == ASTNodeType.AST_IDENTIFIER { node.identifier_name; }
+        else if node.type == ASTNodeType.AST_TYPE_NAMED { node.type_named_name; }
+        else { null; };
+    if type_param_candidate != null && type_params != null && type_args != null {
         var i: i32 = 0;
         while i < type_param_count && i < type_arg_count {
-            if type_params[i].name != null && strcmp(type_params[i].name as *byte, node.identifier_name as *byte) == 0 {
+            if type_params[i].name != null && strcmp(type_params[i].name as *byte, type_param_candidate as *byte) == 0 {
                 return type_args[i];
             }
             i = i + 1;
