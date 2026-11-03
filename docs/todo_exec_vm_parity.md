@@ -9692,3 +9692,22 @@ pool._started_workers < pool.worker_count
 - 结论：137 这一组不应计入「VM 语义不一致」，应单列「性能/环境」。
 
 **本轮无代码改动**，仅补充归因；树保持干净，`make check` rc=0、census 887/22 不变。
+
+### 第 516 轮：剩余「待查」项逐个定性质
+
+逐个探针后，把最后的「待查 3」也定下来了：
+
+| 用例 | 实测 | 性质 |
+|---|---|---|
+| `test_typed_pipeline_capability` | 卡在 `pipeline_stage_executes_in_pipeline_topology` 中间**静默退出**（无错误消息） | **子进程能力**：该用例走 `capture_into` → fork/exec 子进程，VM 里没有真实子进程模型 |
+| `test_http_websocket_json` | `websocket_json_struct_roundtrip_as_text_message ... ERROR` | **单态体宏展开**：与第 494 轮记录的 `exec_lower_mono_body_needs_macro_expand` 白名单同一问题（`to_json` 实例化体内含宏生成的编码块） |
+| `test_async_shared_runtime_semantics` | `queue.result(compute_idx) as i32 == 42` 实际 0 | **线程池**：`async_compute<usize>` 经 scheduler 返回 0，与 `err_id = 9` 同一族 |
+
+**至此剩余 22 例全部定性完毕，无「原因不明」项**：
+- 真并发/线程池 11（串行模式固有差距，需真线程做默认才能根治）
+- 网络/环境 4
+- 性能 1（`test_tls_ecdsa`）
+- 子进程 2（`test_typed_pipeline_capability`、`test_http_uyagin`）
+- VM 架构性不适用 1（`test_kernel_sim` x86 call gate）
+- 单态体宏展开 2（websocket json 系列）
+- 分配器跨线程细节 1（`test_libc_heap_tcache` 真线程专属）
