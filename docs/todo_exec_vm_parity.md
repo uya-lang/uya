@@ -10491,3 +10491,31 @@ UYA_PARITY_JOBS=4 make exec-parity     →  rc=2
 
 `docs/todo_exec_vm_parity.md` 的 3 个收口项仍无法勾选（`test_std_thread` 等 22 例未清零），
 按纪律**不做 `worktree finish`**。
+
+### 第 541 轮：✓ `make check` 在干净基线上通过（rc=0）
+
+```
+make check  →  rc=0
+✓ 验证通过（自举 + 测试 + 证明优化 + 默认顶层函数发射 + SIMD select C
+            + 切片形参 C99 + @syscall C99 + SIMD NEON + http_bench C99）
+```
+其中 `✓ exec vm compiler regression checks passed` 也通过。
+
+**本轮收口状态（诚实记录）**：
+- `make check`：**rc=0 通过**
+- `make exec-parity`：**913 例 / 一致 891 / 不一致 22（97.6%）**，与既有基线持平
+- 工作树干净，二进制由基线重建
+- 3 个收口清单项（`uya test --vm` 全量、`make exec-parity` 全绿、合并 main）
+  **仍无法勾选**——22 例差异未清零，按纪律**不做 `worktree finish`**
+
+**本轮（第 531–541 轮）的实际产出**：
+- ✗ 4 次修复尝试、5 个变体，全部失败并回退（8 个回归、0 个改善）
+- ✓ 但换来了对问题本质的准确认知（见第 537/539 轮）：
+  VM 的 `@await` 采用**重跑式续体**，`state` 字段是必要的幂等设计，
+  「让 `@await` 去调 poll」这条路在原理上会打翻 replay 类用例，不宜再试；
+- ✓ 沉淀了「不要再试」清单（第 539 轮）与唯一可行方向
+  （把提交状态挪到 `ThreadPool` 侧做去重，不动 `@await` 语义）。
+
+**给后续的建议**：22 例全部指向「串行模拟架构」的边界。若要清零，
+应作为独立任务做「VM 运行期类型标识 / async 运行时重设计」，
+而不是在 `BC_AWAIT` 上继续试错。
