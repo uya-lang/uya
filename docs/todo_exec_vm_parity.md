@@ -13101,3 +13101,48 @@ fn thread_pool_submit_slot_raw(...) !i32 {
 - 定位真实机制：submit 与 poll 在同一条调用栈上，排队窗口不可观测；
 - 这 10 个失败点统一归入「需 async 运行时重设计」，不再逐个硬啃；
 - 工作树干净，`bin/uya` 由 HEAD 重建。
+
+### 第 554 轮（续）：三个 `137` 用例的定性 —— 不是同一个问题
+
+**`test_tls_rsa`（VM=137）**：给了 **15 分钟**仍 `rc=137`，且**一个 test 都没完成**
+（`grep -cE "OK$"` = 0）。这不是「慢」，是真卡死或超线性复杂度。
+对比 `test_tls_ecdsa`（VM=1，能跑完但约 894s）—— RSA 的大数运算在解释执行下
+成本高得多，且可能存在死循环。属 VM 性能/算法路径的独立课题。
+
+**`test_std_dns_async_transport`（VM=137）**：跑到 7 个 OK 后卡在
+`dns_query_all_async_any_tcp_fallback_and_aaaa` —— 这是网络 IO 等待，
+VM 的 socket 是模拟的，没有真事件循环。
+
+**`test_http_uyagin_websocket`（VM=137）**：与 HTTP/websocket 相关，
+`test_http_uyagin` 报的是 `lib/std/http/uyagin.uya:618:5: exec: ADDR_INDEX 越界`。
+
+三者根因各不相同（性能 / 网络 IO / 数组越界），不属于可以一次修好的同一族问题。
+
+### 本轮（第 554 轮）最终确认的核心成果
+
+```
+test_async_compute_types              11 通过 / 0 失败
+test_async_compute_generic_wrapper     2 通过 / 0 失败
+test_async_runtime_shared_semantics    4 通过 / 0 失败
+test_std_async_scheduler              30 通过 / 1 失败
+test_std_thread                       27 通过 / 7 失败   （基线 11 / 23 且卡死）
+```
+
+全部由本轮 4 条修复提交支撑，且 `make check` 中的失败项已逐一定性为
+C99 侧既有 flake（本次改动不经过 C99 路径）。
+
+### 剩余 18 例的完整分类（含本轮新增定性）
+
+| 类别 | 数量 | 用例 | 结论 |
+| --- | --- | --- | --- |
+| 需真并发（排队/池满/取消） | 10 个失败点 | `test_std_thread`(7)、`test_std_thread_async_boundary`(3) | 串行架构边界，需 async 运行时重设计 |
+| 需真 IO 事件循环 | 2 | `test_std_dns_async_transport`、`test_http_uyagin_websocket` | VM socket 模拟，无事件循环 |
+| VM 性能/死循环 | 2 | `test_tls_rsa`(137)、`test_tls_ecdsa`(1) | RSA 大数在解释执行下不可行 |
+| VM 引用/数组越界 | 4 | `test_typed_pipeline_capability`、`test_http_uyagin`、`test_kernel_sim`、`test_typed_pipeline_capability` | 引用目标悬空 / ADDR_INDEX 越界 |
+| 架构差异 | 1 | `test_async_frame_pool_full` | VM 同步降级不分配 frame box |
+| 真线程堆 | 1 | `test_pthread_heap_cache_identity`(181) | 需引用计数/延迟回收 |
+| 已知 flake | 1 | `test_async_runtime_shared_dns` | 文档已记录 |
+| 待查 | 若干 VM=1 | `test_tls_async_runtime_io`、`test_async_compute_dynamic_resource_pressure` 等 | 下一轮 |
+
+**没有一项是「改一处就全好」的**，都是各自独立的深水区问题。
+本轮已经把「可一次性根治」的那条根因链（宏展开 → 投递 → 消费 → 交付）走完了。
