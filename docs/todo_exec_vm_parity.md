@@ -11901,3 +11901,67 @@ test_typed_pipeline_capability                 VM=1
 - `make check` rc=0；
 - `make exec-parity` 22 → 17，零新增；
 - 全部实验性改动已回退，工作树干净。
+
+### 第 548 轮（续）：双任务第二个 future 卡住的精确位置
+
+用已验证可用的单任务探针改成双任务（`/tmp/r66.uya`），输出：
+
+```
+i=1 READY v=20
+```
+
+第一个任务 Ready 了，**第二个没有**。打点后拿到完整时序：
+
+```
+Cpoll slot=-1 done=0 fp=0     ← 两个 future 的第 1 次 poll（first_poll 转换）
+Cpoll slot=-1 done=0 fp=0
+Cpoll slot=-1 done=0 fp=1
+Cpoll slot=-1 done=0 fp=1
+Cpoll slot=0  done=0 fp=1     ← future#1 走 submit
+RSV slot=0 st=4 raw=0 cap=8   ← future#1 resolve 成功（st=4=DONE, raw=slot_idx）
+Cpoll slot=1  done=0 fp=1     ← future#2 走 submit
+RSV slot=1 st=4 raw=1 cap=8   ← future#2 resolve **也成功**
+i=1 READY v=20                ← 但只有 future#1 返回了 Ready
+```
+
+**两个 future 都完成了提交、都被 drain 跑完（slot 状态 DONE）、resolve 也都成功
+返回了正确的 `result_bits`**。可第二个最终没有向外交付 Ready。
+
+因此问题不在：
+- 队列 / drain（两个 slot 都跑了）；
+- slot 状态（都是 DONE）；
+- resolve 的取值（`raw_value == slot_idx` 都成立）。
+
+问题在 `AsyncWorkerComputeFuture::finish` 之后的**状态保存**：
+
+```uya
+fn finish(self: &Self, result: !usize) Poll<!usize> {
+    self.slot_idx = thread_async_cleanup_slot(self.pool, self.slot_idx);
+    self.state = Poll<!usize>.Ready(result);   // ← 泛型 union 存进字段
+    self.done = 1;
+    return self.state;
+}
+```
+
+`state: Poll<!usize>` 是**泛型 union 字段**。两次 `finish` 之间夹着
+`thread_async_cleanup_slot`（会改共享状态），高度怀疑是
+**VM 下把泛型 union 存进结构体字段、再读回时 tag 丢失**
+（`exec_vm_native_field_store/load` 对泛型 union 的编码不完整，
+此前真线程下的 `BC_STORE_FIELD` use-after-free 也是同一族问题）。
+
+### 下一轮的验证方法（很省时间）
+
+在 `/tmp/r66.uya` 基础上，把 `finish` 改成**不经过字段、直接返回**：
+
+```uya
+fn finish(self: &Self, result: !usize) Poll<!usize> {
+    self.slot_idx = thread_async_cleanup_slot(self.pool, self.slot_idx);
+    self.done = 1;
+    return Poll<!usize>.Ready(result);   // 不写 self.state
+}
+```
+
+若这样就两个都 Ready，则确认是「泛型 union 字段往返」的编码问题，
+修法应落在 `src/exec/vm.uya` 的字段存储/加载（而不是继续改库层状态机）。
+
+本轮到此为止：不改动、不提交实验代码，工作树干净。
