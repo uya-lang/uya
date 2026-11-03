@@ -9564,3 +9564,20 @@ create 里执行必然耗尽 2000 万指令预算被切断，worker 从不推进
   只有真线程模式才会给每个线程不同的 desc/heap_cache。
 - 结论：该用例属于「串行模拟并发」无法满足的语义，归入真线程专属，
   基线下它同样失败（239），本轮不是回归。
+
+### 第 510 轮：`test_std_thread` 的 `started_workers == 0` 线索
+
+- 失败集中在 `thread_wait_started_workers(&pool, 1) == 1`（实际 0）与
+  `thread_wait_pending_count(&pool, 1) == 1`（实际 0），另有几个 ERROR。
+- 探针 `/tmp/pool3.uya`（`thread_call_i32(&double, 21)`）：结果值 **42 正确**，
+  但 `pool._started_workers` 仍是 **0**。
+- `lib/std/thread.uya:878-881` 里 `active = 1` 与
+  `_started_workers = _started_workers +| 1` 就紧跟在 create 成功之后，
+  代码本身没问题；说明串行模式下这条路径没被走到（worker 的懒启动被
+  `thread_worker_main` 内部的阻塞等待吃掉了），或计数在另一条分支上被覆盖。
+- 这与上一轮修好的 `heap_concurrency` 不同：那个是 worker 体被预算切断，
+  这个卡在**线程池的懒启动 + 计数**上，需要单独排查 `thread_pool_ensure_worker_started`
+  的调用链。本轮未继续。
+
+**本轮净成果**：`test_pthread_heap_concurrency` 139 → **0**（真修复），
+`make check` rc=0，树干净。
