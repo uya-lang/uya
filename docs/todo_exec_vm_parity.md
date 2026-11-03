@@ -12713,3 +12713,95 @@ VM 侧 `@async_fn` 的降级注释（`src/exec/lower.uya:11228-11231`）写的�
 第 3 点是本轮最有价值的线索：`exec_vm_cont_poll` 在 handle 无效时返回 tag=0（Pending），
 如果续体完成时把 handle 释放了，那么「完成后再次 poll」就必然返回 Pending ——
 与 `r79` 的观测完全吻合。
+
+## 第 552 轮：根治 —— 续体完成后缓存结果，让 future 的 poll 幂等
+
+### 根因（一句话）
+
+`exec_vm_cont_poll` 在恢复执行到 `BC_RET` 后调用 `exec_vm_cont_release(handle)`
+清掉 `cont_used[handle]`，再返回 Ready。此后同一个 future 再被 poll，
+就会命中函数开头的无效-handle 分支：
+
+```uya
+if (handle < 0 || handle >= EXEC_VM_CONT_MAX || cont_used[handle] == 0) {
+    out_value[0] = exec_make_union(0, exec_make_void());   // ← Pending
+    return 0;
+}
+```
+
+**所以「已经 Ready 过的 future，再 poll 永远返回 Pending」。**
+
+### 最小复现（20 行，`/tmp/r79.uya`）
+
+```uya
+@async_fn fn outer() Future<!i32> {
+    const f: Future<!i32> = G2{};          // G2::poll 永远立即返回 Ready(42)
+    const v: i32 = try @await f;
+    return v;
+}
+```
+
+| | 连续 poll 5 次 |
+| --- | --- |
+| 修复前 | `i=0 Ready(42)`，`i=1..4` 全 Pending（且 body 不再执行，`gp` 停在 1） |
+| **修复后** | **`i=0..4` 全 Ready(42)** |
+
+### 修复
+
+`ExecVmState` 增加两个数组（`src/exec/frame.uya`）：
+
+```uya
+cont_done: [i32: EXEC_VM_CONT_MAX],
+cont_result: [ExecValue: EXEC_VM_CONT_MAX],
+```
+
+`exec_vm_cont_poll`（`src/exec/vm.uya`）两处改动：
+
+1. **完成时留痕**（release 之前）：
+   ```uya
+   if (handle >= 0 && handle < EXEC_VM_CONT_MAX) {
+       cont_done[handle] = 1;
+       cont_result[handle] = exec_value_clone(&final_payload);
+   }
+   exec_vm_cont_release(handle);
+   out_value[0] = exec_make_union(1, final_payload);
+   ```
+2. **无效 handle 时先查完成态**：
+   ```uya
+   if (handle >= 0 && handle < EXEC_VM_CONT_MAX && cont_done[handle] != 0) {
+       out_value[0] = exec_make_union(1, exec_value_clone(&cont_result[handle]));
+       return 0;
+   }
+   out_value[0] = exec_make_union(0, exec_make_void());
+   ```
+3. `exec_vm_cont_alloc` 复用槽位时清掉 `cont_done` / `cont_result`，
+   避免新续体误读上一个续体的结果。
+
+这一改让 VM 与 C99 的 poll 语义对齐：C99 把 future 存在状态机字段里、
+每次走 vtable poll，完成态天然持久。
+
+### 效果
+
+| 用例（`uya test --vm`） | 修复前 | 修复后 |
+| --- | --- | --- |
+| `test_std_thread` | rc=137 **卡死**，只跑完 3 个 | **rc=7，27 通过 / 7 失败** |
+| `test_async_compute_types` | 11 / 0 | 11 / 0 |
+| `test_async_compute_generic_wrapper` | 2 / 0 | 2 / 0 |
+| `test_async_runtime_shared_semantics` | 4 / 0 | 4 / 0 |
+| `test_std_async_scheduler` | 30 / 1 | 30 / 1 |
+| 双任务探针 | `i>=2` 全部退回 Pending | `i>=1` 持续 `v1=20 / v2=10` |
+
+`test_std_thread` 的基线是 **11 通过 / 23 失败**，现在是 **27 通过 / 7 失败**，
+而且不再卡死 —— 这是本轮最大的单点收益。
+
+### 关于 `make check` 的失败
+
+`make check` 报 5 个失败，**全部在 C99 侧**：
+`test_std_thread`(2)、`test_async_thread_pool_dynamic_growth`(1)、
+`test_async_compute_types`(4)、`test_async_compute_generic_wrapper`(1)、
+`test_std_async_scheduler`(1)。
+
+本次改动只碰 `src/exec/vm.uya` 与 `src/exec/frame.uya`，
+**C99 编译路径完全不经过这两个文件**，不存在因果关系。
+C99 侧 `test_std_thread` 连跑三次实测 33/1、33/1、30/4 —— 是既有的非确定性 flake
+（前几轮已反复确认并记录）。
