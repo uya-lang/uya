@@ -1103,13 +1103,23 @@ fn thread_pool_try_kick_drain(pool: &ThreadPool) !i32 {
     if worker_idx >= 0 && worker_idx < pool.worker_count {
         const cmd_fd: i32 = pool._workers[worker_idx as usize].cmd_write_fd;
         const write_result: !isize = sys_write(cmd_fd, (&cmd) as *const byte, @size_of(ThreadWorkerCommand));
+        // 写不进去说明 worker 读端已经关闭（串行 VM 里 `pthread_create` 把 routine
+        // 当场跑完之后就是这种状态，而且那次执行往往发生在任务入队**之前**）。
+        // 不能让任务一直躺在队列里等一个永远不会到来的唤醒：改为在调用方线程
+        // 同步消费，语义上等价于「这次唤醒顺便把活干了」。
+        var write_failed: i32 = 0;
         const written: isize = write_result catch {
-            thread_pool_release_worker(pool, worker_idx);
-            return write_result as! i32;
+            write_failed = 1;
+            (0 - 1) as isize;
         };
-        if written != @size_of(ThreadWorkerCommand) as isize {
+        if write_failed != 0 || written != @size_of(ThreadWorkerCommand) as isize {
+            const drained: i32 = thread_shared_drain_sync(pool._shared_state, worker_idx,
+                thread_shared_pending_capacity(pool._shared_state));
             thread_pool_release_worker(pool, worker_idx);
-            return thread_generic_error_i32();
+            if drained > 0 {
+                return 1;
+            }
+            return 0;
         }
     }
 
