@@ -11087,3 +11087,47 @@ expand_macros_in_node_simple(checker, &ptr);
 
 改动面很小（一处名字解析回退），且不动 `@await` / thread pool / VM 任何一侧，
 是下一轮的首选入口。
+
+### 第 546 轮（再续）：`@mc_type` 的求值发生在 `subst_active` 生效之前
+
+按上一条的修复方向给 `create_type_info_struct` 补了「类型形参名 → 具体类型」代入：
+
+```uya
+if type_name != null && checker != null && checker.subst_active != 0 &&
+    checker.subst_name != null &&
+    strcmp(type_name as *byte, checker.subst_name as *byte) == 0 {
+    type_name = type_to_string(arena, copy_type(&checker.subst_type));
+}
+```
+
+**无效**，`/tmp/r53.uya` 仍是 `tag=1 val=-1`。打点后原因很清楚：
+
+```
+SUBST name=T act=0 sname=<null>
+SUBST name=T act=0 sname=<null>
+```
+
+`subst_active == 0`、`subst_name == null`。也就是说，
+`@mc_type(T)` 的展开/求值发生在**比 `exec_lower_generic_instances` 更早**的阶段
+（checker 的常规宏展开里就做了），那时 `exec` 那条单态化路径还没设置
+`subst_active` / `subst_name` / `subst_type`。
+
+所以「在 lowering 侧补代入」这条路走不通 —— 代入信息在那个时点根本不存在。
+
+### 下一步（更精确的入口）
+
+要修的是**更早那一层的宏展开**：当 `expand_macros_in_node_simple` 在泛型函数体里
+遇到 `mc` 宏调用、而宏体里有 `@mc_type(<类型形参名>)` 时，
+必须把宏调用实参里已经解析好的类型传给 `create_type_info_struct`，
+而不是让它回头按宏体内的字面标识符再解析一次。
+
+具体可查两处：
+1. `extract_macro_output_with_params` 里处理 `AST_MC_TYPE` 的分支
+   （`src/checker/macro_expand.uya:2067` 附近的
+   `create_type_info_struct(actual_operand, ...)`），看 `actual_operand`
+   在泛型语境下取到的是什么；
+2. `create_type_info_struct` 的调用链上是否有 `checker.current_type_params`
+   可以拿到形参名，而具体实参是否已在某个 ctx 里（`merged_ctx`）带进来。
+
+本轮到这里为止**没有改动落库**（实验性 patch 已 `git checkout` 还原），
+工作树干净，`bin/uya` 由基线重建。
