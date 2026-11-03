@@ -10720,3 +10720,31 @@ if (p._tag == 0) { return (...){ ._tag = 0 }; }
 改动面：`vm.uya` 的 `EXEC_HOST_CALL_PTHREAD_CREATE` 分派 + 线程槽位表
 （`vm.uya:4883` 起的 `exec_vm_thread_*`）需要从「当场跑完 + redo」改为
 「跑一段 + 挂起 + 恢复」。库层 `lib/std/thread.uya` 语义不用动。
+
+### 第 543 轮补充：`test_tls_ecdsa` 是贴边用例（894s / 900s 上限）
+
+上面那个 read 改动最终**已回退**（`git reset --hard b33695d7`）。原因是实测判据：
+
+`tests/exec_vm_parity_timeouts.txt:11` 给 `test_tls_ecdsa.uya` 的超时是 **900 秒**。
+用同样长的时间窗在**基线上复测**：
+
+```
+基线 rc=1 time=894s
+失败: 1
+exec runtime: lib/tls/crypto/ec_p384.uya:588:1:
+  exec: LOAD_FIELD 字段越界(idx=0 kind=0 count=-1 pointee=-1 ref=0 aux=0 fn=p384_jac_is_zero)
+```
+
+即这个用例正常就要跑 **894 秒**，离 900s 上限只剩 6 秒。
+任何一点额外开销（本次 read 改造引入了每次 `read` 之前的 `sys_poll`）
+都会把它推过线变成 `VM=137`，于是 parity 里从 `STATUS_MISMATCH`（VM=1）
+退化成超时。
+
+**教训（写进评审清单）**：
+- 用 `test_tls_ecdsa` / `test_tls_rsa` 判断「有没有引入退化」时，
+  必须用 900s 级时间窗测基线，不能拿 120s 的探针下结论；
+- 这两个用例是**贴边性能用例**，对任何全局路径上的微小开销都敏感，
+  不适合作为功能改动的回归指标；
+- 本次 `read` 改造的价值（`/tmp/r26.uya` 从 rc=137 死锁变为 rc=0）是真的，
+  但必须做成**零开销**形式才能落地：只在「确实读的是管道且确实会阻塞」时
+  才走探测，而不是每个串行线程体里的 read 都加一次 `sys_poll`。
