@@ -9389,3 +9389,31 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   不是返回值类型或 waker 注册的 bug。要清这批必须让真线程成为默认路径
   （目前 `UYA_EXEC_REAL_THREADS=1` 下 `test_pthread_heap_concurrency` 仍段错误，
   是更底层的分配器并发问题）。
+
+### 第 504 轮：原生聚合旁路表必须进程级共享（方向已证，加锁实现有待重做）
+
+**根因（重要架构结论）**
+- 堆是**进程级共享**的：A 线程分配的结构体，B 线程 `realloc` 时必须在同一张旁路表里
+  找到它的基址才能搬运旁路内容。
+- 第 47x 轮把 `native_agg_base/count/caps/storage/handles/used` 六张表放进了
+  `ExecVmState`，而真宿主线程会各自分配一份 state → B 看不到 A 的基址 → 不迁移
+  → 旁路表失效。实测症状就是
+  `exec: STORE_FIELD 字段越界(idx=2 kind=14 count=-1 …)` 紧跟段错误。
+
+**已验证有效的改动（本轮试验过，效果确实出现）**
+- 把六张表改回 `g_exec_native_agg_*` 进程级全局，并从 `ExecVmState` 移除字段，
+  函数体里 `vm.native_agg_X` → `g_exec_native_agg_X`（65 处引用，构建通过）。
+- 效果：`test_pthread_heap_concurrency`（`UYA_EXEC_REAL_THREADS=1`）从
+  **稳定 139 段错误** 变为 **`count=-1` 消失**，返回码变成测试内部计数（43）。
+
+**为什么还不能落地**
+- 表共享之后必须加锁，否则多线程读写撕裂。本轮用
+  `g_exec_native_agg_lock: atomic i32` + 自旋 acquire/release 包住 9 个函数，
+  结果**默认路径直接死锁**（`test_async_task_queue_dynamic_growth` 137）。
+  说明这个朴素自旋锁有重入/公平性问题：旁路表函数之间会互相调用
+  （`migrate` → `slot`、`ensure` → `slot_index` 等），同类锁不可重入即自锁。
+- 下一步正确做法：把锁改成**可重入**（记录持有者 tid + 递归计数），
+  或者把「加锁」上移到 host call 边界（一次宿主调用只加一次锁），
+  而不是在 9 个内部函数上各加一把。本轮已回退，树保持基线。
+
+**当前状态**：`make check` rc=0、census 887/22、parity 889/24，均与基线一致。
