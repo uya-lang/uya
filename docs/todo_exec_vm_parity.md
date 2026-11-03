@@ -14000,3 +14000,62 @@ VM 很可能没有为它铺出逐元素的 `ExecValue`（`values == null` → `t
 - [ ] `uya test --vm` 全量通过 —— 未完成（16 例需 VM 运行期模型扩展）
 - [ ] `make exec-parity` 全绿 —— 未完成（5 例已清零，剩 18 例已全部定性）
 - [ ] 合并 main —— 按纪律不执行（未清零不做 `worktree finish`）
+
+### 第 568 轮：确认失败点是「原生内存地址」被当成 VM 引用解引用
+
+补打地址归属探针（只对 `fn=add` 的**失败分支**打印）：
+
+```
+RESPROBE addr=a23f88b0 isres=0 tgt=a23f88b0 tgtslotres=0 line=628
+```
+
+| 字段 | 值 | 含义 |
+| --- | --- | --- |
+| `addr=a23f88b0` | — | 引用指向的地址 |
+| `isres=0` | **不是 VM 内存** | 该地址落在**宿主原生堆**上 |
+| `tgt=a23f88b0` | 与 addr 相同 | `ref_target_value` 就是把这个地址强转成 `&ExecValue` |
+| `tgtslotres=0` | — | 同上，确认不是 VM 槽位 |
+
+**根因彻底确认**：
+
+`self.routes` （`[GinRoute: 1024]`，`GinRoute` 含 `AsyncHandler` 接口字段）
+在 VM 里是**原生布局 + 旁路表**承载的，它的地址在宿主堆上、不在 VM 的
+ExecValue 槽位区。而 `exec_vm_ref_target_value` 的实现是：
+
+```uya
+return @ptr_from_usize(target_addr) as &ExecValue;
+```
+
+**直接把这个原生地址当成 `ExecValue` 指针读**，于是读出 `kind=-1`、`count=-1`
+这样的垃圾（正是探针看到的 `tgtkind=-1 / tgtagg=-1`）。
+
+### 尝试的修法：改走 `exec_vm_native_agg_slot`
+
+`exec_vm_native_agg_slot(vm, base, index)` 正是为「原生地址 + 下标」准备的
+（按基址在旁路表里找槽、必要时按需建表）。加了一条分支：
+
+```uya
+if target_aggregate == null && exec_vm_address_is_vm_resident(target_addr_of(value)) == false {
+    const native_elem = exec_vm_native_agg_slot(exec_vm_main_vm(), target_addr_of(value), index_value);
+    if native_elem != null { return native_elem; }
+}
+```
+
+结果：`ADDR_INDEX 越界` 确实消失，但 `test_http_uyagin` **变成 rc=137 卡死**。
+
+原因分析：`native_agg_slot` 要求基址与旁路表里登记的基址**精确相等**；
+`self.routes[idx]` 这次是**首次写入**，旁路表里还没有这个基址。
+要么返回 null（回到原错误），要么（更可能）碰巧匹配到了别的基址，
+交回一个语义不对的 `ExecValue`，后续访问就陷入死循环。
+
+**这个修法不安全，已全部回退。**
+
+### 结论
+
+要让这条路径正确，需要 VM 在**首次**访问「含接口字段的大数组元素」时
+按需建立起该元素的 ExecValue（惰性聚合化），并把它登记到旁路表里 ——
+这属于聚合承载模型的能力扩展，与 `test_pipeline_capability` 的
+`GinRoute`/`EpollEvent` 那类问题同源。
+
+`test_http_uyagin` 正式归入「需要 VM 运行期模型扩展」的 A 类，
+不再在 `index_ref` 的分支里试错（已经试过 4 种改法，全部回退）。
