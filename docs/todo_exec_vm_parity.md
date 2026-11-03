@@ -12975,3 +12975,57 @@ VM 的引用（`exec_vm_make_value_ref`）指向的是某个槽位/旁路表位�
 - `test_async_frame_pool_full` 定性为「VM 同步降级不需要 frame pool」，属架构差异；
 - `test_typed_pipeline_capability` 定性为「VM 引用目标悬空」（悬空引用/use-after-free），
   是下一轮值得攻的真缺陷 —— 它可能同时影响多个 VM=1 的用例。
+
+## 第 548~553 轮总览（本轮工作汇总）
+
+### 一条完整的根因链
+
+本轮解决的问题不是孤立的，它们串成一条「串行模拟架构」的完整缺陷链：
+
+```
+① 宏展开时机错（checker）        54b87ef0
+      ↓  @mc_type(T) 被提前烤成 StructInit{type_id:16}
+      ↓  async_compute<T> 的 12 个类型分支全判 false → 兜底返回 EBADF
+② 任务投递不出去（库）            afe27985 / 3524ce00
+      ↓  串行 VM 里 pthread_create 当场跑完，worker 读端立即关闭
+      ↓  后续 sys_write(cmd pipe) 收 EPIPE，任务永远躺在队列
+③ 结果交付不出去（VM）            ce0cc6c5
+      ↓  cont_poll 到 BC_RET 后 release(handle)
+      ↓  再 poll 时 cont_used[handle]==0 → 返回 Pending
+      ↓  「明明 Ready 过的 future 永远不再 Ready」
+```
+
+这四环任何一环没修通，前面的都白费 —— 所以之前反复出现「修了 A 却看不出效果」。
+
+### 量化成果
+
+| 指标 | 基线 | 现在 |
+| --- | --- | --- |
+| parity VM 侧不一致 | 22 例 | **18 例**（其中 5 例完全清零） |
+| `test_async_compute_types` | 0 通过 / 11 失败 | **11 通过 / 0 失败** |
+| `test_async_compute_generic_wrapper` | 0 / 2 | **2 / 0** |
+| `test_async_runtime_shared_semantics` | 2 / 4 | **4 / 0** |
+| `test_std_async_scheduler` | 0 / 30 | **30 / 1** |
+| `test_std_thread` | 11 通过 / 23 失败（且卡死） | **27 通过 / 7 失败**（不再卡死） |
+
+### 剩余 18 例的定性（都已查过，不是猜的）
+
+| 类别 | 用例 | 定性 |
+| --- | --- | --- |
+| 需真并发语义 | `test_std_thread` 剩余 7 个 | 任务排队 / 池满报错 / 运行中取消 —— 串行架构无法表达 |
+| 架构差异 | `test_async_frame_pool_full` | VM 同步降级不分配 frame box，不会触发 AsyncFramePoolFull |
+| VM 引用悬空 | `test_typed_pipeline_capability` 等 | `LOAD_FIELD` / `ADDR_INDEX` 越界，引用编码合法但目标已失效 |
+| 真线程堆 | `test_pthread_heap_cache_identity`(181) | 需引用计数 / 延迟回收 |
+| 网络/IO 等待 | 三个 `137` 卡死用例 | VM 无真 IO 事件循环 |
+| 裸汇编 | `test_kernel_sim`(5) | 独立课题 |
+| 已知 flake | `test_async_runtime_shared_dns` | 文档已记录为偶发 |
+
+### 评测方法论的修正（本轮重要产出）
+
+**不要看 parity 的「不一致」总数**。这台机器上 C99 侧并发用例在高负载下
+大面积 flake（同一二进制连跑三次 `test_async_compute_types` 分别 7/8/10 通过），
+会把 5 例已修好的用例重新拉回清单。正确判据是：
+
+- **只看 VM 侧退出码**：VM 非 0 才是真问题；
+- C99 侧非 0 先复跑 2~3 次确认；
+- 跑 parity 前先 `uptime` 看负载。
