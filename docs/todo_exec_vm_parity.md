@@ -12916,3 +12916,62 @@ async_compute_i32_cancelled_running_task_finishes_as_cancelled
 4. `test_kernel_sim`（VM=5）：裸汇编 + 内核模拟，与并发无关。
 
 先做这四个，它们的投入产出比明显更高。
+
+### 第 553 轮：另外三个「纯同步」用例的定性
+
+**1. `test_async_frame_pool_full`（VM=1）—— 架构差异，不是缺陷**
+
+用例要求：`@async_fn fn tiny_async() !Future<i32>` 在自定义 allocator
+（`alloc` 永远返回 `AllocOutOfMemory`）下必须返回 `error.AsyncFramePoolFull`。
+
+实测 VM 下 `got_pool_full == false`。原因：**`AsyncFramePoolFull` 在整个
+`src/exec/` 里根本不存在**（`grep -n AsyncFramePoolFull src/exec/*.uya` 无结果）。
+
+因为 VM 对 `@async_fn` 走的是「同步降级」——函数体当普通函数跑，
+返回值直接包成 `Future{state: Poll.Ready(...)}`，**不需要分配 frame box**，
+自然不会触发 frame allocator 失败。C99 侧用真正的 frame pool 才会失败。
+
+这是两种实现的固有差异。要一致就得让 VM 也走 frame 分配 —— 但那等于放弃
+同步降级、转向真正的状态机，属于 async 运行时重设计范畴。
+
+**2. `test_typed_pipeline_capability`（VM=1）—— VM 的引用目标丢失**
+
+卡在 `pipeline_stage_executes_in_pipeline_topology`，报：
+
+```
+exec runtime: lib/libc/heap.uya:221:1: exec: LOAD_FIELD 字段越界
+  (idx=1 kind=14 count=-1 pointee=16 ref=1 aux=65552 fn=get_size ip=1 slot=1)
+```
+
+逐个字段解读：
+
+| 字段 | 值 | 含义 |
+| --- | --- | --- |
+| `idx=1` | 1 | 想读第 2 个字段（`ChunkHeader.size`，合法） |
+| `kind=14` | 14 | `EXEC_VALUE_POINTER` |
+| `count=-1` | -1 | **拿不到 aggregate，说明解引用失败** |
+| `pointee=16` | 16 | `TYPE_STRUCT`（类型信息是对的） |
+| `ref=1` | 1 | 是内部引用（不是裸地址） |
+| `aux=65552` | 65552 | `65536 + 16` = 引用编码基址 + `TYPE_STRUCT`，编码合法 |
+
+即：**引用编码完全正常、pointee 类型也对，但 `exec_vm_ref_target_value`
+取不到目标槽位**，于是 `exec_vm_field_ref` 返回 null、报「字段越界」。
+
+`ChunkHeader { magic: u64, size: usize }` 只有两个字段，`idx=1` 完全合法，
+所以不是越界，是**引用目标失效**（目标 ExecValue 已经不在了）。
+
+这与之前记录的「真线程下 `BC_STORE_FIELD` use-after-free」是同一族问题：
+VM 的引用（`exec_vm_make_value_ref`）指向的是某个槽位/旁路表位置，
+当那个位置被复用或回收后，引用就悬空。
+
+**3. `test_std_thread_async_boundary`（VM=3）** —— 待下一轮单独看。
+
+### 本轮收尾
+
+- **5 例 parity VM 侧清零**（`test_async_compute_types`、`generic_wrapper`、
+  `runtime_shared_semantics`、`shared_runtime_semantics`、`std_async_scheduler`）；
+- `test_std_thread` 从「卡死只跑完 3 个」到 **27 通过 / 7 失败**；
+- 剩余 7 个 `test_std_thread` 失败已定性为「需要真并发语义」，属架构边界；
+- `test_async_frame_pool_full` 定性为「VM 同步降级不需要 frame pool」，属架构差异；
+- `test_typed_pipeline_capability` 定性为「VM 引用目标悬空」（悬空引用/use-after-free），
+  是下一轮值得攻的真缺陷 —— 它可能同时影响多个 VM=1 的用例。
