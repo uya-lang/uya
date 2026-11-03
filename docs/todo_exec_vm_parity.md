@@ -9650,3 +9650,25 @@ pool._started_workers < pool.worker_count
 `heap_debug_tcache_total_count()` 没有 +1。只有「free 走了全局路径而非 tcache」
 才会这样，与本轮加的 gettid 校验方向一致，但真线程下 desc 已正确登记、
 校验应该通过 —— 说明还有一处让该线程的 cache 解析落空，需单独插桩。
+
+### 第 514 轮：`test_libc_heap_tcache` 的 status=4 隔离复现失败（差异在前置状态）
+
+- 真线程模式下该用例稳定返回 52（即 worker 的 `status = 4`：
+  `free(target)` 之后 `heap_debug_tcache_total_count()` 没有 +1）。
+- 但**等价探针全部正常**：
+  - `/tmp/ci3.uya`：同一线程内三次 `pthread_current_heap_cache()` 完全一致
+    （`a=b=c=0xadaaeb8`），`free` 前后 `before=0 after=1` 正确 +1；
+  - `/tmp/ci4.uya`：完全照抄测试 worker 的形态（先 malloc 32/1024/32 再 free 中间那块），
+    `delta=1`、`status=0`。
+- 结论：status=4 不是「子线程拿不到 tcache」这种基本问题（那会让探针也失败），
+  而是依赖测试**前置块的堆状态**：该用例在进入这个子线程块之前已经做过
+  多轮 malloc/free（含 2048 阈值边界、large 路径），主线程 tcache 里留有残留条目，
+  子线程 `free` 时走的路径（`orphan_tcache_take_chunk_locked` 等跨线程逻辑）与
+  干净状态下的探针不同。
+- 下一步：需要在测试序列里逐块插桩 `heap_debug_tcache_total_count()`，
+  找出前置哪个块改变了子线程 free 的走向。本轮到此。
+
+**当前真线程模式实测**：`heap_cache_identity` 通过、`pthread_cancel` 通过、
+`heap_tcache` 52、`heap_concurrency` 139（use-after-free）。
+默认（串行）模式：`heap_concurrency` 通过、`heap_cache_identity` 181、
+`heap_tcache` 通过。
