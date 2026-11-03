@@ -10799,3 +10799,68 @@ exec runtime: lib/tls/crypto/ec_p384.uya:588:1:
 `exec_vm_cont_suspend` / `exec_vm_cont_poll`），本轮的 read 改造只是消除了死锁表象，
 worker 能起来了，但 `async_compute` 的 `@await` 仍是首轮 Ready（`p0=1 sw=0 pc=0`），
 说明宏展开后的实际形态还没对上，是下一步的入口。
+
+---
+
+## 第 544 轮：修复 worker 管道写的 SIGPIPE 自杀（进程退出码 141）
+
+延续第 543 轮的 read 死锁修复。该修复让 worker 能起来，但第二轮 `poll` 仍然
+静默终止：`/tmp/r31.uya` 在 `before p1` 之后没有任何输出就退出。
+
+### 定位过程
+
+`/tmp/r31.uya >out 2>err; echo $?` → **exit=141**，即 SIGPIPE。
+`strace -f -e trace=write,rt_sigprocmask` 给出决定性证据：
+
+```
+write(2, "p0=0 pc=0\n", 10)                                   = 10
+write(2, "before kick\n", 12)                                 = 12
+write(6, "\376\377\377\377\377\377\377\377", 8)                = -1 EPIPE (断开的管道)
+--- SIGPIPE {si_signo=SIGPIPE, si_code=SI_USER, si_pid=..., si_uid=1000} ---
++++ killed by SIGPIPE +++
+```
+
+fd=6 是 worker 的 cmd pipe 写端，那 8 个字节正是
+`ThreadWorkerCommand{ slot_idx: THREAD_WORKER_DRAIN_QUEUE }`
+（`lib/std/thread.uya:1037` 的 `thread_pool_try_kick_drain`）。
+串行解释器里 worker 线程体跑完就结束、pipe 读端随之关闭，主线程再写同一根 pipe
+就拿到 SIGPIPE，默认动作直接把解释器打死 —— Uya 代码里写的 `catch` / `errno == EPIPE`
+分支永远跑不到。
+
+### 为什么库层修复不可行
+
+第一次尝试在 `lib/std/thread.uya` 里用 `sigprocmask(SIG_BLOCK, ...)` 包住写入，
+**无效**。原因在 `vm.uya:5812` `EXEC_HOST_CALL_SIGPROCMASK_SIM`：
+VM 把 `sigprocmask` 降级成只改 `g_exec_vm_sig_mask` 这个**模拟变量**，不碰宿主信号。
+`signal()` 同理（`vm.uya:5763` 只登记 `g_exec_vm_sig_handlers`）。
+在库层怎么做都不会影响宿主。
+
+### 修复（`src/exec/vm.uya`，提交 0cbf8a45）
+
+改在 `exec_vm_exec_syscall` 里，对 `write`(1) / `writev`(20)：
+
+1. 写入前用**真** `rt_sigprocmask`(14) 把 SIGPIPE（`1 << 12`）屏蔽掉。
+   注意必须走 `exec_vm_rt_sigprocmask`（裸 syscall），而不是 VM 分派那个模拟桩；
+2. 写入后**先**用 `rt_sigtimedwait`(128) 以 `{0,0}` timespec 把挂起的 SIGPIPE
+   消费掉，**再**还原掩码。
+
+第 2 步是关键：只做第 1 步时仍是 141 —— 屏蔽期间 write 失败产生的 SIGPIPE
+会挂成 pending，还原掩码的那一刻立刻按默认动作投递，照样打死进程。
+另外 `rt_sigtimedwait` 的 timespec **必须**显式给 `{0,0}`：传 null 等于永久等待，
+会把解释器挂死（实测 rc=137）。
+
+### 验证
+
+- `/tmp/r32.uya`：**exit=141 → exit=0**，`p0=0 → p1=0` 正常返回；
+- 回归面：`test_async_compound_try_await` / `test_async_fd` /
+  `test_async_macro_expand` / `test_async_state_machine` /
+  `test_async_runtime_shared_dns` / `test_signal` 全部 PASS；
+- `make exec-parity` → **22 例不一致，与基线 `diff` 完全为空** → 零回归；
+- `make check` → **rc=0 通过**。
+
+### 仍未改善
+
+`test_async_compute_types` 0 OK、`test_std_thread` 11 OK、`test_std_async_scheduler` 30 OK，
+与修复前完全相同。说明 SIGPIPE 只是让进程不再被打死，
+`async_compute` 的 `@await` 依旧首轮 Ready（`p0=1 sw=0 pc=0`），线程池没有真正参与。
+下一步仍要从「宏展开后 `async_compute` 的实际字节码形态」入手。
