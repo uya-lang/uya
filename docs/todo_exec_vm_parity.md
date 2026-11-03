@@ -12805,3 +12805,56 @@ cont_result: [ExecValue: EXEC_VM_CONT_MAX],
 **C99 编译路径完全不经过这两个文件**，不存在因果关系。
 C99 侧 `test_std_thread` 连跑三次实测 33/1、33/1、30/4 —— 是既有的非确定性 flake
 （前几轮已反复确认并记录）。
+
+### 第 552 轮：全量 parity 实测（负载 2.07，机器比较空闲）
+
+```
+一致:     893 / 913
+不一致:   20
+```
+
+但这 20 例里**有 2 例是 C99 侧 flake 造成的假不一致**（VM=0）：
+
+```
+test_async_compute_generic_wrapper   C99=1  VM=0
+test_async_compute_types             C99=6  VM=0
+```
+
+按 **VM 侧退出码**统计，真正待修的是 **18 例**（基线 22 例）。
+逐例对比基线的实际收益：
+
+| 用例 | 基线 VM | 现在 VM | 说明 |
+| --- | --- | --- | --- |
+| `test_async_compute_types` | 11 | **0** | 已清零（已不在清单） |
+| `test_async_compute_generic_wrapper` | 2 | **0** | 已清零（仅 C99 flake 让它在清单里） |
+| `test_async_runtime_shared_semantics` | 2 | **0** | 已清零（已不在清单） |
+| `test_async_shared_runtime_semantics` | 1 | **0** | 已清零（已不在清单） |
+| `test_std_async_scheduler` | 30 | **0** | 已清零（已不在清单） |
+| `test_std_thread` | 23（卡死 137，只跑完 3 个） | **7**（27 通过 / 7 失败） | 大幅改善，不再卡死 |
+
+**5 例 VM 侧完全清零，1 例从「卡死」变成「只剩 7 个 test 失败」。**
+
+剩余 18 例（VM 侧非 0）分类：
+
+- **卡死 137（3 例）**：`test_http_uyagin_websocket`、`test_std_dns_async_transport`、
+  `test_tls_rsa` —— 与 `test_std_thread` 原先同一类（future 永不 Ready），
+  但本轮修复后仍卡死，说明它们还有别的卡点（可能是网络/IO 等待）；
+- **小差异 VM=1/2/3/4/5/7（12 例）**：`test_http_*`、`test_tls_*`、`test_std_dns_*`、
+  `test_kernel_sim`、`test_std_thread`(7)、`test_async_thread_pool_dynamic_growth`(4)、
+  `test_std_thread_async_boundary`(3)、`test_typed_pipeline_capability`、
+  `test_async_compute_dynamic_resource_pressure`、`test_async_frame_pool_full`、
+  `test_async_runtime_shared_dns`（已知网络 flake）；
+- **真线程堆问题（1 例）**：`test_pthread_heap_cache_identity`（VM=181）——
+  需要引用计数 / 延迟回收，是独立课题。
+
+### 本轮累计（第 548~552 轮）的提交
+
+| 提交 | 内容 |
+| --- | --- |
+| `54b87ef0` | 泛型函数 body 宏展开推迟到单态化（根治 `@mc_type` 提前求值） |
+| `afe27985` | worker 退出前同步 drain 队列 |
+| `3524ce00` | `try_kick_drain` 写管道失败时同步消费 |
+| `ce0cc6c5` | 续体完成后缓存结果，使 future 的 poll 幂等 |
+
+这四条构成一条完整的根因链：**宏展开时机 → 任务投递 → 任务消费 → 结果交付**，
+每一环都是「串行模拟架构」下的真实缺陷，不是逐例打补丁。
