@@ -4635,6 +4635,21 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
         exec_backend_set_error(function.decl, "exec: syscall 参数数量非法" as *byte, 0);
         return -1;
     }
+    // write(1)/writev(20)：串行解释器里 worker 线程体跑完即结束，pipe 读端随之关闭；
+    // 主线程此后写同一根 pipe 会拿到 SIGPIPE，默认动作直接把解释器打死（退出码 141），
+    // Uya 代码里写的 `errno == EPIPE` 分支永远跑不到（strace 实测：
+    // `write(6, ThreadWorkerCommand) = -1 EPIPE` → `killed by SIGPIPE`）。
+    // 这里在写入前后临时用**真** `rt_sigprocmask`(14) 屏住 SIGPIPE，写完还原，
+    // 不影响调用方的信号语义。`exec_vm_rt_sigprocmask` 走的是裸 syscall，
+    // 不是 `g_exec_vm_sig_mask` 那个模拟变量。
+    var write_sigpipe_saved: i64 = 0i64;
+    var write_sigpipe_active: i32 = 0;
+    if (nr_value == 1i64 || nr_value == 20i64) && arg_count >= 1 {
+        const sigpipe_bit: i64 = 1i64 << 12;
+        if exec_vm_rt_sigprocmask(0, sigpipe_bit, &write_sigpipe_saved, true) >= 0i64 {
+            write_sigpipe_active = 1;
+        }
+    }
     // 串行模拟线程体（`pthread_create` 当场执行 routine 的那段窗口，见
     // `g_exec_vm_thread_body_budget`）里不允许出现**会阻塞的 read**：
     // ThreadPool 的 worker 是 `thread_worker_loop`，第一句就是阻塞读命令管道
@@ -4702,6 +4717,20 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
         }
     }
     out_value[0] = exec_vm_dispatch_host_syscall(target_kind, target_pointee_kind, nr_value, &args[0], arg_count);
+    if write_sigpipe_active != 0 {
+        // 屏蔽期间 write 失败产生的 SIGPIPE 会挂成 pending；直接还原掩码的话，
+        // 还原那一刻就按默认动作把解释器打死（实测仍是 141）。先用
+        // rt_sigtimedwait(128) 以 0 超时把它消费掉，再还原掩码。
+        var drain_set: [i64: 1] = [1i64 << 12];
+        var drain_info: [i64: 16] = [];
+        // timespec 必须显式给 {0,0}：传 null 等于「永久等待」，会把解释器挂死。
+        var drain_ts: [i64: 2] = [0i64, 0i64];
+        _ = @syscall(128i64, @usize_from_ptr(&drain_set[0] as &void) as i64,
+            @usize_from_ptr(&drain_info[0] as &void) as i64,
+            @usize_from_ptr(&drain_ts[0] as &void) as i64, 8i64);
+        _ = exec_vm_rt_sigprocmask(2, 0i64, &write_sigpipe_saved, true);
+        write_sigpipe_active = 0;
+    }
     var out_apply_i: i32 = 0;
     while out_apply_i < out_count2 {
         exec_vm_syscall_out_struct_apply(out_targets[out_apply_i], out_buffers[out_apply_i],
