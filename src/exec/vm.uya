@@ -7226,7 +7226,13 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         if exec_value_is_raw_array(slot_b) != 0 {
             const raw_ptr_value: ExecValue = exec_vm_raw_array_element_ptr(slot_b, slot_c.i64_value as i32);
             if raw_ptr_value.kind != ExecValueKind.EXEC_VALUE_POINTER {
-                exec_backend_set_error(function.decl, "exec: ADDR_INDEX 越界" as *byte, 0);
+                var _aim: [byte: 512] = [];
+                _ = snprintf(&_aim[0] as *byte, 512,
+                    "exec: ADDR_INDEX 越界(fn=%s ip=%d idx=%lld cnt=%d ek=%d imm=%d line=%d col=%d)" as *byte,
+                    function.name as *byte, frame.ip, slot_c.i64_value,
+                    slot_b.i64_value as i32, exec_value_raw_array_element_kind(slot_b),
+                    instr.imm as i32, instr.source.line, instr.source.column);
+                exec_backend_set_error(function.decl, &_aim[0] as &byte, 0);
                 return -1;
             }
             slot_a[0] = raw_ptr_value;
@@ -7234,7 +7240,11 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         } else if exec_value_is_raw_slice(slot_b) != 0 {
             const raw_slice_ptr_value: ExecValue = exec_vm_raw_slice_element_ptr(slot_b, slot_c.i64_value as i32, 0);
             if raw_slice_ptr_value.kind != ExecValueKind.EXEC_VALUE_POINTER {
-                exec_backend_set_error(function.decl, "exec: ADDR_INDEX 越界" as *byte, 0);
+                var _aim2: [byte: 512] = [];
+                _ = snprintf(&_aim2[0] as *byte, 512,
+                    "exec: ADDR_INDEX 越界(RAWSLC fn=%s ip=%d idx=%lld line=%d col=%d)" as *byte,
+                    function.name as *byte, frame.ip, slot_c.i64_value, instr.source.line, instr.source.column);
+                exec_backend_set_error(function.decl, &_aim2[0] as &byte, 0);
                 return -1;
             }
             slot_a[0] = raw_slice_ptr_value;
@@ -7261,7 +7271,13 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             if exec_value_is_raw_array(base_target) != 0 {
                 const raw_ptr_value2: ExecValue = exec_vm_raw_array_element_ptr(base_target, slot_c.i64_value as i32);
                 if raw_ptr_value2.kind != ExecValueKind.EXEC_VALUE_POINTER {
-                    exec_backend_set_error(function.decl, "exec: ADDR_INDEX 越界" as *byte, 0);
+                    var _aim3: [byte: 512] = [];
+                    _ = snprintf(&_aim3[0] as *byte, 512,
+                        "exec: ADDR_INDEX 越界(REFARR fn=%s ip=%d idx=%lld cnt=%d ek=%d line=%d col=%d)" as *byte,
+                        function.name as *byte, frame.ip, slot_c.i64_value,
+                        base_target.i64_value as i32, exec_value_raw_array_element_kind(base_target),
+                        instr.source.line, instr.source.column);
+                    exec_backend_set_error(function.decl, &_aim3[0] as &byte, 0);
                     return -1;
                 }
                 slot_a[0] = raw_ptr_value2;
@@ -7287,7 +7303,16 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         if handled_raw_addr == 0 {
             const index_ref: &ExecValue = exec_vm_index_ref(slot_b, slot_c.i64_value as i32);
             if index_ref == null {
-                exec_backend_set_error(function.decl, "exec: ADDR_INDEX 越界" as *byte, 0);
+                var _aim4: [byte: 512] = [];
+                const _agg4: &ExecAggregate = exec_vm_aggregate_ref_from_value(slot_b);
+                _ = snprintf(&_aim4[0] as *byte, 512,
+                    "exec: ADDR_INDEX 越界(IDXREF fn=%s ip=%d idx=%lld kind=%d cnt=%d isref=%d pointee=%d line=%d col=%d)" as *byte,
+                    function.name as *byte, frame.ip, slot_c.i64_value, slot_b.kind as i32,
+                    if _agg4 == null { 0 - 1; } else { _agg4.count },
+                    exec_vm_pointer_is_internal_ref(slot_b),
+                    if slot_b.kind == ExecValueKind.EXEC_VALUE_POINTER { exec_value_pointer_pointee_kind(&slot_b[0]); } else { 0 - 1; },
+                    instr.source.line, instr.source.column);
+                exec_backend_set_error(function.decl, &_aim4[0] as &byte, 0);
                 return -1;
             }
             slot_a[0] = exec_vm_make_index_value_ref(index_ref, instr.imm as i32);
