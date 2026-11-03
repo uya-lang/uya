@@ -9320,3 +9320,14 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   装箱失败 → 直接构造 `Future{ Ready(err(AsyncFramePoolFull)) }`。
   这需要给 HIR 加一个「装箱失败转错误」的表达式形态，属于结构性改动，
   本轮先不动，记录在此作为下一步入口。
+
+### 第 500 轮：`test_kernel_sim` 的 5 个失败归类为「VM 架构性不适用」
+
+- 失败全部集中在 x86 裸汇编：`sim_load_image_x86_call_gate_records_nonzero_exit_code`、
+  `call_gate_stack_helper_switches_to_private_stack`、`x86_call_gate_trampoline_invokes_target`、
+  `x86_call_gate_trampoline_keeps_stack_alignment`、
+  `x86_call_gate_trampoline_stack_helper_keeps_stack_alignment`。
+- 388 行测试里 `@asm { ... }` 三处（56/63/69 行附近），做的是 x86 call gate 跳转与
+  私有栈切换，依赖 `%cs`/`%ss`/`retf` 等真实描述符表行为。字节码 VM 里没有段描述符、
+  也没有可替换的栈段，**这类语义无法在解释器里重现**，不是可以修的实现缺陷。
+- 结论：`test_kernel_sim` 归入「VM 不适用」清单（与裸汇编同类），不计入可修目标。
