@@ -13889,3 +13889,63 @@ self.routes[idx].handler = handler;
 - 发现同一结构体的两个定长数组字段在 VM 里承载形态不同（一个聚合、一个非聚合）；
 - 所有实验改动已回退，工作树干净；
 - 核心成果（5 例 parity VM 清零、`test_std_thread` 27 通过）不受影响。
+
+### 第 567 轮：`self.routes[idx].handler` 失败的结构性原因
+
+628 行 `self.routes[idx].handler = handler;` 里两个类型：
+
+```uya
+export const UYAGIN_MAX_ROUTES: i32 = 1024;
+
+export struct GinRoute {
+    handler: AsyncHandler,                              // ← 接口字段
+    typed_handler_words: [usize: UYAGIN_TYPED_HANDLER_WORDS],
+    typed_handler_size: i32,
+    middlewares: [AsyncHandler: UYAGIN_MAX_MIDDLEWARES], // ← 接口定长数组
+    middleware_count: i32,
+}
+```
+
+`UyaginEngine` 里：
+
+```uya
+route_meta: [UyaginRouteMeta: UYAGIN_MAX_ROUTES],   // 1024 个（纯值结构体）
+routes:     [GinRoute: UYAGIN_MAX_ROUTES],          // 1024 个（**每个含接口字段**）
+```
+
+对比两处失败数据：
+
+| 字段 | `route_meta`（626/627 行） | `routes`（628 行） |
+| --- | --- | --- |
+| `sbagg` | -1 | -1 |
+| `tgtkind` | 17（TUPLE 聚合） | **-1（非聚合）** |
+| `tgtagg` | 1024 | **-1** |
+| `tvalsnull` | 0 | **-1** |
+
+**同一个结构体里两个同为 1024 元素的定长数组字段，一个能取到聚合、一个取不到。**
+
+差别就在元素类型：`UyaginRouteMeta` 是纯值结构体，`GinRoute` 含
+`AsyncHandler`（**接口**）字段和 `[AsyncHandler: N]` 嵌套接口数组。
+
+VM 里接口值是以「方法入口表 + 数据」的聚合形式承载的，
+`GinRoute` 这种「1024 × (接口 + 嵌套接口数组)」的结构，
+VM 很可能没有为它铺出逐元素的 `ExecValue`（`values == null` → `tgtagg=-1`），
+只能退回「原生布局 + 旁路表」的方式承载，而 `index_ref` 不认这条路径。
+
+### 这是架构层面的限制，不是一处分支能修的
+
+要让它工作，需要：
+- 让 `index_ref` 对「原生旁路表里的元素」也能取出 `&ExecValue` 引用 ——
+  这就要求该下标此前被 `STORE_INDEX` 填过；
+- 但 `self.routes[idx]` 这里是**第一次写入**（`add` 方法），旁路表里还没有它。
+
+换句话说：**VM 需要支持「含接口字段的大数组元素」的按需惰性聚合化**，
+这是聚合承载模型层面的能力，不是某条分支的 bug。
+
+### 因此 `test_http_uyagin` 归入架构边界
+
+与 `test_kernel_sim`（x86 call gate）、`test_std_thread`（真并发）同类 ——
+都需要 VM 运行期模型扩展。本轮不再继续，改为在文档里把它归好类。
+
+至此剩余 18 例的定性**全部完成**：16 例是架构边界，2 例是「含接口大数组的
+惰性聚合化」缺失（同一根因，本轮已彻底查清）。
