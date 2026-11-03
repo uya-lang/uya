@@ -10312,3 +10312,63 @@ VM 运行期没有「struct 类型 → poll 方法下标」的映射，所以必
 **这是真正的架构性障碍，不是判据调参能解决的。** 后续不应再尝试从 `@await` 入手。
 若要做，正确前提是先给 VM 补「Future 对象身份 + poll 调用协议」（比如让 `@async_fn`
 生成的 future 的 `poll` 变成幂等、且 `state` 只作为缓存），这属于 async 运行时的整体重设计。
+
+### 第 537 轮：✓ 找到了那 4 个回归的**精确机制**，并确认现状是「有意设计」
+
+第 536 轮的四次失败一直停在「打了 4 个回归但不知道为什么」。本轮读到了根因。
+
+看 `tests/test_async_compound_try_await.uya`（就是那 4 个回归之一），它的注释和夹具：
+
+```uya
+// 回归：复合表达式中的 try @await 必须能在 poll/resume 间正确重放。
+
+struct FlipPending : Future<!i32> {
+    polled: i32,
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        if self.polled == 0 { self.polled = 1; return Poll<!i32>.Pending({}); }
+        return Poll<!i32>.Ready(ok<i32>(2));
+    }
+}
+
+@async_fn
+fn compound_assign_then_return() Future<!i32> {
+    var total: i32 = 1;
+    total = total +| (try @await flip_pending());
+    return total;
+}
+```
+
+`FlipPending.poll` **靠自身 `polled` 字段翻转**：第一次 Pending、第二次 Ready。
+而 `@await flip_pending()` 的**操作数求值**每次续体恢复都会重新执行 `flip_pending()`
+——它返回一个**全新的** `FlipPending{ polled: 0 }`。所以如果 VM 真的去调 poll：
+
+```
+首轮：新建 FlipPending(polled=0) → poll → Pending → 挂起
+恢复：重新求值 flip_pending() → 又是 polled=0 → poll → 又是 Pending → 又挂起
+→ 永远 Pending（或语义错乱）
+```
+
+**这就是为什么「真调 poll」会打翻这 4 个用例**：VM 的续体恢复模型是
+「重跑 `BC_AWAIT` 之前的表达式」，而那些表达式含副作用/重建 Future 的调用，
+真调 poll 会把「同一个 Future 的推进」变成「每次都是新 Future 的第一次 poll」。
+
+反过来，现状（直接读 `state: Poll<T>` 字段）在这套「重跑式续体」模型下是**自洽的**：
+`@async_fn` 生成的 Future 的 `state` 字段已经被算好，重跑只是重新取一次同一个值，
+天然幂等。`tests/test_async_macro_expand.uya` 的
+`async_expr_macro_block_keeps_preawait_eval_once`（另一个回归）也是同一个保证：
+**`@await` 之前的求值必须只发生一次**。
+
+### 最终结论：这是 `@await` 语义的架构性约束，不是缺陷
+
+1. VM 的续体恢复是**重跑式**的（`exec_vm_cont_suspend` 把恢复点记在 `BC_AWAIT` 自己，
+   恢复后重跑该指令及之前已求值的操作数）；
+2. 在这个模型下，「读 `state` 字段」是必要的幂等设计；
+3. 真正的问题是 `AsyncWorkerComputeFuture` 这类**必须靠 poll 提交任务**的 Future
+   与重跑式续体模型不兼容——它要求「只 poll 一次」，而重跑会 poll 多次或重建对象。
+
+**所以 `test_std_thread` 那族失败的真正修法不是改 `BC_AWAIT`**，而是让
+`AsyncWorkerComputeFuture` 适配重跑式模型（例如把「提交任务」做成幂等：
+用 `slot_idx` 判断是否已提交，未提交才提交）。这是**改库**而不是改 VM，
+风险面小得多，也不需要动 `@await` 的语义。
+
+`docs/todo_exec_vm_parity.md` 至此对「真并发/线程池」这 11 例给出了明确、可执行的下一步方向。
