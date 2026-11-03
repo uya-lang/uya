@@ -14319,3 +14319,30 @@ C99 侧要真正修好，需要在 `expand_macros_in_node_simple` 的 `AST_FN_DE
 现在的问题是：`@mc_type` 位于宏体**内部**（`thread_type_is_i32` 的宏体里就有），
 外层宏必须完整展开才能看到它；而现在的实现是「要么整段展开（`@mc_type` 被固化），
 要么整段不展开（其他宏也不展开）」。需要一个「展开宏但保留 `@mc_type` 节点」的模式。
+
+### 第 572 轮：订正提交清单 —— 有效修复是 4 条，不是 5 条
+
+上面汇总里把 `5adc0d33`（scheduler deadline）列进了「代码提交」，但它**已被
+`f7dc453d` revert**（实测 `grep -c run_deadline_ms lib/std/async_scheduler.uya` = 0）。
+
+当前 HEAD 上**真正生效**的修复是 4 条：
+
+| 提交 | 文件 | 作用 | 状态 |
+| --- | --- | --- | --- |
+| `54b87ef0` | `src/checker/macro_expand.uya` | 泛型 body 宏展开推迟到单态化 | ✅ 生效 |
+| `afe27985` | `lib/std/thread.uya` | worker 退出前同步 drain | ✅ 生效 |
+| `3524ce00` | `lib/std/thread.uya` | kick 写管道失败时同步消费 | ✅ 生效 |
+| `ce0cc6c5` | `src/exec/vm.uya` + `frame.uya` | 续体完成态缓存，poll 幂等 | ✅ 生效 |
+| `b96166e9` | `src/exec/vm.uya` | `ADDR_INDEX` 诊断上下文 | ✅ 生效（仅诊断） |
+| `5adc0d33` | `lib/std/async_scheduler.uya` | scheduler 总时长上限 | ❌ **已 revert** |
+
+`5adc0d33` 被 revert 的原因（记录于第 549 轮）：它让 VM 侧 `test_std_thread`
+到 22 通过，但让 **C99 侧 3 个用例确定性回归**（C99 侧负载高时会先撞 deadline
+返回 `TimedOut`），净效果为负。
+
+### 当前 HEAD 的准确定位
+
+`aa6fe01c` —— 4 条有效修复 + 1 条诊断增强，全部验证过：
+- VM 侧：5 例 parity 清零、`test_std_thread` 27 通过；
+- C99 侧：`test_async_compute_types` 有 -1~2 的退化（已量化，见第 571 轮）；
+- 工作树干净，`bin/uya` 与 HEAD 一致。
