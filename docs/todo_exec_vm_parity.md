@@ -11567,3 +11567,65 @@ WLOOP DRAIN pend=1 cmd=-2      ← cmd.slot_idx 确实被写成 THREAD_WORKER_DR
    这个缺陷可能同时解释「deep recursion 段错误」的成因。
 2. worker 消费问题在上面的控制流修好之后再看，很可能一并解决。
 3. 最后再回到 22 例 parity。
+
+### 第 547 轮（订正）：VM 控制流缺陷假设被证伪
+
+上一条把 `/tmp/r57` 里「`WLOOP DRAIN` 之后既没有 `WLOOP POP`、也没有下一轮
+`WLOOP read`」解释成「VM 的 `if` 块后续控制流会丢」。**这个结论是错的**，本轮已证伪。
+
+两个对照实验：
+
+1. `/tmp/r58.uya` —— 纯算术，无 syscall：
+   ```uya
+   while i < 3 { const n: i64 = 0 - 11; if n < 0 { cnt = cnt + 10; } cnt = cnt + 1; }
+   ```
+   VM: `cnt=33`，正确。
+
+2. `/tmp/r61.uya` —— **错误联合 `catch` 解包 + `if` 块 + 后续语句**，与
+   `thread_worker_loop` 里那段结构完全一致：
+   ```uya
+   fn fake_read() !isize { return (0 - 11) as isize; }
+   ...
+   const rr: !isize = fake_read();
+   const n: isize = rr catch { (0 - 1) as isize; };
+   cnt = cnt + 1;
+   if n < 0 { cnt = cnt + 10; }
+   cnt = cnt + 100;
+   ```
+   VM: `cnt=333`（期望 333），**完全正确**。
+
+所以 `catch` 解包后的 `if` 块流程在 VM 下是正常的。
+`/tmp/r57` 里「`AFTERREAD` / `WLOOP POP` 不打印」只能归因于
+**打点本身（在 `if n < 0` 块里调 `write` + 读 `cmd.slot_idx`）改变了观测**，
+不是真实的控制流缺陷。
+
+### 教训（写下来避免再犯）
+
+本轮有两次「打点无输出」被误读成代码缺陷：
+- `probe_scan_macro_calls` 零输出 → 实际是没走到该函数（后经
+  `PROBE-ENTER` 打点才确认 `plain_generic` 根本不走那条路）；
+- `AFTERREAD` 零输出 → 实际是打点副作用。
+
+**规则：任何「无输出」的结论，必须先用「无条件首行打点」证明探针可达，
+否则不得据此推断缺陷。** 下一轮务必遵守。
+
+### 现在确定的事实（干净版）
+
+1. **已根治并提交**（`54b87ef0`）：泛型函数 body 的宏展开推迟到单态化。
+   `async_compute<i32>` 从「立即返回 EBADF(9)」变为「`tag=0` Pending」，
+   worker 成功启动（`sw=1`）。`make check` rc=0。
+2. `thread_worker_loop` 只读一次 `sys_read` 就拿到 `-11`(EAGAIN) 并 `break`，
+   而此时 `pending_count=1`（队列里有任务）。
+3. 把 EAGAIN 当作 DRAIN 命令的改写，赋值确实生效（`cmd=-2`），
+   但对最终结果没有收益（任务仍不完成）。
+4. drain 改写已回退，工作树干净。
+
+### 下一步（不含已被证伪的方向）
+
+worker 拿到 EAGAIN 时队列里已有任务，说明**命令管道没有被写入**：
+`thread_pool_try_kick_drain`（`lib/std/thread.uya:1020`）往 cmd pipe 写
+`ThreadWorkerCommand{slot_idx: THREAD_WORKER_DRAIN_QUEUE}` 这一步在 VM 下
+可能没执行，或者写了但 worker 读到的是空。
+
+下一轮直接对**写端**打点（`thread_pool_try_kick_drain` 里的 `sys_write` 返回值），
+确认到底是「没写」还是「写了但读不到」，而不是继续改 `thread_worker_loop`。
