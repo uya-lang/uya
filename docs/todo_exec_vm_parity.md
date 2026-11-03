@@ -11965,3 +11965,58 @@ fn finish(self: &Self, result: !usize) Poll<!usize> {
 修法应落在 `src/exec/vm.uya` 的字段存储/加载（而不是继续改库层状态机）。
 
 本轮到此为止：不改动、不提交实验代码，工作树干净。
+
+### 第 548 轮（订正）：泛型 union 字段往返在 VM 下是正常的
+
+上一条把双任务第二个 future 卡住归因到「泛型 union 存进结构体字段再读回时 tag 丢失」。
+本轮直接做了对照实验，**这个假设被证伪**。
+
+`/tmp/r67.uya`：
+
+```uya
+struct Holder {
+    st: Poll<!i32>,
+    n: i32,
+}
+...
+h.st = Poll<!i32>.Ready(42);
+h.n = 1;
+match h.st {
+    .Ready(v) => { tag = 1; got = try v; },
+    .Pending(_) => { tag = 0; },
+}
+```
+
+VM 输出：
+
+```
+unionfield tag=1 got=42 n=1
+```
+
+**完全正确**。泛型 union 作为结构体字段存取、match 取 tag、取载荷，在 VM 下都没问题。
+所以 `AsyncWorkerComputeFuture::finish` 里 `self.state = Poll<!usize>.Ready(result)`
+这一步不是缺陷点。
+
+另外按上一条建议的「不写 `self.state`、直接返回」也试了，结果更差
+（`TIMEOUT pend=0 sw=1`，两个都不 Ready）—— 因为 `done != 0` 时后续 `poll`
+要靠 `self.state` 返回，不写它等于丢了结果。该改法已回退。
+
+### 目前能确定的新事实
+
+`/tmp/r66.uya`（双任务）打点显示的完整时序里，`Cpoll slot=1` 只出现**一次**，
+之后还有 `RSV slot=1`（resolve 成功），但**再没有第二次 `Cpoll slot=1`**。
+
+也就是说：第二个 future 的 `poll` 在 resolve 那一次之后，调用方就再没调过它。
+这不是状态机内部的问题，而是**调用方（我的探针 / 或 scheduler）没有再 poll 它**。
+
+下一轮的正确切入点：不要再看 `AsyncWorkerComputeFuture`，而是看**谁负责再次
+调度第二个 future**。两个候选：
+1. `Waker.wake()` 在串行 VM 下是否真的能把**另一个** future 标记为可轮询
+   （我的探针里 `f` 和 `f2` 共用同一个 `w`，`w.is_cancelled()` / `is_woken()`
+   的语义可能互相干扰）；
+2. `scheduler_run_pair_i32_with_event_loop`（`lib/std/async_scheduler.uya:1013`）
+   的双 future 调度路径 —— `test_std_thread` 里真正走的是 scheduler，不是手写探针。
+
+先确认 `test_std_thread` 卡住的那个用例（`thread_pool_config_can_exceed_legacy_static_limits`）
+走的是不是 `scheduler_run_pair_*`。如果是，问题就在 scheduler 的双 future 调度，
+与 `thread.uya` 无关 —— 那是一个更小、更明确的修法。
