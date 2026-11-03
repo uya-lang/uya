@@ -9303,3 +9303,20 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
 - 剩余 22 例归因见上一节表格。
 
 **复现件**：`docs/probes/`（9 个，含索引 README）。
+
+### 第 499 轮：`test_async_frame_pool_full` 的失败机理查清
+
+- 该用例给 `set_async_frame_allocator` 装了一个永远失败的分配器，然后调 `@async_fn`，
+  期望拿到 `error.AsyncFramePoolFull`。C99 侧确实这样（parity 里 C99=0 / VM=1）。
+- **C99 侧的实现**：`@async_fn` 返回 `!Future<T>` 时，`src/codegen/c99/function.uya:6186`
+  把 Future 装箱调 `std_async_box_alloc_current`；分配器返回 null → 走错误分支。
+- **VM 侧的行为**：`BC_BOX_VALUE`（`src/exec/vm.uya`）先试
+  `exec_vm_box_value_ref_via_allocator`，**失败就静默回退到竞技场装箱**
+  （`exec_vm_box_value_ref`），所以永远拿不到 `AsyncFramePoolFull`。
+- 探针 `/tmp/afp_probe.uya` 在 VM 里输出 `no error`，确认了这一点。
+- **为什么不在 `BC_BOX_VALUE` 里直接报错**：普通接口装箱（`as IAllocator` 之类）
+  并不要求池满报错，全局改会让大量用例回归。正确做法是让
+  `exec_lower_wrap_async_return` 在 `needs_box != 0` 时生成一条**检查分支**：
+  装箱失败 → 直接构造 `Future{ Ready(err(AsyncFramePoolFull)) }`。
+  这需要给 HIR 加一个「装箱失败转错误」的表达式形态，属于结构性改动，
+  本轮先不动，记录在此作为下一步入口。
