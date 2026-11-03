@@ -13537,3 +13537,71 @@ try uyagin_router_add(&self.router, &self.route_meta[0] as &UyaginRouteMeta, idx
   这一例留作独立课题更合适 —— 建议下一轮先用**真实用例打点**
   （在 `uyagin_route_meta_init` 入口打印 `self`、`route_meta` 的 ExecValue 详情），
   确认是容量问题还是布局问题，再决定动哪一处。
+
+### 第 561 轮：找到 `ADDR_INDEX` 的 imm 约定，但修正方案会引入卡死，已回退
+
+**关键发现**（`src/exec/builder.uya:1719` 附近，BC_ADDR_INDEX 发射处）：
+
+```
+imm 低 32 位是结果指针 pointee kind，高 32 位是元素字节数：
+原生指针（`&EpollEvent` 之类）做下标时 VM 拿不到 C 布局步长，
+只能靠编译期带过去的元素尺寸。
+```
+
+这正是修 `&原生数组[i]` 需要的两条信息。
+
+### 第一次尝试（错误：沿用基值的 pointee）
+
+在 `exec_vm_index_ref` 失败前加一条分支：若基值 pointee 是 `TYPE_ARRAY`，
+直接复用 `exec_vm_pointer_element_ptr` 步进。
+
+结果：`ADDR_INDEX 越界` 确实消失了，但错误推进到下一处：
+
+```
+uyagin_router.uya:271: exec: STORE_FIELD 字段越界
+  (idx=0 kind=14 count=-1 pointee=19 aux=131091 isref=1 nk=10 nb=0 c=0)
+```
+
+`pointee=19` 仍是 `TYPE_ARRAY` —— 因为 `exec_vm_pointer_element_ptr` 原样保留了
+基值的 pointee。下游把「指向数组的指针」当结构体去写字段，自然越界。
+
+**这一步说明方向是对的**（越界点前进了）。
+
+### 第二次尝试（用 imm 里的 pointee，但仍不对）
+
+改成从 `instr.imm` 取 pointee：
+
+```uya
+const arr_result_kind: i32 = (instr.imm & 0xFFFFFFFF as i64) as i32;
+const arr_elem_hint: usize = (instr.imm >> 32) as usize;
+var arr_elem_size: usize = exec_vm_type_kind_size(arr_result_kind);
+if arr_elem_size == 0 { arr_elem_size = arr_elem_hint; }
+if arr_elem_size == 0 { arr_elem_size = 1; }
+const arr_ptr = arr_base_addr + (slot_c.i64_value as usize) * arr_elem_size;
+slot_a[0] = exec_make_pointer_with_kind(arr_ptr, arr_ptr_kind);
+```
+
+结果：`ADDR_INDEX` 和 `STORE_FIELD` 两处都不再报错，**但 `test_http_uyagin`
+变成 rc=137 卡死（第一个 test `uyagin_get_ping` 就卡住）**。
+
+说明步进出来的地址是错的（很可能 `arr_result_kind` 在 ADDR_INDEX 这个 opcode 上
+并不是我以为的那个字段，或者 «指向整个数组的指针» 的基址本身不是数组首地址 ——
+`&self.route_meta` 和 `&self.route_meta[0]` 的 base_addr 语义不同）。
+
+盲改的代价是「从不报错变成死循环」，比原来更糟，**已全部回退**
+（`git checkout HEAD -- src/exec/vm.uya`），保留的只有上一轮那条诊断增强
+（它只改错误消息、无行为变化，且已经帮我们把位置从 «越界» 缩到具体行列）。
+
+### 下一轮的正确做法
+
+不要在 `exec_vm_cont_poll` 式的全局分支里猜，而是**在真实用例上打点**：
+在 `uyagin_router_add` / `uyagin_route_meta_init` 入口打印实参的
+`ExecValue` 全字段（kind / aux / i64_value / pointee_kind / 是否 internal ref /
+aggregate.count），确认：
+
+1. `&self.route_meta` 这一层到底是 VM 聚合（有 aggregate）还是原生基址；
+2. 若是原生基址，`exec_vm_pointer_address` 拿到的是数组首地址还是结构体首地址；
+3. `instr.imm` 在**这个具体指令**上的实际值（打印出来看，不要靠注释推断）。
+
+只有这三点确认之后，步进公式才能写对。当前结论：**方向明确（imm 里有 pointee
+和 elem_size），但基址语义还没确认，不宜再猜**。
