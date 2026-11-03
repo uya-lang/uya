@@ -10272,3 +10272,43 @@ VM 运行期没有「struct 类型 → poll 方法下标」的映射，所以必
 
 **建议维持现状**：11 个「真并发/线程池」类用例继续作为已知失败记录，
 若要继续推进，应单独立项做「VM 运行期类型标识 + `@async_fn` 状态机生成」的系统性改造。
+
+### 第 536 轮：✗ 第四个变体也失败——用编译期静态类型判接口同样打翻那 4 个用例
+
+第 534 轮我以为「接口启发式不可靠」是判据的问题，于是换成**编译期静态类型判定**
+（第 535 轮诊断已确认 `@await` 操作数类型是 `kind=15` = `TYPE_INTERFACE`）：
+
+- `lower.uya`：`await_operand.type_ref.type.kind == TypeKind.TYPE_INTERFACE`
+  时给 `hir_await.int_value = 1`；
+- `builder.uya`：把它写进 `BC_AWAIT.c`（`c = 1` 表示接口）；
+- `vm.uya`：`instr.c != 0` 时调 `exec_vm_await_poll_interface_once`，成功就返回。
+
+**结果：还是同样那 4 个回归**——
+`test_async_compound_try_await`、`test_async_fd`、`test_async_macro_expand`、
+`test_async_state_machine` 全部 FAIL，`test_std_thread` 依然 FAIL。已全部 `git checkout` 回退，
+重建后那 4 个用例恢复 PASS（已验证），基线完好。
+
+### 至此可以下结论：`@await` 这条路走不通
+
+**四种判据、五种实现，全部打翻同样的 4 个用例**：
+1. 运行期启发式「`values[0]` 是整数」（第 531 轮）
+2. 运行期启发式 + 收紧到「合法函数下标」（第 534 轮变体 B）
+3. 编译期填 poll 函数下标（第 534 轮变体 A，因操作数是接口而永不触发）
+4. **编译期静态类型判 `TYPE_INTERFACE`**（本轮）
+
+第 4 种最关键，因为它证明：**那 4 个用例的 `@await` 操作数同样是 `TYPE_INTERFACE`**。
+也就是说「接口形态就调 poll」这个规则在语义上是**错的**——这 4 个用例的接口 Future
+靠 `state` 字段同步维护得好好的，真去调 poll 反而把它们打翻。
+
+**真正的语义边界**不是「接口 vs 结构体」，而是「这个 Future 的完成是**拉着算出来的**
+（`@async_fn` 同步执行、`state` 已被写好）还是**必须外部推进的**（`AsyncWorkerComputeFuture`
+要靠 `poll` 才提交任务）」。这个区别**既不在静态类型里，也不在值的布局里**，
+它取决于 Future 实现的内部行为——除非 VM 有办法调用 Future 自己的 `poll` 并相信它的返回值，
+否则从外部无法判断。
+
+而「无条件调 poll」会打翻那 4 个用例，说明它们的 `poll` 在 VM 环境下**不能安全重复调用**
+（大概是被调一次就推进状态、或者依赖 `waker` 的特定时序）。
+
+**这是真正的架构性障碍，不是判据调参能解决的。** 后续不应再尝试从 `@await` 入手。
+若要做，正确前提是先给 VM 补「Future 对象身份 + poll 调用协议」（比如让 `@async_fn`
+生成的 future 的 `poll` 变成幂等、且 `state` 只作为缓存），这属于 async 运行时的整体重设计。
