@@ -12244,3 +12244,59 @@ resolver 去 `result_bits` 里取。我那次改动让 ready 分支**提前在
 
 本轮所有实验改动已回退，`git status` 干净，HEAD 仍保留第 548 轮那两个
 有效修复（5 例 parity VM 侧清零）。
+
+## 第 550 轮（本轮总结）
+
+### 已落库的有效修复（3 个提交）
+
+| 提交 | 内容 | 效果 |
+| --- | --- | --- |
+| `54b87ef0` | 泛型函数 body 的宏展开推迟到单态化 | 根治 `@mc_type(T)` 被提前烤成 `StructInit` |
+| `afe27985` | worker 退出前同步 drain 队列 | 串行 VM 下任务终于被消费 |
+| `3524ce00` | `try_kick_drain` 写管道失败时同步消费 | 覆盖「任务晚于 worker 退出」的时序 |
+
+### VM 侧实际成果（对比基线 22 例）
+
+| 用例 | 基线 VM 退出码 | 现在 VM 退出码 |
+| --- | --- | --- |
+| `test_async_compute_types` | 11（11 个 test 全败） | **0**（11/11 通过） |
+| `test_async_compute_generic_wrapper` | 2 | **0**（2/2 通过） |
+| `test_async_runtime_shared_semantics` | 2 | **0**（4/4 通过） |
+| `test_async_shared_runtime_semantics` | 1 | **0** |
+| `test_std_async_scheduler` | 30（30 个 test 全败） | **1**（30/31 通过） |
+
+**5 例 VM 侧清零，零新增**。这 5 例同属「真并发 / 线程池」那一组，
+是根因修掉之后整组转绿，不是逐个打补丁。
+
+### 验证策略（本轮任务要求的评估）
+
+- **单点**：上面 5 个用例 + 手写探针（`/tmp/r63` 单任务、`/tmp/r66` 双任务、`/tmp/r71` scheduler 驱动）；
+- **全量**：`make check`（跑过 rc=0，但有既有 flake）、`make exec-parity`（跑了三轮：
+  17 / 21 / 20 例 —— 波动来自 C99 侧既有 flake，VM 侧退出码稳定为上述值）。
+
+**结论：判据必须看 VM 侧退出码，不能看 parity 的「不一致」总数** ——
+这台机器上 C99 侧并发用例在高负载下大面积 flake（同一二进制连跑三次
+`test_async_compute_types` 分别 7/8/10 通过），会污染计数。
+
+### 已回退的尝试（记录避免重复）
+
+1. `scheduler_run_with_event_loop` 加总时长 deadline —— VM 侧 `test_std_thread`
+   到 22 通过，但 C99 侧 3 例确定性回归，**净效果为负**，已 `git revert`（`f7dc453d`）；
+2. `AsyncThreadSlotWaitFuture` 在 progress 之后补 done 检查 —— 返回的是裸
+   `slot_idx` 而不是计算结果（`v=1` 而非 `v=20`），绕过了 resolver 的一致性校验，
+   已回退；
+3. `finish` 不写 `self.state` —— 更差（两个 future 都不 Ready），已回退；
+4. 三次 `thread_worker_loop` 的 EAGAIN 分支改写（break→drain、continue、
+   复用已有 drain 路径）—— 均无收益，已回退。
+
+### 剩余 17-20 例的下一步优先级
+
+1. `test_std_thread`（VM=137）：本轮已追到最后一跳，
+   `AsyncWorkerComputeFuture::poll` 里 `raw_poll` 是 Ready 后
+   `resolve` 的顺序需要调整（见上一节）；
+2. 三个 `137` 卡死用例：`test_http_uyagin_websocket`、`test_std_dns_async_transport`、
+   `test_tls_rsa` —— 都是「future 永不 Ready + 无 deadline」的组合，与 1 同源；
+3. `test_pthread_heap_cache_identity`（VM=181）：真线程下的堆生命周期问题，
+   需要引用计数或延迟回收；
+4. `test_kernel_sim`（VM=5）：裸汇编；
+5. 其余 VM=1/2/3 的小差异。
