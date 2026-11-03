@@ -9534,3 +9534,33 @@ worker 若推迟到 join 才跑，主线程这个循环**永远等不到**，测
 
 **当前状态**：已回退，树保持基线；`pthread_current_heap_cache` 的 gettid 强校验、
 旁路表进程级共享、槽位复用三项修复保留并已夹具验证。
+
+### 第 509 轮：`test_pthread_heap_concurrency` 修好（139 → 0），串行线程体「先跑、没跑完 join 补跑」
+
+**修复（已提交）**
+串行模式的 `pthread_create` 会当场执行线程体，但 `heap_worker` 第一句是
+`while g_start == 0 {}`，而 `g_start` 要等 create 返回后父线程才置 1 ——
+create 里执行必然耗尽 2000 万指令预算被切断，worker 从不推进，
+8 个 worker 全部停在初始 `status = 99`，测试返回 `40 +| 99 = 139`。
+
+修法：create 阶段若因预算中止，记下 routine/arg 并标记待重跑；
+`pthread_join` 时再跑一次（此时父线程该置的标志都已置好）。
+
+**为什么不是「只登记、join 才跑」**
+那样会破坏 `test_pthread_api_cancel`：它的 worker 第一句就置 `_cancel_started`，
+主线程紧跟 `while _cancel_started == 0` 等待 —— worker 不跑，主线程永远等不到（137 超时）。
+两个用例对「create 是否立刻执行线程体」的要求**相反**，
+只能「先跑、没跑完 join 再补跑」，本轮已验证两边同时通过。
+
+**验证**：`test_pthread_heap_concurrency` 139 → **0**；`test_pthread_api_cancel` 仍 0；
+`test_pthread_cancel` 仍 0。census 净改进（新增的 `test_async_runtime_shared_dns`
+是已知网络 flake）。
+
+**同类但不可修的用例：`test_pthread_heap_cache_identity`（退出码 181）**
+- 181 = `100 +| 81`，81 = `80 + 0 + 1` → 第 0、1 号线程的 `first_cache_addr` **相同**。
+- 该用例明确要求「不同线程拿到不同 tcache」（`state.status = 2` 分支）。
+- 串行模式下所有「线程」实际都在主线程上下文里跑，`pthread_current_heap_cache()`
+  返回同一个主线程 cache —— 地址相同是**串行模式的必然结果**，不是 bug。
+  只有真线程模式才会给每个线程不同的 desc/heap_cache。
+- 结论：该用例属于「串行模拟并发」无法满足的语义，归入真线程专属，
+  基线下它同样失败（239），本轮不是回归。
