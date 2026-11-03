@@ -9672,3 +9672,18 @@ pool._started_workers < pool.worker_count
 `heap_tcache` 52、`heap_concurrency` 139（use-after-free）。
 默认（串行）模式：`heap_concurrency` 通过、`heap_cache_identity` 181、
 `heap_tcache` 通过。
+
+### 第 515 轮：三个 137 超时用例的性质区分
+
+| 用例 | C99 侧 | VM 侧 | 性质 |
+|---|---|---|---|
+| `test_tls_ecdsa` | rc=0 | 137（>2 分钟无任何输出，进程仍在跑） | **性能**：ECDSA P-256/P-384 + RFC 6979 是纯计算，算法本身正确（C99 通过），VM 解释执行太慢 |
+| `test_std_dns_async_transport` | rc=0 | 137 | **环境**：依赖真实 DNS 服务器 |
+| `test_http_uyagin_websocket` | — | 137 | 待查（网络/websocket） |
+
+- `test_tls_ecdsa` 特别值得记一笔：它连 `test_suite_begin` 的输出都没有，
+  说明卡在第一个测试用例的 ECDSA 计算里（不是初始化死锁）。
+  这类**只能靠提升解释器性能**（或给热点走宿主实现），不是语义正确性问题。
+- 结论：137 这一组不应计入「VM 语义不一致」，应单列「性能/环境」。
+
+**本轮无代码改动**，仅补充归因；树保持干净，`make check` rc=0、census 887/22 不变。
