@@ -13467,3 +13467,73 @@ thread_pool_metrics_record_cancelled_async_compute
 
 **没有一项还能靠「再试一个改法」解决** —— 除了那 2 例引用悬空需要在
 真实用例上打点定位（成本较高且不一定能修），其余 16 例都需要架构层面的工作。
+
+### 第 560 轮：给 `ADDR_INDEX 越界` 补上完整上下文，定位到具体表达式
+
+原来三处 `ADDR_INDEX 越界` 都只有一句「越界」，定位时完全看不出是哪个函数、
+哪个下标、基值什么类型。把 `ADDR_FIELD` 已有的详细诊断风格套过来（提交 `b96166e9`）：
+
+- 原生数组分支：`fn / ip / idx / cnt / elem_kind / imm / line / col`
+- 原生切片分支：`fn / ip / idx / line / col`
+- 引用内原生数组分支：`fn / ip / idx / cnt / elem_kind / line / col`
+- INDEX_REF 分支：`fn / ip / idx / kind / cnt / isref / pointee / line / col`
+
+只改错误消息，四条分支的成功路径一字未动；`make check` 失败项与改动前完全一致
+（5 个，均为 C99 侧既有 flake）。
+
+### 立刻定位到确切表达式
+
+带上诊断后，`test_http_uyagin` 的越界变成：
+
+```
+exec: ADDR_INDEX 越界(IDXREF fn=add ip=76 idx=0 kind=14 cnt=-1 isref=1
+                      pointee=19 line=628 col=34)
+```
+
+逐项解读：
+
+| 字段 | 值 | 含义 |
+| --- | --- | --- |
+| `fn=add` | `UyaginEngine::add` | 与 `uyagin.uya:618` 的调用点吻合 |
+| `line=628` | 628 | 实际出错行（不是 618） |
+| `col=34` | 34 | 指向 `&self.route_meta[0]` 那一段 |
+| `idx=0` | 0 | 取下标 0 |
+| `kind=14` | `EXEC_VALUE_POINTER` | 基值是指针 |
+| `isref=1` | 1 | 是内部引用 |
+| `pointee=19` | `TYPE_ARRAY` | **被指向的是「整个原生数组」** |
+| `cnt=-1` | -1 | 拿不到 VM aggregate |
+
+对应源码（`lib/std/http/uyagin.uya:628`）：
+
+```uya
+try uyagin_router_add(&self.router, &self.route_meta[0] as &UyaginRouteMeta, idx, &self.route_meta[idx]);
+```
+
+**所以缺陷是：`&原生数组[0]`（数组转首元素指针）在 VM 里走 `exec_vm_index_ref`，
+而基值是指向整个数组的指针（`pointee=TYPE_ARRAY`），拿不到 aggregate，返回 null。**
+
+### 最小化复现的两次尝试（都「通过」，说明条件更特殊）
+
+- `/tmp/r84.uya`：`&Self` 方法里 `const p: &Meta = &self.route_meta[0] as &Meta;`
+  → `r=0`，**正常**；
+- `/tmp/r85.uya`：再加 `&self.route_meta[idx]`（变量下标）
+  → `r=0`，**仍正常**。
+
+说明单纯的「结构体数组字段 + 取址」在 VM 下是好的，`uyagin` 那个失败依赖更特殊的条件。
+最可能的两点：
+
+1. `UyaginRouteMeta` 本身含 `&[const byte]`（slice）字段，元素尺寸/布局与
+   `exec_vm_type_kind_size(TYPE_ARRAY)` 的假设不符；
+2. `route_meta` 是 `[UyaginRouteMeta: UYAGIN_MAX_ROUTES]`，字段总尺寸可能超过
+   VM 聚合或原生旁路表的某条容量线，导致 `self` 的引用在更深处被换成原生基址。
+
+### 为什么本轮停在这里
+
+- 修 `&原生数组[i]` 的取址语义需要准确判断「指针指向的是整个数组还是单个元素」，
+  信息在 `instr.imm` 的 pointee 里（`pointee=TYPE_ARRAY` 已能看出），
+  但正确步进还需要元素类型/尺寸，而这正是失败时拿不到的东西；
+- 盲改的风险是打翻现有的 `&数组[i]` 用例（这些当前全部通过）；
+- 本轮已交付 5 条提交（4 条根因修复 + 1 条诊断增强），核心成果稳定，
+  这一例留作独立课题更合适 —— 建议下一轮先用**真实用例打点**
+  （在 `uyagin_route_meta_init` 入口打印 `self`、`route_meta` 的 ExecValue 详情），
+  确认是容量问题还是布局问题，再决定动哪一处。
