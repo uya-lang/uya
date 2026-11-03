@@ -12365,3 +12365,60 @@ i=2 r=99  done=1 first=1
    是否已经因为手动 `poll` 走完 `finish` + `release`（若是，scheduler 拿到的是死 box）；
 2. 若是，修法在 `thread_test_drive_future_i32` 这种「先手动 poll 再交给 scheduler」
    的用法上 —— 或者更根本地，让 `Future` 在 `done` 之后 `release` 不再被调用。
+
+### 第 550 轮（根因锁定）：`test_std_thread` 卡死 = 「future 已完成并 release 后又被 poll」
+
+`/tmp/r75.uya` 精确复现了 `test_std_thread` 的用法：
+
+```uya
+var f: Future<!i32> = async_compute<i32>(&pool, &dbl as &void, 10);
+_ = f.poll(&w);                  // 第 1 次：Pending
+const p2 = f.poll(&w);           // 第 2 次：Ready(20) —— 内部 finish → release
+// 再交给 scheduler
+scheduler_run_with_event_loop<i32>(&s, loop, f, 500);
+```
+
+VM 输出：
+
+```
+manual=20          ← 手动 poll 已经拿到正确结果 20
+（然后卡死，既没有 SCHEDOK 也没有 SCHEDERR）
+```
+
+**根因彻底确认**：
+
+1. 第 2 次 `poll` 时 `AsyncWorkerComputeFuture::finish` 执行完，
+   同时 `release()` 里 `async_box_free_current(self)` 把整个 future box **释放**了；
+2. 之后 `scheduler_run_with_event_loop` 再去 poll 这个 `f`，
+   读的是**已释放的内存**，`done` / `first_poll` / `state` 全部读成 0
+   （正是新分配 box 的初始值）；
+3. 于是状态机从头开始：第 1 次 Pending → 走 submit → 但 `pool` 侧任务已清理，
+   slot 无效 → 永远 Pending → **无限循环 → 卡死 rc=137**。
+
+这解释了为什么：
+- 单任务探针 `/tmp/r63` 正常（它 poll 到 Ready 就 return，不再 poll）；
+- 双任务探针 `/tmp/r72` 在 `i=1` 两个都正确 Ready（那一刻 box 还没被 release，
+  真正 release 发生在 poll 返回之后的调用方 `release()`）；
+- `test_std_thread` 卡死（它手动 poll 到 Ready 后，还把 future 交给 scheduler 继续 poll）。
+
+### 与 C99 的差异 —— 这是 VM 侧缺陷
+
+C99 后端跑同一个用例是 **34/34 全过**。也就是说 C99 下「已完成并 release 的 future
+再次 poll」能安全返回 Ready，而 VM 下会读到归零字段、重新走一遍状态机。
+
+这属于 `lib/std/async.uya` 的 frame pool / box 生命周期在 VM 下的语义差异，
+不是本轮 checker 或 thread.uya 修复引入的（把 `lib/std/*.uya` 全量回退到基线，
+这个用例在 VM 下同样是 rc=137 卡死）。
+
+### 修法候选（下一轮）
+
+1. **让 poll 幂等**：`AsyncWorkerComputeFuture` 在 `done != 0` 时先返回 `self.state`，
+   而 `release` 不应该在 `finish` 的同一次调用里就释放 box —— 至少要让
+   `state` 能被安全读回一次；
+2. **或者**在 `async_box_free_current` 上做延迟回收（把释放推迟到下一次
+   `alloc` 之前），这样「释放后恰好又 poll 一次」不会读脏；
+3. 检查 `lib/std/async.uya` 的 `async_box_alloc_current` / `async_box_free_current`
+   在 VM 下是否真的复用同一块内存（若是一直复用，脏读就必然发生）。
+
+按「根治」要求，应当走 2 或 3（box 生命周期），而不是在 `AsyncWorkerComputeFuture`
+里加特判。
