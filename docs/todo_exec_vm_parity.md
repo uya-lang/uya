@@ -9331,3 +9331,23 @@ pthread 家族按名拦截、`thread_used` 改 atomic、cancel 编译期门控�
   私有栈切换，依赖 `%cs`/`%ss`/`retf` 等真实描述符表行为。字节码 VM 里没有段描述符、
   也没有可替换的栈段，**这类语义无法在解释器里重现**，不是可以修的实现缺陷。
 - 结论：`test_kernel_sim` 归入「VM 不适用」清单（与裸汇编同类），不计入可修目标。
+
+### 第 501 轮：`uya_thread_call_<T>` 宿主桥接（真修复，已验证）
+
+- **问题**：`lib/std/thread.uya` 里的 `uya_thread_call_i64/u64/i16/u16/i8/u8/bool/f32/f64/usize`
+  都是 **extern 声明**（C99 前导给的是 `((T (*)(T))fn)(arg)` 的 static inline），
+  VM 侧完全没有拦截 → 落到空实现，**非 i32 返回类型一律拿到 0**。
+- **修法**：
+  1. `src/exec/hir.uya` 新增 `EXEC_HOST_CALL_THREAD_CALL`；
+  2. `src/exec/lower.uya` 新增 `exec_lower_is_thread_call_name`（显式列出 12 个名字），
+     并在 `thread_host_call` 判定里放行 —— 这一步是关键：这族是 `extern`，
+     若只加 `match_host_call_name` 分支不会命中，必须先让它进 `thread_host_call`；
+  3. `src/exec/vm.uya` 实现该 host call：从第一个实参取函数引用
+     （`exec_vm_fn_ref_index`），在 VM 内 `exec_vm_call_function` 真调，
+     返回值的字节码类型原样保留。
+- **验证**：`/tmp/leaf64.uya` 的 `thread_call_i64(double_i64, 21)` 由 **0 → 42**。
+- **未修好的部分（独立问题）**：`test_async_compute_types` 仍全失败，
+  但探针显示 **i32 在同一条调度路径上同样失败**（`err_id = 9`），
+  与返回类型无关。`linux_epoll_create` 返回 epfd=5、`loop.register` 直接调用返回 1
+  都正常，所以 err=9 出在 `scheduler_run_with_event_loop` 这一层的 waker 注册，
+  需要单独排查。census 计数未变（11），本改动无回归。
