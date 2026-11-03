@@ -10094,3 +10094,56 @@ if iface_poll_rc == 0 {                    // Ready
 3. `/tmp/aw2.uya` 期望 `calls` 从 0 变成递增、`poll1` 拿到 Ready
 4. `./bin/uya test --vm tests/test_std_thread.uya`
 5. 81 个 `@await` 测试全跑一遍，看回归面
+
+### 第 532 轮：✗ 修复尝试失败并已回退（`0875e502`）——实测净效果为负
+
+把第 531 轮的改动（`e94b8966`，「`@await` 优先走真实 poll」）重建后做了**对照实验**，
+结论是**净效果为负，已回退**。
+
+**实验方法**（严格 A/B）：
+1. 用修复版 `bin/uya` 跑全部 81 个含 `@await` 的测试 → `PASS=58 FAIL=10`
+   （失败：`test_async_compound_try_await`、`test_async_fd`、`test_async_macro_expand`、
+   `test_async_state_machine`、`test_http_uyagin`、`test_http_uyagin_websocket`、
+   `test_http_websocket_reconnect`、`test_std_async_scheduler`、
+   `test_std_dns_async_transport`、`test_std_thread`）；
+2. `git revert --no-commit e94b8966` + 重建 → 得到**基线** `bin/uya`；
+3. 用基线跑上面同样这 10 个用例：
+
+| 用例 | 基线 | 修复后 | 判定 |
+|---|---|---|---|
+| `test_async_compound_try_await` | **PASS** | FAIL | **回归** |
+| `test_async_fd`                  | **PASS** | FAIL | **回归** |
+| `test_async_macro_expand`        | **PASS** | FAIL | **回归** |
+| `test_async_state_machine`       | **PASS** | FAIL | **回归** |
+| `test_http_uyagin`               | FAIL | FAIL | 无变化 |
+| `test_http_uyagin_websocket`     | FAIL | FAIL | 无变化 |
+| `test_http_websocket_reconnect`  | FAIL | FAIL | 无变化 |
+| `test_std_async_scheduler`       | FAIL | FAIL | 无变化 |
+| `test_std_dns_async_transport`   | FAIL | FAIL | 无变化 |
+| `test_std_thread`                | FAIL | FAIL | 无变化 |
+
+**4 个回归、0 个改善** → 已 `git revert`（`0875e502`）并重建，回退后那 4 个用例恢复 PASS（已验证）。
+
+### 为什么这个修复思路是错的
+
+核心误判在于：我以为 `@await` 的 `slot_b` 是「接口形态 Future，`values[0]` 是 poll 入口」。
+实际上 `exec_vm_await_poll_interface_once` 的判定（`values[0]` 是整数 + `count>=2`）
+**过于宽松**——普通 struct/元组的首字段只要恰好是整数（比如 `AsyncWorkerComputeFuture`
+的 `pool` 是指针但 `slot_idx`、`first_poll` 这些是 i32；很多聚合的首元素就是整数）
+就会被误判成「接口」，于是被当成 poll 入口**乱调**，把原本靠读 `state` 正常工作的
+用例打翻了。
+
+而且对于 `async_compute`：
+- 修复后 `/tmp/pool8.uya` 仍是 `p0=1 sw=0`（**毫无改善**）；
+- 说明 `async_compute` 的问题**不在 `BC_AWAIT` 这一层**——它的外层 future 在
+  到达 `@await` 时 `state` 已经是 Ready，因为内层 `@await async_worker_compute(...)`
+  在**更早**的地方就被同步求值完了。
+
+也就是说：第 527 轮「`@await` 从不调 poll」这个**观测**是对的
+（`/tmp/aw2` 那个自定义 Future 的 `poll` 确实没被调用），但把它当成
+`async_compute`/`std_thread` 失败的**根因**是错的，改 `BC_AWAIT` 也就治不到病。
+
+**下一步**：要查的是 `async_worker_compute(...)` 产生的那个 Future 在抵达
+`BC_AWAIT` 之前为什么已经是 Ready——即 `thread_async_compute_i32` 里
+`@await async_worker_compute(...)` 的**求值时机**，而不是 `BC_AWAIT` 本身。
+注意别再用 `exec_vm_await_poll_interface_once` 的宽松启发式做判定。
