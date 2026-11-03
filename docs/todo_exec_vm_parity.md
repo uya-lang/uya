@@ -9711,3 +9711,28 @@ pool._started_workers < pool.worker_count
 - VM 架构性不适用 1（`test_kernel_sim` x86 call gate）
 - 单态体宏展开 2（websocket json 系列）
 - 分配器跨线程细节 1（`test_libc_heap_tcache` 真线程专属）
+
+### 第 517 轮：`test_http_uyagin` 的 `ADDR_INDEX 越界` 定位进展
+
+实际错误不是静默，而是明确的运行时错误：
+```
+lib/std/http/uyagin.uya:618:5: exec: ADDR_INDEX 越界
+```
+618 行是 `Router.add` 开头的 `self.route_count` 检查，但报的是取址越界。
+
+排查链路（已排除的）：
+1. `exec_vm_type_kind_size`（`vm.uya:1798`）只认标量/指针/枚举，**聚合类型返回 0**；
+2. `exec_value_make_raw_array`（`value.uya:552`）遇到 `elem_size == 0` 直接返回 void，
+   所以**结构体数组不会被建成 raw array**，走的是旁路表聚合；
+3. `exec_vm_raw_array_element_ptr`（`vm.uya:2589`）在 `elem_size == 0` 时返回 void，
+   上层 `BC_ADDR_INDEX` 的两个 raw_array 分支就报「ADDR_INDEX 越界」；
+4. `exec_vm_index_ref`（`vm.uya:3376`）对聚合/内部引用是能正确处理的，
+   所以兜底分支不该失败。
+
+**最小复现 `/tmp/ag1.uya` 通过**（`count=3 r0=0 r2=2`）：`struct Router { routes: [R: MAX] }`
++ `self.routes[idx].field = v` 这套形态在 VM 里正常。所以 uyagin 的差异在别处
+（可能是 `self: &Self` 经接口/泛型传递，或 `UYAGIN_MAX_ROUTES` 太大导致的旁路表基址问题）。
+
+**附带发现**：带 `--exec-trace` 跑同一个用例会在
+`lib/libc/pthread.uya:2047` 报 `exec: global 数量超出上限`（`EXEC_MAX_GLOBALS`，`lower.uya:6221`）。
+这是容量限制：trace 模式会额外收集全局变量。记录备查。
