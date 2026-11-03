@@ -13725,3 +13725,47 @@ if is_index_base == 0 && index_value == 0 && target_aggregate != null &&
 但**必须确认 `values` 确实为 null 之后**再动手，否则又会像尝试 B 一样打空。
 
 本轮所有改动已回退，工作树干净。
+
+### 第 564 轮：订正 —— `values` 并非 null，且两处失败点不是同一条路径
+
+**订正第 563 轮的猜测**：上一条推测 `target_aggregate.values == null`（原生数组视图）。
+补打验证后的实测数据：
+
+```
+IR3 tgtkind=17 tgtagg=8192 valsnull=0 raw=0 tgtptr=2000
+```
+
+- `valsnull=0` → **`values` 不为 null**，猜测错误；
+- `raw=0` → 不是原生数组视图；
+- `tgtkind=17`（TUPLE）、`tgtagg=8192`。
+
+所以「返回 `&values[0]`」这个修法在条件上是**应该命中**的，但实际重跑仍然
+退回到 `ADDR_INDEX 越界(IDXREF fn=add ... line=628)`。
+
+### 关键区分：两个失败点不是同一条路径
+
+| 探针来源 | 函数 | 行号 | 现象 |
+| --- | --- | --- | --- |
+| `IDXPROBE` | `uyagin_router_new` | 315 | `aggcnt=8192`、`isref=1`、`pointee=19` |
+| 最终报错 | `add` | **628** | `cnt=-1`（连 aggregate 都没有） |
+
+**`fn=add` 那处 `cnt=-1`**，而 `uyagin_router_new` 那处 `aggcnt=8192` ——
+说明 `add` 里的 `&self.route_meta[0]` 拿到的 `slot_b` **根本没有 aggregate**，
+和我一直在打点的 `uyagin_router_new` 场景不是同一个形态。
+
+之前几轮一直在按 `uyagin_router_new` 的数据推 `add` 的修法，方向从一开始就偏了。
+
+### 下一轮：只打 `fn=add` 的现场
+
+把打点条件收紧成 `strcmp(function.name, "add") == 0`，
+只打印 `add` 里那次失败的 `slot_b`：
+
+```uya
+if function.name != null && strcmp(function.name as *byte, "add" as *byte) == 0 {
+    // 打印 kind / aux / i64_value / pointee / isref / aggregate.count / values 是否为 null
+}
+```
+
+拿到 `add` 自己的数据之后再决定修法。**不要再用 `uyagin_router_new` 的数据推断。**
+
+本轮所有实验改动已回退，工作树干净。
