@@ -14873,3 +14873,49 @@ syscall 回填改动无关（本轮 census 892/910、parity 894 的双向比对�
 - [ ] `make exec-parity` 全绿 —— 未完成（20 例不一致，其中 18 例同源；余下 2 例是
       C99 侧自身的时序 flake）
 - [ ] 合并 main —— 按纪律不执行（未清零不做 `worktree finish`）
+
+## 第 580 轮：清理误提交进 `lib/std/thread.uya` 的 git 冲突标记
+
+### 问题
+
+上一轮结束时 `8a1e903f` 把 `lib/std/thread.uya` 连同 **6 行 git 冲突标记**
+一起提交了：
+
+```
+698: <<<<<<< Updated upstream
+752: =======
+763: >>>>>>> Stashed changes
+774: <<<<<<< Updated upstream
+785: =======
+799: >>>>>>> Stashed changes
+```
+
+来源是第 577/578 轮做探针时反复 `git stash push -- lib/std/thread.uya` /
+`git stash pop`，其中一次 pop 撞上了残留的 `drain-on-eagain` stash
+（`stash@{0}`），Git 把冲突标记写进了工作区；随后的 `git add -A` 又把它一起提交了。
+
+从那一刻起**整个仓库无法编译**：`./lib/std/thread.uya:698:1: 语法分析失败: 意外的 token '<<'`。
+因为按验收纪律「命令通过后不再重复跑」，这个损坏直到本轮做新复现时才暴露出来。
+
+### 修复
+
+`git show e796ae08:lib/std/thread.uya > lib/std/thread.uya` ——
+`e796ae08` 是该文件最后一个干净版本，且 `git diff e796ae08 HEAD -- lib/std/thread.uya`
+的内容**恰好只有**这 6 行标记和被粘贴进来的半截 stash 内容（一个孤立的
+`thread_shared_pending_nonempty` 函数 + 一段 EAGAIN 分支），没有任何本该保留的实质改动。
+
+恢复后全仓扫描 `^<<<<<<<` / `^>>>>>>>`：`lib/`、`src/`、`tests/` 均为 0 处。
+
+### 验证
+
+- `make uya`：构建成功（此前 `错误: 收集模块依赖失败`）；
+- `test_std_async_scheduler`：C99 侧 1/0 通过（与 `e796ae08` 一致，没有回退）；
+- `test_std_thread` / `test_async_thread_pool_dynamic_growth`：与恢复前同样的
+  「真并发模型缺口」失败，符合预期。
+
+### 教训（写进纪律）
+
+`git stash push` / `pop` 期间**不要**跑 `git add -A`：
+`add -A` 会把冲突标记和半截 stash 内容一并纳入索引。
+探针类临时改动用 `git checkout --` 还原，或先 stash 再在**确认工作区无标记**
+之后才 `add`。
