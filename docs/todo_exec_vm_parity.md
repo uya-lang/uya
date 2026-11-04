@@ -14764,3 +14764,67 @@ assert_eq_i32 failed: wait_thread_pool_pending_at_least(&pool, 1) == 1 (actual: 
 断言要求的是**真并发**下的中间态（任务排着、worker 正在跑），这是第 555 轮就已
 定性的「VM 运行期模型需要真并发」类问题，不是本轮这条回填缺陷能解决的。
 本轮的价值是把 worker 命令通道真正打通，为后续真并发模型清掉了一个前置 bug。
+
+## 第 579 轮：`test_http_websocket_json` 的 ERROR 定位到「`@async_fn` 首轮 poll 即 Ready 且载荷是垃圾」
+
+### 现象
+
+`test_http_websocket_json` 的 `websocket_json_struct_roundtrip_as_text_message`
+在 VM 下输出一个**不带任何消息**的 `ERROR`（断言失败都会 printf 出
+`assert_eq_i32 failed: ...`，所以这个错误是 `try` 传播出来的，不是断言）。
+
+给测试跑器临时加错误 id 打印后：
+
+```
+TEST: websocket_json_struct_roundtrip_as_text_message ... ERROR eid=1
+```
+
+`eid=1` 是 `error.AssertionFailed`，说明某个断言确实失败了 —— 只是失败路径上
+的 printf 被后续的 `return` 抢在前面，或者断言在 `catch` 块里。继续二分，给
+`websocket_conn_write_json<JsonUser>` 的结果加探针：
+
+```
+VM : W eid=-1543282774     ← 错误 id 是垃圾值
+C99: W eid=0               ← 正常
+```
+
+### 更精确的定位
+
+直接 poll 那个 future（绕过 `block_on`）：
+
+```
+VM : RAW ready eid=-1543282774    ← 首轮 poll 就 Ready，载荷是垃圾
+C99: RAW pending                  ← 首轮 poll 是 Pending（等待 fd 可写）
+```
+
+`websocket_conn_write_json<T>` 是普通泛型函数，内部调
+`websocket_conn_write_message`（`@async_fn`）。已排除的假设：
+
+- `Future<!T>{ state: Poll<!T>.Ready(ok<T>(v)) }` 这种包装：泛型与非泛型版本
+  在 VM 上都正确（`tests` 里的 `wrap_ready` / `generic_wrap` 探针都是
+  `eid=0 val=9`）；
+- `arena_alloc` 返回 null 的分支：`alloc null=0`，不会走到；
+- `encode_to_to_json<T>` 本身：在测试上下文里 VM 直接报
+  `当前仅支持局部变量/参数/全局标识符(JsonUser)`（这是另一条既有缺口，
+  只在 `websocket_conn_write_json` 内部能跑通）。
+
+因此缺口在 **`@async_fn` 状态机的首次 poll**：VM 把「续体还没跑过」的状态
+直接当成 Ready 交回，且错误联合载荷没有初始化（所以是垃圾值）。
+
+### 确认这是既有缺陷，不是第 578 轮引入
+
+`git stash push -- src/exec/vm.uya` 回退本轮改动、重建 `bin/uya` 后复测同一探针：
+
+```
+HEAD vm: RAW ready eid=-1543282774
+```
+
+**与修复后完全一致**。所以这条属于 `@async_fn` 状态机模型缺口，与第 578 轮的
+syscall 回填改动无关（本轮 census 892/910、parity 894 的双向比对也已证明
+零回归）。
+
+### 未做的部分
+
+`@async_fn` 首轮 poll 语义属于第 542/551/552 轮反复处理过的深水区
+（续体快照、poll 幂等性、state 读取）。本轮不在这里展开，只把定位结果、
+可复现探针与「HEAD 同样失败」的证据固定下来，供后续单独攻。

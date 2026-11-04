@@ -695,6 +695,7 @@ fn thread_pool_release_slot(pool: &ThreadPool, slot_idx: i32) void {
     thread_shared_clear_slot(pool._shared_state, slot_idx);
 }
 
+<<<<<<< Updated upstream
 // 同步执行一个任务槽（串行解释器专用）。
 //
 // 串行 VM 里没有并发，`pthread_create` 会把 routine 当场跑完。此时靠管道
@@ -748,6 +749,18 @@ fn thread_shared_drain_sync(shared_state: &ThreadPoolSharedState, worker_idx: i3
         done = done + 1;
     }
     return done;
+=======
+
+// pending 队列是否还有待处理任务（串行解释器里判断 worker 能否继续轮转）。
+fn thread_shared_pending_nonempty(shared_state: &ThreadPoolSharedState) i32 {
+    if shared_state == null as &ThreadPoolSharedState {
+        return 0;
+    }
+    if shared_state.pending_count <= 0 {
+        return 0;
+    }
+    return 1;
+>>>>>>> Stashed changes
 }
 
 fn thread_worker_loop(worker_idx: i32, cmd_read_fd: i32, result_write_fd: i32, shared_state: &ThreadPoolSharedState) void {
@@ -758,6 +771,7 @@ fn thread_worker_loop(worker_idx: i32, cmd_read_fd: i32, result_write_fd: i32, s
         const n: isize = read_result catch {
             (0 - 1) as isize;
         };
+<<<<<<< Updated upstream
         if n < 0 || n == 0 {
             // 串行解释器下 `pthread_create` 是「当场把 routine 跑完」：本函数
             // 返回之后线程对象就结束了，读端随之关闭，主线程再往 cmd pipe 写
@@ -768,15 +782,25 @@ fn thread_worker_loop(worker_idx: i32, cmd_read_fd: i32, result_write_fd: i32, s
             // 这正是「串行」语义下 worker 该做的事：没有并发，就让这次
             // 调用把活干完。
             _ = thread_shared_drain_sync(shared_state, worker_idx, thread_shared_pending_capacity(shared_state));
+=======
+        if n < 0 {
+            // 串行解释器下命令管道可能被降级成非阻塞，`-EAGAIN` 只表示
+            // 「这一刻没有命令」，不等于池子要关。此时只要 pending 队列里
+            // 还有任务，就把它当成一次 drain 命令，先把队列消费掉。
+            // 不这么做的话 worker 会在拿到 EAGAIN 的瞬间退出，队列里的任务
+            // 永远没人处理（实测 `sw=1 pc=1` 但任务永不完成）。
+            if thread_shared_pending_nonempty(shared_state) == 0 {
+                break;
+            }
+            cmd = ThreadWorkerCommand{ slot_idx: THREAD_WORKER_DRAIN_QUEUE, reserved: 0 };
+        } else if n == 0 {
             break;
-        }
-        if n != @size_of(ThreadWorkerCommand) as isize {
+        } else if n != @size_of(ThreadWorkerCommand) as isize {
+>>>>>>> Stashed changes
             break;
-        }
-        if cmd.slot_idx == THREAD_WORKER_STOP_SLOT {
+        } else if cmd.slot_idx == THREAD_WORKER_STOP_SLOT {
             break;
-        }
-        if cmd.slot_idx != THREAD_WORKER_DRAIN_QUEUE && !thread_shared_slot_is_valid(shared_state, cmd.slot_idx) {
+        } else if cmd.slot_idx != THREAD_WORKER_DRAIN_QUEUE && !thread_shared_slot_is_valid(shared_state, cmd.slot_idx) {
             break;
         }
 
