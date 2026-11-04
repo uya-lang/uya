@@ -10022,7 +10022,9 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             base_type.kind == TypeKind.TYPE_ERROR_UNION &&
             str_equals(expr.member_access_field_name, "value" as *byte) != 0 &&
             base_type.error_union_payload_type != null {
-            const hir_error_value_field: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_TRY, &expr_type);
+            // `.value` 是**读字段**，用独立的 `HIR_EXPR_ERROR_PAYLOAD`
+            //（err 分支得零值并继续执行），不能复用 `HIR_EXPR_TRY`。
+            const hir_error_value_field: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_ERROR_PAYLOAD, &expr_type);
             if hir_error_value_field == null {
                 return null;
             }

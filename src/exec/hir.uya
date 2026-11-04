@@ -179,6 +179,19 @@ enum HIRExprKind {
     HIR_EXPR_BLOCK,
     // `@await f`：left 是 Future 值；结果是 Ready 里的载荷。
     HIR_EXPR_AWAIT,
+    // `x.value`（x 是错误联合）：**读字段**语义。
+    //
+    // 与 `HIR_EXPR_TRY`（`try x`：err 就清理并提前返回）严格区分开：
+    // C99 后端把 `.value` 编译成普通的错误联合字段读取，err 分支下读到
+    // 未初始化的零值、**照常继续执行**。旧实现让 `.value` 复用 TRY，
+    // 于是任何在 err 分支上取一次载荷的代码整条失败
+    //（`lib/tls/https.uya` 的 `HttpsWriteAllFuture.poll` 在 catch 里写
+    //  `(@error_id(err) as! i32).value`，导致 test_tls_async_runtime_io
+    //  首轮 poll 就失败）。
+    //
+    // 必须是**独立节点**：在 TRY 上打补丁会残留它那条「清理 + BC_RET」
+    // 跳转指令，实测会生成 `imm=0` 的悬挂跳转（死循环）。
+    HIR_EXPR_ERROR_PAYLOAD,
 }
 
 struct HIRMatchArm {

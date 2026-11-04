@@ -15415,3 +15415,76 @@ test_http_websocket_json
 
 这条已经很具体，下一轮可以直接照做。本轮两次尝试虽未成功，但把
 「为什么不能复用 `HIR_EXPR_TRY`」这个坑彻底探明并写进了文档。
+
+## 第 588 轮：`.value` 改用独立 HIR 节点（第 587 轮方案的正式实现）
+
+### 改动
+
+按第 587 轮确立的正确做法落地：
+
+1. `src/exec/hir.uya`：新增 `HIR_EXPR_ERROR_PAYLOAD`（第 586 轮的雏形，这次
+   不再接到 `BC_LOAD_ERROR_PAYLOAD` 上，而是由 builder 从零生成代码）；
+2. `src/exec/debug.uya`：补上该节点的名字（`err_payload(...)`）；
+3. `src/exec/builder.uya`：为它生成**完整的**双分支，**不复用** `try` 的任何指令：
+   ```
+   IS_ERR   is_err, x
+   JMP_IF_TRUE  is_err -> zero_branch
+   UNWRAP_OK dst, x          ; ok 分支
+   JMP done
+   zero_branch:
+   MOV dst, <载荷类型零值>
+   done:
+   ```
+4. `src/exec/lower.uya`：`.value` 改指向 `HIR_EXPR_ERROR_PAYLOAD`。
+
+关键点就是第 587 轮踩了三次的坑：`HIR_EXPR_TRY` 那条分支自带
+`emit_all_cleanup` + `BC_RET`，任何「在它前后追加跳转」的写法都会留下
+`imm=0` 的悬挂跳转（解释器跳到指令 0 死循环）。这次从零写，不碰那条分支。
+
+### 验证
+
+**新增夹具** `tests/repros/exec_vm_err_union_value_read.uya`，三个断言：
+
+| 断言 | C99 | VM（修复前） | VM（修复后） |
+| --- | --- | --- | --- |
+| ok 分支读 `.value` 得 7 | ✅ | ✅ | ✅ |
+| err 分支读 `.value` 得 0（不中断） | ✅ | ❌ 进程报错退出 | ✅ |
+| `!i32` 的 err 分支读 `.value` 得 0 | ✅ | ❌ | ✅ |
+
+**全量 census**（`/tmp/census_588.tsv`）：**894 / 910（98.2%）**，失败 16，
+与第 583 轮**逐用例完全一致，零回归**。
+
+**全量 parity**（`/tmp/parity_588.tsv`）：一致 **895** / 不一致 19，
+与第 583 轮持平，零回归。
+
+特别确认第 586 轮踩到的回退没有重现：
+`test_http_websocket_json` 仍是 3/0 通过（第 586 轮那次改法会把它打坏）。
+
+### 为什么用例数没涨
+
+`test_tls_async_runtime_io` 的 K3 子用例仍然失败，但**失败点前移了**：
+
+```uya
+const n: isize = (written as! isize).value;   // 测试文件第 116 行
+```
+
+这是 **`as!` 之后**读 `.value`。`as!` 的产物已经是裸 `isize`，
+C99 这里会读到 0（宽容行为），而 VM 走的是另一条路径。已用最小夹具确认差异：
+
+```
+C99: bad eid=-1543282774  n=0
+VM : bad eid=-1543282774  n=1
+```
+
+即 `(w as! isize).value` 在 VM 里取到的是 `w` 本身的载荷值（1），
+C99 取到 0。这不是本轮改动引入的，而是**下一层**的缺口：
+`exec_lower_member_base_type` 对 `as!` 表达式返回了操作数那侧的错误联合类型，
+于是 `.value` 又被当成错误联合字段处理。
+
+本轮试过在 `exec_lower_member_base_type` 里对 `AST_CAST_EXPR` 优先取
+`as!` 的目标类型（`type_from_ast`），`.value` 确实不再走 `err_payload`、
+改按普通字段解析 —— 但紧接着报
+`无法解析成员访问字段(kind=3): value`（`isize` 没有 `value` 字段）。
+说明 C99 对这个形态的行为是「宽容地返回零值」而不是真去读字段，
+要精确对齐需要在 lowering 里对「标量类型上访问 `.value`」做一个
+显式的零值降级，属于下一轮的独立改动。该尝试已回退。

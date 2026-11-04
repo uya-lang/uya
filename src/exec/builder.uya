@@ -2749,6 +2749,47 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         }
         return await_dst;
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_ERROR_PAYLOAD {
+        // `x.value`：**读字段**语义，与 `try x` 严格区分。
+        // 完整自建双分支，不复用 `HIR_EXPR_TRY` 的任何指令：
+        //   is_err ? dst = <载荷类型零值> : dst = UNWRAP_OK(x)
+        const ep_union_slot: i32 = exec_builder_compile_expr(ctx, expr.left);
+        if ep_union_slot < 0 {
+            return -1;
+        }
+        const ep_dst: i32 = exec_builder_new_temp(ctx);
+        const ep_is_err: i32 = exec_builder_new_temp(ctx);
+        if ep_dst < 0 || ep_is_err < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_IS_ERR, a: ep_is_err, b: ep_union_slot, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        }) < 0 { return -1; }
+        const ep_to_zero: i32 = exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_JMP_IF_TRUE, a: ep_is_err, b: 0, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        });
+        if ep_to_zero < 0 { return -1; }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_UNWRAP_OK, a: ep_dst, b: ep_union_slot, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        }) < 0 { return -1; }
+        const ep_done: i32 = exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_JMP, a: 0, b: 0, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        });
+        if ep_done < 0 { return -1; }
+        exec_builder_patch_jump(ctx, ep_to_zero, ctx.instr_count);
+        const ep_zero: i32 = exec_builder_compile_zero_value(ctx, expr.ast_node, &expr.type_ref.type);
+        if ep_zero < 0 { return -1; }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MOV, a: ep_dst, b: ep_zero, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        }) < 0 { return -1; }
+        exec_builder_patch_jump(ctx, ep_done, ctx.instr_count);
+        return ep_dst;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_CATCH {
         const union_slot2: i32 = exec_builder_compile_expr(ctx, expr.left);
         if union_slot2 < 0 {
