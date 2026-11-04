@@ -1090,15 +1090,43 @@ export fn linux_epoll_resize_count(ep: &LinuxEpoll) i32 {
 
 /// 关闭事件循环持有的内核对象（epoll / kqueue 描述符）。
 ///
-/// 参数：`ep` 为 LinuxEpoll 实例指针。
-/// 返回值：无；描述符 <= 0 表示未创建，直接跳过；关闭失败不报错。
+/// `LinuxEpoll` 独占创建时分配的缓冲区；close 前不要浅拷贝实例。只对同一实例重复调用安全。
+/// 参数：`ep` 为拥有其缓冲区的 LinuxEpoll 实例指针。
+/// 返回值：无；描述符 < 0 表示未创建，关闭失败不报错。
 export fn linux_epoll_close(ep: &LinuxEpoll) void {
+    if ep == null {
+        return;
+    }
     if ep.epfd >= 0 {
         _ = sys_close(ep.epfd) catch {};
+        ep.epfd = 0 - 1;
     }
     if ep.kqfd >= 0 {
         _ = sys_close(ep.kqfd) catch {};
+        ep.kqfd = 0 - 1;
     }
+    free(ep.slot_states as &void);
+    free(ep.slot_fds as &void);
+    free(ep.slot_wakers as &void);
+    free(ep.slot_interests as &void);
+    free(ep.slot_generations as &void);
+    free(ep.slot_next_free as &void);
+    free(ep.fd_keys as &void);
+    free(ep.fd_slot_indices as &void);
+    free(ep.events as &void);
+    free(ep.poll_fds as &void);
+    free(ep.kevents as &void);
+    ep.slot_states = null;
+    ep.slot_fds = null;
+    ep.slot_wakers = null;
+    ep.slot_interests = null;
+    ep.slot_generations = null;
+    ep.slot_next_free = null;
+    ep.fd_keys = null;
+    ep.fd_slot_indices = null;
+    ep.events = null;
+    ep.poll_fds = null;
+    ep.kevents = null;
 }
 
 /// 测试/调试入口：把「fd 的关注从 `old_mask` 迁移到 `interest`」翻译成 kevent 变更集。

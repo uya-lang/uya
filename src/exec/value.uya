@@ -424,7 +424,34 @@ var g_exec_value_arena_base: &byte = null;
 var g_exec_value_arena_used: usize = 0;
 const EXEC_VALUE_ARENA_BYTES: usize = 209715200;   // 200 MB
 
-fn exec_value_alloc_bytes(size: usize) &byte {
+// 竞技场是**进程级共享**的 bump 分配器：真宿主线程（`UYA_EXEC_REAL_THREADS=1`）
+// 下每个线程的 VM 都从这里切块，`g_exec_value_arena_used` 的读-改-写必须串行化，
+// 否则两个线程会拿到同一段地址、互相覆盖对方的聚合值。
+// 登记表（`g_exec_value_array_*`）的追加与翻倍扩容同样要在同一把锁下完成。
+extern "libc" fn __atomic_compare_exchange_n(ptr: &i32, expected: &i32, desired: i32, weak: i32, success_mem: i32, failure_mem: i32) i32;
+const EXEC_VALUE_ARENA_SEQ_CST: i32 = 5;
+var g_exec_value_arena_lock: atomic i32 = 0;
+
+/// 获取竞技场锁：读-改-写竞技场与登记表前必须持有。
+/// 参数：无。返回值：无。
+fn exec_value_arena_lock_acquire() void {
+    var expected: i32 = 0;
+    while __atomic_compare_exchange_n((&g_exec_value_arena_lock) as &i32, &expected, 1, 0,
+        EXEC_VALUE_ARENA_SEQ_CST, EXEC_VALUE_ARENA_SEQ_CST) == 0 {
+        expected = 0;
+    }
+}
+
+/// 释放竞技场锁。
+/// 参数：无。返回值：无。
+fn exec_value_arena_lock_release() void {
+    g_exec_value_arena_lock = 0;
+}
+
+/// 竞技场 bump 分配（**调用方必须已持有竞技场锁**）。
+/// 参数：`size` 需要的字节数。
+/// 返回值：按 16 字节对齐的新块；分配失败返回 null。
+fn exec_value_alloc_bytes_locked(size: usize) &byte {
     if size == 0 as usize {
         return null;
     }
@@ -450,6 +477,13 @@ fn exec_value_alloc_bytes(size: usize) &byte {
     const mem: &byte = g_exec_value_arena_base + g_exec_value_arena_used;
     g_exec_value_arena_used = g_exec_value_arena_used +| total;
     _ = memset(mem as *byte, 0, size);
+    return mem;
+}
+
+fn exec_value_alloc_bytes(size: usize) &byte {
+    exec_value_arena_lock_acquire();
+    const mem: &byte = exec_value_alloc_bytes_locked(size);
+    exec_value_arena_lock_release();
     return mem;
 }
 
@@ -652,8 +686,9 @@ const EXEC_VALUE_ARRAY_REGISTRY_INITIAL: i32 = 1024;
 const EXEC_VALUE_ARRAY_REGISTRY_MAX: i32 = 1 << 22;
 
 /// 确保登记表至少能再放 `want` 条，不够就翻倍扩容。
+/// **调用方必须已持有竞技场锁**（扩容自己也在分配竞技场内存，不能重入）。
 /// 参数：`want` 必需条数。返回值：0 成功；-1 分配失败或超上限。
-fn exec_value_array_registry_reserve(want: i32) i32 {
+fn exec_value_array_registry_reserve_locked(want: i32) i32 {
     if want <= 0 {
         return 0;
     }
@@ -674,8 +709,8 @@ fn exec_value_array_registry_reserve(want: i32) i32 {
         next = want;
     }
     const bytes: usize = (@size_of(usize) as usize) * (next as usize);
-    const fresh_bases: &usize = exec_value_alloc_bytes(bytes) as &usize;
-    const fresh_spans: &usize = exec_value_alloc_bytes(bytes) as &usize;
+    const fresh_bases: &usize = exec_value_alloc_bytes_locked(bytes) as &usize;
+    const fresh_spans: &usize = exec_value_alloc_bytes_locked(bytes) as &usize;
     if fresh_bases == null || fresh_spans == null {
         return -1;
     }
@@ -697,22 +732,18 @@ fn exec_value_register_array(base: usize, count: i32) void {
     if base == 0 as usize || count <= 0 {
         return;
     }
-    if g_exec_value_array_count < 0 {
-        return;
+    exec_value_arena_lock_acquire();
+    if g_exec_value_array_count >= 0 &&
+        exec_value_array_registry_reserve_locked(g_exec_value_array_count +| 1) == 0 {
+        const idx: i32 = g_exec_value_array_count;
+        if idx >= 0 && idx < g_exec_value_array_capacity &&
+            g_exec_value_array_bases != null && g_exec_value_array_spans != null {
+            g_exec_value_array_bases[idx] = base;
+            g_exec_value_array_spans[idx] = (@size_of(ExecValue) as usize) * (count as usize);
+            g_exec_value_array_count = idx + 1;
+        }
     }
-    if exec_value_array_registry_reserve(g_exec_value_array_count +| 1) != 0 {
-        return;
-    }
-    const idx: i32 = g_exec_value_array_count;
-    if idx < 0 || idx >= g_exec_value_array_capacity {
-        return;
-    }
-    if g_exec_value_array_bases == null || g_exec_value_array_spans == null {
-        return;
-    }
-    g_exec_value_array_bases[idx] = base;
-    g_exec_value_array_spans[idx] = (@size_of(ExecValue) as usize) * (count as usize);
-    g_exec_value_array_count = idx + 1;
+    exec_value_arena_lock_release();
 }
 
 /// 登记一个「独立装箱的单个 ExecValue」地址（`exec_vm_box_value_ref` 用）。

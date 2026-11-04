@@ -59,3 +59,13 @@ test "linux_epoll_default_capacity_is_compatible" {
     try assert_eq_i32(linux_epoll_slot_capacity(&ep), 1024);
     try assert_eq_i32(linux_epoll_event_capacity(&ep), 1024);
 }
+
+test "linux_epoll_close_releases_buffers_and_is_idempotent" {
+    var ep: LinuxEpoll = try linux_epoll_create_config(0, 2, 1);
+    linux_epoll_close(&ep);
+    try assert_eq_i32(ep.epfd, 0 - 1);
+    try expect(ep.slot_states == null);
+    try expect(ep.events == null);
+    linux_epoll_close(&ep);
+    try assert_eq_i32(ep.epfd, 0 - 1);
+}

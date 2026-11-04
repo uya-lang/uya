@@ -10230,13 +10230,18 @@ fn gen_cast_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 fprintf(codegen.emit_stream as *void, "; %s _uya_asbang; " as *byte, union_c as *byte);
                 fputs("if (_uya_asbang_src.error_id != 0) { " as *byte, codegen.emit_stream as *void);
                 fputs("_uya_asbang.error_id = _uya_asbang_src.error_id; " as *byte, codegen.emit_stream as *void);
-                fprintf(codegen.emit_stream as *void, "_uya_asbang.value = (%s){0}; " as *byte, value_field_c as *byte);
+                // 载荷类型一律取临时变量自己的 `.value` 字段类型（`__typeof__`）：
+                // 目标类型来自 AST，泛型单态展开时 `as! T` 的 `T` 还没换成具体类型，
+                // `value_field_c` 会算成本身是错误联合的名字（`struct err_union_int32_t`），
+                // 于是生成 `int32_t = (struct err_union_int32_t){0}`，宿主 cc 直接报
+                // 类型不兼容（typed route 回归就是这么挂的）。取字段类型则永远自洽。
+                fprintf(codegen.emit_stream as *void, "_uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; " as *byte);
                 fputs("} else { _uya_asbang.error_id = 0; " as *byte, codegen.emit_stream as *void);
                 // 成功分支：同载荷 C 类型或数值互转可用强转；!i32 as! !Http1AsyncResponse 等须写 {0}，禁止 (struct T)(int32_t)。
                 if allow_val_cast != 0 {
-                    fprintf(codegen.emit_stream as *void, "_uya_asbang.value = (%s)(_uya_asbang_src.value); " as *byte, value_field_c as *byte);
+                    fprintf(codegen.emit_stream as *void, "_uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); " as *byte);
                 } else {
-                    fprintf(codegen.emit_stream as *void, "_uya_asbang.value = (%s){0}; " as *byte, value_field_c as *byte);
+                    fprintf(codegen.emit_stream as *void, "_uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; " as *byte);
                 }
                 fputs("} _uya_asbang; })" as *byte, codegen.emit_stream as *void);
             } else if src_is_err_union != 0 && is_void != 0 {

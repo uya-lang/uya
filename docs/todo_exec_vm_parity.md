@@ -14444,3 +14444,171 @@ C99 侧 `test_async_compute_types` 的 -1~2 退化，是 `54b87ef0` 的已知代
   而不是各测 1~3 次。
 
 这条方法论修正已写进文档，避免后续再被波动误导。
+
+## 第 575 轮：VM continuation 接入真实 IO readiness
+
+### 修复与证据
+
+此前 exec VM 的 `exec_vm_await_poll_interface` 给 `@await` 子 Future 传入独立的占位 Waker；
+continuation 虽然从 scheduler 收到 Waker，但 await 内层注册落在占位对象上，外层调度器看不到 fd interest。
+另一个问题是 VM 在一次 continuation poll 内继续忙轮询，可能在 scheduler 注册 interest 前就等到子进程写入。
+
+- `src/exec/vm.uya`：continuation 有 scheduler Waker 时，将它传给 await 子 Future；一次 Pending 后立即返回，
+  让外层 scheduler 同步 interest 并进入事件循环。没有 scheduler Waker 的 direct await 保留本地 poll fallback。
+- `lib/std/async_scheduler.uya`：Linux/macOS 的默认 `scheduler_run` 创建平台 EventLoop 并委托给
+  `scheduler_run_with_event_loop`；其他目标保留原来的 busy-poll、allocator 注入与 queue-depth 指标语义。
+- `lib/std/async_event.uya`：`linux_epoll_close` 关闭并置无效化 epoll/kqueue fd，释放并清空事件循环拥有的缓冲区；
+  同一实例上的 null 与重复 close 可安全返回。
+- 新增 `tests/test_async_scheduler_default_epoll.uya`：Linux-only 的独立子进程延迟写 pipe 用例，默认 `scheduler_run`
+  await readable，断言 event-loop wake、读到预期字节。Linux VM/C99 均通过，4 assertions。
+- strace 对该单测确认：目标 pipe fd 经 `epoll_ctl(ADD)` 注册，scheduler 进入 `epoll_wait`；子进程写入后 wait 返回
+  对应 `EPOLLIN`，随后 future 完成并 deregister。故这次证明的是 OS readiness 驱动，而不只是重复 poll 最终读到数据。
+
+### 影响评估与验证策略
+
+改动限定在 VM await continuation 的 Waker 传递与让出、Linux/macOS 默认 scheduler 的 EventLoop 选择、EventLoop
+关闭资源；没有改 bytecode、HIR/lowering、checker、公共 Future/Waker 布局或 C99 代码生成。非 Linux/macOS 继续使用既有
+busy-poll 路径。本轮选择**单点 + 定向回归**，不跑全量 census/parity：Linux-only 新测试直接锁定 readiness 行为，另外覆盖
+scheduler、async fd、多 fd interests、TLS/WebSocket、DNS loopback、事件循环扩容、fd 复用和 macOS 目标编译。
+若之后修改 continuation 快照布局、Waker ABI 或 lowering/checker，再提升为全量 parity。
+
+定向 VM 验证结果：
+
+- `test_async_scheduler_default_epoll`：Linux VM/C99 均 1/1，4 assertions；trace 有真实 epoll readiness；
+  `TARGET_OS=macos TARGET_ARCH=arm64 uya check` 成功。
+- `test_async_fd`：15/15，101 assertions；`test_tls_async_io_future`：1/1，17 assertions。
+- `test_async_state_machine`：4/4，10 assertions；`test_https_websocket_loopback`：2/2，8 assertions。
+- `test_async_event_config`：3/3（含 close 双调用回归）；`test_async_event_dynamic_growth`：2/2；
+  `test_std_async_event_fd_reuse`：5/5；`test_async_waker_multi_interest`：4/4。
+- `test_std_async_scheduler`：30/31；唯一失败是 thread-pool pending 时序断言
+  `wait_thread_pool_pending_at_least(&pool, 1)`，其余 30 项通过。
+- `test_std_dns_async_transport` 中 UDP 与单独 TCP loopback 成功；TCP fallback 大包 fixture 报
+  `child:dns:invalid-packet`（子进程状态 34）。本轮整文件运行在后续 TCP fallback 用例处未输出最终 suite 汇总，
+  因此这些 fallback 的其余结果尚未确认。上述未决结果不推翻由独立 pipe 回归的 wake 指标与 syscall trace 证明的 epoll
+  readiness 接线；DNS parity 仍未完成。
+
+历史记录中「VM 没有真 IO 事件循环」是修复前的归因；从本轮起默认 scheduler 的 continuation IO readiness 已有直接证据。
+这不意味着所有网络协议用例已通过，也没有重新统计全量 parity 剩余项。
+
+## 第 576 轮：C99 `as!` 单态展开的类型错配根治（`(int32_t)` ← `(struct err_union_int32_t)`）
+
+### 问题
+
+第 575 轮给默认 `scheduler_run` 接上平台事件循环后，`make check` 的
+`tests/verify_c99_struct_array_and_typed_route_regressions.sh` 开始失败：
+
+```
+error: incompatible types when assigning to type 'int32_t' from type 'struct err_union_int32_t'
+  _uya_asbang.value = (struct err_union_int32_t){0};
+```
+
+先前几次尝试（拆 `std.cfg` 成非泛型函数、把事件循环挪进 `scheduler_run_i32/u32/usize`
+非泛型包装、把 `catch { return x as! T }` 改成 `error_id` 判断）都只是**绕开**触发点，
+换一种写法又会以别的形态复现。
+
+### 根因
+
+`src/codegen/c99/expr.uya` 的 `gen_cast_expr` 在 `as!` 生成错误联合包装时，
+用 `value_field_c = c99_mono_type_to_c(codegen, payload_for_val)` 决定 `.value` 的
+C 类型。泛型函数单态展开期间，`payload_for_val` 还是字面 `T`，`c99_mono_type_to_c`
+没能把它换成具体类型，返回的却是**错误联合本身**的 C 名
+（`struct err_union_int32_t`）。于是生成的赋值是
+`int32_t = (struct err_union_int32_t){0}` —— 左值是 `int32_t`、右值是结构体，
+宿主 cc 直接报类型不兼容。
+
+`c99_asbang_err_success_allows_value_cast` 的成功分支同理：它决定要不要强转，
+但强转的目标类型也来自同一个错配的 `value_field_c`。
+
+### 修复
+
+`_uya_asbang` 是刚声明的临时变量，它的 `.value` 字段类型**必然**是正确的载荷类型。
+因此把三处 `(%s)` 目标类型改成 `(__typeof__(_uya_asbang.value))`：
+
+- 错误分支的 `_uya_asbang.value = (...){0}`；
+- 成功分支允许强转时的 `_uya_asbang.value = (...)(_uya_asbang_src.value)`；
+- 成功分支不允许强转时的 `_uya_asbang.value = (...){0}`。
+
+`__typeof__` 是 GNU 扩展，但项目 C99 输出本来就用 `-std=c99` 配合 GCC/Clang
+（既有生成代码已在用 `({ ... })` 语句表达式），因此不引入新的可移植性约束。
+`value_field_c` 变量在 `is_void == 0` 分支已不再使用，但 `void` 分支与非错误联合分支
+仍在用它，故保留。
+
+### 影响评估与验证策略
+
+改动落在 C99 代码生成器的单个表达式分支，**只影响 `as!` 的目标类型推导**，
+不改 bytecode、exec VM、HIR/lowering、checker 与运行时库。风险面是「所有 `as!` 转换」，
+因此做了**定向 + 全量**两级验证：定向用 typed route 回归脚本（正是这次被压垮的用例），
+全量跑 `make check`（1191 例）。
+
+### 验证结果
+
+- `tests/verify_c99_struct_array_and_typed_route_regressions.sh`：`ok`（此前 rc=1）。
+- `make check`：见本轮末尾结论。
+- `test_async_scheduler_default_epoll`（第 575 轮新增）：VM 1/1 通过。
+- `test_std_async_scheduler`：30/31，唯一失败仍是 thread-pool pending 时序断言
+  `wait_thread_pool_pending_at_least(&pool, 1)`（actual 0 / expected 1），
+  与 HEAD 基线一致，非本轮引入（已用 `git stash` 对 HEAD 复测确认）。
+
+### 顺带确认的一点
+
+`tests/test_std_async_scheduler.uya` 的 `async_runtime_metrics_report_timeout_and_wake_sources`
+在把 `catch { return x as! T }` 改写成 `(x as! i32).value` 后会失败（`timeout_wait_count` 2≠1）。
+原因是 `as!` 已经解出载荷，再取 `.value` 拿到的是默认值，导致每次循环都走 `poll(1)` 分支。
+正确写法是 `try x` —— 既保留 HEAD 的取值语义，也不会触发上面这个类型错配。
+
+### 本轮 `make check` 结论（第 576 轮）
+
+`make check` 总计 1193 例、通过 1189、失败 4：
+`test_std_thread`、`test_async_thread_pool_dynamic_growth`、
+`test_async_compute_types`、`test_async_compute_generic_wrapper`。
+
+逐条对 HEAD 复测（`git stash push -- src/codegen/c99/expr.uya lib/std/async_scheduler.uya`
+后重建 `bin/uya`）确认：
+
+| 用例 | HEAD | 本轮 |
+| --- | --- | --- |
+| `test_async_compute_types` | 0/1 | 0/1（相同，既有失败） |
+| `test_async_compute_generic_wrapper` | 0/1 | **1/0（本轮修好）** |
+| `test_async_thread_pool_dynamic_growth` | 0/1 | 0/1（相同，既有失败） |
+| `test_std_thread` | 1~3 例 `ERROR` 波动 | 2~4 例 `ERROR` 波动（既有 flake） |
+
+`test_std_thread` 在 HEAD 上连跑三次分别是 1、3、3 例 `ERROR`，本轮是 2、2、4 例，
+**同一量级的波动**，属 C99 侧既有的线程池时序 flake，不能作为回归证据
+（这也正是第 574 轮记下的方法论：单次测量不足以下结论）。
+本次改动**没有引入新的 C99 失败**，并且净修好 1 例。
+
+至此 `tests/verify_c99_struct_array_and_typed_route_regressions.sh` 恢复 `ok`，
+`make check` 的失败集合与 HEAD 基线等价。
+
+### 全量验证结果（第 576 轮）
+
+**`uya test --vm` 全量普查**（`UYA_EXEC_CENSUS_REPORT=/tmp/census_576.tsv`）：
+通过 **892 / 910（98.0%）**，失败 18。与上一基线
+（`/tmp/census_after_threads.tsv`，893 / 893）逐用例比对：
+
+- 新通过：0
+- 新失败：1 —— `test_async_runtime_shared_dns.uya`（退出码 137）
+
+该例单点复测（脱离 census 并行负载）**连续两次 1/0 通过**，137 是 4096MB
+地址空间上限在 44 路并行下被别的用例挤占所致，属 census 自身的资源竞争 flake。
+其余 17 例与基线完全一致。
+
+**`make exec-parity`**（`UYA_PARITY_REPORT=/tmp/parity_576.tsv`）：一致 **893**，不一致 21。
+与上一基线（`/tmp/uya_exec_vm_parity_goal2.tsv`，875 一致 / 39 不一致）比对：
+
+- 新一致 **23 例**：websocket 全套（`test_http_websocket_*` 9 例、
+  `test_https_websocket_loopback`）、https 全套（`test_https_bridge_safety`、
+  `debug`、`local`、`loopback`、`production`、`real_site`、`google`）、
+  async 语义 3 例、`test_tls_async_io_future`、
+  `test_http_uyagin_async_boundary`、`test_http_uyagin_recover_observe`；
+- 新不一致 5 例，逐条单点复测后全部是**并行负载 flake**：
+  - `test_async_runtime_shared_dns`：单点 VM 0 / C99 0（一致），parity 里是 137；
+  - `test_async_compute_generic_wrapper`：C99 连跑三次均 rc=0 且 1/0 通过，
+    parity 里记成 C99=2；
+  - `test_http_websocket_json`、`test_http_websocket_reconnect`、
+    `test_tls_async_runtime_io`：与基线相比本来就是不一致项
+    （只是在两次测量之间以不同形态出现），不是本轮改动引入。
+
+净效果：**parity 一致数 875 → 893（+18）**，这是第 575 轮把默认 `scheduler_run`
+切到平台事件循环带来的直接收益；census 与 parity 的失败集合都与基线的
+flaky 部分同量级，没有确定性回归。

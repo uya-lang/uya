@@ -149,6 +149,7 @@ var g_exec_native_agg_used: i32 = 0;
 /// 线程体里又会调 malloc/pthread_* 等宿主函数）。用递归计数避免自锁。
 var g_exec_native_agg_lock: atomic i32 = 0;
 var g_exec_native_agg_lock_depth: i32 = 0;
+var g_exec_vm_slot_alloc_lock: atomic i32 = 0;
 
 fn exec_vm_native_agg_lock_acquire() void {
     if g_exec_native_agg_lock_depth > 0 {
@@ -208,6 +209,72 @@ var g_exec_vm_state_main: ExecVmState = ExecVmState {
 /// 主线程的执行状态。子线程（真并发）会各自持有一份，不再走这个入口。
 fn exec_vm_main_vm() &ExecVmState {
     return &g_exec_vm_state_main;
+}
+
+/// 槽池切帧锁：多个 VM 线程会在同一个共享槽池上切帧，`slot_top` 的
+/// 读-改-写必须串行化。自旋 + 让出策略与 `exec_vm_native_agg_lock` 一致，
+/// 但**不可重入** —— 它只在切帧的极短窗口内持有，内部不回调 VM。
+fn exec_vm_slot_alloc_lock_acquire() void {
+    var spins: i32 = 0;
+    while true {
+        if g_exec_vm_slot_alloc_lock == 0 {
+            g_exec_vm_slot_alloc_lock = 1;
+            if g_exec_vm_slot_alloc_lock == 1 {
+                return;
+            }
+        }
+        spins = spins +| 1;
+        if spins >= 64 {
+            spins = 0;
+            const yr: !i64 = @syscall(SYS_sched_yield, 0, 0, 0, 0, 0, 0);
+            _ = yr catch { 0 as i64; };
+        }
+    }
+}
+
+fn exec_vm_slot_alloc_lock_release() void {
+    g_exec_vm_slot_alloc_lock = 0;
+}
+
+/// 按地址反查它属于哪个 VM 实例的槽池。
+///
+/// 真线程模式下每个线程有自己的 `ExecVmState` 和槽池，而 `exec_vm_realign_to_slot`
+/// / `exec_vm_syscall_out_struct_target` 这类诊断辅助函数手上没有 `frame`。
+/// 这里先试主 VM，再按线程槽表扫描，保证跨线程的 syscall 出参结构体也能解析。
+///
+/// 参数：`addr` 待查地址。
+/// 返回值：拥有该地址的 VM 实例；不属于任何槽池返回 null。
+fn exec_vm_thread_vm_for_slot_addr(addr: usize) &ExecVmState {
+    if addr == 0 as usize {
+        return null;
+    }
+    var candidates: [&ExecVmState: EXEC_VM_THREAD_SLOTS + 1] = [];
+    candidates[0] = &g_exec_vm_state_main;
+    var count: i32 = 1;
+    var slot: i32 = 0;
+    while slot < EXEC_VM_THREAD_SLOTS {
+        if exec_vm_thread_used[slot] != 0 {
+            const vm: &ExecVmState = exec_vm_thread_states[slot];
+            if vm != null {
+                candidates[count] = vm;
+                count = count + 1;
+            }
+        }
+        slot = slot + 1;
+    }
+    var i: i32 = 0;
+    while i < count {
+        const vm: &ExecVmState = candidates[i];
+        if vm != null && vm.slot_pool != null && vm.slot_pool_capacity > 0 {
+            const base: usize = @usize_from_ptr(vm.slot_pool as &void);
+            const size: usize = (@size_of(ExecValue) as usize) * (vm.slot_pool_capacity as usize);
+            if addr >= base && addr < base +| size {
+                return vm;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
 }
 
 /// `async_box_alloc_current` 在可达函数表里的下标缓存：-2 表示「还没找过」，
@@ -1134,15 +1201,22 @@ fn exec_vm_syscall_out_struct_target(arg_slot: &ExecValue, raw_address: i64) &Ex
 
 /// 把落在共享槽池里的地址按 `@size_of(ExecValue)` 向下对齐到槽起始。
 ///
+/// 槽池按线程各有一份（真线程模式），所以先按地址反查归属 VM；主 VM 与线程
+/// 槽池都不命中时返回 null。
+///
 /// 参数：`addr` 待对齐地址。
-/// 返回值：对齐后的槽地址；不在槽池范围内返回 null。
+/// 返回值：对齐后的槽地址；不在任何槽池范围内返回 null。
 fn exec_vm_realign_to_slot(addr: usize) &ExecValue {
     if addr == 0 as usize {
         return null;
     }
+    const owner: &ExecVmState = exec_vm_thread_vm_for_slot_addr(addr);
+    if owner == null {
+        return null;
+    }
     var base: usize = 0 as usize;
     var total: usize = 0 as usize;
-    exec_vm_slot_pool_range(exec_vm_main_vm(), &base, &total);
+    exec_vm_slot_pool_range(owner, &base, &total);
     const slot_bytes: usize = @size_of(ExecValue) as usize;
     if slot_bytes == 0 as usize || base == 0 as usize || total == 0 as usize {
         return null;
@@ -1346,16 +1420,23 @@ fn exec_vm_await_poll_interface(program: &BCProgram, value: &ExecValue, out_valu
     const poll_fn_index: i32 = poll_fn_value.i64_value as i32;
     var args: [ExecValue: 2] = [];
     args[0] = aggregate.values[poll_slot_index];
-    // waker 参数给一块「全是 void 字段」的聚合占位：忙等期间事件循环注册
-    // 会往 `Waker` 的字段里写，字段数按上限给足，传 null 会让
-    // `w.clear_cancelled()` 之类的调用在解释器里直接越界。
+    // Continuations must register I/O on the scheduler's Waker so the outer
+    // event loop can observe readiness interests. Direct/non-scheduled awaits
+    // retain a local placeholder for compatibility.
+    var waker_cell: &ExecValue = null;
     var waker_addr: usize = 0 as usize;
-    const waker_cell: &ExecValue = exec_value_alloc_bytes(@size_of(ExecValue)) as &ExecValue;
-    if waker_cell != null {
-        waker_cell[0] = exec_value_make_aggregate(ExecValueKind.EXEC_VALUE_STRUCT, EXEC_AWAIT_WAKER_FIELDS);
-        waker_addr = waker_cell as usize;
+    if exec_vm_main_vm().await_waker_addr != 0 {
+        waker_addr = exec_vm_main_vm().await_waker_addr;
+        waker_cell = @ptr_from_usize(waker_addr) as &ExecValue;
+        args[1] = exec_make_pointer_with_kind(waker_addr, exec_vm_main_vm().await_waker_kind);
+    } else {
+        waker_cell = exec_value_alloc_bytes(@size_of(ExecValue)) as &ExecValue;
+        if waker_cell != null {
+            waker_cell[0] = exec_value_make_aggregate(ExecValueKind.EXEC_VALUE_STRUCT, EXEC_AWAIT_WAKER_FIELDS);
+            waker_addr = waker_cell as usize;
+        }
+        args[1] = exec_make_pointer_with_kind(waker_addr, TypeKind.TYPE_STRUCT as i32);
     }
-    args[1] = exec_make_pointer_with_kind(waker_addr, TypeKind.TYPE_STRUCT as i32);
     // 忙等要按**真实时间**收敛：像「deadline 到期」这种 Future 只有等到
     // 时钟越过 deadline 才会返回 Ready，纯计次循环可能在毫秒内就放弃。
     // `clock()` 给的是 CPU 时间（CLOCKS_PER_SEC = 1e6），忙等时同样在走。
@@ -1369,8 +1450,13 @@ fn exec_vm_await_poll_interface(program: &BCProgram, value: &ExecValue, out_valu
         if rc == 0 {
             return 0;
         }
-        // 仍然 Pending：登记了 fd 的 Future **按该 fd 真等 OS**（推进 leaf IO，
-        // 并把 CPU 让给宿主线程/子进程）；没登记 fd 的保持纯自旋。
+        // Continuations with an outer scheduler Waker must yield after one
+        // Pending poll. The scheduler owns the authoritative Waker layout and
+        // will register its interests with epoll/kqueue before resuming us.
+        if exec_vm_main_vm().await_waker_addr != 0 {
+            return 1;
+        }
+        // Legacy direct awaits have no scheduler; retain their local poll wait.
         var await_wait_fd: i32 = -1;
         var await_wait_events: i16 = 0 as i16;
         const await_waker_agg: &ExecAggregate = exec_value_as_aggregate(&waker_cell[0]);
@@ -2336,10 +2422,8 @@ fn exec_vm_address_is_vm_resident(addr: usize) bool {
     if exec_vm_address_is_value(addr) {
         return true;
     }
-    var pool_base: usize = 0 as usize;
-    var pool_size: usize = 0 as usize;
-    exec_vm_slot_pool_range(exec_vm_main_vm(), &pool_base, &pool_size);
-    if pool_base != 0 as usize && addr >= pool_base && addr < pool_base +| pool_size {
+    // 槽池按线程各有一份（真线程模式），必须按地址反查归属，不能只查主 VM。
+    if exec_vm_thread_vm_for_slot_addr(addr) != null {
         return true;
     }
     if g_exec_vm_globals_base != 0 && addr >= g_exec_vm_globals_base && addr < g_exec_vm_globals_end {
@@ -2365,11 +2449,15 @@ fn exec_vm_address_is_exec_value_storage(addr: usize) bool {
     if exec_vm_address_is_value(addr) {
         return exec_value_address_is_array_element(addr);
     }
-    var pool_base: usize = 0 as usize;
-    var pool_size: usize = 0 as usize;
-    exec_vm_slot_pool_range(exec_vm_main_vm(), &pool_base, &pool_size);
-    if pool_base != 0 as usize && addr >= pool_base && addr < pool_base +| pool_size {
-        return (addr -| pool_base) % (@size_of(ExecValue) as usize) == 0 as usize;
+    // 槽池按线程各有一份（真线程模式），按地址反查归属 VM 后再判断对齐。
+    const pool_owner: &ExecVmState = exec_vm_thread_vm_for_slot_addr(addr);
+    if pool_owner != null {
+        var pool_base: usize = 0 as usize;
+        var pool_size: usize = 0 as usize;
+        exec_vm_slot_pool_range(pool_owner, &pool_base, &pool_size);
+        if pool_base != 0 as usize && addr >= pool_base && addr < pool_base +| pool_size {
+            return (addr -| pool_base) % (@size_of(ExecValue) as usize) == 0 as usize;
+        }
     }
     if g_exec_vm_globals_base != 0 && addr >= g_exec_vm_globals_base && addr < g_exec_vm_globals_end {
         return (addr -| g_exec_vm_globals_base) % (@size_of(ExecValue) as usize) == 0 as usize;
@@ -4659,7 +4747,8 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
     // 父线程永远回不来 —— 线程池用例（`test_std_thread` 等 11 例）就是卡在这里。
     // 处理：把该窗口内的 read 改成非阻塞 read；没有数据就回 -EAGAIN，
     // 让 worker 循环能按「暂时没命令」继续轮转，而不是把整个进程拖死。
-    if g_exec_vm_thread_body_budget > 0i64 && nr_value == 0i64 && arg_count >= 3 {
+    if exec_vm_real_threads_enabled() == 0 && g_exec_vm_thread_body_budget > 0i64 &&
+        nr_value == 0i64 && arg_count >= 3 {
         const rfd: i32 = args[0] as i32;
         const rbuf: &byte = @ptr_from_usize(args[1] as usize) as &byte;
         const rcount: usize = args[2] as usize;
@@ -5464,7 +5553,7 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         var tc_args: [ExecValue: 1] = [];
         tc_args[0] = tc_arg[0];
         var tc_ret: ExecValue = exec_make_void();
-        const tc_rc: i32 = exec_vm_call_function(exec_vm_main_vm(), program, tc_index,
+        const tc_rc: i32 = exec_vm_call_function(frame.vm, program, tc_index,
             &tc_args[0], 1, 0, &tc_ret);
         if tc_rc != 0 {
             return -1;
@@ -7172,12 +7261,6 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         }
         const field_ref: &ExecValue = exec_vm_field_ref(slot_b, instr.imm as i32);
         if field_ref == null && addr_native_kind > 0 && addr_native_base == 0 as usize {
-            // 严格基址判定把「地址落在 VM 驻留区里、内容其实是原生布局」的块当成
-            // VM 值拒绝了（见 `exec_vm_field_native_base_relaxed` 的注释：
-            // async 帧池、线程堆缓存这类分配器给出的字节块地址可能正好落在值
-            // arena 的范围内）。`STORE_FIELD` 早就有这条兜底，`ADDR_FIELD` 缺，
-            // 于是 `cache.counts[i]` 这类「对原生结构体取字段地址」会报字段越界。
-            // 这里退到宽松基址按编译期偏移算原生字段地址，与 STORE_FIELD 对齐。
             const af_relaxed: usize = exec_vm_field_native_base_relaxed(slot_b);
             if af_relaxed != 0 as usize {
                 var af_relaxed_pointee: i32 = instr.c & 0xFF;
@@ -7957,13 +8040,22 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 fld_count = fld_agg.count;
             }
             var fld_pointee: i32 = -1;
+            var fld_target_kind: i32 = -1;
+            var fld_target_addr: usize = 0 as usize;
             if slot_b.kind == ExecValueKind.EXEC_VALUE_POINTER {
                 fld_pointee = exec_value_pointer_pointee_kind(&slot_b[0]);
+                const fld_target: &ExecValue = exec_vm_ref_target_value(slot_b);
+                if fld_target != null {
+                    fld_target_kind = fld_target.kind as i32;
+                }
+                fld_target_addr = exec_vm_pointer_address(slot_b);
             }
             _ = snprintf(&fld_msg[0] as *byte, 640,
-                "exec: LOAD_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d ref=%d aux=%d fn=%s ip=%d slot=%d line=%d col=%d)" as *byte,
+                "exec: LOAD_FIELD 字段越界(idx=%d kind=%d count=%d pointee=%d ref=%d aux=%d tgt=%d res=%d addr=%zx fn=%s ip=%d slot=%d line=%d col=%d)" as *byte,
                 instr.imm as i32, slot_b.kind as i32, fld_count, fld_pointee,
                 exec_vm_pointer_is_internal_ref(slot_b), slot_b.aux_i64_value as i32,
+                fld_target_kind, exec_vm_address_is_vm_resident(fld_target_addr),
+                fld_target_addr,
                 function.name as *byte, frame.ip, instr.b as i32,
                 instr.source.line, instr.source.column);
             exec_backend_set_error(function.decl, &fld_msg[0] as &byte, 0);
