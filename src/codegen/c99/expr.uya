@@ -10249,6 +10249,27 @@ fn gen_cast_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 gen_expr(codegen, src_expr);
                 fprintf(codegen.emit_stream as *void, "; %s _uya_asbang; " as *byte, union_c as *byte);
                 fputs("_uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang; })" as *byte, codegen.emit_stream as *void);
+            } else if src_expr != null && src_expr.type == ASTNodeType.AST_ERROR_VALUE {
+                // `error.Foo as! T`：源是**裸错误值**，不是错误联合。
+                // `AST_ERROR_VALUE` 的裸值路径只发一个整数 id（`%dU`），
+                // 而这条 `as!` 要的产物是 `!T`。若不特判，会掉进下面按
+                // 「普通表达式 → 错误联合」处理的 else 分支，生成
+                //   (int32_t)((struct err_union_int32_t){ .error_id = ... })
+                // —— 把结构体强转成整数，宿主 cc 报
+                // `aggregate value used where an integer was expected`
+                // （`lib/std/http/websocket_json.uya` 的
+                //  `error.BufferTooSmall as! usize` 就是这么挂的）。
+                // 正确语义：错误 id 原样保留，载荷为零值。
+                var bare_err_id: i32 = c99_get_or_add_error_id(codegen, src_expr.error_value_name);
+                if bare_err_id == 0 {
+                    bare_err_id = 1;
+                }
+                fprintf(codegen.emit_stream as *void, "({ %s _uya_asbang; " as *byte, union_c as *byte);
+                fprintf(codegen.emit_stream as *void, "_uya_asbang.error_id = %uU; " as *byte, bare_err_id as u32);
+                if is_void == 0 {
+                    fputs("_uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; " as *byte, codegen.emit_stream as *void);
+                }
+                fputs("_uya_asbang; })" as *byte, codegen.emit_stream as *void);
             } else {
                 fprintf(codegen.emit_stream as *void, "({ %s _uya_asbang = { .error_id = 0" as *byte, union_c as *byte);
                 if is_void == 0 {

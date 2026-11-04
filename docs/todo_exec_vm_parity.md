@@ -15015,3 +15015,82 @@ VM : blk eid=-1543282774   STEP write eid=-1543282774   （后续步骤不再执
 `fn ready(result: !usize) Future<!usize>`，形态与已验证正确的测试构造一致，
 所以嫌疑集中在**实参 `error.BufferTooSmall as! usize` 与
 `encoded_result` 这两类表达式在单态体里求值时的错误联合构造**。
+
+## 第 582 轮：`error.Foo as! T` 两个后端都丢掉错误 id（双侧修复）
+
+### 起点
+
+按第 581 轮的指引对 `websocket_json_ready_usize` 做单点复现时，
+夹具 `const a: !usize = error.BufferTooSmall as! usize;` 直接**编译失败**：
+
+```
+error: aggregate value used where an integer was expected
+  struct err_union_size_t a = ({ struct err_union_size_t _uya_asbang =
+    { .error_id = 0, .value = (size_t)((struct err_union_size_t){ .error_id = 2751684522U }) }; ... });
+```
+
+这是 **C99 侧的确定性缺陷**，与 VM 无关，且此前一直被别的问题挡着没暴露。
+
+### 根因（两个后端各一处，语义相同）
+
+`x as! T` 的语义是「把 `x` 塞进 `!T` 的载荷位」。但 `error.Foo` 是**裸错误值**，
+它没有载荷，含义是「用这个错误构造 `!T` 的 err 分支」。两个后端都漏了这一分支：
+
+**C99**（`src/codegen/c99/expr.uya` 的 `gen_cast_expr`）：
+`error.Foo` 的 `get_c_type_of_expr` 会带出 err_union 类型，于是
+`src_is_err_union` 判为非零、走不进任何专门分支，最后掉进「普通表达式包装成
+错误联合」的 `else`：
+
+```c
+{ .error_id = 0, .value = (size_t)((struct err_union_size_t){ .error_id = ... }) }
+```
+
+`error_id` 被写死成 0，载荷位置还被强塞了一个**结构体强转成整数**，
+宿主 cc 直接报错。
+
+**VM**（`src/exec/lower.uya` 的 `as!` 降级）：裸错误值在 VM 里被降级成一个
+**整数 id 常量**，`as!` 于是把它当成普通载荷包进 `MAKE_OK` ——
+`error_id` 恒 0，真实失败被吞成「成功」。
+
+### 修复
+
+两处都加同一个特判：源表达式的类型是 `TypeKind.TYPE_ERROR` 时，
+构造 **`MAKE_ERR`**（C99 侧发 `{ .error_id = <id>, .value = 0 }`），
+`error_id` 取该错误值自己的 id。
+
+- `src/codegen/c99/expr.uya`：`gen_cast_expr` 的 `is_force_cast` 分支新增
+  `src_expr.type == ASTNodeType.AST_ERROR_VALUE` 的处理，用
+  `c99_get_or_add_error_id` 取 id、载荷写 `__typeof__` 的零值；
+- `src/exec/lower.uya`：`as!` 降级里先查 `exec_lower_expr_type(...) == TYPE_ERROR`，
+  命中则构造 `HIR_EXPR_MAKE_ERR` 并用 `error_error_id` 作 id。
+
+### 验证
+
+新增夹具 `tests/repros/exec_vm_asbang_from_bare_error.uya`，同时断言
+`error_id != 0` **且**与 `@error_id(error.X)` 的常量相等：
+
+| 后端 | 修复前 | 修复后 |
+| --- | --- | --- |
+| C99 | cc 报 `aggregate value used where an integer was expected`（编不过） | ✅ 通过 |
+| exec VM | `error_id == 0`（失败被吞） | ✅ 通过 |
+
+**全量 census**（`/tmp/census_582.tsv`）：892 / 910，与第 580 轮**逐用例一致，零回归**。
+**全量 parity**（`/tmp/parity_582.tsv`）：一致 894 / 不一致 20，与第 580 轮持平，零回归。
+
+### 对 `test_http_websocket_json` 的影响
+
+修复后 VM 不再把 `write_json` 的失败吞成成功，`block_on` 拿到的
+`BufferTooSmall`（id 2768...，即 `-1543282774`）是**真正的错误**，
+而不是第 579/581 轮看到的「未初始化垃圾」。
+
+继续向上追，`encode_to_to_json` 宏块（`build_encode_to_to_json_block`）在
+VM 里会把 `w.overflow` 判成真，从而返回 `BufferTooSmall`；而 C99 侧同一路径
+能正常编码。宏块本身**已正确展开**（`--dump-exec-hir` 里能看见
+`var slot=6 = expr(38)`，38 = `HIR_EXPR_BLOCK`），所以缺口在块内
+`JsonWriter` 状态推进的某一步，属下一轮的单点任务：
+
+- `JsonWriter` 的基础操作（`json_writer_init` / `json_write_byte` /
+  字段读写 / `overflow` 判定）在两侧**完全一致**（已用夹具验证）；
+- 因此嫌疑集中在宏块里 `w` 的**地址传递**（`&w` 经 `id_w` 多次使用）
+  以及末尾 `if w.overflow { err } else { w.used }` 这种
+  **then 分支是裸错误值、else 分支是 usize** 的 if 表达式合并上。

@@ -8990,6 +8990,29 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             if exec_type_is_vm_value_supported(force_payload_type) == 0 {
                 return exec_lower_fail_expr(expr, "exec: as! 载荷类型当前不可被 exec VM 表示" as *byte);
             }
+            // `error.Foo as! T`：源是**裸错误值**（`TYPE_ERROR`），不是载荷。
+            // 语义上 `x as! T` 是「把 x 塞进 `!T` 的载荷位」，而裸错误值没有载荷，
+            // 它的含义是「返回这个错误」。此前这里无条件构造 `MAKE_OK`，
+            // 于是 `error.BufferTooSmall as! usize` 变成了
+            // `ok(BufferTooSmall 的 id)` —— `error_id` 恒 0，
+            // `lib/std/http/websocket_json.uya` 的
+            // `websocket_json_ready_usize(error.BufferTooSmall as! usize)`
+            // 因此返回了一个「成功」的 future，把真实失败吞掉。
+            // 注意裸错误值在 VM 里被降级成整数 id，所以这里直接用它作 err 的 id。
+            const force_src_type: Type = exec_lower_expr_type(ctx, expr.cast_expr_expr);
+            if force_src_type.kind == TypeKind.TYPE_ERROR {
+                const force_err_value: &HIRExpr = exec_lower_expr(ctx, expr.cast_expr_expr);
+                if force_err_value == null {
+                    return null;
+                }
+                const force_err_expr: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_MAKE_ERR, &expr_type);
+                if force_err_expr == null {
+                    return null;
+                }
+                force_err_expr.left = force_err_value;
+                force_err_expr.int_value = force_src_type.error_error_id as i64;
+                return force_err_expr;
+            }
             const force_payload_operand: &HIRExpr = exec_lower_coerce_expr(ctx, expr.cast_expr_expr, &force_payload_type);
             if force_payload_operand == null {
                 return null;
