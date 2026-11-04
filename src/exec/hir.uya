@@ -192,6 +192,15 @@ enum HIRExprKind {
     // 必须是**独立节点**：在 TRY 上打补丁会残留它那条「清理 + BC_RET」
     // 跳转指令，实测会生成 `imm=0` 的悬挂跳转（死循环）。
     HIR_EXPR_ERROR_PAYLOAD,
+    // `x as! T`（x 是**错误联合**）：对齐 C99 的 as! 语义 ——
+    //   err 分支：错误 id 原样透传，载荷写零值；
+    //   ok 分支：错误 id 归零，载荷用转换后的值。
+    // left 是「已经转换到载荷类型的裸值」，int_value 携带源错误联合的错误 id 无关信息。
+    //
+    // 不能像旧实现那样无条件 `MAKE_OK`：那会把 err 分支也标成成功，
+    // 之后任何 `IS_ERR`/`.value` 判断都失真
+    //（`(w as! isize).value` 因此得 1 而 C99 得 0，见第 590 轮）。
+    HIR_EXPR_FORCE_CAST_KEEP_ERR,
 }
 
 struct HIRMatchArm {

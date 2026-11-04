@@ -1,0 +1,38 @@
+// `x as! T`（x 是错误联合）必须**保留** x 的错误分支：
+//   err 分支：error_id 透传，载荷为零；
+//   ok  分支：error_id 归零，载荷为转换后的值。
+// 旧实现无条件 MAKE_OK，把 err 分支也标成成功。
+use std.testing.assert_eq_i32;
+
+fn bad_isize() !isize { return error.BufferTooSmall; }
+fn good_isize() !isize { const v: isize = 5; return v; }
+fn bad_i32() !i32 { return error.OutOfMemory; }
+
+test "asbang keeps err branch" {
+    const w: !isize = bad_isize();
+    const forced: !isize = w as! isize;
+    @print("err  eid_nonzero="); @print((forced.error_id != 0u32) as i32); @print("\n");
+    try assert_eq_i32((forced.error_id != 0u32) as i32, 1);
+    // err 分支上读 .value 应得零值（C99 语义），且不得中断执行
+    try assert_eq_i32(forced.value as i32, 0);
+}
+
+test "asbang keeps ok branch" {
+    const w: !isize = good_isize();
+    const forced: !isize = w as! isize;
+    try assert_eq_i32(forced.error_id as i32, 0);
+    try assert_eq_i32(forced.value as i32, 5);
+}
+
+test "asbang keeps err branch i32" {
+    const w: !i32 = bad_i32();
+    const forced: !i32 = w as! i32;
+    try assert_eq_i32((forced.error_id != 0u32) as i32, 1);
+    try assert_eq_i32(forced.value, 0);
+}
+
+test "asbang value read on err branch" {
+    const w: !isize = bad_isize();
+    const n: isize = (w as! isize).value;
+    try assert_eq_i32(n as i32, 0);
+}

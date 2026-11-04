@@ -2985,6 +2985,53 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         }
         return dst_ok;
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_FORCE_CAST_KEEP_ERR {
+        // `x as! T`（x 是错误联合）：err 分支透传错误 id、载荷置零；
+        // ok 分支用转换后的值。
+        //
+        // 完整自建双分支，不复用任何现成节点 —— 旧实现是无条件 `MAKE_OK`，
+        // 会把 err 分支也标成成功（第 590 轮实测 `(w as! isize).value` 得 1）。
+        //   src   = 源的错误联合值（expr.extra 里放的是已转换的裸载荷）
+        //   is_err ? dst = ERR(src.error_id, 零载荷) : dst = OK(裸载荷)
+        const kc_src_slot: i32 = exec_builder_compile_expr(ctx, expr.left);
+        if kc_src_slot < 0 {
+            return -1;
+        }
+        const kc_payload_slot: i32 = exec_builder_compile_expr(ctx, expr.extra);
+        if kc_payload_slot < 0 {
+            return -1;
+        }
+        const kc_dst: i32 = exec_builder_new_temp(ctx);
+        const kc_is_err: i32 = exec_builder_new_temp(ctx);
+        if kc_dst < 0 || kc_is_err < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_IS_ERR, a: kc_is_err, b: kc_src_slot, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        }) < 0 { return -1; }
+        const kc_to_err: i32 = exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_JMP_IF_TRUE, a: kc_is_err, b: 0, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        });
+        if kc_to_err < 0 { return -1; }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MAKE_OK, a: kc_dst, b: kc_payload_slot, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        }) < 0 { return -1; }
+        const kc_done: i32 = exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_JMP, a: 0, b: 0, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        });
+        if kc_done < 0 { return -1; }
+        exec_builder_patch_jump(ctx, kc_to_err, ctx.instr_count);
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MAKE_ERR, a: kc_dst, b: kc_src_slot, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        }) < 0 { return -1; }
+        exec_builder_patch_jump(ctx, kc_done, ctx.instr_count);
+        return kc_dst;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_MAKE_ERR {
         const payload_slot_err: i32 = exec_builder_compile_expr(ctx, expr.left);
         const dst_err: i32 = exec_builder_new_temp(ctx);

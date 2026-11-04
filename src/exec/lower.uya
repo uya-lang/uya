@@ -9046,6 +9046,49 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 return null;
             }
             force_payload_expr.left = force_payload_operand;
+            // 源是**错误联合**时，`as!` 必须保留它的错误分支（对齐 C99：
+            // err 透传 error_id、载荷写零；ok 才换成转换后的载荷）。
+            // 旧实现无条件 `MAKE_OK`，把 err 分支也标成成功，
+            // 之后任何 `IS_ERR`/`.value` 判断都失真 ——
+            // `(w as! isize).value` 因此在 err 分支上得 1 而 C99 得 0。
+            // 只在「源确实是错误联合、且载荷类型已具体化」时走保留错误分支的路径。
+            // 载荷仍是 `T`（泛型参数）时不能这么做：那会去求 `T` 的零值，
+            // 报「当前不支持该类型的零值初始化(kind=28)」
+            //（`lib/std/async_scheduler.uya` 的 `return prepare_result as! T`
+            //  正是这种形态，它在单态化前后都会经过这里）。
+            const force_src_is_union: i32 =
+                if force_src_type.kind == TypeKind.TYPE_ERROR_UNION &&
+                   force_src_type.error_union_payload_type != null &&
+                   force_payload_type.kind != TypeKind.TYPE_GENERIC_PARAM { 1 } else { 0 };
+            if force_src_is_union != 0 {
+                const force_src_expr: &HIRExpr = exec_lower_expr(ctx, expr.cast_expr_expr);
+                if force_src_expr == null {
+                    return null;
+                }
+                const hir_force_keep: &HIRExpr = exec_lower_alloc_expr(ctx, expr,
+                    HIRExprKind.HIR_EXPR_FORCE_CAST_KEEP_ERR, &expr_type);
+                if hir_force_keep == null {
+                    return null;
+                }
+                hir_force_keep.left = force_src_expr;
+                // ok 分支要的是「源载荷转换后的值」。`force_payload_expr` 是对
+                // **错误联合整体**做 CAST 得来的（对 ok 值等于原样，对 err 值
+                // 是垃圾），所以这里改成「先按错误联合取载荷、再 CAST」。
+                const force_ok_payload: &HIRExpr = exec_lower_alloc_expr(ctx, expr,
+                    HIRExprKind.HIR_EXPR_ERROR_PAYLOAD, &force_payload_type);
+                if force_ok_payload == null {
+                    return null;
+                }
+                force_ok_payload.left = force_src_expr;
+                const force_ok_cast: &HIRExpr = exec_lower_alloc_expr(ctx, expr,
+                    HIRExprKind.HIR_EXPR_CAST, &force_payload_type);
+                if force_ok_cast == null {
+                    return null;
+                }
+                force_ok_cast.left = force_ok_payload;
+                hir_force_keep.extra = force_ok_cast;
+                return hir_force_keep;
+            }
             const hir_force_ok: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_MAKE_OK, &expr_type);
             if hir_force_ok == null {
                 return null;

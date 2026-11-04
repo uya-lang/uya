@@ -15677,3 +15677,62 @@ else { error_id = 0; value = 载荷; }
 本轮所有尝试均已 `git checkout -- src/exec/lower.uya` 回退；复测基线：
 `test_http_websocket_json` 3/0 通过、`tests/repros/exec_vm_err_union_value_read.uya`
 双侧通过。夹具 `tests/repros/exec_vm_asbang_then_value.uya` 保留为已知差异记录。
+
+## 第 591 轮：修 `as!` 的 lowering —— 让错误联合源保留错误分支（`test_tls_async_runtime_io` 转通过）
+
+### 根因（第 590 轮已用字节码证实）
+
+`as!` 的 lowering 在源是**错误联合**时也无条件构造 `HIR_EXPR_MAKE_OK`，
+字节码里表现为 `CAST` 之后紧跟一条 `MAKE_OK`。于是：
+
+- `IS_ERR` 永远为假 → 错误分支信息彻底丢失；
+- `(w as! isize).value` 在 err 分支上取到的是 `w` 的载荷值（1），C99 是 0。
+
+### 修复
+
+新增 `HIR_EXPR_FORCE_CAST_KEEP_ERR`，语义严格对齐 C99 的 `as!`：
+
+```
+IS_ERR(src) ?
+    dst = MAKE_ERR(src)        // err 分支：错误 id 透传，载荷为零
+  : dst = MAKE_OK(CAST(载荷))  // ok 分支：错误 id 归零，载荷为转换后的值
+```
+
+要点有两个：
+
+1. **ok 分支的载荷必须从「错误联合的载荷」出发再 CAST**，不能直接对
+   整个错误联合做 CAST —— 后者对 ok 值恰好等价，但语义是错的，实测
+   ok 分支拿到 0 而不是 5；
+2. **载荷仍是泛型参数 `T` 时必须退回旧路径**：`return prepare_result as! T`
+   这种写法在单态化前后都会经过这里，对 `T` 求零值会报
+   `当前不支持该类型的零值初始化(kind=28)`（`lib/std/async_scheduler.uya`
+   第 1008 行，实测会让整个 tls 测试集连编译期都过不去）。
+
+### 验证
+
+**新增夹具** `tests/repros/exec_vm_asbang_keeps_error_branch.uya`，四个断言：
+
+| 断言 | C99 | VM（修复前） | VM（修复后） |
+| --- | --- | --- | --- |
+| err 分支保留 `error_id != 0` | ✅ | ❌ | ✅ |
+| err 分支读 `.value` 得 0 | ✅ | ❌ | ✅ |
+| ok 分支 `.value` 得 5 | ✅ | ✅ | ✅ |
+| `(w as! isize).value` err 分支得 0 | ✅ | ❌（得 1） | ✅ |
+
+**目标用例**：`test_tls_async_runtime_io` —— 从 VM `0/1` 变为 **`1/0` 通过**
+（这个用例自第 579 轮以来一直卡着，前几轮分别定位到 `.value` 复用 `TRY`、
+未初始化错误联合，本轮终于落到真正的根因）。
+
+**全量 census**（`/tmp/census_591.tsv`）：894 / 910，失败 16。
+
+- 新通过：`test_tls_async_runtime_io`；
+- 新失败：`test_async_runtime_shared_dns` —— 单点连跑两次一次通过一次失败，
+  是已多次记录的并行负载 flake（parity 里也同样偶发）。
+
+**全量 parity**（`/tmp/parity_591.tsv`）：一致 894 / 不一致 20。
+
+- 新一致：`test_tls_async_runtime_io`；
+- 新不一致：`test_async_scheduler_default_epoll`、`test_crypto_bigint` ——
+  两者单点复测**均 VM 1/0 且 C99 1/0 通过**，确认同为并行负载 flake。
+
+即：本轮有**一个确定性的用例转通过**，其余波动都是已知 flake。

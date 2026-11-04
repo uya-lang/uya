@@ -194,6 +194,10 @@ fn exec_debug_dump_expr(expr: &HIRExpr) void {
         fprintf(libc.stderr, "err_payload(...)" as *byte);
         return;
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_FORCE_CAST_KEEP_ERR {
+        fprintf(libc.stderr, "asbang_keep_err(...)" as *byte);
+        return;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_CATCH {
         fprintf(libc.stderr, "catch(...)" as *byte);
         return;
