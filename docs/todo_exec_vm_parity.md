@@ -16568,3 +16568,30 @@ make uya && 连跑三次
 
 两者在基线同样失败/波动，属既有 C99 侧线程时序 flake，与本轮改动无关。
 对照后已用 `git checkout -- src/codegen/c99/utils.uya` 恢复，工作区干净。
+
+#### 第 599 轮补充二：定位到局部 const 失败的**确切原因**
+
+在 `types.uya` 的数组尺寸求值处打探针（只打印「是不是标识符」和「求值结果是不是 2」），
+对夹具 `c99_local_const_array_size.uya` 的输出是：
+
+```
+[dim] ident sz= OTHER     ← 是标识符，但 eval_const_expr 返回的不是 2
+[dim] ident sz= OTHER
+```
+
+即 `eval_const_expr` 确实**被调用了**，但对我新加的「局部 const 查找」返回 -1。
+结合生成的 C（`const size_t LOCAL_N = 2;` 正确、`uint8_t arr[1]` 错误），
+可以确定缺口在 `eval_local_const_decl_in_block` 的匹配条件上。
+
+最可能的原因是：`eval_const_expr` 遍历时拿到的 `size_expr` 已经过
+`substitute_type_arg` 处理，AST 节点被**复制**过，`var_decl_name` 的比较
+仍应命中；但 `block.block_stmts` 在该阶段可能还没被填满
+（C99 的字段/局部声明是分阶段 emit 的，第一遍收集时块体可能不完整）。
+
+下一轮应先确认 `current_function_decl.fn_decl_body.block_stmts` 在
+`c99_type_to_c` 被调用的那一刻是否已填充；若没有，改用
+**预扫描 + 缓存**的方式（在 `c99_generate_function` 入口处先把整个函数体里
+可静态求值的局部 `const` 收进一张表，之后所有 `eval_const_expr` 直接查表）。
+
+本轮残留的探针已全部清理干净（`git diff` 只剩那 6 行空块的删除），
+`make uya` 通过，全局 const 的 `[3]` 修复保持有效。

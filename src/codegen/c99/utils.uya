@@ -2746,12 +2746,6 @@ fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
         if codegen.current_function_decl != null &&
             codegen.current_function_decl.type == ASTNodeType.AST_FN_DECL {
             const fn_body: &ASTNode = codegen.current_function_decl.fn_decl_body;
-            if const_name != null {
-            }
-            if fn_body != null {
-            } else {
-            }
-            _ = write(2 as i32, "\n" as &void, 1 as usize);
             if fn_body != null {
                 const found: i32 = eval_local_const_decl_in_block(codegen, fn_body, const_name);
                 if found >= 0 {
