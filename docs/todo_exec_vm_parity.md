@@ -15172,3 +15172,66 @@ then 分支是裸错误值、else 分支是 usize，checker 对宏生成的 AST 
 
 `error.Foo as! T` 的夹具（`tests/repros/exec_vm_asbang_from_bare_error.uya`）
 在收紧后仍然两侧通过 —— 说明收紧没有削弱第 582 轮的修复。
+
+## 第 584 轮：`test_http_websocket_reconnect` 定位到「`attach` 返回后 session 被重新关掉」
+
+### 现象与逐步收敛
+
+用探针把 `websocket_client_reconnect_succeeds_after_disconnect` 的四个阶段打出来
+（探针用 `@print` 加在库函数体内，最后已全部回退）：
+
+```
+S1 eid=0           // 首次 tick（未到重试时刻）
+S2 eid=0 val=1     // 到达重试时刻并重连成功
+S3 eid=1726418326  // ← websocket_client_write_message 返回 WebSocketConnectionClosed
+```
+
+`1726418326` 经 `@error_id(error.WebSocketConnectionClosed)` 核对，正是该错误。
+
+`websocket_client_write_message` 的拒绝条件是
+`session == null || !self.connected || self.reconnect_pending || websocket_client_conn_is_closed(session)`。
+探针显示重连成功后 `connected=1`、`reconnect_pending=0`，所以问题在
+`websocket_client_conn_is_closed(session)`。
+
+### 决定性矛盾
+
+在 `websocket_client_attach` **函数体内**打印：
+
+```
+[att] pre-check connected=0 need_close=0
+[at] session_ptr=<addr> sess_addr=<addr> closed=0
+```
+
+而 `attach` **返回之后**立刻打印：
+
+```
+[rc] session_ptr=<addr> sess_addr=<addr> closed=1
+```
+
+`session_ptr`、`sess_addr` 完全相同（同一对象），`attach` 内部刚把 `closed`
+写成 0，返回后却读到 1 —— 说明关闭动作发生在**
+`websocket_client_attach` 返回的那一刻到调用方读取之间**。
+
+### 已排除
+
+- 不是 `websocket_client_take_conn`：探针显示 `taken.closed=0 taken.io_closed=0`；
+- 不是 `attach` 里的 `session.close()` 前置分支：`need_close=0`；
+- 不是 `attach_connected` 的 `catch |err|` 块：把它改写成显式
+  `error_id != 0` 判断后，行为**完全相同**（`[ac] attach eid=0` 之后仍
+  `closed=1`）；
+- 不是结构体按值拷贝/整体赋值：`const out: S = src[0]; src[0] = S{0,0}; return out;`
+  这种「拷贝后重置」在两侧都正确（夹具已验证）。
+
+### 为什么本轮停在这里
+
+`@print` 插在 `attach` 的条件表达式内部时，会改变字节码的求值顺序
+（`--dump-bytecode` 里能看见原本的短路条件被拆成了多条
+`LOAD_FIELD` + `JMP_IF_FALSE` 混编），**探针本身影响被测代码的生成结果**，
+因此不能用这种方式继续二分。下一轮需要换成不侵入被测函数的观察手段
+（例如在 VM 侧对 `STORE_FIELD` 到 `WebSocketConn.closed` 偏移的写入打条件断点），
+或者先在 `src/exec` 里找一个与「`!void` 函数返回时对出参对象做额外写」相关的
+可疑路径。当前判断最可能的位置是 **`!void` 返回值的错误联合构造**：
+`websocket_client_attach` 声明为 `!void`，VM 在把返回值包装成 `!void` 时
+若按「载荷是一个聚合」处理，就可能顺手把某个指针目标写坏。
+
+本轮净交付仍以第 583 轮为准（census 892→894、parity 894→895，零回归）。
