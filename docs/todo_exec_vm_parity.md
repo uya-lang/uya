@@ -16035,3 +16035,78 @@ if free_arg.ptr_value != null &&
 本轮只做定位与夹具落地，未改动 `src/exec/vm.uya` —— 这条改动会影响
 **所有** `free(...)` 调用（库里用得非常广），必须全量 census + parity 才能判定，
 属下一轮的独立任务。本轮探针与临时夹具已全部清理，`git status` 干净。
+
+### 第 594 轮订正：根因是 `BC_BOX_VALUE` 复制，导致接口方法里的 `self` 不是原始堆块
+
+第 594 轮把缺口定位到「接口方法里 `free(self)` 写坏堆」，本轮继续追到了**更准确的层次**。
+
+#### 关键实验：接口方法拿到的 `self` 地址
+
+```uya
+interface Prober { fn addr(self: &Self) usize; }
+struct Holder : Prober {
+    fn addr(self: &Self) usize { return @usize_from_ptr(self as &void); }
+}
+
+const raw: &void = malloc(64);
+const raw_addr: usize = @usize_from_ptr(raw);
+const holder: &Holder = raw as &Holder;
+const ops: Prober = *holder;
+const got: usize = ops.addr();
+assert raw_addr == got;
+```
+
+| 后端 | `raw` 地址 | 方法里的 `self` 地址 | 相同？ |
+| --- | --- | --- | --- |
+| C99 | `-100708304` | `-100708304` | ✅ |
+| exec VM | `-672899024` | `-668727344` | ❌（差约 4MB） |
+
+#### 为什么会不同
+
+`--dump-bytecode` 显示 `const ops: Prober = *holder` 这条赋值在 VM 里编译成：
+
+```
+33: BC_LOAD_INDEX   a=8 b=6 c=7 imm=1     ; holder[0]
+34: BC_BOX_VALUE    a=5 b=8 c=16 imm=0    ; ← 把值**复制**进一个新盒子
+36: BC_MAKE_STRUCT  a=11 b=9 c=2          ; 接口值 {vtable, data}
+```
+
+而 C99 生成的是：
+
+```c
+static const struct uya_vtable_Ops uya_vtable_Ops_Holder = { ... };
+void uya_Holder_kill(struct Holder *self) { free((void *)self); }
+```
+
+—— C99 把**原始指针**直接放进接口值的 data 字段，不复制；VM 的
+`BC_BOX_VALUE` 则分配一个盒子把值拷进去。于是：
+
+- 方法里的 `self.field = ...` 在 VM 上写的是盒子（不会写回原对象）；
+- `free(self)` 在 VM 上释放的是「分配器没分配过的盒子地址」，
+  堆头被写坏，下一次 `malloc` 在 `get_size` 里越界。
+
+这也解释了为什么第 594 轮的最小夹具「只 `free(self)`、不 `free` 别的东西」
+同样会崩 —— 与 `PipelineErasedStageBox.drop_erased` 里 `free(self.owned_value)`
+那一句无关，是 `free(self)` 自身的问题。
+
+#### 为什么本轮不改
+
+要让两侧一致，只有两条路，都是语义级权衡：
+
+1. **让 `BC_BOX_VALUE` 不复制**（接口直接持有原指针，对齐 C99）：
+   会改变接口值的**别名语义** —— `self.field = x` 是否写回原对象、
+   `Future.release` 里的释放时机都会跟着变，影响面覆盖全部接口用法；
+2. **让 `free` 识别「装箱副本」并跳过宿主释放**：
+   会让 `drop_erased` 里的 `free(self)` 永远变成空操作，**造成内存泄漏**
+   （每次 `pipeline_drop` 都漏一个 box）。
+
+两条都需要专门设计（例如给 box 打标记 + 让 `free` 按标记决定是「释放整个 box」
+还是「只做 VM 记账」），不能顺手改。
+
+本轮试过在 `EXEC_HOST_CALL_FREE` 上加「内部引用就跳过」的守卫，
+但实测**无效**：`free` 在 VM 里是**解释执行的 Uya 函数**
+（`--dump-bytecode` 里能看到 `fn[5] free slots=19`），根本不走那个宿主桥分支。
+该改动已回退。
+
+夹具 `tests/repros/exec_vm_free_interface_self.uya` 保留为已知差异记录，
+文件头写明了 C99/VM 两侧的语义与不可顺手改的理由。

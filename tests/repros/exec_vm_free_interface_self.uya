@@ -1,13 +1,23 @@
-// 在接口方法里 `free(self as &void)`：VM 把 `self`（接口接收者）的
-// `ptr_value` 当作宿主堆地址交给 `free`，于是堆块头被写坏；之后的
-// `malloc` 在 `lib/libc/heap.uya:221 get_size` 处报
-// `LOAD_FIELD 字段越界(idx=1 kind=14 count=-1 pointee=16 ref=1 aux=65552 tgt=0 res=1)`。
+// 在接口方法里 `free(self as &void)` 的行为差异（**已知差异**，未修）。
 //
-// 这是 `test_typed_pipeline_capability` 的根因形态：
-// `PipelineErasedStageBox.drop_erased` 里写着 `free(self as &void)`
-//（先 `free(self.owned_value)`、再 `free(self)`），
-// 而 `stage<T>` 会 `pipeline_drop` → `drop_erased()`。
-// 实测「先 stage + drop、再 stage」必然失败；去掉 drop、或单独跑，都能通过。
+// C99：`uya_Holder_kill(struct Holder *self)` 收到的是**原始** `holder` 指针
+//       （`stage<T>` 里 `const ops: Ops = *holder` 不复制数据，vtable 直接带
+//       原指针），所以 `free(self)` 释放的正是 `malloc` 那一块，合法。
+//
+// VM ：`const ops: Ops = *holder` 走 `BC_BOX_VALUE`，把值**复制**进一个新盒子，
+//       方法里的 `self` 指向那个盒子而不是原始堆块。于是 `free(self)`
+//       释放的是分配器没分配过的地址，堆头被写坏，下一次 `malloc`
+//       在 `lib/libc/heap.uya:221 get_size` 处报
+//       `LOAD_FIELD 字段越界(... aux=65552 tgt=0)`。
+//
+// 这解释了 `test_typed_pipeline_capability` 为什么「先 stage + drop、再 stage」
+// 必然失败：`PipelineErasedStageBox.drop_erased` 里就是 `free(self as &void)`。
+//
+// 为什么本轮不动：要让两侧一致，`BC_BOX_VALUE` 必须**不复制**而是让接口直接
+// 持有原指针（C99 的做法），或者 `free` 必须识别「这是装箱副本」并跳过宿主释放。
+// 前者会改变接口值的别名语义（`self.field = x` 是否写回原对象），
+// 后者会让 `drop_erased` 里的 `free(self)` 永远变成空操作、造成内存泄漏 ——
+// 两者都是语义级权衡，需要专门设计，不能顺手改。
 //
 // 本文件放在 tests/repros/ 下，不参与 `make check`。
 use libc.malloc;
