@@ -3657,6 +3657,21 @@ fn exec_lower_box_interface_expr(ctx: &ExecLowerContext, expr: &ASTNode, interfa
     var source_expr: &HIRExpr = null;
     if boxed_is_pointer != 0 {
         source_expr = exec_lower_expr(ctx, expr);
+    } else if expr.type == ASTNodeType.AST_UNARY_EXPR && expr.unary_expr_operand != null &&
+        (expr.unary_expr_op as TokenType) == TokenType.TOKEN_ASTERISK {
+        // `const ops: Ops = *holder`：C99 生成
+        // `.data = (void*)&((*holder))` —— 直接用**原指针**，不复制值。
+        // 若走 `exec_lower_make_ref_expr`，`*holder` 会落到 `HIR_EXPR_ADDR`
+        // 的兜底分支被 `BC_BOX_VALUE` 复制进新盒子，接口方法里的 `self`
+        // 就指向盒子而不是原对象（实测地址差约 4MB）。
+        // 这个差异会让 `PipelineErasedStageBox.drop_erased` 的 `free(self)`
+        // 释放未分配地址、写坏堆头
+        //（见 tests/repros/exec_vm_free_interface_self.uya）。
+        //
+        // 只在**接口装箱**这一处特判：`exec_lower_make_ref_expr` 还被
+        // 「`return *pool;`」这类纯解引用语境复用，在那里返回指针本身
+        // 会得到 `LOAD_LOCAL 源槽位非法`（test_async_fd 实测）。
+        source_expr = exec_lower_expr(ctx, expr.unary_expr_operand);
     } else {
         source_expr = exec_lower_make_ref_expr(ctx, expr);
         // `return` 的返回值里，接口装箱数据不能是「指向本帧槽位」的引用：

@@ -16110,3 +16110,84 @@ void uya_Holder_kill(struct Holder *self) { free((void *)self); }
 
 夹具 `tests/repros/exec_vm_free_interface_self.uya` 保留为已知差异记录，
 文件头写明了 C99/VM 两侧的语义与不可顺手改的理由。
+
+## 第 595 轮：接口装箱对 `*ptr` 不再复制值 —— `pipeline_stage_executes_in_pipeline_topology` 转 OK
+
+### 起点
+
+第 594 轮把根因追到「接口方法里的 `self` 指向 `BC_BOX_VALUE` 复制出来的盒子，
+而不是原对象」，并定位到 C99 的对应代码：
+
+```c
+struct uya_interface_Ops ops = (struct uya_interface_Ops){
+    .vtable = (void*)&uya_vtable_Ops_Holder,
+    .data   = (void*)&((*holder)) };   // ← 直接用原指针，不复制
+```
+
+### 关键实验（地址对照）
+
+```uya
+const ops: Prober = *holder;      // 值形态
+assert @usize_from_ptr(&ops…) == @usize_from_ptr(raw);
+```
+
+| 装箱形态 | C99 `self` 地址 | VM `self` 地址 | 一致？ |
+| --- | --- | --- | --- |
+| `const ops: Prober = holder`（指针形态） | 与原值不同 | **与原值相同** | VM 反而正确 |
+| `const ops: Prober = *holder`（解引用形态） | **与原值相同** | 不同（差约 4MB） | ❌ |
+
+即：指针形态两侧本就不同（C99 会重新取地址），而**解引用形态**才是 VM 复制的地方。
+
+### 修复
+
+`src/exec/lower.uya` 的 `exec_lower_box_interface_expr`：当被装箱的表达式是
+**解引用**（`*ptr`）时，直接把 `ptr` 本身作为 data 引用，走
+`exec_lower_expr(ctx, expr.unary_expr_operand)`，而不是
+`exec_lower_make_ref_expr`（后者会让 `*ptr` 落到 `HIR_EXPR_ADDR` 的兜底分支、
+被 `BC_BOX_VALUE` 复制进新盒子）。
+
+### 一个必须避开的坑（首版改错，已修正）
+
+第一版把这条特判加在 `exec_lower_make_ref_expr` **函数内部**，结果
+`test_async_fd` 直接挂掉：
+
+```
+exec backend 失败: ./lib/std/async_scheduler.uya:708:1: exec: LOAD_LOCAL 源槽位非法
+```
+
+原因是 `exec_lower_make_ref_expr` 还被「纯解引用」语境复用
+（`lib/std/async_scheduler.uya` 的 `return *pool;` —— 返回解引用值本身），
+在那里返回指针会得到类型错误的槽位。
+
+所以特判只能放在**接口装箱这一个调用点**上。改到位后：
+
+- `tests/repros/exec_vm_free_interface_self.uya`：VM 通过；
+- `test_async_fd`、`test_tls_async_runtime_io`、`test_std_async_scheduler`、
+  `test_http_websocket_json`、`test_http1_async_client`、
+  `test_async_scheduler_default_epoll`：全部保持通过（无回归）。
+
+### 验证
+
+**目标用例前移**：`test_typed_pipeline_capability` 里原本失败的
+`pipeline_stage_executes_in_pipeline_topology` **已转为 `OK`**
+（这是自第 579 轮以来一直卡着的那一项）。整个文件仍失败，但剩余的
+12 个失败全部变成了「`错误: 未指定输入文件`」和 fork/终端类 ERROR ——
+属于 exec 子进程能力缺口，与接口装箱无关。
+
+**全量 census**（`/tmp/census_595.tsv`）：895 / 910。
+与第 592 轮（896 / 14）比对：
+
+- 新失败 1 例：`test_async_runtime_shared_dns` —— 单点连跑两次均 1/0 通过，
+  是已多次记录的并行负载 flake；
+- 新通过 0 例（`test_typed_pipeline_capability` 整体仍失败，见上）。
+
+**全量 parity**（`/tmp/parity_595.tsv`）：一致 **896** / 不一致 18，
+与第 592 轮完全持平。逐条比对：
+
+- 新一致：`test_async_runtime_shared_semantics`（上一轮的负载 flake，本轮正常）；
+- 新不一致：`test_async_compute_generic_wrapper` —— 连跑三次都是
+  **VM 1/0 通过、C99 0/1 失败**，即 C99 侧的既有线程时序 flake，
+  与本轮改动无关。
+
+净效果：**一项长期卡住的子用例转绿**（`pipeline_stage_executes_in_pipeline_topology`），
+全量指标零回归。
