@@ -16657,3 +16657,61 @@ make uya && 连跑三次
 
 这个方向更彻底，但要动 checker 的 AST 填充逻辑，属于下一轮的独立任务。
 本轮把障碍与结论如实记录下来，避免后续再重复踩「预扫描 + 缓存」这个坑。
+
+## 第 601 轮：找到决定性证据 —— 数组尺寸求值时 `fn_decl_body` 是 **null**
+
+### 探针与结论
+
+在 `eval_const_expr` 的「查当前函数局部 const」分支前加一行探针，
+判断 `codegen.current_function_decl.fn_decl_body` 是否为空：
+
+```uya
+if codegen.current_function_decl != null && codegen.current_function_decl.fn_decl_body != null {
+    _ = write(2, "BODY-OK\n");
+} else {
+    _ = write(2, "BODY-NULL\n");
+}
+```
+
+对夹具 `c99_local_const_array_size.uya` 的输出（两次，对应全局/局部两个用例）：
+
+```
+BODY-NULL
+BODY-NULL
+```
+
+也就是说：**数组尺寸被求值的那一刻，`current_function_decl` 虽然已设置，
+但它的 `fn_decl_body` 还是 null。**
+
+### 这条证据的价值
+
+它一次性解释了第 599 / 600 轮两连败的原因：
+
+- 第 599 轮在 `eval_const_expr` 里「从 body 递归找局部 const」→ body 是 null，必然落空；
+- 第 600 轮改成「`gen_function` 入口预扫描 body 填缓存」→ 但数组尺寸的求值
+  发生在 `gen_function` **之前**（预收集阶段），缓存那时还不存在；
+  而且收集器对初始化表达式求值又依赖这张表，形成自引用。
+
+所以「在 codegen 期按函数生成顺序去解析局部 const」这条路是**结构性不可行**的：
+codegen 在求数组尺寸时根本还没有函数体可用。
+
+### 正确的方向（留给下一轮）
+
+必须把局部 const 的值**在更早的阶段固化进 AST**，让 codegen 只读不算：
+
+在 checker 的 `type_from_ast` 处理 `AST_TYPE_ARRAY` 时
+（`src/checker/type_from_ast.uya:270-275`），如果
+`type_array_size_expr` 是 `AST_IDENTIFIER`，就用 checker 自己的
+`checker_eval_const_expr`（它**能**通过 `symbol_table` 拿到局部 const，
+`src/checker/proof.uya:234-246` 已实现）求值，把结果直接写回该节点的
+`number_value`，并把节点类型从 `AST_IDENTIFIER` 改成 `AST_NUMBER`。
+
+这样：
+
+1. codegen 侧 `eval_const_expr` 的 `AST_NUMBER` 分支直接命中，无需任何新表；
+2. 改动只在 checker 一处，不触碰 codegen 的求值时机；
+3. `AST_NUMBER` 是既有的成熟路径，风险远低于新增缓存表。
+
+本轮探针与临时改动已全部回退（`git checkout -- src/codegen/c99/utils.uya`），
+复测确认第 599 轮修复仍在（`eval_local_const_decl_in_block` 7 处引用）、
+`make uya` 成功。
