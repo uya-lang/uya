@@ -15370,3 +15370,48 @@ test_http_websocket_json
   「宏块展开出来的错误联合」与「普通错误联合值」，目前它会给出相同的
   `TYPE_ERROR_UNION`，所以下一轮要先把这两个形态在类型层面区分开，
   再谈语义修正。
+
+## 第 587 轮：`.value` 改「读字段语义」的第二次尝试（已回退）+ 明确的技术障碍
+
+### 尝试的做法
+
+不再动 `BC_LOAD_ERROR_PAYLOAD`（第 586 轮已证明会破坏宏块路径），改成在
+`HIR_EXPR_TRY` 上复用 `int_value` 传达「这是读字段，不是 `try x`」：
+`lower.uya` 在 `.value` 分支写 `int_value = 1`，`builder.uya` 据此生成
+「`is_err` 为真 → 赋零值；否则 → `UNWRAP_OK`」的双分支。
+
+### 三次迭代都没走通，失败形态各不相同
+
+| 迭代 | 现象 |
+| --- | --- |
+| 1 | 沿用了 `try` 那条 `continue_jump`，`imm` 被回填到「清理 + `BC_RET`」分支，于是 err 路径变成**提前返回**，`r.value` 读不到零值 |
+| 2 | 新发一条 `BC_JMP_IF_FALSE`，但旧 `continue_jump` 仍留在流里且 `imm=0` → 解释器跳到指令 0，**死循环**（`exit=124`） |
+| 3 | 改用 `BC_JMP_IF_TRUE(is_err)` 直接跳零值分支，ok 分支恢复正确，但同样遗留一条未回填的 `JMP_IF_FALSE imm=0`，仍然死循环 |
+
+每次都只有「把旧的 `continue_jump` 从流里摘掉」这一步没做干净 ——
+它是 `try` 语义的核心指令，而 `HIR_EXPR_TRY` 这条 builder 分支被
+**两种语义共用**，任何「保留旧指令 + 追加新分支」的组合都会留下悬挂跳转。
+
+### 回退
+
+`git checkout -- src/exec/builder.uya src/exec/lower.uya`，回退后立即复测：
+`test_http_websocket_json` 恢复 3/0 通过，确认零残留。
+
+### 下一轮的正确做法（本轮确立）
+
+不要再在 `HIR_EXPR_TRY` 上打补丁。应该**新增独立的 HIR 节点**
+（例如 `HIR_EXPR_ERROR_PAYLOAD`），由 builder 从零写一条**完整的**
+双分支代码生成，不带任何来自 `try` 的指令。第 586 轮引入该枚举本身是对的，
+失败的原因是把 `.value` 也强行接到了 `BC_LOAD_ERROR_PAYLOAD` 上、
+而那个 opcode 在宏块路径上语义不兼容。
+
+所以正确组合是：
+
+1. 新增 `HIR_EXPR_ERROR_PAYLOAD`（第 586 轮已有雏形）；
+2. builder 为它从零生成「`IS_ERR` + `JMP_IF_TRUE → 零值` + `UNWRAP_OK`」
+   （**不**复用 `continue_jump`、**不**调用 `emit_all_cleanup`）；
+3. `.value` 指向新节点；
+4. **保留** `BC_LOAD_ERROR_PAYLOAD` 原样不动（宏块路径继续走它现在的行为）。
+
+这条已经很具体，下一轮可以直接照做。本轮两次尝试虽未成功，但把
+「为什么不能复用 `HIR_EXPR_TRY`」这个坑彻底探明并写进了文档。
