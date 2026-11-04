@@ -15094,3 +15094,81 @@ VM 里会把 `w.overflow` 判成真，从而返回 `BufferTooSmall`；而 C99 �
 - 因此嫌疑集中在宏块里 `w` 的**地址传递**（`&w` 经 `id_w` 多次使用）
   以及末尾 `if w.overflow { err } else { w.used }` 这种
   **then 分支是裸错误值、else 分支是 usize** 的 if 表达式合并上。
+
+## 第 583 轮：宏生成 if 表达式被无条件套 `MAKE_ERR`（`encode_to_to_json` 恒失败）
+
+### 现象
+
+第 582 轮修复后，`test_http_websocket_json` 的 VM 侧**仍然**返回
+`error.BufferTooSmall`（这次是真实的错误 id，不是垃圾）。在
+`lib/std/json/encoder.uya` 的两个容量判定点（`write_byte` 与
+`json_buf_write_bytes`）打探针，**都没有触发 overflow** —— 说明失败不是
+「缓冲区真的不够」，而是别的路径制造出来的。
+
+`--dump-bytecode` 看 `websocket_conn_write_json$m37` 的尾部，找到决定性证据：
+
+```
+77: BC_LOAD_LOCAL   a=9  b=7              // w
+78: BC_LOAD_FIELD   a=10 b=9  c=24 imm=42949672963   // w.overflow
+79: BC_JMP_IF_FALSE a=10 imm=84
+80: BC_LOAD_CONST   a=12 imm=71           // BufferTooSmall 的 id
+81: BC_MAKE_ERR     a=13 b=12 imm=2751684522
+82: BC_MOV          a=11 b=13
+83: BC_JMP          imm=87
+84: BC_LOAD_LOCAL   a=14 b=7
+85: BC_LOAD_FIELD   a=15 b=14 c=16 imm=34359738370   // w.used
+86: BC_MOV          a=11 b=15
+87: BC_MOV          a=8  b=11            // if 合并结果
+88: BC_MAKE_ERR     a=16 b=8 imm=2751684522   ← 无条件再包一层 err
+89: BC_STORE_LOCAL  a=6  b=16
+```
+
+第 88 条对**整个 if 表达式的结果**无条件套了一层 `BC_MAKE_ERR`。于是
+`if w.overflow { error.X } else { w.used }` 无论走哪个分支，最终都变成
+「err(BufferTooSmall)」—— `encode_to_to_json` 因此恒失败。
+
+### 根因
+
+`src/exec/lower.uya` 有两处「表达式类型是 `TYPE_ERROR` + 期望类型是
+`TYPE_ERROR_UNION` → 包 `HIR_EXPR_MAKE_ERR`」的规则：
+
+1. `exec_lower_coerce_expr`（约 3861 行）：通用强制转换；
+2. `exec_lower_wrap_future_return`（约 4247 行）：async 返回值装箱。
+
+两处都用 `exec_lower_expr_type(...) == TYPE_ERROR` 判定，而**宏生成的
+if 表达式**（`build_encode_to_to_json_block` 末尾那个
+`if w.overflow { err_val } else { used }`）整体类型恰恰就是 `TYPE_ERROR`：
+then 分支是裸错误值、else 分支是 usize，checker 对宏生成的 AST 放宽了检查，
+于是推断结果落在 `TYPE_ERROR`。可这个 if **自己已经产出正确的 `!T`**
+（两分支各自被 coerce），再包一层就把合并结果无条件标成错误。
+
+### 修复
+
+两处都把判定收紧为「**真正的裸错误值**」：
+
+- `exec_lower_coerce_expr`：追加 `expr.type == ASTNodeType.AST_ERROR_VALUE`；
+- `exec_lower_wrap_future_return`：追加 `payload.kind != HIRExprKind.HIR_EXPR_IF`。
+
+第 582 轮为 `error.Foo as! T` 新增的第三条路径也做了同样收紧
+（`as!` 分支里同样要求 `AST_ERROR_VALUE`）。
+
+### 验证
+
+**单点**：`test_http_websocket_json` 从 2/1 变为 **3/0 全绿**
+（此前 `websocket_json_struct_roundtrip_as_text_message` 一直 ERROR）。
+
+**全量 census**（`/tmp/census_583.tsv`）：通过 **894 / 910（98.2%）**，
+失败 **16**（上一轮 892 / 18）：
+
+- 新通过 **2 例**：`test_http_websocket_json`、`test_async_runtime_shared_dns`；
+- 新失败 **0 例**。
+
+**全量 parity**（`/tmp/parity_583.tsv`）：一致 **895** / 不一致 19
+（上一轮 894 / 20），`test_http_websocket_json` 转为一致。
+`test_async_runtime_shared_dns` 在 parity 的并行负载下偶发
+`137`，脱离负载单点连跑两次均 1/0 通过，属已记录的 flake。
+
+### 顺带确认
+
+`error.Foo as! T` 的夹具（`tests/repros/exec_vm_asbang_from_bare_error.uya`）
+在收紧后仍然两侧通过 —— 说明收紧没有削弱第 582 轮的修复。

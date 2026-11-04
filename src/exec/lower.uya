@@ -3859,7 +3859,13 @@ fn exec_lower_coerce_expr(ctx: &ExecLowerContext, expr: &ASTNode, expected_type:
     }
     if expected_type != null && expected_type.kind == TypeKind.TYPE_ERROR_UNION {
         var actual_error_type: Type = exec_lower_expr_type(ctx, expr);
-        if actual_error_type.kind == TypeKind.TYPE_ERROR {
+        // 只对**裸错误值**（`error.Foo` 字面量 / 标识符形态）走这条包装。
+        // 宏生成的 `if w.overflow { error.X } else { w.used }` 整体也会被推断成
+        // `TYPE_ERROR`，但它自己已经产出 `!T`；这里再包一层 MAKE_ERR 会把
+        // 合并结果无条件标成错误（`encode_to_to_json` 因此恒返回
+        // BufferTooSmall）。
+        if actual_error_type.kind == TypeKind.TYPE_ERROR &&
+            expr != null && expr.type == ASTNodeType.AST_ERROR_VALUE {
             const error_value_expr: &HIRExpr = exec_lower_expr(ctx, expr);
             if error_value_expr == null {
                 return null;
@@ -4246,7 +4252,16 @@ fn exec_lower_wrap_async_return(ctx: &ExecLowerContext, ast_node: &ASTNode, valu
     // 裸 `error.X` 返回：Future 的载荷是 `!T`，必须先包成错误分支，
     // 否则 Ready 里躺着一个裸 error 值，调用方的 `catch`/`LOAD_ERROR_TAG`
     // 会报「目标不是错误联合」。
+    //
+    // **只对真正的裸错误值生效**（类型是 `TYPE_ERROR` 且不是已经被 coerce 成
+    // 错误联合的表达式）。宏生成的 `if w.overflow { error.X } else { w.used }`
+    // 这个 if 表达式整体会被推断成 `TYPE_ERROR`，但两个分支各自已经是 `!T`，
+    // 合并结果也已经是 `!T`。若不排除它，就会给整个合并结果再套一层 MAKE_ERR
+    // —— `encode_to_to_json` 宏块因此**即使没溢出也总返回 BufferTooSmall**
+    // （`var r: !usize = if ... { error.X } else { used };` 的字节码里，
+    //  合并槽后面紧跟一条无条件 `BC_MAKE_ERR`）。
     if payload.type_ref.type.kind == TypeKind.TYPE_ERROR &&
+        payload.kind != HIRExprKind.HIR_EXPR_IF &&
         expect_type.kind == TypeKind.TYPE_ERROR_UNION {
         const err_expr: &HIRExpr = exec_lower_alloc_expr(ctx, ast_node, HIRExprKind.HIR_EXPR_MAKE_ERR, &expect_type);
         if err_expr == null {
@@ -8999,8 +9014,15 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             // `websocket_json_ready_usize(error.BufferTooSmall as! usize)`
             // 因此返回了一个「成功」的 future，把真实失败吞掉。
             // 注意裸错误值在 VM 里被降级成整数 id，所以这里直接用它作 err 的 id。
+            // 只对**字面裸错误值**（`error.Foo`）生效，不能按「表达式类型是
+            // TYPE_ERROR」放宽：`if cond { error.Foo } else { x }` 这种宏生成
+            // 的 if 表达式整体类型也会是 TYPE_ERROR，但它两个分支各自已被
+            // coerce 成 `!T`，再套一层 MAKE_ERR 就会把整个合并结果无条件标成
+            // 错误 —— `encode_to_to_json` 宏块正是这个形态，表现为「明明没溢出
+            // 却总返回 BufferTooSmall」。
             const force_src_type: Type = exec_lower_expr_type(ctx, expr.cast_expr_expr);
-            if force_src_type.kind == TypeKind.TYPE_ERROR {
+            if force_src_type.kind == TypeKind.TYPE_ERROR &&
+                expr.cast_expr_expr != null && expr.cast_expr_expr.type == ASTNodeType.AST_ERROR_VALUE {
                 const force_err_value: &HIRExpr = exec_lower_expr(ctx, expr.cast_expr_expr);
                 if force_err_value == null {
                     return null;
