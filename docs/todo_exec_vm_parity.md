@@ -14828,3 +14828,48 @@ syscall 回填改动无关（本轮 census 892/910、parity 894 的双向比对�
 `@async_fn` 首轮 poll 语义属于第 542/551/552 轮反复处理过的深水区
 （续体快照、poll 幂等性、state 读取）。本轮不在这里展开，只把定位结果、
 可复现探针与「HEAD 同样失败」的证据固定下来，供后续单独攻。
+
+## 第 579 轮后的收口状态（最新一次全量测量）
+
+| 判据 | 结果 | 与上一基线比对 |
+| --- | --- | --- |
+| `uya test --vm` 全量（census） | **892 / 910（98.0%）**，失败 18 | 与第 576 轮**逐用例完全一致**，零回归 |
+| `make exec-parity` | 一致 **894** / 不一致 20 | 893 → 894，**新一致 1 例、新不一致 0 例** |
+| `make check`（C99 侧） | 1190 / 1193 | 失败 3 例（`test_async_compute_types`、`test_std_thread`、`test_async_thread_pool_dynamic_growth`），与 HEAD 基线同一集合 |
+
+### 本轮（第 576~579 轮）净交付
+
+| 提交 | 内容 |
+| --- | --- |
+| `d9714b16` | **修**：C99 `as!` 单态展开的载荷类型改用 `__typeof__`，修掉 typed route 回归 |
+| `1100cf91` | **证**：`sys_read` 写进局部结构体的字节被 VM 丢弃（夹具 + 探针证据） |
+| `b20b529f` | **修**：shield 换址后聚合槽对称回填 + `out_struct` 按字段 kind 归一化 |
+| `8a1e903f` | **证**：`websocket_json` 静默 ERROR 定位到 `@async_fn` 首轮 poll 即 Ready（HEAD 同样失败） |
+
+### 剩余 18 例的定性分类（未变化）
+
+- **真并发**（7 例）：`test_std_thread`(7)、`test_std_thread_async_boundary`(3)、
+  `test_async_compute_dynamic_resource_pressure`(1)、
+  `test_async_thread_pool_dynamic_growth`(4)、`test_std_async_scheduler`(1)。
+  第 578 轮已证明 worker 命令通道现在是**通的**（`sys_read` 回填修复后
+  `UYA_EXEC_REAL_THREADS=1` 能真正执行任务），剩下的是「串行 VM 的
+  `pthread_create` 当场跑完导致 `pending_count` 瞬间归零」，需要真并发模型。
+- **`@async_fn` 状态机**（3 例）：`test_http_websocket_json`、
+  `test_http_websocket_reconnect`、`test_tls_async_runtime_io` —— 新定位到的
+  「首轮 poll 即 Ready 且载荷未初始化」（第 579 轮）。
+- **含接口大数组的惰性聚合化**（2 例）：`test_http_uyagin`、
+  `test_typed_pipeline_capability`。
+- **真 IO 事件循环 / DNS**（3 例）：`test_std_dns_async_query_aggregate`、
+  `test_std_dns_async_transport`、`test_http_uyagin_websocket`。
+- **x86 特权指令**（1 例）：`test_kernel_sim`。
+- **真线程堆生命周期**（1 例）：`test_pthread_heap_cache_identity`。
+- **架构差异**（1 例）：`test_async_frame_pool_full`。
+- **解释执行性能 / 已知 flake**（3 例）：`test_tls_ecdsa`、
+  以及 census 并行负载下偶发 137 的 `test_async_runtime_shared_dns`。
+
+### 收口清单（未变）
+
+- [ ] `uya test --vm` 全量通过 —— 未完成（18 例，均已定性到具体运行期模型扩展）
+- [ ] `make exec-parity` 全绿 —— 未完成（20 例不一致，其中 18 例同源；余下 2 例是
+      C99 侧自身的时序 flake）
+- [ ] 合并 main —— 按纪律不执行（未清零不做 `worktree finish`）
