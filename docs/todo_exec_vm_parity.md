@@ -16240,3 +16240,74 @@ var worker_argv: [&byte: 3] = [worker_exec_path, "--uya-pipeline-worker", null];
 「exec 子进程能力缺口」，与原来的接口装箱缺陷不再有关系。
 第 595 轮修的 `pipeline_stage_executes_in_pipeline_topology` 是确定收益：
 它是该文件里唯一不需要重新 exec 自身、纯靠接口装箱 + 内存布局就能跑通的用例。
+
+## 第 596 轮：现状盘点与收口（第 576~595 轮累计交付）
+
+### 最新全量指标
+
+| 判据 | 当前值 | 起点（第 576 轮） | 变化 |
+| --- | --- | --- | --- |
+| `uya test --vm` 全量（census） | **895–896 / 910**（约 98.4%） | 892 / 910 | 失败数 18 → 15 |
+| `make exec-parity` | 一致 **896** / 不一致 18 | 893 / 21 | 一致数 +3 |
+| `make check`（C99 侧） | 1190 / 1193 | 1189–1190 / 1193 | 与 HEAD 基线同集合 |
+
+> census 通过数在 895/896 之间波动，来源是 `test_async_runtime_shared_dns`
+> 在并行负载下偶发 `137`（多次单点复测均通过）；parity 亦有同源的
+> `test_async_compute_generic_wrapper`（C99 侧线程时序）波动。
+
+### 剩余 15 例的最终分类（全部已定性）
+
+| 类别 | 用例 | 性质 |
+| --- | --- | --- |
+| 真并发（排队/池满时序） | `test_std_thread`、`test_std_thread_async_boundary`、`test_async_compute_dynamic_resource_pressure`、`test_async_thread_pool_dynamic_growth`、`test_std_async_scheduler` | 串行 VM 的 `pthread_create` 当场跑完，`pending_count` 无法呈现中间态 |
+| exec 子进程能力 | `test_typed_pipeline_capability`（剩余 12 子例）、`test_http_uyagin`、`test_http_uyagin_websocket` | `/proc/self/exe` 在 VM 下指向 uya 解释器；无独立可执行文件可再次 exec |
+| x86 特权指令 | `test_kernel_sim` | call gate / trampoline，解释器无法执行 |
+| 真线程堆生命周期 | `test_pthread_heap_cache_identity` | 需要引用计数/延迟回收 |
+| 架构差异 | `test_async_frame_pool_full` | `AsyncFramePoolFull` 在 `src/exec/` 中不存在 |
+| 跨用例 UDP 时序 | `test_std_dns_async_query_aggregate`、`test_std_dns_async_transport` | 共用临时端口导致回包串用例（第 593 轮已证服务端无责） |
+| 解释执行性能 | `test_tls_ecdsa` | 大数运算超时 |
+
+### 本阶段（第 576~595 轮）净交付
+
+**修复（有确定性收益）**
+
+| 提交 | 内容 | 收益 |
+| --- | --- | --- |
+| `d9714b16` | C99 `as!` 单态展开改用 `__typeof__` | 修掉 typed route 回归（`make check` 从红转绿） |
+| `b20b529f` | shield 换址后聚合槽对称回填 + `out_struct` 按字段 kind 归一化 | 打通 syscall 出参回填 |
+| `8fd56d49` | `error.Foo as! T` 两侧都保留错误 id | C99 从「编不过」到通过；VM 不再吞掉失败 |
+| `5feb3ec8` | 宏生成 if 表达式不再被无条件套 `MAKE_ERR` | `test_http_websocket_json` 转通过 |
+| `979bc098` | `.value` 改用独立 `HIR_EXPR_ERROR_PAYLOAD` | err 分支读 `.value` 不再中断执行 |
+| `734d16ef` | `as!` 对错误联合源保留错误分支 | **`test_tls_async_runtime_io` 转通过** |
+| `4e17a166` | 裸地址指针上的聚合整体写入 | **`test_http_websocket_reconnect` 转通过** |
+| `1815ce6c` | 接口装箱对 `*ptr` 不再复制值 | **`pipeline_stage_executes_in_pipeline_topology` 转 OK** |
+| `14c6b60c` | 清理误提交的 git 冲突标记 | 恢复仓库可编译 |
+
+**新增回归夹具**（`tests/repros/`，不参与 `make check`）
+
+- `exec_vm_asbang_from_bare_error.uya`
+- `exec_vm_asbang_then_value.uya`
+- `exec_vm_asbang_keeps_error_branch.uya`
+- `exec_vm_err_union_value_read.uya`
+- `exec_vm_struct_store_through_raw_ptr.uya`
+- `exec_vm_free_interface_self.uya`（已知差异记录）
+
+**被证伪并回退的方案**（都写进了文档，避免重复踩坑）
+
+- `BC_AWAIT` 编入 `loop_depth` 标记（只改 poll 次数、不改最终语义）；
+- 把 `.value` 统一接到 `BC_LOAD_ERROR_PAYLOAD`（破坏宏块路径）；
+- 在 `HIR_EXPR_TRY` 上打补丁（残留 `imm=0` 悬挂跳转，死循环）；
+- 在 `exec_lower_make_ref_expr` 内部特判解引用（破坏 `return *pool;`）；
+- 在 `EXEC_HOST_CALL_FREE` 上加内部引用守卫（`free` 是解释执行的 Uya 函数，走不到）。
+
+### 结论
+
+`docs/todo_exec_vm_parity.md` 的三条硬指标仍未达成：
+
+- [ ] `uya test --vm` 全量通过 —— **未完成**（剩 15 例，全部定性为运行期模型/架构缺口）；
+- [ ] `make exec-parity` 全绿 —— **未完成**（18 例不一致，与上同源）；
+- [ ] 合并 main —— **按纪律不执行**（未清零不做 `worktree finish`）。
+
+剩余 15 例中没有一个是「补几个 opcode 就能解决」的：
+真并发、exec 子进程、x86 特权指令、真线程堆生命周期这四类需要**扩展 VM 的运行期模型**，
+属于独立的大任务；跨用例 UDP 时序两例则需要**改造测试本身**。
