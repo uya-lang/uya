@@ -15306,3 +15306,67 @@ const n: isize = write_result catch |err| {
 两种都会改变大量既有行为，必须全量 census + parity 才能判定，属下一轮的独立任务。
 本轮已验证 `EAGAIN`/`O_NONBLOCK` 常量、`pipe2` 填充行为、`async_poll_pending_writable_usize`、
 catch 内提前 return 都在两侧一致，因此把范围收敛到了这一条。
+
+## 第 586 轮：`.value` 改用 `ERROR_PAYLOAD` 的尝试（已回退）+ 记录确切失败点
+
+### 尝试的做法
+
+按第 585 轮给出的第二方案：把 `.value` 的降级从 `HIR_EXPR_TRY`
+（「`err` 就提前返回」）改成新的 `HIR_EXPR_ERROR_PAYLOAD`
+（「只读载荷，`err` 分支得到零值、继续执行」），并在 builder 里发射
+久已存在但从未接到 HIR 的 `BC_LOAD_ERROR_PAYLOAD`。
+
+改动共四处：`hir.uya` 加枚举、`builder.uya` 发射该 opcode（`c` 槽登记载荷
+kind+1）、`vm.uya` 的 `BC_LOAD_ERROR_PAYLOAD` 在 err 分支改造成零值、
+`lower.uya` 把 `.value` 指向新枚举。
+
+### 结果：单点夹具通过，但破坏了其它用例 —— 已整体回退
+
+自建的三个断言（ok 分支读 `.value`、err 分支读 `.value` 得零、
+`as!` 后读 `.value` 得零）**在两侧全部通过**，看起来是对的。
+
+但回归立刻出现：
+
+```
+test_http_websocket_json
+  exec runtime: ./lib/std/http/websocket_json.uya:55:8:
+    exec: LOAD_ERROR_PAYLOAD 目标不是错误联合
+```
+
+第 55 行是 `websocket_conn_write_json<T>` 的
+`websocket_conn_write_json_value(... encode(arena, value) ...)` 路径；
+`--dump-bytecode` 显示触发点在
+
+```
+102: BC_LOAD_LOCAL a=13 b=6        // encoded_result
+103: BC_LOAD_ERROR_PAYLOAD a=14 b=13 c=8
+```
+
+`encoded_result` 的值来自 **`HIR_EXPR_BLOCK`（`encode_to_to_json` 宏块）**，
+它在运行时的槽位里并不是标准的 `EXEC_VALUE_ERROR_UNION`。
+
+把 `BC_LOAD_ERROR_PAYLOAD` 放宽成「目标不是错误联合就原样放行」之后，
+`test_http_websocket_json` 从「报错」变成**挂死**（推断是放行后语义走偏，
+进入某个等待分支），`test_tls_async_runtime_io` 也仍然失败。
+
+因此这条改法**同时踩到两个问题**：
+
+1. 宏块产物的运行时形态与错误联合不一致，`.value` 不能统一按
+   `LOAD_ERROR_PAYLOAD` 处理；
+2. `BC_LOAD_ERROR_PAYLOAD` 原有的「err 分支没有载荷就报错」约束被别处依赖。
+
+`git checkout -- src/exec/{vm,builder,lower,hir}.uya` 全部回退。回退后
+`test_http_websocket_json` 立即恢复 3/0 通过，确认没有残留。
+
+### 本轮确定下来的事实（供下一轮用）
+
+- `.value` 落在 `HIR_EXPR_TRY` 上这个**结构性问题仍然存在**，且它是
+  `test_tls_async_runtime_io` 的直接原因（第 585 轮已证）；
+- 但**不能**用「统一改成 `LOAD_ERROR_PAYLOAD`」来解决，因为至少有一条
+  真实调用路径（`encode_to_to_json` 宏块的返回值）在运行时不是错误联合；
+- 可行的方向只剩一条：**在 lowering 阶段区分来源**——
+  只有当操作数的静态来源确实是「错误联合值」时才用 `LOAD_ERROR_PAYLOAD`，
+  宏块/已被拆平的来源继续沿用旧路径。这需要 `exec_lower_expr_type` 能区分
+  「宏块展开出来的错误联合」与「普通错误联合值」，目前它会给出相同的
+  `TYPE_ERROR_UNION`，所以下一轮要先把这两个形态在类型层面区分开，
+  再谈语义修正。
