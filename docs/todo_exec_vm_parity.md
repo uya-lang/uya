@@ -14957,3 +14957,61 @@ syscall 回填改动无关（本轮 census 892/910、parity 894 的双向比对�
 这条订正把范围从「`@async_fn` 状态机整体」收敛到
 **`exec_vm_await_pass_through_pending` 的返回类型判定过窄**，
 是下一轮可以直接下手的具体位置。
+
+## 第 581 轮：`block_on` 拿到的 Future 载荷是未初始化的错误联合（新定位）
+
+在**已修复冲突标记的干净仓库**上重新二分 `test_http_websocket_json`，
+这次拿到的证据是可信的：
+
+```
+C99: blk eid=0        STEP write eid=0    STEP read eid=0   STEP decode eid=0
+VM : blk eid=-1543282774   STEP write eid=-1543282774   （后续步骤不再执行）
+```
+
+关键点：**垃圾 id 出现在 `block_on` 的返回值上**，而不是更深处。
+逐步收敛的过程（均在干净仓库上复测）：
+
+| 探针 | C99 | VM |
+| --- | --- | --- |
+| `block_on<usize>(make_ready_err(5))`（手工构造的 `Future{state: Ready(ok(v))}`） | eid=0 val=5 | eid=0 val=5 ✅ |
+| 模拟 `write_json` 结构（泛型 + `arena_alloc` 判空分支 + `encode_like<T>`） | eid=0 val=7 | eid=0 val=7 ✅ |
+| 真实 `websocket_conn_write_json<JsonUser>` 的 future，直接 `.poll()` | — | `RAW eid=-1543282774` ❌ |
+
+也就是说：**VM 自己构造 `Future{state: Poll.Ready(ok<usize>(v))}` 是对的**，
+但从 `websocket_conn_json_write<T>` 这条路径返回的 future，其
+`Poll.Ready` 载荷里的错误联合**没有初始化**（`error_id` 是栈垃圾）。
+
+### 排除项
+
+- 不是 `block_on` 的实现问题（手工 future 的结果两侧一致）；
+- 不是 `Poll<T>`/`Future<T>` 的聚合布局问题（同样的构造在测试里正确）；
+- 不是第 579 轮怀疑的「`@async_fn` 首轮 poll 即 Ready」——
+  实测 `while total < count { @await ... }` 这种循环 await 在 C99 里首轮是
+  Pending、VM 里是 Ready，但那是 **poll 次数差异**，`block_on` 会一直轮询到
+  Ready，**最终值仍然正确**，不会产生垃圾 `error_id`。
+
+### 尝试过但已回退的方案
+
+曾试图在 `src/exec/builder.uya` 的 `BC_AWAIT` 上把 `ctx.loop_depth > 0`
+编码进 `imm`，并在 `src/exec/vm.uya` 的 `BC_AWAIT` 分支里据此首次挂起，
+以对齐 C99 的 poll 次数。实测 `imm` 正确写成 1、
+`exec_vm_await_pass_through_pending` 也确实返回 1 并进了 `exec_vm_cont_suspend`，
+但外层 `.poll()` 仍然看到 Ready —— 因为续体在 `block_on` 的同一轮里就被恢复了。
+这条改动**只改变 poll 次数、不改变最终语义**，对消除垃圾 `error_id` 毫无帮助，
+因此**已全部回退**（`git checkout -- src/exec/vm.uya src/exec/builder.uya`），
+避免留下无收益的复杂度。
+
+### 下一步可下手的位置
+
+`websocket_conn_write_json<T>` 内部只有三处「构造 ready future」：
+
+1. `payload == null` → `websocket_json_ready_usize(error.BufferTooSmall as! usize)`；
+2. `encoded_result.error_id != 0` → `websocket_json_ready_usize(encoded_result)`；
+3. 正常路径 → `websocket_conn_write_message(...)`（`@async_fn`）。
+
+探针显示 VM 在**第 1 或第 2 条**就返回了垃圾错误联合（`STEP write` 立刻带
+垃圾 eid，且 C99 走的是正常路径）。下轮应直接在
+`websocket_json_ready_usize` 上做单点复现——它是非泛型的
+`fn ready(result: !usize) Future<!usize>`，形态与已验证正确的测试构造一致，
+所以嫌疑集中在**实参 `error.BufferTooSmall as! usize` 与
+`encoded_result` 这两类表达式在单态体里求值时的错误联合构造**。
