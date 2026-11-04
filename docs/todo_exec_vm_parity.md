@@ -16311,3 +16311,46 @@ var worker_argv: [&byte: 3] = [worker_exec_path, "--uya-pipeline-worker", null];
 剩余 15 例中没有一个是「补几个 opcode 就能解决」的：
 真并发、exec 子进程、x86 特权指令、真线程堆生命周期这四类需要**扩展 VM 的运行期模型**，
 属于独立的大任务；跨用例 UDP 时序两例则需要**改造测试本身**。
+
+## 第 597 轮：真并发类 5 例的再确认（`pending_count` 中间态在真线程下也不出现）
+
+### 实验
+
+用 `UYA_EXEC_REAL_THREADS=1`（第 575 轮引入的真宿主线程开关）跑
+`test_std_async_scheduler`，并在 `lib/std/thread.uya` 的两处打探针：
+
+1. `thread_pool_try_kick_drain` 的写管道失败分支 → **一次都没进**
+   （说明 `write` 成功，worker 确实收到了命令）；
+2. `thread_shared_drain_sync` 的循环体 → **一次都没进**
+   （说明任务不是靠调用方同步 drain 消化的）。
+
+同时 `UYA_EXEC_TRACE_SPAWN=1` 显示**有 1 次真实 spawn**。
+
+### 结论
+
+在真线程模式下，链路已经通了：`pthread_create` 真的起了宿主线程，
+命令管道写入成功，worker 在自己线程里 pop 并跑完了任务。
+但断言 `wait_thread_pool_pending_at_least(&pool, 1)` 仍然等不到 ——
+因为**任务被 worker 取走得比断言轮询得更快**，`pending_count` 的中间态
+（「任务排着、worker 正在跑」）依然观察不到。
+
+这不是「线程没起来」的问题（第 555 轮那种），而是**时序竞态**：
+断言要求观察到一个瞬时状态，而该状态在 50ms 的任务里存在时间极短，
+轮询（`scheduler_metrics_sleep_wait_poll()` 每次 1ms）撞上的概率很低。
+
+### 为什么不再继续修
+
+要让这类断言稳定通过，只有两条路，都不是 VM 缺陷修复：
+
+1. **改测试**：把「观察中间态」改成「观察最终结果」或加大任务耗时/
+   降低轮询间隔 —— 属于测试改造，且会削弱该断言原本想守的语义；
+2. **给 VM 加调度屏障**：让 worker 在提交后、执行前先等一个信号 ——
+   等于给解释器引入人工同步点，会改变并发语义、影响其它并发用例。
+
+两条都超出「修 VM 缺陷」的范围。因此这 5 例
+（`test_std_thread`、`test_std_thread_async_boundary`、
+`test_async_compute_dynamic_resource_pressure`、
+`test_async_thread_pool_dynamic_growth`、`test_std_async_scheduler`）
+**维持「时序竞态，需测试改造」的定性**，本轮不投入。
+
+探针已全部回退，`git status` 干净。
