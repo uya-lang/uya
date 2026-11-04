@@ -15235,3 +15235,74 @@ S3 eid=1726418326  // ← websocket_client_write_message 返回 WebSocketConnect
 若按「载荷是一个聚合」处理，就可能顺手把某个指针目标写坏。
 
 本轮净交付仍以第 583 轮为准（census 892→894、parity 894→895，零回归）。
+
+## 第 585 轮：`.value` 在 err 分支上 VM 报错、C99 返回零值（新定位的单点）
+
+### 复现
+
+```uya
+fn bad() !usize { return error.BufferTooSmall; }
+
+test "read value of err union" {
+    const r: !usize = bad();
+    @print("eid="); @print(r.error_id as i32); @print(" val="); @print(r.value as i32);
+}
+```
+
+| 后端 | `error_id` | `r.value` |
+| --- | --- | --- |
+| C99 | `-1543282774` | `0`（正常执行完） |
+| exec VM | `-1543282774` | **进程报错退出** |
+
+对照组的 ok 分支（`ok<usize>(7)`）两侧都是 `eid=0 val=7`，完全一致。
+**差异只在 err 分支上读 `.value`。**
+
+### 定位到的实现
+
+`src/exec/lower.uya` 的成员访问里有专门分支：
+
+```uya
+if base_type.kind == TypeKind.TYPE_ERROR_UNION &&
+   str_equals(expr.member_access_field_name, "value") != 0 { ... HIR_EXPR_TRY ... }
+```
+
+`.value` 被降级成 `HIR_EXPR_TRY`，即「解包 ok 载荷」。`X` 的 err 分支上
+`TRY` 会走 `BC_UNWRAP_OK`；VM 的 `BC_UNWRAP_OK` 遇到 err 值会直接
+`exec_backend_set_error(... "UNWRAP_OK 遇到错误值")` 并返回 -1
+（`src/exec/vm.uya`），于是整个测试进程被判为 ERROR。
+
+C99 后端把 `.value` 编译成普通的 `struct_err_union.value` 字段读取，
+err 分支下读到的是零值（错误联合的 value 字段本来就未初始化），不会中断执行。
+
+### 为什么这条重要
+
+这正是 `test_tls_async_runtime_io` 的**直接原因**：
+
+`lib/tls/https.uya` 的 `HttpsWriteAllFuture.poll` 在 catch 块里写
+
+```uya
+const n: isize = write_result catch |err| {
+    const eid: i32 = (@error_id(err) as! i32).value;   // ← 这里读 .value
+    ...
+};
+```
+
+`(@error_id(err) as! i32)` 在**错误分支**上读 `.value`。VM 里这条 `TRY`
+遇到 err 就报错退出，于是整个 future 的 poll 被判为失败 —— 表现为
+`https_write_all_async` 首次 poll 就返回错误（测试里断言失败/
+`ExpectedPending`）。已用探针确认真实进程退出点在
+`test_tls_write_future_pending_sets_writable_interest`。
+
+### 为什么本轮不动
+
+这条改动会直接影响**所有在错误分支上读 `.value` 的代码**（代码库里这种
+「`(x as! T).value` 取裸值」的写法非常常见），语义上要决定：
+
+- 要么让 VM 的 `BC_UNWRAP_OK` 在 err 分支返回零值而不是报错（对齐 C99 的
+  「读未初始化字段」语义）；
+- 要么把 `.value` 的降级从 `HIR_EXPR_TRY` 改成「按错误联合的 payload 字段
+  直接取」，让 err 分支天然得到零值。
+
+两种都会改变大量既有行为，必须全量 census + parity 才能判定，属下一轮的独立任务。
+本轮已验证 `EAGAIN`/`O_NONBLOCK` 常量、`pipe2` 填充行为、`async_poll_pending_writable_usize`、
+catch 内提前 return 都在两侧一致，因此把范围收敛到了这一条。
