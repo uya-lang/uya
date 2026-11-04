@@ -14612,3 +14612,75 @@ C 类型。泛型函数单态展开期间，`payload_for_val` 还是字面 `T`�
 净效果：**parity 一致数 875 → 893（+18）**，这是第 575 轮把默认 `scheduler_run`
 切到平台事件循环带来的直接收益；census 与 parity 的失败集合都与基线的
 flaky 部分同量级，没有确定性回归。
+
+## 第 577 轮：`sys_read` 写进「局部结构体」的字节被 VM 丢弃（新定性的确定性缺陷）
+
+### 复现（已落成夹具 `tests/repros/exec_vm_sys_read_into_local_struct.uya`）
+
+```uya
+struct Cmd { slot_idx: i32, reserved: i32 }
+var cmd: Cmd = Cmd{ slot_idx: 0 - 1, reserved: 0 };
+var src: [byte: 8] = [0xFE, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0];
+_ = try sys_write(fds[1], &src[0], 8);
+const n: isize = try sys_read(fds[0], (&cmd) as *byte, 8);
+try assert_eq_i32(cmd.slot_idx, 0 - 2);   // C99: -2（正确）  VM: -1（未回填）
+```
+
+- **C99 后端**：通过（`cmd.slot_idx == -2`）；
+- **exec VM**：失败（`cmd.slot_idx == -1`，仍是最初写进去的哨兵值）。
+
+对照实验（同一台机器、同一次构建）：
+
+| 写法 | C99 | VM |
+| --- | --- | --- |
+| `sys_read(fds[0], (&cmd) as *byte, 8)` | ✅ | ❌ |
+| `sys_read(fds[0], &buf[0], 8)`（`buf` 是 `[byte: 8]`） | ✅ | ✅ |
+
+所以缺口**不是**「局部变量都不能被内核写」，而是
+**「指针指向聚合体、且该指针被 `as *byte` 之类的强转抹掉类型后当出参用」** 这一种。
+
+### 定位到的三层原因
+
+1. `out_mask` 的位是**构建期**由 `exec_builder_syscall_arg_out_struct_bit`
+   按静态类型打的：`&cmd as *byte` 的 pointee 是 `byte`，不是 struct/union/
+   array/tuple，于是这位**没打上**，`exec_vm_syscall_marshal_out_struct`
+   根本不会为它建回填通道；
+2. 于是走 `exec_vm_syscall_shield_vm_addresses`：它发现地址落在 VM 槽位池里，
+   按惯例换成一块原生 scratch（这一步是对的 —— 不换的话内核会按原生布局把
+   `ExecValue` 的头覆盖掉）；
+3. syscall 返回后的回填循环（第 4831 行起）**只处理标量槽**
+   （`sc_slot.ptr_value == null`），注释写明「聚合槽交给上面的 out_struct 通道」。
+   可这一次聚合槽恰恰没有 out_struct 通道 —— 于是内核写进 scratch 的 8 个字节
+   被直接丢弃，聚合值保持原样。
+
+### 影响面（不止测试）
+
+`lib/std/thread.uya` 的 `thread_worker_loop` 正是这个形态：
+`sys_read(cmd_read_fd, (&cmd) as *byte, @size_of(ThreadWorkerCommand))`。
+VM 里读到的 `cmd.slot_idx` 永远是初值 `THREAD_WORKER_STOP_SLOT`（-1），
+worker 把这个「空命令」当成 STOP 立刻退出，队列里的任务再没人消费。
+
+这解释了第 555 轮以来反复出现的「去掉 sync drain 就卡死 / 留着就 pending 瞬间归零」
+两难：worker 其实**从未真正收到过 drain 命令**，之前的「能跑」完全靠
+`thread_shared_drain_sync` 在提交方线程里同步兜底。本轮把
+`UYA_EXEC_REAL_THREADS=1` 下的探针打出来验证了这一点：
+
+```
+[probe] kick write worker=0 fd=7 failed=0 written=8   ← 命令确实写进了管道
+[probe] worker_loop read n=8                          ← worker 也确实读到了 8 字节
+[probe] exit stop                                     ← 但 cmd.slot_idx 仍是 -1 → 当成 STOP 退出
+```
+
+### 修法方向（未在本轮落地）
+
+最小且语义正确的改法是让第 3 层**对称**：`args[i] != raw_before[i]` 且原始地址
+落在 VM 槽位池里、且该槽是聚合时，把 scratch 里的字节按字段写回聚合
+（与 `exec_vm_syscall_out_struct_apply` 同样的「一字段 8 字节」约定）。
+没有直接改 `out_mask` 的构建期判定，因为那一位的语义是「内核会按原生 struct
+布局写整块」，而 `as *byte` 之后内核写的其实是**按字节**的裸块，两者长度与
+对齐约定都不同，混用会把 `epoll_ctl` / `sigaction` 那批已经正确的路径改坏。
+
+本轮只做到「定性 + 落夹具 + 记录探针证据」，未提交 `src/exec/vm.uya` 的修改：
+这条回填一旦改动会波及**所有**把 VM 聚合地址当裸缓冲区传给内核的 syscall
+（`read`/`recv`/`recvfrom`/`getrandom`/`ioctl` 等），必须做全量 census + parity
+才能判定，属于下一轮的独立任务。

@@ -1,0 +1,20 @@
+use std.testing.assert_eq_i32;
+use libc.syscall;
+
+struct Cmd {
+    slot_idx: i32,
+    reserved: i32,
+}
+
+test "read into local struct loses bytes" {
+    var fds: [i32: 2] = [0 - 1: 2];
+    _ = try (@syscall(SYS_pipe2, &fds[0] as i64, 0 as i64) as! i32);
+    var cmd: Cmd = Cmd{ slot_idx: 0 - 1, reserved: 0 };
+    var src: [byte: 8] = [0xFE, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0];
+    _ = try sys_write(fds[1], &src[0], 8);
+    const n: isize = try sys_read(fds[0], (&cmd) as *byte, 8);
+    try assert_eq_i32(n as i32, 8);
+    try assert_eq_i32(cmd.slot_idx, 0 - 2);
+    _ = sys_close(fds[0]) catch {};
+    _ = sys_close(fds[1]) catch {};
+}
