@@ -14919,3 +14919,41 @@ syscall 回填改动无关（本轮 census 892/910、parity 894 的双向比对�
 `add -A` 会把冲突标记和半截 stash 内容一并纳入索引。
 探针类临时改动用 `git checkout --` 还原，或先 stash 再在**确认工作区无标记**
 之后才 `add`。
+
+### 第 580 轮补充：修复后全量复测
+
+`lib/std/thread.uya` 恢复干净后重跑全量 census
+（`UYA_EXEC_CENSUS_REPORT=/tmp/census_580.tsv`）：
+
+- 通过 **892 / 910（98.0%）**，失败 18；
+- 与第 578 轮（`/tmp/census_578.tsv`）逐用例比对：
+  **新失败 0 例、新通过 0 例**。
+
+即清理冲突标记**只恢复了可编译性，没有改变任何用例的判定**，
+这也反证第 578 轮那批改动本身的结论仍然成立。
+
+### 第 579 轮结论的一次订正
+
+第 579 轮记录的 `@async_fn` 探针结果（`W eid=-1543282774`、
+`RAW ready eid=-1543282774`）是在**仓库已被冲突标记损坏**的状态下采集的
+（`lib/std/thread.uya` 的语法错误会让依赖它的模块解析异常，
+进而污染 async/websocket 系列的行为）。因此那批 `eid` 数字**不可作为证据**。
+
+仓库修复后重新二分同一路径，得到的结论是**更窄也更可靠**的一条：
+
+| 层级 | C99 | VM |
+| --- | --- | --- |
+| `websocket_conn_transport_write_all` 首轮 poll | `Pending` | `Ready`（eid=0，非垃圾值） |
+| `websocket_conn_write_frame` 首轮 poll | `Pending` | `Ready` |
+| `websocket_conn_write_message` 首轮 poll | `Pending` | `Ready` |
+
+也就是说缺口在 `@await` 的**首轮挂起语义**：C99 把「构造 future」和「poll 它」
+分成两遍，首次 poll 必然是 Pending；VM 的 `BC_AWAIT` 里虽然有
+`if frame.vm.frame_resumed == 0 { 只挂起不 poll }` 这条正确分支，但
+`exec_vm_await_pass_through_pending` 只在函数返回类型是
+`TYPE_INTERFACE` 或 `TYPE_STRUCT` 时才「穿透 Pending 成续体」，返回类型若是
+枚举/联合等其他形态就落空，于是继续往下走并解出 Ready。
+
+这条订正把范围从「`@async_fn` 状态机整体」收敛到
+**`exec_vm_await_pass_through_pending` 的返回类型判定过窄**，
+是下一轮可以直接下手的具体位置。
