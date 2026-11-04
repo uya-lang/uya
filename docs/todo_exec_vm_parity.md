@@ -15543,3 +15543,69 @@ git reset HEAD lib/std/thread.uya && git checkout HEAD -- lib/std/thread.uya
 `test_async_thread_pool_dynamic_growth`）自第 576 轮以来一直在同一失败集合里。
 
 `make check` 的失败集合与 HEAD 基线等价，本轮交付是**纯语义正确性提升 + 零回归**。
+
+## 第 589 轮：`(x as! T).value` 的第二层缺口（已定性，未修）
+
+第 588 轮把 `.value` 从 `try x` 的语义里拆出来之后，`test_tls_async_runtime_io`
+的失败点**前移**到了测试文件第 116 行：
+
+```uya
+const n: isize = (written as! isize).value;
+```
+
+这是 **`as!` 之后**读 `.value`。构造最小夹具
+`tests/repros/exec_vm_asbang_then_value.uya` 复现：
+
+| 后端 | `(w as! isize).value`（err 分支） |
+| --- | --- |
+| C99 | `0` |
+| exec VM | `1`（拿到 `w` 本身的载荷值） |
+
+C99 的生成代码说明了语义：
+
+```c
+const intptr_t n = ({ struct err_union_intptr_t _uya_asbang_src = w;
+                      struct err_union_intptr_t _uya_asbang;
+                      if (_uya_asbang_src.error_id != 0) {
+                          _uya_asbang.error_id = _uya_asbang_src.error_id;
+                          _uya_asbang.value = (__typeof__(_uya_asbang.value)){0};
+                      } else { ... }
+                      _uya_asbang; }).value;
+```
+
+即 `as!` 的产物**仍是 `err_union` 结构体**，`.value` 读的是它的 value 字段，
+err 分支下被显式填 0。而 VM 里 `as!` 已经产出裸 T，再读 `.value` 就取到了 T。
+
+### 试过但会互相破坏的两个修法
+
+1. **在 `exec_lower_member_base_type` 里对 `as!` 解到载荷**
+   （`base_type.error_union_payload_type[0]`）：
+   新夹具的两个断言立刻通过，但 `test_http_websocket_json` 的
+   `websocket_json_struct_roundtrip_as_text_message` 变成
+   `assert_eq_i32 failed: 903 == 0` —— 因为该函数里
+   `websocket_json_decode_value(...)` 返回的错误联合的 `.value`
+   也被这条规则拆掉了。
+2. **收紧成「只对目标类型本身是 `!T` 的 `as!` 解包」**：
+   `test_http_websocket_json` 恢复通过，但新夹具又回退到 `n=1` ——
+   实测 `as! isize` 的 `base_type` **就是** `err_union_intptr_t`
+   （C99 侧同样如此），所以「目标类型是否 `!T`」这个判据区分不开两者。
+
+### 结论（下一轮的入口）
+
+判据不能再停留在「类型是不是错误联合」这一层，必须**在 lowering 阶段记录
+`as!` 表达式的产物形态**：
+
+- `as!` 在 VM 里产出**裸 T**（这是 VM 侧既定事实，`test_repros` 里多个用例依赖）；
+- 但 C99 的 `.value` 语义要求「再包一层 err_union 的 value 字段」。
+
+两者要同时成立，只能让 `.value` 的降级认识「基表达式是不是 `as!`」：
+若是 `as!`，产出**零值常量**（对齐 C99 的 err 分支），
+否则沿用第 588 轮的 `HIR_EXPR_ERROR_PAYLOAD`。
+本轮试的 `if base_type.kind != TYPE_ERROR_UNION → 零值` 这条判据太早，
+因为 `as!` 的 `base_type` 恰好也是错误联合。
+
+两个试过的修法都已回退（`git checkout -- src/exec/lower.uya`），
+基线复测：`test_http_websocket_json` 3/0 通过、
+`tests/repros/exec_vm_err_union_value_read.uya` 双侧通过。
+夹具 `tests/repros/exec_vm_asbang_then_value.uya` 保留为**已知差异的记录**，
+文件头写明 C99 通过 / VM 失败的现状与原因，不参与 `make check`。

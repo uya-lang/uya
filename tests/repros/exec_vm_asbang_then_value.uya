@@ -1,0 +1,43 @@
+// `(x as! T).value` —— 记录一处**已知的 VM / C99 差异**（尚未修复）。
+//
+// C99 语义：`as!` 的产物是 `struct err_union_*`，`.value` 读它的 value 字段。
+// 错误分支下该字段被 `_uya_asbang.value = (__typeof__(...)){0}` 填成**零值**，
+// 所以这两个断言在 C99 下通过。
+//
+// VM 现状：`as!` 已经产出裸 T，再读 `.value` 会拿到 T 本身（实测得 1 而非 0），
+// 所以这两个断言在 `uya test --vm` 下**失败**。
+//
+// 为什么还没有修：`.value` 的解包判定依赖 `exec_lower_member_base_type`，
+// 而它同时被「普通结构体字段」路径复用 —— 按 `base_type.kind == TYPE_ERROR_UNION`
+// 无条件解包会把 `websocket_json_decode_value` 里的 `.value` 也一起拆掉
+// （实测让 test_http_websocket_json 的断言 903 失败）。需要先把「`as!`
+// 产物的错误联合」与「普通错误联合值」在类型层面区分开，属独立任务。
+//
+// 本文件放在 tests/repros/ 下，不参与 `make check`。
+use std.testing.assert_eq_i32;
+
+fn asbang_value(w: !isize) isize {
+    const n: isize = (w as! isize).value;
+    return n;
+}
+
+fn asbang_value_i32(w: !i32) i32 {
+    const n: i32 = (w as! i32).value;
+    return n;
+}
+
+fn make_err() !isize { return error.BufferTooSmall; }
+fn make_err_i32() !i32 { return error.OutOfMemory; }
+
+test "asbang then value on err branch yields zero" {
+    const bad: !isize = make_err();
+    try assert_eq_i32((bad.error_id != 0u32) as i32, 1);
+    const n: isize = asbang_value(bad);
+    try assert_eq_i32(n as i32, 0);
+}
+
+test "asbang then value on err branch i32 yields zero" {
+    const bad: !i32 = make_err_i32();
+    const n: i32 = asbang_value_i32(bad);
+    try assert_eq_i32(n, 0);
+}
