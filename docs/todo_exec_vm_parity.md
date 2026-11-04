@@ -15820,3 +15820,77 @@ assert target.a == 9;   // C99 通过 / VM 失败（仍是 1）
 
 即本轮有**一个确定性的用例转通过**（外加 census 计数上的 2 例），
 净改进 census 失败数 16 → 14。
+
+## 第 593 轮：`test_std_dns_async_query_aggregate` 定位到「双路 `@await` 聚合结果为空」
+
+### 定位过程（本轮用子进程内 `@print` + 服务端探针，不侵入被测函数的字节码）
+
+该测试的结构是：父进程开 UDP mock DNS 服务端，`fork` 出子进程做客户端
+（`dns_query_all_async` 并发查 A 与 AAAA），最后 `wait_child_exit_ok`。
+子进程用 `sys_exit(32)` 表示「`block_on_with_event_loop` 返回了非 `DnsTimeout` 的错误」。
+
+给子进程的 `block_on` 结果加探针后拿到确切的错误 id：
+
+```
+BO eid=-423001285        (= 3871966011)
+```
+
+用 `c99_hash_error_name` 的同一套算法（djb2：`h = h*33 + c`）遍历仓库里
+全部 231 个 `error X;` 声明，**唯一匹配**：
+
+```
+-423001285 → error.DnsNoSuchName
+```
+
+时间超时那条用例里是 `-1233195567` = `error.DnsTimeout`（正确），
+所以只有「成功路径」的两条用例受影响。
+
+### 服务端侧完全正常
+
+在 mock 服务端打探针：
+
+```
+SRV recv eid=0 l1=29 l2=29 t1=1 t2=28    ← 收到两个查询：A(type=1) 与 AAAA(type=28)
+SEND1 eid=0
+SEND2 eid=0                              ← 两个响应都发送成功
+BO eid=-423001285                        ← 但客户端仍报 DnsNoSuchName
+```
+
+即：查询收对了、响应也发出去了，客户端却拿不到任何数据。
+
+### 收敛到的位置
+
+`lib/std/net/dns.uya` 的 `dns_query_all_merge_results`：
+
+```uya
+if total == 0 {
+    if a_err_id != 0u32 && a_err_id != @error_id(error.DnsNoSuchName) { ... }
+    if aaaa_err_id != 0u32 && aaaa_err_id != @error_id(error.DnsNoSuchName) { ... }
+    return dns_error_from_error_id(@error_id(error.DnsNoSuchName));
+}
+```
+
+`total == 0` 说明 `a_n` 与 `aaaa_n` **都是 0**，即
+`async_join2_usize_results(a_future, &a_n, &a_err_id, aaaa_future, &aaaa_n, &aaaa_err_id)`
+回来后两个结果槽都没有被写入有效值。
+
+`async_join2_usize_results` 本身逻辑正确（两个 waker 各自 `reset`/`clear_io_interest`、
+`Pending` 时看 `is_woken`、`Ready` 时 `async_join2_store_usize_result`），
+所以缺口在 **VM 同时驱动两个 `@async_fn` future 的并发语义**：
+这需要 `dns_query_transport_future_new` 产生的两个 future 在同一轮
+`join2` 循环里都能被推进到 Ready。
+
+### 归类
+
+这是第 585~592 轮那条线（`@async_fn` 状态机 + IO readiness）的**多路并发**变体：
+
+- 单路 `@await` 已在第 575/591 轮打通（`test_async_scheduler_default_epoll`、
+  `test_tls_async_runtime_io` 都转了）；
+- 双路 `async_join2` 仍拿不到结果。
+
+本轮把范围从「DNS 实现有问题」收敛到「`join2` 里两个 future 的结果槽为空」，
+并且确认**服务端无责**（收发包、类型、响应构造全部正确）。这是下一轮可以直接
+下手的入口：在 `async_join2_usize_results` 的 `Ready` 分支打条件探针，
+看两个 future 是否真的到达过 Ready。
+
+本轮无代码改动（探针已全部回退），`git status` 干净。
