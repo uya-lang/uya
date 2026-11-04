@@ -16191,3 +16191,52 @@ exec backend 失败: ./lib/std/async_scheduler.uya:708:1: exec: LOAD_LOCAL 源�
 
 净效果：**一项长期卡住的子用例转绿**（`pipeline_stage_executes_in_pipeline_topology`），
 全量指标零回归。
+
+### 第 595 轮后续：`test_typed_pipeline_capability` 剩余 12 例的定性
+
+第 595 轮把 `pipeline_stage_executes_in_pipeline_topology` 修好后，该文件剩余 12 例
+全部换成另一种失败形态：
+
+```
+TEST: pipeline_exec_worker_stage_is_enabled_by_default ... 错误: 未指定输入文件
+TEST: pipeline_stage_error_is_preserved_by_observing_sink ... 错误: 未指定输入文件
+...（共 8 例）
+TEST: pipeline_broker_releases_subscription_and_terminal_lease ... ERROR
+TEST: pipeline_terminal_inherit_reads_and_restores_foreground_group ... ERROR
+TEST: pipeline_background_executor_does_not_steal_foreground_terminal ... ERROR
+TEST: pipeline_stopped_terminal_child_is_cancelled_and_restores_foreground ... ERROR
+```
+
+追到根因：这些用例都走 `capture_into` / `status_into`，最终会 fork 出子进程
+并 **exec 自身**来跑 Uya stage。`lib/std/process.uya` 的实现是：
+
+```uya
+// Linux
+const source: &const byte = "/proc/self/exe";
+...
+var worker_argv: [&byte: 3] = [worker_exec_path, "--uya-pipeline-worker", null];
+```
+
+即「重新执行当前进程的可执行文件，并带上 `--uya-pipeline-worker`」。
+
+- **C99 后端**：被测程序被编译成独立可执行文件，`/proc/self/exe` 就是它自己，
+  子进程带 `--uya-pipeline-worker` 启动后由
+  `uya_pipeline_worker_main_if_requested()` 接住，正常跑 stage；
+- **exec VM**：程序是被 `bin/uya` **解释执行**的，`/proc/self/exe` 解析到的是
+  **uya 编译器本身**。于是子进程成了「不带输入文件的 uya」，在
+  `src/main.uya:2104` 处打印 `错误: 未指定输入文件` 并退出。
+
+这是**解释执行与 AOT 编译的固有差异**：VM 没有「属于被测程序的独立可执行文件」
+可供再次 exec。要消除它只能二选一：
+
+1. 给 VM 造一个「重新进入解释器并跑指定 stage」的宿主入口（相当于自举一个
+   `--uya-pipeline-worker` 的等价物），工作量大且要新增进程间协议；
+2. 修改 `lib/std/process.uya`，让 pipeline worker 不再依赖 exec 自身
+   （例如在父子进程间用管道 + 函数指针跑 stage），这会改动 C99 侧的既有行为。
+
+两条都超出「修一个 VM 缺陷」的范围，本轮不做。
+
+**结论**：`test_typed_pipeline_capability` 的失败构成已经**整体迁移**成
+「exec 子进程能力缺口」，与原来的接口装箱缺陷不再有关系。
+第 595 轮修的 `pipeline_stage_executes_in_pipeline_topology` 是确定收益：
+它是该文件里唯一不需要重新 exec 自身、纯靠接口装箱 + 内存布局就能跑通的用例。
