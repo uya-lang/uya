@@ -1107,8 +1107,16 @@ fn exec_vm_syscall_out_struct_apply(target: &ExecValue, buffer: &i64, field_coun
     }
     var i: i32 = 0;
     while i < aggregate.count && i < field_count {
-        if exec_vm_value_kind_is_integer(aggregate.values[i].kind) != 0 {
-            aggregate.values[i].i64_value = buffer[i];
+        const field_kind: ExecValueKind = aggregate.values[i].kind;
+        if exec_vm_value_kind_is_integer(field_kind) != 0 {
+            // 按**字段自己的 kind** 归一化，不能直接塞 `buffer[i]`。
+            // 内核按原生布局写的是「字段实际宽度的字节」：`i32` 字段读回来是
+            // `0x00000000FFFFFFFE`，直接存进 `i64_value` 会让 `i32` 槽里躺着
+            // `0xFFFFFFFE` 这个**正数**。打印时按 i32 解释成 -2 看不出问题，
+            // 但 `==` 与字面量 `-2`（i64 的 0xFFFFFFFFFFFFFFFE）比较就不等：
+            // `tests/repros/exec_vm_sys_read_into_local_struct.uya` 的断言
+            // 正是这么挂的（`actual: -2, expected: -2` 却判定失败）。
+            aggregate.values[i] = exec_vm_make_integer_by_kind(field_kind, buffer[i], buffer[i] as u64);
         }
         i = i + 1;
     }
@@ -4828,16 +4836,38 @@ fn exec_vm_exec_syscall(function: &BCFunction, frame: &ExecFrame, nr_slot: &Exec
             out_fields[out_apply_i]);
         out_apply_i = out_apply_i +| 1;
     }
-    // 标量出参回填：只处理「shield 换过地址」且「原始地址指向标量槽」的参数。
-    // 聚合槽的 `ptr_value` 非空，交给上面的 out_struct 通道，这里跳过。
+    // shield 换址后的回填：处理所有「shield 把 VM 槽地址换成原生 scratch」的参数。
+    //
+    // 两类槽都要回填，此前只处理了标量槽：
+    //   - 标量槽（`&status`、`&alen`）：内核写 8 字节，取 `buf[0]`；
+    //   - 聚合槽（`&cmd` 经 `as *byte` 传给 `read`）：`out_mask` 的位是构建期按
+    //     静态 pointee 类型打的，`(&cmd) as *byte` 的 pointee 是 `byte`，这一位
+    //     打不上，也就不会有 out_struct 通道。shield 仍然（正确地）把槽地址换成
+    //     scratch，可返回时若只回填标量，内核写进 scratch 的字节就被**整个丢弃**，
+    //     聚合值保持原样 —— `lib/std/thread.uya` 的
+    //     `sys_read(fd, (&cmd) as *byte, @size_of(ThreadWorkerCommand))` 因此永远
+    //     读到初值 `THREAD_WORKER_STOP_SLOT`，worker 把空命令当 STOP 立刻退出。
+    //     聚合槽按 `exec_vm_syscall_out_struct_apply` 的「一字段一个 i64」约定回填，
+    //     与 shield 填充 scratch 时用的是同一套约定，因此内核压根没写时也是幂等的。
     var sc_i: i32 = 0;
     while sc_i < arg_count && sc_i < 6 {
         if args[sc_i] != raw_before[sc_i] && raw_before[sc_i] != 0 {
             const sc_slot: &ExecValue = exec_vm_realign_to_slot(raw_before[sc_i] as usize);
-            if sc_slot != null && sc_slot.ptr_value == null {
+            if sc_slot != null {
                 const sc_buf: &i64 = @ptr_from_usize(args[sc_i] as usize) as &i64;
-                if sc_buf != null {
+                if sc_buf == null {
+                    sc_i = sc_i + 1;
+                    continue;
+                }
+                if sc_slot.ptr_value == null {
                     sc_slot[0].i64_value = sc_buf[0];
+                } else if sc_slot.kind == ExecValueKind.EXEC_VALUE_STRUCT ||
+                    sc_slot.kind == ExecValueKind.EXEC_VALUE_TUPLE ||
+                    sc_slot.kind == ExecValueKind.EXEC_VALUE_UNION {
+                    const sc_agg: &ExecAggregate = sc_slot.ptr_value as &ExecAggregate;
+                    if sc_agg != null && sc_agg.values != null && sc_agg.count > 0 {
+                        exec_vm_syscall_out_struct_apply(sc_slot, sc_buf, sc_agg.count);
+                    }
                 }
             }
         }

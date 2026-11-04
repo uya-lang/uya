@@ -14684,3 +14684,83 @@ worker 把这个「空命令」当成 STOP 立刻退出，队列里的任务再�
 这条回填一旦改动会波及**所有**把 VM 聚合地址当裸缓冲区传给内核的 syscall
 （`read`/`recv`/`recvfrom`/`getrandom`/`ioctl` 等），必须做全量 census + parity
 才能判定，属于下一轮的独立任务。
+
+## 第 578 轮：第 577 轮的修法落地 —— shield 换址后的聚合槽对称回填
+
+### 改动
+
+`src/exec/vm.uya` 两处：
+
+1. **`exec_vm_exec_syscall` 的 shield 回填循环**（第 4836 行起）
+   原来只回填标量槽（`sc_slot.ptr_value == null`），注释写着「聚合槽交给上面的
+   out_struct 通道」。但第 577 轮已经证明存在**没有 out_struct 通道的聚合槽**：
+   `out_mask` 的位是构建期按静态 pointee 类型打的，`(&cmd) as *byte` 的 pointee
+   是 `byte`，这一位打不上。于是 shield 把槽地址换成 scratch（这一步是对的），
+   返回时却没人把 scratch 里的字节写回去 —— 内核写的东西被整个丢弃。
+
+   现在对 `EXEC_VALUE_STRUCT` / `EXEC_VALUE_TUPLE` / `EXEC_VALUE_UNION` 槽也调
+   `exec_vm_syscall_out_struct_apply`，按「一字段一个 i64」的约定回填。这与 shield
+   填充 scratch 时用的是同一套约定，所以「内核压根没写」的情况下也是幂等的
+   （写回的就是 shield 自己填进去的原值）。
+
+2. **`exec_vm_syscall_out_struct_apply` 按字段 kind 归一化**
+   原来直接 `aggregate.values[i].i64_value = buffer[i]`。内核按原生布局写的是
+   字段**实际宽度**的字节：`i32` 字段读回来是 `0x00000000FFFFFFFE`，直接塞进
+   `i64_value` 会让 i32 槽里躺着 `0xFFFFFFFE` 这个**正数**。打印按 i32 解释成 -2
+   看不出问题，但 `==` 与字面量 `-2`（i64 的 `0xFFFFFFFFFFFFFFFE`）比较就不等。
+
+   实测表现极具迷惑性：
+
+   ```
+   assert_eq_i32 failed: cmd.slot_idx == 0 - 2 (actual: -2, expected: -2)
+   ```
+
+   actual 和 expected **打印出来一模一样却判定失败**。改成
+   `exec_vm_make_integer_by_kind(field_kind, buffer[i], buffer[i] as u64)` 后，
+   i32 字段被真正截断/符号扩展成 i32 的 -2，比较才成立。
+
+   这个修正对**所有**已经走 out_struct 通道的 syscall 都生效（`stat`、`utsname`、
+   `sigaction`、`gettimeofday`…），属于顺带修正的语义缺陷。
+
+### 影响范围评估
+
+改的是 `src/exec/vm.uya` 的 **syscall 出参通道**，这一条路径被所有把 VM 内存当
+宿主缓冲区用的 syscall 共用（`read`/`recv`/`recvfrom`/`getrandom`/`ioctl`/`stat`
+系列…），影响面**宽**。因此按文档既定纪律选择**全量验证**（census + parity），
+而不是单点。
+
+### 验证结果
+
+**夹具**（`tests/repros/exec_vm_sys_read_into_local_struct.uya`，第 577 轮落地）：
+
+| 后端 | 修复前 | 修复后 |
+| --- | --- | --- |
+| C99 | ✅ 通过 | ✅ 通过 |
+| exec VM | ❌ `actual: -1, expected: -2` | ✅ **通过** |
+
+**全量 census**（`UYA_EXEC_CENSUS_REPORT=/tmp/census_578.tsv`）：
+通过 **892 / 910（98.0%）**，失败 18 —— 与第 576 轮基线
+（`/tmp/census_576.tsv`）**逐用例完全相同，零回归**。
+
+**全量 parity**（`UYA_PARITY_REPORT=/tmp/parity_578.tsv`）：
+一致 **894**，不一致 20。与第 576 轮（一致 893 / 不一致 21）比对：
+
+- 新一致 **1 例**：`test_async_compute_generic_wrapper`（编译期用例，此前在
+  并行负载下偶发 `C99=2`，本轮在同一负载下稳定一致）；
+- 新不一致：**0 例**。
+
+### 为什么线程池那 7 例仍然没有转通过
+
+第 577 轮的推断是「worker 从未真正收到过 drain 命令」。修复后**这个推断得到证实**：
+`UYA_EXEC_REAL_THREADS=1` 下 `test_std_async_scheduler` 现在能真正把任务跑起来
+（此前是读不到命令直接 STOP），但默认**串行**模式仍然卡在同一条断言：
+
+```
+assert_eq_i32 failed: wait_thread_pool_pending_at_least(&pool, 1) == 1 (actual: 0, expected: 1)
+```
+
+原因是串行模式下 `pthread_create` 是「当场把 routine 跑完」，worker 退出前的
+`thread_shared_drain_sync` 以及提交路径上的同步兜底都会让 `pending_count` 瞬间归零。
+断言要求的是**真并发**下的中间态（任务排着、worker 正在跑），这是第 555 轮就已
+定性的「VM 运行期模型需要真并发」类问题，不是本轮这条回填缺陷能解决的。
+本轮的价值是把 worker 命令通道真正打通，为后续真并发模型清掉了一个前置 bug。
