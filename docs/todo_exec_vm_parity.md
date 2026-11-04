@@ -16595,3 +16595,65 @@ make uya && 连跑三次
 
 本轮残留的探针已全部清理干净（`git diff` 只剩那 6 行空块的删除），
 `make uya` 通过，全局 const 的 `[3]` 修复保持有效。
+
+## 第 600 轮：「预扫描 + 缓存」方案实测失败，定位到新的障碍（已回退）
+
+### 尝试
+
+按第 599 轮末尾的计划：给 `C99CodeGenerator` 加
+`local_const_names[]` / `local_const_values[]` / `local_const_count` 三个字段，
+在 `gen_function` 的 `gen_stmt(body)` **之前**调
+`collect_local_consts_for_function` 一次性收集局部 const，
+让 `eval_const_expr` 直接查表。
+
+### 探针揭示的两个事实
+
+1. **预扫描确实跑了**：`[cl] vd is_const=1` 打印了多次
+   （`var_decl_is_const` 在局部 const 上是对的）；
+2. **但查找发生在预扫描之前**：输出顺序是
+
+   ```
+   [cl] vd is_const=0
+   [cl] vd is_const=1
+   [cl2] v=            ← 求值在这里，但没打出 ok/neg
+   [cl] vd is_const=1
+   ...
+   [lk] n=empty        ← 数组尺寸的查找比预扫描更晚，表却还是空的
+   ```
+
+   `[lk] n=empty` 说明查表时 `local_const_count == 0`。
+
+结合两点，最合理的解释是：**`eval_const_expr` 被递归调用**——
+`collect_local_consts_for_function` 内部对 `var_decl_init` 求值时，
+如果初始化表达式是标识符，`eval_const_expr` 会走到「查当前函数局部 const」那条
+新分支，而那条分支读的正是**还没填完的表**，形成「收集 → 求值 → 查表」的自引用，
+最终靠深度保护截断返回 -1（`[cl2] v=` 后面没有 `ok`/`neg` 就是这个截断）。
+
+也就是说，「预扫描收集」与「eval 时查表」这两件事互相依赖，
+在主结构（`c99_type_to_c` 的求值时机）没有理清之前**无法自洽**。
+
+### 已回退
+
+改动涉及 `internal.uya`（加字段）、`function.uya`（加收集器 + hook）、
+`utils.uya`（改查找），已全部 `git checkout --` 回退；随后确认：
+
+- `git status` 干净；
+- 第 599 轮的修复仍在（`eval_local_const_decl_in_block` 7 处引用）；
+- 全局 const 的 `[3]` 保持有效、局部仍是 `[1]`（与回退前一致）；
+- `make uya` 成功、`test_async_fd` 冒烟通过。
+
+### 下一轮的正确入口
+
+必须先回答一个**前置问题**，而不是继续加表：
+
+> `c99_type_to_c` 在什么阶段被调用、那时 `gen_function` 走到哪一步？
+
+因为数组尺寸求值可能在**函数体 emit 之前**的某个预收集阶段就已经发生
+（`[lk]` 早于 `[cl]` 的打印顺序强烈暗示这一点）。如果确实如此，
+那么「按函数生成顺序做缓存」这条路根本走不通，正确做法应当是把
+**局部 const 的名字→值映射在解析/检查阶段就固化到 AST 上**
+（例如给 `AST_TYPE_ARRAY` 的 `type_array_size_expr` 直接写入
+`number_value`），让 codegen 只读、不再求值。
+
+这个方向更彻底，但要动 checker 的 AST 填充逻辑，属于下一轮的独立任务。
+本轮把障碍与结论如实记录下来，避免后续再重复踩「预扫描 + 缓存」这个坑。
