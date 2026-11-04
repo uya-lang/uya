@@ -15609,3 +15609,71 @@ err 分支下被显式填 0。而 VM 里 `as!` 已经产出裸 T，再读 `.valu
 `tests/repros/exec_vm_err_union_value_read.uya` 双侧通过。
 夹具 `tests/repros/exec_vm_asbang_then_value.uya` 保留为**已知差异的记录**，
 文件头写明 C99 通过 / VM 失败的现状与原因，不参与 `make check`。
+
+## 第 590 轮：`(x as! T).value` 的真正根因找到了 —— `as!` 的 lowering 多包了一层 `MAKE_OK`
+
+### 决定性证据（`--dump-bytecode`）
+
+```uya
+fn asbang_value(w: !isize) isize {
+    const n: isize = (w as! isize).value;
+    return n;
+}
+```
+
+编译出来是：
+
+```
+fn[5] asbang_value slots=8 params=1 varargs=0
+  0: BC_LOAD_LOCAL  a=2 b=0            ; w
+  1: BC_CAST        a=3 b=2 c=13       ; as! isize  → 裸 i64
+  2: BC_MAKE_OK     a=4 b=3 c=0        ; ← 无条件把裸值包成「成功」
+  3: BC_IS_ERR      a=6 b=4
+  4: BC_JMP_IF_TRUE a=6 → 7
+  5: BC_UNWRAP_OK   a=5 b=4
+  6: BC_JMP         → 9
+  7: BC_LOAD_CONST  a=7 imm=10
+  8: BC_MOV         a=5 b=7
+  9: BC_STORE_LOCAL a=1 b=5
+```
+
+第 2 条 `BC_MAKE_OK` 就是问题所在：`as!` 已经产出**裸 T**，却又被包成
+`ok(T)`，于是第 3 条 `IS_ERR` **永远为假**，第 5 条 `UNWRAP_OK` 取回的正是
+那个裸值 —— 所以 err 分支上 `(w as! isize).value` 得到 `1`（`w` 的载荷值），
+而 C99 得到 `0`。
+
+这也解释了为什么前面几轮所有「在 `.value` 层面打补丁」的方案都失败：
+问题根本不在 `.value`，而在**它左边的 `as!` 已经丢掉了错误分支信息**。
+
+### 三种试过的修法都失败（已全部回退）
+
+| 修法 | 结果 |
+| --- | --- |
+| 按 `base_type.kind == TYPE_ERROR_UNION` 在 `member_base_type` 解包 | 新夹具通过，但 `test_http_websocket_json` 断言 903 失败（把它普通错误联合字段也拆了） |
+| 收紧成「只对目标类型是 `!T` 的 `as!` 解包」 | websocket_json 恢复，新夹具回退（`as! isize` 的 `base_type` 本身就是错误联合，区分不开） |
+| 在 `.value` 前判断「基表达式是 `as!`」并给零值 | websocket_json 通过、新夹具通过，但把 `lib/std/json/encoder.uya` 的 `((n % 10) as! byte).value`（合法取转换值用法）也变成 0，JSON 数字编码全坏 |
+| 同上但区分 `as!` 的源类型（源是错误联合才给零值） | websocket_json 通过、新夹具通过 —— 但 **ok 分支被写死成 0**：`(ok<isize>(5) as! isize).value` 应该得 5 却得 0 |
+| 改成走 `HIR_EXPR_ERROR_PAYLOAD` | 回到第 588 轮，`as!` 产生的 `MAKE_OK` 让 `IS_ERR` 恒假，仍然得 1 |
+
+### 正确的修法（下一轮的入口）
+
+**应该修 `as!` 的 lowering 本身**，而不是在 `.value` 上打补丁：
+
+`src/exec/lower.uya` 的 `as!` 分支目前无条件构造 `HIR_EXPR_MAKE_OK`
+（第 588 轮曾把「源是裸错误值」的情况改成 `MAKE_ERR`，但源是**错误联合**时
+仍然走 `MAKE_OK`）。而 C99 的 `as!` 语义是「保留源的错误分支、成功分支才换载荷」：
+
+```c
+if (_uya_asbang_src.error_id != 0) { 保留 error_id; value = 0; }
+else { error_id = 0; value = 载荷; }
+```
+
+所以 VM 的 `as!` 对错误联合源应该生成「`IS_ERR` 就原样透传 err，
+否则用转换后的载荷构造 ok」—— 这正是第 582 轮给 C99 修的那套语义。
+一旦 `as!` 的产物正确保留了错误分支，后面的 `.value` 只要走第 588 轮的
+`HIR_EXPR_ERROR_PAYLOAD` 就自然对了（ok 得载荷、err 得零值），
+不需要任何额外特判。
+
+本轮所有尝试均已 `git checkout -- src/exec/lower.uya` 回退；复测基线：
+`test_http_websocket_json` 3/0 通过、`tests/repros/exec_vm_err_union_value_read.uya`
+双侧通过。夹具 `tests/repros/exec_vm_asbang_then_value.uya` 保留为已知差异记录。
