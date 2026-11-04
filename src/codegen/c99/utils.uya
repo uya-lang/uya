@@ -2615,6 +2615,64 @@ export fn emit_pending_embed_dir_tables(codegen: &C99CodeGenerator) void {
 }
 
 // 评估编译时常量表达式（返回 -1 表示无法评估）
+/// 在当前函数体（含嵌套块 / 语句）里查找名为 `name` 的局部 `const` 并求值。
+///
+/// `eval_const_expr` 只扫顶层声明，函数内的 `const N: usize = 2;` 查不到，
+/// 会让数组尺寸退化成占位符 1。这里按块递归找那个 `var_decl`。
+///
+/// 参数：`codegen` 生成器；`block` 待搜索的块；`name` 目标标识符。
+/// 返回值：求值结果（>= 0）；找不到或求值失败返回 -1。
+fn eval_local_const_decl_in_block(codegen: &C99CodeGenerator, block: &ASTNode, name: &byte) i32 {
+    if codegen == null || block == null || name == null {
+        return -1;
+    }
+    if block.block_stmts == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < block.block_stmt_count {
+        const stmt: &ASTNode = block.block_stmts[i];
+        if stmt != null {
+            if stmt.type == ASTNodeType.AST_VAR_DECL && stmt.var_decl_is_const != 0 &&
+                stmt.var_decl_name != null && stmt.var_decl_init != null &&
+                strcmp(stmt.var_decl_name as *byte, name as *byte) == 0 {
+                return eval_const_expr(codegen, stmt.var_decl_init);
+            }
+            if stmt.type == ASTNodeType.AST_BLOCK {
+                const inner: i32 = eval_local_const_decl_in_block(codegen, stmt, name);
+                if inner >= 0 {
+                    return inner;
+                }
+            }
+            // 控制流语句的内嵌块也要搜（`if` / `while` / `for` 体里常写 const）。
+            if stmt.type == ASTNodeType.AST_IF_STMT {
+                const then_v: i32 = eval_local_const_decl_in_block(codegen, stmt.if_stmt_then_branch, name);
+                if then_v >= 0 {
+                    return then_v;
+                }
+                const else_v: i32 = eval_local_const_decl_in_block(codegen, stmt.if_stmt_else_branch, name);
+                if else_v >= 0 {
+                    return else_v;
+                }
+            }
+            if stmt.type == ASTNodeType.AST_WHILE_STMT {
+                const body_v: i32 = eval_local_const_decl_in_block(codegen, stmt.while_stmt_body, name);
+                if body_v >= 0 {
+                    return body_v;
+                }
+            }
+            if stmt.type == ASTNodeType.AST_FOR_STMT {
+                const body_v2: i32 = eval_local_const_decl_in_block(codegen, stmt.for_stmt_body, name);
+                if body_v2 >= 0 {
+                    return body_v2;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
 fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
     if expr == null {
         return -1;
@@ -2676,6 +2734,30 @@ fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
                 }
             }
             i = i + 1;
+        }
+        // 顶层找不到：再查**当前函数体内**的局部 `const`。
+        //
+        // 此前只扫 `program.program_decls`（顶层声明），函数里的
+        // `const LOCAL_N: usize = 2;` 完全查不到，返回 -1；调用方
+        // （`types.uya` 的数组类型生成）把 <= 0 视为「评估失败」退回占位符 1，
+        // 于是 `[byte: LOCAL_N]` 被生成成 `uint8_t arr[1]` —— 不只是 `@len`
+        // 读错，越界写会直接踩坏相邻局部变量。
+        // 夹具：tests/repros/c99_local_const_array_size.uya。
+        if codegen.current_function_decl != null &&
+            codegen.current_function_decl.type == ASTNodeType.AST_FN_DECL {
+            const fn_body: &ASTNode = codegen.current_function_decl.fn_decl_body;
+            if const_name != null {
+            }
+            if fn_body != null {
+            } else {
+            }
+            _ = write(2 as i32, "\n" as &void, 1 as usize);
+            if fn_body != null {
+                const found: i32 = eval_local_const_decl_in_block(codegen, fn_body, const_name);
+                if found >= 0 {
+                    return found;
+                }
+            }
         }
         // 未找到常量变量或不是 const
         return -1;

@@ -16487,3 +16487,61 @@ census + parity 才能判定，不适合和本轮（已经做了一次定位）�
 2. 在局部 `var_decl_is_const != 0` 的 emit 处登记（注意作用域弹出时回滚计数）；
 3. `eval_const_expr` 的 `AST_IDENTIFIER` 分支在顶层扫描失败后查这张表；
 4. 全量 census + parity 验证。
+
+### 第 599 轮：`eval_const_expr` 补上「当前函数体内局部 const」查找
+
+按第 598 轮的计划，在 `src/codegen/c99/utils.uya` 的 `eval_const_expr` 里，
+顶层 `program_decls` 扫描失败后，追加**当前函数体内**的局部 const 查找：
+
+```uya
+if codegen.current_function_decl != null &&
+    codegen.current_function_decl.type == ASTNodeType.AST_FN_DECL {
+    const fn_body: &ASTNode = codegen.current_function_decl.fn_decl_body;
+    if fn_body != null {
+        const found: i32 = eval_local_const_decl_in_block(codegen, fn_body, const_name);
+        if found >= 0 { return found; }
+    }
+}
+```
+
+新增辅助函数 `eval_local_const_decl_in_block`：按块递归搜 `AST_BLOCK` /
+`AST_IF_STMT` / `AST_WHILE_STMT` / `AST_FOR_STMT` 的子块，命中
+`AST_VAR_DECL && var_decl_is_const && name 匹配` 时用它的
+`var_decl_init` 递归 `eval_const_expr`。
+
+**没有**改用 `symbol_table_lookup`：那条路在第 598 轮已证明走不通 ——
+codegen 在 checker 之后运行，函数作用域那时已经弹出，局部 `Symbol` 查不到。
+而 `current_function_decl.fn_decl_body` 是 AST，codegen 全程都持有它。
+
+### 验证
+
+| 检查 | 结果 |
+| --- | --- |
+| `tests/repros/c99_local_const_array_size.uya`（全局 const 断言） | C99 从 `[1]`/`1` 变为 **`[3]`/3** ✅ |
+| 同夹具（局部 const 断言） | 仍为 `[1]`/1 ❌（见下） |
+| 全量 census | **896 / 910**，与上一轮 895 相比**零新增失败** |
+| 全量 parity | 一致 **898** / 不一致 16（上一轮 896 / 18） |
+
+parity 新增一致 2 例：`test_async_compute_generic_wrapper`、`test_async_compute_types`
+（这两个是 C99 侧线程时序 flake，本轮恰好稳定），**零新增不一致**。
+
+### 局部 const 仍然不对的原因（下一步）
+
+诊断显示，局部 `const LOCAL_N: usize = 2;` 那条路径**根本没有走到**
+`eval_const_expr` 的 `AST_IDENTIFIER` 分支（探针一次都没打印）。
+生成的 C 里 `const size_t LOCAL_N = 2;` 是正常的，紧接着的
+`uint8_t arr[1]` 却已经是 1，说明**数组尺寸在另一条路径上被提前算定了**：
+
+- `c99_type_to_c`（`types.uya:1386-1402`）和
+  `c99_emit_struct_field_decl_fragment`（`types.uya:600-607`）各有一份
+  「`eval_const_expr` 失败就退 `1`」的判据；
+- 普通函数里的局部数组声明既不经过 async 状态机分支，
+  也没走上面两处的 `eval_const_expr`（探针为证），
+  说明它用的是第三处 —— 大概率在 `stmt.uya` 的局部变量声明输出里。
+
+下一轮应先在那条路径上确认 `type_array_size_expr` 的求值方式，
+再决定是把尺寸求值统一收敛到 `eval_const_expr`（本轮的改动已经能处理
+局部 const），还是就地补同样的查找。
+
+本轮改动是**纯增量、零回归**（这一轮新增的查找只在「顶层找不到」之后才执行），
+因此保留并提交。
