@@ -3765,6 +3765,32 @@ fn exec_vm_store_pointer_index(function: &BCFunction, base: ExecValue, index_val
         value_elem2[0] = exec_value_clone(&src_value);
         return 0;
     }
+    // 裸地址 + 聚合载荷（`*p = SomeStruct{...}`、`p[0] = SomeStruct{...}`）：
+    // 先判目标是不是 **VM 本地的 ExecValue 存储**。这类地址来自
+    // `@ptr_from_usize(&local)`（`lib/std/http/websocket_client.uya` 的
+    // `session[0] = websocket_client_take_conn(conn)` 就是它），
+    // 目标是一个真实的 ExecValue 槽，必须整块替换。
+    //
+    // 不能让它落到下面的「按原生布局写」：`pointee_kind` 是 struct 时
+    // `elem_size` 非零，会按原生字节布局往槽里写，槽里的 `kind` 头被写坏、
+    // 读回来还是旧值（实测 `target.a` 仍是 1 而不是 9）。
+    if src_value.kind == ExecValueKind.EXEC_VALUE_STRUCT ||
+        src_value.kind == ExecValueKind.EXEC_VALUE_TUPLE ||
+        src_value.kind == ExecValueKind.EXEC_VALUE_UNION {
+        // 这里不能用 `exec_vm_address_is_exec_value_storage`：它只认
+        // 「槽池 / 竞技场登记过的元素 / 装箱表」这三类地址，而
+        // `@usize_from_ptr(&local)` 拿到的是**局部变量所在 ExecValue 槽的地址**，
+        // 实测 storage=0（addr 落在槽池区间之外，因为函数返回后槽段会迁移）。
+        // 改用「该地址处是否已经是一个合法的 ExecValue 聚合」作判据：
+        // 类型合法说明它指向 VM 本地的值本体，可以整块替换。
+        const agg_probe: &ExecValue = @ptr_from_usize(base_addr) as &ExecValue;
+        if agg_probe.kind == ExecValueKind.EXEC_VALUE_STRUCT ||
+            agg_probe.kind == ExecValueKind.EXEC_VALUE_TUPLE ||
+            agg_probe.kind == ExecValueKind.EXEC_VALUE_UNION {
+            agg_probe[0] = exec_value_clone(&src_value);
+            return 0;
+        }
+    }
     var pointee_kind: i32 = exec_value_pointer_pointee_kind(&base);
     var elem_size: usize = exec_vm_type_kind_size(pointee_kind);
     if pointee_kind == TypeKind.TYPE_VOID as i32 {

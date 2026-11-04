@@ -1,0 +1,24 @@
+// 通过 `@ptr_from_usize` 还原的指针**整体写入结构体**时，VM 的写入丢失。
+//
+// 这正是 `lib/std/http/websocket_client.uya` 的
+// `session[0] = websocket_client_take_conn(conn)` 形态：
+// `session` 来自 `@ptr_from_usize(self.session_ptr)`，
+// 于是重连后新的连接从未真正写进去（`closed` 一直是 1、`io.fd` 一直是 -1），
+// `websocket_client_write_message` 因此永远返回 WebSocketConnectionClosed
+// （test_http_websocket_reconnect 的直接原因）。
+use std.testing.assert_eq_i32;
+
+struct S { a: i32, b: i32 }
+
+fn session_of(ptr: usize) &S {
+    return @ptr_from_usize(ptr) as &S;
+}
+
+test "struct store through ptr_from_usize" {
+    var target: S = S{ a: 1, b: 2 };
+    const ptr: usize = @usize_from_ptr(&target as &void);
+    const s: &S = session_of(ptr);
+    s[0] = S{ a: 9, b: 8 };
+    try assert_eq_i32(target.a, 9);
+    try assert_eq_i32(target.b, 8);
+}

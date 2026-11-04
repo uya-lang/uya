@@ -15736,3 +15736,87 @@ IS_ERR(src) ?
   两者单点复测**均 VM 1/0 且 C99 1/0 通过**，确认同为并行负载 flake。
 
 即：本轮有**一个确定性的用例转通过**，其余波动都是已知 flake。
+
+## 第 592 轮：裸地址指针上的**聚合整体写入**丢失（`test_http_websocket_reconnect` 转通过）
+
+### 起点
+
+`test_http_websocket_reconnect` 自第 584 轮起一直卡在
+`websocket_client_reconnect_succeeds_after_disconnect`。第 584 轮已确认
+「`attach` 内部刚把 session 写成 `closed=0`，返回后立刻读到 `closed=1`」，
+但当时用 `@print` 插在库函数体内会影响字节码求值顺序，无法继续二分。
+
+这轮改用**测试侧探针**（读公开字段 `client_slot[0].session_ptr`）：
+
+```
+S2.5 conn=1 pend=0 ptr=<addr> same=1 sess_closed=1 sess_io_closed=1 sess_io_fd=-1
+S3 eid=1726418326   ← WebSocketConnectionClosed
+```
+
+`session_ptr` 指向的正是 `session` 变量本身，但它的 `closed` 仍是 1、
+`io.fd` 仍是 -1 —— 说明 `session[0] = websocket_client_take_conn(conn)`
+这次**整体写入根本没生效**。
+
+### 最小复现（已落夹具）
+
+```uya
+struct S { a: i32, b: i32 }
+var target: S = S{ a: 1, b: 2 };
+const ptr: usize = @usize_from_ptr(&target as &void);
+const s: &S = @ptr_from_usize(ptr) as &S;
+s[0] = S{ a: 9, b: 8 };
+assert target.a == 9;   // C99 通过 / VM 失败（仍是 1）
+```
+
+夹具：`tests/repros/exec_vm_struct_store_through_raw_ptr.uya`。
+
+### 根因
+
+`src/exec/vm.uya` 的 `exec_vm_store_pointer_index`：
+
+- 进入时先按 `exec_vm_address_is_exec_value_storage(base_addr)` 判断
+  「目标是不是 VM 本地的 ExecValue」，命中就整块替换；
+- 但这个判据**只认三类地址**：槽池区间、竞技场登记过的元素、装箱表。
+  `@usize_from_ptr(&local)` 拿到的地址**实测 `storage=0`**
+  （探针打出来：`[st] addr=57331040 storage=0`），于是落到下面
+  「按原生布局写」的分支；
+- 而 `pointee_kind` 是 `TYPE_STRUCT` 时 `elem_size` 非零，
+  写入按原生字节布局进行 —— 往 ExecValue 槽里写字节，把 `kind` 头写坏，
+  读回来还是旧值。
+
+### 修复
+
+在 `exec_vm_store_pointer_index` 里，对**聚合载荷**
+（`EXEC_VALUE_STRUCT` / `TUPLE` / `UNION`）改用另一条判据：直接看目标地址处
+**当前是否已经是一个合法的 ExecValue 聚合**（`agg_probe.kind` 是这三者之一），
+是就整块替换。
+
+这比 `address_is_exec_value_storage` 更合适：后者是「这个地址归不归 VM 管」的
+静态判定，而我们这里要回答的是「这个地址上现在躺的是不是一个值本体」。
+实测前者对局部变量地址返回 0，后者返回真。
+
+### 验证
+
+| 用例 | 修复前 | 修复后 |
+| --- | --- | --- |
+| `tests/repros/exec_vm_struct_store_through_raw_ptr.uya`（VM） | ❌ `target.a` 仍是 1 | ✅ |
+| `test_http_websocket_reconnect`（VM） | ❌ `0/1` | ✅ **`1/0`** |
+| 同用例（C99） | ✅ | ✅ |
+
+**全量 census**（`/tmp/census_592.tsv`）：**896 / 910（98.5%）**，失败 **14**
+（上一轮 894 / 16）：
+
+- 新通过 **2 例**：`test_http_websocket_reconnect`、`test_async_runtime_shared_dns`
+  （后者在 census 里偶发 `137`，本轮恰好通过）；
+- 新失败 **0 例**。
+
+**全量 parity**（`/tmp/parity_592.tsv`）：一致 **896** / 不一致 18
+（上一轮 894 / 20）：
+
+- 新一致 3 例：`test_http_websocket_reconnect`、`test_async_scheduler_default_epoll`、
+  `test_crypto_bigint`（后两者是上一轮在并行负载下的 flake，本轮恢复正常）；
+- 新不一致 1 例：`test_async_runtime_shared_semantics` —— 单点连跑两次
+  **VM 1/0、C99 1/0 均通过**，确认是并行负载 flake。
+
+即本轮有**一个确定性的用例转通过**（外加 census 计数上的 2 例），
+净改进 census 失败数 16 → 14。
