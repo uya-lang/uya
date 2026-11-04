@@ -15943,3 +15943,95 @@ VM 下三个用例的输出：
 
 本轮代码改动已全部回退（`git checkout -- lib/std/net/dns.uya`），
 `git status` 干净。
+
+## 第 594 轮：`test_typed_pipeline_capability` 的根因隔离到「接口方法里 `free(self)` 写坏堆」
+
+### 起点
+
+该测试卡在 `pipeline_stage_executes_in_pipeline_topology`：
+
+```
+exec runtime: ./lib/libc/heap.uya:221:1:
+  exec: LOAD_FIELD 字段越界(idx=1 kind=14 count=-1 pointee=16 ref=1 aux=65552 tgt=0 res=1)
+  fn=get_size ip=1 slot=1 line=222
+```
+
+`aux=65552 = EXEC_VM_REF_KIND_BASE(65536) + 16`，即「内部引用、pointee 是 struct」；
+`tgt=0` 说明那个引用的目标槽已经是 VOID。
+
+### 逐步收敛（每步都在 VM/C99 两侧对照）
+
+| 步骤 | 结果 |
+| --- | --- |
+| 只跑该测试（删掉其它 22 个） | **通过** → 不是该测试自身的逻辑缺陷 |
+| 保留前 3 个测试 + 该测试 | 失败 |
+| 保留「`pipeline_stage_transformer_owns_erased_stage_in_plan` + 该测试」 | **失败** |
+| 保留「`pipeline_stage_transformer_rejects_borrowed_fields` + 该测试」 | **通过** |
+
+于是锁定前一个测试。它做的事就是：`stage<PipelinePassStage>(...)` + `pipeline_drop(...)`。
+
+### 继续收敛到与 pipeline 无关的最小形态
+
+| 形态 | 结果 |
+| --- | --- |
+| `stage<A>` → `stage<B>`（不 drop） | 通过 |
+| `stage<A>` → `stage<A>`（不 drop） | 通过 |
+| `stage<A>` → `stage<A>` → 两次 drop | 通过 |
+| `stage<A>` → **drop** → `stage<A>` | **失败** |
+
+关键就是「先 drop、后 stage」。追到 `pipeline_drop` →
+`pipeline_registry_release` → `pipeline_registry_clear_stages` →
+`_pipeline_erased_stages[i].ops.drop_erased()`，而
+`PipelineErasedStageBox.drop_erased` 的实现是：
+
+```uya
+fn drop_erased(self: &Self) void {
+    if self.owned_value != null { free(self.owned_value); }
+    free(self as &void);          // ← 这一句
+}
+```
+
+### 最终最小复现（已落夹具，与 pipeline 完全无关）
+
+```uya
+interface Ops { fn kill(self: &Self) void; }
+struct Holder : Ops {
+    fn kill(self: &Self) void { free(self as &void); }
+}
+
+const holder_raw: &void = malloc(64);
+const holder: &Holder = holder_raw as &Holder;
+const ops: Ops = *holder;
+ops.kill();
+const again: &void = malloc(32);   // ← 这里在 VM 下崩在 get_size
+```
+
+夹具：`tests/repros/exec_vm_free_interface_self.uya`（C99 通过 / VM 失败）。
+
+### 定位到的实现位置
+
+`src/exec/vm.uya` 的 `EXEC_HOST_CALL_FREE`：
+
+```uya
+if free_arg.ptr_value != null &&
+    exec_vm_alloc_untrack(frame.vm, @usize_from_ptr(free_arg.ptr_value as &void)) != 0 {
+    exec_vm_native_agg_forget(...);
+    free(free_arg.ptr_value as &void);
+}
+```
+
+它只看 `ptr_value`，而接口方法的 `self` 是**内部引用指针**——`ptr_value` 指向的
+是 VM 侧的 `ExecValue`/聚合，不是宿主 `malloc` 出来的块。
+把这个地址直接交给宿主 `free`，等于让分配器去释放一块它没分配过的内存，
+堆块头当场被写坏；下一次 `malloc` 在 `get_size` 里读 `hdr.size` 就越界。
+
+### 下一轮的修法
+
+`EXEC_HOST_CALL_FREE` 必须先判断实参是不是**内部引用**：
+内部引用（`exec_vm_pointer_is_internal_ref`）指向 VM 值本体，**绝不能**交给宿主
+`free`；此时应当只做 VM 侧记账（`alloc_untrack` / `native_agg_forget`）并跳过
+宿主释放。只有裸地址（非内部引用）才是真正的 `malloc` 结果。
+
+本轮只做定位与夹具落地，未改动 `src/exec/vm.uya` —— 这条改动会影响
+**所有** `free(...)` 调用（库里用得非常广），必须全量 census + parity 才能判定，
+属下一轮的独立任务。本轮探针与临时夹具已全部清理，`git status` 干净。
