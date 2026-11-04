@@ -16457,3 +16457,33 @@ if symbol != null && symbol.is_const != 0 && symbol.decl_node != null {
 
 夹具：`tests/repros/c99_local_const_array_size.uya`
 （全局 const 断言通过、局部 const 断言在 C99 下失败、VM 双侧通过）。
+
+### 第 598 轮补充：为什么这一轮不直接修
+
+按上一节给的修法试过在 `eval_const_expr` 里补 `symbol_table_lookup` 兜底，但有一个
+**时序问题**挡住了：
+
+- `eval_const_expr` 属于 **C99 codegen**，而 codegen 是在 checker **之后**跑的；
+- checker 的 `symbol_table` 到那时已经**弹出了函数作用域**，局部 `const` 的
+  `Symbol`（含 `decl_node`）查不到了；
+- 而 codegen 自己维护的局部表只有 `local_variable_names[]` /
+  `local_variable_types[]` / `local_variable_count`，**没有记录初始化值**，
+  所以也无法从那里反推 `const LOCAL_N = 2`。
+
+也就是说要修这条，必须先给 codegen **新增一张「局部 const 求值结果」表**：
+在进入函数体、逐条 emit 局部声明时，把 `var_decl_is_const != 0` 且
+初始化表达式可静态求值的项记下来（name → i32），`eval_const_expr` 在顶层扫描
+失败后查这张表。
+
+这是一个新增数据结构的改动，会碰到所有局部变量声明的 emit 路径；
+而且 `eval_const_expr` 的调用点遍布数组类型生成、memset 尺寸、`@len` 等处，
+任何一处回归都会影响 `make check` 的 1193 个用例。因此按纪律**必须**做全量
+census + parity 才能判定，不适合和本轮（已经做了一次定位）混在一起。
+
+下一轮照这个计划做即可：
+
+1. `src/codegen/c99/internal.uya` 的 `C99CodeGenerator` 增加
+   `local_const_names: [&byte: N]` + `local_const_values: [i32: N]` + 计数；
+2. 在局部 `var_decl_is_const != 0` 的 emit 处登记（注意作用域弹出时回滚计数）；
+3. `eval_const_expr` 的 `AST_IDENTIFIER` 分支在顶层扫描失败后查这张表；
+4. 全量 census + parity 验证。
