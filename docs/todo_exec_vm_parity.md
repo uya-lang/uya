@@ -16545,3 +16545,26 @@ parity 新增一致 2 例：`test_async_compute_generic_wrapper`、`test_async_c
 
 本轮改动是**纯增量、零回归**（这一轮新增的查找只在「顶层找不到」之后才执行），
 因此保留并提交。
+
+#### 第 599 轮补充：`make check` 的 4 个失败与本次改动无关（已做基线对照）
+
+`make check` 本轮为 1189 / 1193，失败 4 例：
+`test_async_compute_types`、`test_async_compute_generic_wrapper`、
+`test_async_thread_pool_dynamic_growth`、`test_std_thread`。
+
+其中前两个连跑三次都失败，一度怀疑是本轮改动引入的。按纪律做基线对照
+（**用 `git show <rev>:<file> > <file>` 而不是 `git stash`** —— 第 580/588 轮
+两次被残留 stash 污染过工作区）：
+
+```
+git show e7d0323b:src/codegen/c99/utils.uya > src/codegen/c99/utils.uya
+make uya && 连跑三次
+```
+
+| 用例 | HEAD~1（无本轮改动） | 本轮 |
+| --- | --- | --- |
+| `test_async_compute_types` | 0 / 0 / 0 | 0 / 0 / 0 |
+| `test_async_compute_generic_wrapper` | 1 / 0 / 0 | 0 / 0 / 0 |
+
+两者在基线同样失败/波动，属既有 C99 侧线程时序 flake，与本轮改动无关。
+对照后已用 `git checkout -- src/codegen/c99/utils.uya` 恢复，工作区干净。
