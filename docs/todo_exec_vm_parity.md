@@ -16354,3 +16354,106 @@ var worker_argv: [&byte: 3] = [worker_exec_path, "--uya-pipeline-worker", null];
 **维持「时序竞态，需测试改造」的定性**，本轮不投入。
 
 探针已全部回退，`git status` 干净。
+
+## 第 598 轮：C99 侧「局部 `const` 作数组尺寸」被算成 1（新发现的确定性缺陷）
+
+### 起点
+
+追 `test_std_dns_async_transport` 的
+`dns_query_all_async_prefer_ipv4_tcp_fallback_accepts_tcp_body_larger_than_udp_limit`
+（子进程 `child:dns:invalid-packet`，退出码 34）。
+
+给 `lib/std/net/dns.uya` 的两处打探针：
+
+```
+[tf]   trunc=1 eid=1673119180     ← UDP 截断标志正确，TCP fallback 已启动
+[tcp]  body_len=0                 ← ✗ TCP 前两字节被读成 0
+```
+
+`body_len == 0` 会命中 `expected_body_len == 0 → DnsInvalidPacket`。
+读前缀的循环是：
+
+```uya
+var response_prefix: [byte: DNS_TCP_FRAME_HEADER_BYTES] = [0:DNS_TCP_FRAME_HEADER_BYTES];
+while bytes_received < DNS_TCP_FRAME_HEADER_BYTES {
+    if bytes_received >= @len(response_prefix) {
+        return error.DnsInvalidPacket;
+    }
+    ...
+}
+```
+
+`DNS_TCP_FRAME_HEADER_BYTES` 是一个**模块级 const = 2**。于是怀疑 `@len`。
+
+### 最小复现（与 DNS 无关）
+
+```uya
+const GLOBAL_N: usize = 3;      // 全局 const
+test "global" { var a: [byte: GLOBAL_N] = [0:GLOBAL_N]; assert @len(a) == 3; }
+test "local"  { const LOCAL_N: usize = 2; var b: [byte: LOCAL_N] = [0:LOCAL_N];
+                assert @len(b) == 2; }
+```
+
+| 尺寸来源 | C99 | VM |
+| --- | --- | --- |
+| 全局 `const`（3） | 3 ✅ | 3 ✅ |
+| **局部 `const`（2）** | **1** ❌ | 2 ✅ |
+
+进一步看 C99 生成代码：
+
+```c
+uint8_t arr[1] = {0};    // ← [byte: LOCAL_N]，LOCAL_N = 2
+uint8_t arr2[2] = {0, 0};
+```
+
+即**数组的实际 C 声明就是 `[1]`**，不只是 `@len` 读数错 ——
+往这种数组里写超过 1 个字节会直接踩坏相邻局部变量。
+
+### 根因（两处配合）
+
+1. `src/codegen/c99/utils.uya` 的 `eval_const_expr` 在解析 `AST_IDENTIFIER`
+   时**只扫 `program.program_decls`（顶层声明）**：
+
+   ```uya
+   var i: i32 = 0;
+   while i < program.program_decl_count {
+       const decl: &ASTNode = program.program_decls[i];
+       ... 匹配 var_decl_name / extern_var_decl_name ...
+   }
+   return -1;   // ← 局部 const 在这里落空
+   ```
+
+   函数体内的 `const LOCAL_N: usize = 2;` 不在顶层声明表里，直接返回 -1。
+
+2. `src/codegen/c99/types.uya` 的数组类型生成把「评估结果 <= 0」当作
+   「评估失败」，退回占位符：
+
+   ```uya
+   array_size = eval_const_expr(codegen, size_expr);
+   if array_size <= 0 {
+       array_size = 1;  // 占位符
+   }
+   ```
+
+两处叠加，局部 `const` 尺寸静默变成 `1`。
+
+### 正确修法（下一轮）
+
+`eval_const_expr` 在顶层扫描失败后，应再用 **`symbol_table_lookup`** 兜底 ——
+checker 的符号表里有局部 `const` 的 `decl_node`，`src/checker/proof.uya`
+的 `checker_eval_const_expr_ex_impl` 正是这么做的（第 234~246 行），
+两边逻辑可以直接对齐：
+
+```uya
+const symbol: &Symbol = symbol_table_lookup(checker, name);
+if symbol != null && symbol.is_const != 0 && symbol.decl_node != null {
+    ... 用 decl_node 的 init 递归求值 ...
+}
+```
+
+本轮只做定位与夹具落地，未改 codegen —— 这条改动会影响**所有**使用
+局部 const 作数组尺寸的代码（库里这种写法很常见），必须全量 census + parity
+才能判定，属下一轮的独立任务。
+
+夹具：`tests/repros/c99_local_const_array_size.uya`
+（全局 const 断言通过、局部 const 断言在 C99 下失败、VM 双侧通过）。

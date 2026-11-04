@@ -1,0 +1,24 @@
+// **局部** `const` 作为数组尺寸时，C99 后端把尺寸算成 1（占位符），
+// 而 VM 侧正确。全局 `const` 两侧都对。
+//
+// 根因：`src/codegen/c99/utils.uya` 的 `eval_const_expr` 解析标识符时
+// 只扫 `program.program_decls`（顶层声明），查不到函数内的局部 `const`，
+// 返回 -1；`src/codegen/c99/types.uya` 的数组类型生成把 `<= 0` 视为
+// 「评估失败」并退回占位符 `1`。
+//
+// 后果不止 `@len` 返回错值：数组的实际 C 声明也是 `uint8_t arr[1]`，
+// 越界写会直接踩坏相邻局部变量。
+use std.testing.assert_eq_i32;
+
+const GLOBAL_N: usize = 3;
+
+test "global const sized array" {
+    var arr: [byte: GLOBAL_N] = [0:GLOBAL_N];
+    try assert_eq_i32(@len(arr) as i32, 3);
+}
+
+test "local const sized array" {
+    const LOCAL_N: usize = 2;
+    var arr: [byte: LOCAL_N] = [0:LOCAL_N];
+    try assert_eq_i32(@len(arr) as i32, 2);
+}
