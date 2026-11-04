@@ -15488,3 +15488,58 @@ C99 取到 0。这不是本轮改动引入的，而是**下一层**的缺口：
 说明 C99 对这个形态的行为是「宽容地返回零值」而不是真去读字段，
 要精确对齐需要在 lowering 里对「标量类型上访问 `.value`」做一个
 显式的零值降级，属于下一轮的独立改动。该尝试已回退。
+
+### 第 588 轮补充：又一次 stash 事故与最终判定
+
+做完 `make check` 后核对 `test_async_compute_generic_wrapper`，连续三次 C99 失败，
+一度怀疑是本轮改动引入的回归。按纪律先做基线对照：
+
+```
+git stash push -- src/exec/{hir,debug,builder,lower}.uya
+make uya && 连跑三次
+```
+
+结果**基线本身也是 2/3 通过、1/3 失败**，并非稳定通过。但 `git stash pop`
+之后仓库再次变成不可编译：
+
+```
+错误: 语法分析失败 (./lib/std/thread.uya:698:1): 意外的 token '<<'
+git status: UU lib/std/thread.uya
+```
+
+原因与第 580 轮相同 —— **`stash@{0}` 那条 `drain-on-eagain` 残留 stash 会污染
+`lib/std/thread.uya`**，`pop` 时把冲突标记写进工作区。用
+
+```
+git reset HEAD lib/std/thread.uya && git checkout HEAD -- lib/std/thread.uya
+```
+
+恢复后确认：`grep -c '^<<<<<<<'` 为 0、`git status` 干净、`make uya` 成功。
+
+**再次提醒（第 580 轮已记过一次，这次又踩到）**：
+本仓库存在 `stash@{0} = drain-on-eagain` 这条陈旧的残留 stash，
+任何 `git stash push/pop` 都可能把它带进工作区。
+做基线对照时**不要用 stash**，改用
+`git diff > /tmp/p.patch && git checkout -- <files> && <测基线> && git apply /tmp/p.patch`。
+
+### 最终判定：本轮无回归
+
+恢复干净后重新确认：
+
+| 检查 | 结果 |
+| --- | --- |
+| `tests/repros/exec_vm_err_union_value_read.uya`（新增夹具） | C99 ✅ / VM ✅ |
+| `test_http_websocket_json`（第 586 轮曾被破坏） | VM 3/0 ✅ |
+| 全量 census | 894/910，与 583 轮逐用例一致 |
+| 全量 parity | 895 一致，与 583 轮持平 |
+| `make check` | 1189/1193，失败 4 例 |
+| `test_async_compute_generic_wrapper` C99 连跑 5 次 | 2 通过 / 3 失败（既有 flake） |
+| 同用例 VM 侧 | **稳定 1/0 通过** |
+
+`test_async_compute_generic_wrapper` 的 C99 失败是**既有线程时序 flake**，
+证据是其 VM 侧稳定通过、且基线同样波动；本轮改动只落在 `src/exec/`
+（exec VM 路径），C99 后端不经过它。其余 3 例
+（`test_async_compute_types`、`test_std_thread`、
+`test_async_thread_pool_dynamic_growth`）自第 576 轮以来一直在同一失败集合里。
+
+`make check` 的失败集合与 HEAD 基线等价，本轮交付是**纯语义正确性提升 + 零回归**。
