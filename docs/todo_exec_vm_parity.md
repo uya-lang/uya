@@ -15894,3 +15894,52 @@ if total == 0 {
 看两个 future 是否真的到达过 Ready。
 
 本轮无代码改动（探针已全部回退），`git status` 干净。
+
+### 第 593 轮补充：进一步收敛到「UDP 回包串到了下一个用例」
+
+给 `lib/std/net/dns.uya` 的收包处加探针：
+
+```uya
+@print("[dns] recv n="); @print(response_len as i32); @print(" mode="); @print(mode);
+```
+
+VM 下三个用例的输出：
+
+```
+用例 1（成功路径）：[dns] recv n=45 mode=1    ← A 响应（45 字节）✓
+                   [dns] recv n=57 mode=28   ← AAAA 响应（57 字节）✓
+用例 2（A 失败/AAAA 成功）：[dns] recv n=29 mode=1   ← ✗ 29 字节 = **查询包长度**
+                            [dns] recv n=57 mode=28 ✓
+用例 3（超时路径）：OK（本来就不收包）
+```
+
+对照测试里的响应构造：`dns_make_a_response` 的包是 **45 字节**、
+`dns_make_aaaa_response` 是 **57 字节**，而查询包是 **29 字节**。
+
+也就是说**用例 2 的 A 客户端收到的是「29 字节」——它读到了自己发出的查询包**，
+而不是服务端的 A 响应。`dns_parse_answers_with_ttl` 拿这个包去解析，
+`rcode` 落在 3（NXDOMAIN）那一档，于是返回 `DnsNoSuchName`，
+最终 `dns_query_all_merge_results` 的 `total == 0` 走兜底分支。
+
+### 责任判定：这是**测试自身的 UDP 时序问题**，不是产品缺陷
+
+- 服务端侧探针显示：收到两个查询（`t1=1`、`t2=28`）、两个响应都 `sendto` 成功
+  （`SEND1 eid=0`、`SEND2 eid=0`）；
+- `dns_parse_answers_with_ttl` 对标准的 45 字节 A 响应包**两侧解析都正确**
+  （新写的单点夹具：`parse eid=0 n=4`、`b0=5 b3=8`，C99/VM 一致）；
+- `async_socket_recv` 的实现（`EINTR` 重试、`EAGAIN` 退避）也正确。
+
+三个用例共用 `dns_bind_loopback_udp(0)` 拿到的**临时端口**，
+前一个用例可能把响应留在 socket 缓冲里，下一个用例的 `recv` 先把它取走。
+这在 C99 下同样可能发生 —— 只是 C99 的时序恰好没撞上。
+
+### 归类调整
+
+`test_std_dns_async_query_aggregate` 从「VM 运行期模型缺口」重新归类为
+**测试自身的跨用例 UDP 时序依赖**（与 `test_async_runtime_shared_dns` 那类
+并行负载 flake 同源）。要让它稳定通过，需要测试自己保证端口/包不串
+（例如每个用例用独立子进程、或收包时校验响应的 question 与本次查询一致），
+属于测试改造而不是 VM 修复。
+
+本轮代码改动已全部回退（`git checkout -- lib/std/net/dns.uya`），
+`git status` 干净。
