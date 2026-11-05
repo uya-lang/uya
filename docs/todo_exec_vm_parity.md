@@ -18968,3 +18968,96 @@ parity 从文档记录的 900 提到 **901**，多的一致项就是第 624 轮 
 这 12 例要全绿，需要的是：VM 真线程调度、VM 内嵌原生代码执行、
 真实栈语义、pipeline 内联执行——**每一项都是架构级的工作**，
 不是单点修复能解决的。当前 98.7% 已经是这套解释器架构的实际上限附近。
+
+## 第 628 轮：修掉竞技场 fallback 漏登记段表 —— 垃圾 kind 变成明确的分配失败
+
+### 缺陷
+
+`src/exec/value.uya:526 exec_value_alloc_bytes_locked` 有两条分配路径：
+
+1. **竞技场分段**（`exec_value_arena_grow_locked`）：分配成功后会登记
+   `g_exec_value_arena_seg_lo/hi` 和 `g_exec_value_arena_segment_count`；
+2. **fallback 普通 `malloc`**（段表满时）：**没有登记**。
+
+而 `exec_vm_address_is_value(addr)`（`:580`）唯一依据就是段表：
+
+```uya
+var i: i32 = 0;
+while i < g_exec_value_arena_segment_count {
+    if addr >= g_exec_value_arena_seg_lo[i] && addr < g_exec_value_arena_seg_hi[i] {
+        return true;
+    }
+    ...
+}
+return false;
+```
+
+`exec_vm_address_is_vm_resident` 再基于它区分「VM 内部引用」和「宿主指针」。
+所以第 2 条路径分配的块**一律被当成宿主指针**，字段访问 / 下标就改走原生通道，
+读到的是从没被当作 `ExecValue` 初始化过的内存 —— 这就是上一轮看到的
+`target->kind = 1821864748`（任何 `ExecValueKind` 都不可能是这个值）。
+
+### 为什么只在 ulimit 下炸
+
+正常跑时 `EXEC_VALUE_ARENA_BYTES`（200 MB）分几段就够，几乎不走 fallback；
+`ulimit -v 4GB` 下扩容频繁失败，fallback 路径被大量使用，漏登记的块随之大量出现。
+这解释了「正常 27/27 稳定、census（4GB）必现」的全部差异，与并发/时序无关。
+
+### 修法
+
+给 fallback 分支补上段表登记，并且**必须新开一段**而不是并进当前段：
+
+```uya
+const fb_idx: i32 = g_exec_value_arena_segment_count;
+if fb_idx >= 0 && fb_idx < EXEC_VALUE_ARENA_MAX_SEGMENTS {
+    const fb_lo: usize = @usize_from_ptr(fallback as &void);
+    g_exec_value_arena_seg_lo[fb_idx] = fb_lo;
+    g_exec_value_arena_seg_hi[fb_idx] = fb_lo +| (size +| 16 as usize);
+    g_exec_value_arena_segment_count = fb_idx + 1;
+}
+```
+
+理由写进了注释：这批块来自普通 `malloc`，和竞技场段**不连续**，
+混进同一段会让 `[lo, hi)` 覆盖到无关内存。
+
+### 效果：从「含糊的垃圾值」变成「明确的分配失败」
+
+`ulimit -v 4194304` 下 `test_http_uyagin` 的错误变了：
+
+| | 修前 | 修后 |
+| --- | --- | --- |
+| 错误 | `exec: ADDR_INDEX 越界(IDXREF fn=handle ip=51 idx=0 kind=14 cnt=-1 isref=1 pointee=19 ...)` | `exec: MAKE_* 分配失败`（位于 `lib/std/http/uyagin.uya:1591`） |
+
+前者把「内存不够」伪装成一个类型错误，`cnt=-1`、`kind` 看着像聚合问题，
+误导排查方向（本轮之前确实被带偏过两次）。后者直接指出是分配失败。
+
+这正好满足第 625 轮定下的验收判据：
+> 修好之后，`ulimit -v 4194304` 下 `test_http_uyagin` 应该要么 27/27，
+> 要么给出一条**明确的**「分配失败」错误，而不是含糊的 `ADDR_INDEX 越界`。
+
+### 顺带确认的另一件事：内存确实不够，不是逻辑错
+
+修完后再测，`ulimit` 阈值定性为：
+
+| 地址空间上限 | 结果 |
+| --- | --- |
+| 不限制 | 27/27 |
+| 6 GB | 27/27 |
+| 5 GB | `ADDR_INDEX 越界`（`uyagin_router_new`，`inarena=1`、`tkind=0`、`segs=78`） |
+| 4 GB | `MAKE_* 分配失败` |
+
+5 GB 那档的诊断探针显示：引用地址**在竞技场内**（`inarena=1`），
+但 `target->kind = 0`（`EXEC_VALUE_VOID`）—— 目标是一块**已清零但从未写入**的槽位。
+段数已经涨到 **78 段**，说明那个规模下内存布局已经开始挤。
+这是真实的「内存不够 + 大聚合反复分配」问题，需要减小单段尺寸或回收策略，
+属于下一步工作，本轮不动。
+
+### 无回归
+
+| 项目 | 结果 |
+| --- | --- |
+| census | **898 / 910（98.7%）**，与修前一致 |
+| `test_http_uyagin`（VM，不限内存） | 27/27 |
+| `test_kernel_sim` | 26 过 / 4 败（与修前一致） |
+| `test_std_sql` | 5/5 |
+| `test_http_router` | 9/9 |

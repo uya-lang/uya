@@ -558,6 +558,23 @@ fn exec_value_alloc_bytes_locked(size: usize) &byte {
         if fallback == null {
             return null;
         }
+        // **必须登记进段表**。`exec_vm_address_is_value`（本文件 `:580`）靠段表
+        // 判断「某地址是不是 VM 值内存」，`exec_vm_address_is_vm_resident`
+        // 再靠它区分「VM 内部引用」与「宿主指针」。漏登记会让这批块的地址被
+        // 判成宿主指针，字段访问/下标就改走原生通道，读到的是垃圾 kind
+        // （实测 `ulimit -v 4GB` 下 `test_http_uyagin` 必现
+        //  `ADDR_INDEX 越界(IDXREF … kind=14 cnt=-1 isref=1 pointee=19)`，
+        //  其中 target->kind 是 1821864748 这种非法值）。
+        //
+        // 用分段登记而不是并进当前段：这批块来自普通 malloc，和竞技场段
+        // 不连续，混进同一段会让 `[lo, hi)` 覆盖到无关内存。
+        const fb_idx: i32 = g_exec_value_arena_segment_count;
+        if fb_idx >= 0 && fb_idx < EXEC_VALUE_ARENA_MAX_SEGMENTS {
+            const fb_lo: usize = @usize_from_ptr(fallback as &void);
+            g_exec_value_arena_seg_lo[fb_idx] = fb_lo;
+            g_exec_value_arena_seg_hi[fb_idx] = fb_lo +| (size +| 16 as usize);
+            g_exec_value_arena_segment_count = fb_idx + 1;
+        }
         _ = memset(fallback as *byte, 0, size);
         return fallback;
     }
