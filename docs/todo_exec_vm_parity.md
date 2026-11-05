@@ -17732,3 +17732,77 @@ census：**898 / 910**（失败 12，改前 895 / 15）。
 剩余 14 个与「剩余 12 例逐条定性」那张表完全对应（parity 比 census 多的
 `test_tls_rsa` 是同属性能类的超时；`test_async_compute_types` 这次是
 C99=2 而 VM=0，又是并行 flake 的镜像表现）。
+
+## 第 618 轮：`test_http_uyagin` 的真实失败点 —— 不是超时，是接口值重建
+
+### 之前一直误记成「137 超时」，其实不是
+
+`test_http_uyagin` 在 census/parity 里一直显示 `137`（超时被杀），
+但**单独跑只要 5 秒就返回 rc=1**，而且在第 13 个用例
+`uyagin_query_form_bytes_redirect` 处**确定性崩溃**（连续两次同样错误、
+只有地址不同）：
+
+```
+exec runtime: ./lib/std/http/uyagin.uya:532:11: exec: LOAD_FIELD 字段越界
+(idx=0 kind=14 count=-1 pointee=16 ref=0 aux=16 tgt=-1 res=1
+ addr=6ba95c10 fn=uyagin_observe_leaf_route_future ip=32 slot=15 line=543 col=48)
+```
+
+`137` 只是「整轮并行里它把 300s 超时耗尽了」的表象；真实原因是崩在中间某个用例。
+
+### 现场解读
+
+报错行 `lib/std/http/uyagin.uya:532` 是：
+
+```uya
+const handler_future: Future<!i32> = route.handler.handle(ctx);
+```
+
+诊断字段含义（对照 `vm.uya:8110` 的格式串与 `ExecValueKind` 枚举）：
+
+| 字段 | 值 | 含义 |
+| --- | --- | --- |
+| `kind` | 14 | `EXEC_VALUE_POINTER` |
+| `pointee` / `aux` | 16 / 16 | 指向 STRUCT |
+| `ref` | 0 | **不是**内部引用（裸指针） |
+| `count` | -1 | `exec_vm_aggregate_ref_from_value` 返回 null |
+| `res` | 1 | 地址落在 VM 驻留区内 |
+
+即：`route` 是个裸的 STRUCT 指针，可是按该地址查不到聚合。
+
+### 已证伪的假设（别再重复）
+
+**「旁路表 256 个基址耗尽」—— 不成立。** `exec_vm_native_agg_slot_index`
+的注释确实描述了这种耗尽（`val` 说「登记过 256 个不同基址就会永久耗尽，
+之后所有新结构体都拿不到槽 → count=-1 并很快段错误」），症状完全吻合。
+我把 `EXEC_NATIVE_AGG_MAX_BASES` 和 `frame.uya` 的 `EXEC_NATIVE_AGG_MAX`
+**一起**从 256 调到 4096 重新编译实测：**仍然报同一处 `count=-1`**。
+所以不是表满，两处常量已回退。
+
+### 真正可疑的地方
+
+`lib/std/http/uyagin.uya:190` 的 `uyagin_route_store_typed_handler`：
+
+```uya
+const dst: &byte = &route.typed_handler_words[0] as &byte;
+const src: &byte = handler as &byte;
+while i < size { dst[i] = src[i]; i = i + 1; }     // 逐字节拷进 usize 数组
+route.typed_handler_size = size as i32;
+const stored: &H = &route.typed_handler_words[0] as &H;
+const iface: AsyncHandler = *stored;               // 从裸字节「重建」接口值
+return iface;
+```
+
+这是**把接口值（含方法表/数据指针）拆成裸字节再按类型重新解释**。
+C99 后端里这样重建出的接口值指针仍然有效；VM 里 `AsyncHandler` 是
+由聚合承载的，从 `&usize[]` 强转出来的 `*stored` 很可能拿不到
+`exec_vm_aggregate_ref_from_value` 认得的那个聚合身份 —— 于是 `route.handler`
+取字段时 `count=-1`。
+
+第 457 轮对 ecdsa 得出的结论也是同一句话：**问题在聚合「身份」而非「内容」**。
+这条线索值得下一轮优先验证（在 `store`/`load` 两处打地址/kind 探针）。
+
+### 状态
+
+本轮所有探针、`vm.uya` / `frame.uya` 的临时改动、`tests/repros/tmp_*`
+**全部已回退/删除**，`git status` 干净，`make uya` 通过。
