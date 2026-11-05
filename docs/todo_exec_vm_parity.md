@@ -18088,3 +18088,57 @@ const p2: &usize = @ptr_from_usize(@usize_from_ptr(&pr as &void) + @size_of(Req)
 - 新发现结构体内部字段的裸偏移算术在 VM 下失效（本轮补三，
   `tests/repros/struct_field_offset_ptradd_vm_bug.uya`）；
 - 排除了「大聚合副本」「字段取址传参」「`@async_fn` 指针参数被复制」三个假设。
+
+### 第 620 轮补四：404 的根因收窄到「参数标识符在成员访问里解析失败」
+
+用三级「回读断言」代替 @print 探针（`parse.uya` 里 @print 可用，但断言更不会被吞），
+在三个位置检查 `path_len`：
+
+| 检查点 | 结果 |
+| --- | --- |
+| `set_path_and_query` 内，`req.path_len = path_len` 之后立刻回读 `req.path_len` | **正确**（不触发断言） |
+| `http_parse_request_into` 函数末尾回读 `out.request.path_len` | **已经是 0** |
+| `uyagin` 调用方读 `conn_state.parse_result.request.path_len` | 0 |
+
+所以丢失发生在 `set_path_and_query` 返回到 `http_parse_request_into` 末尾之间。
+
+再在 `set_path_and_query` 里**同一作用域**对比两种写法：
+
+```uya
+req.path_len = path_len as i32;              // req == &out.request，经指针写
+if out.request.path_len != path_len as i32 { // 直接写 out.request.path_len
+    out.request.path_len = 0 - 888;
+}
+```
+
+VM 直接报错（不是断言失败，是编译期/降级期失败）：
+
+```
+exec backend 失败: ./lib/std/http/parse.uya:317:10:
+    exec: 当前仅支持局部变量/参数/全局标识符(out)
+```
+
+报错点在 `src/exec/lower.uya:8957`，是**标识符降级**分支，不是成员访问分支。
+也就是说 `out` 在这条 HIR 里被当成一个「不认识的标识符」。
+`out` 明明是 `set_path_and_query(buf: &[byte], uri_start: usize, uri_len: usize, req: &Request)` …
+等一下——**`out` 根本不是 `set_path_and_query` 的参数**，它属于外层
+`http_parse_request_into(buf, out)`。我在内层函数里引用外层名字，本来就不该编译通过。
+
+**这条实验是我自己写错了**，不能作为证据。
+
+### 第 620 轮的真实结论（修正版）
+
+三级回读里唯一无条件成立的两条是：
+
+1. `set_path_and_query` 内 `req.path_len` 写入后回读**正确**；
+2. `http_parse_request_into` 末尾 `out.request.path_len` **已经是 0**。
+
+`set_path_and_query(buf, uri_start, uri_len, req)` 的 `req` 是参数，
+它等于调用处的 `&out.request`。同一块内存，进函数时刚写成功、出去就变 0，
+说明**两次 `&out.request` 取到的不是同一个地方**（第 619 轮 `[P]`/`[C]` 那组地址
+差异与此一致）。
+
+下一轮就查这一件事：把 `&out.request` 的取址在**调用前、函数内、函数后**三点
+各取一次，看它是「每次取址都新造一个临时聚合」还是「第一次之后被换掉」。
+验证手段用 `req.path_params[0].key`（一个 `&[const byte]` 槽）当载体传递，
+避免再受 `@print`/`@usize_from_ptr` 的干扰。
