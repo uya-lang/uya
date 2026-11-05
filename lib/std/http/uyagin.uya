@@ -2587,22 +2587,37 @@ export fn uyagin_listen_loopback_with_config(port: u16, config: &UyaginConfig) !
     return uyagin_listen_loopback_with_options(port, &normalized.run_options);
 }
 
+/// 取第 `idx` 条路由（**用下标取址，不要用 C 式裸地址算术**）。
+///
+/// 曾经写成 `&routes[0]` + `idx * @size_of(GinRoute)`：C99 后端里
+/// `[GinRoute: N]` 是连续内存，这样算没问题；但 exec VM 里数组是「聚合」，
+/// 每个元素是独立的 ExecValue，没有紧凑布局。按字节偏移算出的地址不指向
+/// 任何 ExecValue，`route.handler` 取字段时 `count=-1`，直接
+/// `LOAD_FIELD 字段越界`（第 618 轮的最小复现见
+/// `tests/repros/struct_array_ptradd_bad_addr.uya`）。
+/// 参数：`engine` 引擎；`idx` 路由下标。
+/// 返回值：路由指针；越界或引擎为空返回 null。
 fn uyagin_route_ptr(engine: &Engine, idx: i32) &GinRoute {
     if engine == null || idx < 0 || idx >= UYAGIN_MAX_ROUTES {
         return null;
     }
-    const base: &GinRoute = &engine.routes[0];
-    const off: usize = (idx as usize) * @size_of(GinRoute);
-    return @ptr_from_usize(@usize_from_ptr(base as &void) + off) as &GinRoute;
+    if idx == 0 {
+        return &engine.routes[0];
+    }
+    return &engine.routes[idx];
 }
 
+/// 取第 `idx` 条路由的匹配元数据（同样必须用下标取址，理由见 `uyagin_route_ptr`）。
+/// 参数：`engine` 引擎；`idx` 路由下标。
+/// 返回值：元数据指针；越界或引擎为空返回 null。
 fn uyagin_route_meta_ptr(engine: &Engine, idx: i32) &UyaginRouteMeta {
     if engine == null || idx < 0 || idx >= UYAGIN_MAX_ROUTES {
         return null;
     }
-    const base: &UyaginRouteMeta = &engine.route_meta[0];
-    const off: usize = (idx as usize) * @size_of(UyaginRouteMeta);
-    return @ptr_from_usize(@usize_from_ptr(base as &void) + off) as &UyaginRouteMeta;
+    if idx == 0 {
+        return &engine.route_meta[0];
+    }
+    return &engine.route_meta[idx];
 }
 
 fn uyagin_find_kv(kvs: &[HttpKvSlice], name: &[const byte]) !&[const byte] {

@@ -17806,3 +17806,75 @@ C99 后端里这样重建出的接口值指针仍然有效；VM 里 `AsyncHandle
 
 本轮所有探针、`vm.uya` / `frame.uya` 的临时改动、`tests/repros/tmp_*`
 **全部已回退/删除**，`git status` 干净，`make uya` 通过。
+
+## 第 619 轮：结构体数组的 C 式裸地址算术在 VM 下失效 —— `test_http_uyagin` 从崩溃到 26/27
+
+### 根因（第 618 轮锁定的方向，本轮坐实）
+
+`lib/std/http/uyagin.uya` 里取路由用的是 **C 式裸地址算术**：
+
+```uya
+const base: &GinRoute = &engine.routes[0];
+const off: usize = (idx as usize) * @size_of(GinRoute);
+return @ptr_from_usize(@usize_from_ptr(base as &void) + off) as &GinRoute;
+```
+
+C99 后端里 `[GinRoute: N]` 是紧凑连续内存，这样算完全正确；
+但 **exec VM 里 `[T: N]` 是「聚合」，每个元素是独立的 ExecValue**，
+根本没有 C 那种紧凑布局。按字节偏移算出来的地址不指向任何 ExecValue，
+`route.handler` 取字段时就 `count=-1` → `LOAD_FIELD 字段越界`。
+
+### 最小复现（已留档）
+
+`tests/repros/struct_array_ptradd_bad_addr.uya`：
+
+| 取值方式 | C99 | VM |
+| --- | --- | --- |
+| `&o.items[2]`（直接下标取址） | `a=12` ✓ | `a=12` ✓ |
+| `&o.items[0]` + `2*@size_of(Inner)` | `a=12` ✓ | **`a=-1689661808`** ✗ |
+
+这个夹具在 C99 下通过、在 VM 下必须失败（目前的写法是两边都断言成功，
+所以它就是「VM 修好之前会红」的回归哨兵）。
+
+### 修法
+
+`uyagin_route_ptr` / `uyagin_route_meta_ptr` 改成直接下标取址：
+
+```uya
+if idx == 0 {
+    return &engine.routes[0];      // 保留 0 号，避免下面的索引证明失败
+}
+return &engine.routes[idx];
+```
+
+### 效果
+
+| | 改前 | 改后 |
+| --- | --- | --- |
+| `test_http_uyagin`（VM） | **崩在 `LOAD_FIELD`**，只跑到第 13 个用例 | **26 过 / 1 败**，跑完全部 27 个 |
+| 同上（C99） | 通过 | 通过（无回归） |
+
+### 已确认**不需要**改的同类写法
+
+`lib/std/http/uyagin_router.uya:177/184/191` 也有 `@usize_from_ptr + idx*@size_of(T)`
+的写法，但它们的元素类型是 **`i32` / `byte` 这类原生类型**——
+VM 里原生类型数组**确实**有紧凑内存，所以安全。已实测
+`test_http_router`（VM 与 C99）两侧都通过，不动。
+
+**判据**：只有「**结构体 / 聚合元素**的数组」用裸地址算术才出错；
+原生数值元素数组没问题。
+
+### 剩下的 1 例
+
+`uyagin_serve_conn_releases_scheduler_frames_after_connection_close`：
+VM 返回 `HTTP/1.1 404 Not Found`（实测响应字节 72,84,84,80,47,49,46,49,32,52,48,52），
+C99 返回 200。说明**真实 socket 路径**上路由没匹配上，与本次修的
+`route_ptr` 不是同一处（本次修的是拿到 route 之后的字段访问）。
+下一轮从这里继续。
+
+### 验收
+
+`make check`：**1190 / 1193**，失败 3 例均为既有 flake
+（`test_async_compute_types`、`test_async_thread_pool_dynamic_growth`、`test_std_thread`）。
+census：**898 / 910**（12 例失败；`test_http_uyagin` 仍是 137，
+因为最后那 1 个 404 用例让它整体退出码非零）。
