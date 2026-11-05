@@ -869,6 +869,54 @@ fn p384_affine_scalar_mul(r: &P384Affine, k: &const Sc384, base: &const P384Affi
     r.inf = false;
 }
 
+// ---- 域运算自测入口（只给测试用）----
+//
+// 把 6-limb 小端的域元素按 48 字节大端进出，让 `tests/test_ec_p384_field.uya`
+// 能用 Python 大整数对拍。没有这几个人口时，域运算改写只能靠 `test_tls_ecdsa`
+// 端到端 45 分钟的返回来判对错，迭代一次成本高得离谱（第 648/649 轮就卡在这）。
+
+/// 域加：out = a + b mod p（均为 48 字节大端）。
+export fn ec_p384_field_add(out: &byte, a: &const byte, b: &const byte) void {
+    var fa: Fe384 = Fe384{ l: [0:6] };
+    var fb: Fe384 = Fe384{ l: [0:6] };
+    var fr: Fe384 = Fe384{ l: [0:6] };
+    fe384_from_bytes_be(&fa, a);
+    fe384_from_bytes_be(&fb, b);
+    fe384_add(&fr, &fa, &fb);
+    fe384_to_bytes_be(&fr, out);
+}
+
+/// 域减：out = a - b mod p。
+export fn ec_p384_field_sub(out: &byte, a: &const byte, b: &const byte) void {
+    var fa: Fe384 = Fe384{ l: [0:6] };
+    var fb: Fe384 = Fe384{ l: [0:6] };
+    var fr: Fe384 = Fe384{ l: [0:6] };
+    fe384_from_bytes_be(&fa, a);
+    fe384_from_bytes_be(&fb, b);
+    fe384_sub(&fr, &fa, &fb);
+    fe384_to_bytes_be(&fr, out);
+}
+
+/// 域乘：out = a * b mod p。
+export fn ec_p384_field_mul(out: &byte, a: &const byte, b: &const byte) void {
+    var fa: Fe384 = Fe384{ l: [0:6] };
+    var fb: Fe384 = Fe384{ l: [0:6] };
+    var fr: Fe384 = Fe384{ l: [0:6] };
+    fe384_from_bytes_be(&fa, a);
+    fe384_from_bytes_be(&fb, b);
+    fe384_mul(&fr, &fa, &fb);
+    fe384_to_bytes_be(&fr, out);
+}
+
+/// 域求逆：out = a^(p-2) mod p。
+export fn ec_p384_field_inv(out: &byte, a: &const byte) void {
+    var fa: Fe384 = Fe384{ l: [0:6] };
+    var fr: Fe384 = Fe384{ l: [0:6] };
+    fe384_from_bytes_be(&fa, a);
+    fe384_inv(&fr, &fa);
+    fe384_to_bytes_be(&fr, out);
+}
+
 export fn ec_p384_public_from_private(pub_out: &byte, priv_key: &const byte) i32 {
     if pub_out == null || priv_key == null {
         return -1;
