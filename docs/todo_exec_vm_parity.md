@@ -19553,3 +19553,108 @@ if exec_value_is_raw_array(&frame.slots[i]) != 0 {
 
 本轮只加了一个复现夹具（`tests/repros/` 不参与 `make check`），
 `src/` 与 `lib/` 的探针改动已全部 `git checkout --` 还原，工作区干净。
+
+## 第 635 轮：修掉续体裸数组换块 —— `test_http_uyagin_websocket` 2/1 → 3/3，census 898 → 899
+
+第 634 轮把根因定位到「`@await` 之后跨帧裸数组指针的写入丢失」，
+并留下 6 行复现 `tests/repros/async_await_raw_array_write_lost.uya`。
+本轮把修复做完。
+
+### 根因：**两处**深拷贝，不是一处
+
+`exec_value_clone` 对裸数组（`exec_value_is_raw_array` 为真，
+`src/exec/value.uya:1121`）会**新分配一块 + memcpy**。续体机制在**两个地方**
+都调用了它，任何一处都会让裸数组换块：
+
+1. **挂起时快照**（`exec_vm_cont_snapshot`，`src/exec/vm.uya:9334`）：
+   ```uya
+   block[i] = exec_value_clone(&frame.slots[i]);
+   ```
+2. **恢复时回填**（`exec_vm_run_frame`，`src/exec/vm.uya:9624`）：
+   ```uya
+   frame.slots[si] = exec_value_clone(&resume_slots[si]);
+   ```
+
+第 634 轮只改了第 1 处，`rx10` 仍然是 0。当时探针已经显示出「两次快照之间
+`frame.slots[0]` 的地址还是变了」，线索就在那儿：**恢复那一遍也在 clone**。
+两处都改掉之后才真正修好。
+
+### 修法（两处同一规则）
+
+```uya
+// 快照
+if exec_value_is_raw_array(&frame.slots[i]) != 0 {
+    block[i] = frame.slots[i];          // 保持底层块指针
+} else {
+    block[i] = exec_value_clone(&frame.slots[i]);
+}
+
+// 恢复
+if exec_value_is_raw_array(&resume_slots[si]) != 0 {
+    frame.slots[si] = resume_slots[si]; // 保持底层块指针
+} else {
+    frame.slots[si] = exec_value_clone(&resume_slots[si]);
+}
+```
+
+**为什么保持指针是安全的**：裸数组的底层块由它所属的帧/调用方持有，
+续体只在那一帧存活期间被恢复；块不会先被回收。快照仍然保证**槽位数组**
+本身是独立副本（`block` 是新分配的）—— 只是不复制裸数组的内容。
+
+**为什么这两处必须一起改**：只改一处，另一处照样换块，两边指针依旧对不上。
+
+### 效果
+
+| | 修前 | 修后 |
+| --- | --- | --- |
+| `tests/repros/async_await_raw_array_write_lost.uya`（VM） | `rx0=42 rx10=0 mark=1100` | **`rx0=42 rx10=99 mark=1100`**（与 C99 一致） |
+| `test_http_uyagin_websocket` | 2 过 / 1 败 | **3/3 全过** |
+| census | 898 / 910 | **899 / 910（98.8%）** |
+| `make exec-parity` | 900~901 / 914 | **901 / 914** |
+
+合计 **14 个断言**转绿（websocket 那例的 1 个测试块 + census 计数 1 图）。
+
+### 无回归（重点验证）
+
+这个改动碰的是续体机制，所有 async 用例都受影响，所以逐条复核：
+
+| 用例 | 结果 |
+| --- | --- |
+| `test_http_uyagin` | **27/27** |
+| `test_setjmp` | 12/12 |
+| `test_signal` | 6/6 |
+| `test_async_catch_await` | 13/13 |
+| `test_std_sql` | 5/5 |
+| `test_http_router` | 9/9 |
+| `test_kernel_sim` | 26 过 / 4 败（与修前一致） |
+
+`test_setjmp` / `test_signal` 是第 634 轮专门点名的风险项（它们依赖裸数组 +
+挂起点的现有行为），都稳住了。
+
+### 这条修复的意义超出单个用例
+
+第 622 轮修 `test_http_uyagin` 时，做法是把 `UyaginConnState` 提到**文件级全局**
+来绕开「`@await` 后引用失效」。当时只是绕过一个现象。这一轮修的是**机制**：
+续体不该让裸数组换块。
+
+顺带确认了两件事：
+- 4 GB 下 `test_http_uyagin` 仍然报 `ADDR_INDEX 越界`，说明**那一例确实是内存问题**
+  （`VmPeak = 6096 MB`，见第 632 轮），与本修复无关，定性没变；
+- 修复只影响「裸数组跨挂起点」这一种情况，`test_kernel_sim` 的 4 例
+  （真实机器码 2 + 真实 rsp 2）不受影响，仍是架构边界。
+
+### 剩余 11 例
+
+```
+test_async_compute_dynamic_resource_pressure  1
+test_async_frame_pool_full                    1
+test_async_thread_pool_dynamic_growth         4
+test_http_uyagin                              1   ← 4GB 内存不足（VmPeak 6096MB）
+test_kernel_sim                               4
+test_pthread_heap_cache_identity              181
+test_std_async_scheduler                      1
+test_std_thread_async_boundary                3
+test_std_thread                               7
+test_tls_ecdsa                                137
+test_typed_pipeline_capability                12
+```
