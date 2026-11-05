@@ -17374,3 +17374,17 @@ C99 后端两侧都是 `通过: 1 / 失败: 0`，无回归。
 `通过 895 / 910`，14 个失败。与基线（14 个失败）成员基本一致，唯一差异是
 `test_async_runtime_shared_dns` 在**并行普查**下超时（137），但**单跑 1 秒通过**
 （`rc=0`，C99 也通过）—— 并行资源竞争导致的既有 flake，不是本次改动引入。
+
+### 第 612 轮验收
+
+`make check`：**1189 / 1193**，失败 4 例：
+
+| 用例 | 定性 |
+| --- | --- |
+| `test_async_compute_types` | 既有 flake（基线也有） |
+| `test_async_thread_pool_dynamic_growth` | 既有 flake（基线也有） |
+| `test_std_thread` | 既有 flake（基线也有） |
+| `test_async_compute_generic_wrapper` | **C99 侧 flake**：`./bin/uya test` 退出码 1、`Assertions Passed: 1`；而 `--vm` 侧 `通过: 1 / 失败: 0` |
+
+最后一条值得记一笔：它 **VM 通过、C99 失败**，且全文 0 处引用 `dns`，
+与第 612 轮改动无因果关系 —— 属于并行/时序类既有 flake。
