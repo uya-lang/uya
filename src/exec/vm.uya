@@ -405,10 +405,7 @@ fn exec_vm_slot_ref(frame: &ExecFrame, idx: i32) &ExecValue {
     if frame == null || idx < 0 || idx >= EXEC_MAX_FRAME_SLOTS {
         return null;
     }
-    if idx >= 0 && idx < EXEC_MAX_FRAME_SLOTS {
-        return &frame.slots[idx];
-    }
-    return null;
+    return &frame.slots[idx];
 }
 
 /// 判断某个值是否「自己拥有」它的聚合内存（可以原地复用）。
