@@ -17994,3 +17994,32 @@ if dlen > qlen && strncmp(decl_name, query_name, qlen) == 0 && decl_ptr[qlen] ==
 
 工作区干净，`make check` 上一轮 **1190 / 1193**（3 例既有 flake）。
 本轮改动只有新增的 repro 夹具与本文档，没有动产品代码。
+
+### 第 620 轮补：把「大聚合副本」这个假设也排除掉
+
+上一节推测可能是「`ParseResult` 太大（≈14KB），跨 `@async_fn` 时被复制」。
+用 14KB 聚合（`[byte:256]` + `[i32:256]` + 标量）实测指针身份：
+
+```uya
+struct Req { path: [byte: 256], hp: [i32: 256], path_len: i32, hc: i32 }
+struct PR  { request: Req, consumed: usize }
+```
+
+- `w(&PR)` 里 `@usize_from_ptr(out)` 与 test 里 `@usize_from_ptr(&pr)` **完全相等**；
+- 字段写入全部回传成功；VM 通过。
+
+「指针参数解引用后取字段地址、再传进另一个 `@async_fn`」这个模式也单独测了：
+
+```uya
+@async_fn fn rd(cs: &CS, ...) Future<!i32> {
+    _ = try @await fill(&cs.parse_result, r, buf);   // 取字段地址传下去
+    return 0;
+}
+```
+
+同样是 VM 通过。
+
+**所以 `uyagin` 的 404 不是这两类布局问题。** 目前能确定的仍然只有那条
+`[W] rb=5` / `[R] plen=0` 的矛盾，下一轮需要换角度（例如把
+`http_parse_request_into` 的 `out` 与 `uyagin_conn_read_parse_into_future` 的
+`out` 在**同一帧内**连续取两次地址，确认是不是 `@await` 前后的重定位）。
