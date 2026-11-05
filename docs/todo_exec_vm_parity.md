@@ -17696,3 +17696,24 @@ dns_parse_answers_with_ttl(&response_packet[0], ...)                   // 重新
 | `test_std_thread` | — | — | 既有 flake |
 
 census：**898 / 910**（失败 12，改前 895 / 15）。
+
+### 第 617 轮：剩余 12 例逐条定性（本轮复核，未新增可修项）
+
+| 用例 | VM 侧表现 | 定性 |
+| --- | --- | --- |
+| `test_std_thread` | 7 子例失败 | 真并发时序（597 轮） |
+| `test_std_thread_async_boundary` | 3 子例 `pending_count` 观测不到 | 真并发时序（597 轮） |
+| `test_async_thread_pool_dynamic_growth` | 4 子例 | 真并发时序 |
+| `test_async_compute_dynamic_resource_pressure` | 1 子例 | 真并发时序 |
+| `test_std_async_scheduler` | 1 子例 | 真并发时序 |
+| `test_async_frame_pool_full` | `got_pool_full` 断言失败 | VM 无异步帧池（架构缺失） |
+| `test_kernel_sim` | 25 过 / **5 败**，全是 x86 call gate / `@asm` | VM 不支持内联汇编（架构限制） |
+| `test_pthread_heap_cache_identity` | rc=181 SIGSEGV；开真线程后 rc=141 SIGPIPE | VM 真线程支持不完整 |
+| `test_http_uyagin` / `_websocket` | 137 超时 / 3 | 子进程 `/proc/self/exe` 指向解释器 |
+| `test_typed_pipeline_capability` | 11 过 / 12 败，全是「未指定输入文件」 | 同上 |
+| `test_tls_ecdsa` | 137 超时 | 性能（第 615/616 轮已排除多项候选） |
+
+本轮新增的验证：**全部 5 个 `test_std_dns*.uya` 在 VM 下均通过**
+（`test_std_dns`、`test_std_dns_async_query_aggregate`、
+`test_std_dns_async_transport`、`test_std_dns_async_composition_shape`、
+`test_async_runtime_shared_dns`），确认第 617 轮的堆化修复干净且通用。
