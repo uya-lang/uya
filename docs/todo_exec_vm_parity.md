@@ -18414,3 +18414,89 @@ exec backend 失败: ...: exec: 当前不支持这个泛型调用
 - 发现一个新阻塞点：`scheduler_run<!T>` 在最小文件里报 `exec: 当前不支持这个泛型调用`，
   而 uyagin 测试里同样的调用可用——**下一轮先把这个最小化跑通**，
   那是复现 uyagin 驱动方式的必要条件。
+
+## 第 622 轮：`test_http_uyagin` 最后一个 404 的根因彻底锁定
+
+### 最小复现（21 行，C99 通过 / VM 失败）
+
+`tests/repros/async_field_addr_arg_cloned.uya`：
+
+```uya
+struct St { parse_result: PR, filled: usize }
+
+@async_fn fn read_parse(fd: i32, out: &PR) Future<!i32> { ... 写 out.request.path_len ... }
+@async_fn fn slot(fd: i32, st: &St) Future<!i32> {
+    return try @await read_parse(fd, &st.parse_result);   // ← 传「结构体字段的地址」
+}
+@async_fn fn serve(fd: i32) Future<!i32> {
+    var st: St = St{ ... };                                // ← 栈上的帧内聚合
+    return try @await slot(fd, &st);
+}
+```
+
+用 `pipe2` + `scheduler_run` 让 future **真实挂起一次**：
+
+| | `same`（两侧指针是否相同） | 结果 |
+| --- | --- | --- |
+| C99 | 1 | 写入可见，通过 |
+| exec VM | **0** | 写入丢失，`path_len` 仍然是 0 |
+
+### 触发条件（逐项二分）
+
+| 变量 | 是否触发 |
+| --- | --- |
+| 实参是**结构体字段**的地址（`&st.parse_result`） | **触发** |
+| 实参是整个变量的地址（`&pr`） | 不触发 |
+| 有一次**真实挂起**（pipe + epoll） | **必需** |
+| 仅 `MemAsyncReader`（数据就绪、同步完成） | 不触发 |
+| 聚合大小（4KB / 无大数组） | 无关 |
+| 三层 async（`serve → slot → read_parse`） | 必需（两层不够） |
+
+### 机制（源码定位到具体函数）
+
+`src/exec/vm.uya:9187 exec_vm_cont_snapshot()` —— async fn 挂起时把**当前帧整段快照**进续体：
+
+```uya
+block[i] = exec_value_clone(&frame.slots[i]);            // 逐槽深拷贝
+...
+exec_vm_cont_remap_refs(&block[i], from_base, from_limit, to_base);
+```
+
+`exec_vm_cont_remap_refs` 只重映射**指向本帧范围 `[from_base, from_limit)`** 的内部引用。
+而 `&st.parse_result` 指向的是**外层 `serve` 帧**的聚合，不在本帧范围内 →
+**不会被重映射** → 外层帧弹出后它就是悬垂指针。
+
+### 决定性验证：把聚合搬到堆上就好了
+
+同一份夹具，只把 `var st: St`（栈 / 帧内聚合）换成 `malloc(@size_of(St))`：
+
+```
+VM(heap): [W] same=1 v=3  通过
+```
+
+`same=1`、写入可见、断言全过。**这从反面证实了上面的机制**：
+堆对象不在任何帧槽位范围内，续体快照不会把它 clone 成副本。
+
+### 与既有结论的关系
+
+这与文档里反复出现的那个机制是**同一条**（「跨 `@await` 的缓冲搬到堆」）：
+定长数组 / 结构体在 VM 里是「`EXEC_VALUE_STRUCT` + 独立 `values` 块」，
+帧快照会 clone 出新的 values 块。之前修的是 `dns.uya` 里的**局部数组**，
+这次暴露的是**结构体字段地址**这一形态。
+
+### uyagin 的修法（下一步）
+
+`uyagin_serve_conn` 里的 `var state: UyaginConnState = UyaginConnState{}` 是栈上聚合，
+`uyagin_serve_conn_slot_async(engine, fd, scheduler, &state)` 把它的字段地址
+`&conn_state.parse_result` 一路传下去，正好命中这个缺陷。
+
+按已验证的修法，把 `state` 搬到堆：
+
+```uya
+const state_mem: &UyaginConnState = malloc(@size_of(UyaginConnState)) as &UyaginConnState;
+defer { free(state_mem as &void); }
+state_mem[0] = UyaginConnState{};
+```
+
+`UyaginConnState` 约 84KB，一次 malloc 换来「每请求一次解析不丢」，
+代价可接受（和在 dns 里的处理一致）。
