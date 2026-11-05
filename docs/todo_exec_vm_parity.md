@@ -20011,3 +20011,115 @@ worker 体要在 `join` 才跑，同样能跑（那时 `g_start` 已是 1）—�
 
 实验代码已 `git checkout --` 还原，工作区干净，HEAD 仍是 `6d83a909`。
 `test_std_thread` 复跑回到 27 过 / 7 败（与实验前一致）。
+
+## 第 640 轮：真线程路径的两道墙（C/VM 双份全局、mmap 内存不被 VM 识别）
+
+第 639 轮排除「延迟到 join」之后，剩下的路只剩「让线程真的并发」。
+本轮去修 `UYA_EXEC_REAL_THREADS=1` 路径，挖出两道架构级的墙。
+**两道墙都是实证出来的，不是推测**，但结论是：这条路的代价远超 1 个用例。
+
+### 起点：141 是怎么来的
+
+`tests/test_pthread_heap_cache_identity.uya` 在真线程下返回 141。
+不是外壳的 SIGPIPE，是**测试程序自己的返回码**：
+
+```
+run_case 返回 40 +| states[joined].status     // status=1
+main 返回 100 +| rc  = 141
+```
+
+`status = 1` 对应 worker 里这一行：
+
+```uya
+const cache: &pthread_heap_cache_t = pthread_current_heap_cache();
+if cache == null as &pthread_heap_cache_t {
+    state.status = 1;
+```
+
+也就是子线程拿不到 tcache。规则很简单：**第一个线程能拿到，从第二个开始拿不到。**
+
+### 第一道墙：C 侧和解释侧不是同一份全局变量
+
+`pthread_has_created_thread` 决定 `pthread_current_heap_cache()` 走哪个分支：
+
+```uya
+if _pthread_has_created_thread == 0 {
+    ...
+    if self_tid != _pthread_main_desc.tid {
+        return null as &pthread_heap_cache_t;    // 非主线程不给 tcache
+    }
+    return &_pthread_main_desc.heap_cache;
+}
+// 下面走 _pthread_desc_self() + tid 强校验（正常分支）
+```
+
+第一版修法：在 `exec_vm_spawn_host_thread`（`src/exec/vm.uya:5244`）里、
+起线程之前调一个新加的 `pthread_note_external_threads_created()`，把标志置 1。
+加了一堆计数器探针，结果**计数器全是 0、行为一点没变**。
+
+原因找到了，是这条链的根本性质：
+
+- `exec_vm_spawn_host_thread` 属于**编译成 C 的解释器**（`src/exec/vm.uya`）。
+  它调 libc 函数，改的是 **C 全局变量**。
+- 用户程序里的 `pthread_current_heap_cache()` 是**被解释执行**的。
+  `_pthread_has_created_thread` 对它是 VM `program.globals[]` 里的一个槽。
+
+**两份变量，互不相通。** 从 C 侧置位，解释侧永远读到 0。
+
+同理，`exec_vm_thread_trampoline` 里那句
+`pthread_register_external_thread(d.stack_base, d.stack_size)`
+注册进的是 **C 侧的 registry**，解释侧 `_pthread_registry_find(tid)` 也是查空。
+
+### 第二道墙：mmap 出来的内存，VM 不认它的字段
+
+明白了第一道墙，第二版改为**纯 Uya 层**修：在 `has_created == 0` 且非主线程时，
+就地补一次登记 —— 分配/插入/置位全都在解释侧完成。
+
+```uya
+const registered: &pthread_desc = _pthread_registry_find(self_tid);
+if registered != null && registered.tid == self_tid {
+    return &registered.heap_cache;
+}
+const bumped: &pthread_desc = pthread_register_external_thread(null, 0usize);
+if bumped != null && bumped.tid == self_tid {
+    return &bumped.heap_cache;
+}
+```
+
+**部分成功**：最小探针（2 个线程各拿一次 cache）**通过了**，
+`test_pthread_heap_cache_identity` 也从 141 变成 239 —— 不再是同样的错误。
+
+但 239 是一个新的、更底层的问题：
+
+```
+exec runtime: lib/libc/heap.uya:1286:22: exec: LOAD_FIELD 字段越界
+  (idx=0 kind=14 count=-1 pointee=16 ref=0 aux=16 tgt=-1 res=0 addr=5d617088
+   fn=malloc ip=30 slot=17 line=1297 col=46)
+```
+
+`pthread_register_external_thread` 用 `sys_mmap` 分配 desc。那块内存是宿主
+`mmap` 出来的匿名页，**不在 VM 的竞技场里、也没登记进 fallback 区间**
+（`exec_value_alloc_bytes` 第 628 轮加的 `g_exec_value_fallback_lo/hi` 只管
+VM 自己 `malloc` 的块）。于是 VM 去读 `desc.heap_cache` 字段时，
+`exec_vm_address_is_vm_resident` 判定失败，`tgt=-1`，直接报「字段越界」。
+
+要让这条路通，得让 VM 能对**任意宿主指针**做字段解析 —— 那是另一项独立工程
+（影响 `exec_vm_field_ref` / `exec_vm_address_is_vm_resident` 的整个可信边界）。
+
+### 结论与处置
+
+两个改动都已 `git checkout --` 还原，工作区干净，HEAD 仍是 `f4469632`。
+`test_pthread_heap_cache_identity` 复跑回到 **141**（与起点一致）。
+
+`UYA_EXEC_REAL_THREADS` 这条路的真实成本现在清楚了：**不是「修几个 bug 让它稳」，
+而是要打通 C/VM 两套运行期状态**。这跟第 639 轮排除「延迟到 join」合起来，
+说明 5 个并发用例（21 断言）+ 本用例**没有便宜的解法**。
+
+### 方法论：探针全部归零时，先怀疑观测层面
+
+这轮最有价值的一步是「计数器全 0 ⇒ 不是走的这条分支 ⇒ 那 `_pthread_has_created_thread`
+到底是什么值」。差一点就沿着「hint 陈旧 / registry 满 / mmap 失败」继续往下猜
+（这三个都试过，全是否定的）。是「加计数器到**每一个** early return」这个笨办法
+把范围收干净的 —— 收干净之后才看见「它根本是另一个变量」这个可能。
+
+以后遇到「改了没反应」而不是「改了报错」，优先怀疑**观测的到底是哪一份状态**。
