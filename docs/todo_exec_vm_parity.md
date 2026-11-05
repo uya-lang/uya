@@ -17553,3 +17553,51 @@ var g_exec_value_arena_capacity: usize = 0;   // 当前段真实容量
 
 本轮所有探针与 module 内临时 export fn 均已删除/回退，`git status` 干净，
 `make uya` 通过。
+
+## 第 616 轮：ECDSA 诊断收束 —— 一次误判的记录，以及确凿的边界
+
+第 615 轮留下「同一 `p256_jac_scalar_mul` 直接调 99ms / 走 `public_from_private`
+5400ms」的矛盾。本轮继续拆解，**中途误判过一次，这里如实记下**。
+
+### 误判经过（务必别再踩）
+
+我把 `(i / 64) as! usize` 这个运行时转换当成热点，改写成 `usize` 外层循环后
+`make uya` 编译**失败**，而我只 `grep -c "错误"` 得到 0 就当成构建成功，
+于是「测出」96ms，误以为拿到 93 倍提速。实际那次测试根本没跑（旧二进制 + 类型错误）。
+
+教训：`make uya 2>&1 | grep -c "错误"` 返回 0 **不等于**构建成功 ——
+构建失败时错误可能输出到别处，或 grep 模式不匹配。此后一律看
+`✓ 自举编译器构建完成` 这一行，或直接检查 `bin/uya` 的 mtime。
+
+用 `usize` 消掉 `as!` 之后重新编译并实测：**仍然是 8.0 秒**，与改前一致。
+所以 `as!` **不是**瓶颈，那次「提速」是假象。
+
+### 本轮反面证据（都是带时间戳的实测）
+
+| 做法 | 结果 |
+| --- | --- |
+| 256 次 `jac_double`（`acc` 从零开始） | 87ms |
+| 256 次 `jac_double`（`acc` 非零初值） | 73ms |
+| 256 轮 `jac_double` + `jac_add`（完全等价于 `scalar_mul` 内层） | **74ms** |
+| `scalar_mul` 本体经 `public_from_private` 调用，逐阶段打时间戳 | **8000ms** |
+
+第三行是决定性的：把 `scalar_mul` 的内层逻辑原样搬到 bench 里，**只要 74ms**；
+同样的逻辑在 `scalar_mul` 里就要 8000ms。**100 倍**。
+
+已排除：聚合创建、`Fe256` 局部变量数、u64 乘法、深层嵌套、结构体传值、
+`fe256_mul` 本体、`fe256_inv` 本体、`jac_double` 本体、`jac_add` 本体、
+`as!` 运行时转换、多一层 wrapper、模块内 vs 跨模块调用、`acc` 零/非零初值。
+
+### 还剩下的唯一差异
+
+`scalar_mul` 读标量走的是 **`k: &const Sc256` 参数**（`k.l[n]`），
+而 bench 里的 `word` 来自模块内局部变量。下一轮应当直接验证
+「对 `&const` 结构体参数的数组字段做下标访问」在 VM 里是否走了慢路径 ——
+这条路径在 `lower.uya` 里会经过 `BC_ADDR_INDEX` / `exec_vm_index_ref`，
+而第 607 轮已经证明这条链在特定情形下会走 `exec_value_clone` 之类的重路径。
+
+### 状态
+
+本轮所有探针与 `ec_p256.uya` 改动**已全部回退**（`git checkout --`），
+`git status` 干净、`make uya` 通过。`test_tls_ecdsa` 仍在 350s 内跑不完，
+仍属「VM 性能」类遗留，不影响 parity 判定。
