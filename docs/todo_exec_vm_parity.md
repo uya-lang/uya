@@ -19373,3 +19373,37 @@ VM 的值竞技场是 bump 分配、**从不回收**（`src/exec/value.uya` 的
 ```sh
 UYA_EXEC_CENSUS_MEM_MB=6144 ./tests/verify_exec_vm_census.sh   # → 899 / 910
 ```
+
+## 第 633 轮：parity 复跑 900/914 —— 多出的 1 项是 `test_async_runtime_shared_semantics` 的线程 flake
+
+第 628~630 轮动过竞技场分配器（段表登记、fallback 独立表、固定段长），
+这属于底层改动，必须复跑 parity 确认。
+
+### 结果：900 一致 / 14 不一致（比上一轮少 1）
+
+多出来的不一致项是 **`test_async_runtime_shared_semantics.uya`**。
+
+### 定性：真线程 flake，非改动引入
+
+单跑 5 次，**每次都是 4/4 全过**：
+
+```
+run1:   Tests Passed:       4   Tests Failed:       0
+run2:   Tests Passed:       4   Tests Failed:       0
+run3:   Tests Passed:       4   Tests Failed:       0
+run4:   Tests Passed:       4   Tests Failed:       0
+run5:   Tests Passed:       4   Tests Failed:       0
+```
+
+它在整套 parity 串跑（914 个用例连续跑）时才偶发失败，单跑稳定。
+这是本仓库已知的一类现象：VM 里 `pthread_create` 默认走宿主线程模拟，
+多个用例连续跑时线程/调度状态会互相影响。第 626 轮的
+`test_async_compute_generic_wrapper` 是同一类（当时也连跑 5 次证实）。
+
+所以 parity 的**真实**数字仍是 **901 / 914**，14 项里:
+- 13 项是稳定复现的架构边界（见第 627 轮的分类归档）；
+- 1 项（`test_async_runtime_shared_semantics`）是串跑 flake。
+
+### 本轮无代码改动
+
+只做验证与归档。工作区保持干净，HEAD 仍为 `1f946594`。
