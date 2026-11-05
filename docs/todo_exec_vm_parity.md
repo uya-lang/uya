@@ -18231,3 +18231,70 @@ exec: 当前仅支持局部变量/参数/全局标识符(out)
 
 下一轮从 `engine.handle` 的入口开始，逐语句打标记，找出到底哪一句清掉了
 `ctx.request.path_len`。这已经是很窄的范围了。
+
+### 第 621 轮：404 的硬证据 —— `parse_result.request.path_len` 在 return 后、`ctx` 赋值处已经是 0
+
+这一轮换掉了所有不可靠的 `@print` 数值探针，改成**把诊断数据渲染进 HTTP 响应体**
+（响应体是测试真正读的东西，不会像 stdout 那样被缓冲吞掉）。
+
+第一次探测（只打 `path_len/method/route_count`）拿到：
+
+```
+HTTP/1.1 200 OK  ...  PL=0 ML=0 RC=1
+```
+
+- `PL=0` → `ctx.request.path_len == 0`
+- `ML=0` → GET（正确）
+- `RC=1` → **路由确实注册了 1 条**
+
+第二次探测在 `uyagin_serve_conn_slot_async` 里、`ctx` 赋值**紧后面**记录四个量并渲染：
+
+```
+sp=139957906259968 spl=0 cp=13995790...
+```
+
+- `sp`（`&conn_state.parse_result.request` 的地址）与 `cp`（`ctx.request`）是同一个值；
+- **`spl = 0`** —— 就在 `conn_state.ctx = ...` 赋值的下一行，
+  `conn_state.parse_result.request.path_len` 已经是 **0**。
+
+而更早在 `uyagin_conn_read_parse_into_future` **内部**检查 `out.request.path_len`
+时它是**非 0**（正确）。两处是同一块内存、同一个指针。
+
+**所以丢失发生在 `uyagin_conn_read_parse_into_future` 返回之后、
+`conn_state.ctx` 赋值之前的那几行之内。**
+
+顺便纠正两处被探针骗过的结论：
+
+- 第 619 轮的 `[R] plen=0` 与 `[W] rb=5` 之间的矛盾，`[R]` 那半边其实是**对的**
+  （那时 619 的结论方向没错，只是 `@print` 中间那次读数不可信）；
+- 第 620 轮补六说「`ctx.request` 内容在 `engine.handle` 期间被清零」是**错的**：
+  清零在 `handle` 之前就发生了。上一轮据此写的 994/993/803/805 标记全部没生效
+  （探针没插进去，或位置被我的编辑挪走），不能作数。
+
+### 已排除的最小形态（第 621 轮新增，全部 VM 通过）
+
+| 形态 | 结果 |
+| --- | --- |
+| `@async_fn` 写 `&out.request` 的嵌套字段，调用方读 | 通过 |
+| 三层 `@async_fn` 传递同一个 `&PR` 字段地址 | 通过 |
+| 外层 async fn 的**局部** `PR`，取其字段地址传给内层 async | 通过 |
+| `while true` + 两次 `@await r.read` 后再写 | 通过 |
+
+到此为止，**所有能从 uyagin 提炼出的最小形态都通过**。
+说明剩下的触发条件在 uyagin 特有的组合里，而不是某个通用的传参/布局缺陷。
+
+### 下一轮的精确锚点
+
+不要再去试探「什么写法会坏」。直接在那几行之间做**二分**：
+`uyagin_conn_read_parse_into_future` 返回后，到 `conn_state.ctx = ...` 之间只有三条语句：
+
+```uya
+if conn_state.parse_error_id != 0u32 { ... }
+persist = request_wants_persistent_with_session(&conn_state.parse_result.request, ...);
+var req_alloc: &IAllocator = conn_state.request_arena.allocator();
+if engine.allocator != null { req_alloc = engine.allocator; }
+conn_state.ctx = uyagin_context_new_with_request_arena(fd, &conn_state.parse_result.request, persist, req_alloc, &conn_state.request_arena);
+```
+
+把 `spl` 的渲染插在**每一条之间**，一次编译就能定位到具体哪一条清掉的。
+这是很窄、很确定的下一步。
