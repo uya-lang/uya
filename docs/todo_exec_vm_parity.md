@@ -18840,3 +18840,44 @@ exec_value_alloc_bytes_locked`，进程级 bump 分配器）的**扩容时机和
    最可疑的是「某次请求结束后 arena 段被回收，下一轮再拿到的引用已经悬垂」。
 3. 修完判据：`ulimit -v 4194304` 下 `test_http_uyagin` 要么 27/27，
    要么给出一条**明确的**生命周期错误，不再出现垃圾 kind。
+
+### 第 626 轮：call0 桥的全量验证 —— 无回归，`test_kernel_sim` 的改善是真的
+
+#### census（全量覆盖普查）
+
+`test_kernel_sim` 从 **5 败降到 4 败**，其他用例一个没动：
+
+| 用例 | 轮次前 | 轮次后 |
+| --- | --- | --- |
+| `test_kernel_sim` | 5 败 | **4 败** |
+| 其余 11 个失败用例 | 不变 | 不变 |
+| 总计 | 898 / 910 | **898 / 910** |
+
+#### `make check`
+
+**1189 / 1193**，4 例失败：`test_async_compute_generic_wrapper`、
+`test_async_compute_types`、`test_async_thread_pool_dynamic_growth`、`test_std_thread`。
+
+#### 那 4 例都是既有 flake（已逐项核实，不是 call0 引入的）
+
+`test_async_compute_generic_wrapper` 一度看着像回归：单次跑 1 过 1 败，
+而回退 call0 后单次跑 2 过 0 败。但**连跑 5 次**之后：
+
+```
+run1: 2/2   run2: 2/2   run3: 2/2   run4: 2/2   run5: 1 过 1 败
+```
+
+4 次全过、1 次失败 —— 这是**真线程时序 flake**（该测试用
+`thread_pool_new(2)` + `async_compute` 起真 worker），
+和文档里早就记着的「偶发 `test_async_compute_generic_wrapper`」是同一件事。
+那次单次回退测试只是恰好命中了通过的那一次，不足以作为回归证据。
+
+其余三例（`test_async_compute_types`、`test_async_thread_pool_dynamic_growth`、
+`test_std_thread`）一直是 `make check` 里的既有 flake，且都属于「真并发时序」这个
+census 失败大类。
+
+#### 8 个 `test_asm_*` 无回归
+
+重新跑一遍全部维持原结果（`test_asm_verified` 10/10、`test_asm_atomic` 15/15、
+`test_asm_types` 11/11、`test_asm_syscall` 8/8、`test_asm_platform` 10/10、
+`test_asm_edge_cases` 9/9、`test_asm_type_safety` 13/13、`test_asm_memory_safety` 12/12）。
