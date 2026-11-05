@@ -19421,3 +19421,135 @@ run5:   Tests Passed:       4   Tests Failed:       0
 ### 本轮无代码改动
 
 只做验证与归档。工作区保持干净，HEAD 仍为 `1f946594`。
+
+## 第 634 轮：`test_http_uyagin_websocket` 根因定位 —— `@await` 之后跨帧裸数组指针的写入丢失
+
+第 627 轮把这一例定性成「子进程 self-exec 架构边界」，**那个定性是错的**。
+本轮把它拆开，拿到了精确到一行断言的根因，并写出 6 行的最小复现。
+
+### 从断言一路收到根因
+
+失败断言在 `tests/test_http_uyagin_websocket.uya:193`：
+
+```uya
+const got: usize = run_with_loop_usize(websocket_conn_read_message(&ws, &rx[0], 128, &msg[0], 128, &opcode)) catch {
+    _exit(15);
+    ...
+};
+if got != 5 || opcode != WebSocketOpcode.Text || !bytes_eq_raw(&msg[0], &payload[0], 5) {
+    _exit(16);   // ← 失败的是这一支，退出码 16 就是这么来的
+}
+```
+
+临时探针打出三个条件：`got=5` ✓、`op=1`（Text）✓、`eq=0` ✗，
+`m0=0` 而 `p0=104`（`'h'`）。**长度和 opcode 都对，只有内容全是 0。**
+
+继续往上，在 `lib/std/http/websocket_async.uya` 的 `websocket_conn_read_frame_compact`
+里探针：
+
+```
+服务端: [RF] hlen=6 plen=5 rx0=129 rxh=104   → after rx0=104   ✓
+客户端: [RF] hlen=2 plen=5 rx0=129 rxh=0     → after rx0=0     ✗
+```
+
+`hlen` 差异是 mask key（服务端发帧不 mask，客户端算 hlen=2 是对的）。
+关键是 `rxh = rx[header_len] = 0` —— **payload 根本没读进 `rx`**。
+
+而 `rx + header_len` 的指针算术是对的（探针实测 `...608 + 6 = ...614`、
+`...208 + 2 = ...210`）。所以问题在 `read_exact` 那一层：
+
+```uya
+// lib/std/async.uya:1102
+const n: usize = try @await async_fd_read_future(fd, &buf[total], count - total);
+```
+
+`&buf[total]` 是**跨帧传进来的裸数组指针**，`@await` 之后就失效了。
+
+### 最小复现（已入库为 `tests/repros/async_await_raw_array_write_lost.uya`）
+
+```uya
+@async_fn fn fill(buf: &byte) Future<!usize> {
+    buf[0] = 42 as byte;          // await 前写
+    g_mark = g_mark +| 100;
+    _ = try @await yield_once();  // 真的挂起一次
+    g_mark = g_mark +| 1000;
+    buf[10] = 99 as byte;         // await 后写
+    return 4usize;
+}
+
+@async_fn fn body() Future<!i32> {
+    var rx: [byte: 32] = [];      // 定长裸数组，位于 body 帧
+    const raw: !usize = @await fill(&rx[0]);
+    ...
+    @print("rx0="); @print(rx[0] as i32); @print(" rx10="); @print(rx[10] as i32);
+    @print(" mark="); @print(g_mark); @print("\n");
+}
+```
+
+两个后端的结果：
+
+| | `rx0` | `rx10` | `mark` |
+| --- | --- | --- | --- |
+| C99 | 42 ✓ | **99 ✓** | 1100 ✓ |
+| VM | 42 ✓ | **0 ✗** | 1100 ✓ |
+
+这个对照把问题切得很干净：
+
+- `rx0` 两边都对 → 参数传递、`&rx[0]` 取址、`buf[i]` 写入**都没问题**；
+- `rx10` 只有 VM 错 → 失效**只发生在跨过 `@await` 之后**；
+- `mark` 两边都对 → 全局变量跨挂起点是好的，丢的不是「所有写入」，
+  而是**特指目标是「跨帧传入的裸数组指针」的写入**。
+
+### 机制（探针实测）
+
+在 `exec_vm_cont_snapshot` 里给裸数组槽位打地址：
+
+```
+[RAW] fn=body slot=0 old=ea8a4c00 new=ea8a5460 same=0
+[RAW] fn=body slot=0 old=ea8a6010 new=ea8a6670 same=0
+...
+```
+
+`same=0` —— **每次快照，裸数组的底层块都被换成了新地址**。
+原因就是 `:9334` 的 `block[i] = exec_value_clone(&frame.slots[i])`，
+而 `exec_value_clone` 对裸数组（`exec_value_is_raw_array` 为真，见
+`src/exec/value.uya:1121`）会**新分配一块再把内容 memcpy 过去**。
+
+于是 `fill` 手里的 `buf` 还指着**旧块**，`body` 恢复后 `rx` 已经指向**新块**：
+`buf[10] = 99` 写进旧块，`rx[10]` 从新块读，拿到 0。
+
+第 622 轮修 `test_http_uyagin` 时也撞过同一族问题（当时是 `&st.parse_result`
+指向外层帧聚合，靠把状态提到文件级全局绕过）。这一轮拿到的是它的**共同机制**，
+不再是单个现象的绕过。
+
+### 尝试过的修法（未生效，原因已查明）
+
+第一版改法是「快照时裸数组保持指针、不深拷贝」：
+
+```uya
+if exec_value_is_raw_array(&frame.slots[i]) != 0 {
+    block[i] = frame.slots[i];
+    i = i +| 1;
+    continue;
+}
+```
+
+改了之后 `rx10` **仍然是 0**。再打探针才看清：快照产出的 `block` 里，
+`body` 的 slot 0 指针**每次快照都不相同**（`d6bfbc00 → d6bfcfe0 → d6bfd8f0 …`），
+也就是说**在进入 `exec_vm_cont_snapshot` 之前，源槽位 `frame.slots[0]` 就已经换了块**。
+所以真正换块的时机不在快照函数里，得往「主调帧槽位在子调用挂起时如何被重建」查。
+
+这一步没修完，但**方向已经从「12 个说不清的子进程失败」收窄到
+「续体挂起时主调帧裸数组槽位被重建」这一个点**，并且有 6 行复现夹具兜住。
+
+### 待办（下一轮直接从这两条查）
+
+1. `body` 的 `rx` 槽位在 `@await fill(&rx[0])` 期间被谁改写？
+   查 `BC_AWAIT` 的降级：`&rx[0]` 求值后有没有额外产生一次「装箱后写回槽位」。
+2. 修的同时必须保住 `test_setjmp`(12/12)、`test_signal`(6/6)、
+   `test_http_uyagin`(27/27) —— 它们都依赖裸数组 + 挂起点的现有行为。
+
+### 无回归
+
+本轮只加了一个复现夹具（`tests/repros/` 不参与 `make check`），
+`src/` 与 `lib/` 的探针改动已全部 `git checkout --` 还原，工作区干净。

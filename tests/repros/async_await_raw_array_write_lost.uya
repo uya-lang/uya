@@ -1,0 +1,65 @@
+// 回归夹具：`@await` 之后对「跨帧传入的裸数组指针」的写入会丢失（VM）。
+//
+// 期望（C99）：rx0=42 rx10=99 mark=4400
+// VM 实际：   rx0=42 rx10=0  mark=4400
+//
+// 也就是说：`@await` **之前**写 buf[0] 生效，`@await` **之后**写 buf[10] 丢失，
+// 而全局变量 `g_mark` 的写入两次都正常 —— 只有「跨挂起点 + 目标是裸数组指针」
+// 的写入会丢。根因见 docs/todo_exec_vm_parity.md 第 634 轮。
+
+use std.async;
+
+struct FlipOnce : Future<!i32> {
+    polled: i32,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        _ = waker;
+        if self.polled == 0 {
+            self.polled = 1;
+            return Poll<!i32>.Pending({});
+        }
+        return Poll<!i32>.Ready(ok<i32>(1));
+    }
+
+    fn release(self: &Self) void {
+        _ = self;
+    }
+}
+
+fn yield_once() Future<!i32> {
+    return FlipOnce{ polled: 0 };
+}
+
+var g_mark: i32 = 0;
+
+@async_fn fn fill(buf: &byte) Future<!usize> {
+    buf[0] = 42 as byte;
+    g_mark = g_mark +| 100;
+    _ = try @await yield_once();
+    g_mark = g_mark +| 1000;
+    buf[10] = 99 as byte;
+    return 4usize;
+}
+
+@async_fn fn body() Future<!i32> {
+    var rx: [byte: 32] = [];
+    const raw: !usize = @await fill(&rx[0]);
+    _ = raw catch |err| {
+        _ = err;
+        0 as usize;
+    };
+    @print("rx0="); @print(rx[0] as i32); @print(" rx10="); @print(rx[10] as i32);
+    @print(" mark="); @print(g_mark); @print("\n");
+    return 0;
+}
+
+fn main() i32 {
+    const h: Future<!i32> = body();
+    const r: !i32 = block_on<i32>(h);
+    const v: i32 = r catch |err| {
+        _ = err;
+        1;
+    };
+    _ = v;
+    return 0;
+}
