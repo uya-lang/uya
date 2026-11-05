@@ -1,0 +1,33 @@
+// 回归：结构体名恰好是 `Conn` 时，exec VM 无法解析它的成员访问。
+//
+// 现象（exec VM 独有的确定性失败，C99 正常）：
+//     exec backend 失败: ...: exec: 无法解析成员访问字段: Conn.n
+//
+// 触发条件已经二分到极窄：
+//   * 只在 `@async_fn` 的 `&Struct` 参数上出现（同步 fn 完全正常）；
+//   * 与结构体大小、字段个数、字段类型全都无关；
+//   * **只对精确名字 `Conn` 成立**——`Con`、`ConnX`、`Conn2`、`Engine`、
+//     `PR`、`Session` 全部通过。
+//
+// 推断方向：这是名字哈希 / 泛型基名匹配路径上的碰撞，不是布局问题。
+// 详见 `docs/todo_exec_vm_parity.md` 第 620 轮。
+//
+// 注意：本文件在 VM 下会失败，这是**预期的**——它是哨兵，不是坏用例。
+use std.async;
+use std.testing.assert_eq_i32;
+
+struct Inner { a: i32 }
+struct Conn { inner: Inner, n: i32 }
+
+@async_fn fn bump(cs: &Conn) Future<!i32> {
+    cs.n = 9;
+    return 0;
+}
+
+test "struct named Conn keeps field access in async fn" {
+    var cs: Conn = Conn{ inner: Inner{ a: 0 }, n: 0 };
+    const f: Future<!i32> = bump(&cs);
+    const res: !i32 = block_on<i32>(f);
+    const _v: i32 = res catch { -1; };
+    try assert_eq_i32(cs.n, 9);
+}

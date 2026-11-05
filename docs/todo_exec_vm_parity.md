@@ -17907,3 +17907,90 @@ census：**898 / 910**（12 例失败；`test_http_uyagin` 仍是 137，
 确认是「写入写到了副本」还是「读出来拿到的是副本」。两者对应完全不同的修法：
 前者要查 `&out.request` 的取值链路（`out` 是 `@async_fn` 的参数，跨了 1 次 `@await`）；
 后者要查 `conn_state.parse_result.request` 的读取路径。
+
+## 第 620 轮：`test_http_uyagin` 最后 1 例的 404 → 二分到一个极窄的 VM 缺陷（结构体名 `Conn`）
+
+### 证据链（全部实测，逐层收窄）
+
+第 619 轮结尾停在「`consumed` 传出来了、`request` 的字段没传出来」。
+本轮先在写入端做「写完立即回读」：
+
+```
+[W] set=5 rb=5 ptr=444803296      ← 写入真的落到了 req 指向的内存
+[R] plen=0 rptr=446154240 outp=446084040
+```
+
+`rb=5` 证明写入没问题，于是问题在读取端——两边地址不同。再往上一层看
+调用点传进去的指针：
+
+```
+[F] outp=-1214327128              ← async fn 里收到的
+[R] ... outp=-1212976184          ← 调用方持有的
+```
+
+**同一件事在两处是不同地址**，所以 `http_parse_request_into` 写的是另一份。
+
+### 二分（每一条都在 VM 上跑过）
+
+一开始怀疑「`@async_fn` 的指针参数被复制」，但最小用例把它否掉了：
+
+| 用例 | VM |
+| --- | --- |
+| `@async_fn fn d(n: i32)` 标量参数 | 通过 |
+| `@async_fn fn d(p: &PR)` 单字段结构指针 | 通过 |
+| 嵌套结构体字段经 `&ptr` 写入（同步 fn） | 通过 |
+| 结构体大小 8 / 64 / 256 / 1024 / 4096 | 全部通过（与大小无关） |
+| `Inner` 字段数 1 / 2、类型 `i32`/`usize`/`i8`/`i64`/`byte` | 全部通过 |
+| 外层结构体名为 `Outer` / `Engine` / `PR` / `Session` | 全部通过 |
+| 外层结构体名为 **`Conn`** | **失败** |
+| 外层结构体名为 `Con` / `ConnX` / `Conn2` / `Sess` | 全部通过 |
+
+最小复现（20 行）现在只要「结构体叫 `Conn` + 在 `@async_fn` 里访问它的字段」：
+
+```uya
+struct Inner { a: i32 }
+struct Conn { inner: Inner, n: i32 }
+
+@async_fn fn bump(cs: &Conn) Future<!i32> {
+    cs.n = 9;          // ← exec VM: 无法解析成员访问字段: Conn.n
+    return 0;
+}
+```
+
+报错点在**调用点**：`exec backend 失败: ...:26: exec: 无法解析成员访问字段: Conn.n`。
+
+### 已在源码里定位到报错处，但真正的判定点还没定论
+
+`src/exec/lower.uya:10135` 是这条错误的产生点，它上游是
+`exec_lower_struct_field_index()`（`lower.uya:4081`）返回了 `-1`：
+
+1. `type_get_struct_name(&struct_type)` 拿到名字；
+2. `find_struct_decl_from_program(program_node, struct_name)` 找声明；
+3. 在 `struct_decl_fields` 里逐个比 `var_decl_name`。
+
+`find_struct_decl_from_program`（`src/checker/lookup.uya:869`）走的是**名字哈希缓存**
+（`lookup_result_cache_slot` / `lookup_decl_cache_slot` + `hash_string` 掩码），
+而 `lookup_result_cache_key_matches` 是用 `str_equals` 精确比对的，
+所以「缓存张冠李戴」这条路看起来是堵住的。
+
+`lookup_name_matches_exact_or_generic_base`（`lookup.uya:166`）里有个值得怀疑的**泛型基名**分支：
+
+```uya
+if dlen > qlen && strncmp(decl_name, query_name, qlen) == 0 && decl_ptr[qlen] == 60 {
+    return 1;   // 60 == '<'，即 "Xxx<...>" 当成 "Xxx"
+}
+```
+
+下一轮就从这里查：是 `Conn` 的哈希槽被某个**泛型实例名**（形如 `Conn<...>`）
+占了，还是 `type_get_struct_name` 对 `Conn` 返回了别的东西。
+
+### 为什么这条特别值得修
+
+它不是 `test_http_uyagin` 一个用例的事：**任何叫 `Conn` 的结构体在 VM 下访问字段都会炸**。
+这个最小复现已经留档为 `tests/repros/conn_struct_name_vm_bug.uya`
+（VM 下失败是预期的——它是哨兵，不参与 `make check`）。
+
+### 本轮验收
+
+工作区干净，`make check` 上一轮 **1190 / 1193**（3 例既有 flake）。
+本轮改动只有新增的 repro 夹具与本文档，没有动产品代码。
