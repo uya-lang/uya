@@ -18588,3 +18588,24 @@ census 那一轮里 `test_http_uyagin` 报的是
 `ADDR_INDEX 越界(IDXREF fn=handle ip=51 ...)`，而**单跑连跑 3 次都是 27/27**。
 census 的并行度是 44（44 个 VM 进程同时跑），这更像是并行环境下的资源竞争，
 和本轮的逻辑修复不是同一件事，下一轮再单独看。
+
+### 第 623 轮：`test_http_uyagin_websocket` 的剩下 1 例是**基线既有**，与本次修复无关
+
+`test_http_uyagin_websocket` 在 VM 下是 2 过 / 1 败，失败的是
+`uyagin_websocket_upgrade_echo_roundtrip`：
+
+```
+assert_eq_i32 failed: 0 == code (actual: 0, expected: 16)
+```
+
+`expected: 16` 对应子进程里的 `_exit(16)`，即第 194 行
+`if got != 5 || opcode != WebSocketOpcode.Text || !bytes_eq_raw(&msg[0], &payload[0], 5)`
+—— echo 回来的消息内容对不上。
+
+**已做对照**：把第 622 轮的 uyagin 修复回退、重新构建后再跑，
+仍然是 **2 过 / 1 败**（C99 侧一直是 3/3 全过）。
+所以这 1 例是基线既有失败，**不是**连接状态全局化引入的，本轮不动它。
+
+它的形态是 `fork()` 出的子进程 + 真实 socket 上的 WebSocket echo，
+和 `test_typed_pipeline_capability` 一样属于「exec 子进程」这一类，
+待后面单独处理。
