@@ -18774,3 +18774,69 @@ ulimit -v 5120MB  → 失败
 
 判据：修好之后，`ulimit -v 4194304` 下 `test_http_uyagin` 应该要么 27/27，
 要么给出一条**明确的**「分配失败」错误，而不是含糊的 `ADDR_INDEX 越界`。
+
+### 第 625 轮补：`ADDR_INDEX` 的元凶是**悬垂引用**（use-after-free），不是空指针
+
+在第 7545 行的失败分支上临时加了一条打印（取 `slot_b` 的实际地址、aux、
+`is_index_base`、target 是否存在、target 的 kind），在
+`ulimit -v 4194304` 下跑 `test_http_uyagin`，拿到：
+
+```
+[IDX] addr=140549191469848 aux=65555 isidx=0 target=1 tkind=1821864748
+```
+
+逐项读：
+
+| 字段 | 值 | 含义 |
+| --- | --- | --- |
+| `addr` | 140549191469848 | **有效地址**，不是一个空指针 |
+| `aux` | 65555 | `65536 + 19` = 值引用 + `TypeKind.TUPLE` |
+| `isidx` | 0 | 不是 INDEX 基引用 |
+| `target` | 1 | `exec_vm_ref_target_value` **拿到了非空地址** |
+| `tkind` | **1821864748** | `target->kind` 是**垃圾值** |
+
+`tkind = 1821864748` 不可能是任何 `ExecValueKind`（枚举只到 24）。
+所以 target 指向的那块 `ExecValue` **已经被释放、被别的东西复用了** ——
+这是一个 **use-after-free（悬垂引用）**，不是空指针。
+
+链路因此断在：
+
+1. `target != null`，所以 `exec_vm_index_ref` 里「ref_kind == TUPLE 且 idx 0 → 返回 target」
+   那条**本该成立**，但它要求 `exec_value_as_aggregate(target) != null`；
+2. target 的 kind 是垃圾，`exec_value_as_aggregate` 返回 null，
+   于是那条快捷路径不生效；
+3. 后面几条（嵌套数组 / index 基 / 装箱聚合）也都不匹配；
+4. 最后 `return exec_vm_index_ref(target, index_value)` 递归，同样拿不到聚合；
+5. 返回 null → `ADDR_INDEX 越界(IDXREF …)`。
+
+### 顺带排除了一个猜想
+
+先怀疑「`exec_vm_make_value_ref` / `exec_vm_make_index_value_ref` 在
+`target == null` 时静默构造了地址 0 的引用」，于是在这两个函数里加了诊断。
+**一条都没打出来** —— 说明这个方向不对，引用不是在那里产生的。
+上面的 `addr` 非 0 也印证了这点。
+
+### 为什么只在 ulimit 下炸
+
+`ulimit -v` 收紧地址空间后，竞技场（`src/exec/value.uya:526
+exec_value_alloc_bytes_locked`，进程级 bump 分配器）的**扩容时机和落点**都变了。
+`g_exec_value_arena_seg_lo/hi` 只登记成功的段，一旦某次扩容失败回落、
+或者复用了被释放的块，早先拿到的「值引用」就可能指到一块后来被重新分配的内存。
+
+这解释了「正常跑 27/27 稳定、census（4GB）必现」的差异 —— 不是时序，
+是**地址空间压力改变了分配布局**。
+
+### 下一步（明确的切入）
+
+1. `exec_vm_address_is_value(addr)`（`value.uya:582`）已经能做到「判断某地址是否落在
+   VM 值竞技场的某个段里」。**在所有「解引用内部引用」的入口统一加一道校验**：
+   `exec_vm_ref_target_value` 拿到的地址如果不在任何竞技场段内（或整块已回收），
+   就应当返回 null 并让上层报一条**明确**的错误（「引用的目标已失效」），
+   而不是把一个垃圾 kind 继续往下传。
+2. 顺着 `aux=65555`（TUPLE 值引用）回溯：`uyagin` 里 `handle` 的第 51 条字节码
+   拿到的这个引用是谁产出的。`uyagin.uya:744` 是 `Engine.handle` 的 `ctx.request` 那行，
+   附近有 `&self.route_meta[0]`、`&self.router` 这类**指向 engine 内部聚合**的引用。
+   engine 在测试里是局部变量，请求循环里被反复取址，
+   最可疑的是「某次请求结束后 arena 段被回收，下一轮再拿到的引用已经悬垂」。
+3. 修完判据：`ulimit -v 4194304` 下 `test_http_uyagin` 要么 27/27，
+   要么给出一条**明确的**生命周期错误，不再出现垃圾 kind。
