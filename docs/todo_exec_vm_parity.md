@@ -19290,3 +19290,86 @@ enum TypeKind {
 无代码改动，只做勘误（外加确认工作区干净、HEAD 保持第 630 轮的 `b29bb6b5`）。
 记这一步是因为**错误的方向比没有方向更费时间**：第 630 轮那段推论如果留在这里，
 下一轮会照着去查一个不存在的编码缺陷。
+
+## 第 632 轮：定量 —— `test_http_uyagin` 的失败是 4GB 限制造成的，其真实峰值 6096 MB
+
+### 度量
+
+用 `/proc/<pid>/status` 的 `VmPeak` 采峰值（后台跑、500ms 轮询取最大）：
+
+```
+test_http_uyagin（VM，不限制地址空间）  VmPeak = 6096 MB
+```
+
+而 census 脚本 `tests/verify_exec_vm_census.sh:49` 的默认单例上限是：
+
+```sh
+MEM_MB="${UYA_EXEC_CENSUS_MEM_MB:-4096}"
+```
+
+**4096 MB < 6096 MB**，所以这个用例在 census 默认配置下**必然**失败。
+这跟 VM 有没有 bug 无关，是内存根本不够。
+
+### 全量对照实验
+
+把上限调到 6144 MB 重跑整套 census：
+
+| 配置 | 通过 | 失败 | 通过率 | `test_http_uyagin` |
+| --- | --- | --- | --- | --- |
+| 默认 4096 MB | 898 | 12 | 98.7% | ❌ `ADDR_INDEX 越界` |
+| 6144 MB | **899** | **11** | **98.8%** | ✅ **27/27** |
+
+**其余 11 例在 6144 MB 下逐条完全不变**：
+
+```
+test_async_compute_dynamic_resource_pressure  1
+test_async_frame_pool_full                    1
+test_async_thread_pool_dynamic_growth         4
+test_http_uyagin_websocket                    1
+test_kernel_sim                               4
+test_pthread_heap_cache_identity              181
+test_std_async_scheduler                      1
+test_std_thread_async_boundary                3
+test_std_thread                               7
+test_tls_ecdsa                                137
+test_typed_pipeline_capability                12
+```
+
+这是个有用的**分离**：内存受限造成的失败只有 1 例，
+另外 11 例（21 个断言）跟内存无关，是真正的架构边界。
+
+### 为什么这条这么久才查出来
+
+前面几轮我一直在「4GB 下为什么坏」里找 VM 的逻辑缺陷，
+先后否掉了三条真实但无关的假设（段表撑满、fallback 漏登记、
+聚合分配静默返回 VOID —— 这三条本身都修了，见第 628~630 轮），
+却**从来没量过这个用例到底要多少内存**。
+
+一条 `VmPeak` 就结束了：要 6 GB，限制给 4 GB，仅此而已。
+教训是：**在「某配置下失败」的排查里，先量该配置是否本身就不够，再查逻辑。**
+
+### 那 6 GB 花在哪 —— 以及为什么这仍然是真问题
+
+VM 的值竞技场是 bump 分配、**从不回收**（`src/exec/value.uya` 的
+`g_exec_value_arena_used` 只增不减，分段串联也不搬移）。
+27 个 HTTP 测试用例串在一个进程里跑，每个用例都新建架构、路由表、
+请求/响应缓冲，全都不释放，累积到 6 GB 是必然结果。
+
+所以「调高上限」只是不掩盖事实的做法，**不是根治**。
+根治要么引入回收（风险大：竞技场不搬移是 `exec_vm_address_is_value` 的硬前提，
+回收会让已交出去的内部引用失效），要么按测试边界重置竞技场
+（需要保证重置点没有任何活跃引用 —— 和第 622 轮续体快照遇到的是同一类问题）。
+
+本轮**不动**这两条路。先把度量结果记在案，它把剩余工作从
+「12 个说不清的失败」变成了「1 个内存预算问题 + 11 个架构边界」。
+
+### census 默认值本轮不改
+
+`4096` 是**故意**偏紧的：它负责在用例真的失控吃内存时早点失败。
+改成 6144 会让整套 census 的峰值内存抬高一截，而收益只是让 1 个用例过。
+把这个数字和 `VmPeak = 6096 MB` 的实测留在文档里，比偷偷调参更有用。
+需要时用环境变量即可：
+
+```sh
+UYA_EXEC_CENSUS_MEM_MB=6144 ./tests/verify_exec_vm_census.sh   # → 899 / 910
+```
