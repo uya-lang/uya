@@ -17878,3 +17878,32 @@ C99 返回 200。说明**真实 socket 路径**上路由没匹配上，与本次
 （`test_async_compute_types`、`test_async_thread_pool_dynamic_growth`、`test_std_thread`）。
 census：**898 / 910**（12 例失败；`test_http_uyagin` 仍是 137，
 因为最后那 1 个 404 用例让它整体退出码非零）。
+
+### 第 619 轮补：最后那 1 例的 404 已经精确定位到「解析结果没传出来」
+
+`uyagin_serve_conn_releases_scheduler_frames_after_connection_close` 在 VM 下返回
+`HTTP/1.1 404 Not Found`。两层探针把范围收窄到了确定的点：
+
+```
+[PARSE] consumed=58 plen=0 m=0
+[LOOK]  rc=1 idx=-1 m=0 plen=0
+```
+
+- `consumed=58` → **`http_parse_request_into` 完全成功**（请求 59 字节，消耗 58+CRLF）；
+- `rc=1` → 路由确实注册了 1 条；
+- 但 `parse_result.request.path_len = 0`、`method=0`（GET 恰好是 0，所以 method 看不出问题）。
+
+即：**同一个 `ParseResult` 里，标量字段 `consumed` 传出来了，嵌套结构体
+`request` 的字段却还是初值。** 写入端 `set_path_and_query`（`parse.uya:316`）
+确实执行了 `req.path_len = path_len as i32`，`req = &out.request`。
+
+排除项（都实测过）：
+
+- 嵌套字段经 `&ptr` 写入 —— 单测通过（VM 与 C99 都过）；
+- `uyagin_route_ptr` —— 本轮已修好（26/27 就是它的功劳）；
+- 旁路表耗尽 —— 第 618 轮已证伪。
+
+下一轮方向：在 `http_parse_request_into` 里打 `req.path_len` 的**写入后立即回读**，
+确认是「写入写到了副本」还是「读出来拿到的是副本」。两者对应完全不同的修法：
+前者要查 `&out.request` 的取值链路（`out` 是 `@async_fn` 的参数，跨了 1 次 `@await`）；
+后者要查 `conn_state.parse_result.request` 的读取路径。
