@@ -19658,3 +19658,83 @@ test_std_thread                               7
 test_tls_ecdsa                                137
 test_typed_pipeline_capability                12
 ```
+
+## 第 636 轮：把「真并发时序」这 5 例的定性收紧到一行代码
+
+第 627 轮把这 5 例（共 21 个失败断言）记成「真并发时序，pending 计数观测不到」。
+第 634~635 轮证明了「看起来像架构边界」的定性确实可能不准，所以本轮回头把
+这句话落到具体代码行。
+
+### 落到的那一行
+
+`src/exec/vm.uya:6246`（`EXEC_HOST_CALL_PTHREAD_CREATE` 分支内）：
+
+```uya
+// 同步执行线程体：解释器没有并发，`create` 当场把 routine(arg) 跑完，
+// `join` 再把返回值交给调用点（等价于串行调度）。
+```
+
+**`pthread_create` 不创建任何线程，它当场把线程体跑完。**
+所以从 `create` 返回的那一刻起，线程体就已经结束，`pending_count` 根本没有
+「堆着等 worker」的中间态。
+
+而线程池的维护逻辑本身是**完整的**（`lib/std/thread.uya`）：
+
+| 位置 | 动作 |
+| --- | --- |
+| `:1195` | 入队 `pending_count = pending_count + 1` |
+| `:1270` | 出队 `pending_count = pending_count - 1` |
+| `:592/1246` | 重置为 0 / `kept_count` |
+
+测试侧的等待也是对的（`tests/test_std_thread.uya:221`）：
+
+```uya
+fn thread_wait_pending_count(pool: &ThreadPool, target: i32) i32 {
+    var i: i32 = 0;
+    while i < THREAD_TEST_WAIT_RETRIES {
+        if thread_pool_pending_count(pool) == target { return 1; }
+        sleep_wait_poll();
+        i = i + 1;
+    }
+    return 0;
+}
+```
+
+问题纯粹在**时序**：`+1` 和 `-1` 之间没有任何让出点，轮询永远落在窗口外。
+`async_compute_i32_queues_when_pool_is_full` 的断言
+`thread_wait_pending_count(&pool, 1) == 1` 因此必然拿到 0。
+
+### 5 例的共同断言（同一句）
+
+| 用例 | 失败数 | 断言 |
+| --- | --- | --- |
+| `test_std_thread` | 7 | `thread_wait_pending_count(&pool, 1) == 1` 等 |
+| `test_async_thread_pool_dynamic_growth` | 4 | 同类 |
+| `test_std_thread_async_boundary` | 3 | 同类 |
+| `test_std_async_scheduler` | 1 | `wait_thread_pool_pending_at_least(&pool, 1) == 1` |
+| `test_async_compute_dynamic_resource_pressure` | 1 | `wait_pending_at_least(pool, PRESSURE_PENDING_TARGET) == 1` |
+
+`test_std_thread` 里另有 `thread_pool_reports_resource_error_when_configured_slots_are_full`
+一类（`saw_error == 1` 拿到 0），同源：资源耗尽要靠「worker 都忙着」才能观察到，
+而 worker 永远不会忙着。
+
+### 修法方向与为什么本轮不做
+
+要让 `pending` 可观测，只有两条路：
+
+1. **`create` 不同步执行**，改成排队、等 `join` 才跑。
+   这最贴近真线程语义，但会动摇**所有**依赖「`create` 后立刻拿到结果」的既有用例
+   （`create`/`join` 之间有真实的数据依赖）。影响面是整个 `lib/std/thread`、
+   `lib/std/async`、`test_std_thread`、`test_async_*` 一大片，必须单独一轮做，
+   并且要逐条比对。
+2. 走 `UYA_EXEC_REAL_THREADS=1` 的真线程路径。
+   实测挂死（`test_std_async_scheduler` 250s 无输出、
+   `test_pthread_heap_cache_identity` 变 rc=141），不能用。
+
+两条都不适合在「已经有一个续体大修复在途」的这一轮里混着做。
+本轮的价值是把「真并发时序」这句话落到了 `vm.uya:6246` 这一行注释上 ——
+下一轮想动的时候，起点是明确的。
+
+### 本轮无代码改动
+
+只做定性收紧。`src/` 与 `lib/` 无改动，工作区干净，HEAD 仍是 `015f3701`。
