@@ -18023,3 +18023,68 @@ struct PR  { request: Req, consumed: usize }
 `[W] rb=5` / `[R] plen=0` 的矛盾，下一轮需要换角度（例如把
 `http_parse_request_into` 的 `out` 与 `uyagin_conn_read_parse_into_future` 的
 `out` 在**同一帧内**连续取两次地址，确认是不是 `@await` 前后的重定位）。
+
+### 第 620 轮补二：`&pr.request` 的地址不可比，但**读写是对的** —— 一次重要纠偏
+
+一度以为找到了 uyagin 404 的根因：
+
+```
+[A] pr=140052558393408 req=140052558869232 a=140052558869392
+```
+
+`&pr.request` 比 `&pr` 高出 475824 字节，而 `Req` 是 `PR` 的第一个字段、
+偏移应该是 0。看起来像「嵌套字段地址算错」。
+
+**但这条推断是错的，必须记下来免得后面重复踩。**
+
+用同一块内存做功能验证：
+
+```uya
+var pr: PR = PR{ request: Req{ a: 11, b: 22 }, consumed: 33 as usize };
+const p2: &Req = &pr.request;
+try assert_eq_i32(p2.a, 11);          // VM: 11  ✓
+try assert_eq_i32(p2.b, 22);          // VM: 22  ✓
+const p3: &i32 = &pr.request.a;
+try assert_eq_i32(*p3, 11);           // VM: 11  ✓
+try assert_eq_i32(pr.request.a, 11);  // VM: 11  ✓
+```
+
+**全部正确。** 所以 VM 聚合内部的字段访问是自洽的；
+`@usize_from_ptr` 报出来的绝对值只是「VM 内部表示」，**不能跨表达式比较大小**。
+拿它当「地址算错了」的证据是误判。
+
+（附带结论：以后写探针不要靠 `@usize_from_ptr` 的数值大小推断布局，
+要么比对同一个表达式在 `@await` 前后的值，要么直接断言读到的内容。）
+
+### 第 620 轮补三：真正能复现的同类缺陷 —— 结构体内部字段的裸偏移算术
+
+纠偏之后按「降级成裸地址再还原」这条路重测，拿到了干净的对照：
+
+```uya
+struct Req { a: i32, b: i32 }              // @size_of(Req) == 8
+struct PR  { request: Req, consumed: usize }
+var pr: PR = PR{ request: Req{ a: 11, b: 22 }, consumed: 33 as usize };
+const p2: &usize = @ptr_from_usize(@usize_from_ptr(&pr as &void) + @size_of(Req)) as &usize;
+```
+
+| | 期望 `*p2 == 33` |
+| --- | --- |
+| C99 | **33** ✓ |
+| exec VM | **2** ✗ |
+
+这与第 619 轮修掉的 `uyagin_route_ptr` 是**同一个根因的两半**：
+那一次修的是「结构体**数组**的元素偏移」，这一半是「结构体**内部字段**的偏移」。
+只要用户代码把 `&struct` 降级成裸地址再按 C 布局加偏移，VM 就读不到正确内容。
+
+已留档为 `tests/repros/struct_field_offset_ptradd_vm_bug.uya`
+（C99 通过 / VM 失败，哨兵，不参与 `make check`）。
+
+### 本轮净结论
+
+- `test_http_uyagin` 从**崩溃**到 **26/27**（第 619 轮的 `uyagin_route_ptr` 修复），
+  剩 1 例 `uyagin_serve_conn_releases_scheduler_frames_after_connection_close` 的 404 仍未定论；
+- 新发现一个极窄的独立缺陷：结构体名叫 `Conn` 时 `@async_fn` 里访问其字段会
+  「无法解析成员访问字段」（第 620 轮前半，`tests/repros/conn_struct_name_vm_bug.uya`）；
+- 新发现结构体内部字段的裸偏移算术在 VM 下失效（本轮补三，
+  `tests/repros/struct_field_offset_ptradd_vm_bug.uya`）；
+- 排除了「大聚合副本」「字段取址传参」「`@async_fn` 指针参数被复制」三个假设。

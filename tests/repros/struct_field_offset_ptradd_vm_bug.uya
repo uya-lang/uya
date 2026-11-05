@@ -1,0 +1,29 @@
+// 回归：exec VM 里 `&struct` 转 `&void` 后按 `@size_of(字段类型)` 做地址算术，
+// 取不到后面的字段。
+//
+// 实测：
+//     struct Req { a: i32, b: i32 }        // @size_of(Req) == 8
+//     struct PR  { request: Req, consumed: usize }
+//     &pr + 8  ->  期望读到 consumed == 33
+//     C99: 33  ✓      VM: 2  ✗
+//
+// 这不是 `@usize_from_ptr` 返回值的可观察差异问题：同一块内存用 VM 自己的
+// 内部引用（`&pr.request` / `&pr.request.a`）读写**完全正确**（已验证 a=11、
+// b=22、consumed=33 都对），说明聚合内部是一致的；失败只发生在
+// 「把指针降级成裸地址、按 C 布局偏移再还原」这条路径上。
+//
+// 同一个根因就是 `uyagin_route_ptr` 那个已经修掉的写法；这里留成哨兵，
+// 盯住「结构体内部字段偏移」这一半。
+//
+// 注意：本文件在 VM 下失败是**预期的**——它是哨兵，不参与 `make check`。
+use std.testing.assert_eq_i32;
+struct Req { a: i32, b: i32 }
+struct PR { request: Req, consumed: usize }
+test "ptr semantics" {
+    var pr: PR = PR{ request: Req{ a: 11, b: 22 }, consumed: 33 as usize };
+    // 地址指针算术应当可用：&pr 转 &void 再加偏移找到第二个字段
+    const base: &void = &pr as &void;
+    const off: usize = @size_of(Req);
+    const p2: &usize = @ptr_from_usize(@usize_from_ptr(base) + off) as &usize;
+    try assert_eq_i32(*p2 as i32, 33);
+}
