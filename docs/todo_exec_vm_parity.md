@@ -19944,3 +19944,70 @@ pipeline_stopped_terminal_child_is_cancelled_and_restores_foreground ERROR
 （强制走另一条分支），用 5 分钟否掉了一个看起来很有道理的定性。
 
 以后遇到「要另写一套实现」的定性，先花几分钟看看现有代码里是不是已经有两套。
+
+## 第 639 轮：实测排除「线程体延迟到 join 才执行」这条路
+
+第 636 轮把 5 例（21 个断言）的根因收到 `vm.uya:6246`：`pthread_create` 当场同步
+跑完线程体，`pending_count` 的 +1/-1 之间没有任何让出点。当时给的第一个修法方向是
+「`create` 不同步执行，改成排队、等 `join` 才跑」。本轮把它**实测掉了**。
+
+### 现成的基础设施其实已经有了
+
+`src/exec/vm.uya:5100` 附近有一段注释，把两难讲得很清楚：
+
+```
+// g_start 在 create 返回后才置 1 —— create 里执行会耗尽预算，worker 从不推进。
+// 折中：create 里照常执行（满足前者），若因预算耗尽中止则记下 routine/arg，
+// join 时再跑一次（此时 g_start 已置 1，后者也能正常跑完）。
+var exec_vm_thread_redo_routine: [i32: EXEC_VM_THREAD_SLOTS] = [];
+var exec_vm_thread_redo_arg: [ExecValue: EXEC_VM_THREAD_SLOTS] = [];
+var exec_vm_thread_redo: [i32: EXEC_VM_THREAD_SLOTS] = [];
+```
+
+配套的 `exec_vm_rerun_deferred_thread`（`:5112`）已经能把一个「create 阶段因预算
+耗尽没跑完」的线程体在 `join` 时重跑一次。
+
+所以「延迟到 join」不需要新写机制 —— 把 `create` 里那段同步执行换成
+「直接登记 redo、立刻返回」就行。实验代码：
+
+```uya
+exec_vm_thread_redo_routine[free_slot] = routine_index;
+exec_vm_thread_redo_arg[free_slot] = thread_args[0];
+exec_vm_thread_redo[free_slot] = 1;
+out_value[0] = exec_make_i32(0);
+return 0;                       // 不执行线程体
+```
+
+### 结果：直接挂死，一个字都没输出
+
+```
+$ ./bin/uya test --vm tests/test_std_thread.uya
+（250s 超时，无输出）
+```
+
+原因就在上面那段注释里：测试里的 `thread_wait_started_workers(&pool, N)`
+（`tests/test_std_thread.uya:233`）轮询的是「worker 已经启动的个数」。
+线程体要等 `join` 才跑，而 `join` 要等这个轮询通过 —— **互相等死**。
+
+`g_start` 那一类比这更直接：worker 体开头就是 `while g_start == 0 {}`，
+`g_start` 由父线程在 `create` 返回后置 1。若 `create` 不同步执行，
+worker 体要在 `join` 才跑，同样能跑（那时 `g_start` 已是 1）——
+**但测试自己不会走到 join**，因为它先等 started_workers。
+
+### 结论
+
+「延迟到 join」这条路**被实测排除**，不是「还没做」。真正可行的只有：
+
+1. **让 worker 真的并发**（`UYA_EXEC_REAL_THREADS=1`）。
+   实测：`test_std_async_scheduler` 250s 无输出、
+   `test_pthread_heap_cache_identity` 变 rc=141（SIGPIPE），
+   真线程路径本身不可用，得先把它修稳。
+2. **让 create 只跑「到第一个阻塞点为止」**，也就是需要一个真正的协作式调度器。
+
+两者都是运行期模型的改造，规模远超「补一个分支」。这 5 例（21 个断言）
+确实是本轮之后剩下的最硬的一块。
+
+### 本轮无代码改动
+
+实验代码已 `git checkout --` 还原，工作区干净，HEAD 仍是 `6d83a909`。
+`test_std_thread` 复跑回到 27 过 / 7 败（与实验前一致）。
