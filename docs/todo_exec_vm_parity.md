@@ -16715,3 +16715,50 @@ codegen 在求数组尺寸时根本还没有函数体可用。
 本轮探针与临时改动已全部回退（`git checkout -- src/codegen/c99/utils.uya`），
 复测确认第 599 轮修复仍在（`eval_local_const_decl_in_block` 7 处引用）、
 `make uya` 成功。
+
+## 第 602 轮：局部 const 作数组尺寸修好了 —— 在 checker 里把尺寸固化回 AST
+
+### 修复
+
+`src/checker/type_from_ast.uya` 的 `AST_TYPE_ARRAY` 分支，在
+`checker_eval_const_expr` 求出尺寸之后，把结果**写回 AST**：
+
+```uya
+array_size = checker_eval_const_expr(checker, type_node.type_array_size_expr);
+if array_size > 0 && type_node.type_array_size_expr.type == ASTNodeType.AST_IDENTIFIER {
+    type_node.type_array_size_expr.type = ASTNodeType.AST_NUMBER;
+    type_node.type_array_size_expr.number_value = array_size;
+    type_node.type_array_size_expr.number_value_i64 = array_size as i64;
+}
+```
+
+### 为什么这条路能成（前两轮为什么不成）
+
+| 轮次 | 方案 | 失败原因 |
+| --- | --- | --- |
+| 599 | `eval_const_expr` 里从 `current_function_decl.fn_decl_body` 递归找 | 那时 `fn_decl_body` 是 **null**（601 轮探针证明） |
+| 600 | `gen_function` 入口预扫描 body 填缓存表 | 尺寸求值发生在 `gen_function` **之前**，表还不存在；且收集器求值又依赖该表，自引用 |
+| **602** | **checker 阶段求值后改写成 `AST_NUMBER`** | ✅ checker 这时能通过 `symbol_table` 拿到局部 const |
+
+关键洞察：**局部 const 的可见性在 checker 阶段是完整的**，
+而 codegen 阶段彻底丢失了它。所以必须「在还能看见的时候把值记下来」，
+而不是「到看不见了再去想办法找」。
+
+### 验证
+
+| 检查 | 结果 |
+| --- | --- |
+| 生成的 C | `uint8_t arr[3]`（全局 const） / **`uint8_t arr[2]`**（局部 const，此前是 `[1]`） |
+| 夹具 C99 | **通过 1 / 失败 0** |
+| 夹具 VM | 通过 1 / 失败 0（保持） |
+| 全量 census（`/tmp/census_601.tsv`） | **896 / 910**，与 599 轮逐例比对：**零新增失败、零新增通过** |
+| 全量 parity（`/tmp/parity_601.tsv`） | 一致 897 / 不一致 17（599 轮为 898 / 16） |
+
+parity 少的 1 例是 `test_async_compute_types`：单点连跑三次，C99 均为
+**0/1 失败、VM 均通过**；随后用 `git show HEAD:src/checker/type_from_ast.uya`
+回退成基线再连跑三次，**同样 0/1 三次全败** —— 确认为既有 C99 侧线程时序 flake，
+与本次改动无关。对照后已 `git apply` 恢复改动。
+
+census 数字未变是符合预期的：这条修复影响的是**数组容量是否被压成 1**，
+而 `tests/` 里没有用例会在运行时越界到能触发差异的程度；
+它的价值在于消除一类静默的内存越界隐患（`uint8_t arr[1]` 装 2 个元素）。

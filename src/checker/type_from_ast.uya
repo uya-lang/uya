@@ -271,6 +271,23 @@ fn type_from_ast_uncached(checker: &TypeChecker, type_node: &ASTNode) Type {
             array_size = type_node.type_array_size_expr.number_value;
         } else if type_node.type_array_size_expr != null {
             array_size = checker_eval_const_expr(checker, type_node.type_array_size_expr);
+            // 把求值结果**固化回 AST**：尺寸表达式不是字面量（例如局部
+            // `const LOCAL_N: usize = 2;` 之后写 `[byte: LOCAL_N]`）时，
+            // C99 codegen 的 `eval_const_expr` 只能看到 `AST_IDENTIFIER`，
+            // 而它（以及 `symbol_table`）在 codegen 阶段都拿不到局部 const ——
+            // 第 601 轮已用探针证明，那时 `current_function_decl.fn_decl_body`
+            // 还是 null。于是数组尺寸被当成「求值失败」退回占位符 1，
+            // 生成 `uint8_t arr[1]`（不只是 `@len` 错，越界写会踩坏相邻局部）。
+            //
+            // checker 这时**能**通过 `symbol_table` 拿到局部 const
+            //（`checker_eval_const_expr` 已支持，见 proof.uya 的标识符分支）。
+            // 因此在这里把节点直接改写成 `AST_NUMBER`，codegen 只读不算。
+            // 夹具：tests/repros/c99_local_const_array_size.uya。
+            if array_size > 0 && type_node.type_array_size_expr.type == ASTNodeType.AST_IDENTIFIER {
+                type_node.type_array_size_expr.type = ASTNodeType.AST_NUMBER;
+                type_node.type_array_size_expr.number_value = array_size;
+                type_node.type_array_size_expr.number_value_i64 = array_size as i64;
+            }
         } else {
             result.kind = TypeKind.TYPE_VOID;
             return result;
