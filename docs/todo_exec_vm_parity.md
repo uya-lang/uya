@@ -17067,3 +17067,41 @@ C99 通过）**完全自洽**。
 
 **当前定性**：真实的 VM 缺陷（聚合载荷在 await 期间被 clone 换块，
 导致此前取得的元素地址失效），C99 通过 / VM 失败，属运行期模型扩展类任务。
+
+## 第 608 轮：剩余 15 例的最终核对（三项硬指标的全部阻止项）
+
+本轮把文档里所有 `- [ ]` 未勾选项过了一遍：**18 条全部是同一组三条硬指标**
+（`uya test --vm` 全量通过 / `make exec-parity` 全绿 / 合并 main）在不同轮次的重复记录，
+没有遗漏的独立子任务。
+
+随后逐类复核剩余失败，确认没有新的可修项：
+
+| 用例 | VM 实际失败形态 | 定性 | 是否可单点修 |
+| --- | --- | --- | --- |
+| `test_std_thread_async_boundary` | `thread_wait_pending_count(&pool,1) == 1` 实际 0 | 时序竞态（597 轮） | 否，需改造测试 |
+| `test_async_compute_dynamic_resource_pressure` | `wait_pending_at_least(pool, N) == 1` 实际 0 | 同上 | 否 |
+| `test_tls_ecdsa` | 跑 **15 分钟**未完成（`user 14m59s`，纯 CPU） | 解释执行性能 | 否，架构差异 |
+| `test_std_dns_async_transport` | `child:dns:invalid-packet` | 聚合载荷 clone 换块（607 轮机制链） | 否，需改引用模型 |
+| `test_typed_pipeline_capability` | `错误: 未指定输入文件` × 8 + 4 例 ERROR | `/proc/self/exe` 指解释器（595 轮） | 否，需 exec 子进程能力 |
+| `test_http_uyagin` / `_websocket` | 状态码断言不符 | 惰性接口数组 | 否 |
+| `test_kernel_sim` | call gate 断言全 0 | x86 特权指令 | 否 |
+| `test_pthread_heap_cache_identity` | rc=181（SIGSEGV） | 真线程堆生命周期 | 否 |
+| `test_async_frame_pool_full` | `AsyncFramePoolFull` 不存在 | VM 无异步帧池 | 否 |
+| `test_std_dns_async_query_aggregate` | UDP 回包串用例 | 测试自身共用端口 | 否，需改测试 |
+
+`test_tls_ecdsa` 这次的实测数据值得记录：`timeout 900` 下 `real 15m0.063s`、
+**`user 14m59.173s`** —— 几乎 100% 是 CPU 时间，没有任何 IO 等待，
+确认是**纯计算量**问题（P-256/P-384 标量乘法在解释器里跑），不是死循环（死循环同样吃满 CPU，
+但这里每轮 census 的超时行为一致、且小规模向量能正常出结果）。
+
+### 结论
+
+三条硬指标仍未达成，且**每一例的阻止原因都已定位到具体机制**：
+
+- 需要**扩展 VM 运行期模型**的：真并发时序（5 例）、聚合载荷稳定性（1 例）、
+  asyc 帧池（1 例）、真线程堆（1 例）、exec 子进程（3 例）；
+- 需要**改造测试**的：UDP 共用端口（2 例）、pending 中间态断言（已并入真并发类）；
+- **架构不可为**的：x86 特权指令（1 例）、解释执行性能（1 例）。
+
+本轮未改任何代码，只做核对与记录 —— 这一轮的价值是确认「没有漏掉的、可以单点修好的项」，
+避免后续重复扫描。
