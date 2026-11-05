@@ -18500,3 +18500,50 @@ state_mem[0] = UyaginConnState{};
 
 `UyaginConnState` 约 84KB，一次 malloc 换来「每请求一次解析不丢」，
 代价可接受（和在 dns 里的处理一致）。
+
+### 第 622 轮补：堆化修法在 uyagin 上试过，没修好 —— 说明还有第二个丢失点
+
+按上一节的修法，把 `uyagin_serve_conn` 里的 `var state: UyaginConnState` 改成
+`malloc(@size_of(UyaginConnState))` 并 `state_mem[0] = UyaginConnState{}`：
+
+- 构建通过（0 错误）；
+- `@size_of(UyaginConnState)` 非 0（加了 `if ucs_sz == 0 { return 0-50; }` 守卫，
+  没有命中，说明 size 正常、malloc 也成功）；
+- **但 `test_http_uyagin` 仍然是 26/27，同一个用例仍然失败。**
+
+重要的对照：**把改动整个回退、重新构建之后，返回码仍然是 1、仍然是 26/27。**
+也就是说「返回码 1」是基线本来就有的（那个用例失败导致测试进程退出码非 0），
+不是堆化引入的。所以堆化**没有让情况变坏，但也没修好**。
+
+结论：`uyagin_serve_conn` 那一处不是这个用例的**唯一**丢失点。
+最小夹具（`tests/repros/async_field_addr_arg_cloned.uya`）证明「帧内聚合字段地址
+跨真实挂起」这条路确实会丢，堆化确实能解决它；但 uyagin 的真实调用链上
+还有别的地方也在丢。
+
+### 下一步（明确的两条）
+
+1. **确认 uyagin 走的是哪条路径**。`uyagin_serve_conn` 有一个
+   `uyagin_conn_slot_*` 系列（`uyagin_conn_slot_start` / `_poll` / `_frame`），
+   它用的是 `slot.state`（`UyaginConnTaskSlot` 的字段）——那已经**不是**
+   `uyagin_serve_conn` 里的栈局部了。测试里
+   `scheduler_run(&scheduler, uyagin_serve_conn(&engine, server_fd, &scheduler))`
+   走的到底是 `uyagin_serve_conn` 里那个 `state`，还是 `slot.state`，需要先确认。
+   如果是后者，那真正要堆化的是 `UyaginConnTaskSlot` 里的 `state` 字段
+   （它本身在某个更大的容器里，得看那个容器是不是帧内聚合）。
+2. 在**真实路径**上复用第 621 轮的「指针对比」探针：
+   在 `uyagin_conn_read_parse_into_future` 内部记 `@usize_from_ptr(out)`，
+   在调用点后记 `&conn_state.parse_result`，看现在是否还有 `same=0`。
+   这能直接判定堆化到底生效在哪一层。
+
+### 本轮净产出（重要）
+
+1. **根因锁定到源码级**：`src/exec/vm.uya:9187 exec_vm_cont_snapshot` 的续体快照会
+   `exec_value_clone` 每个帧槽位，然后只重映射「指向本帧范围」的内部引用；
+   指向**外层帧**聚合的引用（`&outer.local_struct.field`）不在范围内，
+   帧弹出后指向快照副本，写入就此丢失。
+2. **最小复现 21 行**，双向可用：`tests/repros/async_field_addr_arg_cloned.uya`
+   （C99 `same=1` 通过 / VM `same=0` 失败）。
+3. **触发条件逐项二分清楚**：实参必须是结构体**字段**地址、必须有**真实挂起**、
+   必须三层 async；与聚合大小无关。
+4. **修法在最小夹具上验证有效**：同一夹具把栈聚合换成 `malloc` 后
+   `same=1`、断言全过。
