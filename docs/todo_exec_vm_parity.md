@@ -17255,3 +17255,69 @@ if g_exec_value_arena_base == null || g_exec_value_arena_used +| total > EXEC_VA
 
 本轮所有诊断改动已回退（`cp /tmp/val_bak2.uya src/exec/value.uya`），
 临时基准文件已删除，`make uya` 通过。
+
+### 第 611 轮：实施「函数返回时回收竞技场与登记表」—— 性能达标但**语义破坏**，已回退
+
+按第 610 轮的设计动手实现：
+
+- `src/exec/value.uya` 新增 `exec_value_arena_mark()` / `exec_value_arena_rollback()`：
+  把 `g_exec_value_arena_used` 与 `g_exec_value_array_count` 编码进一个 `i64`
+  （高位竞技场水位、低位登记表条数），回滚时两者一起退回去；
+- `src/exec/vm.uya` 的 `exec_vm_call_function` 在 `exec_vm_run_frame` 前后
+  打水位、回滚；
+- 多线程保护：新增 `g_exec_value_live_threads`，>1 时 `mark` 返回 -1 自动禁用
+  （真线程下竞技场是进程级共享，回滚会踩掉别的线程的块）。
+
+### 性能：完全达标
+
+| 场景 | 改前 | 改后 |
+| --- | --- | --- |
+| 300000 轮 × 2 个本地 `Big` | **> 300000ms**（超时） | **34ms** |
+
+快了约 4 个数量级，说明「临时聚合确实该回收」这个判断是对的。
+
+### 但语义被破坏了
+
+```
+exec runtime: tests/repros/tmp_perf.uya:10:1: exec: LOAD_FIELD 字段越界
+  (idx=0 kind=-1679216064 count=-1 pointee=-1 ref=0 aux=0 tgt=-1 ...)
+fn=step ip=32 slot=8 line=16 col=24
+```
+
+`kind = -1679216064` 这种垃圾值说明读到的是**已被回滚复用的内存**。
+坏在第 16 行的 `acc.a[0]`：
+
+```uya
+fn step(acc: &Big, n: i32) void {   // ← acc 是 &Big 参数
+    ...
+    acc.a[0] = sum.a[0];            // ← 指向**调用方**的聚合
+```
+
+`acc` 指向的聚合是**调用方**的（`test` 里的 `var acc: Big`），
+但调用方那个 `Big` 也是在某次 `exec_value_make_aggregate` 里分配的 ——
+只要 `step` 的帧被回收时把水位退回到调用方分配**之前**，就会踩掉它。
+
+### 为什么「函数返回时回收」这条思路本身不成立
+
+关键点：**竞技场是全局单池，没有「谁分配的」信息**。
+`exec_vm_call_function` 的 `mark` 只记录「进入被调函数时」的全局水位，
+但被调函数完全可以（也确实会）通过 `&Big` 参数**持有调用方分配的聚合**。
+召回水位就等于回收了这些仍然存活的块。
+
+要让它正确，必须能区分「本帧分配的」与「引用外部的」，
+而 VM 目前的 `ExecValue` 里没有所有权/来源标记 —— 这正是第 607 轮
+「聚合载荷不稳定」同一类结构性问题。
+
+### 正确的下一步（优先级重排）
+
+1. **登记表回收（高价值、低风险）**：不做整体回滚，而是**按块登记可回收性** ——
+   只有「本帧内新建、且从未被取址交出去」的聚合才能回收。
+   实现上可在 `exec_value_make_aggregate` 里记一个「分配序号」，
+   `exec_vm_make_value_ref` 取址时把该序号标记为「已逃逸」；
+   帧退出时只回收**未逃逸**的尾部块。
+2. 或者放弃精确回收，改做**周期性压缩**：竞技场用量超过阈值时，
+   从根集（槽池活跃帧 + 全局 + 装箱表）做一次标记-整理。
+   工作量大但语义安全。
+
+本轮所有改动已 `git checkout --` 回退，`git status` 干净。
+这条教训很重要：**「函数返回就能回收」的直觉在共享竞技场 + 取址语义下是错的**。
