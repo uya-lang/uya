@@ -9665,20 +9665,10 @@ fn exec_vm_run_frame(vm: &ExecVmState, program: &BCProgram, function: &BCFunctio
             si = si + 1;
         }
         exec_vm_cont_remap_blocks(resume_slots, snap_base, snap_limit, frame_base);
-        si = 0;
-        while si < EXEC_MAX_CALL_ARGS {
-            frame.varargs[si] = exec_make_void();
-            si = si + 1;
-        }
         frame.ip = resume_ip;
     } else {
         while si < function.slot_count {
             frame.slots[si] = exec_make_void();
-            si = si + 1;
-        }
-        si = 0;
-        while si < EXEC_MAX_CALL_ARGS {
-            frame.varargs[si] = exec_make_void();
             si = si + 1;
         }
         si = 0;

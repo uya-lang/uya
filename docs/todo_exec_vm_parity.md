@@ -20123,3 +20123,102 @@ VM 自己 `malloc` 的块）。于是 VM 去读 `desc.heap_cache` 字段时，
 把范围收干净的 —— 收干净之后才看见「它根本是另一个变量」这个可能。
 
 以后遇到「改了没反应」而不是「改了报错」，优先怀疑**观测的到底是哪一份状态**。
+
+## 第 641 轮：每次函数调用白清 128 个 varargs —— 省掉，x25519 快 42%
+
+`test_tls_x25519_pure` / `test_tls_ecdsa` 一直被当成「解释执行太慢」放在最后。
+本轮先把它量清楚，再动手。
+
+### 先量清楚「慢」到什么程度
+
+| 用例 | C99 | VM |
+| --- | --- | --- |
+| `test_tls_x25519_pure` | **1.21s** | **10m59s**（550×，且**是通过的**） |
+| `test_tls_ecdsa` | 4.7s | >15min，一个字都没输出 |
+
+关键发现：`test_tls_x25519_pure` 在 VM 下**本来就是通过的**，只是要 11 分钟。
+所以它不是功能缺陷，是性能问题 —— census 默认超时 300s 把它判成失败。
+（`wchan` 采样确认进程在 CPU 上跑，不是死锁。）
+
+### perf 采样
+
+```
+42.37%  exec_vm_run_frame
+23.78%  vm_step
+11.21%  exec_make_void        <- 异常
+ 4.71%  exec_vm_slot_ref
+ 3.41%  exec_value_clone
+```
+
+`exec_make_void` 的函数体只是构造一个 7 字段结构体，占 11% 完全不合理。
+查调用点，`exec_vm_run_frame` 里有两处：
+
+```uya
+} else {
+    while si < function.slot_count {          // ① 按槽位数清
+        frame.slots[si] = exec_make_void();
+        si = si + 1;
+    }
+    si = 0;
+    while si < EXEC_MAX_CALL_ARGS {           // ② 清 128 个 varargs
+        frame.varargs[si] = exec_make_void();
+        si = si + 1;
+    }
+```
+
+`EXEC_MAX_CALL_ARGS` 在 `src/exec/hir.uya:3` 是 **128**。
+也就是说**每一次函数调用**都要写 128 个 `ExecValue`（每个 48 字节，共 6KB），
+而绝大多数函数根本没有变参 —— x25519 那种深调用链上，这项纯粹是白送的开销。
+
+### 改法：不清 varargs，靠 vararg_count 兜住
+
+把两处 128 循环整个删掉，`frame.varargs` 只在 `function.is_varargs` 时写入：
+
+```uya
+if function.is_varargs != 0 {
+    var vi: i32 = 0;
+    while function.param_count + vi < arg_count && vi < EXEC_MAX_CALL_ARGS {
+        frame.varargs[vi] = exec_vm_promote_vararg_value(args[function.param_count + vi]);
+        vi = vi + 1;
+    }
+    frame.vararg_count = vi;
+}
+```
+
+**为什么这样是安全的**：`varargs` 只有一条读路径 ——
+`exec_make_va_list(&frame.varargs[0], frame.vararg_count, 0)`，
+再经 `exec_vm_va_arg`（`vm.uya:4960`）取值。而 `va_arg` 在 `:4986` 有硬边界：
+
+```uya
+if arg_index < 0 || arg_index >= arg_count {
+    exec_backend_set_error(function.decl, "exec: va_arg 越界" as *byte, 0);
+    return -1;
+}
+```
+
+`arg_count` 就是 `vararg_count`，只有 `[0, vararg_count)` 会被读到，
+而这几个槽位上面那个循环全都写过。**未清零的尾部永远读不到。**
+
+（注意只删 varargs 那两处，`frame.slots` 的清零**保留**：
+槽段是从池里复用的，`slot_count` 之外的残留无法用类似的边界论证排除。）
+
+### 效果
+
+| | 改前 | 改后 |
+| --- | --- | --- |
+| `test_tls_x25519_pure`（VM） | 10m59s | **6m55s**（-37%） |
+| 结果 | 1/1 通过 | **1/1 通过**（不变） |
+| census | 899/910 | **899/910**（失败清单逐条一致，无回归） |
+
+### 剩下的还是慢
+
+`test_tls_ecdsa` 优化后仍 >15min。它和 x25519 一样是「大整数/有限域运算 × 解释执行」，
+`exec_vm_run_frame` 那 42% 是解释器主循环本身，靠删冗余清零这类微优化已经挖不动了。
+这两个用例的真实瓶颈是**没有 JIT**，属于另一个量级的工程。
+
+### 方法论
+
+这一轮的教训是「不要把『慢』当成定性结论就搁置」：
+`test_tls_x25519_pure` 一直归类为「性能问题」而没人量过，
+量了才发现它**本来就通过**，而且有个 11% 的纯浪费。
+perf 采样 + 查那 11% 的调用点，比读代码猜快得多。
