@@ -20582,3 +20582,94 @@ mmap 不被识别）是同一个量级。
 第 627 轮那批（websocket / kernel_sim / pipeline）连着错了三次，
 第 634、638、646 轮又各修正一次。共同点都是：**没有先量 C99 侧在同一环境下过不过**。
 以后凡是要下「环境限制」的结论，第一件事就是跑一遍 C99 侧同用例。
+
+## 第 647 轮：`pending_count` 观测不到的**第二层**根因在 `thread.uya:1108`
+
+第 636 轮把 5 例（21 断言）的根因收到 `vm.uya:6246`（`pthread_create` 当场同步
+跑完线程体）。本轮实测发现那只说对了一半 —— **还有第二层，而且是更直接的那层**。
+
+### 探针：入队成功了两次，但 `pending_count` 仍是 0
+
+最小探针（`/tmp/pc7.uya`，不入库）：`thread_pool_new(1)` + 两个 `async_compute`。
+
+```
+thread_pool_started_workers(&pool) == 1   -> 通过
+thread_pool_pending_count(&pool)   == 1   -> 失败（actual 0）
+```
+
+在 `thread_pool_enqueue_slot` 的 `pending_count += 1` 处加计数：
+
+```
+thread_dbg_enqueue_ok() == 2    -> 两个任务**都确实入队了**
+thread_pool_pending_count() == 0
+```
+
+**入队两次、计数归零** ⇒ 有别的东西在入队之后把队列消费掉了。
+
+### 消费点：提交路径里的「写不进就自己干」
+
+`lib/std/thread.uya:1108` 附近：
+
+```uya
+const write_result: !isize = sys_write(cmd_fd, (&cmd) as *const byte,
+    @size_of(ThreadWorkerCommand));
+// 写不进去说明 worker 读端已经关闭（串行 VM 里 `pthread_create` 把 routine
+// 当场跑完之后就是这种状态，而且那次执行往往发生在任务入队**之前**）。
+// 不能让任务一直躺在队列里等一个永远不会到来的唤醒：改为在调用方线程
+// 同步消费，语义上等价于「这次唤醒顺便把活干了」。
+const written: isize = write_result catch { write_failed = 1; (0 - 1) as isize; };
+if write_failed != 0 || written != @size_of(ThreadWorkerCommand) as isize {
+    const drained: i32 = thread_shared_drain_sync(pool._shared_state, worker_idx,
+        thread_shared_pending_capacity(pool._shared_state));
+    ...
+    if drained > 0 { return 1; }
+    return 0;
+}
+```
+
+VM 里 worker 早已同步跑完退出、`cmd_read_fd` 关闭，所以**每次提交都走进这个分支**，
+`thread_shared_drain_sync` 把刚入队的任务当场在调用方线程跑掉，`pending_count`
+立刻回到 0。`thread_wait_pending_count(&pool, 1)` 的轮询从第一轮就拿到 0，
+`THREAD_TEST_WAIT_RETRIES` 次之后返回 0 —— 21 个断言全是这一个形态。
+
+注释里那句「语义上等价于这次唤醒顺便把活干了」是对的，
+**但它让「队列里有东西」这个状态在任何时刻都不可观测**。
+
+### 试过把它去掉：直接挂死
+
+把 `drained` 改成常量 0（不 drain），两个探针都挂死：
+
+```
+$ ./bin/uya test --vm /tmp/pc7.uya      （120s，无输出）
+$ ./bin/uya test --vm tests/test_std_thread.uya  （250s，无输出）
+```
+
+因为任务躺在队列里，而能消费它的 worker 已经跑完退出、不会再被唤醒 ——
+后续 `thread_test_drive_future_i32(first)` 就永远等不到结果。
+这和第 639 轮「延迟到 join」挂死是同一个死结：**VM 里没有第二种推进者**。
+
+### 精确的三角困境
+
+到这一轮，这 5 例（21 断言）的三个可能方向都已实测排除：
+
+| 方向 | 实测结果 |
+| --- | --- |
+| 延迟线程体到 `join`（第 639 轮） | 挂死（`wait_started_workers` 与 `join` 互等） |
+| 真宿主线程（第 640 轮） | 撞两道墙：C/VM 两份全局、mmap 内存不被 VM 识别 |
+| 提交路径不 drain（本轮） | 挂死（任务无人推进） |
+
+三者都要求「VM 里存在第二个能推进状态的主体」——
+协作式调度器、或真线程、或进程模型。这是运行期模型的改造，不是补分支。
+
+### 结论
+
+第 636 轮说的「根因在 `vm.uya:6246`」需要修正为**两层**：
+
+1. `vm.uya:6246`：`pthread_create` 同步跑完线程体 → worker 在任务入队前就退出了。
+2. `thread.uya:1108`：因为 (1)，提交路径每次都走进「写不进 → 同步 drain」的兜底，
+   把队列当场清空 → `pending_count` 永不可观测。
+
+只修 (1) 不修 (2)、或只修 (2) 不修 (1)，都会挂死。**必须同时有第二个推进者。**
+
+本轮无代码改动（探针已 `git checkout --` 还原，`test_std_thread` 复跑回到
+27 过 / 7 败）。工作区干净，HEAD `6ebd880f`。
