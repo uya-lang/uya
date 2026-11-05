@@ -20277,3 +20277,63 @@ if k != STRUCT && k != ARRAY && k != TUPLE && k != SLICE && k != UNION &&
 被判成 C99 flake，追下去都不是语义问题，而是 **VM 太慢撞上超时**。
 第 632 轮 `test_http_uyagin` 的 VmPeak 也是同一类教训（「先量配置本身够不够」）。
 以后看到「同一用例时好时坏」或「C99 侧像是 flake」，先排除「VM 侧只是慢」。
+
+## 第 643 轮：trace 条件前移 —— x25519 6m51s → 6m32s
+
+### 改动
+
+`vm_step` 每执行一条指令都会调一次 `exec_vm_trace`：
+
+```uya
+const instr: &BCInstr = function.instrs + frame.ip;
+exec_vm_trace(trace_vm, function.name, frame.ip, instr);
+```
+
+而 `exec_vm_trace` 的函数体第一句就是
+
+```uya
+if trace_vm == 0 || instr == null {
+    return;
+}
+```
+
+perf 上这个「立刻返回的空调用」占 **1.99%** —— 纯调用开销。把条件前移到调用点：
+
+```uya
+if trace_vm != 0 {
+    exec_vm_trace(trace_vm, function.name, frame.ip, instr);
+}
+```
+
+### 效果
+
+| | 改前 | 改后 |
+| --- | --- | --- |
+| `test_tls_x25519_pure`（VM） | 6m51s | **6m32s**（-5%） |
+| 结果 | 1/1 | 1/1 |
+
+### 验证与一例 flake
+
+census 这轮报了 **898/910**（少一个），新失败项是
+`test_async_scheduler_default_epoll`。**单独跑 3 次全过（1/1）** ——
+串跑 flake，与本次改动无关（trace 默认关闭，`trace_vm != 0` 才进那段）。
+第 633 轮 `test_async_runtime_shared_semantics` 是同一类现象。
+
+### 性能优化的边际在收窄
+
+到目前为止这条线累计：10m59s → 6m55s（varargs）→ 6m32s（trace 前移），共 **-41%**。
+perf 现在的分布已经很平：
+
+```
+41.99%  vm_step            <- 解释器主分派循环本身
+19.30%  exec_vm_run_frame
+ 7.96%  exec_vm_slot_ref
+ 4.65%  exec_value_clone
+ 2.79%  exec_vm_store_slot
+ 2.75%  exec_vm_compare_values
+```
+
+剩下的都是「每条指令都要做的固定工作」，再往下就得改执行模型（直接线索化、
+或把 `ExecValue` 的 48 字节按值传递改成更紧凑的表示），那是另一个量级的工程。
+`test_tls_ecdsa` 需要 25 分钟以上，要压进 census 默认的 300s 需要 **5 倍**提速，
+不是这条微优化线能做到的。

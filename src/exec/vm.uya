@@ -7367,7 +7367,11 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         return -1;
     }
     const instr: &BCInstr = function.instrs + frame.ip;
-    exec_vm_trace(trace_vm, function.name, frame.ip, instr);
+    // 条件前移：trace 关掉时这里是每条指令一次的纯函数调用开销
+    // （函数体只有 `if trace_vm == 0 { return; }`，perf 上仍占 ~2%）。
+    if trace_vm != 0 {
+        exec_vm_trace(trace_vm, function.name, frame.ip, instr);
+    }
     const slot_a: &ExecValue = exec_vm_slot_ref(frame, instr.a);
     const slot_b: &ExecValue = exec_vm_slot_ref(frame, instr.b);
     const slot_c: &ExecValue = exec_vm_slot_ref(frame, instr.c);
