@@ -17717,3 +17717,18 @@ census：**898 / 910**（失败 12，改前 895 / 15）。
 （`test_std_dns`、`test_std_dns_async_query_aggregate`、
 `test_std_dns_async_transport`、`test_std_dns_async_composition_shape`、
 `test_async_runtime_shared_dns`），确认第 617 轮的堆化修复干净且通用。
+
+### 第 617 轮：`make exec-parity` 复测（第二项硬指标）
+
+| 指标 | 改前 | 改后 |
+| --- | --- | --- |
+| 一致 | 896 / 914 | **900 / 914** |
+| 不一致 | 18 | **14** |
+
+从不一致清单里消失的 4 个：
+`test_std_dns_async_query_aggregate`、`test_std_dns_async_transport`、
+`test_async_runtime_shared_dns`、`test_async_scheduler_default_epoll`。
+
+剩余 14 个与「剩余 12 例逐条定性」那张表完全对应（parity 比 census 多的
+`test_tls_rsa` 是同属性能类的超时；`test_async_compute_types` 这次是
+C99=2 而 VM=0，又是并行 flake 的镜像表现）。
