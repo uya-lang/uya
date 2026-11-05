@@ -8,6 +8,7 @@ use libc.heap;
 use libc.syscall;
 use libc.errno;
 use libc.memcpy;
+use libc.memset;
 use std.async;
 use std.mem.allocator.AllocOutOfMemory;
 
@@ -1886,7 +1887,24 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
 
     var raw_query: [byte: DNS_QUERY_PACKET_SCRATCH] = [0:DNS_QUERY_PACKET_SCRATCH];
     var query_packet: [byte: DNS_TCP_QUERY_FRAME_SCRATCH] = [0:DNS_TCP_QUERY_FRAME_SCRATCH];
-    var response_prefix: [byte: DNS_TCP_FRAME_HEADER_BYTES] = [0:DNS_TCP_FRAME_HEADER_BYTES];
+    // 2 字节长度前缀必须放在**堆**上，不能用本地定长数组。
+    //
+    // exec VM 里定长数组是「聚合 + 独立 values 块」，`&arr[0]` 取到的是
+    // 那块 values 内的地址；而 `@await` 期间若发生聚合 clone，
+    // `exec_value_clone` 会给副本新分配一块 values（value.uya:981-999），
+    // 于是 await 之前取到的地址指向已废弃的旧块 —— 内核把 2 字节写进旧块，
+    // 而 await 之后读新块得到 `0, 0`，`expected_body_len == 0` 直接
+    // `DnsInvalidPacket`（第 603~607 轮的实测证据链）。
+    // 堆块地址跨 await 稳定，C99 与 VM 两侧行为一致。
+    const prefix_mem: &void = malloc(DNS_TCP_FRAME_HEADER_BYTES);
+    if prefix_mem == null {
+        return error.AllocOutOfMemory;
+    }
+    const response_prefix: &byte = prefix_mem as &byte;
+    _ = memset(response_prefix as &void, 0, DNS_TCP_FRAME_HEADER_BYTES);
+    defer {
+        free(prefix_mem);
+    }
     var sockaddr: [byte: 16] = [0:16];
     const raw_qlen: usize = try dns_client_build_query(ctx, host[0: host_len], mode as u16, &raw_query[0], DNS_QUERY_PACKET_SCRATCH);
     query_packet[0] = (((raw_qlen >> 8) & (255 as usize)) as byte);
@@ -1929,10 +1947,7 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
 
     var bytes_received: usize = 0;
     while bytes_received < DNS_TCP_FRAME_HEADER_BYTES {
-        if bytes_received >= @len(response_prefix) {
-            return error.DnsInvalidPacket;
-        }
-        const prefix_recv_base: &byte = @ptr_from_usize(@usize_from_ptr(&response_prefix[0] as &void) + bytes_received) as &byte;
+        const prefix_recv_base: &byte = @ptr_from_usize(@usize_from_ptr(response_prefix as &void) + bytes_received) as &byte;
         const prefix_recv_result: !usize = @await async_socket_recv(fd, prefix_recv_base, DNS_TCP_FRAME_HEADER_BYTES - bytes_received, deadline_ms);
         const prefix_n: usize = prefix_recv_result catch |err| {
             return try dns_transport_error_from_async_error_usize(@error_id(err));

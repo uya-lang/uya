@@ -17321,3 +17321,56 @@ fn step(acc: &Big, n: i32) void {   // ← acc 是 &Big 参数
 
 本轮所有改动已 `git checkout --` 回退，`git status` 干净。
 这条教训很重要：**「函数返回就能回收」的直觉在共享竞技场 + 取址语义下是错的**。
+
+## 第 612 轮：`test_std_dns_async_transport` —— 把 2 字节长度前缀改到堆上（已修好 DNS 语义，fork 用例仍受既有限制）
+
+第 603~607 轮已经把机制链闭合：`var response_prefix: [byte:2]` 在 VM 里是
+`EXEC_VALUE_STRUCT` + 独立 `values` 块，`&response_prefix[0]` 拿到的是那块
+values 内的地址；`@await` 期间若发生聚合 clone，`exec_value_clone` 会给副本
+**新分配**一块 values（`value.uya` 的聚合分支），于是：
+
+1. await 前取到的地址指向**旧块**；
+2. 内核把读到的 2 字节写进旧块；
+3. await 之后 `response_prefix[0]` 读的是**新块** → 得到 `0, 0`；
+4. `expected_body_len == 0` → `error.DnsInvalidPacket`。
+
+C99 用真实栈帧，没有这个问题。
+
+### 修法：前缀缓冲改堆分配
+
+`lib/std/net/dns.uya` 的 `dns_tcp_future_new`：
+
+```uya
+const prefix_mem: &void = malloc(DNS_TCP_FRAME_HEADER_BYTES);
+if prefix_mem == null {
+    return error.AllocOutOfMemory;
+}
+const response_prefix: &byte = prefix_mem as &byte;
+_ = memset(response_prefix as &void, 0, DNS_TCP_FRAME_HEADER_BYTES);
+defer { free(prefix_mem); }
+```
+
+配套改两处（指针没有 `@len`，也不能用 `&arr[0]`）：
+`prefix_recv_base` 改为 `@ptr_from_usize(@usize_from_ptr(response_prefix) + bytes_received)`，
+`@len(response_prefix)` 判定改为常量 `DNS_TCP_FRAME_HEADER_BYTES`。
+新增 `use libc.memset;`。
+
+### 效果（VM，同一测试文件）
+
+| | 通过的用例 | `dns_query_all_async_any_tcp_fallback_and_aaaa` 表现 |
+| --- | --- | --- |
+| 改前 | 7 / 11 后卡住 | 打印 **`child:dns:nxdomain`**（DNS 请求失败） |
+| 改后 | 同样 7 / 11 后卡住 | **完全没有 `nxdomain`**（DNS 请求成功） |
+
+C99 后端两侧都是 `通过: 1 / 失败: 0`，无回归。
+
+剩下那个卡住的用例是 `dns_query_all_async_any_tcp_fallback_and_aaaa`，
+它用 `fork()` 起子进程（`tests/test_std_dns_async_transport.uya:992`）——
+属于已知的「exec VM 子进程」类别（`/proc/self/exe` 在 VM 下指向解释器自身），
+与本次 DNS 长度前缀修复无关。
+
+### census 复测
+
+`通过 895 / 910`，14 个失败。与基线（14 个失败）成员基本一致，唯一差异是
+`test_async_runtime_shared_dns` 在**并行普查**下超时（137），但**单跑 1 秒通过**
+（`rc=0`，C99 也通过）—— 并行资源竞争导致的既有 flake，不是本次改动引入。
