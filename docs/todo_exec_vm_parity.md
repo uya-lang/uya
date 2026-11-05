@@ -18360,3 +18360,57 @@ uyagin_serve_conn_slot_async 的第一条语句：path_len == 0            （�
    范围缩到 3 行。
 
 这是最后一个二分点，一次编译即可得出。
+
+### 第 621 轮补三：`inop ≠ postop` —— async fn 收到的 `&` 实参与调用方不是同一个地址（铁证）
+
+把采样点同时放在 `uyagin_conn_read_parse_into_future` **内部**和调用点**之后**，
+并记录两侧的**指针值**，一次性渲染出来：
+
+```
+inpl=5  incon=58  inop=140316061487272
+postop=140316062838216  postpl=0  hpl=0
+```
+
+- `inpl=5` / `incon=58` —— 函数**内部**写入完全正确；
+- `inop` 与 `postop` **相差约 1.35MB**，`path_len` 从 5 变成 0。
+
+**`uyagin_conn_read_parse_into_future` 收到的 `out`，和调用方的
+`&conn_state.parse_result` 不是同一个地址。** 这才是根因，
+和第 619 轮最早的观察一致；中间两轮怀疑「探针不可靠」是我自己插桩没生效导致的误判。
+
+### 第 621 轮补四：为什么最小用例复现不出来
+
+围绕「`&` 实参被换掉」这个点把所有变量都试了一遍，**全部通过**：
+
+| 变量 | 组合 | 结果 |
+| --- | --- | --- |
+| 聚合大小 | 69KB / 14KB / 8KB | 通过 |
+| 嵌套深度 | `CS → PR → Req` 三层 | 通过 |
+| 实参形态 | `&cs.pr`（结构体**字段**地址） | 通过 |
+| 宿主 | 调用方是**普通 fn** / **`@async_fn` 的局部变量** | 通过 |
+| 驱动方式 | `block_on` / `scheduler_run` | 见下 |
+
+**剩下的唯一实质差异是 `scheduler_run`**，而它在最小用例里根本跑不起来：
+
+```uya
+const v: i32 = scheduler_run<!i32>(&scheduler, f);
+```
+
+```
+exec unsupported 原因码: generic
+exec backend 失败: ...: exec: 当前不支持这个泛型调用
+```
+
+`uyagin` 的测试文件里同一行调用是能跑的（`tests/test_http_uyagin.uya:1050`），
+说明它的可用性依赖上下文（很可能是 `Scheduler` / `Future` 的类型信息来自
+`std.async` 的完整导入）。**这也是下一轮值得先解决的一个独立问题**：
+把 `scheduler_run<F>` 在一个干净的最小文件里跑起来，否则无法复现 uyagin 的驱动方式。
+
+### 本轮净产出
+
+- 把 404 的根因**锁定并证实**为「`@async_fn` 的 `&ParseResult` 实参在跨
+  `@await` 后与调用方不再是同一地址」（`inop ≠ postop`，差 1.35MB）；
+- 排掉大小 / 深度 / 实参形态 / 宿主类型四类变量；
+- 发现一个新阻塞点：`scheduler_run<!T>` 在最小文件里报 `exec: 当前不支持这个泛型调用`，
+  而 uyagin 测试里同样的调用可用——**下一轮先把这个最小化跑通**，
+  那是复现 uyagin 驱动方式的必要条件。
