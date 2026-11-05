@@ -16817,3 +16817,32 @@ census 数字未变是符合预期的：这条修复影响的是**数组容量�
 
 探针已全部回退（`git checkout -- lib/std/net/dns.uya tests/test_std_dns_async_transport.uya`），
 工作区干净。
+
+### 第 603 轮补充：为什么没留下最小复现夹具
+
+试了两版夹具，都**没有**复现出「跨 await 后局部数组地址失效」：
+
+| 夹具形态 | C99 | VM |
+| --- | --- | --- |
+| `@await write_two(&arr[0])`，被调方不 await | 通过 | **通过**（未复现） |
+| `@await write_two_after_await(&arr[0])`，被调方内部先 `@await yield_once` | 通过 | **通过**（未复现） |
+
+说明问题不是「只要跨 await 就失效」，而必须叠加**真正的 IO 挂起**
+（`async_wait_readable` 里阻塞到 epoll 就绪）才会暴露。
+而在单测里人为造一个「一定会阻塞若干毫秒再返回」的 async 函数，
+本身就要引入计时/线程，属于不稳定夹具 —— 与其留一个会 flake 的产物，
+不如不留（`tests/repros/` 的价值在于稳定复现）。
+
+因此第 603 轮只保留**证据链与定性**：
+
+- 有 `sendbase != arrbase`（差 29136）的实测数据为证；
+- 有服务端 `f0=2 f1=88` 正确发送、客户端读到 `0,0` 的对照为证；
+- 有 C99 通过 / VM 失败的双后端对照为证。
+
+复现方式就是直接跑原用例，无需新夹具：
+
+```
+./bin/uya test --vm --no-strict-overflow tests/test_std_dns_async_transport.uya
+```
+
+删掉那两版不成立的夹具后 `git status` 干净。
