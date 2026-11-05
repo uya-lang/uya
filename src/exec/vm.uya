@@ -5573,6 +5573,102 @@ fn exec_vm_frame_poll(function: &BCFunction, frame: &ExecFrame, arg_base: i32, a
     return 0;
 }
 
+/// 从一段「call gate trampoline」机器码里解出目标函数引用下标。
+///
+/// `lib/kernel/sim.uya:sim_make_x86_64_call_gate_trampoline` 生成的桩是
+/// `movabs rax, imm64; jmp rax`，字节序列
+/// `48 B8 <imm64 小端 8 字节> FF E0`。原生侧 `uya_call0_i32` 是一个 `call`，
+/// 跳过去就能真执行；VM 里 `imm64` 往往是**函数引用编码**而不是可执行地址，
+/// 所以这里把立即数读出来，识别成函数引用后改走字节码调用。
+///
+/// 参数：
+///   `fn_ptr`   - 调用方传进来的 `&void`（trampoline 首地址）。
+///   `out_index`- 解出的函数下标写在这里。
+///   `out_is_ref`- 1 表示目标确实是函数引用（可以走 VM 调用），0 表示不是。
+/// 返回值：0 表示参数有效（`out_is_ref` 才有意义）；-1 表示 `fn_ptr` 为空。
+fn exec_vm_call0_resolve_target(fn_ptr: &byte, function_count: i32, out_index: &i32, out_is_ref: &i32) i32 {
+    if out_index == null || out_is_ref == null {
+        return -1;
+    }
+    out_index[0] = -1;
+    out_is_ref[0] = 0;
+    if fn_ptr == null {
+        return -1;
+    }
+    // 先看 `fn_ptr` 本身是不是函数引用：有些调用点直接把 `&f as &void` 传进来，
+    // 不经过 trampoline（`uya_call0_i32_stack` 的裸 payload 就是这样）。
+    const direct: i64 = @usize_from_ptr(fn_ptr as &void) as i64;
+    if direct >= EXEC_VM_FN_REF_BASE && (direct -| EXEC_VM_FN_REF_BASE) < (function_count as i64) {
+        out_index[0] = (direct - EXEC_VM_FN_REF_BASE) as i32;
+        out_is_ref[0] = 1;
+        return 0;
+    }
+    // 再按 trampoline 机器码解：`48 B8 <imm64>` = movabs rax, imm64。
+    // 直接按字节读：trampoline 可能坐落在宿主 mmap 出来的内存里（`sys_mmap`
+    // 在解释器里也是真调用宿主），此时不能指望 VM 自己的字节视图。
+    const head: &const byte = fn_ptr as &const byte;
+    var lo: u64 = 0u64;
+    if head[0] == 72 as byte && head[1] == 184 as byte {
+        var i: i32 = 0;
+        while i < 8 {
+            lo = lo | ((head[2 + i] as u64) << (i * 8));
+            i = i + 1;
+        }
+        if (lo as i64) >= EXEC_VM_FN_REF_BASE && (lo as i64 -| EXEC_VM_FN_REF_BASE) < (function_count as i64) {
+            out_index[0] = (lo as i64 - EXEC_VM_FN_REF_BASE) as i32;
+            out_is_ref[0] = 1;
+            return 0;
+        }
+    }
+    return 0;
+}
+
+/// `uya_call0_i32(fn)` / `uya_call0_i32_stack(fn, stack_top)` 的解释器实现。
+///
+/// C99 前导里这两者是 `((int32_t (*)(void))fn)()`：一次无参调用。VM 里既然
+/// 拿不到可执行地址，就把 trampoline 里嵌的目标解回函数引用，改走字节码调用。
+/// 目标不是函数引用时（真的只有原生代码才有意义的情形）按 0 返回，与原生侧
+/// 「跳进一段解释器看不见的机器码」的观感一致，至少不会崩。
+///
+/// 参数：`program` 程序；`function` 当前函数；`frame` 当前帧；`site` 宿主调用点；
+///       `arg_base` 实参起始槽位；`arg_count` 实参个数；`out_value` 返回值出口。
+/// 返回值：0 表示成功，-1 表示运行时错误。
+fn exec_vm_host_call_call0(program: &BCProgram, function: &BCFunction, frame: &ExecFrame,
+    site: &BCHostCallSite, arg_base: i32, arg_count: i32, out_value: &ExecValue) i32 {
+    const is_stack: i32 = if site.id == ExecHostCallId.EXEC_HOST_CALL_CALL0_I32_STACK { 1 } else { 0 };
+    const want: i32 = if is_stack != 0 { 2 } else { 1 };
+    if arg_count < want {
+        exec_backend_set_error(function.decl, "exec: uya_call0 参数数量非法" as *byte, 0);
+        return -1;
+    }
+    const fn_slot: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+    if fn_slot == null {
+        exec_backend_set_error(function.decl, "exec: uya_call0 参数槽位非法" as *byte, 0);
+        return -1;
+    }
+    const fn_ptr: &byte = fn_slot.ptr_value as &byte;
+    var target_index: i32 = -1;
+    var target_is_ref: i32 = 0;
+    _ = exec_vm_call0_resolve_target(fn_ptr, program.function_count, &target_index, &target_is_ref);
+    if target_is_ref == 0 || target_index < 0 || target_index >= program.function_count {
+        // 目标不是本模块的函数引用：原生侧能跑（机器码是宿主可执行内存），
+        // 解释器里没有等价物。返回 0，与「跳进机器码后没法回来取值」一致。
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    var call_ret: ExecValue = exec_make_void();
+    if exec_vm_call_function(frame.vm, program, target_index, null as &ExecValue, 0, 0, &call_ret) != 0 {
+        return -1;
+    }
+    // 调用点静态类型是 i32；目标返回其它整型时按 i32 收敛。
+    if call_ret.kind == ExecValueKind.EXEC_VALUE_VOID {
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
+    out_value[0] = exec_make_i32(exec_vm_numeric_to_i64(call_ret) as i32);
+    return 0;
+}
+
 fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCallSite, frame: &ExecFrame, arg_base: i32, arg_count: i32, out_value: &ExecValue) i32 {
     if function == null || site == null || frame == null || out_value == null {
         exec_backend_set_error(null, "exec: hostcall 输入无效" as *byte, 0);
@@ -5616,6 +5712,10 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         }
         out_value[0] = tc_ret;
         return 0;
+    }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_CALL0_I32 ||
+        site.id == ExecHostCallId.EXEC_HOST_CALL_CALL0_I32_STACK {
+        return exec_vm_host_call_call0(program, function, frame, site, arg_base, arg_count, out_value);
     }
     if site.arg_count != arg_count {
         exec_backend_set_error(function.decl, "exec: hostcall 参数数量非法" as *byte, 0);

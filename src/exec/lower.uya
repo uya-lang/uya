@@ -1184,6 +1184,19 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
             param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_THREAD_CALL;
         }
+        // `uya_call0_i32(fn)` / `uya_call0_i32_stack(fn, stack_top)`：C99 前导里是
+        // `((int32_t (*)(void))fn)()`。VM 里 `fn` 通常是 call gate trampoline 的
+        // 机器码地址，而那段机器码里嵌着的目标可能是**函数引用编码**而不是可执行
+        // 地址（`&f as &void` 在 VM 里是 `EXEC_VM_FN_REF_BASE + 下标`）。走宿主桥
+        // 把目标解回来再按字节码调用，call gate 这条链才能在解释器里跑通。
+        if str_equals(fn_name, "uya_call0_i32" as &byte) != 0 &&
+            param_count == 1 && call_arg_count == 1 {
+            return ExecHostCallId.EXEC_HOST_CALL_CALL0_I32;
+        }
+        if str_equals(fn_name, "uya_call0_i32_stack" as &byte) != 0 &&
+            param_count == 2 && call_arg_count == 2 {
+            return ExecHostCallId.EXEC_HOST_CALL_CALL0_I32_STACK;
+        }
         if str_equals(fn_name, "strcmp" as &byte) != 0 &&
             param_count == 2 && call_arg_count == 2 {
             return ExecHostCallId.EXEC_HOST_CALL_STRCMP;

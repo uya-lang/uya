@@ -18609,3 +18609,102 @@ assert_eq_i32 failed: 0 == code (actual: 0, expected: 16)
 它的形态是 `fork()` 出的子进程 + 真实 socket 上的 WebSocket echo，
 和 `test_typed_pipeline_capability` 一样属于「exec 子进程」这一类，
 待后面单独处理。
+
+## 第 624 轮：给 exec VM 接上 `uya_call0_i32` 宿主桥（call gate trampoline 能跑了）
+
+### 问题不是「VM 不支持 `@asm`」
+
+一开始的定性「VM 无法执行原生 x86 汇编」**不准确**。实测：
+
+| 测试 | VM 结果 |
+| --- | --- |
+| `test_asm_verified` | 10/10 全过 |
+| `test_asm_atomic` | 15/15 |
+| `test_asm_types` | 11/11 |
+| `test_asm_syscall` | 8/8 |
+| `test_asm_platform` | 10/10 |
+| `test_asm_edge_cases` | 9/9 |
+| `test_asm_type_safety` | 13/13 |
+| `test_asm_memory_safety` | 12/12 |
+
+原因在 `src/exec/lower.uya:11291`：**语句位置的 `@asm` 按无副作用语句处理**
+（输出操作数保持原值），汇编体交给 C99 后端。这些测试断言的正是输出操作数原值，
+所以全过。
+
+真正卡住的是**函数指针调用原生机器码**这一步。
+
+### 根因：VM 里 `&f as &void` 是函数引用编码，不是可执行地址
+
+用探针直接量：
+
+```
+VM:   addr=1073741825      (= 0x40000001 = EXEC_VM_FN_REF_BASE + 1)
+C99:  addr=94262600176048  (真实代码地址)
+```
+
+`lib/kernel/sim.uya:751 sim_make_x86_64_call_gate_trampoline(entry_ptr)` 生成的是
+`movabs rax, imm64; jmp rax`，`imm64` 就是 `@usize_from_ptr(entry_ptr)`。
+在 VM 里它被写成了 `0x40000001` —— 跳过去是非法地址，原生侧结果就是**静默返回 0**。
+这就是 `x86_call_gate_trampoline_invokes_target` 拿到 `ret == 0`（期望 7）的原因。
+
+### 修法：新增两个宿主调用桥，把 trampoline 里嵌的目标解回函数引用
+
+1. `src/exec/hir.uya`：新增
+   `EXEC_HOST_CALL_CALL0_I32` / `EXEC_HOST_CALL_CALL0_I32_STACK`。
+2. `src/exec/lower.uya`：识别 `uya_call0_i32`（1 参）/ `uya_call0_i32_stack`（2 参）
+   这两个裸 `extern fn`，分派到上面两个 id。
+3. `src/exec/vm.uya`：新增 `exec_vm_call0_resolve_target` + `exec_vm_host_call_call0`：
+
+```uya
+// ① fn_ptr 本身可能就是函数引用（不经过 trampoline 的裸 payload 路径）
+const direct: i64 = @usize_from_ptr(fn_ptr as &void) as i64;
+if direct >= EXEC_VM_FN_REF_BASE && (direct -| EXEC_VM_FN_REF_BASE) < (function_count as i64) { ... }
+
+// ② 否则按 trampoline 机器码读 `48 B8 <imm64>`（movabs rax, imm64）
+const head: &const byte = fn_ptr as &const byte;
+if head[0] == 72 && head[1] == 184 { ...拼出 imm64... }
+```
+
+命中的两个关键细节：
+
+- **必须加 `function_count` 上限**。只判断 `>= 0x40000000` 会把真实宿主地址
+  也误判成函数引用（实测 microboot payload 的 trampoline 里是
+  `0x2097A0B0 = 546942128`，加了下限判断后被正确归为「不是函数引用」）。
+- **必须直接按字节读，不能用 `memcpy` 宿主桥**。trampoline 坐落在
+  `sys_mmap` 出来的**宿主**内存里，VM 自己的字节视图看不到。
+
+`uya_call0_i32_stack` 的 `stack_top` 参数在 VM 里被忽略（VM 没有可切换的宿主栈），
+其余语义与 `uya_call0_i32` 相同。
+
+### 效果
+
+`tests/test_kernel_sim.uya`：**25 过 / 5 败 → 26 过 / 4 败**。
+
+修好的是 `x86_call_gate_trampoline_invokes_target`（`ret == 7`）。
+
+`uya_call0_i32` 的最小验证（不经 trampoline，直接传 `&f as &void`）：
+
+```
+VM:  r=7
+C99: r=7
+```
+
+### 剩下的 4 例，两类，都是架构边界
+
+1. **要执行真实机器码**（2 例）：`sim_load_image_x86_call_gate_records_nonzero_exit_code`
+   和 `..._executes_mapped_payload` 的 brother 用例。它们把 microapp 的裸机器码
+   写进 mmap 再跳过去，trampoline 里的 immediate 是 `0x2097A0B0` 这种真实宿主地址，
+   **不是**函数引用。解释器里没有对应字节码可调，因此无法给出正确结果。
+2. **要真实 rsp**（2 例）：`x86_call_gate_trampoline_keeps_stack_alignment` /
+   `..._stack_helper_keeps_stack_alignment` 调的是 `@naked_fn`
+   `x86_stack_align_probe`（`movq %%rsp, %%rax; andl $15, %%eax; ret`），
+   期望 `rsp % 16 == 8`。VM 的局部变量在 VM 槽位栈里，没有「入口 rsp」这个概念。
+
+另外 `call_gate_stack_helper_switches_to_private_stack` 的
+`normal_ret == 0` 那半已经通过，卡在 `switched_ret == 1`：
+它要求「切到 mmap 出来的私有栈后，函数局部变量落在那段范围里」——
+VM 的局部变量从不在宿主栈上，同样做不到。
+
+### 无回归
+
+8 个 `test_asm_*` 重新跑一遍，全部维持原结果（见上面表格）。

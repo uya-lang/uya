@@ -107,6 +107,18 @@ enum ExecHostCallId {
     // `((T (*)(T))fn)(arg)`。VM 里没有真实函数指针，改为按名字直接调 Uya 函数
     // 并把返回值按调用点的静态类型还原（非 i32 类型此前一律拿到 0）。
     EXEC_HOST_CALL_THREAD_CALL,
+    // `uya_call0_i32(fn)` / `uya_call0_i32_stack(fn, stack_top)`：C99 前导里是
+    // `((int32_t (*)(void))fn)()`。
+    //
+    // VM 里 `&some_fn as &void` 得到的是函数引用编码（`EXEC_VM_FN_REF_BASE + 下标`，
+    // 例如 `0x40000001`），不是可执行地址。`lib/kernel/sim.uya` 的 call gate
+    // trampoline 会把 `entry_ptr` 原样写进 `movabs rax, imm64`，于是原生侧跳过去
+    // 就是一次非法地址跳转——VM 里表现为静默返回 0。
+    //
+    // 这里改为：从 trampoline 机器码里读出目标立即数，若是函数引用编码就转成
+    // VM 内部调用，于是「call gate 桩 + 目标函数」这条链在解释器里也能跑通。
+    EXEC_HOST_CALL_CALL0_I32,
+    EXEC_HOST_CALL_CALL0_I32_STACK,
 }
 
 enum HIRStmtKind {
