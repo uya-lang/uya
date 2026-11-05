@@ -17449,3 +17449,55 @@ C99 后端两侧都是 `通过: 1 / 失败: 0`，无回归。
 标量乘，每轮循环都建大量 `P256Jac` 聚合）。第 1 条改动值得优先实施。
 
 本轮所有诊断改动已回退（`cp /tmp/val_r.uya src/exec/value.uya`），`git status` 干净。
+
+## 第 614 轮：VM 值竞技场分段串联 —— 循环内临时聚合 45~100 倍提速（已实现）
+
+第 613 轮定位到：竞技场固定 200MB 用满后，分配回落到普通 `malloc`，
+而那些块**永不释放**，进程常驻内存持续增长，分配器被拖垮
+（n=360000 实测 48591ms；把段落放大到 3GB 只需 1073ms）。
+
+### 实现：分段串联，绝不搬移
+
+`src/exec/value.uya`：
+
+```uya
+const EXEC_VALUE_ARENA_MAX_SEGMENTS: i32 = 256;
+var g_exec_value_arena_seg_lo: [usize: 256] = [0:256];
+var g_exec_value_arena_seg_hi: [usize: 256] = [0:256];
+var g_exec_value_arena_segment_count: i32 = 0;
+var g_exec_value_arena_capacity: usize = 0;   // 当前段真实容量
+```
+
+- 新增 `exec_value_arena_grow_locked(need)`：当前段用满时 `malloc` 一段
+  **上一段长度的 2 倍**（至少装得下 `need`），登记进段表，从新段继续 bump。
+- `exec_vm_address_is_value` 从「单区间判定」改为「线性扫段表」（段数极少）。
+- `g_exec_value_arena_capacity` 记录当前段真实容量 —— 这一条是必须的：
+  分段长度是递增的，若仍拿固定 `EXEC_VALUE_ARENA_BYTES` 当上限，
+  每段只用到前 200MB，后面 400MB/800MB 全浪费。
+
+**硬约束**：不搬移已有块。`exec_vm_address_is_value` 靠「地址落在某段内」判定，
+搬移会让所有已交出去的内部引用失效 —— 这也是第 611 轮「作用域水位回滚」方案
+失败（踩掉 `&Big` 参数）的根本原因，分段方案天然绕开了它。
+
+### 实测
+
+| 夹具 | 改前 | 改后 | 倍数 |
+| --- | --- | --- | --- |
+| 单个 `Big` 临时聚合 × 360000 | 48591ms | **1070ms** | **45×** |
+| 两个 `Big` 临时聚合 × 300000 | **>300000ms（超时）** | **2906ms** | **>100×** |
+
+改后数值与第 613 轮「3GB 大段」实验的 1073ms 完全吻合，印证了归因正确。
+
+### 回归与验收
+
+- `test_std_dns_async_query_aggregate`：VM rc=2，**回退到第 614 轮前的代码同样 rc=2**，
+  属既有 UDP 串包 flake，与本次改动无关（C99 侧 `通过: 1`）。
+- `make check`：**1190 / 1193**（基线 1189），失败 3 例均为既有 flake：
+  `test_async_compute_types`、`test_async_thread_pool_dynamic_growth`、`test_std_thread`。
+- census 复测 **895 / 910**，失败清单与改动前逐条一致 —— 无回归，也没有新增通过用例，
+  因为剩余失败的主因是并行超时/真并发时序，不是单例算力。
+
+### 遗留
+
+`test_tls_ecdsa` 在分段竞技场下仍然 600s 未完成 —— 说明它的主要瓶颈
+**不是**临时聚合分配，而是别处（待第 615 轮定位）。

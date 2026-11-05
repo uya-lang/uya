@@ -422,7 +422,25 @@ fn exec_value_unwrap_err(value: ExecValue) ExecValue {
 // 字段访问（`hdr.size` 一类）唯一可靠的判据。
 var g_exec_value_arena_base: &byte = null;
 var g_exec_value_arena_used: usize = 0;
-const EXEC_VALUE_ARENA_BYTES: usize = 209715200;   // 200 MB
+const EXEC_VALUE_ARENA_BYTES: usize = 209715200;   // 每段 200 MB
+
+// 竞技场允许**分段串联**：当前段用满后追加一段新的（更大的）内存继续 bump，
+// 而**不搬移**已有块 —— 这一点是硬约束：`exec_vm_address_is_value` 靠
+// 「地址落在已用区间内」判定，任何搬移都会让已经交出去的内部引用全部失效。
+//
+// 为什么需要分段：只有一段 200MB 时，循环里建临时聚合会把段落用满，
+// 之后每次分配都落到普通 `malloc`，而这些块**永不释放**，
+// 36 万轮后分配器被拖垮（实测 48591ms；把段落放大到 3GB 只需 1073ms，
+// 第 613 轮定量）。分段串联把「用满就退化」换成「用满就长大」。
+const EXEC_VALUE_ARENA_MAX_SEGMENTS: i32 = 256;
+/// 每段的 [起始地址, 结束地址)；结束地址为 0 表示该槽未用。
+var g_exec_value_arena_seg_lo: [usize: 256] = [0:256];
+var g_exec_value_arena_seg_hi: [usize: 256] = [0:256];
+var g_exec_value_arena_segment_count: i32 = 0;
+// 当前段的**真实容量**（复查用）。分段长度是递增的，若仍拿固定的
+// `EXEC_VALUE_ARENA_BYTES` 当上限，每段就只会用到前 200MB，
+// 后面 400MB/800MB/1.6GB 全被浪费，长跑程序会白白吃光内存。
+var g_exec_value_arena_capacity: usize = 0;
 
 // 竞技场是**进程级共享**的 bump 分配器：真宿主线程（`UYA_EXEC_REAL_THREADS=1`）
 // 下每个线程的 VM 都从这里切块，`g_exec_value_arena_used` 的读-改-写必须串行化，
@@ -448,6 +466,60 @@ fn exec_value_arena_lock_release() void {
     g_exec_value_arena_lock = 0;
 }
 
+/// 追加一段竞技场内存并从其中切出 `need` 字节（**调用方必须已持有竞技场锁**）。
+///
+/// 新段长度取「上一段长度的 2 倍」，且至少能装下 `need`，上限 2GB ——
+/// 这样 36 万轮那种持续增长只会触发很少几次扩容。
+/// **绝不搬移**已有块：所有已交出去的内部引用都还指着旧段。
+///
+/// 参数：`need` 本次需要的字节数（含对齐余量）。
+/// 返回值：新段内的起始块；段表满或分配失败返回 null。
+fn exec_value_arena_grow_locked(need: usize) &byte {
+    if g_exec_value_arena_segment_count >= EXEC_VALUE_ARENA_MAX_SEGMENTS {
+        return null;
+    }
+    var seg_bytes: usize = EXEC_VALUE_ARENA_BYTES;
+    // 新段至少是上一段的两倍，且必须装得下 need。
+    if g_exec_value_arena_segment_count > 0 {
+        const pi: i32 = g_exec_value_arena_segment_count - 1;
+        if pi < 0 { return null; }
+        const prev: usize = g_exec_value_arena_seg_hi[pi] -| g_exec_value_arena_seg_lo[pi];
+        if prev > 0 as usize {
+            const doubled: usize = prev +| prev;
+            if doubled > prev {
+                seg_bytes = doubled;
+            }
+        }
+    }
+    if seg_bytes < need {
+        var want: usize = EXEC_VALUE_ARENA_BYTES;
+        while want < need {
+            const grown2: usize = want +| want;
+            if grown2 <= want {
+                break;
+            }
+            want = grown2;
+        }
+        seg_bytes = want;
+    }
+    const mem: &byte = malloc(seg_bytes) as &byte;
+    if mem == null {
+        return null;
+    }
+    const lo: usize = @usize_from_ptr(mem as &void);
+    const idx: i32 = g_exec_value_arena_segment_count;
+    if idx < 0 || idx >= EXEC_VALUE_ARENA_MAX_SEGMENTS {
+        return null;
+    }
+    g_exec_value_arena_seg_lo[idx] = lo;
+    g_exec_value_arena_seg_hi[idx] = lo +| seg_bytes;
+    g_exec_value_arena_segment_count = idx + 1;
+    g_exec_value_arena_base = mem;
+    g_exec_value_arena_used = need;
+    g_exec_value_arena_capacity = seg_bytes;
+    return mem;
+}
+
 /// 竞技场 bump 分配（**调用方必须已持有竞技场锁**）。
 /// 参数：`size` 需要的字节数。
 /// 返回值：按 16 字节对齐的新块；分配失败返回 null。
@@ -456,8 +528,16 @@ fn exec_value_alloc_bytes_locked(size: usize) &byte {
         return null;
     }
     if g_exec_value_arena_base == null {
-        g_exec_value_arena_base = malloc(EXEC_VALUE_ARENA_BYTES) as &byte;
+        const first: &byte = malloc(EXEC_VALUE_ARENA_BYTES) as &byte;
+        g_exec_value_arena_base = first;
         g_exec_value_arena_used = 0 as usize;
+        g_exec_value_arena_capacity = EXEC_VALUE_ARENA_BYTES;
+        if (first as *void) != null && g_exec_value_arena_segment_count == 0 {
+            const lo0: usize = @usize_from_ptr(first as &void);
+            g_exec_value_arena_seg_lo[0] = lo0;
+            g_exec_value_arena_seg_hi[0] = lo0 +| EXEC_VALUE_ARENA_BYTES;
+            g_exec_value_arena_segment_count = 1;
+        }
     }
     // 每个块按 16 字节对齐；多留 16 字节给对齐与尾部余量。
     var total: usize = size +| 16 as usize;
@@ -465,8 +545,15 @@ fn exec_value_alloc_bytes_locked(size: usize) &byte {
     if slack != 0 as usize {
         total = total +| (16 as usize - slack);
     }
-    if g_exec_value_arena_base == null || g_exec_value_arena_used +| total > EXEC_VALUE_ARENA_BYTES {
-        // 竞技场耗尽：回落到普通 malloc，保证程序还能继续跑（只是这些块不再算 VM 值）。
+    if g_exec_value_arena_base == null || g_exec_value_arena_capacity == 0 as usize ||
+        g_exec_value_arena_used +| total > g_exec_value_arena_capacity {
+        // 当前段用满：追加一段新内存继续 bump（不搬移旧块）。
+        const grown: &byte = exec_value_arena_grow_locked(total);
+        if (grown as *void) != null {
+            _ = memset(grown as *byte, 0, size);
+            return grown;
+        }
+        // 段表也满了（实际到不了）：回落到普通 malloc，至少还能继续跑。
         const fallback: &byte = malloc(size) as &byte;
         if fallback == null {
             return null;
@@ -491,14 +578,18 @@ fn exec_value_alloc_bytes(size: usize) &byte {
 /// 参数：`addr` 绝对地址。
 /// 返回值：true 表示这是 VM 值内存。
 fn exec_vm_address_is_value(addr: usize) bool {
-    if g_exec_value_arena_base == null || addr == 0 as usize {
+    if addr == 0 as usize {
         return false;
     }
-    const base: usize = @usize_from_ptr(g_exec_value_arena_base as &void);
-    if addr < base {
-        return false;
+    // 段数很少（正常只有 1 段），线性扫即可，比维护有序结构更简单可靠。
+    var i: i32 = 0;
+    while i < g_exec_value_arena_segment_count {
+        if addr >= g_exec_value_arena_seg_lo[i] && addr < g_exec_value_arena_seg_hi[i] {
+            return true;
+        }
+        i = i + 1;
     }
-    return addr < base +| g_exec_value_arena_used;
+    return false;
 }
 
 fn exec_value_scalar_kind_from_type_kind(type_kind: i32) ExecValueKind {
