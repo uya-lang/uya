@@ -20222,3 +20222,58 @@ if arg_index < 0 || arg_index >= arg_count {
 `test_tls_x25519_pure` 一直归类为「性能问题」而没人量过，
 量了才发现它**本来就通过**，而且有个 11% 的纯浪费。
 perf 采样 + 查那 11% 的调用点，比读代码猜快得多。
+
+## 第 642 轮：`exec_value_clone` 标量快速出口 —— parity 901 → 903
+
+### 改动
+
+`exec_value_clone`（`src/exec/value.uya:1117`）要依次穿过五个聚合分支
+（raw_array / STRUCT·ARRAY·TUPLE / SLICE / UNION / ERROR_UNION），
+最后才是 `return value[0]`。热路径上绝大多数调用传的都是**标量**
+（数值、布尔、指针、字符串、错误），没有任何堆内存需要深拷贝。
+
+加一个前置出口：
+
+```uya
+const k: i32 = value.kind as i32;
+if k != STRUCT && k != ARRAY && k != TUPLE && k != SLICE && k != UNION &&
+    k != ERROR_UNION && exec_value_is_raw_array(value) == 0 {
+    return value[0];
+}
+```
+
+### 收益：parity 901 → 903，不一致 13 → 11
+
+两个用例转为一致：
+
+| 用例 | 之前 | 现在 |
+| --- | --- | --- |
+| `test_tls_rsa` | STATUS_MISMATCH | **OK** |
+| `test_async_compute_generic_wrapper` | STATUS_MISMATCH（C99=1 VM=0） | **OK** |
+
+这两个都不是 clone 语义直接修好的，而是**第 641 轮那次 varargs 优化的连带效果**：
+`test_tls_rsa` 之前是 VM 侧跑太慢超时，提速后能跑完了；
+`test_async_compute_generic_wrapper` 之前归因成「C99 侧 flake」，
+现在两边稳定一致 —— 说明当时那个 flake 判断可能是把「VM 慢到超时」误读成了 flake。
+
+### 这一项本身没有可测的性能收益
+
+如实记录：x25519 从 6m49s → **6m51s**，在测量噪声内。也就是说
+`-O2` 已经把这几个分支的比较优化得差不多了，这个快速出口主要价值在
+**语义清晰**（明确「标量按值复制就是完整语义」）而不是速度。
+
+### 验证
+
+| 门禁 | 结果 |
+| --- | --- |
+| census | **899/910**，失败清单逐条一致（无回归） |
+| parity | **903/914**（一致 903 / 不一致 11 / 跳过 1），**+2** |
+| `test_http_uyagin_websocket`（第 634 轮修的） | 3/3，未回归 |
+| `test_tls_x25519_pure`（VM） | 1/1，6m51s |
+
+### 记一笔：性能问题会伪装成别的失败形态
+
+`test_tls_rsa` 原来被判成 STATUS_MISMATCH、`test_async_compute_generic_wrapper`
+被判成 C99 flake，追下去都不是语义问题，而是 **VM 太慢撞上超时**。
+第 632 轮 `test_http_uyagin` 的 VmPeak 也是同一类教训（「先量配置本身够不够」）。
+以后看到「同一用例时好时坏」或「C99 侧像是 flake」，先排除「VM 侧只是慢」。

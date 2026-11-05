@@ -1118,6 +1118,19 @@ fn exec_value_clone(value: &ExecValue) ExecValue {
     if value == null {
         return exec_make_void();
     }
+    // 快速出口：标量（数值/布尔/指针/字符串/错误）没有任何需要深拷贝的堆内存，
+    // 按值复制就是完整语义。热路径上绝大多数 clone 调用的都是这类值，
+    // 先走这一条就不用依次穿过下面五个聚合分支。
+    const k: i32 = value.kind as i32;
+    if k != ExecValueKind.EXEC_VALUE_STRUCT as i32 &&
+        k != ExecValueKind.EXEC_VALUE_ARRAY as i32 &&
+        k != ExecValueKind.EXEC_VALUE_TUPLE as i32 &&
+        k != ExecValueKind.EXEC_VALUE_SLICE as i32 &&
+        k != ExecValueKind.EXEC_VALUE_UNION as i32 &&
+        k != ExecValueKind.EXEC_VALUE_ERROR_UNION as i32 &&
+        exec_value_is_raw_array(value) == 0 {
+        return value[0];
+    }
     if exec_value_is_raw_array(value) != 0 {
         const count: i32 = value.i64_value as i32;
         const elem_kind_code: i32 = exec_value_raw_array_element_kind(value);
