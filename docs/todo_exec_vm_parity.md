@@ -19061,3 +19061,84 @@ if fb_idx >= 0 && fb_idx < EXEC_VALUE_ARENA_MAX_SEGMENTS {
 | `test_kernel_sim` | 26 过 / 4 败（与修前一致） |
 | `test_std_sql` | 5/5 |
 | `test_http_router` | 9/9 |
+
+## 第 629 轮：fallback 块改用独立登记表 —— 段表不再被小块撑满
+
+### 上一轮修复引出的新问题
+
+第 628 轮给 fallback 块补了段表登记，但它**和竞技场段共用同一张 256 项的表**。
+fallback 块往往很小（诊断实测 `need=32`、`need=576` 这种），却各占一个名额。
+`ulimit -v` 下日志直接显示：
+
+```
+[ARENA] grow FAIL need=32  seg=209715200 count=250
+[ARENA] grow FAIL need=576 seg=209715200 count=251
+[ARENA] grow FAIL need=32  seg=209715200 count=252
+...
+[ARENA] grow FAIL need=576 seg=209715200 count=255
+```
+
+`count` 从 250 一路涨到 **255**（上限 256），之后**竞技场再也开不出新段**，
+每次分配都被迫走 fallback，恶性循环。这是我上一轮修复引入的副作用。
+
+### 两处修法
+
+**一、fallback 用独立表**
+
+```uya
+const EXEC_VALUE_FALLBACK_MAX: i32 = 4096;
+var g_exec_value_fallback_lo: [usize: 4096] = [0:4096];
+var g_exec_value_fallback_hi: [usize: 4096] = [0:4096];
+var g_exec_value_fallback_count: i32 = 0;
+```
+
+`exec_vm_address_is_value` 扫完竞技场段表后再扫这张表，两表**互不争抢名额**。
+fallback 表给 4096 项，是段表的 16 倍，符合「fallback 块数量远多于段数」的实际比例。
+
+**二、段长不再指数翻倍**
+
+原逻辑是「新段至少是上一段的两倍」：
+
+```uya
+const doubled: usize = prev +| prev;
+if doubled > prev { seg_bytes = doubled; }
+```
+
+段长按 200MB → 400MB → 800MB → 1.6GB → 3.2GB 走，**第 4、5 段的单次 `malloc`
+就已经吃到几 GB**，受限地址空间下必然失败。改为每段固定 `EXEC_VALUE_ARENA_BYTES`：
+段表有 256 项，固定尺寸完全够用，内存增长变成线性的、可预测的。
+
+### 效果
+
+| 地址空间 | 修前 | 修后 |
+| --- | --- | --- |
+| 不限制 | 27/27 | 27/27 |
+| 6 GB | 27/27 | 27/27 |
+| 5 GB | `ADDR_INDEX 越界` | 无输出（超时） |
+| 4 GB | `MAKE_* 分配失败` | `ADDR_INDEX 越界`（回到了更内层的问题） |
+
+段表撑满这个缺陷是**实打实修掉了**：4GB 下不再出现 `grow FAIL count=255` 的雪崩，
+5GB 从「立刻报类型错误」变成「慢到超时」（说明它在真的做分配，只是不够快/不够省）。
+
+### 4GB 剩下的是另一层问题，不是分配器
+
+现在 4GB 下的失败又回到 `ADDR_INDEX 越界`。加探针看引用目标的状态：
+
+- 引用地址**在竞技场内**（`inarena=1`）
+- `target->kind = 0`（`EXEC_VALUE_VOID`）
+- `segs=78`（段数已不再失控）
+
+也就是说：**分配是成功的**（fallback 失败探针一条都没打出来），
+但这个内部引用指向的槽位已经被清成 `VOID`。
+根因在大聚合（`UyaginRouter` 含 `roots: [i32: N]` + `nodes: [...]`）的**生命周期**，
+不在分配器。这一层需要单独一轮做，本轮不动。
+
+### 无回归
+
+| 项目 | 结果 |
+| --- | --- |
+| census | **898 / 910（98.7%）**，与修前逐条一致 |
+| `test_http_uyagin`（VM，不限内存） | 27/27 |
+| `test_kernel_sim` | 26 过 / 4 败 |
+| `test_std_sql` | 5/5 |
+| `test_http_router` | 9/9 |

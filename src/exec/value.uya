@@ -437,6 +437,19 @@ const EXEC_VALUE_ARENA_MAX_SEGMENTS: i32 = 256;
 var g_exec_value_arena_seg_lo: [usize: 256] = [0:256];
 var g_exec_value_arena_seg_hi: [usize: 256] = [0:256];
 var g_exec_value_arena_segment_count: i32 = 0;
+
+// fallback（普通 `malloc` 出来的块）的**独立**地址区间表。
+//
+// 为什么不并进 `g_exec_value_arena_seg_*`：段表只有 256 项，而 fallback 块
+// 往往很小（实测 32 / 576 字节这种），把名额花在它们身上会让竞技场**开不出新段**。
+// 实测 `ulimit -v 5GB` 下段表被 250 个小 fallback 块撑满，之后每次扩容都
+// `[ARENA] grow FAIL … count=255`，进而整条分配链失败。
+//
+// 两张表一起参与「这个地址是不是 VM 值内存」的判定，互不争抢名额。
+const EXEC_VALUE_FALLBACK_MAX: i32 = 4096;
+var g_exec_value_fallback_lo: [usize: 4096] = [0:4096];
+var g_exec_value_fallback_hi: [usize: 4096] = [0:4096];
+var g_exec_value_fallback_count: i32 = 0;
 // 当前段的**真实容量**（复查用）。分段长度是递增的，若仍拿固定的
 // `EXEC_VALUE_ARENA_BYTES` 当上限，每段就只会用到前 200MB，
 // 后面 400MB/800MB/1.6GB 全被浪费，长跑程序会白白吃光内存。
@@ -566,14 +579,16 @@ fn exec_value_alloc_bytes_locked(size: usize) &byte {
         //  `ADDR_INDEX 越界(IDXREF … kind=14 cnt=-1 isref=1 pointee=19)`，
         //  其中 target->kind 是 1821864748 这种非法值）。
         //
-        // 用分段登记而不是并进当前段：这批块来自普通 malloc，和竞技场段
-        // 不连续，混进同一段会让 `[lo, hi)` 覆盖到无关内存。
-        const fb_idx: i32 = g_exec_value_arena_segment_count;
-        if fb_idx >= 0 && fb_idx < EXEC_VALUE_ARENA_MAX_SEGMENTS {
+        // 用**独立表**登记（`g_exec_value_fallback_*`）而不是并进竞技场段表：
+        // 这批块来自普通 malloc，和竞技场段不连续，混进同一段会让 `[lo, hi)`
+        // 覆盖到无关内存；更要紧的是段表只有 256 项，被小 fallback 块占满后
+        // 竞技场就再也开不出新段（实测 `ulimit -v 5GB` 下 `count` 一路涨到 255）。
+        const fb_idx: i32 = g_exec_value_fallback_count;
+        if fb_idx >= 0 && fb_idx < EXEC_VALUE_FALLBACK_MAX {
             const fb_lo: usize = @usize_from_ptr(fallback as &void);
-            g_exec_value_arena_seg_lo[fb_idx] = fb_lo;
-            g_exec_value_arena_seg_hi[fb_idx] = fb_lo +| (size +| 16 as usize);
-            g_exec_value_arena_segment_count = fb_idx + 1;
+            g_exec_value_fallback_lo[fb_idx] = fb_lo;
+            g_exec_value_fallback_hi[fb_idx] = fb_lo +| (size +| 16 as usize);
+            g_exec_value_fallback_count = fb_idx + 1;
         }
         _ = memset(fallback as *byte, 0, size);
         return fallback;
@@ -602,6 +617,14 @@ fn exec_vm_address_is_value(addr: usize) bool {
     var i: i32 = 0;
     while i < g_exec_value_arena_segment_count {
         if addr >= g_exec_value_arena_seg_lo[i] && addr < g_exec_value_arena_seg_hi[i] {
+            return true;
+        }
+        i = i + 1;
+    }
+    // fallback 块单独一张表（见 `g_exec_value_fallback_lo` 处的说明）。
+    i = 0;
+    while i < g_exec_value_fallback_count {
+        if addr >= g_exec_value_fallback_lo[i] && addr < g_exec_value_fallback_hi[i] {
             return true;
         }
         i = i + 1;
