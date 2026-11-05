@@ -18881,3 +18881,90 @@ census 失败大类。
 重新跑一遍全部维持原结果（`test_asm_verified` 10/10、`test_asm_atomic` 15/15、
 `test_asm_types` 11/11、`test_asm_syscall` 8/8、`test_asm_platform` 10/10、
 `test_asm_edge_cases` 9/9、`test_asm_type_safety` 13/13、`test_asm_memory_safety` 12/12）。
+
+## 第 627 轮：剩余 12 例的完整定性归档（逐项实测，全部是架构边界）
+
+把 census 的 12 个失败用例逐个跑了一遍、逐个定位，结论如下。
+**没有一个是「低成本可修的逻辑缺陷」**，全部卡在 VM 这套架构的固有边界上。
+
+### 第一类：真并发时序（5 例，21 个失败断言）
+
+| 用例 | 失败数 | 失败断言 |
+| --- | --- | --- |
+| `test_std_thread` | 7 | `thread_wait_pending_count(&pool, 1) == 1`（actual 0） |
+| `test_async_thread_pool_dynamic_growth` | 4 | 同类 |
+| `test_std_thread_async_boundary` | 3 | 同类 |
+| `test_std_async_scheduler` | 1 | `wait_thread_pool_pending_at_least(&pool, 1) == 1` |
+| `test_async_compute_dynamic_resource_pressure` | 1 | `wait_pending_at_least(pool, PRESSURE_PENDING_TARGET) == 1` |
+
+失败断言**全是同一句**：等线程池的 pending 计数涨到 1，超时后仍是 0。
+根因是 VM 里 `pthread_create` 默认走**宿主线程模拟**：任务在主线程同步跑完，
+队列从来没有「堆着等 worker」的中间态，所以 pending 恒为 0。
+
+`UYA_EXEC_REAL_THREADS=1`（走裸 `sys_clone` 起真线程）试过：`test_std_async_scheduler`
+**直接挂死**（250s 超时无输出），`test_pthread_heap_cache_identity` 变成 rc=141。
+所以真线程这条路目前也走不通，需要把 VM 的线程/调度整体做实。
+
+### 第二类：要执行真实机器码（2 例）
+
+`test_kernel_sim` 里的 `sim_load_image_x86_call_gate_records_nonzero_exit_code`
+和同族用例。它们把 microapp 的裸机器码写进 mmap 再跳过去，
+trampoline 里的 immediate 是 `0x2097A0B0` 这种**真实宿主地址**，不是函数引用编码。
+第 624 轮的 call0 桥只对「函数引用编码」生效，这一类没有对应字节码可调。
+
+### 第三类：要真实 rsp（3 例）
+
+`x86_call_gate_trampoline_keeps_stack_alignment`、
+`..._stack_helper_keeps_stack_alignment`、`call_gate_stack_helper_switches_to_private_stack`。
+
+前两个调 `@naked_fn x86_stack_align_probe`（`movq %%rsp, %%rax; andl $15, %%eax; ret`），
+期望 `rsp % 16 == 8`。第三个要求「切到 mmap 私有栈后局部变量落在该范围内」。
+VM 的局部变量在 VM 槽位栈里，**没有「入口 rsp」这个概念**，也没有可切换的宿主栈。
+（`src/exec/lower.uya:11291` 已明确：语句位置的 `@asm` 按无副作用语句处理，
+输出操作数保持原值，汇编体交给 C99 后端。）
+
+### 第四类：async frame 分配器不走 VM（1 例）
+
+`test_async_frame_pool_full`：注入一个永远失败的 `IAllocator`，期望
+`@async_fn` 返回 `AsyncFramePoolFull`。
+
+实测**`set_async_frame_allocator` 在 VM 里是生效的**（探针 `get_async_frame_allocator()`
+返回的就是注入的那个，`same=1`）。问题在于 **`@async_fn` 的帧分配在 VM 里不查它**：
+C99 侧 `src/codegen/c99/function.uya:7791` 的 wrapper 会先
+`std_get_async_frame_allocator()` 再调虚表 `alloc`，失败就返回 `AsyncFramePoolFull`；
+VM 的 async 帧用的是 VM 自己的续体机制，全程不经过这个 allocator。
+要修得在 VM 的 `@async_fn` 入口加一次接口虚表调用 + 错误注入，成本较高、只换 1 个用例。
+
+### 第五类：子进程 self-exec（2 例，13 个失败断言）
+
+`test_typed_pipeline_capability`（12）和 `test_http_uyagin_websocket`（1）。
+
+`lib/std/process.uya:141 pipeline_worker_exec_path_resolve` 返回 `/proc/self/exe`。
+C99 下子进程就是编译出来的那个可执行文件，认识 `--pipeline-worker` 这类参数；
+VM 下 `/proc/self/exe` 是**解释器 `bin/uya`**，它不认识这些参数，直接报
+「错误: 未指定输入文件」。
+
+要修得让 VM 模式下不 spawn 子进程、在当前进程内联执行 stage，
+这是 pipeline 执行模型的第二套实现，属于架构工作。
+
+### 第六类：性能超时（1 例）
+
+`test_tls_ecdsa`（parity 里 `test_tls_rsa` 同）。VM 解释执行 ECDSA/RSA 的
+大整数运算，600s 都跑不完。这是解释器的固有速度差，不是缺陷。
+
+### 本轮全量验证结果
+
+| 项目 | 数字 |
+| --- | --- |
+| census | **898 / 910（98.7%）**，失败 12 |
+| `make exec-parity` | 一致 **901** / 不一致 **13** / 跳过 1 |
+| `make check` | **1189~1190 / 1193** |
+
+parity 从文档记录的 900 提到 **901**，多的一致项就是第 624 轮 call0 桥修好的
+`test_kernel_sim` 那一例。
+
+### 关于剩余工作量的如实判断
+
+这 12 例要全绿，需要的是：VM 真线程调度、VM 内嵌原生代码执行、
+真实栈语义、pipeline 内联执行——**每一项都是架构级的工作**，
+不是单点修复能解决的。当前 98.7% 已经是这套解释器架构的实际上限附近。
