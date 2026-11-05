@@ -1,0 +1,77 @@
+// 回归：exec VM 里，「**结构体字段的地址**」作为 `&` 实参传给 `@async_fn`，
+// 且中间经历一次真实挂起（事件循环真的让出过）之后，被调函数拿到的指针
+// 与调用方不是同一块内存 —— 写进去的内容调用方读不到。
+//
+// 三层调用：`serve`（局部 St）→ `slot` → `read_parse(fd, out)`，
+// `slot` 传的是 `&st.parse_result`（字段地址），不是整个变量。
+//
+// 实测对照：
+//     C99 : same=1  v=3    （指针相同，写入可见 → 通过）
+//     VM  : same=0  v=-1   （指针不同，写入丢失 → 失败）
+//
+// 触发要点（逐项二分出来的）：
+//   * 实参必须是**结构体字段**的地址（`&st.parse_result`）；
+//     传整个变量的地址（`&pr`）不会触发；
+//   * 必须有一次**真实挂起**——用 `MemAsyncReader`（数据就绪、同步完成）
+//     测不出来，用 pipe + epoll 让 future 真让出一次就必现；
+//   * 与聚合大小无关（`St` 里有没有 `[byte:4096]` 都复现）。
+//
+// 这就是 `test_http_uyagin` 最后一个用例
+// （`uyagin_serve_conn_releases_scheduler_frames_after_connection_close`）
+// 返回 404 的根因：`uyagin_conn_read_parse_into_future` 把解析结果写进
+// `&conn_state.parse_result` 的 `request.path_len`，函数内部读到 5，
+// 返回后调用方读到 0，于是路由匹配不到 `/ping`，走 404 分支。
+//
+// 注意：本文件在 VM 下失败是**预期的**——它是哨兵，不参与 `make check`。
+use std.async;
+use std.async_scheduler;
+use libc.sys_pipe2;
+use libc.sys_write;
+use libc.sys_close;
+use libc.O_NONBLOCK;
+use libc.O_CLOEXEC;
+use std.testing.assert_eq_i32;
+
+struct Req { path_len: i32 }
+struct PR { request: Req, consumed: usize }
+struct St { parse_result: PR, filled: usize = 0 }
+
+var g_in: usize = 0;
+var g_out: usize = 0;
+
+@async_fn fn read_parse(fd: i32, out: &PR) Future<!i32> {
+    var buf: [byte: 64] = [];
+    const rd: usize = try @await async_fd_read_future(fd, &buf[0] as &byte, 64 as usize);
+    const q: &Req = &out.request;
+    q.path_len = 5;
+    g_in = @usize_from_ptr(out as &void);
+    return rd as i32;
+}
+
+@async_fn fn slot(fd: i32, st: &St) Future<!i32> {
+    const n: i32 = try @await read_parse(fd, &st.parse_result);
+    return n;
+}
+
+@async_fn fn serve(fd: i32) Future<!i32> {
+    var st: St = St{ parse_result: PR{ request: Req{ path_len: 0 }, consumed: 0 }, filled: 0 };
+    const n: i32 = try @await slot(fd, &st);
+    g_out = @usize_from_ptr(&st.parse_result as &void);
+    if st.parse_result.request.path_len != 5 { return 0 - 1; }
+    return n;
+}
+
+test "variant" {
+    var fds: [i32: 2] = [0 - 1, 0 - 1];
+    _ = try sys_pipe2(&fds[0], O_NONBLOCK | O_CLOEXEC);
+    const payload: &[const byte] = "abc";
+    _ = try sys_write(fds[1], payload.ptr, payload.len);
+    const scheduler: Scheduler = scheduler_new();
+    const f: Future<!i32> = serve(fds[0]);
+    const v: i32 = try scheduler_run<!i32>(&scheduler, f);
+    _ = sys_close(fds[0]) catch {};
+    _ = sys_close(fds[1]) catch {};
+    const same: i32 = if g_in == g_out { 1 } else { 0 };
+    @print("[W] same="); @print(same); @print(" v="); @print(v); @print("\n");
+    try assert_eq_i32(same, 1);
+}
