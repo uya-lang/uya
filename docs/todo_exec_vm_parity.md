@@ -16947,3 +16947,55 @@ vm.slot_pool = fresh;
 `agg.values` 指针本身是否变了。若变了，就锁定在「聚合载荷被重新分配」，
 再去查是哪条路径（`BC_BOX_VALUE` / `exec_value_clone` / await 穿透返回值）
 重新分配了它。这一轮先把三个假设的排除结果记录下来。
+
+### 第 606 轮：确认 `&local_array[0]` 走的是 `ADDR_LOCAL` + 聚合载荷
+
+用两类 VM 侧探针（已全部回退）：
+
+1. 在 `BC_ADDR_INDEX` 的聚合分支打印 `agg.values` → **零次命中**；
+2. 在 `BC_ADDR_LOCAL` 打印「槽位 kind 是否为 STRUCT / 聚合载荷是否存在」
+   → **296 次命中，全部是 `ALV`（STRUCT + 有 values）**。
+
+结论：`&response_prefix[0]` 在 VM 里走的是 `BC_ADDR_LOCAL`，
+`slot_b.kind == EXEC_VALUE_STRUCT` 且 `exec_value_as_aggregate(slot_b).values != null`
+—— 即**定长数组在 VM 里以「聚合 + 独立分配的 values 块」承载**，
+取址拿到的是那块 `values` 内部的地址。
+
+看 `exec_vm_index_ref`（`vm.uya:3475`）的收尾分支：
+
+```uya
+const aggregate: &ExecAggregate = exec_value_as_aggregate(value);
+if aggregate == null || index_value >= aggregate.count {
+    return null;
+}
+return &aggregate.values[index_value];
+```
+
+所以 `&arr[0]` 的地址 = `aggregate.values` 基址。只要这个聚合在 `@await`
+期间被重新分配（`exec_value_clone` 会给副本新的载荷块），
+旧地址就会指向一块**已废弃的载荷**，而 await 之后重新取址拿到的是新载荷 ——
+两者不同，正好对上第 603/604 轮的 `sendbase != arrbase` 实测。
+
+### 为什么两版最小夹具都没复现
+
+第 603 轮补充里那两版夹具（普通 await / 嵌套 await）之所以通过，现在有了
+更具体的解释：它们**没有让聚合值发生 clone**。要让 `aggregate.values` 换块，
+必须真的经历「挂起 → 恢复 → 被 await 的 future 状态被 clone/替换」这条链，
+而这条链只有在 `async_socket_recv` 内部等 epoll 时才走到。
+
+### 尚未回答的关键问题（下一轮）
+
+`@await` 恢复路径里的哪一步 clone 了调用方帧里的聚合值？
+
+候选（按 `await` 处理链的顺序）：
+
+- `BC_AWAIT` 的 `exec_vm_await_poll_once` 里 `out_value[0] = exec_value_clone(&poll_data.payload)`；
+- `exec_vm_await_pass_through_pending` 的穿透返回；
+- `BC_RET` 的 `exec_vm_relocate_escaped_box`（只处理返回值里的内部引用）。
+
+下一轮应在这三处各加一个极轻量的「只判断聚合载荷是否换块」的探针
+（不要打地址、不要打 296 行，只打一次布尔），定位后即可决定：
+是让 `exec_vm_make_value_ref` 对聚合改用**稳定载荷**（不随 clone 换块），
+还是让 `ADDR_LOCAL` 的引用记住「槽位 + 下标」而非裸地址。
+
+探针已全部回退（`cp /tmp/vm_bak.uya src/exec/vm.uya`），工作区干净。
