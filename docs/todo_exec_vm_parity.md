@@ -18298,3 +18298,65 @@ conn_state.ctx = uyagin_context_new_with_request_arena(fd, &conn_state.parse_res
 
 把 `spl` 的渲染插在**每一条之间**，一次编译就能定位到具体哪一条清掉的。
 这是很窄、很确定的下一步。
+
+### 第 621 轮补：执行了上节说的分段二分 —— `d1 = 0`，即 `@await` 一返回就已经是 0
+
+在 `uyagin_conn_read_parse_into_future` 返回后到 `ctx` 赋值之间的每条语句之间各记一个值，
+总共 5 个采样点，最后渲染成一个响应体：
+
+```
+d1=0 d2=0 d3=0 d4=0 d5=0 hpl=0
+```
+
+- `d1` 是 `@await` 返回后的**第一条语句**处采的；
+- **`d1 = 0`**。
+
+所以丢失不是在中间哪条语句里发生的——它在 `@await` **交回控制权的那一刻**就已经没了。
+而同一个函数**内部**（`out.request.path_len`）在第 620 轮补六的 995 探针里是**非 0**。
+
+**这是一条完整的、前后夹住的事实：**
+
+```
+uyagin_conn_read_parse_into_future 内部：out.request.path_len > 0   （写入成功）
+                              ↓ return / @await 交回
+uyagin_serve_conn_slot_async 的第一条语句：path_len == 0            （已丢失）
+```
+
+### 第 621 轮补二：又排掉了五个最小形态
+
+围绕「`@await` 返回瞬间丢失」这个点，把 uyagin 的结构继续往下切：
+
+| 形态 | 结果 |
+| --- | --- |
+| 内层 async 写 caller 帧内**局部聚合的字段** | 通过 |
+| **最外层** async 的局部聚合，跨 `@await` 传给中间层，中间层再传内层 | 通过 |
+| 同上 + 局部聚合 **69KB**（`[byte:69632]`） | 通过 |
+| 同上 + 中间层 **`while` 循环里反复 `@await`** | 通过 |
+| 上一条 + 两层 `@await r.read` | 通过 |
+
+**仍然无法复现。** 到这个程度，可以说 uyagin 那个丢失不来自上述任何一种
+标准的「聚合跨 await 传参」路径，而是 uyagin 特有的某种组合。
+
+### 当前最可信的下一步（比上一轮更具体）
+
+既然 `d1` 已经是 0，那么**再往上游一步**就是唯一还没测过的地方：
+`uyagin_conn_read_parse_into_future` 的 `out` 实参是
+`&conn_state.parse_result`，而 `conn_state` 来自
+`uyagin_serve_conn` 里的 `var state: UyaginConnState = UyaginConnState{}`，
+并且 `uyagin_serve_conn_slot_async` 的签名是
+
+```uya
+@async_fn fn uyagin_serve_conn_slot_async(engine: &Engine, fd: i32,
+                                          scheduler: &Scheduler,
+                                          conn_state: &UyaginConnState) Future<!i32>
+```
+
+下一轮把 `conn_state.parse_result.request.path_len` 的采样再往前挪一层——插在
+`uyagin_serve_conn_slot_async` **入口的第一行**。两点信息一次就能定死：
+
+1. 如果入口处就是 0 → 丢失发生在 `uyagin_serve_conn` → `slot_async` 这一跳，
+   那就是**外层 `state` 跨 `@await` 被 clone**，属于已有机制的又一处未覆盖路径；
+2. 如果入口处仍是 5 → 丢失发生在 `slot_async` 内部到 `read_parse` 调用之间，
+   范围缩到 3 行。
+
+这是最后一个二分点，一次编译即可得出。
