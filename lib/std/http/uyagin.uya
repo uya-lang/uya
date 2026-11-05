@@ -28,6 +28,26 @@ export error HeaderBufferTooSmall;
 
 export const UYAGIN_MAX_ROUTES: i32 = 1024;
 export const UYAGIN_IO_CAP: usize = (65536 + 4096) as usize;
+
+/// `uyagin_serve_conn` 的连接状态。
+///
+/// **必须放全局（或堆），不能是 `uyagin_serve_conn` 里的栈局部变量。**
+///
+/// `UyaginConnState` 是一个大的「聚合」结构体。`uyagin_serve_conn_slot_async`
+/// 拿到的 `&state` 会被继续往下传成 `&conn_state.parse_result`，一路进到
+/// `uyagin_conn_read_parse_into_future`。而 exec VM 在 async fn 挂起时会把当前帧
+/// 整段快照进续体（`src/exec/vm.uya:9187 exec_vm_cont_snapshot`）：逐槽
+/// `exec_value_clone` 深拷贝，随后只重映射「指向本帧范围 `[from_base, from_limit)`」
+/// 的内部引用。指向**外层帧**聚合的引用不在这个范围内，帧弹出后就指向了快照里的
+/// 副本，于是内层写进去的解析结果外层读不到——表现出来就是请求路径永远是空的，
+/// 每个请求都 404。
+///
+/// 全局 / 堆对象不在任何帧槽位范围内，续体快照不会把它 clone 成副本，因此安全。
+/// 回归夹具：`tests/repros/async_field_addr_arg_cloned.uya`
+/// （C99 可过、VM 必失败）。`uyagin_serve_conn` 一次只服务一个连接，
+/// 复用同一个全局状态是安全的；多连接走的是 `UyaginConnTaskSlot.state`
+/// 那条独立路径，不经过这里。
+var g_uyagin_conn_state: UyaginConnState = UyaginConnState{};
 export const UYAGIN_HEADER_CAP: usize = 768;
 export const UYAGIN_MAX_MIDDLEWARES: i32 = 8;
 export const UYAGIN_MAX_RESPONSE_HEADERS: i32 = 16;
@@ -3342,9 +3362,8 @@ export @async_fn fn uyagin_serve_conn(engine: &Engine, fd: i32, scheduler: &Sche
         return error.InvalidRequest;
     }
     const run_options: EngineRunOptions = uyagin_run_options_normalize(engine.run_options);
-    var state: UyaginConnState = UyaginConnState{};
-    state.prepare(run_options.request_arena_cap);
-    return try @await uyagin_serve_conn_slot_async(engine, fd, scheduler, &state);
+    g_uyagin_conn_state.prepare(run_options.request_arena_cap);
+    return try @await uyagin_serve_conn_slot_async(engine, fd, scheduler, &g_uyagin_conn_state);
 }
 
 fn uyagin_conn_slot_frame(slot: &UyaginConnTaskSlot) &@frame(uyagin_serve_conn_slot_async) {

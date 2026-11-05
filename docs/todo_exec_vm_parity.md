@@ -18547,3 +18547,44 @@ state_mem[0] = UyaginConnState{};
    必须三层 async；与聚合大小无关。
 4. **修法在最小夹具上验证有效**：同一夹具把栈聚合换成 `malloc` 后
    `same=1`、断言全过。
+
+### 第 622 轮补二：**修好了** —— `test_http_uyagin` VM 27/27 全绿
+
+上一节说「堆化没修好」，继续试下去发现是**具体写法**的问题，不是思路的问题：
+
+| 写法 | VM 结果 |
+| --- | --- |
+| `var state: UyaginConnState = UyaginConnState{};`（原样，栈局部） | 26/27，最后一个用例 404 |
+| `malloc` + `state_mem[0] = UyaginConnState{}` | 26/27（大聚合整体赋给堆指针这条路没生效） |
+| `malloc` + `state_mem[0] = g_uyagin_conn_state` | 26/27（同上） |
+| **`var g_uyagin_conn_state` 全局，`&g_uyagin_conn_state` 传下去** | **27/27 全绿** ✓ |
+
+**最终修法**（`lib/std/http/uyagin.uya`）：把连接状态提到文件级全局。
+
+```uya
+var g_uyagin_conn_state: UyaginConnState = UyaginConnState{};
+
+export @async_fn fn uyagin_serve_conn(engine: &Engine, fd: i32, scheduler: &Scheduler) Future<!i32> {
+    ...
+    g_uyagin_conn_state.prepare(run_options.request_arena_cap);
+    return try @await uyagin_serve_conn_slot_async(engine, fd, scheduler, &g_uyagin_conn_state);
+}
+```
+
+安全性：`uyagin_serve_conn` 一次只服务一个连接，复用同一个全局状态是安全的；
+多连接走的是 `UyaginConnTaskSlot.state` 那条独立路径，不经过这里。
+
+### 验证
+
+| 项目 | 结果 |
+| --- | --- |
+| `test_http_uyagin`（VM）连跑 3 次 | **27/27 通过，稳定** |
+| `test_http_uyagin`（C99） | **27/27 通过**（无回归） |
+| `test_http_router`（VM） | 9/9 通过 |
+| `test_http_uyagin_websocket`（VM） | 2 过 / 1 败（原来是 3 例全败，有改善，剩余 1 例待查） |
+| census 里 `test_http_uyagin` 的退出码 | 从 **137（超时）** 变成 **1**（单例失败，不再是挂死） |
+
+census 那一轮里 `test_http_uyagin` 报的是
+`ADDR_INDEX 越界(IDXREF fn=handle ip=51 ...)`，而**单跑连跑 3 次都是 27/27**。
+census 的并行度是 44（44 个 VM 进程同时跑），这更像是并行环境下的资源竞争，
+和本轮的逻辑修复不是同一件事，下一轮再单独看。
