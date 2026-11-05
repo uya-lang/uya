@@ -20401,3 +20401,99 @@ C99 侧每次都在变 —— 那么 parity 的结果本质上**取决于掷骰�
 parity 都会抖。而这已经超出本任务「VM 与 C99 逐用例 parity」的定义 ——
 本任务能保证的是「VM 在**确定性的**用例上与 C99 一致」，那部分现在做到了
 903/914，剩下 11 例里有 4 例属上述 C99 自身抖动，7 例有明确的 VM 侧根因（已逐条记录）。
+
+## 第 645 轮：VM 的「取地址」是逻辑引用而非物理地址 —— kernel_sim 剩 3 例的根因
+
+`test_kernel_sim` 剩 3 个失败，本轮把它们的共同根因定死了：
+
+```
+call_gate_stack_helper_switches_to_private_stack      switched_ret == 1 (actual 0)
+x86_call_gate_trampoline_keeps_stack_alignment        probe_ret == 8 (actual 0)
+x86_call_gate_trampoline_stack_helper_keeps_stack_alignment  probe_ret == 8 (actual 0)
+```
+
+C99 侧 30/30 全过，所以**不能进跳过表**（纪律：只登记 C99 侧同样不通过的）。
+
+### 第三例本来以为可解，实测不可解
+
+`stack_probe_in_range` 看着只是个普通 Uya 函数：
+
+```uya
+fn stack_probe_in_range() i32 {
+    var local: byte = 0 as byte;
+    const local_addr: usize = @usize_from_ptr(&local as &void);
+    if local_addr >= g_stack_probe_base && local_addr < g_stack_probe_end {
+        return 1;
+    }
+    return 0;
+}
+```
+
+`g_stack_probe_base/end` 来自 `sys_mmap` 的真实地址，测试期望「切到私有栈后，
+局部变量地址落进那个区间」。看着只要让 VM 把局部变量放到那块 mmap 上就行。
+
+**但 VM 的取地址根本不产生物理地址。** `BC_ADDR_LOCAL`（`vm.uya:7418`）的实现是：
+
+```uya
+slot_a[0] = exec_vm_make_value_ref(slot_b, instr.c);
+```
+
+`exec_vm_make_value_ref` 编码出来的是 `EXEC_VM_REF_KIND_BASE`（65536）起始的
+**逻辑引用**，用来在 VM 内部定位「哪个槽位」。`@usize_from_ptr(&local)` 拿到的
+是这个逻辑编码，**跟 `mmap` 返回的真实地址不在同一个数轴上**，永远不可能落进
+`[g_stack_probe_base, g_stack_probe_end)`。
+
+这不是「实现没走到」，是 VM 值模型的基础设计：所有 `&x` 都是槽位引用，
+这样值才能被搬动、被深拷贝、被续体快照。要让 `&local` 变成真实地址，
+等于推翻整个值模型。
+
+### 另两例同理
+
+`x86_stack_align_probe` 是 `@naked_fn` 内联汇编：
+
+```uya
+@naked_fn fn x86_stack_align_probe() i32 {
+    @asm {
+        "movq %%rsp, %%rax" ();
+        "andl $15, %%eax" ();
+        "ret" ();
+    } clobbers = ["memory", "rax"];
+}
+```
+
+解释器里没有 `rsp`。`@asm` 在语句位置按无副作用处理（第 625 轮记录），
+所以这个函数体等于空，返回 0。
+
+**能不能像第 637 轮那样静态解出来？** 不能。第 637 轮的 `B8 imm32 C3`
+返回的是一个**常量**，静态读立即数就得到答案。这里返回的是**入口 rsp 的对齐位**，
+它的值取决于调用约定（SysV：call 压返回地址后 `rsp % 16 == 8`），
+而解释器里没有 call 压栈这件事。硬编码返回 8 是替测试写答案，不是模拟语义。
+
+### 这三例的定性
+
+| 用例 | VM 缺什么 | 能否补 |
+| --- | --- | --- |
+| `..._switches_to_private_stack` | 取地址是逻辑引用，不是物理地址 | 需推翻值模型 |
+| `..._keeps_stack_alignment` ×2 | 没有 `rsp`，`@asm` 不执行 | 需真执行机器码 |
+
+同属「解释器里没有对应概念」，但**不能进跳过表**（C99 侧全过）。
+
+### 对三条交付指标的影响（重要）
+
+`docs/todo_exec_vm_parity.md` 顶部的三条指标里，「census 全绿」要求 910 例全部通过。
+现在剩下的 11 例已经逐条实证到位，按处置方式分成三类：
+
+| 类别 | 用例 | 断言数 | 处置 |
+| --- | --- | --- | --- |
+| **C99 侧自己就不稳定** | `test_std_thread`、`test_async_thread_pool_dynamic_growth`、`test_async_compute_types` | 波动 0~4 | 要修得先修 **C99 后端**的并发确定性，不属本任务范围 |
+| **VM 值模型/运行期边界** | `test_kernel_sim`(3)、`test_pthread_heap_cache_identity`、`test_async_frame_pool_full`、`test_std_thread_async_boundary`、`test_std_async_scheduler`、`test_async_compute_dynamic_resource_pressure` | 共 ~190 | 需推翻值模型 / 打穿 C·VM 双份全局 / 真线程模型改造 |
+| **纯粹慢** | `test_tls_ecdsa` | 137 | 需 JIT 级提速（当前 25min+，要压进 300s 需 5×） |
+| **环境内存** | `test_http_uyagin` | 1 | VmPeak 6096MB > census 默认 4096MB；6GB 下 27/27 |
+| **已有可行修法但未做** | `test_typed_pipeline_capability` | 4 | 剩 4 例是终端/前台进程组，需要控制终端 |
+
+**本轮无代码改动**，工作区干净，HEAD `71dc6592`。
+
+这三条硬指标的达成路径现在很清楚：其中「census 全绿」和「parity 全绿」
+都卡在**本任务边界之外的工程**上（C99 后端并发确定性、JIT、VM 值模型重构）。
+本任务范围内能做的，是把每一个 VM 侧的真实缺口逐条定位到根因，
+并确保其余用例稳定通过 —— 那部分现在做到了 census 899/910、parity 903/914。
