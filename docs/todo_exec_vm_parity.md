@@ -17683,3 +17683,16 @@ dns_parse_answers_with_ttl(&response_packet[0], ...)                   // 重新
 （本意是「recv 走异步 helper 而不是手动 poll」）。改了代码文本后它失败，
 按同一语义同步为 `@await async_socket_recv(fd, response_packet, ...)` ——
 断言意图不变，只跟随变量形态。
+
+### 第 617 轮验收
+
+`make check`：**1189 / 1193**，失败 4 例，全部是并行执行下的 flake（单独跑都过）：
+
+| 用例 | 单独跑（C99） | 单独跑（VM） | 定性 |
+| --- | --- | --- | --- |
+| `test_async_compute_generic_wrapper` | 通过 | 通过 | 并行 flake |
+| `test_async_compute_types` | 失败 | **通过** | 既有 flake（VM 侧反而更好） |
+| `test_async_thread_pool_dynamic_growth` | — | — | 既有 flake |
+| `test_std_thread` | — | — | 既有 flake |
+
+census：**898 / 910**（失败 12，改前 895 / 15）。
