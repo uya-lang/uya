@@ -16999,3 +16999,71 @@ return &aggregate.values[index_value];
 还是让 `ADDR_LOCAL` 的引用记住「槽位 + 下标」而非裸地址。
 
 探针已全部回退（`cp /tmp/vm_bak.uya src/exec/vm.uya`），工作区干净。
+
+### 第 607 轮：机制链闭合 —— `exec_value_clone` 对聚合分配新载荷
+
+读 `src/exec/value.uya:965` 的 `exec_value_clone`，聚合分支是：
+
+```uya
+if value.kind == EXEC_VALUE_STRUCT || EXEC_VALUE_ARRAY || EXEC_VALUE_TUPLE {
+    const aggregate: &ExecAggregate = exec_value_as_aggregate(value);
+    const cloned: ExecValue = exec_value_make_aggregate(value.kind, aggregate.count);
+    const cloned_aggregate: &ExecAggregate = exec_value_as_aggregate(&cloned);
+    var i: i32 = 0;
+    while i < aggregate.count {
+        cloned_aggregate.values[i] = exec_value_clone(&aggregate.values[i]);
+        i = i + 1;
+    }
+    return cloned;
+}
+```
+
+`exec_value_make_aggregate` **新分配一块 `ExecAggregate` + `values[]`**，
+再逐元素深拷贝。所以：
+
+```
+aggregate.values 的地址在 clone 之后一定变了
+```
+
+而 `&local_array[0]` 的地址正是从这个 `values` 里取的（第 606 轮已证）：
+
+```uya
+// exec_vm_index_ref（vm.uya:3475）收尾
+const aggregate: &ExecAggregate = exec_value_as_aggregate(value);
+return &aggregate.values[index_value];
+```
+
+### 完整失效链（与本轮实测逐条对应）
+
+1. `dns_tcp_future_new` 声明 `var response_prefix: [byte: 2]` → VM 里是
+   `EXEC_VALUE_STRUCT` + 一块独立 `values`；
+2. `const prefix_recv_base = @ptr_from_usize(@usize_from_ptr(&response_prefix[0]) + bytes_received)`
+   → 把 **`values[0]` 的裸地址**存进局部槽（第 606 轮探针：296 次 `ALV`）；
+3. `@await async_socket_recv(...)` 真正挂起 → 等待期间调用方那个**聚合值被 clone**
+   （`exec_value_clone` 给副本分配了新的 `values` 块）；
+4. 内核把 2 字节写进第 2 步记下的**旧地址**；
+5. await 之后重新求值 `&response_prefix[0]` → 走的是**新** `values` 块；
+   读出来是初始的 `0, 0`（第 603 轮实测 `b0=0 b1=0`），于是
+   `expected_body_len == 0` → `DnsInvalidPacket`。
+
+这与第 603/604 轮所有观测（`sendbase != arrbase`、只在真实挂起时发生、
+C99 通过）**完全自洽**。
+
+### 为什么这一轮仍然不修
+
+修复有两条路，都要动 VM 的引用模型核心：
+
+1. **让聚合载荷稳定**：`exec_value_make_aggregate` 改为从一块「不搬迁的池」分配，
+   或让 clone 复用原载荷（只在需要写时复制）。风险：聚合是 VM 里最热的类型，
+   任何所有权判断失误都会变成双重释放或泄漏，且 `test_typed_pipeline_capability`
+   那类用例已经在监视堆头的正确性。
+2. **让引用不存裸地址**：`exec_vm_make_value_ref` 对「聚合内的元素」改存
+   `(槽位下标, 元素下标)` 二元组，取用时再解析。风险：`exec_vm_pointer_address`
+   的调用点遍布 VM（syscall 传参、原生桥、装箱表），全部要区分「内部引用」
+   与「元素引用」，是数百处量级的改动。
+
+两条都不是「补一个分支」能完成的，且都会影响所有 async 程序的正确性。
+按纪律记录清楚，不做半成品。
+
+**当前定性**：真实的 VM 缺陷（聚合载荷在 await 期间被 clone 换块，
+导致此前取得的元素地址失效），C99 通过 / VM 失败，属运行期模型扩展类任务。
