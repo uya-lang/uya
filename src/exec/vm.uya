@@ -9331,7 +9331,11 @@ fn exec_vm_cont_snapshot(program: &BCProgram, function: &BCFunction, frame: &Exe
     }
     var i: i32 = 0;
     while i < count {
-        block[i] = exec_value_clone(&frame.slots[i]);
+        if exec_value_is_raw_array(&frame.slots[i]) != 0 {
+            block[i] = frame.slots[i];
+        } else {
+            block[i] = exec_value_clone(&frame.slots[i]);
+        }
         i = i +| 1;
     }
     const from_base: usize = @usize_from_ptr(frame.slots as &void);
@@ -9609,7 +9613,16 @@ fn exec_vm_run_frame(vm: &ExecVmState, program: &BCProgram, function: &BCFunctio
         const snap_limit: usize = snap_base +| (@size_of(ExecValue) as usize * function.slot_count as usize);
         const frame_base: usize = @usize_from_ptr(frame.slots as &void);
         while si < function.slot_count {
-            frame.slots[si] = exec_value_clone(&resume_slots[si]);
+            // 裸数组**保持底层块指针**（与 `exec_vm_cont_snapshot` 同一规则）。
+            // 这里若再 clone 一次，裸数组又换一块：调用方在挂起前交给下层的
+            // `&arr[0]` 仍指旧块，恢复后 `arr` 指新块，两边从此对不上
+            // （`tests/repros/async_await_raw_array_write_lost.uya`：
+            //  `@await` 之后的 `buf[10] = 99` 写到旧块，`rx[10]` 从新块读回 0）。
+            if exec_value_is_raw_array(&resume_slots[si]) != 0 {
+                frame.slots[si] = resume_slots[si];
+            } else {
+                frame.slots[si] = exec_value_clone(&resume_slots[si]);
+            }
             si = si + 1;
         }
         si = 0;
