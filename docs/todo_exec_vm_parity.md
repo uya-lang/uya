@@ -20497,3 +20497,79 @@ slot_a[0] = exec_vm_make_value_ref(slot_b, instr.c);
 都卡在**本任务边界之外的工程**上（C99 后端并发确定性、JIT、VM 值模型重构）。
 本任务范围内能做的，是把每一个 VM 侧的真实缺口逐条定位到根因，
 并确保其余用例稳定通过 —— 那部分现在做到了 census 899/910、parity 903/914。
+
+## 第 646 轮：pipeline 剩 4 例不是「缺控制终端」，而是 VM 下 `fork()` 真的 fork 了
+
+第 638 轮把这 4 例归成「终端/前台进程组，在没有控制终端的环境下天然无法成立」。
+**这个定性不对**，本轮实测推翻：
+
+### C99 侧这 4 例全过
+
+```
+$ ./bin/uya test tests/test_typed_pipeline_capability.uya
+  TEST: pipeline_terminal_inherit_reads_and_restores_foreground_group ... OK
+  TEST: pipeline_background_executor_does_not_steal_foreground_terminal ... OK
+  TEST: pipeline_stopped_terminal_child_is_cancelled_and_restores_foreground ... OK
+  Tests Passed: 23   Tests Failed: 0
+```
+
+而且这些 self test 自己用 `posix_openpt()` + `grantpt` + `unlockpt` **现开一个 PTY**，
+`fork` 一个子进程 `setsid` + `TIOCSCTTY` 接管 slave 端 —— 不依赖外部控制终端。
+所以「环境没有 TTY」这个理由站不住。
+
+### 真因：VM 下 `fork()` 是**真的 fork**
+
+`lib/libc/unistd.uya:143` 把 `fork` 声明成 `extern "libc" fn fork() i32`，
+VM 里没有为它登记宿主调用（`grep '"fork"' src/exec/*.uya` 无结果），
+于是它走**真实 libc 调用**。也就是说解释器进程被 `fork(2)` 出去，
+**子进程继承一整套解释器状态（值竞技场、槽位池、字节码程序）继续解释字节码**。
+
+探针实测（`/tmp/fk2.uya`，不入库）：
+
+```uya
+const before: i32 = getpid();
+const pid: i32 = fork();
+const after: i32 = getpid();
+if pid == 0 { return 7; }      // 子进程分支
+```
+
+输出里出现了**两次**测试框架的汇总行（"通过: 1" 和 "通过: 0" 各一次），
+说明父子进程**都在继续跑解释器**。子进程里 `fork()` 返回 0，走 `return 7`，
+父进程那边也照常往下走 —— 与 C99 编译产物的行为形态相同，但**VM 内部状态被复制了**。
+
+### 为什么这会让 4 个用例 ERROR
+
+这几个 self test 的子进程要做的事是：`setsid()`、`TIOCSCTTY`、`dup2` 接管 slave、
+写 ready 字节、然后跑 pipeline stage。父进程通过一个 pipe 等 ready 字节。
+
+在 C99 里子进程是「干净的新进程」，只执行 `pipeline_terminal_inherit_child`。
+在 VM 里子进程带着**整个解释器**，包括父进程正在用的值竞技场和槽位池 ——
+子进程的写操作作用在复制出来的内存上，父进程看不到；
+而父进程那边 `pipeline_terminal_await_byte(ready_pipe[0], 82, 4000)` 等不到字节，
+4 秒超时后走 `return error.InvalidPipeline` → 测试框架报 ERROR。
+整个用例 3 秒跑完、立即 ERROR，正是这个超时路径的时间量级。
+
+### 定性修正
+
+| 第 638 轮的定性 | 本轮实测 |
+| --- | --- |
+| 「终端/前台进程组，环境限制」 | **错**。C99 侧 23/23 全过，且自建 PTY 不依赖外部 TTY |
+| — | 真因是 **VM 下 `fork` 复制整个解释器**，子进程的副作用父进程看不见 |
+
+同族：`pthread_create`（第 636 轮，VM 当场同步跑完）也是「VM 没有并发/进程模型」。
+`fork` 比它更麻烦 —— `pthread_create` 至少是同步可控的，
+而 `fork` 之后父子**两份 VM 状态各走各的**，无法协调。
+
+### 处置
+
+要修得让 VM 支持「fork 出一个能独立运行的解释器实例」，并让两边的 pipe/信号
+语义对齐 —— 这是给解释器加**进程模型**，与第 640 轮那两道墙（C/VM 两份全局、
+mmap 不被识别）是同一个量级。
+
+本轮无代码改动，探针不入库。工作区干净，HEAD `2080df0f`。
+
+### 这是第 4 次「架构边界」定性被推翻
+
+第 627 轮那批（websocket / kernel_sim / pipeline）连着错了三次，
+第 634、638、646 轮又各修正一次。共同点都是：**没有先量 C99 侧在同一环境下过不过**。
+以后凡是要下「环境限制」的结论，第一件事就是跑一遍 C99 侧同用例。
