@@ -19213,3 +19213,80 @@ if exec_value_alloc_failure_count() > 0 {
 | `test_kernel_sim` | 26 过 / 4 败 |
 | `test_std_sql` | 5/5 |
 | `test_http_router` | 9/9 |
+
+## 第 631 轮：勘误 —— 之前把 `TypeKind` 的数值对错了，`pointee=19` 是 ARRAY 不是 TUPLE
+
+### 错误本身
+
+第 630 轮（以及更早的第 625 轮）我在判断 `ADDR_INDEX 越界(IDXREF … kind=14 cnt=-1 isref=1 pointee=19)`
+时，用的是一张**记错的 `TypeKind` 数值表**：以为 `ARRAY=17`、`TUPLE=19`，
+于是把 `pointee=19` 读成「TUPLE」，进而断定「定长数组字段被错误编码成 TUPLE 引用」，
+还据此写了一整段「下一轮从这里查：`BC_ADDR_FIELD` 造 `&obj.field` 引用时
+为什么定长数组字段会落到 TUPLE」。
+
+本轮回到 `src/checker/types.uya:47` 逐个数了一遍，实际顺序是：
+
+```uya
+enum TypeKind {
+    TYPE_I8,        // 0
+    TYPE_I16,       // 1
+    TYPE_I32,       // 2
+    TYPE_I64,       // 3
+    TYPE_U8,        // 4
+    TYPE_U16,       // 5
+    TYPE_U32,       // 6
+    TYPE_USIZE,     // 7
+    TYPE_U64,       // 8
+    TYPE_BOOL,      // 9
+    TYPE_BYTE,      // 10
+    TYPE_F32,       // 11
+    TYPE_F64,       // 12
+    TYPE_VOID,      // 13
+    TYPE_ENUM,      // 14
+    TYPE_INTERFACE, // 15
+    TYPE_STRUCT,    // 16
+    TYPE_UNION,     // 17
+    TYPE_POINTER,   // 18
+    TYPE_ARRAY,     // 19  ← 我记成了 17
+    TYPE_SLICE,     // 20
+    TYPE_TUPLE,     // 21  ← 我记成了 19
+    TYPE_ERROR_UNION, // 22
+    TYPE_ERROR,     // 23
+    TYPE_INT_LIMIT,   // 24
+    TYPE_ATOMIC,
+    TYPE_VECTOR,
+    TYPE_MASK,
+    TYPE_GENERIC_PARAM,
+}
+```
+
+所以那条诊断的真实含义是：
+
+| 字段 | 值 | 真实含义 |
+| --- | --- | --- |
+| `kind` | 14 | `TYPE_ENUM`（引用值的 `ExecValueKind`，不是 TypeKind） |
+| `cnt` | -1 | `exec_vm_aggregate_ref_from_value` 返回 null，查不到聚合 |
+| `isref` | 1 | 确实是 VM 内部引用 |
+| `pointee` | **19** | **`TYPE_ARRAY`** —— 完全正确，就是 `[UyaginRouteMeta: N]` |
+
+**结论：引用编码是对的，没有「TUPLE 编码错误」这回事。**
+第 630 轮结尾给出的下一步方向是错的，本轮作废它。
+（顺带说明：第 625 轮把 `aux=65555` 解成「值引用 + TUPLE」，同样因为这张表记错而偏了 ——
+`65555 - 65536 = 19` 对应的是 `TYPE_ARRAY`，不是 TUPLE。）
+
+### 留下的真问题缩小到一点
+
+编码正确、分配没失败（第 630 轮已证）、段表没撑满（第 629 轮已修），
+那 `cnt=-1` 就只剩一个解释：**`&self.route_meta` 的 target 槽位是 `VOID`**，
+即这个字段槽位从来没有被写成装箱的数组聚合。
+
+`Engine` 的初始化写法是 `route_meta: []`（`lib/std/http/uyagin.uya:1595/1613`），
+定长数组字段用空字面量初始化。下一步该查的是：
+**`[T: N]` 字段用 `[]` 初始化时，lower 有没有为这 N 个槽位真的生成写入**，
+以及这条路径为什么只在内存受限时才暴露。
+
+### 本轮改动
+
+无代码改动，只做勘误（外加确认工作区干净、HEAD 保持第 630 轮的 `b29bb6b5`）。
+记这一步是因为**错误的方向比没有方向更费时间**：第 630 轮那段推论如果留在这里，
+下一轮会照着去查一个不存在的编码缺陷。
