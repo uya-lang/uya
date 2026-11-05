@@ -16890,3 +16890,60 @@ census 数字未变是符合预期的：这条修复影响的是**数组容量�
 ```
 
 探针已全部回退，工作区干净。
+
+### 第 605 轮：排除「槽池扩容搬移」假设，把范围压到 `BC_ADDR_INDEX` + 聚合
+
+上一轮把缺陷缩到「`@await` 边界」。本轮直接查 VM 的槽位管理，做了一次排除法：
+
+**假设 A：槽池扩容时 `realloc` 搬走了整个池 → 排除。**
+
+`exec_vm_slot_pool_reserve`（`vm.uya:305`）在扩容前有一道硬限制：
+
+```uya
+// 只在**没有活跃帧**时才搬移：`ExecFrame.slots` 是指向池内的裸指针，
+// 搬到新块会让栈上所有 frame 悬挂。调用栈为空（top==0）时没有指针，
+// 换块是安全的
+if vm.slot_top > 0 && vm.slot_pool != null {
+    return -1;          // 有活跃帧时**拒绝**扩容，绝不搬移
+}
+vm.slot_pool = fresh;
+```
+
+有活跃帧时它是**拒绝扩**而不是搬家。而 `@await` 期间调用方帧一定活跃
+（`slot_top > 0`），所以不存在「扩容搬走调用方局部数组」这回事。
+
+**假设 B：槽位栈复位导致复用 → 排除。**
+
+`slot_top` 全文件只有两处写：`exec_vm_slot_pool_push`（`= need`）和
+`exec_vm_slot_pool_pop`（`= base`），严格 LIFO 配对。挂起期间调用方那段
+没被 pop 过，不会被别的调用复用。
+
+**假设 C：`@ptr_from_usize` 往返本身有问题 → 排除。**
+
+单点夹具验证（C99 + VM 双通过）：
+
+| 操作 | C99 | VM |
+| --- | --- | --- |
+| `@ptr_from_usize(@usize_from_ptr(&arr[0]))` 再写 `back[0]` | `base==back`，通过 | `base==back`，通过 |
+| 带 `+1` 偏移的往返写 `arr2[1]` | 通过 | 通过 |
+
+**剩下唯一可能：`BC_ADDR_INDEX` 在聚合（定长数组）上的取址结果不是槽位地址。**
+
+`vm.uya:7359` 的 `BC_ADDR_INDEX` 分了三支：
+`exec_value_is_raw_array`（原生数组）→ `exec_vm_raw_array_element_ptr`；
+`exec_value_is_raw_slice` → `exec_vm_raw_slice_element_ptr`；
+否则走通用分支。`response_prefix` 是 `[byte: 2]`，在 VM 里是 `EXEC_VALUE_STRUCT`
+聚合（`ExecAggregate.values` 是一块独立分配的内存），
+**不是**槽池内的连续元素 —— 所以 `&response_prefix[0]` 拿到的是
+`agg.values` 的基址，而这块内存在 `@await` 期间可能被重新分配/搬移
+（第 595 轮修过同类问题：`BC_BOX_VALUE` 把值复制进新盒子）。
+
+`@usize_from_ptr(&arr[0])` 之所以「往返正常」，是因为那种写法在
+`test/repros` 的小函数里没有跨越任何会重新分配聚合的边界。
+
+### 下一步
+
+下一轮应验证：在 `@await` 前后，`exec_value_as_aggregate(&slot)` 返回的
+`agg.values` 指针本身是否变了。若变了，就锁定在「聚合载荷被重新分配」，
+再去查是哪条路径（`BC_BOX_VALUE` / `exec_value_clone` / await 穿透返回值）
+重新分配了它。这一轮先把三个假设的排除结果记录下来。
