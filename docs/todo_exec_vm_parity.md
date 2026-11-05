@@ -18190,3 +18190,44 @@ exec: 当前仅支持局部变量/参数/全局标识符(out)
 
 是**正确**的（名字确实不可见），不是缺陷。差一点又误判成 VM bug，
 记录在此以免重蹈。
+
+### 第 620 轮补六：404 根因收窄 —— `ctx.request` 的内容在 `engine.handle` 期间被清零
+
+用「设 `parse_error_id` 标记 + 提前返回」代替 `@print` 探针（探针数值不可靠，
+见补二），在链路上一路打点。触发顺序如下（都只看是否命中）：
+
+| 标记 | 检查点 | 是否命中 |
+| --- | --- | --- |
+| 995 | `uyagin_conn_read_parse_into_future` 内，解析成功后 | **未命中**（`path_len > 0`） |
+| 994 | await 返回后、`ctx` 赋值前 | **未命中**（`path_len > 0`） |
+| 993 | `conn_state.ctx = ...` 赋值后 | **未命中**（`path_len > 0`） |
+| 991 | `&conn_state.parse_result.request` 与 `ctx.request` **指针不相等** | **未命中**（指针相等） |
+| 990 | 两者 `path_len` 不相等 | **未命中**（内容相等） |
+| 992 | `engine.handle()` 内部，`ctx.request.path_len <= 0` | **命中** |
+
+**所以：指针一直是同一个、内容在 `ctx` 赋值后那一刻还是正确的，
+但在 `engine.handle(&conn_state.ctx)` 执行期间 `ctx.request` 指向的内存被清零了。**
+
+这同时说明第 619 轮那个 `[R] plen=0` 探针是**不可靠的**（`@print` 打出的是错值），
+真实值在那个位置是 5。以后一律用「标记 + 断言」而不是 `@print` 打数值。
+
+### 已排除的最小形态（全部 VM 通过，不再重复尝试）
+
+| 形态 | 规模 |
+| --- | --- |
+| `@async_fn` 指针参数跨 `@await` | 标量 / 单字段 / 多字段 |
+| 大聚合跨 `@async_fn` | 14KB |
+| **巨大聚合**跨 `@async_fn`（模拟 `UyaginConnState`） | **≈84KB**（`io_buf` 69KB + arena 16KB + …） |
+| 结构体字段地址传进另一个 `@async_fn` | — |
+| 三层嵌套（`CS → PR → Req`）经 `@async_fn` | — |
+| `while true` + `IncompleteRequest` 重试后再返回 | — |
+| 大结构体按值返回并赋给字段 | — |
+| `&out.request` 三点取址一致性 | — |
+
+**uvagin 里那个丢失不是上述任何一种「布局/传参」问题。**
+剩余怀疑点：`engine.handle()` 内部对 `ctx` 有写入路径，
+或者 `uyagin_observe_*` 系列通过 `scheduler` 做了一次帧切换，
+导致 `ctx.request` 指向的那块 `conn_state.parse_result` 被复用/清零。
+
+下一轮从 `engine.handle` 的入口开始，逐语句打标记，找出到底哪一句清掉了
+`ctx.request.path_len`。这已经是很窄的范围了。
