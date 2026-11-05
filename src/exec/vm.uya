@@ -5651,8 +5651,42 @@ fn exec_vm_host_call_call0(program: &BCProgram, function: &BCFunction, frame: &E
     var target_is_ref: i32 = 0;
     _ = exec_vm_call0_resolve_target(fn_ptr, program.function_count, &target_index, &target_is_ref);
     if target_is_ref == 0 || target_index < 0 || target_index >= program.function_count {
-        // 目标不是本模块的函数引用：原生侧能跑（机器码是宿主可执行内存），
-        // 解释器里没有等价物。返回 0，与「跳进机器码后没法回来取值」一致。
+        // 目标不是本模块的函数引用。先认一种**本仓库自己生成的**机器码形态：
+        // `B8 <imm32> C3` 就是 `mov eax, imm32; ret`，语义等价于「返回该常量」。
+        // microapp 镜像的 payload 正是这么生成的（`tests/test_kernel_sim.uya`
+        // 的 `build_sim_x86_exit_code_image`：`buf[IMG]=184; w32(...+1, code);
+        // buf[IMG+5]=195`），用来验证「容器 exit(code) 能被记录成 exit_code」。
+        // 读不到这种形态才返回 0。
+        // `fn_ptr` 可能是 trampoline（`48 B8 <imm64>` = movabs rax, imm64），
+        // 那个立即数才是真正的 payload 地址。两条都试：先试 fn_ptr 自身，
+        // 再试 trampoline 里解出的地址。
+        const head_bytes: &const byte = fn_ptr as &const byte;
+        var payload: &const byte = null as &const byte;
+        if head_bytes != null && head_bytes[0] == 72 as byte && head_bytes[1] == 184 as byte {
+            var imm64: u64 = 0u64;
+            var hi: i32 = 0;
+            while hi < 8 {
+                imm64 = imm64 | ((head_bytes[2 + hi] as u64) << (hi * 8));
+                hi = hi + 1;
+            }
+            if imm64 != 0u64 {
+                payload = @ptr_from_usize(imm64 as usize) as &const byte;
+            }
+        } else if head_bytes != null {
+            payload = head_bytes;
+        }
+        if payload != null && payload[0] == 184 as byte && payload[5] == 195 as byte {
+            var imm32: u32 = 0u32;
+            var bi: i32 = 0;
+            while bi < 4 {
+                imm32 = imm32 | ((payload[1 + bi] as u32) << (bi * 8));
+                bi = bi + 1;
+            }
+            out_value[0] = exec_make_i32(imm32 as i32);
+            return 0;
+        }
+        // 其余情况：原生侧能跑（机器码是宿主可执行内存），解释器里没有等价物。
+        // 返回 0，与「跳进机器码后没法回来取值」一致。
         out_value[0] = exec_make_i32(0);
         return 0;
     }

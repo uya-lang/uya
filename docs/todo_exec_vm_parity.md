@@ -19738,3 +19738,98 @@ fn thread_wait_pending_count(pool: &ThreadPool, target: i32) i32 {
 ### 本轮无代码改动
 
 只做定性收紧。`src/` 与 `lib/` 无改动，工作区干净，HEAD 仍是 `015f3701`。
+
+## 第 637 轮：`uya_call0_i32` 认 `mov eax,imm32; ret` —— `test_kernel_sim` 4 败 → 3 败
+
+### 之前为什么放弃
+
+第 627 轮把 `sim_load_image_x86_call_gate_records_nonzero_exit_code` 判成
+「要执行真实机器码，VM 没有对应字节码可调」。这个判断**只对了一半**：
+payload 确实是机器码，但那机器码是**本仓库自己生成的固定形态**，可以静态解。
+
+### payload 到底是什么
+
+`tests/test_kernel_sim.uya:476` 的 `build_sim_x86_exit_code_image`：
+
+```uya
+buf.ptr[IMAGE_HEADER_SIZE as usize] = 184 as byte;            // mov eax, imm32
+w32(buf, IMAGE_HEADER_SIZE as usize + 1usize, code);          //   imm32 = code
+buf.ptr[(IMAGE_HEADER_SIZE + 5u32) as usize] = 195 as byte;   // ret
+```
+
+三字节指令加一个立即数，语义就是「返回 `code`」。测试要 7，就写 7。
+
+### 调用链与第一处失败
+
+`lib/kernel/sim.uya:1204`：
+
+```uya
+exit_code = uya_call0_i32(call_ptr as &void);
+```
+
+`call_ptr` 是 **trampoline**（`sim_make_x86_64_call_gate_trampoline(entry_ptr)`，
+即 `48 B8 <imm64> FF E0` = `movabs rax, imm64; jmp rax`）。
+
+第一版改法直接拿 `fn_ptr` 的字节去比对 `B8 ... C3`，**没有命中** ——
+因为 `fn_ptr` 是 trampoline，前两字节是 `48 B8`，不是 `B8`。
+`test_kernel_sim` 仍是 4 败。
+
+### 修法：顺着 trampoline 找到 payload
+
+```uya
+const head_bytes: &const byte = fn_ptr as &const byte;
+var payload: &const byte = null as &const byte;
+if head_bytes[0] == 72 as byte && head_bytes[1] == 184 as byte {
+    // 48 B8 <imm64>：立即数就是 payload 地址
+    var imm64: u64 = 0u64;
+    ... // 逐字节小端拼出
+    payload = @ptr_from_usize(imm64 as usize) as &const byte;
+} else {
+    payload = head_bytes;   // 本身就是 payload
+}
+if payload[0] == 184 as byte && payload[5] == 195 as byte {   // B8 imm32 C3
+    out_value[0] = exec_make_i32(imm32 as i32);
+    return 0;
+}
+```
+
+两个要点：
+1. **两种形态都要试**（trampoline 与裸 payload）—— 第 624 轮的
+   `uya_call0_i32_stack` 就是直接把裸 payload 传进来；
+2. 仍然**直接按字节读**（`fn_ptr as &const byte`），不能 `memcpy` ——
+   trampoline 和 payload 都在宿主 mmap 内存里。
+
+### 效果
+
+| | 修前 | 修后 |
+| --- | --- | --- |
+| `test_kernel_sim` | 26 过 / **4 败** | **27 过 / 3 败** |
+| `sim_load_image_x86_call_gate_records_nonzero_exit_code` | ❌ `7` 拿到 `0` | ✅ |
+
+census 总数仍是 899/910（同一个测试文件里还有 3 例失败，文件级仍算失败），
+但 `test_kernel_sim` 内部少了一个失败断言。
+
+### 剩余 3 例仍然是真的架构边界
+
+| 用例 | 断言 | 为什么修不了 |
+| --- | --- | --- |
+| `x86_call_gate_trampoline_keeps_stack_alignment` | `probe_ret == 8` | 要真实 `rsp % 16 == 8` |
+| `x86_call_gate_trampoline_stack_helper_keeps_stack_alignment` | `probe_ret == 8` | 同上（切私有栈路径） |
+| `call_gate_stack_helper_switches_to_private_stack` | `switched_ret == 1` | 要「局部变量落在 mmap 私有栈范围内」 |
+
+前两个调 `@naked_fn x86_stack_align_probe`（`movq %rsp,%rax; andl $15,%eax; ret`）。
+VM 的局部变量在 VM 槽位栈里，**没有「入口 rsp」**。
+第三个要求 `stack_probe_in_range()` 里的局部变量地址落在 `g_stack_probe_base..end`
+（那块 mmap 的私有栈）内，而 VM 帧槽位不在那儿。
+
+这三个不是「没做」，是**解释器里没有对应概念**。
+
+### 无回归
+
+| 用例 | 结果 |
+| --- | --- |
+| `test_http_uyagin` | 27/27 |
+| `test_setjmp` | 12/12 |
+| `test_signal` | 6/6 |
+| `test_std_sql` | 5/5 |
+| census | 899 / 910（与修前一致） |
