@@ -826,7 +826,7 @@ test "dns_async_udp_future_boundary_uses_async_fn_without_manual_poll" {
     try assert_eq_i32(source_contains_cstr(&src[0], len, "fn dns_udp_future_poll(self: &DnsUdpFuture, waker: &Waker) Poll<!usize>\0" as &const byte) as i32, 0);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, udp_start, udp_end, "@await async_connect(fd, &sockaddr[0] as &void, 16 as u32, deadline_ms)\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, udp_start, udp_end, "@await async_socket_send(fd, &query_packet[0] as &const byte, query_len, deadline_ms)\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_section_contains_cstr(&src[0], len, udp_start, udp_end, "@await async_socket_recv(fd, &response_packet[0], DNS_MAX_PACKET, deadline_ms)\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_section_contains_cstr(&src[0], len, udp_start, udp_end, "@await async_socket_recv(fd, response_packet, DNS_MAX_PACKET, deadline_ms)\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, udp_start, udp_end, ".poll(\0" as &const byte) as i32, 0);
 }
 

@@ -17612,3 +17612,74 @@ var g_exec_value_arena_capacity: usize = 0;   // 当前段真实容量
 下一轮的正确做法不是继续猜，而是**给 `p256_jac_scalar_mul` 的每轮迭代打时间戳**，
 把 8000ms 落到具体第几轮、哪一句上（第 615 轮的阶段标记只到函数首尾，
 粒度不够）。这属于 VM 性能线，与 parity 判定无关，优先级低于剩余 parity 项。
+
+## 第 617 轮：修掉 VM 下 `@await` 期间本地接收缓冲地址失效（census 895 → 898）
+
+### 突破口：换一类问题，别继续啃性能
+
+前几轮一直啃 `test_tls_ecdsa`（性能），收益递减。本轮改去看
+`make exec-parity` 的**不一致清单**，挑了个稳定的非超时失败：
+`test_std_dns_async_query_aggregate`（VM 连续 3 次都是 `失败: 1`，退出码 2）。
+
+### 定位
+
+子进程退出码 32 → 探针打出错误 id `-423001285` → djb2 反查 = **`DnsNoSuchName`**。
+但 mode=0 时服务端根本不该产生 NXDOMAIN，说明**客户端两边都没拿到数据**。
+
+在 `dns_client_query_all_any_async` 里打地址：
+
+```
+[AADDR]  955974656      <- await 前取 &a_buf[0]
+[AADDR2] 955974656      <- 传给 future 时
+[AADDR3] 956057344      <- await 之后重新取 &a_buf[0]，变了！
+```
+
+**地址确实变了** —— 与第 612 轮在 `dns_tcp_future_new` 长度前缀上修过的是
+同一个机制：VM 里定长数组是「聚合 + 独立 values 块」，`@await` 期间若发生
+聚合 clone，`exec_value_clone` 会给副本**新分配**一块 values，于是
+await 前取到的地址指向已废弃的旧块，内核把应答写进旧块，await 之后读新块得 0。
+
+### 第二处（更关键）
+
+把 `a_buf`/`aaaa_buf` 改到堆上后，AAAA 能拿到 `16` 字节了，但 A 仍是
+`DnsNoSuchName`。继续往下一层看，`dns_udp_future_new` 里：
+
+```uya
+var response_packet: [byte: DNS_MAX_PACKET] = [0:DNS_MAX_PACKET];      // 本地大数组
+const recv_result: !usize = @await async_socket_recv(fd, &response_packet[0], ...);  // 取址
+...
+dns_parse_answers_with_ttl(&response_packet[0], ...)                   // 重新取址 → 新块
+```
+
+**接收缓冲本身**也是本地数组，且 recv 与 parse 各取一次址。这才是根因。
+
+### 修法
+
+`lib/std/net/dns.uya` 两处，都是「把跨 await 的缓冲搬到堆」：
+
+1. `dns_client_query_all_any_async`：`a_buf`(4B) / `aaaa_buf`(16B) → `malloc`，
+   `defer { free(...) }`。
+2. `dns_udp_future_new`：`response_packet`(DNS_MAX_PACKET) → `malloc`，
+   recv 与 parse 共用同一个堆指针，不再各取一次 `&arr[0]`。
+
+### 效果
+
+| 指标 | 改前 | 改后 |
+| --- | --- | --- |
+| `test_std_dns_async_query_aggregate`（VM） | 失败 1 / 3 用例 | **通过 1 / 失败 0** |
+| 同上（C99） | 通过 | 通过（无回归） |
+| `test_std_dns_async_transport`（VM） | **卡死**（137 超时） | **通过 1 / 失败 0** |
+| 同上（C99） | 通过 | 通过 |
+| census | **895 / 910**（失败 15） | **898 / 910**（失败 12） |
+
+一次修掉 4 个用例：`test_std_dns_async_query_aggregate`、
+`test_std_dns_async_transport`、`test_async_runtime_shared_dns`、
+`test_async_scheduler_default_epoll`。
+
+### 一处配套改动
+
+`tests/test_std_dns_async_transport.uya:829` 是个**源码文本断言**，检查
+`@await async_socket_recv(fd, &response_packet[0], ...)` 字面存在
+（本意是「recv 走异步 helper 而不是手动 poll」）。改了代码文本后它失败，
+按同一语义同步为 `@await async_socket_recv(fd, response_packet, ...)` ——
+断言意图不变，只跟随变量形态。

@@ -990,7 +990,20 @@ fn dns_socket_connect_tcp_nonblocking(ns: &DnsAddress, fd_out: &i32) !void {
     }
 
     var query_packet: [byte: DNS_QUERY_PACKET_SCRATCH] = [0:DNS_QUERY_PACKET_SCRATCH];
-    var response_packet: [byte: DNS_MAX_PACKET] = [0:DNS_MAX_PACKET];
+    // 接收缓冲必须放**堆**上。这里是本地定长数组时，`&response_packet[0]`
+    // 拿到的是聚合 values 块内的地址；`@await async_socket_recv` 期间若发生
+    // 聚合 clone，`exec_value_clone` 会给副本新分配一块 values，于是内核把
+    // 应答写进旧块，而 await 之后重新取 `&response_packet[0]` 指向新块 ——
+    // 解析到全零，两边都拿不到数据，最终退化成 `DnsNoSuchName`
+    // （第 617 轮实测：await 前后 `&a_buf[0]` 从 955974656 变成 956057344）。
+    // 堆块地址跨 await 稳定，C99 与 VM 行为一致。
+    const response_mem: &void = malloc(DNS_MAX_PACKET);
+    if response_mem == null {
+        return error.AllocOutOfMemory;
+    }
+    defer { free(response_mem); }
+    const response_packet: &byte = response_mem as &byte;
+    _ = memset(response_packet as &void, 0, DNS_MAX_PACKET);
     var sockaddr: [byte: 16] = [0:16];
     const query_len: usize = try dns_client_build_query(ctx, host[0: host_len], mode as u16, &query_packet[0], DNS_QUERY_PACKET_SCRATCH);
     dns_fill_sockaddr_ipv4(ns.addr[0], ns.addr[1], ns.addr[2], ns.addr[3], ns.port, &sockaddr[0]);
@@ -1030,7 +1043,7 @@ fn dns_socket_connect_tcp_nonblocking(ns: &DnsAddress, fd_out: &i32) !void {
         return error.DnsNetworkUnreachable;
     }
 
-    const recv_result: !usize = @await async_socket_recv(fd, &response_packet[0], DNS_MAX_PACKET, deadline_ms);
+    const recv_result: !usize = @await async_socket_recv(fd, response_packet, DNS_MAX_PACKET, deadline_ms);
     const response_len: usize = recv_result catch |err| {
         return try dns_transport_error_from_async_error_usize(@error_id(err));
     };
@@ -1039,7 +1052,7 @@ fn dns_socket_connect_tcp_nonblocking(ns: &DnsAddress, fd_out: &i32) !void {
     }
 
     var ttl_tmp: usize = 0;
-    const parsed: usize = dns_parse_answers_with_ttl(&response_packet[0], response_len, mode as u16, out, out_max, out_len, &ttl_tmp) catch |err| {
+    const parsed: usize = dns_parse_answers_with_ttl(response_packet, response_len, mode as u16, out, out_max, out_len, &ttl_tmp) catch |err| {
         if @error_id(err) == @error_id(error.DnsTruncatedPacket) {
             if truncated_out != null {
                 truncated_out[0] = 1;
@@ -2015,20 +2028,44 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
 }
 
 @async_fn fn dns_client_query_all_any_async(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize) Future<!usize> {
-    var a_buf: [byte: 4] = [0:4];
+    // A / AAAA 两个接收缓冲必须放**堆**上，不能用本地定长数组。
+    //
+    // exec VM 里定长数组是「聚合 + 独立 values 块」，`&arr[0]` 取到的是那块
+    // values 内的地址；而 `@await` 期间若发生聚合 clone，`exec_value_clone`
+    // 会给副本**新分配**一块 values（value.uya 的聚合分支），于是 await 之前
+    // 取到的地址指向已废弃的旧块：内核把 DNS 应答写进旧块，await 之后读新块
+    // 只会得到 `0`，两个 family 都拿不到数据，`dns_query_all_merge_results`
+    // 就退化成 `DnsNoSuchName`。
+    //
+    // 实测（第 617 轮）：`&a_buf[0]` 在 await 前是 955974656，await 后变成
+    // 956057344 —— 地址确实变了。改成堆块后地址跨 await 稳定，与 C99 一致。
+    // 这与 `dns_tcp_future_new` 里 2 字节长度前缀的修法（第 612 轮）同源。
+    const a_mem: &void = malloc(4 as usize);
+    if a_mem == null {
+        return error.AllocOutOfMemory;
+    }
+    defer { free(a_mem); }
+    const a_buf: &byte = a_mem as &byte;
+    _ = memset(a_buf as &void, 0, 4 as usize);
     var a_len: usize = 0;
     var a_n: usize = 0;
     var a_err_id: u32 = 0;
-    const a_future: Future<!usize> = dns_query_transport_future_new(ctx, host, host_len, &a_buf[0], 4, &a_len, DNS_RECORD_A as i32);
+    const a_future: Future<!usize> = dns_query_transport_future_new(ctx, host, host_len, a_buf, 4, &a_len, DNS_RECORD_A as i32);
 
-    var aaaa_buf: [byte: 16] = [0:16];
+    const aaaa_mem: &void = malloc(16 as usize);
+    if aaaa_mem == null {
+        return error.AllocOutOfMemory;
+    }
+    defer { free(aaaa_mem); }
+    const aaaa_buf: &byte = aaaa_mem as &byte;
+    _ = memset(aaaa_buf as &void, 0, 16 as usize);
     var aaaa_len: usize = 0;
     var aaaa_n: usize = 0;
     var aaaa_err_id: u32 = 0;
-    const aaaa_future: Future<!usize> = dns_query_transport_future_new(ctx, host, host_len, &aaaa_buf[0], 16, &aaaa_len, DNS_RECORD_AAAA as i32);
+    const aaaa_future: Future<!usize> = dns_query_transport_future_new(ctx, host, host_len, aaaa_buf, 16, &aaaa_len, DNS_RECORD_AAAA as i32);
 
     _ = try @await async_join2_usize_results(a_future, &a_n, &a_err_id, aaaa_future, &aaaa_n, &aaaa_err_id);
-    const total: usize = try dns_query_all_merge_results(out, out_max, out_len, &a_buf[0], a_n, a_err_id, &aaaa_buf[0], aaaa_n, aaaa_err_id);
+    const total: usize = try dns_query_all_merge_results(out, out_max, out_len, a_buf, a_n, a_err_id, aaaa_buf, aaaa_n, aaaa_err_id);
     return total;
 }
 
