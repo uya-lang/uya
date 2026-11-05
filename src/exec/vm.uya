@@ -7542,6 +7542,19 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         if handled_raw_addr == 0 {
             const index_ref: &ExecValue = exec_vm_index_ref(slot_b, slot_c.i64_value as i32);
             if index_ref == null {
+                // 聚合分配失败会把 VOID 当成合法值交出来，之后在这里取地址就
+                // 变成「下标越界」。看到失败计数非零就直接说真正原因，别让
+                // `ADDR_INDEX 越界(IDXREF …)` 把「内存不够」伪装成类型问题。
+                if exec_value_alloc_failure_count() > 0 {
+                    var _aimfa: [byte: 512] = [];
+                    _ = snprintf(&_aimfa[0] as *byte, 512,
+                        "exec: 聚合分配失败（地址空间不足）fn=%s ip=%d line=%d col=%d 失败次数=%lld" as *byte,
+                        function.name as *byte, frame.ip,
+                        instr.source.line, instr.source.column,
+                        exec_value_alloc_failure_count());
+                    exec_backend_set_error(function.decl, &_aimfa[0] as &byte, 0);
+                    return -1;
+                }
                 var _aim4: [byte: 512] = [];
                 const _agg4: &ExecAggregate = exec_vm_aggregate_ref_from_value(slot_b);
                 _ = snprintf(&_aim4[0] as *byte, 512,

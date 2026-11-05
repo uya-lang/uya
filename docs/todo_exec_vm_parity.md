@@ -19142,3 +19142,74 @@ if doubled > prev { seg_bytes = doubled; }
 | `test_kernel_sim` | 26 过 / 4 败 |
 | `test_std_sql` | 5/5 |
 | `test_http_router` | 9/9 |
+
+## 第 630 轮：证明 4GB 下 `ADDR_INDEX 越界` **不是**分配失败 —— 排除一个错误方向
+
+### 上一轮留下的假设
+
+第 629 轮结尾看到 `ADDR_INDEX 越界` 里 `target->kind = 0`（`EXEC_VALUE_VOID`），
+当时的推断是：「`exec_value_make_aggregate` 分配失败会静默返回 VOID
+（`src/exec/value.uya:977`、`:784` 两处都是 `return exec_make_void()`），
+所以大概是内存不够，聚合变成了 VOID，之后 `&x[0]` 就在零点上取地址。」
+
+这个推断看着很顺，但**是错的**。本轮用探针把它证伪了。
+
+### 怎么证的
+
+给两处静默失败点加了一个失败计数：
+
+```uya
+var g_exec_value_alloc_failure_count: i64 = 0;
+fn exec_value_note_alloc_failure() void {
+    g_exec_value_alloc_failure_count = g_exec_value_alloc_failure_count +| 1;
+}
+```
+
+`exec_value_aggregate_from_parts` 和 `exec_value_make_aggregate` 在
+`aggregate == null` / `values == null` 时先记一笔，再返回 `exec_make_void()`。
+
+然后让 `BC_ADDR_INDEX` 的报错路径先看这个计数：
+
+```uya
+if exec_value_alloc_failure_count() > 0 {
+    // "exec: 聚合分配失败（地址空间不足）fn=%s ip=%d line=%d col=%d 失败次数=%lld"
+}
+```
+
+**结果**：`ulimit -v 4194304` 下跑 `test_http_uyagin`，报出来的**还是**
+`ADDR_INDEX 越界(IDXREF … kind=14 cnt=-1 isref=1 pointee=19 …)`，
+说明 `exec_value_alloc_failure_count()` 是 **0** —— **聚合分配一次都没失败过**。
+
+### 结论：这是逻辑问题，不是内存问题
+
+这个负面结果价值不小，它一次性否掉了三条路：
+
+1. **不是** 竞技场段不够（第 629 轮已修段表撑满，且失败计数为 0）；
+2. **不是** fallback `malloc` 失败（第 628 轮已修段表登记，且失败计数为 0）；
+3. **不是** 聚合分配失败退化成 VOID（本轮刚证伪）。
+
+那 `target->kind == VOID` 就只剩下一个解释：**这个内部引用从被造出来的时候，
+指向的就不是那个聚合**。`slot_b` 是 `&self.route_meta`（`Engine` 里
+`route_meta: [UyaginRouteMeta: UYAGIN_MAX_ROUTES]`），它的 `pointee` 编码是
+**19（`TYPE_TUPLE`）**，而定长数组本该是 `TYPE_ARRAY`（17）。
+编码对不上，说明 `&self.route_meta` 在造引用时选错了分支。
+
+下一轮从这里查：`BC_ADDR_FIELD` 造 `&obj.field` 引用时，
+是按字段类型查 `ref_kind` 的哪张表，为什么定长数组字段会落到 `TUPLE`。
+
+### 保留的价值
+
+那两处失败计数和 `ADDR_INDEX` 的归因分支**留着**：它把「静默返回 VOID」
+这件事变成可观测的。将来真出现内存不足时，错误消息会直接说
+「聚合分配失败（地址空间不足）」而不是继续伪装成下标越界。
+本轮它已经起到了排除方向的作用。
+
+### 无回归
+
+| 项目 | 结果 |
+| --- | --- |
+| census | **898 / 910（98.7%）**，逐条与修前一致 |
+| `test_http_uyagin`（VM，不限内存） | 27/27 |
+| `test_kernel_sim` | 26 过 / 4 败 |
+| `test_std_sql` | 5/5 |
+| `test_http_router` | 9/9 |

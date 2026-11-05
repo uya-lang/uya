@@ -438,6 +438,25 @@ var g_exec_value_arena_seg_lo: [usize: 256] = [0:256];
 var g_exec_value_arena_seg_hi: [usize: 256] = [0:256];
 var g_exec_value_arena_segment_count: i32 = 0;
 
+/// 「聚合分配失败」计数。
+///
+/// `exec_value_make_aggregate` / `exec_value_aggregate_from_parts` 分配不出来时
+/// 只能返回 `exec_make_void()` —— 它们的签名没有地方回传错误。问题在于**调用方
+/// 拿到的 VOID 是合法的 `ExecValue`**，后续 `&arr[0]`、`&obj.field` 会在这个
+/// 零点上取地址，报出来的错误是 `ADDR_INDEX 越界(IDXREF …)`，把「内存不够」
+/// 伪装成「下标越界 + 类型不对」，排查时会被带向错误方向（第 625 轮就这样
+/// 被误导过两次）。
+///
+/// 这里记一笔「发生过聚合分配失败」。`ADDR_INDEX` / `ADDR_FIELD` 报错时若看到
+/// 它非零，就直接把真正原因写进错误消息。
+var g_exec_value_alloc_failure_count: i64 = 0;
+fn exec_value_note_alloc_failure() void {
+    g_exec_value_alloc_failure_count = g_exec_value_alloc_failure_count +| 1;
+}
+fn exec_value_alloc_failure_count() i64 {
+    return g_exec_value_alloc_failure_count;
+}
+
 // fallback（普通 `malloc` 出来的块）的**独立**地址区间表。
 //
 // 为什么不并进 `g_exec_value_arena_seg_*`：段表只有 256 项，而 fallback 块
@@ -782,6 +801,7 @@ fn exec_value_aggregate_kind(type: Type) ExecValueKind {
 fn exec_value_aggregate_from_parts(kind: ExecValueKind, count: i32, values: &ExecValue) ExecValue {
     const aggregate: &ExecAggregate = exec_value_alloc_bytes(@size_of(ExecAggregate)) as &ExecAggregate;
     if aggregate == null {
+        exec_value_note_alloc_failure();
         return exec_make_void();
     }
     aggregate.count = count;
@@ -974,6 +994,7 @@ fn exec_value_make_aggregate(kind: ExecValueKind, count: i32) ExecValue {
     if count > 0 {
         values = exec_value_alloc_bytes((@size_of(ExecValue) * count) as usize) as &ExecValue;
         if values == null {
+            exec_value_note_alloc_failure();
             return exec_make_void();
         }
         exec_value_register_array(@usize_from_ptr(values as &void), count);
