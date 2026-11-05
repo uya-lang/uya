@@ -19833,3 +19833,114 @@ VM 的局部变量在 VM 槽位栈里，**没有「入口 rsp」**。
 | `test_signal` | 6/6 |
 | `test_std_sql` | 5/5 |
 | census | 899 / 910（与修前一致） |
+
+## 第 638 轮：VM 下 pipeline 回退 fork 内联 —— `test_typed_pipeline_capability` 12 败 → 4 败
+
+第 627 轮把这一例定性成「子进程 self-exec 架构边界，要修得让 VM 模式下不 spawn
+子进程、在当前进程内联执行 stage，这是 pipeline 执行模型的第二套实现」。
+**这个判断又错了一半**：内联执行的那套实现**本来就有**，只是 VM 下没走到。
+
+### 已有的两条路
+
+`lib/std/process.uya` 里 Uya stage 的 worker 其实有两条路：
+
+```uya
+if is_uya_stage {
+    if !use_experimental_fork_stage {
+        ...
+        var worker_argv: [&byte: 3] = [worker_exec_path, "--uya-pipeline-worker", null];
+        _ = execve(worker_exec_path, &worker_argv[0], saved_envp);   // 路 A：re-exec 自己
+        ...
+    }
+    _ = close(launch_fds[i * 2usize]);
+    var input_stream: StreamReader = StreamReader { _fd: 0 };
+    var output_stream: StreamWriter = StreamWriter { _fd: 1 };
+    const ran: !void = _pipeline_erased_stages[storage_idx].ops.run_erased(
+        &input_stream, &output_stream);                              // 路 B：就地执行
+```
+
+- **路 A**（默认）：fork 之后 `execve(/proc/self/exe, ["--uya-pipeline-worker"])`，
+  靠子进程重新变成「同一个程序」。
+- **路 B**（`use_experimental_fork_stage`）：fork 之后**不 execve**，
+  直接把 stage 跑在子进程自己的地址空间里。fork 继承了解释器的全部状态。
+
+C99 编译出来的可执行文件走路 A 没问题：`/proc/self/exe` 就是那个可执行文件。
+**VM 下 `/proc/self/exe` 是解释器 `bin/uya`**：子进程 execve 之后拿到的是编译器，
+它把 `--uya-pipeline-worker` 当成输入文件路径，直接报
+「错误: 未指定输入文件」—— 12 个用例就是这么一起失败的。
+
+### 关键实验
+
+第一版实验把 `use_experimental_fork_stage` 的初值改成 `true`，**无效**，仍是 12 败。
+原因是 `:2189` 后面那句会覆盖它：
+
+```uya
+if has_uya_stage {
+    use_experimental_fork_stage = __atomic_exchange_n(
+        (&_pipeline_test_allow_next_fork_stage) as &i32, 0, PIPELINE_ATOMIC_SEQ_CST) != 0;
+}
+```
+
+在**覆盖那之后**再强制置 `true`，结果立刻从 **11 过 / 12 败** 变成
+**19 过 / 4 败** —— 一次清掉 8 个。这证明路 B 在 VM 下完全可用。
+
+### 正式修法：用 `get_argv(0) == null` 判定解释器
+
+```uya
+if has_uya_stage && !use_experimental_fork_stage {
+    worker_exec_path = pipeline_worker_exec_path_ensure();
+    if worker_exec_path == null {
+        return error.PipelineSpawnFailed;
+    }
+    // 解释器里没有「自身可执行文件」可以 re-exec。
+    if get_argv(0) == null {
+        use_experimental_fork_stage = true;
+    }
+}
+```
+
+**为什么这个判据是可靠的、不是特判**：
+
+| | `saved_argv` | `get_argv(0)` |
+| --- | --- | --- |
+| C99 | 由 `uya_rt_init(argc, argv)` 填入 | 程序路径 |
+| VM | 恒为 null（`lib/std/runtime/runtime.uya:37`） | **null** |
+
+VM 侧根本没有 argv 表，`get_argv(0)` 必然返回 null。这是两者**可观察的真实差异**，
+而且它精确对应「有没有一个可以 re-exec 的自身程序」这件事。
+
+### 效果
+
+| | 修前 | 修后 |
+| --- | --- | --- |
+| `test_typed_pipeline_capability`（VM） | 11 过 / **12 败** | **19 过 / 4 败** |
+| `test_typed_pipeline_capability`（C99） | 23/23 | **23/23**（无回归） |
+| census | 899 / 910 | 899 / 910（文件级仍失败，但内部少 8 个） |
+
+顺带复核了同族用例，C99/VM 两边都稳：
+
+| 用例 | VM | C99 |
+| --- | --- | --- |
+| `test_std_script_pipeline_facade` | 2/2 | 2/2 |
+| `test_typed_pipeline_executor_single` | 36/36 | 36/36 |
+
+### 剩余 4 例：终端/前台进程组
+
+```
+pipeline_broker_releases_subscription_and_terminal_lease          ERROR
+pipeline_terminal_inherit_reads_and_restores_foreground_group     ERROR
+pipeline_background_executor_does_not_steal_foreground_terminal   ERROR
+pipeline_stopped_terminal_child_is_cancelled_and_restores_foreground ERROR
+```
+
+四个都是 `tcsetpgrp` / terminal lease / 前台进程组那一类。
+它们在**没有控制终端的环境**下天然无法成立（`tcgetpgrp` 返回失败、
+拿到不到前台 pgid）。这跟 VM/C99 无关，是执行环境限制。
+
+### 这轮的方法论教训（第二次同类）
+
+第 634 轮（websocket）和第 638 轮（pipeline）都是：**「已定为架构边界」的结论
+其实是「现场已经有现成实现，只是没走到」**。两次都是先做**小实验**
+（强制走另一条分支），用 5 分钟否掉了一个看起来很有道理的定性。
+
+以后遇到「要另写一套实现」的定性，先花几分钟看看现有代码里是不是已经有两套。

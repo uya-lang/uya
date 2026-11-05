@@ -2197,6 +2197,27 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         if worker_exec_path == null {
             return error.PipelineSpawnFailed;
         }
+        // **解释器里没有「自身可执行文件」可以 re-exec**。
+        //
+        // exec worker 的做法是 fork 之后 `execve(/proc/self/exe, ["--uya-pipeline-worker"])`，
+        // 靠子进程重新变成「同一个程序」。这在 C99 编译出来的可执行文件上成立，
+        // 但在 VM 下 `/proc/self/exe` 是**解释器本身**（`bin/uya`）：子进程 execve
+        // 之后拿到的是编译器，它把 `--uya-pipeline-worker` 当成输入文件路径，
+        // 直接报「错误: 未指定输入文件」——`test_typed_pipeline_capability` 里
+        // 12 个用例就是这么一起失败的。
+        //
+        // 判据用 `get_argv(0) == null`：C99 侧 `uya_rt_init(argc, argv)` 会把真正的
+        // argv 填进去，`saved_argv[0]` 是程序路径；VM 侧没有 argv 表
+        // （`saved_argv` 恒为 null，见 `lib/std/runtime/runtime.uya:37`），
+        // `get_argv(0)` 必然返回 null。这是两者**可观察的真实差异**，不是特判。
+        //
+        // 回退路径本来就存在：fork 出来的子进程不 execve，直接把
+        // `ops.run_erased(...)` 跑在自己的地址空间里（见下面 `if is_uya_stage`
+        // 的 `use_experimental_fork_stage` 分支）。fork 继承了解释器的全部状态，
+        // stage 在 VM 里能正常执行。
+        if get_argv(0) == null {
+            use_experimental_fork_stage = true;
+        }
     }
     try pipeline_broker_subscribe();
     broker_registered = true;
