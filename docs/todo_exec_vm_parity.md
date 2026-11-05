@@ -18708,3 +18708,69 @@ VM 的局部变量从不在宿主栈上，同样做不到。
 ### 无回归
 
 8 个 `test_asm_*` 重新跑一遍，全部维持原结果（见上面表格）。
+
+## 第 625 轮：`test_http_uyagin` 在 census 下暴露的 `ADDR_INDEX` —— 内存压力下的既有缺陷
+
+### 现象
+
+单跑 5 次全是 27/27，但 census（`ulimit -v 4096MB`）里报：
+
+```
+exec runtime: ./lib/std/http/uyagin.uya:744:5:
+  exec: ADDR_INDEX 越界(IDXREF fn=handle ip=51 idx=0 kind=14 cnt=-1 isref=1 pointee=19 line=754 col=87)
+```
+
+### 用 ulimit 100% 复现
+
+```
+ulimit -v 4194304 → 必现 ADDR_INDEX 越界
+ulimit -v 6144MB  → 27/27 通过
+ulimit -v 5120MB  → 失败
+```
+
+临界值在 **5120MB / 6144MB** 之间，与 CPU/时序无关，是**地址空间**问题。
+
+### 已排除：与第 622 轮那个全局变量修复无关
+
+把 `g_uyagin_conn_state` 回退成原来的栈局部 `var state: UyaginConnState`、
+重新构建、在 `ulimit -v 4194304` 下重跑：
+
+**同样报 `ADDR_INDEX 越界`。**
+
+所以这是**基线既有**的缺陷。它之前没在 census 里露过面，纯粹是因为那个用例
+在基线下先超时（退出码 137），超时把它挡在了前面；本轮修好了超时和 404，
+才让这个更深的问题浮出来。
+
+### 现场解读
+
+`IDXREF` 这条诊断来自 `src/exec/vm.uya:7545`：`exec_vm_index_ref` 返回 null。
+逐项对上：
+
+| 字段 | 值 | 含义 |
+| --- | --- | --- |
+| `kind` | 14 | `EXEC_VALUE_POINTER` |
+| `isref` | 1 | 是内部引用 |
+| `pointee` | 19 | `TypeKind.TUPLE` |
+| `idx` | 0 | 下标 0 |
+| `cnt` | -1 | `exec_vm_aggregate_ref_from_value` 拿不到聚合 |
+
+`exec_vm_index_ref`（`vm.uya:3475`）在「POINTER + internal_ref」分支里第一件事是
+`exec_vm_ref_target_value(value)`，而 `exec_vm_ref_target_value`（`vm.uya:2137`）
+只在两种情况下返回 null：不是内部引用，或者**目标地址是 0**。
+这里 `isref=1` 已经成立，所以只剩一种可能：**引用的目标地址是 0**。
+
+也就是说，地址空间吃紧时有某个分配**静默失败**（返回 0 / null），
+产出的「内部引用」指向地址 0，往下走一拍就是 `ADDR_INDEX 越界`。
+
+### 下一步
+
+按「分配失败要显式报错，而不是产出地址 0 的引用」的方向查分配器：
+
+1. `exec_value_make_aggregate` / `exec_value_alloc_bytes` / `exec_vm_slot_pool_push`
+   在 `malloc` 返回 null 时各自怎么处理——有没有谁把 null 当成了合法地址。
+2. `exec_vm_pointer_address` 对「内部引用」的解码路径，看看 `aux` 里记的
+   是偏移还是绝对地址，0 是怎么来的。
+3. 值竞技场（`value.uya:445` 提到的进程级 bump 分配器）在 ulimit 下的行为。
+
+判据：修好之后，`ulimit -v 4194304` 下 `test_http_uyagin` 应该要么 27/27，
+要么给出一条**明确的**「分配失败」错误，而不是含糊的 `ADDR_INDEX 越界`。
