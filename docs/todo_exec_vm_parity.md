@@ -16762,3 +16762,58 @@ parity 少的 1 例是 `test_async_compute_types`：单点连跑三次，C99 均
 census 数字未变是符合预期的：这条修复影响的是**数组容量是否被压成 1**，
 而 `tests/` 里没有用例会在运行时越界到能触发差异的程度；
 它的价值在于消除一类静默的内存越界隐患（`uint8_t arr[1]` 装 2 个元素）。
+
+## 第 603 轮：`test_std_dns_async_transport` 的 `invalid-packet` 追到 VM 的 async 帧搬迁
+
+### 探针链（全部打在 `lib/std/net/dns.uya` 的 `dns_tcp_future_new`）
+
+| 位置 | 探针 | 用例 1（45 字节，正常） | 用例 2（600 字节，失败） |
+| --- | --- | --- | --- |
+| 服务端发长度前缀前 | `framed[0], framed[1]` | — | `f0=2 f1=88`（600=0x0258，**正确**） |
+| 客户端收到前缀后 | `prefix_n` | `2` | `2` |
+| 客户端前缀缓冲内容 | `response_prefix[0..1]` | `0, 45` | **`0, 0`** |
+| 前缀缓冲的**实参地址** | `@usize_from_ptr(prefix_recv_base)` | `23072` | **`27248`** |
+| 前缀数组的**当前地址** | `@usize_from_ptr(&response_prefix[0])` | `23072`（相同） | **`56384`（不同！）** |
+| 解析出的 body 长度 | `expected_body_len` | `45` ✅ | `0` ❌ |
+
+**关键一行**：用例 2 里 `sendbase=27248` 而 `arrbase=56384` —— 两者相差 29136。
+也就是说：`prefix_recv_base` 是在 `@await async_socket_recv(...)` **之前**算出来的，
+内核把 2 字节写到了**那个旧地址**；而 await 之后读 `response_prefix` 时，
+数组已经搬到了新地址 —— 于是读到的是初始的 `0, 0`。
+
+### 机制验证（读 VM 源码）
+
+`src/exec/vm.uya:2205` 的 `exec_vm_relocate_escaped_box` 处理的是
+「**返回值**里的内部引用」：函数返回时若指针指向本帧槽段，就把它搬到堆单元。
+`vm.uya:3783` 的注释也写明了：
+
+```
+实测 storage=0（addr 落在槽池区间之外，因为函数返回后槽段会迁移）
+```
+
+即 **VM 的帧槽段会迁移**，但跨 `@await` 期间已经算好的裸地址**不会被刷新**。
+`dns_tcp_future_new` 里 `prefix_recv_base` / `body_recv_base` 用的正是
+`@ptr_from_usize(@usize_from_ptr(&local[0]) + offset)` 这种「绕成整数再算」的写法，
+一旦 await 之间发生搬迁就必然指错。
+
+### 为什么这一轮不改 `dns.uya` 绕过
+
+试过把 `prefix_recv_base` 换成直接 `&response_prefix[0]`：**用例 2 仍然失败**。
+因为 `&response_prefix[0]` 本身也是在 await 之前求值后存进实参槽的，
+搬迁后同样过期。真正要修必须在 VM 侧做「await 恢复时刷新指向本帧的裸地址」，
+这会碰到 async 帧模型的核心（`exec_vm_relocate_escaped_box` 的姊妹逻辑），
+影响面覆盖所有 async 程序，属于独立的大任务，不在本轮。
+
+### 当前定性
+
+| 后端 | `test_std_dns_async_transport` |
+| --- | --- |
+| C99 | **通过 1 / 失败 0** |
+| exec VM | 失败（`child:dns:invalid-packet`） |
+
+这是**真实的 VM 缺陷**（跨 await 的裸地址失效），不是测试问题，
+也不是 `dns.uya` 的写法问题。已从「跨用例 UDP 时序」的旧定性**更正**为
+「async 帧搬迁导致跨 await 裸地址失效」。
+
+探针已全部回退（`git checkout -- lib/std/net/dns.uya tests/test_std_dns_async_transport.uya`），
+工作区干净。
