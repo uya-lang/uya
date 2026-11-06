@@ -22322,3 +22322,80 @@ thread_pool_pending_count(&pool) = 1      ← 首次非零
 1. 第 665 轮「任务没进队列」**错了**，`enqueue` 返回 1；
 2. `pending` 恒 0 的真凶是 `thread_worker_loop:773` 退出前的 `drain_sync`；
 3. `pending >= 1` 已经可以稳定做到，`running_workers` 只差「RUNNING 赋值不生效」这一处。
+
+## 第 667 轮：上一轮的「RUNNING 赋值不落到 mmap」是**测量错误**，机制其实全都正常
+
+第 666 轮结尾留了一个怀疑：`pool._shared_state.slots[i].state = RUNNING`
+赋值不生效。本轮先做最底层的验证，结论是**那个怀疑错了** —— 而且错得有必要记下来。
+
+### 先验证 mmap + 结构体字段写入本身
+
+两层递进的探针（跑完即删）：
+
+```
+mmap 出来的结构体字段写入            C99 OK / VM OK
+两层指针（pool._shared -> slots[i].state）C99 OK / VM OK
+```
+
+所以「VM 写不进 mmap 内存」不成立，`exec_vm_address_is_vm_resident`
+把 mmap 地址判成**原生结构体**、走原生字段访问，这条路是通的。
+
+### 真正的原因：上一轮在**已回退的代码**上测的
+
+第 666 轮我执行回退（`cp /tmp/tb4.uya lib/std/thread.uya`）之后，
+又跑了一次 `thread_diag_slot_state(&pool, 0)`，读到 QUEUED(2)，
+于是推断「dispatch 的赋值没落地」。
+
+但那次测试跑的是**没有 dispatch 函数的干净版本** —— 读到 QUEUED 完全正常。
+**探针和被测代码不是同一份。** 这是本轮的教训：回退之后再跑诊断，
+量到的是回退后的行为，不是刚才那个改动的行为。
+
+### 重做最小版两阶段派发，状态真的变成 RUNNING
+
+重新实现最小版（三处改动：worker 退出不 drain、入队后标 RUNNING、
+`run_slot_sync` 接受 RUNNING + 一个状态探针），探针读到：
+
+```
+thread_diag_slot_state(&pool, 0) = 3    ← RUNNING，赋值生效
+```
+
+再跑 `test_std_async_scheduler`：
+
+```
+wait_thread_pool_pending_at_least(&pool, 1)          ✓ 通过
+wait_thread_pool_running_workers_at_least(&pool, 1)  ✓ 通过
+metrics.thread_pool_running_workers == 1 (actual: 2)  ✗
+```
+
+**两个断言同时翻绿**，和 665 轮那次一样。剩下的确实是数量问题。
+
+### 数量问题和它的死结
+
+加「RUNNING 数不超过 worker 数」的 cap 后，`running` 数量对了，但 `pending` 回到 0。
+原因是同一个：`async_compute` 是 `@async_fn`，它内部的 `@await` 会把任务一路推进到完成 ——
+外层还没来得及观测，「已派发」的任务就已经被降级、执行、消失了。
+
+单探针（`thread_pool_new(2)`，只有 2 次 poll）能读到 `pending=1`；
+但测试走 `scheduler_run_with_event_loop`，内部 poll 轮次多得多，
+任务在断言之前就被推完了。
+
+**这就是 A 类的真正死结**：
+- 要让 `pending >= 1` 成立，任务不能被执行；
+- 要让 `async_compute` 返回，任务必须被执行完；
+- 而 `async_compute` 内部的 `@await` 是同步的（第 654 轮定性），
+  它把「推进」和「完成」绑在同一段调用里，中间没有让外部插进来观测的点。
+
+### 状态
+
+本轮**无代码改动**（`lib/std/thread.uya` 已从 `/tmp/tb5.uya` 还原，工作区干净，
+`make uya` 错误数 0；临时探针均已删除）。
+
+四条要记住的：
+1. mmap 结构体写入在 VM 里**正常**（两层指针也正常），不是 VM 缺陷；
+2. 第 666 轮「RUNNING 赋值不生效」是**在回退后的代码上测量**导致的误判；
+3. 最小版两阶段派发**确实**能让 `pending>=1` 与 `running_workers>=1` 同时成立；
+4. 死结在 `async_compute` 的同步 `@await` —— 推进与完成绑在同一段调用里，
+   外层没有观测窗口。这一条和第 654 轮的定性完全吻合，但现在是**实证**过的。
+
+A 类累计尝试 **9 次**。第 9 次确实是「方案成立、但和 `@async_fn` 的同步语义冲突」，
+比之前任何一次都更接近 —— 如果哪天把 `@await` 做成真挂起（续体），这批断言就有解。
