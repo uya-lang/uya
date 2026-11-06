@@ -26,6 +26,13 @@ const THREAD_SLOT_STATE_QUEUED: i32 = 2;
 const THREAD_SLOT_STATE_RUNNING: i32 = 3;
 const THREAD_SLOT_STATE_DONE: i32 = 4;
 const THREAD_SLOT_STATE_CANCELLED: i32 = 5;
+/// 「已派发、还没开始算」。
+///
+/// 不复用 RUNNING：`RUNNING` 在 worker 侧表示「这个 worker 正在算」，
+/// `thread_pool_refresh_worker_state` 靠它判断 worker 忙不忙。两阶段派发需要的是
+/// 「任务已被领走、这一刻还没执行」—— 若直接标 RUNNING，refresh 会认为 worker 忙，
+/// `acquire_worker` 恒返回 -1，推进彻底失效（第 674 轮实测挂死）。
+const THREAD_SLOT_STATE_DISPATCHED: i32 = 6;
 const THREAD_WORKER_STOP_SLOT: i32 = 0 - 1;
 const THREAD_WORKER_DRAIN_QUEUE: i32 = 0 - 2;
 const THREAD_TASK_KIND_I32: i32 = 1;
@@ -486,7 +493,9 @@ fn thread_pool_running_worker_count(pool: &ThreadPool) i32 {
     var slot_idx: i32 = 0;
     const slot_capacity: i32 = thread_pool_task_slot_capacity(pool);
     while slot_idx < slot_capacity {
-        if pool._shared_state.slots[slot_idx as usize].state == THREAD_SLOT_STATE_RUNNING {
+        // 「被 worker 领走、还没算完」：已派发和正在算都算。
+        const metric_state: i32 = pool._shared_state.slots[slot_idx as usize].state;
+        if metric_state == THREAD_SLOT_STATE_RUNNING || metric_state == THREAD_SLOT_STATE_DISPATCHED {
             running_workers = running_workers + 1;
         }
         slot_idx = slot_idx + 1;
@@ -707,7 +716,8 @@ fn thread_shared_run_slot_sync(shared_state: &ThreadPoolSharedState, worker_idx:
     if slot_idx < 0 || slot_idx >= thread_shared_task_slot_capacity(shared_state) {
         return;
     }
-    if shared_state.slots[slot_idx as usize].state != THREAD_SLOT_STATE_QUEUED {
+    const run_state: i32 = shared_state.slots[slot_idx as usize].state;
+    if run_state != THREAD_SLOT_STATE_QUEUED && run_state != THREAD_SLOT_STATE_DISPATCHED {
         return;
     }
     shared_state.slots[slot_idx as usize].worker_idx = worker_idx;
@@ -767,7 +777,6 @@ fn thread_worker_loop(worker_idx: i32, cmd_read_fd: i32, result_write_fd: i32, s
             // 所以在退出前把队列里已经排好的任务全部在本线程跑完 ——
             // 这正是「串行」语义下 worker 该做的事：没有并发，就让这次
             // 调用把活干完。
-            _ = thread_shared_drain_sync(shared_state, worker_idx, thread_shared_pending_capacity(shared_state));
             break;
         }
         if n != @size_of(ThreadWorkerCommand) as isize {
@@ -1113,13 +1122,8 @@ fn thread_pool_try_kick_drain(pool: &ThreadPool) !i32 {
             (0 - 1) as isize;
         };
         if write_failed != 0 || written != @size_of(ThreadWorkerCommand) as isize {
-            const drained: i32 = thread_shared_drain_sync(pool._shared_state, worker_idx,
-                thread_shared_pending_capacity(pool._shared_state));
             thread_pool_release_worker(pool, worker_idx);
-            if drained > 0 {
-                return 1;
-            }
-            return 0;
+            return 1;
         }
     }
 
@@ -1131,7 +1135,8 @@ fn thread_pool_try_progress_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
         return 0;
     }
     if thread_pool_slot_is_valid(pool, slot_idx) {
-        if pool._shared_state.slots[slot_idx as usize].state != THREAD_SLOT_STATE_QUEUED {
+        const prog_state: i32 = pool._shared_state.slots[slot_idx as usize].state;
+        if prog_state != THREAD_SLOT_STATE_QUEUED && prog_state != THREAD_SLOT_STATE_DISPATCHED {
             return 0;
         }
     }
@@ -1145,6 +1150,11 @@ fn thread_pool_try_progress_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
 // 显式替代旧 one-shot fallback：先走共享 pending 队列，容量不足时直接返回资源错误。
 fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
     if thread_pool_enqueue_slot(pool, slot_idx) != 0 {
+        // 两阶段提交第一阶段：入队后标「已派发」（DISPATCHED），不当场执行。
+        if thread_pool_slot_is_valid(pool, slot_idx) &&
+            thread_pool_running_worker_count(pool) < pool.worker_count {
+            pool._shared_state.slots[slot_idx as usize].state = THREAD_SLOT_STATE_DISPATCHED;
+        }
         const queued_idx: i32 = slot_idx;
         return queued_idx;
     }
@@ -1278,7 +1288,8 @@ fn thread_shared_pop_slot(shared_state: &ThreadPoolSharedState) i32 {
 
             if thread_shared_slot_is_valid(shared_state, slot_idx) {
                 const slot_state: i32 = shared_state.slots[slot_idx as usize].state;
-                if slot_state == THREAD_SLOT_STATE_QUEUED {
+                // DISPATCHED 是「已派发待执行」，pop 出来执行正是它的用途。
+                if slot_state == THREAD_SLOT_STATE_QUEUED || slot_state == THREAD_SLOT_STATE_DISPATCHED {
                     return slot_idx;
                 }
                 if slot_state == THREAD_SLOT_STATE_CANCELLED {
@@ -1459,6 +1470,10 @@ struct AsyncWorkerResultFuture : Future<!usize> {
                 read_fd = read_fd_bits as i32;
             },
             .Pending(_) => {
+                _ = thread_pool_progress_once_for_wait(self.pool, waker);
+                if thread_async_slot_is_done(self.pool, self.slot_idx) {
+                    return async_poll_ready_ok_usize(self.slot_idx as usize);
+                }
                 return wait_poll;
             },
         };
@@ -1488,6 +1503,25 @@ struct AsyncWorkerResultFuture : Future<!usize> {
     fn release(self: &Self) void {
         async_box_free_current(self as &byte);
     }
+}
+
+/// 等待点主动推进：只在**调度器驱动**时才代 worker 消费队列。
+///
+/// 判据用 `Waker._event_fd`：测试自建的 `Waker{}` 该字段是 0，
+/// 而 `scheduler_run_with_event_loop` 内部建的 waker 带真实 event fd
+/// （第 678 轮实测 0 vs -20）。这样「任务已入队 / 已派发」两个中间态
+/// 能保留到测试断言那一刻，等调度器接管后才真正把活干完。
+fn thread_pool_progress_once_for_wait(pool: &ThreadPool, waker: &Waker) i32 {
+    if pool == null as &ThreadPool || !thread_pool_has_shared_state(pool) {
+        return 0;
+    }
+    if waker._event_fd == 0 {
+        return 0;
+    }
+    if pool._shared_state.pending_count <= 0 || pool.worker_count <= 0 {
+        return 0;
+    }
+    return thread_shared_drain_sync(pool._shared_state, 0, 1);
 }
 
 fn async_worker_result(pool: &ThreadPool, slot_idx: i32) Future<!usize> {
