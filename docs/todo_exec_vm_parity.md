@@ -22673,3 +22673,72 @@ probe（pool = thread_pool_new(1)，poll 两次）:
    `thread_pool_try_kick_drain` 的**同步 drain**，堵掉即可；
 3. 两阶段派发 + 两处 drain 堵掉之后，`pending=1` 且 `running_workers=1`
    **首次同时成立**。差的只是「多 future 交替 poll」这一个场景。
+
+## 第 672 轮：逐步增量验证 —— 三处改动各自的真实效果有了确定数据
+
+第 671 轮结论里有一处不牢：同样的改动组合，有时读到 `pending=1`、有时 0。
+本轮改成**每次只加一个改动、每步都量**，把这几个数钉死。
+
+### 逐步数据（VM 侧，`thread_pool_new(1)`，`async_compute` 后 poll 两次）
+
+| 步骤 | 改动 | `pending` |
+| --- | --- | --- |
+| 基线 | 不改 | 0 |
+| 1 | `thread_worker_loop:773` 退出前不 drain | **0**（不够） |
+| 2 | 再加 `thread_pool_try_kick_drain` 写失败时不 drain | **1** ✓ |
+
+**两处 drain 缺一不可** —— 第 1 步单独做还是 0，说明 `kick_drain` 那条才是主路径。
+这解释了第 671 轮「有时 1 有时 0」：不同的试探组合里有的只改了其中一处。
+
+### 两个 future 交替 poll（测试的真实形态）
+
+在第 1+2 步的基础上：
+
+```
+poll(first) / poll(second) / poll(first) / poll(second)
+pending_count = 2      ← 与 C99 一致
+```
+
+第 671 轮曾在这个场景读到 0，也是因为当时的组合不完整。
+
+### 再补两阶段派发
+
+在第 1+2 步之上，入队成功后把槽位标 `RUNNING`（受「同时 RUNNING ≤ worker 数」约束）、
+`run_slot_sync` 接受 RUNNING：
+
+```
+test_std_async_scheduler:
+  wait_thread_pool_pending_at_least(&pool, 1)      ✓ 通过
+  wait_thread_pool_running_workers_at_least(...)    仍 0
+```
+
+`running_workers` 读不到，是因为那条断言紧跟在 pending 断言之后，
+中间没有任何推进机会 —— 而 `pending` 能过说明队列确实有任务。
+
+### 卡点：等待点的推进时机无法用状态区分
+
+要过 `running_workers`，必须在某个时刻执行任务（否则挂死），而这个执行
+只能发生在等待点。但等待点无法区分「当前 poll 来自测试断言前的第 4 次
+外层 poll」还是「来自 `scheduler_run_i32` 里的推进」—— 试过的三种判据都不行：
+
+| 判据 | 结果 |
+| --- | --- |
+| 无条件推进 | `pending` 归 0（推得太早） |
+| `pending > worker_count` 才推进 | `pending` 归 0（2 > 1，仍然太早） |
+| 自己的槽位是 QUEUED 才推进 | `pending` 归 0（second 的槽位是 QUEUED） |
+| 累计 N 个 tick 才推进 | **挂死**（推进后结果没回填到正确的 future） |
+
+根本原因还是第 654/671 轮那条：**解释器里没有「外部驱动」这个概念**，
+所有 poll 都从同一条调用栈进来，无法按来源分流。
+
+### 状态
+
+本轮**无代码改动**（`git checkout -- lib/std/thread.uya` 还原，工作区干净，
+`make uya` 错误数 0，临时探针已删）。
+
+确定下来的三条数据：
+1. `thread_worker_loop:773` 的退出 drain + `kick_drain` 的写失败 drain，
+   **两处都堵掉**才能让 `pending` 从 0 变 1（只堵一处不够）；
+2. 两个 future 交替 poll 时 `pending = 2`，与 C99 一致；
+3. 两阶段派发能保住 `pending`，但 `running_workers` 因为缺「外部驱动」概念
+   仍然读不到 —— 四种推进时机判据全部失败。
