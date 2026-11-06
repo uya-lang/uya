@@ -21907,3 +21907,78 @@ parity 里这例 C99 从 1 变成 2（VM 仍是 4）。C99 侧这个用例本身
 
 这条修正对后续很重要：第 655 轮那句「五次对照全部失败、这条路彻底关掉」
 需要降级成「前四次失败的原因里有一次是误诊」。
+
+## 第 661 轮：A 类的根因精确到 `pthread_create` 的「同步执行 + 指令预算切断」
+
+第 654 轮把 A 类（6 例 / 21 断言）定性为「`@await` 同步降级，缺第二个执行流」。
+本轮把它再往下钻了一层，找到了**更具体的机制**。
+
+### worker 根本不消费队列，因为它从没真正跑起来
+
+`lib/std/thread.uya:753` 的 `thread_worker_loop` 是一个 `while true`，
+第一件事就是阻塞式 `sys_read(cmd_read_fd, ...)`（`cmd_fds` 用
+`sys_pipe2(&cmd_fds[0], 0)` 创建，**flags=0，阻塞式**）。
+
+而 `src/exec/vm.uya:6333` 的 `pthread_create` 实现是：
+
+```uya
+// 同步执行线程体：解释器没有并发，`create` 当场把 routine(arg) 跑完，
+// `join` 再把返回值交给调用点（等价于串行调度）。
+g_exec_vm_thread_body_budget = 20000000i64;
+const thread_rc2: i32 = exec_vm_call_function(frame.vm, program, routine_index, ...);
+g_exec_vm_thread_body_budget = 0i64;
+...
+if thread_rc2 != 0 {
+    // 线程体没跑完（通常是自旋等父线程置的标志，被预算切断）：
+    // 清掉错误状态，登记到 join 时重跑一次。
+    g_exec_last_error_message[0] = 0 as byte;
+    exec_vm_thread_redo_routine[free_slot] = routine_index;
+    exec_vm_thread_redo_arg[free_slot] = thread_args[0];
+    exec_vm_thread_redo[free_slot] = 1;
+}
+```
+
+**2000 万条指令的预算**，撞上一个 `while true` + 阻塞 read 的 worker 循环，
+必然被切断，然后落到「登记 redo，等 join 时重跑」。
+
+于是 VM 里的实际形态是：
+- `pthread_create` 返回 0（看起来成功），`_started_workers` 加 1；
+- 但 worker 的 loop **一次都没完整跑过**，从没执行过
+  `thread_shared_pop_slot` / `thread_shared_run_slot_sync`；
+- 所以队列里的任务**永远没人取走** → `pending_count` 恒为 0（现状），
+  或者任务留在队列里没人消费（保留读端时的挂死）。
+
+这和 `thread_worker_set_nonblock` 只管 **`result_fds[0]`（结果管道读端）**、
+不管 `cmd_fds`（命令管道）正好对上 —— 命令管道从头到尾都是阻塞式的。
+
+### 这解释了之前所有观察
+
+| 观察 | 现在的解释 |
+| --- | --- |
+| `pending_count` 恒 0 | worker 没跑起来 → 没人 `pop_slot`；提交路径 `sys_write` 失败后走同步 drain，任务被当场做掉 |
+| 保留读端后 pending 变绿 | 写入成功了，任务真的在队列里 |
+| 保留读端后大量用例挂死 | 队列有人写没人读，加上第 658 轮之前 `sys_read(0)` 还会去阻塞标准输入 |
+| `running_workers` 恒 0 | 状态置 `RUNNING` 只发生在 `thread_shared_run_slot_sync:714`，而它从没被调用 |
+| 198 次 / 21 个断言都是 `wait_*_at_least` | 它们要的都是「worker 正在消费」这个中间态 |
+
+### 真修需要什么
+
+要让 A 类真的转绿，得让 `pthread_create` 的线程体**能长期存活并参与调度**。
+现在的实现是「同步跑完 / 预算切断」二选一，没有任何机制让一个 worker 循环
+在多次调用之间保持执行位置。可行方向只有一条（第 654 轮已列出）：
+
+> 在 `exec_vm_call_function` 之上加「可挂起帧」—— 把 `BC_CALL` 的帧快照成续体
+> （机制已存在：`exec_vm_cont_suspend` / `exec_vm_cont_poll`），
+> 由一个调度循环在多任务间轮转。
+
+`while true` 的 worker 循环会一直在 `sys_read` 处挂起，主线程推进时
+再把命令喂给它 —— 这正好是 C99 侧真实线程的形态。
+
+### 状态
+
+本轮**无代码改动**（纯分析 + 探针验证）。
+
+这轮的产出是把 A 类从「缺第二执行流」这个偏描述性的结论，
+落到了**具体代码位置和具体机制**（`vm.uya:6333` 的预算切断
++ `thread.uya:757` 的阻塞 read）。
+后续谁要动这个方向，不用再从零查。
