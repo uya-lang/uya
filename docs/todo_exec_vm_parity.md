@@ -21452,3 +21452,78 @@ VM 没有真线程，所有「线程」共用同一份缓存，地址恒定相�
 
 第 652 轮的实验价值在这里体现：它把「A 类能不能靠改计数/改 drain 绕过去」
 这个问题彻底关掉了，省掉后续大量试错。
+
+## 第 655 轮：把「保留读端 + 等待点主动推进」这个组合也试完了 —— 仍然不通
+
+第 652 轮试过「保留 `cmd_read_fd`」单一改动：pending 断言过了，但立刻挂死。
+第 654 轮重新读代码时发现一个之前没利用的点：
+
+`AsyncWorkerResultFuture.poll`（`lib/std/thread.uya:1432`）在槽位未完成时走
+`async_thread_slot_wait(...)` → `sys_read(result_fd)`，读不到就返回 Pending。
+**这是一个天然的「等待点」** —— 理论上可以在这里由调用方线程主动把队列推进一次，
+既保留 pending 中间态（任务真的躺在队列里），又不至于永远没人消费。
+
+本轮就把这个组合完整试了：
+
+1. `ThreadWorker` 加 `cmd_read_fd`，worker 退出时不关它（第 652 轮的改法）；
+2. 新增 `thread_pool_progress_once_for_wait(pool)`：
+   从 pending 队列取一个任务、用 `thread_shared_drain_sync(..., 1)` 在当前线程跑掉；
+3. 在 `AsyncWorkerResultFuture.poll` 的 `wait_poll` 为 Pending 时调用它。
+
+### 结果：仍然挂死
+
+```
+test_std_thread                              → 无输出（挂死）
+test_async_thread_pool_dynamic_growth        → 无输出（挂死）
+test_async_compute_dynamic_resource_pressure → 无输出（挂死）
+test_std_thread_async_boundary               → 失败 1（未挂死）
+```
+
+`test_std_async_scheduler` 有一个更细的现象值得记：只保留读端、不加主动推进时，
+失败断言是
+
+```
+wait_thread_pool_running_workers_at_least(&pool, 1) == 1   (actual: 0)
+```
+
+也就是 **pending 那一层确实变绿了**，卡在 `running_workers`。而
+`thread_pool_running_worker_count`（`:483`）数的是
+`slots[i].state == THREAD_SLOT_STATE_RUNNING`，这个状态只在
+`thread_shared_run_slot_sync`（`:715`）**真正开始执行时**才置位。
+任务躺在队列里时状态是 `QUEUED`，所以 `running_workers` 必然是 0。
+
+### 为什么加了主动推进反而更糟
+
+因为推进发生在 `poll` 内部：一旦 `poll` 里把任务做掉，任务就再也不会停留在
+队列里等待，pending 中间态又被抹掉了；而在别的用例上，推进又会和执行顺序互相等待
+（`test_std_thread` 那两个探针第 647 轮已经观察到过这个互等形态）。
+
+### 五次尝试的完整列表
+
+| 做法 | 结果 |
+| --- | --- |
+| 延迟线程体到 join 才跑（第 639 轮） | 250s 挂死 |
+| 开真线程 / 注册外部线程（第 640 轮） | C 全局与 VM globals 不通；mmap desc 不被 `exec_vm_address_is_vm_resident` 识别 |
+| 提交路径不 drain（第 647 轮） | 两个探针挂死 |
+| 保留读端（第 652 轮） | pending 变绿，立刻挂死 |
+| **保留读端 + 等待点主动推进（本轮）** | **三个用例挂死，pending 也回到 0** |
+
+### 结论
+
+这批断言（A 类 6 例 / 21 个断言，见第 654 轮）要求的是
+「任务在队列里排队 → 另一个执行流取走 → 观测到 RUNNING → 完成」这个**三段并发形态**。
+少任何一段都不行：
+
+- 没有「留在队列」→ pending 恒 0（现状）；
+- 只有「留在队列」没有「取走」→ 挂死；
+- 在 poll 里代替 worker 取走 → pending 又没了，且引入新的互等。
+
+它要的不是某个计数函数写错，而是执行流数量。要真做，得给解释器加
+「`@await` 保存续体 + 调度器在多任务间轮转」的状态机（VM 已有续体机制
+`exec_vm_cont_suspend`/`exec_vm_cont_poll`，缺的是驱动它的调度循环）。
+
+### 状态
+
+本轮**无代码改动**（`lib/std/thread.uya` 已 `git checkout --` 还原，工作区干净）。
+产出是把第 652 轮的单一实验扩展成了完整的五次对照，把这条路的可行性彻底关掉。
+第 653 轮的 `sigaction` 修复（`test_typed_pipeline_capability` 4→3）不受影响。
