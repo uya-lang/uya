@@ -21783,3 +21783,59 @@ test_async_compute_generic_wrapper 5 × 失败: 0
 这也一并解释了 `make check` 里 `test_async_compute_types`、
 `test_async_compute_generic_wrapper` 那两行红 —— 它们不是 flake，
 是本轮修掉的这个 bug。
+
+## 第 659 轮：`slot_idx`→fd 修复的全量复测 —— parity **904 → 907**、`make check` 1190 → 1191
+
+第 658 轮修掉 `AsyncWorkerResultFuture` 把 `slot_idx` 当 fd 交给 `sys_read` 的 bug，
+本轮做三项全量复测。
+
+### parity：一致 904 → **907**，不一致 11 → **8**
+
+```
+总数:     915
+一致:     907   (之前 904)
+不一致:   8     (之前 11)
+跳过:     1（test_abi_calling_convention.uya）
+```
+
+转一致的三例：
+
+- `test_async_compute_types`（C99 之前 1~6 个断言随机挂）
+- `test_async_compute_generic_wrapper`（C99 之前 1）
+- `test_async_compute_dynamic_resource_pressure`（C99 之前 0 / VM 1 —— 这例是
+  VM 侧那个断言随后也受牵连，现在两侧都 0）
+
+第 657 轮把这个 bug 误判成「C99 侧 200ms 超时太紧」，是**错的**，
+第 658 轮已经改正：真正的错误码是 EBADF(id 9)，超时分支在
+`scheduler_run_with_event_loop` 里只记计数、不返回错误。
+
+### census：902/911（99.0%）不变，无回归
+
+```
+总数: 911   通过: 902   失败: 9   跳过: 5
+```
+
+失败清单与第 656 轮**逐条一致**（A 类 6 / B 类 1 / C 类 1 / D 类 1），
+说明这个改动只碰到了 C99 侧的结果传递，没有动 VM 的语义。
+
+### `make check`：1190/1194 → **1191/1194**
+
+之前红的两行（`test_async_compute_types`、`test_async_compute_generic_wrapper`）
+已转绿。表里原本记的是「3 例 C99 侧既有并发 flake」，本轮修正为：
+其中 2 例是这个 bug，只有剩下 3 例是真 flake：
+
+```
+test_std_thread                          退出码 1
+test_async_thread_pool_dynamic_growth    退出码 2
+test_async_compute_dynamic_resource_pressure  退出码 1
+```
+
+这 3 例都在第 654 轮归并的 A 类里（`@await` 同步降级 —— 要的是
+「排队 → 另一执行流取走 → 观测到 RUNNING → 完成」三段并发形态）。
+C99 侧它们也不稳，属于同一族。
+
+### 关于 `test_async_thread_pool_dynamic_growth` 的 C99 退出码
+
+parity 里这例 C99 从 1 变成 2（VM 仍是 4）。C99 侧这个用例本身就在
+0~2 之间抖（第 644/645 轮记录过），不是本轮改动引起的 ——
+它属于 A 类，两侧都在等同一个缺失的并发形态。
