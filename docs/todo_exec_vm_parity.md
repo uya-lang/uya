@@ -21082,3 +21082,85 @@ struct Fe384Wide { l: [u64: 13] }
   `fe384_add_at`/`fe384_mul_wide`/`fe384_fold`/`fe384_t_hi_is_zero`。
 - 第 649 轮的 `ec_p384_field_{add,sub,mul,inv}` 自测入口保留（现在正是它们在保护这段实现）。
 - C99 / VM 两个后端 `test_ec_p384_field` 1/1、`test_tls_ecdsa` 1/1。
+
+## 第 651 轮补充：全量复测与口径说明
+
+### census（默认 4GB）
+
+```
+总数:   911
+通过:   901
+失败:   10
+跳过:   5
+通过率: 98.9%
+```
+
+较第 646 轮（899/910）**+2**：`test_tls_ecdsa` 转为通过（本轮修好），
+新增的 `tests/test_ec_p384_field.uya` 通过（总数 910→911）。
+
+失败 10 例：
+
+| 用例 | 失败数 | 分类 |
+| --- | --- | --- |
+| `test_pthread_heap_cache_identity` | 181 | 串行模拟固有差距（要求不同线程不同 tcache） |
+| `test_std_thread` | 7 | C99 侧自身不稳定（0~3 波动，VM 稳定 7） |
+| `test_async_thread_pool_dynamic_growth` | 4 | C99 侧自身不稳定 |
+| `test_typed_pipeline_capability` | 4 | 子进程 self-exec（VM 下 `fork()` 复制整个解释器） |
+| `test_kernel_sim` | 3 | x86 call gate 裸汇编 / 真实栈语义 |
+| `test_std_thread_async_boundary` | 3 | 真并发时序 |
+| `test_async_frame_pool_full` | 1 | async 帧不走用户 allocator |
+| `test_std_async_scheduler` | 1 | 真并发时序 |
+| `test_async_compute_dynamic_resource_pressure` | 1 | 真并发时序 |
+| `test_http_uyagin` | 1 | **环境内存口径**（见下） |
+
+### `test_http_uyagin` 确认是内存额度问题，不是 VM 缺陷
+
+默认 4GB 下报：
+
+```
+exec: ADDR_INDEX 越界(IDXREF fn=handle ip=51 idx=0 kind=14 cnt=-1 isref=1 pointee=19)
+```
+
+这正是 `src/exec/value.uya:598` 注释里描述过的现象 —— 值竞技场的
+**fallback 块**（竞技场段用满后回落到普通 `malloc`）如果没有登记进段表，
+`exec_vm_address_is_value` 就认不出它是 VM 值内存，字段访问改走原生通道，
+读到垃圾 kind。该问题**已经修好**（独立 fallback 表 `g_exec_value_fallback_*`），
+但在 4GB 地址空间上限下仍然会撞到竞技场耗尽这条路。
+
+用 6GB 复跑全量：
+
+```
+总数:   911
+通过:   902
+失败:   9
+通过率: 99.0%
+```
+
+`test_http_uyagin` 转为通过，失败清单只剩上表前 9 例，**其余 9 例逐条不变**。
+所以这一例的正确处置是**提高 census 内存额度**，而不是改 VM 代码。
+
+### parity
+
+```
+总例数:  915
+一致:    904
+不一致:  11
+```
+
+较第 640 轮（914/903/11）**一致 +1、总数 +1、不一致不变**：
+`test_tls_ecdsa` 转为一致，新增 `test_ec_p384_field.uya` 也是 OK。
+剩下 11 例与第 645 轮分类**逐条一致、无新增**。
+
+### `make check`
+
+```
+总计: 1194
+通过: 1191
+失败: 3
+```
+
+失败 3 例全是**C99 侧既有的真并发 flake**：
+`test_std_thread`、`test_async_thread_pool_dynamic_growth`、
+`test_async_compute_types`（第 644/645 轮已记录这三例在 C99 侧退出码 0~6 波动）。
+本轮改动（`ec_p384.uya` 域运算 + 新增 `test_ec_p384_field.uya`）与它们无关。
+总数从 1193 到 1194 就是新增的那个用例。
