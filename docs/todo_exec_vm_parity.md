@@ -22168,3 +22168,72 @@ VM 里派发就是领走，执行确实可以晚一点发生。
 
 这一轮的教训和第 657 轮同型：**把「我没找到做法」写成了「原理上不可行」**。
 两次都是因为只考虑了一个实现形态就下结论。
+
+## 第 665 轮：两阶段派发试到底 —— 机制打通了两层，`pending` 仍不可观测
+
+顺着第 664 轮的思路（派发与执行拆开），本轮把两阶段派发完整实现了一遍。
+**中途确实让两个断言同时变绿了**，但没守住。
+
+### 做到过的进展
+
+第一版实现（提交后立刻把槽位标 `RUNNING`、放宽 `run_slot_sync` 接受 RUNNING）：
+
+```
+wait_thread_pool_pending_at_least(&pool, 1) == 1        ✓ 通过
+wait_thread_pool_running_workers_at_least(&pool, 1) == 1 ✓ 通过
+metrics.thread_pool_running_workers == 1  (actual: 2)    ✗
+```
+
+**这是 A 类断言第一次真正翻绿**（第 664 轮的两阶段推理是对的）。
+剩下的是数量不对：池子只有 1 个 worker，却读到 2 个 RUNNING。
+
+### 然后就开始丢东西
+
+按 worker 数量给派发加 cap（`running_now >= pool.worker_count` 就不标），
+`running_workers` 数量对了，但 `pending` 立刻回到 0。
+之后每一步收紧都让 `pending` 保持 0：
+
+| 改动 | `pending` | `running` |
+| --- | --- | --- |
+| 两阶段派发（无 cap） | ✓ | ✓（但数量 2≠1） |
+| + 按 worker 数 cap | ✗ | — |
+| + settle（RUNNING 降回 QUEUED，延后一轮） | ✗ | — |
+| + 提交后无条件返回 Pending | ✗ | — |
+| + `kick_drain` 不再当场 drain 队列 | ✗ | — |
+
+最后一行是关键实验：即使**提交后无条件返回 Pending**、并且**关掉提交路径的同步 drain**
+（`thread_pool_try_kick_drain` 写 cmd pipe 失败时不再 `thread_shared_drain_sync` 整个队列），
+`pending_count` 仍然是 0。
+
+这说明任务**根本没进队列** —— `thread_pool_enqueue_slot` 应该返回了 0，
+于是走 `thread_pool_release_slot` + `thread_capacity_error_i32()`，
+`AsyncWorkerComputeFuture` 在 `finish_from_raw_poll` 里把错误当结果返回。
+测试只断言 `pending >= 1`，看不到这个错误，所以表面现象就是「pending 恒 0」。
+
+而 `pending_capacity` 本身是正常的（`thread_pool_new(2)` →
+`thread_pool_default_scaled_capacity` 给正数，`thread_pool_ensure_shared_state:587`
+也正确写进了共享区）。所以失败点在 `enqueue_slot` 的另外两个前置条件之一：
+`thread_pool_slot_is_valid(pool, slot_idx)` 或 `thread_pool_has_shared_state(pool)`。
+
+### 为什么第一版能让它通过
+
+第一版没有 cap，两个任务都被标成 RUNNING，于是 `run_slot_sync`（那时放宽到接受
+RUNNING）把它们执行掉、`pending_count` 由入队产生。能读到 `pending >= 1`
+说明**那时 enqueue 是成功的**。加了 cap 之后就不成功了 —— 这个差异本轮没查完，
+是下一轮可以直接接手的入口（`queue_or_error_slot` 里 cap 分支的 `return` 之后，
+槽位停在 QUEUED 但已经被算进 `pending_count`，怀疑与
+`thread_pool_running_worker_count` 内部遍历时读的容量有关）。
+
+### 状态
+
+本轮**无代码改动**（`lib/std/thread.uya` 已从 `/tmp/tb3.uya` 还原，工作区干净，
+`make uya` 错误数 0）。
+
+产出有两条：
+1. **第 664 轮的推理被实证了** —— 两阶段派发确实能让
+   `pending>=1` 和 `running_workers>=1` 同时成立，A 类不是「原理上不可达」；
+2. 失败点收缩到 `enqueue_slot` 的三个前置条件之一，范围比之前小得多。
+
+A 类累计尝试 **8 次**（第 639/640/647/652/655/660/662/665 轮）。
+第 8 次和前 7 次性质不同：前 7 次都是「方案本身不成立」，
+这次是「方案成立，实现里有个具体分支没走对」。
