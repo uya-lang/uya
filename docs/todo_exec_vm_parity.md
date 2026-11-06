@@ -20977,3 +20977,97 @@ while carry:
 
 改完先跑 `tests/test_ec_p384_field.uya`（秒级）确认 `a*b` 对，
 再跑 `test_tls_ecdsa` 端到端。
+
+## 第 651 轮：`fe384_mul` 换成伪梅森快速归约 —— p384 在 VM 下快 15 倍，`test_tls_ecdsa` 45 分钟 → 4 分钟
+
+第 648 轮量出「p384 比 p256 慢 28 倍」、第 650 轮把 add/sub 定长化但几乎没提速，
+两轮都指向同一个瓶颈：`fe384_mul` 走 `mpi_mul` + `mpi_mod`（完整除法归约）。
+本轮把它换掉，**成功且正确**。
+
+### 结果
+
+| | 改前 | 改后 |
+| --- | --- | --- |
+| p384 单独（VM） | **39m29s** | **2m36s** |
+| `test_tls_ecdsa` 全量（VM） | **>45 分钟未完成** | **4m01s 通过** |
+| `test_tls_ecdsa`（C99） | 4.3s 通过 | 4.3s 通过（无回归） |
+| `test_ec_p384_field`（C99 / VM） | 1/1 / 1/1 | 1/1 / 1/1 |
+
+**15 倍**。census 里最后一个「纯性能」用例就此解决。
+
+### 实现：6x6 学校簿 + 伪梅森折叠
+
+P-384 的伪梅森恒等式：
+
+```
+2^384 ≡ 2^128 + 2^96 − 2^32 + 1  (mod p)
+```
+
+即 `c = 2^384 mod p = 0x100000000ffffffffffffffff00000001`，
+6 limb 小端只有 **limb 0/1/2 非零**，所以折叠一次只需 3 次 64×64 乘：
+
+```uya
+const FE384_C0: u64 = 0xFFFFFFFF00000001;
+const FE384_C1: u64 = 0x00000000FFFFFFFF;
+const FE384_C2: u64 = 0x0000000000000001;
+```
+
+乘法主流程：宽乘 13 limb → 折叠至多 3 轮 → 条件减 p（至多两次）。
+
+### 三个踩过的坑（都是真实 bug，记下来免得再犯）
+
+**坑 1：`phi + c1 + c2` 会溢出 64 位。**
+
+`phi` 最大能到 `2^64 − 2`，再叠加低位两次加法的进位就是 `2^64`，
+`+%` 一环绕就把进位吃掉了。第一版就是这么错的 ——
+表现为「小数值乘法对、两个大数值相乘错」（`2*3=6` 过，`0x123456789abcdef * 0xfedcba987654321` 挂）。
+
+改成把「低位加法的进位」和「高半 `phi`」分别用带进位传播的
+`fe384_add_at` 加到 `idx+1` 起的位置，**不再合成一个 carry 变量**：
+
+```uya
+fn fe384_add_at(t: &Fe384Wide, idx: usize, v: u64) void {
+    var k: usize = idx;
+    var c: u64 = v;
+    while c != 0 && k < 13 {
+        const tk: u64 = t.l[k];
+        const s: u64 = tk +% c;
+        var ov: u64 = 0;
+        if s < tk { ov = 1; }
+        t.l[k] = s;
+        c = ov;
+        k = k + 1;
+    }
+}
+```
+
+**坑 2：数组引用参数的类型和 `&t` 不匹配。**
+
+`fn f(t: &[u64: 13])` 配 `f(&t)` 会生成 C 类型冲突
+（`incompatible type for argument 1`）。照 `ec_p256.uya:139 struct Fe256Wide`
+的做法包一层 struct 就解决了：
+
+```uya
+struct Fe384Wide { l: [u64: 13] }
+```
+
+**坑 3：Uya 不支持数组切片 `&t[6..13]`。**
+
+`意外的 token '..'`。改成传整个数组 + 一个判高位的辅助函数。
+
+### 验证方式（这是第 649 轮留下的基础设施，本轮回本了）
+
+`tests/test_ec_p384_field.uya` 用 Python 大整数生成 6 组随机向量，
+同时校验 `a+b`、`a-b`、`a*b`。有它之后每次改动都是**秒级反馈**，
+而不是等 45 分钟的端到端 —— 本轮 3 个 bug 全靠它逐层剥离出来的。
+
+顺带确认了 `fe384_mul64_hi_lo`（从 `ec_p256.uya:102 mul64_hi_lo` 照搬的
+16 位分块 64×64→128）本身是对的，问题全在进位组合上。
+
+### 状态
+
+- `lib/tls/crypto/ec_p384.uya`：`fe384_add`/`fe384_sub`（第 650 轮）+
+  `fe384_mul`（本轮）全部定长化；新增 `Fe384Wide`/`fe384_mul64_hi_lo`/
+  `fe384_add_at`/`fe384_mul_wide`/`fe384_fold`/`fe384_t_hi_is_zero`。
+- 第 649 轮的 `ec_p384_field_{add,sub,mul,inv}` 自测入口保留（现在正是它们在保护这段实现）。
+- C99 / VM 两个后端 `test_ec_p384_field` 1/1、`test_tls_ecdsa` 1/1。
