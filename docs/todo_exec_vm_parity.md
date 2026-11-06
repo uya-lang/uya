@@ -22399,3 +22399,62 @@ metrics.thread_pool_running_workers == 1 (actual: 2)  ✗
 
 A 类累计尝试 **9 次**。第 9 次确实是「方案成立、但和 `@async_fn` 的同步语义冲突」，
 比之前任何一次都更接近 —— 如果哪天把 `@await` 做成真挂起（续体），这批断言就有解。
+
+## 第 668 轮：9 例的 C99 侧逐条复核 —— 只有 3 例两边都红，其中 1 例是稳定失败
+
+本轮把 census 剩余 9 例在 **C99 侧**逐个跑了一遍。这个数据之前只有零散记录，
+现在钉死了：
+
+| 用例 | C99 侧 | VM 侧 |
+| --- | --- | --- |
+| `test_std_thread` | 失败 1 | 失败 7 |
+| `test_async_thread_pool_dynamic_growth` | 失败 1 | 失败 4 |
+| `test_async_compute_dynamic_resource_pressure` | 失败 1 | 失败 1 |
+| `test_std_thread_async_boundary` | **通过** | 失败 3 |
+| `test_std_async_scheduler` | **通过** | 失败 1 |
+| `test_async_frame_pool_full` | **通过** | 失败 1 |
+| `test_kernel_sim` | **通过** | 失败 3 |
+| `test_pthread_heap_cache_identity` | **通过** | 失败 181 |
+| `test_typed_pipeline_capability` | **通过** | 失败 3 |
+
+### 结论一：6 例不能进跳过表
+
+跳过表的纪律是「只登记 C99 侧同样不适用的用例」。上表里有 6 例 C99 侧
+**完全通过**，所以它们**都不能**写进 `tests/exec_vm_census_skip.txt`。
+把覆盖率数字做漂亮不是这条路的正当理由。
+
+### 结论二：`test_std_thread` 的 C99 侧是**稳定**失败，不是 flake
+
+第 644/645/659 轮都把 `test_std_thread` 的 C99 侧红归到「并发 flake」。
+本轮连跑 3 次，每次都是**失败 1**，位置固定：
+
+```
+TEST: async_compute_i32_drains_after_pending_queue_pressure ... ERROR
+```
+
+33 个通过 / 1 个失败 / 139 个断言通过，跑几次都一样。**这是稳定复现的失败，
+不是抖动**，之前的归类不准确。
+
+### 但它在 VM 侧的失败原因不同
+
+同一个用例在 VM 侧是失败 7，而且那 7 个都是
+`thread_wait_pending_count(...) == 1 (actual: 0)` 一类 —— 也就是第 654/667 轮
+查明的「`async_compute` 的同步 `@await` 让中间态没有观测窗口」。
+所以这个用例两侧都红，但**红的原因完全不是一回事**：
+C99 侧是 `async_compute_i32_drains_after_pending_queue_pressure` 这个具体用例
+在真线程下稳定出错，VM 侧是 7 个中间态断言无法观测。
+
+本轮用探针拆过 C99 侧那个失败：单任务、2 任务、10 任务下
+`scheduler_run_with_event_loop(f0, 1000)` 都正常返回 2；直接 drive `f9` 也 OK。
+所以失败点不在「并发压力下取不到结果」，而在该用例后半段
+（`thread_wait_started_workers` / `thread_wait_pending_count` 之后的那几条断言，
+或者某个中间 future 的 drive）。按收工纪律，这条**既有失败记一行就走**，
+没有继续追。
+
+### 状态
+
+本轮**无代码改动**（临时探针已删，工作区干净）。
+
+产出的价值在于把「9 例在 C99 侧到底什么情况」这张表补齐了 ——
+它直接决定了跳过表能不能用（不能），也纠正了一条持续多轮的误分类
+（`test_std_thread` 的 C99 侧不是 flake 而是稳定失败）。
