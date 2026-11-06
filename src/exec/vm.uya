@@ -6105,6 +6105,63 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
         }
         return 0;
     }
+    if site.id == ExecHostCallId.EXEC_HOST_CALL_SIGACTION {
+        // `sigaction(signum, act, oldact)`：**不能真装到宿主进程**。
+        // 本文件 `exec_vm_dispatch_host_syscall` 已说明原因 —— 真把信号动作
+        // 交给宿主，`raise`/`kill` 会把解释器自己打死（第 400 轮实测 rc=138）。
+        // 这里复用 `signal` 那套模拟表 `g_exec_vm_sig_handlers`：
+        // 记 handler、把旧值回填进 `oldact`，解释器进程不受影响。
+        // `std.process` 的 broker 只需要能读回「原来是不是 SIG_IGN」。
+        exec_vm_sig_table_init();
+        const sa_sig: &ExecValue = exec_vm_slot_ref(frame, arg_base);
+        const sa_act: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 1);
+        const sa_old: &ExecValue = exec_vm_slot_ref(frame, arg_base +| 2);
+        if sa_sig == null || sa_act == null || sa_old == null || arg_count != 3 {
+            exec_backend_set_error(function.decl, "exec: sigaction 参数非法" as *byte, 0);
+            return -1;
+        }
+        const sa_signum: i32 = exec_vm_numeric_to_i64(sa_sig[0]) as i32;
+        if sa_signum <= 0 || sa_signum >= 128 {
+            out_value[0] = exec_make_i32(0 - 1);
+            return 0;
+        }
+        const sa_prev: i32 = g_exec_vm_sig_handlers[sa_signum];
+        // 1) 先把当前动作写进 oldact（`act == null` 时就是纯查询）
+        if sa_old[0].kind == ExecValueKind.EXEC_VALUE_POINTER {
+            const sa_old_target: &ExecValue = exec_vm_ref_target_value(&sa_old[0]);
+            if sa_old_target != null {
+                const sa_handler_field: &ExecValue = exec_vm_field_ref(sa_old_target, 0);
+                if sa_handler_field != null {
+                    var sa_prev_handler: i64 = 0i64;
+                    if sa_prev == EXEC_VM_SIG_IGNORE {
+                        sa_prev_handler = 1i64;
+                    } else if sa_prev >= 0 {
+                        sa_prev_handler = 2i64;
+                    }
+                    sa_handler_field[0] = exec_make_i64(sa_prev_handler);
+                }
+                // `PipelineSigaction` 里其余字段（mask/flags/restorer）调用方
+                // 只判 handler，保持零值即可。
+            }
+        }
+        // 2) 按 `act` 更新模拟表
+        if sa_act[0].kind == ExecValueKind.EXEC_VALUE_POINTER {
+            const sa_act_target: &ExecValue = exec_vm_ref_target_value(&sa_act[0]);
+            if sa_act_target != null {
+                const sa_new_field: &ExecValue = exec_vm_field_ref(sa_act_target, 0);
+                if sa_new_field != null {
+                    const sa_new_handler: i64 = exec_vm_numeric_to_i64(sa_new_field[0]);
+                    if sa_new_handler == 1i64 {
+                        g_exec_vm_sig_handlers[sa_signum] = EXEC_VM_SIG_IGNORE;
+                    } else {
+                        g_exec_vm_sig_handlers[sa_signum] = EXEC_VM_SIG_NONE;
+                    }
+                }
+            }
+        }
+        out_value[0] = exec_make_i32(0);
+        return 0;
+    }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_RAISE {
         const rs_sig: &ExecValue = exec_vm_slot_ref(frame, arg_base);
         if rs_sig == null {

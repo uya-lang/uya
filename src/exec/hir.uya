@@ -53,6 +53,13 @@ enum ExecHostCallId {
     EXEC_HOST_CALL_SIGNAL_REGISTER,
     EXEC_HOST_CALL_RAISE,
     EXEC_HOST_CALL_SIGPROCMASK_SIM,
+    // `sigaction(signum, act, oldact)`：`std.process` 里的裸 extern（无 Uya 实现体）。
+    // 不登记的话会落到「无体 extern → 零值桩」，调用返回 0 但 `oldact`
+    // 那个输出结构体完全不回填（实测 handler 读回恒为 0 而不是 SIG_IGN）。
+    // `PipelineSigaction` 与 Linux x86_64 的 `struct sigaction` 布局一致
+    // （handler 8 + mask 128 + flags 4 + pad 4 + restorer 8 = 152 字节），
+    // 所以直接把三个参数的地址交给宿主 `sigaction` 即可。
+    EXEC_HOST_CALL_SIGACTION,
     // @c_import 导入的 C 函数：调用点名字在运行期用 dlsym 解析。
     EXEC_HOST_CALL_C_IMPORT_DYNAMIC,
     EXEC_HOST_CALL_EXIT,

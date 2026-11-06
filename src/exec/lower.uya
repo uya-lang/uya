@@ -831,6 +831,13 @@ fn exec_lower_match_host_call_impl(fn_name: &byte, param_count: i32, call_arg_co
     if str_equals(fn_name, "sigprocmask" as &byte) != 0 && param_count == 3 && call_arg_count == 3 {
         return ExecHostCallId.EXEC_HOST_CALL_SIGPROCMASK_SIM;
     }
+    // `sigaction` 与上面三个同族，但必须**真的**安装到宿主进程：
+    // `std.process` 的 broker 靠 `sigaction` 读回「原来的 handler 是不是 SIG_IGN」
+    // 来决定要不要接管，读不回来整条 broker/orphan 逻辑就失准。
+    // 结构体布局与宿主一致，直接把地址透传给宿主 libc。
+    if str_equals(fn_name, "sigaction" as &byte) != 0 && param_count == 3 && call_arg_count == 3 {
+        return ExecHostCallId.EXEC_HOST_CALL_SIGACTION;
+    }
     // `fcntl` 是 C varargs；解释器侧按 fcntl 系统调用实现（不能落进下面的
     // is_varargs == 0 块，否则永远匹配不到）。
     if str_equals(fn_name, "fcntl" as &byte) != 0 && param_count >= 2 && call_arg_count >= 2 {
@@ -1244,6 +1251,15 @@ fn exec_lower_extern_prefers_host_call(fn_decl: &ASTNode) i32 {
     }
     if str_equals(name, "signal" as *byte) != 0 || str_equals(name, "raise" as *byte) != 0 ||
         str_equals(name, "sigprocmask" as *byte) != 0 {
+        return 1;
+    }
+    // `sigaction` 是 `std.process` 里的**裸 extern**（无 Uya 实现体），
+    // 不在这里登记的话 `exec_lower_extern_can_run_in_vm` 会走「无体 → 不能执行」
+    // 分支，退化成零值桩：调用返回 0，但 `old_action` 这个输出结构体**完全不回填**。
+    // 实测 `test_typed_pipeline_capability` 的 4 个 ERROR 全由此而来 ——
+    // `sigaction(SIGTERM, null, &after)` 读回的 handler 恒为 0（而不是 SIG_IGN）。
+    // `signal`/`sigprocmask` 已在上面登记，`sigaction` 是同一族，漏了。
+    if str_equals(name, "sigaction" as *byte) != 0 {
         return 1;
     }
     // 这些入口在 VM 里有宿主实现，Uya 实现体（线程/信号/内存系统调用）在解释器里

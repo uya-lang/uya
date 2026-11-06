@@ -21247,3 +21247,124 @@ wait_thread_pool_running_workers_at_least(&pool, 1) == 1   (actual: 0)
 本轮**无代码改动**（改动已 `git checkout --` 还原，工作区干净，HEAD `b724a546`）。
 产出是一份实验证据：把「pending 恒为 0 的原因」从代码推断升级成了可复现的实验结论，
 并且明确了「修好这一层会立刻在下层死锁」，避免后人重复投入。
+
+## 第 653 轮：`sigaction` 落到零值桩 —— `test_typed_pipeline_capability` 4 ERROR → 3
+
+### 症状与定位
+
+`test_typed_pipeline_capability` 有 4 个 ERROR，全是终端/进程组相关的 self test。
+本文档第 646 轮把真因归到「VM 下 `fork()` 复制整个解释器，子进程副作用父进程看不见」。
+本轮往下挖，**其中一个不是 fork 造成的**：
+
+```
+TEST: pipeline_broker_releases_subscription_and_terminal_lease ... ERROR
+```
+
+这个 self test（`lib/std/process.uya:2975`）主体全是 `sys_pipe2` +
+`pipeline_broker_subscribe` + `pipeline_terminal_lease_acquire`，**没有 fork**。
+逐段做探针剥离：
+
+| 探针 | 覆盖范围 | 结果 |
+| --- | --- | --- |
+| `probe_broker` | handoff 判断 + `sys_pipe2` + subscribe + lease | **通过** |
+| `probe_sigaction` | 加上 `sigaction(SIGTERM, &ignore, &saved)` 那一段 | 返回 4 |
+
+进一步缩小到：
+
+```uya
+ignore_action.handler = SIG_IGN as &void;
+if sigaction(SIGTERM, &ignore_action, &saved_action) != 0 { return 1; }
+var now: PipelineSigaction = PipelineSigaction {};
+if sigaction(SIGTERM, null as &const PipelineSigaction, &now) != 0 { return 2; }
+if now.handler != SIG_IGN as &void { return 3; }
+```
+
+VM 返回 3，**C99 侧通过**。再改成「先把 handler 写成 `0xDEADBEEF`，调用后看有没有被覆盖」：
+
+```
+VM:   返回 10  →  handler 仍是 0xDEADBEEF，oldact 一个字节都没被写
+C99:  通过
+```
+
+所以不是「值算错了」，而是 **`sigaction` 这个调用在 VM 里根本没执行**。
+
+### 根因：无 Uya 实现体的裸 extern 被降级成零值桩
+
+`std/process.uya:186`：
+
+```uya
+extern fn sigaction(signum: i32, action: &const PipelineSigaction, old_action: &PipelineSigaction) i32;
+```
+
+裸 `extern fn`、没有 Uya 实现体。`src/exec/lower.uya` 里
+`exec_lower_extern_can_run_in_vm` 对「extern + 无体」返回 0（VM 不能执行），
+然后调用点落到这段：
+
+```uya
+// 固定参数的环境调用（`sigaction`/`tcgetpgrp` 一类）：按
+// 「无副作用 + 返回零值」的桩处理。
+return exec_lower_make_zero_expr(ctx, expr, &expr_type);
+```
+
+**注释里直接点名了 `sigaction`。** 零值桩意味着：返回 0（看起来成功），
+但 `old_action` 这个输出结构体完全不回填 —— 正是探针观察到的现象。
+
+而 `signal` / `raise` / `sigprocmask` 三个同族函数早已登记进
+`exec_lower_extern_prefers_host_call` 白名单 + `ExecHostCallId` 枚举，**`sigaction` 漏了**。
+
+### 修法：走和 `signal` 同一套模拟表，不碰宿主进程
+
+不能直接调宿主 `sigaction`。`src/exec/vm.uya:4412` 已经写明原因：
+
+> 信号相关系统调用在解释器里必须降级成桩：VM 没有真实线程/信号语义，
+> 真把 `rt_sigaction` 交给宿主会给**解释器进程自己**装上信号处理器，
+> 后续 `raise`/`kill` 直接把解释器打死（test_signal 实测在注册 SIGUSR1
+> 之后被信号终止，返回码 138）。
+
+所以复用已有的模拟表 `g_exec_vm_sig_handlers`（`signal` 用的就是它）：
+
+- `oldact != null`：把当前 handler 写进它的第 0 个字段
+  （`SIG_IGN` → 1，`SIG_DFL` → 0，已登记的 Uya 处理器 → 2）。
+  仓库里唯一依赖这个旧值的判断是
+  `pipeline_broker_install_handler` 的 `previous.handler == SIG_IGN`。
+- `act != null`：按它的 handler 更新模拟表。
+
+三处改动（共 80 行）：
+
+| 文件 | 内容 |
+| --- | --- |
+| `src/exec/hir.uya:62` | 新增 `EXEC_HOST_CALL_SIGACTION` 枚举（带原因注释） |
+| `src/exec/lower.uya:838` | `sigaction` 名字匹配 → 该枚举（3 参数守卫）；同时进 `prefers_host_call` 白名单 |
+| `src/exec/vm.uya` | 模拟实现：用 `exec_vm_ref_target_value` + `exec_vm_field_ref` 读写第 0 字段 |
+
+注意实现上踩过一个坑：`&const PipelineSigaction` 实参是 **VM 逻辑引用**，
+`ptr_value` 里存的是 `&ExecValue` 槽地址 + `aux_i64_value` 的 kind 标记，
+不是物理指针。所以不能直接 `@ptr_from_usize(ptr_value)` 再按字节写，
+必须走 `exec_vm_ref_target_value` 拿到目标槽、再用 `exec_vm_field_ref` 写字段。
+
+### 结果
+
+```
+test_typed_pipeline_capability:
+  Tests Passed:  20   (之前 19)
+  Tests Failed:  3    (之前 4)
+```
+
+`pipeline_broker_releases_subscription_and_terminal_lease` 转为 OK。
+剩下 3 个（`pipeline_terminal_inherit_*` / `pipeline_background_executor_*` /
+`pipeline_stopped_terminal_child_*`）都真的在 self test 里调 `fork()`
+（`lib/std/process.uya:3210` 等），仍归第 646 轮的 fork 复制解释器问题。
+
+### 全量复测：无回归
+
+```
+总数:   911
+通过:   901
+失败:   10
+跳过:   5
+通过率: 98.9%
+```
+
+失败清单与第 651 轮**逐条一致**，唯一变化是 `test_typed_pipeline_capability`
+的失败断言数 4 → 3。`test_signal`（C99 / VM）都仍是 0 失败 ——
+这条最要紧，因为它和 `sigaction` 共用模拟表，证明新实现没有破坏信号语义。
