@@ -20,6 +20,7 @@
 #   UYA_EXEC_CENSUS_JOBS      并行度（默认 CPU 核数）
 #   UYA_EXEC_CENSUS_TIMEOUT   单用例超时秒数（默认 300）
 #   UYA_EXEC_CENSUS_MEM_MB    单用例地址空间上限（MB，默认 4096；0 表示不限）
+#   UYA_EXEC_CENSUS_MEMS     单用例内存覆盖表（默认 tests/exec_vm_census_mems.txt）
 #                             census 的峰值内存 ≈ JOBS × MEM_MB，跑之前先看一下
 #                             机器余量（实测单用例峰值：TLS 186MB / https 456MB
 #                             / kernel_sim 548MB，失控用例靠这个上限快速失败）
@@ -47,6 +48,7 @@ export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 MIN_PASS="${UYA_EXEC_CENSUS_MIN:-0}"
 TIMEOUT="${UYA_EXEC_CENSUS_TIMEOUT:-300}"
 MEM_MB="${UYA_EXEC_CENSUS_MEM_MB:-4096}"
+MEM_FILE="${UYA_EXEC_CENSUS_MEMS:-$SCRIPT_DIR/exec_vm_census_mems.txt}"
 REPORT="${UYA_EXEC_CENSUS_REPORT:-/tmp/uya_exec_vm_census.tsv}"
 SKIP_FILE="${UYA_EXEC_CENSUS_SKIP:-$SCRIPT_DIR/exec_vm_census_skip.txt}"
 TIMEOUT_FILE="${UYA_EXEC_CENSUS_TIMEOUTS:-$SCRIPT_DIR/exec_vm_census_timeouts.txt}"
@@ -63,6 +65,7 @@ ulimit -s unlimited 2>/dev/null || ulimit -s 524288 2>/dev/null || true
 # MEM_MB 是空的 —— ulimit 分支会被静默跳过（内存上限从来没生效过）。
 export TIMEOUT_FILE
 export MEM_MB
+export MEM_FILE
 export TIMEOUT
 # 这里**不做任何按名字的进程清理**。
 #
@@ -125,6 +128,16 @@ run_one() {
     local out_file="$results_dir/${base}.txt"
     local err
     local mem_mb="${MEM_MB:-0}"
+    # 单用例内存覆盖：少数用例的地址空间峰值明显高于全局上限（不是算错，
+    # 是 VM 值竞技场要开更多段，见 src/exec/value.uya 的 EXEC_VALUE_ARENA_MAX_SEGMENTS）。
+    # 用全局上限会把它们误判成失败；跳过又会把覆盖率数字做漂亮。所以按名字放宽。
+    local override_mem=""
+    if [ -f "$MEM_FILE" ]; then
+        override_mem="$(awk -F'\t' -v n="$base_name" '$1 == n { print $2; exit }' "$MEM_FILE" 2>/dev/null)"
+    fi
+    if [[ "$override_mem" =~ ^[0-9]+$ ]]; then
+        mem_mb="$override_mem"
+    fi
     local limit_kb=$((mem_mb * 1024))
     # `-k` 必不可少：解释器里互相等待的用例会忽略 SIGTERM，只发 TERM 的 timeout
     # 会一直等下去 —— 实测 test_std_dns_async_query_aggregate 卡了 50 分钟，

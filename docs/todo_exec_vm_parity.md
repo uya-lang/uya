@@ -21541,3 +21541,85 @@ wait_thread_pool_running_workers_at_least(&pool, 1) == 1   (actual: 0)
 本轮**无代码改动**（`lib/std/thread.uya` 已 `git checkout --` 还原，工作区干净）。
 产出是把第 652 轮的单一实验扩展成了完整的五次对照，把这条路的可行性彻底关掉。
 第 653 轮的 `sigaction` 修复（`test_typed_pipeline_capability` 4→3）不受影响。
+
+## 第 656 轮：给 census 加**单用例内存覆盖表** —— `test_http_uyagin` 转通过，901 → 902/911
+
+第 654 轮把 `test_http_uyagin` 归到「E. 环境内存口径」，当时的处置建议是
+「给 census 提高内存额度，不是改 VM」。本轮把这个建议落成了机制。
+
+### 之前为什么只能靠全局环境变量
+
+`tests/verify_exec_vm_census.sh` 只有一个全局旋钮：
+
+```
+MEM_MB="${UYA_EXEC_CENSUS_MEM_MB:-4096}"
+```
+
+而它用 `ulimit -v` 卡的是**虚拟地址空间**。VM 的值竞技场是分段 bump 分配
+（`src/exec/value.uya:425`）：每段 200MB、最多 256 段。一个用例跑得越久、
+开出的段越多，地址空间峰值就越高 —— **这是分配器形态，不是泄漏**。
+
+`test_http_uyagin` 27 个用例的 VM 侧峰值是 6096MB。于是只有两条烂路：
+
+- 全局 `UYA_EXEC_CENSUS_MEM_MB=6144` 跑 census → 并行度 × 6GB 会把整机打爆
+  （脚本自己的注释就警告过这一点，还实测杀过同机别的会话）；
+- 不动 → 这个用例永远算失败，而它其实**完全能通过**。
+
+### 落成的机制：与超时表同构的内存覆盖表
+
+新增 `tests/exec_vm_census_mems.txt`，格式 `用例文件名<TAB>MB`，
+配套环境变量 `UYA_EXEC_CENSUS_MEMS` 可改路径。`run_one` 里在算
+`limit_kb` 之前先查一次，命中就替换该用例的 `mem_mb`：
+
+```bash
+local override_mem=""
+if [ -f "$MEM_FILE" ]; then
+    override_mem="$(awk -F'\t' -v n="$base_name" '$1 == n { print $2; exit }' "$MEM_FILE" 2>/dev/null)"
+fi
+if [[ "$override_mem" =~ ^[0-9]+$ ]]; then
+    mem_mb="$override_mem"
+fi
+local limit_kb=$((mem_mb * 1024))
+```
+
+表里目前只有一条，并写清了纪律：**只放宽、不放宽到离谱、必须写明实测峰值来源**，
+且判定标准是三条同时成立 —— C99 侧同用例通过 + VM 侧放宽后全通过 +
+峰值随轮次数线性增长可解释。这样它就不可能被拿去掩盖真的内存爆炸或真的语义错误。
+
+### 结果
+
+### 全量复测
+
+```
+总数:   911
+通过:   902   (之前 901)
+失败:   9    (之前 10)
+跳过:   5
+通过率: 99.0%
+```
+
+失败清单逐条不变，只是少了 `test_http_uyagin`：
+
+```
+test_async_compute_dynamic_resource_pressure   1
+test_async_frame_pool_full                     1
+test_async_thread_pool_dynamic_growth           4
+test_kernel_sim                                3
+test_pthread_heap_cache_identity              181
+test_std_async_scheduler                       1
+test_std_thread_async_boundary                 3
+test_std_thread                                 7
+test_typed_pipeline_capability                  3
+```
+
+正好就是第 654 轮归并的 A/B/C/D 四类 —— **E 类整类消除**。
+
+单点验证：
+
+```
+[1/1] test_http_uyagin.uya    st=0
+通过: 1   失败: 0   通过率: 100.0%
+```
+
+这同时把 census 跳过表的纪律守住了 —— 没有把用例塞进
+`tests/exec_vm_census_skip.txt` 去把数字做漂亮，而是**真的让它在 census 里通过**。
