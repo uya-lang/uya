@@ -2128,7 +2128,7 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       说明「结构体数组 + realloc」本身没问题，问题在**接口字段的传递**。
       影响面可能很大（`Vec`/`HashMap` 等容器都持有 `IAllocator`）。
 - [ ] `uya test --vm` 全量通过（跳过表只保留 C99 侧同样不适用的用例）
-      —— 现状 **901/911（98.9%）**（第 651 轮全量普查实测，失败 10、跳过 5）。
+      —— 现状 **902/911（99.0%）**（第 656 轮全量普查实测，失败 9、跳过 5）。
       **第 651 轮解决掉最后一个「纯性能」用例**：`fe384_mul` 换成 6x6 学校簿 +
       P-384 伪梅森快速归约（`2^384 ≡ 2^128 + 2^96 − 2^32 + 1`），替掉原来的
       `mpi_mul` + `mpi_mod`（**完整除法归约**）。p384 单独在 VM 下
@@ -2136,15 +2136,18 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       （15 倍）。同轮还把 `fe384_add`/`fe384_sub` 定长化（第 650 轮），
       并新增 `tests/test_ec_p384_field.uya`（Python 大整数对拍，C99/VM 各 1/1）
       作为这段实现的回归保护。
-      剩余 10 例按**根因**归并（第 654 轮重新定性，不再按用例名罗列）：
+      剩余 **9 例**按**根因**归并（第 654 轮定性、第 656 轮清掉 E 类）：
       **A 类 `@await` 同步降级 6 例 / 21 个断言**（`test_std_thread` 7、
       `test_async_thread_pool_dynamic_growth` 4、`test_std_thread_async_boundary` 3、
       `test_async_compute_dynamic_resource_pressure` 1、`test_std_async_scheduler` 1、
       `test_async_frame_pool_full` 1）、**B x86 裸汇编 1 例**（`test_kernel_sim`）、
       **C 每线程独立 tcache 1 例**（`test_pthread_heap_cache_identity` 181 断言）、
       **D `fork()` 复制解释器 1 例**（`test_typed_pipeline_capability` 3 断言）、
-      **E 环境内存口径 1 例**（`test_http_uyagin`，VmPeak 6096MB，
-      `UYA_EXEC_CENSUS_MEM_MB=6144` 下 27/27 全过）。
+      ~~E 环境内存口径 1 例~~ —— **第 656 轮已消除**：新增按用例内存覆盖表
+      `tests/exec_vm_census_mems.txt`（与超时表同构，`UYA_EXEC_CENSUS_MEMS`
+      可改路径），给 `test_http_uyagin` 单独放行到 6144MB（实测峰值 6096MB），
+      它 27/27 全过且**不动全局 4096**（并行度、其余用例口径都不变），
+      census 由此 901 → **902/911**。
       A 类已用**五次对照实验**穷尽（第 639/640/647/652/655 轮）：
       延迟到 join、开真线程、不 drain、保留读端、保留读端+等待点主动推进，
       全部失败。它要的是「排队 → 另一执行流取走 → 观测到 RUNNING → 完成」
