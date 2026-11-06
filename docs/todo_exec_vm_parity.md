@@ -22947,3 +22947,88 @@ Uya 源码，结构体定义自动同步。
 第 2 条给了一个具体可做的方向：**让 `scheduler_run_with_event_loop` 在调用
 future 之前，把一个「允许推进」的标志写进 future 或 pool 里**，
 这样「测试直接 poll」和「调度器驱动 poll」就能区分开了。
+
+## 第 676 轮：`scheduler_is_driving` 显式驱动标志 —— 断言侧继续正确，驱动侧挂死（疑循环依赖）
+
+第 675 轮留的方向是「让 `scheduler_run` 显式下发一个允许推进的标志」。
+本轮把它实现了，断言侧的数据依然是**对的**，但驱动侧没走通。
+
+### 实现
+
+`lib/std/async_scheduler.uya` 加一个全局驱动计数：
+
+```uya
+var g_scheduler_driving: i32 = 0;
+export fn scheduler_is_driving() i32 { return g_scheduler_driving; }
+
+export fn scheduler_run_with_event_loop<T>(...) !T {
+    ...
+    g_scheduler_driving = g_scheduler_driving + 1;
+    defer { g_scheduler_driving = g_scheduler_driving -| 1; }
+    ...
+}
+```
+
+`lib/std/thread.uya` 的等待点改成「只有驱动中才代 worker 消费队列」：
+
+```uya
+fn thread_pool_progress_once_for_wait(pool: &ThreadPool) i32 {
+    ...
+    if scheduler_is_driving() == 0 {
+        return 0;
+    }
+    ...
+}
+```
+
+配合第 675 轮那套 `DISPATCHED` 状态位 + 两处 drain 堵掉。
+
+### 断言侧：依然全对
+
+复刻测试 4 次交替 poll 后读三个值（编码成 `d*10000 + p*100 + r`）：
+
+```
+driving = 0    ← 测试直接 poll 阶段，正确地「不在驱动中」
+pending = 2    ✓
+running = 1    ✓
+```
+
+编码读到 **201**。说明门控逻辑本身是对的：测试直接 poll 时不推进，中间态保住了。
+
+### 驱动侧：挂死
+
+`probe_run` 里只做一个 `scheduler_run<i32>(&s, first)` 就挂死。
+
+诊断计数器显示等待点在测试 poll 阶段被调用了 **2 次**（符合预期，那时 `driving=0` 不推进），
+但在 `scheduler_run` 内部的行为看不到 —— 一进就挂住。
+
+**怀疑是模块循环依赖**：`lib/std/thread.uya` 原本**没有** `use std.async_scheduler`
+（它只 use `std.async`），我为了调 `scheduler_is_driving()` 补了 import，
+而 `async_scheduler.uya` 反过来 use `std.thread`。补完 import 后编译通过
+（错误数 0），但运行仍挂死，说明这不是简单的链接问题，而是这个依赖方向本身可疑 ——
+`thread` 是底层（线程池），`async_scheduler` 是上层（调度器），底层反过来调上层
+在 VM 的解释模型下容易出现初始化顺序问题。
+
+### 正确做法应该是「下推」而不是「上调」
+
+要让底层知道「现在是否在驱动中」，不应该让 `thread` 去查询调度器，
+而应该由调度器**把标志推进线程池**。可行形态：
+
+- 给 `ThreadPool` 加一个 `_driving: i32` 字段；
+- `Scheduler` 侧在驱动前对**它持有的 pool** 置位。
+
+问题在于 `Scheduler` 目前并不持有 `ThreadPool` 引用（两者是通过
+`scheduler_run_with_event_loop` 的参数与 `async_compute` 的 pool 参数各自独立的），
+所以这一步要先把它们关联起来 —— 比本轮预估的大。
+
+### 状态
+
+本轮**无代码改动**（`git checkout -- lib/std/thread.uya lib/std/async_scheduler.uya`
+还原，工作区干净，`make uya` 错误数 0，临时探针已删）。
+
+确定下来的：
+1. `scheduler_is_driving` 的**门控逻辑有效** —— 测试 poll 阶段 `driving=0`，
+   `pending=2 / running=1` 依然正确；
+2. 但「底层查询上层」这个方向不行（补 import 后仍挂死，疑循环依赖）；
+3. 正确方向是**下推**：给 `ThreadPool` 加 `_driving` 字段，由调度器置位 ——
+   前提是先把 `Scheduler` 和 `ThreadPool` 关联起来。
