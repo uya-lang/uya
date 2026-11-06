@@ -22458,3 +22458,48 @@ C99 侧是 `async_compute_i32_drains_after_pending_queue_pressure` 这个具体�
 产出的价值在于把「9 例在 C99 侧到底什么情况」这张表补齐了 ——
 它直接决定了跳过表能不能用（不能），也纠正了一条持续多轮的误分类
 （`test_std_thread` 的 C99 侧不是 flake 而是稳定失败）。
+
+## 第 669 轮：`test_std_thread` 的 C99 侧稳定失败定位到「第 8 个 future 超时」
+
+第 668 轮确认这个用例的 C99 侧是**稳定**失败（3/3），不是 flake。
+本轮用递归探针把它定位到了一个具体的序号。
+
+### 探针：把 10 个 future 依次 drive，记录第一个失败的下标
+
+复刻 `async_compute_i32_drains_after_pending_queue_pressure` 的前半段
+（`thread_pool_new_with_config{worker_count:1, pending_capacity:16, task_slot_capacity:16}`、
+建 10 个 `async_compute<i32>(&pool, &delayed_double_i32, 1..10)`、
+每个 poll 两次），然后依次 `scheduler_run_with_event_loop(fN, 1000)`：
+
+```
+g_fail_idx = 7      ← 第 8 个 future（f7，期望 16）
+g_fail_val = -2     ← scheduler_run_with_event_loop 返回错误（超时）
+```
+
+前 7 个全部正常返回 2/4/6/8/10/12/14，**第 8 个开始超时**。
+
+### 这意味着什么
+
+10 个任务、1 个 worker、每个任务 `sleep_briefly()` 睡 10ms ——
+串行做完总共只要 100ms，而超时预算是 1000ms。**时间上绰绰有余**，
+所以不是「算得慢」，是**第 8 个任务根本等不到 worker 来取**。
+
+一个很自然的解释：前面几次 `drive()` 各自建了一个新 `Scheduler` + 新 epoll，
+把能拿到的任务消费完之后，**唯一的 worker 线程已经退出**（`thread_worker_loop`
+读到 EOF 就 `break`），于是队列里剩下的任务再没人消费，只能一直等到超时。
+
+这条和 VM 侧那个「worker 从不真正消费队列」的问题是**同一个结构性根因的两面**：
+worker 的生命周期和任务队列的深度没有解耦 —— 队列还有活，worker 却已经走了。
+
+### 但没有继续修
+
+这属于 C99 侧的并发实现缺陷（改 `thread.uya` 的 worker 生命周期 / 队列唤醒策略），
+和 exec VM 的 parity 目标正交，而且风险很高（`lib/std/thread.uya` 是全仓
+所有 async/thread 用例的地基，第 652/655 轮已经在这个文件上试过两次都挂死）。
+
+按收工纪律：**既有失败记一行就走**。本轮把它从「不知道哪里错」推进到
+「第 8 个 future 超时、worker 生命周与队列深度未解耦」，这个信息本身就是产出。
+
+### 状态
+
+本轮**无代码改动**（临时探针已删，工作区干净，`make uya` 错误数 0）。
