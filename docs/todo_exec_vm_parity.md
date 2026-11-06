@@ -22804,3 +22804,83 @@ Pending，下一轮同一 future 再来时才调用 `thread_pool_progress_once_f
 到这里可以下一个比较硬的结论：A 类的 `pending`/`running_workers` 这两类断言
 **值层面已经完全能算对**，卡的是「什么时候允许执行」—— 这需要解释器区分
 poll 的来源，属于运行期模型能力，不是业务代码能绕过去的。
+
+## 第 674 轮：找到 `running_workers` 那一步挂死的**根因** —— `refresh_worker_state` 把 RUNNING 当「worker 忙」
+
+第 673 轮加推进就挂死，本轮查到了原因，是两阶段派发和 worker 状态刷新之间的**直接冲突**。
+
+### 冲突点
+
+`thread_pool_refresh_worker_state`（`lib/std/thread.uya:992`）的注释写得很明白：
+
+```uya
+const slot_state: i32 = pool._shared_state.slots[slot_idx as usize].state;
+// 仅 RUNNING 视为占用：worker 正在执行该 slot。
+// DONE 表示任务已算完、结果待 future 读取，worker 旋即回到 pop/阻塞读，
+// 实际可立即复用；若把 DONE 也算占用，会让"刚完成上一个任务的 worker"
+// 在下一次 acquire 时被误判为忙，从而多 spawn 一个冗余 worker（CI 少核下偶发）。
+```
+
+它把**槽位是 RUNNING** 解释成「这个 worker 正忙」。而两阶段派发做的第一件事
+就是把刚入队的任务标成 RUNNING（表示「已派发、还没算完」）。
+
+于是：
+
+```
+两阶段派发标 RUNNING
+   ↓
+refresh_worker_state 认为 worker 忙
+   ↓
+thread_pool_acquire_worker 返回 -1
+   ↓
+thread_pool_progress_once_for_wait 拿不到 worker
+   ↓
+永远不推进 → 挂死
+```
+
+这两套语义是**互斥**的：`RUNNING` 在派发侧表示「已领走」，在 worker 侧表示「正在算」。
+同一个字段承载了两种含义，谁都不能同时满足。
+
+### 试过的绕法：progress 不走 acquire_worker
+
+既然 `acquire_worker` 会被 RUNNING 挡住，那就绕过它，
+直接用 worker_idx = 0 调 `thread_shared_drain_sync`：
+
+```uya
+fn thread_pool_progress_once_for_wait(pool: &ThreadPool) i32 {
+    ...
+    const worker_idx: i32 = 0;
+    return thread_shared_drain_sync(pool._shared_state, worker_idx, 1);
+}
+```
+
+结果：**不挂死了，但 `pending` 回到 0** —— 因为这样绕过了「什么时候该推进」的门控，
+第一次进等待点就推进，中间态又被推平了。
+
+### 结论
+
+到这里 A 类 `pending` / `running_workers` 这条线的**全部矛盾**已经穷尽：
+
+| 需求 | 与什么冲突 |
+| --- | --- |
+| `pending >= 1`（任务留在队列） | 任何执行路径都会消费它 |
+| `running_workers >= 1`（任务已派发） | 需要把槽位标 RUNNING |
+| 标了 RUNNING 后还要能执行 | `refresh_worker_state` 把 RUNNING 当「worker 忙」 |
+| 断言前不能执行、断言后才能执行 | 解释器无法区分 poll 来源 |
+
+第 673 轮已经证明**断言那一刻的值是对的**（`pending=2` / `running=1`），
+本轮证明**为什么之后走不下去**：不是实现写得不好，是 `RUNNING` 这个状态
+被两套语义共用，而它们在单线程解释器里无法同时成立。
+
+真要修，得给 `ThreadTaskSlotRaw` 再加一个「已派发」状态位（比如
+`DISPATCHED = 6`），把「已领走」和「正在算」分开。这属于改共享内存布局，
+会影响 C99 侧（`ThreadTaskSlotRaw` 是 C/VM 两侧共用的 mmap 结构），
+风险超出本目标范围。
+
+### 状态
+
+本轮**无代码改动**（`git checkout -- lib/std/thread.uya` 还原，工作区干净，
+`make uya` 错误数 0）。
+
+这条发现的价值：后续如果有人想动这块，不用再花时间试「绕过 acquire_worker」——
+方向是**新增一个状态位把两套语义分开**，而不是调整时序。
