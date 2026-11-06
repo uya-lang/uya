@@ -22503,3 +22503,90 @@ worker 的生命周期和任务队列的深度没有解耦 —— 队列还有�
 ### 状态
 
 本轮**无代码改动**（临时探针已删，工作区干净，`make uya` 错误数 0）。
+
+## 第 670 轮：A 类的因果链闭合 —— 是 `async_compute` **内部**的 `@await` 循环把中间态吃掉
+
+第 667 轮留下一个矛盾：两阶段派发让 `pending>=1` 和 `running>=1` 同时翻绿，
+可一旦按 worker 数加 cap 把 `running` 数量修对（`actual: 2` → `1`），
+`pending` 就回到 0。本轮把这条因果链走通了。
+
+### 目标测试的真实配置
+
+`tests/test_std_async_scheduler.uya:272` 用的是 **1 个 worker**：
+
+```uya
+var pool: ThreadPool = thread_pool_new_with_config(ThreadPoolConfig{
+    worker_count: 1,
+    pending_capacity: THREAD_POOL_MAX_PENDING + 4,
+    task_slot_capacity: THREAD_POOL_MAX_PENDING + 4,
+    ...
+});
+```
+
+提交**两个**任务，然后交替 poll 各两次，接着断言：
+
+| 断言 | 期望 | 解释 |
+| --- | --- | --- |
+| `pending >= 1` | ≥1 | 第二个任务还在队列 |
+| `running_workers >= 1` | ≥1 | 第一个已被派发 |
+| `metrics.thread_pool_running_workers == 1` | 1 | 只有 1 个 worker，所以最多 1 个在跑 |
+| `metrics.thread_pool_queue_depth >= 1` | ≥1 | 同 pending |
+
+这四条**完全自洽**：1 个 worker 拿走第一个任务（RUNNING=1），第二个留在队列
+（pending≥1）。所以「两阶段派发 + 按 worker 数 cap」在逻辑上是**正确**的设计，
+不需要什么新机制。
+
+### 那为什么 cap 一加 `pending` 就变 0
+
+因为 `async_compute` 不是一次 poll 就结束的。它是 `@async_fn`：
+
+```uya
+export @async_fn fn async_compute<T>(pool: &ThreadPool, compute_fn: &void, arg: T) Future<!T> {
+    const compute_future: Future<!i32> = thread_async_compute_i32(pool, compute_fn, arg as i32);
+    return (try @await compute_future) as T;
+}
+```
+
+`@await compute_future` 在 VM 里会**反复 poll 内层 future 直到它 Ready**。
+而每一次内层 poll 都会走到 `AsyncWorkerResultFuture.poll` 的等待点，
+也就是我放两阶段派发「settle + progress」的那个位置。
+
+于是：外层那 4 次 `first.poll` / `second.poll` 还没轮到断言，
+**内层的 `@await` 循环已经把队列推完了** —— 任务被 settle、被 progress、被做完，
+`pending_count` 自然回到 0。
+
+第 667 轮在 `AsyncWorkerComputeFuture.poll` 提交后加的 early-Pending
+挡不住这条：它只挡住「提交的那一次」，`@await` 下一次立刻又进来。
+
+### 因果链闭合
+
+```
+两阶段派发做得对
+   ↓
+但每次内层 poll 都触发等待点推进
+   ↓
+async_compute 的 @await 会反复 poll 内层 future
+   ↓
+等待点在外层断言之前就被触发很多次
+   ↓
+中间态（pending / RUNNING）全部被推平
+```
+
+要真正让这批断言通过，只有两条路：
+
+1. **让 `@await` 在 Pending 时真正挂起**（续体），把控制权交回外层 poll ——
+   VM 已有 `exec_vm_cont_suspend` / `exec_vm_cont_poll`，缺的是把它接到
+   普通 `@await` 上而不是只在「函数返回 Future」时才挂起；
+2. 让等待点的推进**有条件**（比如只有在外部驱动时才推），但解释器分不清
+   「当前 poll 来自内层 @await 还是外层测试代码」，这条路走不通。
+
+第 1 条正是第 654 轮定性、第 667 轮实证的方向，也是唯一正确的方向。
+
+### 状态
+
+本轮**无代码改动**（纯分析，工作区干净）。
+
+价值：把「两阶段派发明明有效、一加 cap 就失效」这个反复出现三轮的怪现象，
+解释成了一个完整的因果链 —— 不是实现写错，是 `@await` 的同步语义在每个
+内层 poll 上都触发等待点。这也说明**不需要再试两阶段派发的其它变体了**，
+变体都绕不开这一条。
