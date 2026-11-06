@@ -21164,3 +21164,86 @@ exec: ADDR_INDEX 越界(IDXREF fn=handle ip=51 idx=0 kind=14 cnt=-1 isref=1 poin
 `test_async_compute_types`（第 644/645 轮已记录这三例在 C99 侧退出码 0~6 波动）。
 本轮改动（`ec_p384.uya` 域运算 + 新增 `test_ec_p384_field.uya`）与它们无关。
 总数从 1193 到 1194 就是新增的那个用例。
+
+## 第 652 轮：把「pending 恒为 0」从推断变成实验证据 —— 但修好 pending 就必然死锁
+
+第 647 轮把 21 个 `wait_pending_count(...) == 1` 断言的根因定到
+`thread.uya:1108`「`sys_write` 写不进就同步 drain」。那是**读代码得出的推断**。
+本轮把它做成了实验：改一处，看断言怎么变。
+
+### 实验：让 worker 退出时不关 `cmd_read_fd`
+
+原代码（`thread.uya:852`）：
+
+```uya
+fn thread_worker_main(arg: &void) &void {
+    ...
+    thread_worker_loop(start.worker_idx, start.cmd_read_fd, start.result_write_fd, start.shared_state);
+    _ = sys_close(start.cmd_read_fd);        // ← 就是这一行
+    _ = sys_close(start.result_write_fd);
+```
+
+串行 VM 里 `pthread_create` 是「当场把 routine 跑完」，所以 worker 一创建就跑到退出，
+**读端当场关闭**。之后提交路径往 `cmd_write_fd` 写命令必然 EPIPE，于是走
+`thread_shared_drain_sync` 在调用方线程把任务当场做掉 —— 任务从来没机会留在队列里，
+`pending_count` 自然是 0。
+
+改动：把 `sys_close(cmd_read_fd)` 从 worker 退出路径挪到 `thread_pool_shutdown`
+（顺带给 `ThreadWorker` 加一个 `cmd_read_fd` 字段）。管道在整个池生命周期内保持可写。
+
+### 结果：pending 断言真的过了，然后卡在下一层
+
+`test_std_async_scheduler` 的失败断言从
+
+```
+wait_thread_pool_pending_at_least(&pool, 1) == 1   (actual: 0)
+```
+
+变成了
+
+```
+wait_thread_pool_running_workers_at_least(&pool, 1) == 1   (actual: 0)
+```
+
+**第一层被证实了**：pending 之所以恒为 0，确实是因为读端一关就同步 drain。
+
+但下一层立刻暴露，而且更硬：`running_workers` 数的是槽位状态
+`THREAD_SLOT_STATE_RUNNING` 的个数 —— 任务被同步做完之后槽位回到空闲，
+所以它也是 0。这一层没法靠「让写入成功」绕过，因为**根本没有并发执行**。
+
+### 更关键的发现：修好 pending 会直接死锁
+
+保留读端之后，`test_std_thread`、`test_async_compute_dynamic_resource_pressure`、
+`test_async_thread_pool_dynamic_growth` 三个用例在 VM 下**挂死**
+（15 分钟无输出，`EXIT=0` 是 timeout 前的假象）：
+
+```
+=== Running 1 tests ===
+  TEST: async_compute_dynamic_resource_pressure_survives_repeated_queue_stress ...   ← 卡在这
+```
+
+原因很直接：任务现在真的留在队列里了（这正是断言想要的），但 worker 线程早已跑完退出，
+**没有任何东西会去消费这个队列**，调用方就永远等结果。
+
+### 所以这不是「计数算错了」，而是「缺一个推进者」
+
+前面几轮从三个方向试过（延迟到 join 才执行、开真线程、不 drain），加上本轮的
+「让写入成功」，四个方向全部实测排除。四种做法的失败方式能拼出完整图像：
+
+| 做法 | 结果 |
+| --- | --- |
+| 延迟线程体到 join 才跑（第 639 轮） | 250s 挂死（`wait_started_workers` 与 `join` 互等） |
+| 开真线程 / 注册外部线程（第 640 轮） | 两道墙：C 全局与 VM globals 槽不通；mmap 分配的 desc 不被 `exec_vm_address_is_vm_resident` 识别 |
+| 提交路径不 drain（第 647 轮） | 两个探针都挂死（任务无人推进） |
+| **让写入成功、任务留在队列（本轮）** | **pending 断言通过，但立刻挂死 —— 没有消费者** |
+
+结论：这 21 个断言要的是「任务在队列里排队、由另一个执行流消费」这个**并发形态**，
+而 exec VM 的单线程解释器没有任何第二个执行流。要么给 VM 加一个真正的
+「等待点主动消费队列」机制（在 `join`/`wait_*` 的忙等循环里插入 drain），
+要么承认这是运行期模型的边界。
+
+### 状态
+
+本轮**无代码改动**（改动已 `git checkout --` 还原，工作区干净，HEAD `b724a546`）。
+产出是一份实验证据：把「pending 恒为 0 的原因」从代码推断升级成了可复现的实验结论，
+并且明确了「修好这一层会立刻在下层死锁」，避免后人重复投入。
