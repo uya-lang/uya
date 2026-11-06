@@ -22237,3 +22237,88 @@ RUNNING）把它们执行掉、`pending_count` 由入队产生。能读到 `pend
 A 类累计尝试 **8 次**（第 639/640/647/652/655/660/662/665 轮）。
 第 8 次和前 7 次性质不同：前 7 次都是「方案本身不成立」，
 这次是「方案成立，实现里有个具体分支没走对」。
+
+## 第 666 轮：推翻第 665 轮的「任务没进队列」，并把 `pending` 可观测的落点钉死
+
+第 665 轮结尾推测「`enqueue_slot` 返回 0、任务根本没进队列」。本轮用一组
+`export fn` 诊断探针把真实数字取了出来 —— **那个推测是错的**。
+
+### 探针结果：enqueue 是成功的
+
+在 `thread_pool_queue_or_error_slot` 里记录原始返回值与三个前置条件：
+
+```uya
+export fn thread_diag_enqueue_rc() i64 { ... }
+export fn thread_diag_enqueue_valid() i64 { ... }
+export fn thread_diag_enqueue_shared() i64 { ... }
+export fn thread_diag_enqueue_pending() i64 { ... }
+export fn thread_diag_enqueue_cap() i64 { ... }
+```
+
+配一个临时测试（跑完即删）读出来：
+
+```
+thread_diag_enqueue_rc()      = 1     ← 入队成功
+thread_pool_pending_count()   = 0     ← 但立刻归零
+```
+
+所以任务**确实进了队列**，只是马上被消费掉了。第 665 轮「走容量错误分支」的
+推断不成立。
+
+### 谁消费的：`thread_worker_loop` 退出前的 drain
+
+在 `thread_shared_pop_slot` 和三个调用点各加计数器：
+
+```
+thread_diag_pop_count()  = 1
+thread_diag_pop_drain()  = 2     ← 走 thread_shared_drain_sync
+thread_diag_pop_loop()   = 0
+```
+
+消费路径是 `thread_shared_drain_sync`，而它在这个场景里唯一的调用者是
+`thread_worker_loop:773` —— 也就是 worker 读到 EOF 之后那句
+「退出前把队列里排好的任务全部跑完」：
+
+```uya
+if n < 0 || n == 0 {
+    _ = thread_shared_drain_sync(shared_state, worker_idx, thread_shared_pending_capacity(shared_state));
+    break;
+}
+```
+
+串行解释器里 `pthread_create` 会当场执行 `thread_worker_main`，
+`thread_worker_loop` 第一轮 `sys_read` 就读到 EOF，于是**在任务入队之前/同时**
+就把整个队列 drain 了一遍。这就是 `pending` 恒 0 的最后一块拼图。
+
+### 验证：去掉那一句，`pending` 立刻变 1
+
+把 worker 退出前的 drain 去掉（只 `break`），临时测试读到：
+
+```
+thread_pool_pending_count(&pool) = 1      ← 首次非零
+```
+
+再配上第 664 轮的两阶段派发（提交后标 `RUNNING`、`run_slot_sync` 接受 RUNNING）：
+`test_std_async_scheduler` 的
+**`wait_thread_pool_pending_at_least(&pool, 1)` 断言首次转绿**，失败推进到
+`wait_thread_pool_running_workers_at_least(&pool, 1)`。
+
+### 但 `running_workers` 卡在最后一个坎
+
+探针显示派发函数被调用了（`g_dispatch_calls = 1`），可槽位状态读出来仍是
+**QUEUED(2)** 而不是 **RUNNING(3)**，即使把 worker 数 cap 整个删掉也一样。
+也就是说 `pool._shared_state.slots[i].state = THREAD_SLOT_STATE_RUNNING`
+这句赋值在那个上下文里**没有落到 mmap 出去的那块内存上**（同一函数里
+`thread_pool_enqueue_slot` 写的 QUEUED 却能读回来）。
+
+这个差异本轮没查出来，是明确的下一步入口。
+
+### 状态
+
+本轮**无代码改动**（`lib/std/thread.uya` 已从备份还原，工作区干净，
+`make uya` 错误数 0；临时测试 `tests/diag_tmp_probe.uya` 已删除）。
+
+三条要记住的结论：
+1. 第 665 轮「任务没进队列」**错了**，`enqueue` 返回 1；
+2. `pending` 恒 0 的真凶是 `thread_worker_loop:773` 退出前的 `drain_sync`；
+3. `pending >= 1` 已经可以稳定做到，`running_workers` 只差「RUNNING 赋值不生效」这一处。
