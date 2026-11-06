@@ -229,72 +229,122 @@ fn fe384_bit_of_p_minus_2(bit_index: i32) u64 {
     return 0;
 }
 
-fn fe384_add(r: &Fe384, a: &const Fe384, b: &const Fe384) void {
-    var am: Mpi = Mpi{};
-    var bm: Mpi = Mpi{};
-    var pm: Mpi = Mpi{};
-    var tm: Mpi = Mpi{};
-    var rm: Mpi = Mpi{};
-    fe384_load_mpi(&am, a);
-    fe384_load_mpi(&bm, b);
-    mpi_init(&pm);
-    mpi_init(&tm);
-    mpi_init(&rm);
-    pm.limbs[0] = P384_P_LE[0];
-    pm.limbs[1] = P384_P_LE[1];
-    pm.limbs[2] = P384_P_LE[2];
-    pm.limbs[3] = P384_P_LE[3];
-    pm.limbs[4] = P384_P_LE[4];
-    pm.limbs[5] = P384_P_LE[5];
-    pm.n = FE384_LIMBS;
-    pm.sign = 1;
-    mpi_add(&tm, &am, &bm) catch {
-        fe384_zero(r);
-        return;
-    };
-    mpi_mod(&rm, &tm, &pm) catch {
-        fe384_zero(r);
-        return;
-    };
-    fe384_store_mpi(r, &rm);
+/// 借位/进位减法：r = a - b，返回借位（0 或 1）。全程模 2^64。
+fn fe384_sub_limbs(r: &Fe384, a: &const Fe384, b: &const Fe384) u64 {
+    var borrow: u64 = 0;
+    var i: usize = 0;
+    while i < FE384_LIMBS {
+        const av: u64 = a.l[i];
+        const bv: u64 = b.l[i];
+        const t: u64 = av -% bv;
+        const s: u64 = t -% borrow;
+        // 借位发生当且仅当 av < bv + borrow（用一次减法后的比较来判）
+        var br: u64 = 0;
+        if av < bv { br = 1; }
+        if t < borrow { br = 1; }
+        r.l[i] = s;
+        borrow = br;
+        i = i + 1;
+    }
+    return borrow;
 }
 
-fn fe384_sub(r: &Fe384, a: &const Fe384, b: &const Fe384) void {
-    var am: Mpi = Mpi{};
-    var bm: Mpi = Mpi{};
-    var pm: Mpi = Mpi{};
-    var tm: Mpi = Mpi{};
-    var rm: Mpi = Mpi{};
-    fe384_load_mpi(&am, a);
-    fe384_load_mpi(&bm, b);
-    mpi_init(&pm);
-    mpi_init(&tm);
-    mpi_init(&rm);
-    pm.limbs[0] = P384_P_LE[0];
-    pm.limbs[1] = P384_P_LE[1];
-    pm.limbs[2] = P384_P_LE[2];
-    pm.limbs[3] = P384_P_LE[3];
-    pm.limbs[4] = P384_P_LE[4];
-    pm.limbs[5] = P384_P_LE[5];
-    pm.n = FE384_LIMBS;
-    pm.sign = 1;
-    if mpi_compare(&am, &bm) >= 0 {
-        mpi_sub(&rm, &am, &bm) catch {
-            fe384_zero(r);
-            return;
-        };
-        fe384_store_mpi(r, &rm);
-        return;
+/// r = (a >= p)
+fn fe384_ge_p(a: &const Fe384) bool {
+    var i: usize = FE384_LIMBS;
+    while i > 0 {
+        i = i - 1;
+        const av: u64 = a.l[i];
+        const pv: u64 = P384_P_LE[i];
+        if av > pv { return true; }
+        if av < pv { return false; }
     }
-    mpi_add(&tm, &am, &pm) catch {
-        fe384_zero(r);
-        return;
-    };
-    mpi_sub(&rm, &tm, &bm) catch {
-        fe384_zero(r);
-        return;
-    };
-    fe384_store_mpi(r, &rm);
+    return true;
+}
+
+/// r -= p（调用方保证 r >= p）
+fn fe384_sub_p(r: &Fe384) void {
+    var pv: Fe384 = Fe384{ l: [0:6] };
+    fe384_zero(&pv);
+    var i: usize = 0;
+    while i < FE384_LIMBS {
+        pv.l[i] = P384_P_LE[i];
+        i = i + 1;
+    }
+    const _ignored: u64 = fe384_sub_limbs(r, r, &pv);
+}
+
+/// 域加：r = a + b mod p。
+///
+/// 原来走 `mpi_add` + `mpi_mod`（通用大整数的完整除法归约），p256 的同名函数
+/// 是手写定长循环。解释执行下这个差别被 `fe384_inv`（383 次平方 + 约 192 次乘）
+/// 放大得很厉害：p384 单独跑 >40 分钟，p256 只要 85 秒（第 648 轮实测）。
+fn fe384_add(r: &Fe384, a: &const Fe384, b: &const Fe384) void {
+    var out: Fe384 = Fe384{ l: [0:6] };
+    fe384_zero(&out);
+    var carry: u64 = 0;
+    var i: usize = 0;
+    while i < FE384_LIMBS {
+        const av: u64 = a.l[i];
+        const bv: u64 = b.l[i];
+        const t: u64 = av +% bv;
+        const s: u64 = t +% carry;
+        // a+b 的进位 = (t 溢出) + (t + carry 再溢出)
+        var c: u64 = 0;
+        if av +% bv < av { c = 1; }
+        if t +% carry < t { c = 1; }
+        out.l[i] = s;
+        carry = c;
+        i = i + 1;
+    }
+    // a+b 可能 >= 2^384（那一位在 carry 里）。此时必须**无条件**减一次 p：
+    // 只用 6 个 limb 做「>= p」判断会把超出的那一位漏掉，结果差一个 p。
+    if carry != 0 {
+        fe384_sub_p(&out);
+    } else {
+        if fe384_ge_p(&out) {
+            fe384_sub_p(&out);
+        }
+    }
+    fe384_cpy(r, &out);
+}
+
+/// r += p（忽略溢出进位）
+fn fe384_add_p(r: &Fe384) void {
+    var pv: Fe384 = Fe384{ l: [0:6] };
+    fe384_zero(&pv);
+    var i: usize = 0;
+    while i < FE384_LIMBS {
+        pv.l[i] = P384_P_LE[i];
+        i = i + 1;
+    }
+    var carry: u64 = 0;
+    var j: usize = 0;
+    while j < FE384_LIMBS {
+        const av: u64 = r.l[j];
+        const t: u64 = av +% pv.l[j];
+        const s: u64 = t +% carry;
+        var c: u64 = 0;
+        if av +% pv.l[j] < av { c = 1; }
+        if t +% carry < t { c = 1; }
+        r.l[j] = s;
+        carry = c;
+        j = j + 1;
+    }
+}
+
+/// 域减：r = a - b mod p。
+///
+/// 全程用定长 6-limb 环绕减，借位由 `fe384_sub_limbs` 显式返回。
+/// `a < b` 时结果是 `a - b + 2^384`，再加上 p 就得到 `a - b + p`（正确且在 [0, p)）。
+fn fe384_sub(r: &Fe384, a: &const Fe384, b: &const Fe384) void {
+    var out: Fe384 = Fe384{ l: [0:6] };
+    fe384_zero(&out);
+    const borrow: u64 = fe384_sub_limbs(&out, a, b);
+    if borrow != 0 {
+        fe384_add_p(&out);
+    }
+    fe384_cpy(r, &out);
 }
 
 fn fe384_mul(r: &Fe384, a: &const Fe384, b: &const Fe384) void {

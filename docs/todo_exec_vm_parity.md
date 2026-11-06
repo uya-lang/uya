@@ -20857,3 +20857,123 @@ export fn ec_p384_field_add(out: &byte, a: &const byte, b: &const byte) void {
 2. 或者绕开手工借位：`out - p` 之后检查最高 limb 是否「看起来变小了」，
    用 `fe384_ge_p` 在环绕后重新判断，避免自己追踪 borrow。
 3. 每次改动都先跑 `tests/test_ec_p384_field.uya`（秒级），全绿再跑端到端。
+
+## 第 650 轮：p384 域加/减改成定长实现 —— 正确了，但提速几乎全被 `fe384_mul` 吃掉
+
+第 648/649 两轮卡在「改完跑不对、且只能靠 45 分钟端到端判错」。
+第 649 轮补了对拍入口后，本轮**把根因找出来了**。
+
+### 真正的 bug：饱和减 `-|` 把借位吃掉了
+
+之前几版 `fe384_sub_p` 写成：
+
+```uya
+d = (rv +| (0xFFFFFFFFFFFFFFFF as u64 -| pv)) +| 1;   // 错
+```
+
+三处都不对：
+
+1. `-|` 是**饱和减**（文档 `docs/changelog.md:1617`：饱和运算符 `+|`/`-|`/`*|`，
+   环绕运算符 `+%`/`-%`/`*%`）。`MAX -| pv` 在 `pv == 0` 时返回 `MAX`，
+   `+1` 后该环绕回 `0`，而我们要的是 `2^64`。
+2. `+|` 同样是饱和加，溢出时截成 `MAX`，`s1 < av` 这种**环绕**判溢出法根本测不出来。
+3. 借位判断只看 `rv < pv`，漏掉了 `t < borrow` 这一半 ——
+   借位发生当且仅当 `av < bv` **或** `av - bv < borrow`。
+
+改成显式环绕减法 + 双条件借位判断后一次就对了：
+
+```uya
+/// 借位/进位减法：r = a - b，返回借位（0 或 1）。全程模 2^64。
+fn fe384_sub_limbs(r: &Fe384, a: &const Fe384, b: &const Fe384) u64 {
+    var borrow: u64 = 0;
+    var i: usize = 0;
+    while i < FE384_LIMBS {
+        const av: u64 = a.l[i];
+        const bv: u64 = b.l[i];
+        const t: u64 = av -% bv;
+        const s: u64 = t -% borrow;
+        var br: u64 = 0;
+        if av < bv { br = 1; }
+        if t < borrow { br = 1; }
+        r.l[i] = s;
+        borrow = br;
+        i = i + 1;
+    }
+    return borrow;
+}
+```
+
+加法同理（进位 = `av+bv` 溢出 **或** `t+carry` 溢出）：
+
+```uya
+    const t: u64 = av +% bv;
+    const s: u64 = t +% carry;
+    var c: u64 = 0;
+    if av +% bv < av { c = 1; }
+    if t +% carry < t { c = 1; }
+```
+
+这里 `+%`/`-%` 才是关键 —— 用 `+|`/`-|` 一定错。
+
+### 端到端验证通过
+
+- `tests/test_ec_p384_field.uya`：C99 1/1、VM 1/1（6 组随机向量 × add/sub/mul）
+- `tests/test_tls_ecdsa.uya`：C99 **1/1 通过**（4.3 秒）—— 改之前也通过，
+  所以这是「没改坏」的证据
+- p384 单独在 VM 下**39m29s 跑完且通过**（改之前是 >40 分钟跑不完）
+- 顺带修掉一个真 bug：`fe384_sub_p` 在 `carry != 0` 时必须**无条件**减 p，
+  只看 6 limb 的 `>= p` 会漏掉超出 2^384 的那一位
+
+### 但提速非常有限 —— 瓶颈在 `fe384_mul`，不在 add/sub
+
+| | C99 | VM |
+| --- | --- | --- |
+| `test_tls_ecdsa`（p256+p384） | 4.3 秒 | 25 分钟未完成 |
+| p384 单独 | — | **39m29s 完成**（改前 >40min 未完成） |
+
+第 648 轮曾记录「只改 add/sub 就 2m39s」，**那个数字是错的** ——
+当时把超时中断当成了跑完（日志里只有一行构建信息，没有任何测试结果）。
+本轮用 `timeout 2400` 拿到真实结果才看清：**add/sub 的优化在 VM 下几乎没提速**。
+
+原因是 `fe384_inv` 的 383 次平方走 `fe384_sqr` → `fe384_mul` → `mpi_mul` + `mpi_mod`，
+**乘法才是绝对主导**。add/sub 只是乘法的周边辅助，改它收益自然小。
+C99 侧能到 4.3 秒是因为编译器把 Mpi 的固定大小循环展开了，解释执行没这个红利。
+
+### 状态
+
+- `lib/tls/crypto/ec_p384.uya`：`fe384_add`/`fe384_sub`/`fe384_sub_p` 已改为定长
+  6-limb（+ 新增 `fe384_sub_limbs`/`fe384_ge_p`/`fe384_add_p`），
+  `fe384_mul`/`fe384_sqr`/`fe384_inv` **未改**（仍走 Mpi）。
+- `tests/test_ec_p384_field.uya`：新增，C99/VM 各 1/1。
+- `tests/test_tls_ecdsa.uya` C99 侧 1/1，无回归。
+
+### 下一轮：`fe384_mul` 的伪梅森归约
+
+这才是真正的那一步。P-384 有恒等式
+
+```
+2^384 ≡ 2^128 + 2^96 − 2^32 + 1  (mod p)
+```
+
+即 `c = 2^384 mod p = 0x100000000ffffffffffffffff00000001`，
+6-limb 小端表示是 `[0xffffffff00000001, 0xffffffff, 0x1, 0, 0, 0]`
+—— **只有 limb 0/1/2 非零**，所以「高位折回低位」只需 3 次乘加，非常便宜。
+该公式已在 Python 侧验证（第 648 轮：`fold-only correct: True`）。
+
+实现要点（第 648 轮在 Python 参考实现里踩过）：
+6×6 学校簿乘法的进位传播必须写成
+
+```python
+k = i + 6
+while carry:
+    s = t[k] + carry
+    carry = 1 if s < carry else 0
+    t[k] = s & M
+    k += 1
+```
+
+不能简单 `t[i+6] += carry` 就完事（那样会和后面的行冲突）。
+折叠两轮 + 条件减 p 即可到规范形式。
+
+改完先跑 `tests/test_ec_p384_field.uya`（秒级）确认 `a*b` 对，
+再跑 `test_tls_ecdsa` 端到端。
