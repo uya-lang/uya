@@ -21368,3 +21368,87 @@ test_typed_pipeline_capability:
 失败清单与第 651 轮**逐条一致**，唯一变化是 `test_typed_pipeline_capability`
 的失败断言数 4 → 3。`test_signal`（C99 / VM）都仍是 0 失败 ——
 这条最要紧，因为它和 `sigaction` 共用模拟表，证明新实现没有破坏信号语义。
+
+## 第 654 轮：剩余 10 例的逐条重新定性（`@await` 同步降级是其中 6 例的共同根因）
+
+第 653 轮修掉 `sigaction` 之后，剩余 10 例本轮逐条重新量了一遍。
+下面按**根因**归并，不再按用例名罗列 —— 因为其中 6 例其实是同一个原因。
+
+### A. `@await` 在 VM 里直接取载荷（6 例，21 个断言）
+
+`lib/std/thread.uya:1973` 的 `async_compute<T>` 是 `@async_fn`，函数体是
+
+```uya
+const compute_future: Future<!i32> = thread_async_compute_i32(pool, compute_fn, arg as i32);
+return (try @await compute_future) as T;
+```
+
+C99 下 `@await` 在任务还没跑完时**真正挂起**，把执行权交回调度器：
+于是「第一个任务在跑、第二个在队列里等」这个中间态能被外部观察到 ——
+这正是 `thread_pool_pending_count(pool) >= 1` / `running_workers >= 1`
+那批断言要的东西（`tests/test_std_async_scheduler.uya:294-295`）。
+
+VM 下 `@async_fn` 一律「同步执行到完成」（`src/exec/lower.uya:11347`）：
+`@await` 直接取载荷，`async_compute` 整个变成同步调用，
+两个任务都在 `async_compute(...)` 返回之前就做完了。
+外部再去轮询时 pending=0、running_workers=0，断言必然拿不到。
+
+**这条根因覆盖 6 个用例：**
+
+| 用例 | 失败断言数 |
+| --- | --- |
+| `test_std_thread` | 7 |
+| `test_async_thread_pool_dynamic_growth` | 4 |
+| `test_std_thread_async_boundary` | 3 |
+| `test_async_compute_dynamic_resource_pressure` | 1 |
+| `test_std_async_scheduler` | 1 |
+| `test_async_frame_pool_full` | 1 |
+
+`test_async_frame_pool_full` 是同一根因的另一面：它要求「frame allocator
+失败时 `@async_fn` wrapper 返回 `AsyncFramePoolFull`」，但 VM 的 wrapper
+**根本不分配 frame**（同步降级），所以那个错误路径永远进不去。
+
+第 652 轮的实验已经把这条排除得很干净了：让管道读端保持打开，
+`pending` 断言**真的通过**了（失败断言推进到下一层 `running_workers`），
+但紧接着三个用例直接挂死 —— 因为任务留在队列里，却没有任何执行流会去消费它。
+四种做法（延迟到 join / 开真线程 / 不 drain / 让写入成功）全部实测失败，
+拼出的结论是：**缺的不是计数逻辑，是第二个执行流**。
+
+要真修，得给解释器加「在 `@await` 处保存续体 + 由调度器推进」的状态机。
+这是运行期模型的扩展，不是局部 bug。
+
+### B. x86 裸汇编（1 例，3 个断言）
+
+`test_kernel_sim`：`@naked_fn` + `@asm` 里写 `movq %rsp,%rax`，
+并且要求 `BC_ADDR_LOCAL` 产出**物理地址**（拿去做 call gate 的栈上跳转）。
+VM 的局部地址是逻辑引用（`EXEC_VM_REF_KIND_BASE + kind` 编码），永远不是物理地址；
+`@naked_fn` 也没有真实 `rsp`。第 645 轮已实测，C99 侧 30/30 全过，
+所以不是两侧都不适用，**不能进跳过表**。
+
+### C. 每线程独立 tcache（1 例，181 个断言）
+
+`test_pthread_heap_cache_identity` 要求 `pthread_current_heap_cache()`
+在**不同线程**上返回**不同地址**（4 种线程数 × 128 轮全比对）。
+VM 没有真线程，所有「线程」共用同一份缓存，地址恒定相同。
+
+### D. `fork()` 复制解释器（1 例，3 个断言）
+
+`test_typed_pipeline_capability` 剩下的 3 个（`pipeline_terminal_inherit_*` /
+`pipeline_background_executor_*` / `pipeline_stopped_terminal_child_*`）
+都在 self test 里调 `fork()`（`lib/std/process.uya:3210`）。VM 里 `fork()`
+复制的是整个解释器进程，子进程的副作用（改进程组、设前台终端）父进程看不见。
+第 653 轮已把**不涉及 fork** 的 `pipeline_broker_*` 那一个修好了（4 → 3）。
+
+### E. 环境内存口径（1 例）
+
+`test_http_uyagin`：默认 4GB 上限下报 `ADDR_INDEX 越界`，6GB 下通过。
+已定量确认（第 651 轮），正确处置是给 census 提高内存额度，不是改 VM。
+
+### 本轮结论
+
+10 例里 **9 例是运行期模型边界**（A 6 / B 1 / C 1 / D 1），**1 例是内存口径**。
+没有任何一例是「某个函数实现错了」那种可以单点修掉的 bug ——
+第 653 轮那个 `sigaction` 是最后一个这类问题。
+
+第 652 轮的实验价值在这里体现：它把「A 类能不能靠改计数/改 drain 绕过去」
+这个问题彻底关掉了，省掉后续大量试错。
