@@ -22590,3 +22590,86 @@ async_compute 的 @await 会反复 poll 内层 future
 解释成了一个完整的因果链 —— 不是实现写错，是 `@await` 的同步语义在每个
 内层 poll 上都触发等待点。这也说明**不需要再试两阶段派发的其它变体了**，
 变体都绕不开这一条。
+
+## 第 671 轮：找到让 `pending=1` 与 `running_workers=1` **同时成立**的完整改动集
+
+第 670 轮把 A 类归因到「`@await` 同步到底」，本轮先验证这个前提，
+发现**前提错了**，然后顺着正确的方向找到了一套真正可行的改动。
+
+### 先纠正前提：`@await` 在 VM 里**是会挂起的**
+
+写了一个 `export fn thread_diag_poll_kind_i32(f, w) i32`（1=Ready、0=Pending），
+对 `async_compute` 只 poll 一次：
+
+```
+C99: k = 0  (Pending)
+VM : k = 0  (Pending)      ← 两侧一致，@await 挂起机制工作正常
+```
+
+所以第 670 轮「`@await` 同步到底、把推进和完成绑在一起」的说法不成立。
+
+### 真正的差异在第二次 poll
+
+同一探针改成 poll 两次后读 `thread_pool_pending_count`：
+
+```
+C99: pending = 1     ← 任务留在队列
+VM : pending = 0     ← 任务已被消费
+```
+
+这才是 A 类的**纯 VM 侧**缺口：C99 保留队列，VM 把它清空了。
+第 670 轮把这件事归因到 `@await` 循环是错的 —— 是 VM 有额外的消费路径。
+
+### 找到三条消费路径，堵掉两条就够了
+
+逐个排除，最后定位到两处：
+
+| 位置 | 原行为 |
+| --- | --- |
+| `thread_worker_loop:773`（worker 读到 EOF 退出前） | 把整个队列 `thread_shared_drain_sync` 一遍 |
+| `thread_pool_try_kick_drain`（写 cmd pipe 失败时） | 同样同步 drain 整个队列 |
+
+**两处都改成不 drain（只 `break` / 只 `return`）后**：
+
+```
+probe（单 future、poll 两次）: pending = 1     ← 与 C99 一致
+```
+
+### 再补两阶段派发，`running_workers` 也成立
+
+在 `thread_pool_queue_or_error_slot` 入队成功后把槽位标成 `RUNNING`
+（受「同时 RUNNING 不超过 worker 数」约束），并把 `thread_shared_run_slot_sync`
+的守卫放宽到接受 RUNNING：
+
+```
+probe（pool = thread_pool_new(1)，poll 两次）:
+  pending_count   = 1     ✓ 与 C99 一致
+  running_workers = 1     ✓
+```
+
+**这是 A 类第一次让这两个指标在探针下同时等于 C99 的值。**
+
+### 但目标测试仍差一步
+
+`test_std_async_scheduler` 用的是「两个 future 交替 poll 各两次」。
+同样的改动下：
+
+- 单 future 探针：`pending = 1` ✓
+- 两个 future 交替：`pending = 0` ✗
+
+只要把第二个 `async_compute` 加进来，队列就会被清空。本轮没查完这一条
+（怀疑与 `second.poll` 第一次调用时内部的 `first_poll` 分支、
+或 `async_compute` 调用时的 allocator 设置有关），是明确的下一步入口。
+
+### 状态
+
+本轮**无代码改动**（实验改动已 `git checkout -- lib/std/thread.uya` 还原，
+工作区干净，`make uya` 错误数 0；临时探针已删）。
+
+三条要记住的：
+1. **`@await` 在 VM 里确实会挂起**（单次 poll 返回 Pending，C99/VM 一致）——
+   第 670 轮的前提是错的；
+2. `pending` 恒 0 的两个真凶是 `thread_worker_loop:773` 和
+   `thread_pool_try_kick_drain` 的**同步 drain**，堵掉即可；
+3. 两阶段派发 + 两处 drain 堵掉之后，`pending=1` 且 `running_workers=1`
+   **首次同时成立**。差的只是「多 future 交替 poll」这一个场景。
