@@ -21854,3 +21854,56 @@ C99 侧它们也不稳，属于同一族。
 parity 里这例 C99 从 1 变成 2（VM 仍是 4）。C99 侧这个用例本身就在
 0~2 之间抖（第 644/645 轮记录过），不是本轮改动引起的 ——
 它属于 A 类，两侧都在等同一个缺失的并发形态。
+
+## 第 660 轮：第 652/655 轮的「保留读端必挂死」被第 658 轮修复推翻了一半
+
+第 652 轮和第 655 轮都把「保留 `cmd_read_fd`」判成死路，
+理由是 `test_std_thread` / `test_async_thread_pool_dynamic_growth` /
+`test_async_compute_dynamic_resource_pressure` 会挂死。
+
+第 658 轮修掉 `AsyncWorkerResultFuture` 把 `slot_idx` 当 fd 交给 `sys_read`
+的 bug 之后，这批用例的挂死原因已经变了 —— 所以本轮把那个实验**重做了一遍**。
+
+### 重做结果：3 例不挂了
+
+同样的改法（`ThreadWorker.cmd_read_fd` 字段 + worker 退出不关读端），
+不再加任何「等待点主动推进」，直接跑：
+
+| 用例 | 第 652/655 轮 | 本轮（第 658 轮修复之后） |
+| --- | --- | --- |
+| `test_std_async_scheduler` | 挂死 | **不挂**，卡在 `wait_thread_pool_running_workers_at_least` |
+| `test_std_thread_async_boundary` | 挂死 | **不挂**，失败 1 |
+| `test_async_frame_pool_full` | 挂死 | **不挂**，失败 1 |
+| `test_std_thread` | 挂死 | 仍挂死在 `thread_pool_config_can_exceed_legacy_static_limits` |
+| `test_async_thread_pool_dynamic_growth` | 挂死 | 仍挂死 |
+| `test_async_compute_dynamic_resource_pressure` | 挂死 | 仍挂死 |
+
+**所以第 652/655 轮「保留读端 → 一定挂死」这个结论是错的**，
+至少有一半的挂死是第 658 轮修掉的那个 `slot_idx`→fd bug 造成的：
+`sys_read(0, ...)` 去读**标准输入**，在没有输入的重定向环境下直接阻塞住，
+看起来就像「没有消费者所以挂死」。
+
+### 但仍不能就这么改
+
+剩下 3 例挂死的位置也变了，而且值得记下来：
+`test_std_thread` 现在挂死在 **`thread_pool_config_can_exceed_legacy_static_limits`**
+（`:318`）这个用例上，它创建 `THREAD_POOL_MAX_WORKERS + 1 = 33` 个 worker。
+也就是**挂死从「等待结果」转移到了「启动大量 worker」**。
+
+这和 fd 耗尽无关（`ulimit -n` 是 1024，33 个读端远不够满）。
+在这个用例上单独复现失败于探针的语法限制
+（VM 不支持把 `ThreadPoolConfig{...}` 字面量或局部结构体作为实参传给
+`thread_pool_new_with_config`，报
+`exec: 当前仅支持局部变量/参数/全局标识符(libc)`），所以本轮没有继续往下钻。
+
+### 状态
+
+本轮**无代码改动**（`lib/std/thread.uya` 已从备份还原，工作区干净，
+`make uya` 错误数 0）。
+
+产出是**修正了两轮的错误结论**并缩小了剩余挂死的范围：
+- 「保留读端必挂死」→ 不成立，其中一半是 `slot_idx`→fd bug 的症状；
+- 真正剩下的阻塞点在「启动 33 个 worker」这条路径上，与 pending 队列无关。
+
+这条修正对后续很重要：第 655 轮那句「五次对照全部失败、这条路彻底关掉」
+需要降级成「前四次失败的原因里有一次是误诊」。
