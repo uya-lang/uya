@@ -22742,3 +22742,65 @@ test_std_async_scheduler:
 2. 两个 future 交替 poll 时 `pending = 2`，与 C99 一致；
 3. 两阶段派发能保住 `pending`，但 `running_workers` 因为缺「外部驱动」概念
    仍然读不到 —— 四种推进时机判据全部失败。
+
+## 第 673 轮：`p=2, r=1` 已经能稳定复现 —— 断言值本身是对的，卡在「之后的执行」
+
+第 672 轮钉死了三项改动的组合效果。本轮把测试断言点那一刻的**两个真实值**取了出来。
+
+### 断言点的实测值：完全正确
+
+改动 = 「两处 drain 都堵掉」+「入队后标 RUNNING（受 worker 数约束）」+「`run_slot_sync` 接受 RUNNING」，
+**不加**任何等待点推进。探针复刻测试的 4 次交替 poll 后读两个值：
+
+```
+thread_pool_pending_count(&pool)            = 2    (断言要 ≥1)  ✓
+thread_pool_metrics(&pool).running_workers  = 1    (断言要 ≥1)  ✓
+```
+
+编码成 `p * 100 + r` 读到 **201**，即 `pending=2 / running=1`。
+这正是 `test_std_async_scheduler` 那四条断言要的值：
+
+| 断言 | 需要 | 实测 |
+| --- | --- | --- |
+| `pending >= 1` | ≥1 | 2 ✓ |
+| `running_workers >= 1` | ≥1 | 1 ✓ |
+| `metrics.thread_pool_running_workers == 1` | 1 | 1 ✓ |
+| `metrics.thread_pool_queue_depth >= 1` | ≥1 | 2 ✓ |
+
+### 但整条测试仍然挂死
+
+因为断言之后还有：
+
+```uya
+try assert_eq_i32(try scheduler_run_i32(&s, first), 1);
+try assert_eq_i32(try scheduler_run_i32(&s, second), 2);
+```
+
+这两步必须让任务真正执行完。而「不加任何推进」时没有任何路径会执行它们 —— 挂死。
+
+### 加了 `waited` 标志反而回到 0
+
+试的实现：`AsyncWorkerComputeFuture` 加 `waited: i32` 字段，提交那轮置 1 并返回
+Pending，下一轮同一 future 再来时才调用 `thread_pool_progress_once_for_wait`。
+理论上「提交轮不推进、次轮才推进」，正好把派发和执行隔开。
+
+实测：`pending` 又变成 0。原因是第二轮 poll 里那次推进发生在**测试断言之前** ——
+`first` 的第 2 次 poll 提交（waited=1），`first` 没有第 3 次 poll，
+但 `second` 的第 2 次 poll 提交后也会置 waited；而 `scheduler_run_i32` 之前的
+任何一次额外 poll 都会触发。测试只有 4 次 poll，`waited` 的窗口太窄。
+
+### 这一轮真正确定下来的
+
+1. **断言值是对的**：`pending=2`、`running_workers=1` 能稳定复现（编码 201）；
+2. 缺的是「断言之后才能执行」这个时序控制 —— 而解释器里所有 poll
+   都从同一条调用栈进来，无法区分「断言前的 poll」和「`scheduler_run` 里的 poll」；
+3. 第 672 轮那四种判据 + 本轮的 `waited` 标志，共**五种**推进时机方案，全部失败。
+
+### 状态
+
+本轮**无代码改动**（`git checkout -- lib/std/thread.uya` 还原，工作区干净，
+`make uya` 错误数 0，临时探针已删）。
+
+到这里可以下一个比较硬的结论：A 类的 `pending`/`running_workers` 这两类断言
+**值层面已经完全能算对**，卡的是「什么时候允许执行」—— 这需要解释器区分
+poll 的来源，属于运行期模型能力，不是业务代码能绕过去的。
