@@ -21694,3 +21694,92 @@ VM 是同步执行，任务在 `poll` 里就完成了，200ms 绰绰有余 —�
 `tests/verify_exec_vm_parity.sh:153` 是严格逐例比对（`c99_st != vm_st`
 直接判 `STATUS_MISMATCH`），没有重试。所以只要机器负载高，parity 就不可能全绿。
 这一点必须写清楚，不能假装它是 VM 的问题。
+
+## 第 658 轮：修掉 C99 侧 `async_compute` 的 **slot_idx 当 fd** 真 bug —— 两个用例从 55% 失败率转 5/5 全绿
+
+第 657 轮把 `test_async_compute_types` / `test_async_compute_generic_wrapper`
+判成「C99 侧 200ms 超时太紧」。**那个结论是错的** —— 本轮用探针拿到了确切的
+错误码，发现是货真价实的代码 bug。
+
+### 剥掉「超时」这个错误方向
+
+第 657 轮的依据是「失败用例随机轮换」+「加大超时没改善」。但当时的探针只打印
+`ERR`，没打印 `@error_id`。补上之后立刻清楚了：
+
+```
+6 ERRID 9
+8 OKAY 42
+```
+
+`error id 9` 是 **EBADF**。它不是超时 —— 超时在
+`scheduler_run_with_event_loop` 里只是 `scheduler_record_wait_timeout(self)`
+然后 `continue`（`lib/std/async_scheduler.uya:1025`），**根本不返回错误**。
+所以「200ms 太紧」这条从机制上就不成立。
+
+### 根因：`AsyncThreadSlotWaitFuture` 的 Ready 载荷有两种含义
+
+`lib/std/thread.uya:1349` 的 `AsyncThreadSlotWaitFuture.poll` 有两条返回路径：
+
+```uya
+if thread_async_slot_is_done(self.pool, self.slot_idx) {
+    return async_poll_ready_ok_usize(self.slot_idx as usize);   // ← 载荷是**索引**
+}
+const read_fd: i32 = thread_async_try_slot_result_fd(self.pool, self.slot_idx);
+if read_fd >= 0 {
+    return async_poll_ready_ok_usize(read_fd as usize);          // ← 载荷是**fd**
+}
+```
+
+而消费它的 `AsyncWorkerResultFuture.poll`（`:1442`）只有一种解读：
+
+```uya
+const read_fd_bits: usize = wait_result catch { return wait_poll; };
+read_fd = read_fd_bits as i32;
+...
+sys_read(read_fd, (&raw_value) as *byte, @size_of(usize))
+```
+
+**索引被当成了 fd。** `slot_idx` 是 0/1/2… 这样的小整数，正好落在
+stdin/stdout/stderr 上：`sys_read(0, ...)` 去读标准输入、`sys_read(1, ...)`
+去读标准输出，内核返回 **EBADF**，于是整条 compute 链路被判失败。
+
+这也解释了第 657 轮观察到的「随机轮换」—— 不是竞争，是**哪个用例先拿到
+slot 0/1/2，哪个就挂**。跑 11 个用例、每次 slot 分配顺序略有不同，
+看起来就像随机。
+
+### 修法
+
+在消费端按「是不是自己的 slot_idx」判一次，是就直接当索引交回，
+不再往 `sys_read` 送：
+
+```uya
+if read_fd_bits == self.slot_idx as usize {
+    return async_poll_ready_ok_usize(read_fd_bits);
+}
+read_fd = read_fd_bits as i32;
+```
+
+这与 `thread_async_compute_resolve_raw_value`（`:1591`）的约定一致 ——
+那里本来就要求 `raw_value == slot_idx` 才算成功，说明**索引语义是主路径**，
+fd 语义只是「结果管道已可读」这个特例。
+
+### 结果
+
+最小探针（单 `async_compute<i64>` + 200ms）连跑 14 次：
+
+| | 修前 | 修后 |
+| --- | --- | --- |
+| 通过 | 8 / 14（6 次 EBADF） | **14 / 14** |
+
+两个受影响用例，C99 侧各连跑 5 次：
+
+```
+test_async_compute_types           5 × 失败: 0
+test_async_compute_generic_wrapper 5 × 失败: 0
+```
+
+修前 `test_async_compute_types` 是 4/4/4/6/3 个断言失败地波动。
+
+这也一并解释了 `make check` 里 `test_async_compute_types`、
+`test_async_compute_generic_wrapper` 那两行红 —— 它们不是 flake，
+是本轮修掉的这个 bug。

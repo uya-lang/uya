@@ -1444,6 +1444,18 @@ struct AsyncWorkerResultFuture : Future<!usize> {
                 const read_fd_bits: usize = wait_result catch {
                     return wait_poll;
                 };
+                // `AsyncThreadSlotWaitFuture` 的 Ready 载荷有**两种含义**：
+                //   * 槽位已经 DONE —— 直接交回 `slot_idx`（见 `:1357` 的分支，
+                //     值是**索引**，不是 fd）；
+                //   * 槽位还在跑但结果管道可读 —— 交回的是**真实的 fd**。
+                // 这里必须先按「是不是自己的 slot_idx」判一次，否则会把索引
+                // 当 fd 交给 `sys_read`：slot_idx 是 0/1 时正好读到 stdin/stdout，
+                // 返回 EBADF（error id 9），整条 compute 链路被误判成失败。
+                // 实测表现就是 `test_async_compute_types` 那批用例随机挂
+                // （哪个用例先抢到 slot 0/1 哪个挂），C99 侧尤其明显。
+                if read_fd_bits == self.slot_idx as usize {
+                    return async_poll_ready_ok_usize(read_fd_bits);
+                }
                 read_fd = read_fd_bits as i32;
             },
             .Pending(_) => {
