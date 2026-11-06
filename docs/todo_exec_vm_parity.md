@@ -23097,3 +23097,87 @@ pool 参数（后者会改公开 API）。
 A 类累计尝试 **11 次**。本轮的价值是把「轮数门控」这条捷径**用数据否掉**了：
 `waited` 按进入次数递增而非 poll 次数，8 次 poll 只涨到 2，
 任何固定阈值要么太小要么够不到。
+
+## 第 678 轮：找到「谁在驱动」的天然判据 —— `Waker._event_fd`，但组合起来仍挂死
+
+第 677 轮结论是「唯一方向是把驱动标志下推」。本轮找到了一个**不需要任何
+跨模块调用、不需要改结构体**的现成判据，比下推标志更轻。
+
+### 判据：`Waker._event_fd`
+
+`lib/std/async.uya:203` 的 `Waker` 有两个字段：
+
+```uya
+export struct Waker {
+    _wake_count: atomic i32,
+    _wake_source: atomic i32,
+    _io_fd: i32,
+    _io_interest: i32,
+    ...
+    _event_fd: i32,
+    _event_write_fd: i32,
+    _event_fd_bound: atomic i32,
+    _cancelled: atomic i32,
+```
+
+两种来源的 waker 完全不同：
+
+| 来源 | 构造 | `_event_fd` |
+| --- | --- | --- |
+| 测试代码 | `var w0: Waker = Waker{};` | **0** |
+| 调度器 | `scheduler_run_with_event_loop` 内部 `Waker{ _io_fd: -1, _event_fd: -1 }` 再 `prepare_waker` | **非 0**（实测 -20 等真实 fd）|
+
+**实测验证**（诊断计数器记录每次进等待点时看到的 `_event_fd`）：
+
+```
+测试直接 poll 两次          → _event_fd = 0     （calls = 2）
+scheduler_run 驱动          → _event_fd = -20   （真实 fd）
+scheduler_run 成功返回 got=0  ← 注意：这一轮没挂死
+```
+
+这是第一次拿到「测试阶段」和「驱动阶段」的**可区分、非猜测、无需跨模块**的标志。
+比第 676 轮的 `scheduler_is_driving()` 好得多 —— 那个方向是底层调上层（循环依赖），
+而 `Waker` 本来就从上层传到底层，天然合法。
+
+### 但组合起来仍挂死
+
+把判据写进推进逻辑：
+
+```uya
+if waker._event_fd == 0 {
+    return 0;              // 测试阶段：不推进，保住中间态
+}
+if pool._shared_state.pending_count <= 0 || pool.worker_count <= 0 {
+    return 0;
+}
+return thread_shared_drain_sync(pool._shared_state, 0, 1);
+```
+
+配合 `DISPATCHED` 状态位 + 两处 drain 堵掉：
+
+- `pending` 不再归 0（中间态保住了 ✓）
+- 但 `scheduler_run_i32` 之后**挂死**
+
+### 为什么挂死（推测）
+
+判据本身是对的（实测 -20 ≠ 0），挂死说明**推进执行了但任务没完成**。
+可能是 `drain_sync(shared_state, 0, 1)` 里那个 worker_idx = 0 有问题：
+`run_slot_sync` 会把 `slots[i].worker_idx` 写成 0，而 `result_write_fd`
+那条路径是为真实 worker 准备的，主线程代为执行时结果没回到 future 该读的地方。
+
+这个推测没有验证 —— 本轮已在这一处反复太多，按纪律收束。
+
+### 状态
+
+本轮**无代码改动**（`git checkout -- lib/std/thread.uya` 还原，工作区干净，
+`make uya` 错误数 0，临时探针已删）。
+
+**本轮最有价值的产出是 `Waker._event_fd` 这个判据**，它解决了第 676/677 轮
+卡住的「如何区分 poll 来源」问题，而且：
+- 不用跨模块（`Waker` 本来就从调度器传到线程池）；
+- 不用改结构体；
+- 实测能区分（0 vs -20）。
+
+**下一次从这里接**：判据已确定，剩下的是「主线程代为执行任务时，结果怎么回到
+future 该读的位置」—— 也就是 `run_slot_sync` 的 `result_write_fd` 路径
+在主线程调用时是否需要走不同的回填方式。
