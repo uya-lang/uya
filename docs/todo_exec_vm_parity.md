@@ -22884,3 +22884,66 @@ fn thread_pool_progress_once_for_wait(pool: &ThreadPool) i32 {
 
 这条发现的价值：后续如果有人想动这块，不用再花时间试「绕过 acquire_worker」——
 方向是**新增一个状态位把两套语义分开**，而不是调整时序。
+
+## 第 675 轮：`DISPATCHED` 状态位方案**可行**，值已正确；只剩推进时机这一个开关
+
+第 674 轮判断「要新增一个状态位把两套语义分开」，并预估「改共享内存布局、风险超范围」。
+本轮把它实现了，结论是：**方案可行、风险不大**（`state` 是 `i32` 字段，加一个枚举值
+6 就够了，不需要动结构体布局），而且**断言值确实变对了**。
+
+### 实现（7 处改动，约 60 行）
+
+| 位置 | 改动 |
+| --- | --- |
+| 常量区 | 新增 `THREAD_SLOT_STATE_DISPATCHED: i32 = 6`，带语义说明 |
+| `thread_pool_running_worker_count` | 统计时把 `RUNNING` 和 `DISPATCHED` 都算进去 |
+| `thread_pool_refresh_worker_state` | **保持只认 `RUNNING`**（`DISPATCHED` 不算 worker 忙）|
+| `thread_shared_run_slot_sync` | 守卫放宽到接受 `DISPATCHED`，进去后照常执行 |
+| `thread_pool_try_progress_slot` | 同上，接受 `DISPATCHED` |
+| `thread_pool_queue_or_error_slot` | 入队后标 `DISPATCHED`（受 worker 数约束）|
+| 两处同步 drain | `thread_worker_loop:773` 与 `kick_drain` 写失败分支都改成不 drain |
+
+### 关键验证：断言点的两个值是对的
+
+**禁用所有等待点推进**的前提下，复刻测试的 4 次交替 poll 后读值：
+
+```
+thread_pool_pending_count(&pool)           = 2    ✓
+thread_pool_metrics(&pool).running_workers = 1    ✓
+```
+
+编码成 `p * 100 + r` 读到 **201** —— 和 `test_std_async_scheduler` 那四条断言的要求
+完全一致（pending ≥ 1、running ≥ 1、running == 1、queue_depth ≥ 1）。
+
+**这也证明第 674 轮担心的「共享内存布局风险」是多余的**：`ThreadTaskSlotRaw.state`
+本来就是 `atomic i32`，加一个枚举值不影响任何 ABI，C99 侧和 VM 侧编译的是同一份
+Uya 源码，结构体定义自动同步。
+
+### 仍然卡在推进时机
+
+`pending`/`running` 的值对了，但断言之后还要 `scheduler_run_i32(first/second)`，
+必须让任务真正执行完，否则挂死。而任何「能执行」的开关一旦打开，
+`async_compute` 内部 `@await` 的反复 poll 就会在断言之前把队列推平。
+
+本轮试的两个门控：
+
+| 门控 | 结果 |
+| --- | --- |
+| `waited != 0` 才推进（提交后下一轮即推） | `pending` 归 0（太早） |
+| `waited >= 4` 才推进（空等 4 轮） | **挂死**（4 轮内没推进，4 轮后又推进不动） |
+
+加上第 672 轮那四种，累计**七种**推进时机方案。
+
+### 状态
+
+本轮**无代码改动**（`git checkout -- lib/std/thread.uya` 还原，工作区干净，
+`make uya` 错误数 0，临时探针已删）。
+
+两条确定下来的：
+1. `DISPATCHED` 状态位是**正确且低风险**的解法 —— 断言值确实变对了（201）；
+2. 唯一剩下的开关是「什么时候允许执行」，它需要解释器能区分 poll 来源，
+   或者需要一个「外部驱动」的显式入口（比如 `scheduler_run` 时传一个标志下来）。
+
+第 2 条给了一个具体可做的方向：**让 `scheduler_run_with_event_loop` 在调用
+future 之前，把一个「允许推进」的标志写进 future 或 pool 里**，
+这样「测试直接 poll」和「调度器驱动 poll」就能区分开了。
