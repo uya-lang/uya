@@ -2136,10 +2136,24 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       （15 倍）。同轮还把 `fe384_add`/`fe384_sub` 定长化（第 650 轮），
       并新增 `tests/test_ec_p384_field.uya`（Python 大整数对拍，C99/VM 各 1/1）
       作为这段实现的回归保护。
-      剩余 10 例的**处置分类**见第 645 轮：C99 侧自身不稳定 3 例
-      （`test_std_thread` 实测 C99 侧在 0~3 之间波动、VM 稳定 7）、
-      VM 值模型/运行期边界 6 例、环境内存 1 例（`test_http_uyagin`，
-      VmPeak 6096MB，`UYA_EXEC_CENSUS_MEM_MB=6144` 下 27/27 全过）。
+      剩余 10 例按**根因**归并（第 654 轮重新定性，不再按用例名罗列）：
+      **A 类 `@await` 同步降级 6 例 / 21 个断言**（`test_std_thread` 7、
+      `test_async_thread_pool_dynamic_growth` 4、`test_std_thread_async_boundary` 3、
+      `test_async_compute_dynamic_resource_pressure` 1、`test_std_async_scheduler` 1、
+      `test_async_frame_pool_full` 1）、**B x86 裸汇编 1 例**（`test_kernel_sim`）、
+      **C 每线程独立 tcache 1 例**（`test_pthread_heap_cache_identity` 181 断言）、
+      **D `fork()` 复制解释器 1 例**（`test_typed_pipeline_capability` 3 断言）、
+      **E 环境内存口径 1 例**（`test_http_uyagin`，VmPeak 6096MB，
+      `UYA_EXEC_CENSUS_MEM_MB=6144` 下 27/27 全过）。
+      A 类已用**五次对照实验**穷尽（第 639/640/647/652/655 轮）：
+      延迟到 join、开真线程、不 drain、保留读端、保留读端+等待点主动推进，
+      全部失败。它要的是「排队 → 另一执行流取走 → 观测到 RUNNING → 完成」
+      这个三段并发形态，缺任何一段都不行 —— 不是某个计数函数写错。
+      **第 653 轮还修掉一个真 bug**：`sigaction` 是 `std.process` 里的裸 extern
+      （无 Uya 实现体），没登记进宿主桥白名单，落到「无副作用 + 返回零值」的桩，
+      导致 `oldact` 输出结构体**完全不回填**（handler 读回恒为 0 而不是 SIG_IGN）。
+      登记后复用 `signal` 的模拟表（不碰宿主进程），
+      `test_typed_pipeline_capability` 失败断言 4 → 3。
       此前：**898/910（98.7%）**（第 627 轮全量普查实测；第 628~633 轮三处
       分配器修复后复测逐条不变）。**剩余 12 例全部定性为架构边界**，
       逐例实测见第 627 轮：真并发时序 5 例（21 个断言全是
