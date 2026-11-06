@@ -2184,7 +2184,22 @@ FREE 位 → `free()` 里 `if is_free(hdr) { return; }` 直接静默丢弃 → p
       B 类外部代码与栈切换 2 例、C 类已精确定位的模型缺口 2 例 + 帧池容量 1 例）。
       历史缺口（async 帧布局、`@c_import`、`cleanup scope 嵌套过深`、
       `bytecode 指令超出上限`）均已在前述各轮修完，不再出现在失败清单里。
-- [ ] `make exec-parity` 全绿（现状 **915 例 / 一致 904 / 不一致 11 / 跳过 1**（第 651 轮实测；
+- [ ] `make exec-parity` 全绿（现状 **915 例 / 一致 907 / 不一致 8 / 跳过 1**
+      （第 659 轮实测）。配套 `make check` 现状 **1191/1194**，失败的 3 例
+      （`test_std_thread`、`test_async_thread_pool_dynamic_growth`、
+      `test_async_compute_dynamic_resource_pressure`）与 parity 的 8 例同源，
+      都属于 A/B/C/D 四个运行期边界。**第 658 轮修掉一个真 bug，一致 904 → 907**：
+      `AsyncWorkerResultFuture` 把 `AsyncThreadSlotWaitFuture` 返回的
+      **`slot_idx` 当成 fd** 交给 `sys_read`，`slot_idx` 是 0/1/2 时正好读到
+      stdin/stdout，内核返回 EBADF（error id 9），整条 compute 链路被误判成失败。
+      转一致的三例：`test_async_compute_types`、`test_async_compute_generic_wrapper`、
+      `test_async_compute_dynamic_resource_pressure`。
+      **第 657 轮曾把这个 bug 误判成「C99 侧 200ms 超时太紧」——是错的**，
+      根因是探针只打印 `ERR` 没打印 `@error_id`；补上后立刻看到 EBADF，
+      且超时分支在 `scheduler_run_with_event_loop` 里只记计数、根本不返回错误。
+      剩下 8 例与 census 的 9 例同源（A 类 `@await` 同步降级 6、B x86 裸汇编 1、
+      C 每线程 tcache 1、D `fork()` 复制解释器 1），**无新增、无未定性项**。
+      此前：**915 例 / 一致 904 / 不一致 11 / 跳过 1**（第 651 轮实测；
       `test_tls_ecdsa` 已转为一致 —— 它此前是 census 里最后一个纯性能用例，
       `fe384_mul` 改成伪梅森快速归约后在 VM 下 4m01s 跑完且结果与 C99 相同；
       新增的 `tests/test_ec_p384_field.uya` 也是 OK。剩下 11 例与第 645 轮分类**逐条一致、
