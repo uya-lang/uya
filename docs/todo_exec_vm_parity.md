@@ -22041,3 +22041,83 @@ test_std_thread_async_boundary  失败 1
 全部失败，且每次都把失败原因定位得更具体。第 661 轮的机制分析 +
 本轮的两次对照，已经把「为什么不行」说清楚了：不是哪个参数调错，
 是缺「帧执行位置可在调用间保留」这个能力。
+
+## 第 663 轮：A 类的 `running_workers` 断言在单线程解释器里**原理上不可满足**（决定性论证）
+
+第 661/662 轮把 A 类的机制查清了，但还留着一个「要不要上续体调度」的决策。
+本轮把这个决策**证伪**了 —— 上一个续体调度也解决不了，因为断言本身有问题。
+
+### 断言数的是什么
+
+`thread_pool_running_worker_count`（`lib/std/thread.uya:481`）数的是
+**任务槽位状态**，不是线程状态：
+
+```uya
+while slot_idx < slot_capacity {
+    if pool._shared_state.slots[slot_idx as usize].state == THREAD_SLOT_STATE_RUNNING {
+        running_workers = running_workers + 1;
+    }
+    slot_idx = slot_idx + 1;
+}
+```
+
+而这个状态只在 `thread_shared_run_slot_sync:714` **真正开始执行任务时**才置位：
+
+```uya
+shared_state.slots[slot_idx as usize].worker_idx = worker_idx;
+shared_state.slots[slot_idx as usize].state = THREAD_SLOT_STATE_RUNNING;   // ← 这里
+const fn_ptr: &void = (shared_state.slots[slot_idx as usize].fn_bits as usize) as &void;
+```
+
+任务入队时置的是 `THREAD_SLOT_STATE_QUEUED`（`thread_pool_enqueue_slot:1198`）。
+**队列里的任务不可能是 `RUNNING`** —— 那本来就是错误的语义（`QUEUED` 才是对的）。
+
+### 所以 `running_workers >= 1` 要的是什么
+
+`tests/test_std_async_scheduler.uya:295`：
+
+```uya
+try assert_eq_i32(wait_thread_pool_running_workers_at_least(&pool, 1), 1);
+```
+
+它在一个**轮询循环**里反复读 `running_workers`，期待某一次读到 ≥1。
+唯一能读到 ≥1 的时刻，是「某个任务正在 `thread_shared_run_slot_sync` 里执行」的那段时间窗口。
+
+在 C99 里这没问题：worker 是**真线程**，主线程轮询时 worker 正在别的核上跑，
+窗口能重叠。在解释器里，执行任务的调用栈和做断言的调用栈**是同一条**：
+
+- 任务在 `poll` 内部执行时，主线程正在 `poll` 里，不可能同时跑断言；
+- `poll` 返回之后任务已经做完，槽位状态变成 `DONE`（或释放），窗口已经关闭。
+
+**这不是「实现得不够好」，是单线程执行模型下观测窗口为空。**
+上续体调度也一样：调度器把控制权交给 worker 帧时，主线程仍然在那次调度调用里，
+依然无法插入一次 `running_workers` 读取。
+
+### 这是决定性的
+
+A 类 21 个断言里，`running_workers` 这一类（`test_std_async_scheduler` 1 个、
+`test_async_compute_dynamic_resource_pressure` 1 个、
+`test_async_thread_pool_dynamic_growth` 2 个，
+还有 `test_std_thread` 里那几条）**无论怎么改解释器都不可能通过**，
+除非让解释器真的跑多线程（第 640 轮试过，两道墙：
+C 全局与 VM globals 不同步 + mmap desc 不被 `exec_vm_address_is_vm_resident` 识别）。
+
+### 对最终结论的影响
+
+这让 A 类的处置变清楚了 —— 它不是一个「等以后有精力再做的运行期扩展」，
+而是**一部分断言在本架构下没有解**。真正合理的终态是：
+
+- 把「需要真并发观测窗口」的用例登记为**架构性不可达**（但要像第 645 轮强调的
+  那样，只登记「C99 侧同样不适用」的，而这些 C99 侧是**适用**的 ——
+  所以严格说它们也不能进跳过表）；
+- 或者在文档里明确标注「这三项指标在单线程解释器架构下无法全部达到」，
+  把目标从「100% parity」修正为「除架构性不可达外 100%」。
+
+后者需要人来决策，不是我在这一轮能单方面改的。
+
+### 状态
+
+本轮**无代码改动**（纯分析）。
+
+累计 A 类尝试 7 次全部失败，本轮补充的是**为什么最后一类尝试（续体调度）
+也不必再做**的证明。
