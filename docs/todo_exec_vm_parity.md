@@ -21623,3 +21623,71 @@ test_typed_pipeline_capability                  3
 
 这同时把 census 跳过表的纪律守住了 —— 没有把用例塞进
 `tests/exec_vm_census_skip.txt` 去把数字做漂亮，而是**真的让它在 census 里通过**。
+
+## 第 657 轮：查清 parity 最后一类不一致 —— C99 侧 **200ms 超时 vs 真线程** 的时序脆弱
+
+第 651 轮 parity 是 915 例 / 一致 904 / 不一致 11。本轮把 11 例按「谁失败」拆开，
+发现其中 **2 例是 C99 侧失败、VM 侧通过**，方向和其余 9 例相反：
+
+```
+test_async_compute_generic_wrapper.uya   C99=1  VM=0
+test_async_compute_types.uya             C99=2  VM=0
+```
+
+这个方向很反常（VM 反而更稳），所以单独查了。
+
+### 定位：不是竞争，是时间预算
+
+先怀疑 `thread_shared_run_slot_sync`（`lib/std/thread.uya:732-733`）里
+`result_bits` 与 `state = DONE` 之间没有屏障。但读代码发现 `state` 本身是
+`atomic i32`（`:320`），且失败**没有固定规律** —— 每次挂的用例都不一样：
+
+```
+run1: u64 i16 u16 u8  ERROR
+run2: i64 u64 u16 i8  ERROR
+run3: u64 i8          ERROR
+```
+
+真竞争不会这样轮换。于是写最小探针（单个 `async_compute<i64>` + 200ms 超时）：
+
+```uya
+const boxed: Future<!i64> = async_compute<i64>(&pool, &double_i64 as &void, 21 as i64);
+const r: !i64 = scheduler_run_with_event_loop<i64>(&s, loop, boxed, 200);
+```
+
+结果：
+
+| 超时参数 | 通过率 |
+| --- | --- |
+| `200`（测试里的原值） | **11 / 20** |
+| `2000` | 4 / 12（当时负载更高） |
+
+失败就是 `scheduler_run_with_event_loop` 返回错误，也就是**超时**。
+每个 test 都 `thread_pool_new(2)`，11 个 test 连着跑，
+每个都要真起 2 个 pthread 再销毁；`200ms` 在**当前机器负载 10.6**
+（同机有别的训练任务在吃 CPU）下明显不够。
+
+对照 VM 侧同一个用例跑 15 次：
+
+```
+15 × 失败: 0
+```
+
+VM 是同步执行，任务在 `poll` 里就完成了，200ms 绰绰有余 —— 所以 VM 稳定过。
+
+### 定性
+
+这 2 例**不是 exec VM 的缺口**，是 C99 侧测试自己的时序假设太紧。
+两侧方向相反（VM 稳、C99 抖）正好印证这一点。
+
+按第 645 轮的处置口径，这属于「C99 侧自身不稳定」那一类，和第 644/645 轮记的
+`test_std_thread` / `test_async_thread_pool_dynamic_growth` / `test_async_compute_types`
+是同一族。**本轮不动 `tests/` 里的超时参数**（`tests/` 不做批量迁移的纪律），
+只把结论记录下来：`make check` / `make exec-parity` 在这 2 例上的红，
+是负载敏感的既有现象，重跑一次通常就绿。
+
+### 对最终指标的直接影响
+
+`tests/verify_exec_vm_parity.sh:153` 是严格逐例比对（`c99_st != vm_st`
+直接判 `STATUS_MISMATCH`），没有重试。所以只要机器负载高，parity 就不可能全绿。
+这一点必须写清楚，不能假装它是 VM 的问题。
