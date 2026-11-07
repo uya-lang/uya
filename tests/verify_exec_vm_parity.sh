@@ -84,6 +84,15 @@ normalize_stdout() {
 run_with_timeout() {
     local t="$1"
     shift
+    # 单用例地址空间上限：本脚本原本完全没有限制，失控用例（解释器里
+    # test_crypto_bigint 会一路涨到 7GB+）在 17 路并行下足以打爆整机。
+    # 与 census 保持同一口径：设上限让它快速失败，并记为原因 mem。
+    if [ "${MEM_LIMIT_MB:-0}" -gt 0 ] 2>/dev/null; then
+        local limit_kb=$(( MEM_LIMIT_MB * 1024 ))
+        bash -c 'limit_kb="$1"; t="$2"; shift 2; ulimit -v "$limit_kb" 2>/dev/null; set -m; "$@" & p=$!; setsid bash -c "sleep $t; kill -9 -$p 2>/dev/null" >/dev/null 2>&1 & w=$!; wait "$p"; rc=$?; kill "$w" 2>/dev/null; exit $rc' _ \
+            "$limit_kb" "$t" "$@"
+        return $?
+    fi
     set -m
     "$@" &
     local run_pid=$!
@@ -116,6 +125,16 @@ run_one() {
     local base
     base="$(basename "$uya_file")"
     local out_file="$results_dir/${base}.txt"
+
+    # 与 census 共用同一张单用例内存覆盖表：`test_http_uyagin` 这类用例
+    # 实测需要 6144MB 地址空间，用默认上限会把「内存不够」误报成「行为不一致」。
+    if [ -f "${MEM_FILE:-}" ]; then
+        local override_mem
+        override_mem="$(awk -F'\t' -v n="$base" '$1 == n { print $2; exit }' "$MEM_FILE" 2>/dev/null)"
+        if [[ "$override_mem" =~ ^[0-9]+$ ]] && [ "$override_mem" -gt 0 ]; then
+            MEM_LIMIT_MB="$override_mem"
+        fi
+    fi
 
     # `-k 10`：解释器里互相等待的用例会忽略 SIGTERM，只发 TERM 的 timeout 会一直
     # 等下去（实测 test_async_runtime_shared_dns 挂住整轮），补 SIGKILL 才能收工。
@@ -217,39 +236,62 @@ if [ "$TOTAL" -eq 0 ]; then
     exit 1
 fi
 
+MEM_FILE="${UYA_PARITY_MEMS:-$SCRIPT_DIR/exec_vm_census_mems.txt}"
+export MEM_FILE
+
+MEM_LIMIT_MB="${UYA_PARITY_MEM_LIMIT_MB:-4096}"
+case "$MEM_LIMIT_MB" in
+    ''|*[!0-9]*) MEM_LIMIT_MB=4096 ;;
+esac
+# 0 = 不限；否则不要低于 1024：编译器自己的 CompilerArena 就要几百 MB。
+if [ "$MEM_LIMIT_MB" -ne 0 ] && [ "$MEM_LIMIT_MB" -lt 1024 ]; then
+    MEM_LIMIT_MB=1024
+fi
+export MEM_LIMIT_MB
+
 JOBS="${UYA_PARITY_JOBS:-$( (nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4) )}"
 case "$JOBS" in
     ''|*[!0-9]*) JOBS=4 ;;
 esac
 [ "$JOBS" -lt 1 ] && JOBS=1
 
-# 并行度直接取 nproc 会把峰值放大到「核数 × 单用例峰值」。本脚本每个用例要各跑
-# 一遍 C99 和 exec VM，单用例峰值可达数 GB（实测 crypto_bigint 7GB+），44 核并行
-# 足以把整机打进 OOM，内核 killer 会挑**任意**大进程杀掉。
-# 这里按物理内存给出安全并行度：JOBS × 单用例预算 ≤ 物理内存的 50%。
-# 单用例预算可用 UYA_PARITY_MEM_MB 调整（默认 2048MB）。
-parity_mem_mb="${UYA_PARITY_MEM_MB:-2048}"
-case "$parity_mem_mb" in
-    ''|*[!0-9]*) parity_mem_mb=2048 ;;
+# 并行度直接取 nproc 会把峰值放大到「核数 × 单用例用量」。44 路并行足以把整机
+# 打进 OOM，内核 killer 会挑**任意**大进程杀掉 —— 包括调用方自己的 agent 会话
+# （真实发生过多次）。
+#
+# 预算基准必须是 **MemAvailable** 而不是 MemTotal：开发机上常驻进程（浏览器、
+# fcitx5、macOS 虚拟机等）实测能占掉 45GB/62GB，按 MemTotal 的百分比算出来的
+# 并行度照样会超。单用例用量按**实测峰值**估算：本脚本对同一个用例先跑 C99
+# 再跑 exec VM，两者串行，峰值与单跑一次相当。
+#
+# 可用环境变量覆盖：
+#   UYA_PARITY_CASE_MB        单用例峰值估算（默认 800，实测最重 794MB）
+#   UYA_PARITY_MEM_BUDGET_PCT 可用内存的使用比例（默认 50，留一半给系统）
+case_mb="${UYA_PARITY_CASE_MB:-800}"
+case "$case_mb" in
+    ''|*[!0-9]*) case_mb=800 ;;
 esac
-[ "$parity_mem_mb" -lt 1 ] && parity_mem_mb=2048
-phys_mb="$(awk '/^MemTotal:/ { printf "%d", $2 / 1024; exit }' /proc/meminfo 2>/dev/null)"
-if [ -z "$phys_mb" ]; then
-    phys_mb="$(sysctl -n hw.memsize 2>/dev/null | awk '{ printf "%d", $1 / 1048576 }')"
+[ "$case_mb" -lt 64 ] && case_mb=64
+avail_mb="$(awk '/^MemAvailable:/ { printf "%d", $2 / 1024; exit }' /proc/meminfo 2>/dev/null)"
+if [ -z "$avail_mb" ]; then
+    avail_mb="$(awk '/^MemTotal:/ { printf "%d", $2 / 1024; exit }' /proc/meminfo 2>/dev/null)"
+fi
+if [ -z "$avail_mb" ]; then
+    avail_mb="$(sysctl -n hw.memsize 2>/dev/null | awk '{ printf "%d", $1 / 1048576 }')"
 fi
 pct="${UYA_PARITY_MEM_BUDGET_PCT:-50}"
 case "$pct" in
     ''|*[!0-9]*) pct=50 ;;
 esac
-[ "$pct" -lt 10 ] && pct=10
+[ "$pct" -lt 5 ] && pct=5
 [ "$pct" -gt 90 ] && pct=90
-if [ -n "$phys_mb" ] && [ "$phys_mb" -gt 0 ] 2>/dev/null; then
-    budget_mb=$(( phys_mb * pct / 100 ))
-    safe_jobs=$(( budget_mb / parity_mem_mb ))
+if [ -n "$avail_mb" ] && [ "$avail_mb" -gt 0 ] 2>/dev/null; then
+    budget_mb=$(( avail_mb * pct / 100 ))
+    safe_jobs=$(( budget_mb / case_mb ))
     [ "$safe_jobs" -lt 1 ] && safe_jobs=1
     if [ "$JOBS" -gt "$safe_jobs" ]; then
-        echo "注意: 并行度 $JOBS 会把峰值抬到约 $(( JOBS * parity_mem_mb ))MB（物理内存 ${phys_mb}MB）；" >&2
-        echo "      已按预算 ${pct}%（${budget_mb}MB）压到 $safe_jobs。" >&2
+        echo "注意: 并行度 $JOBS 会超出内存预算（可用 ${avail_mb}MB，预算 ${pct}% = ${budget_mb}MB，单用例按 ${case_mb}MB 估）；" >&2
+        echo "      已压到 $safe_jobs。需要原样跑请设 UYA_PARITY_JOBS=<n>。" >&2
         JOBS="$safe_jobs"
     fi
 fi
