@@ -17,10 +17,12 @@
 #   UYA_COMPILER              编译器路径（默认 <repo>/bin/uya）
 #   UYA_ROOT                  UYA_ROOT（默认 <repo>/lib/）
 #   UYA_EXEC_CENSUS_MIN       最低通过用例数（默认 0，不设门禁）
-#   UYA_EXEC_CENSUS_JOBS      并行度（默认 CPU 核数）
+#   UYA_EXEC_CENSUS_JOBS      并行度（默认 CPU 核数，但会被内存预算自动压低）
 #   UYA_EXEC_CENSUS_TIMEOUT   单用例超时秒数（默认 300）
 #   UYA_EXEC_CENSUS_MEM_MB    单用例地址空间上限（MB，默认 4096；0 表示不限）
 #   UYA_EXEC_CENSUS_MEMS     单用例内存覆盖表（默认 tests/exec_vm_census_mems.txt）
+#   UYA_EXEC_CENSUS_MEM_BUDGET_PCT
+#                             并行度的内存预算占比（默认 50，即物理内存的 50%）
 #                             census 的峰值内存 ≈ JOBS × MEM_MB，跑之前先看一下
 #                             机器余量（实测单用例峰值：TLS 186MB / https 456MB
 #                             / kernel_sim 548MB，失控用例靠这个上限快速失败）
@@ -223,6 +225,41 @@ if [ "$MEM_MB" = "0" ] && [ "${UYA_EXEC_CENSUS_ALLOW_UNLIMITED:-0}" != "1" ]; th
         echo "注意: MEM_MB=0 表示不限内存，并行度 $JOBS 会放大峰值；已压到 4。" >&2
         echo "      需要原样跑请设 UYA_EXEC_CENSUS_ALLOW_UNLIMITED=1。" >&2
         JOBS=4
+    fi
+fi
+
+# 有了单用例内存上限还不够：峰值是 JOBS × 单用例上限。默认 JOBS=nproc 时
+# 44 × 4096MB ≈ 176GB，整机只有几十 GB，跑起来必然进 OOM，内核 killer 会挑
+# **任意**大进程杀掉（包括调用方自己的会话 —— 真实发生过）。
+# 这里按物理内存给出安全并行度：JOBS × 单用例上限 ≤ 预算（默认物理内存 50%）。
+# 可用 UYA_EXEC_CENSUS_MEM_BUDGET_PCT 调整预算比例。
+if [ "$MEM_MB" != "0" ]; then
+    eff_mem_mb="$MEM_MB"
+    if [ -f "$MEM_FILE" ]; then
+        biggest="$(awk -F'\t' 'NF >= 2 && $2 ~ /^[0-9]+$/ && $2 + 0 > m { m = $2 + 0 } END { print m + 0 }' "$MEM_FILE" 2>/dev/null)"
+        if [ -n "$biggest" ] && [ "$biggest" -gt "$eff_mem_mb" ] 2>/dev/null; then
+            eff_mem_mb="$biggest"
+        fi
+    fi
+    phys_mb="$(awk '/^MemTotal:/ { printf "%d", $2 / 1024; exit }' /proc/meminfo 2>/dev/null)"
+    if [ -z "$phys_mb" ]; then
+        phys_mb="$(sysctl -n hw.memsize 2>/dev/null | awk '{ printf "%d", $1 / 1048576 }')"
+    fi
+    pct="${UYA_EXEC_CENSUS_MEM_BUDGET_PCT:-50}"
+    case "$pct" in
+        ''|*[!0-9]*) pct=50 ;;
+    esac
+    [ "$pct" -lt 10 ] && pct=10
+    [ "$pct" -gt 90 ] && pct=90
+    if [ -n "$phys_mb" ] && [ "$phys_mb" -gt 0 ] 2>/dev/null; then
+        budget_mb=$(( phys_mb * pct / 100 ))
+        safe_jobs=$(( budget_mb / eff_mem_mb ))
+        [ "$safe_jobs" -lt 1 ] && safe_jobs=1
+        if [ "$JOBS" -gt "$safe_jobs" ]; then
+            echo "注意: 并行度 $JOBS 会把峰值抬到约 $(( JOBS * eff_mem_mb ))MB（物理内存 ${phys_mb}MB）；" >&2
+            echo "      已按预算 ${pct}%（${budget_mb}MB）压到 $safe_jobs。（单用例上限 ${eff_mem_mb}MB）" >&2
+            JOBS="$safe_jobs"
+        fi
     fi
 fi
 

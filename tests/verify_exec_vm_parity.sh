@@ -15,6 +15,10 @@
 #   PARITY_STDOUT=1 bash tests/verify_exec_vm_parity.sh
 #   UYA_PARITY_JOBS=8 UYA_PARITY_REPORT=/tmp/parity.tsv bash tests/verify_exec_vm_parity.sh
 #
+# 并行度默认取 CPU 核数，但会被内存预算自动压低（见 UYA_PARITY_MEM_MB /
+# UYA_PARITY_MEM_BUDGET_PCT）：每个用例要各跑一遍 C99 和 exec VM，单用例峰值
+# 可达数 GB，核数直接当并行度足以把整机打进 OOM。
+#
 # 环境变量:
 #   UYA_COMPILER         编译器路径（默认 <repo>/bin/uya）
 #   UYA_ROOT             UYA_ROOT（默认 <repo>/lib/）
@@ -218,6 +222,37 @@ case "$JOBS" in
     ''|*[!0-9]*) JOBS=4 ;;
 esac
 [ "$JOBS" -lt 1 ] && JOBS=1
+
+# 并行度直接取 nproc 会把峰值放大到「核数 × 单用例峰值」。本脚本每个用例要各跑
+# 一遍 C99 和 exec VM，单用例峰值可达数 GB（实测 crypto_bigint 7GB+），44 核并行
+# 足以把整机打进 OOM，内核 killer 会挑**任意**大进程杀掉。
+# 这里按物理内存给出安全并行度：JOBS × 单用例预算 ≤ 物理内存的 50%。
+# 单用例预算可用 UYA_PARITY_MEM_MB 调整（默认 2048MB）。
+parity_mem_mb="${UYA_PARITY_MEM_MB:-2048}"
+case "$parity_mem_mb" in
+    ''|*[!0-9]*) parity_mem_mb=2048 ;;
+esac
+[ "$parity_mem_mb" -lt 1 ] && parity_mem_mb=2048
+phys_mb="$(awk '/^MemTotal:/ { printf "%d", $2 / 1024; exit }' /proc/meminfo 2>/dev/null)"
+if [ -z "$phys_mb" ]; then
+    phys_mb="$(sysctl -n hw.memsize 2>/dev/null | awk '{ printf "%d", $1 / 1048576 }')"
+fi
+pct="${UYA_PARITY_MEM_BUDGET_PCT:-50}"
+case "$pct" in
+    ''|*[!0-9]*) pct=50 ;;
+esac
+[ "$pct" -lt 10 ] && pct=10
+[ "$pct" -gt 90 ] && pct=90
+if [ -n "$phys_mb" ] && [ "$phys_mb" -gt 0 ] 2>/dev/null; then
+    budget_mb=$(( phys_mb * pct / 100 ))
+    safe_jobs=$(( budget_mb / parity_mem_mb ))
+    [ "$safe_jobs" -lt 1 ] && safe_jobs=1
+    if [ "$JOBS" -gt "$safe_jobs" ]; then
+        echo "注意: 并行度 $JOBS 会把峰值抬到约 $(( JOBS * parity_mem_mb ))MB（物理内存 ${phys_mb}MB）；" >&2
+        echo "      已按预算 ${pct}%（${budget_mb}MB）压到 $safe_jobs。" >&2
+        JOBS="$safe_jobs"
+    fi
+fi
 
 echo "exec VM / C99 差分: $TOTAL 个用例（跳过 $SKIPPED），并行度 $JOBS，stdout 差分=$PARITY_STDOUT"
 PROGRESS_FILE="$WORK_DIR/progress.count"

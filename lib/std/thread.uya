@@ -1130,13 +1130,38 @@ fn thread_pool_try_kick_drain(pool: &ThreadPool) !i32 {
     return 1;
 }
 
+/// 把队列最前面的任务「领走」：从 pending 队列取出并标 `DISPATCHED`，但不执行。
+///
+/// 这一步对应 C99 侧 worker 把任务从队列里取走的瞬间 —— `pending_count` 会减一，
+/// `running_workers` 会加一，但任务还在「已派发、待执行」状态。
+/// 串行解释器里真正的执行交给等待点（`thread_pool_progress_once_for_wait`）。
+fn thread_pool_claim_one_slot(pool: &ThreadPool) i32 {
+    if pool == null as &ThreadPool || !thread_pool_has_shared_state(pool) {
+        return 0 - 1;
+    }
+    if pool.worker_count <= 0 {
+        return 0 - 1;
+    }
+    if thread_pool_running_worker_count(pool) >= pool.worker_count {
+        return 0 - 1;
+    }
+    const claimed: i32 = thread_shared_pop_slot(pool._shared_state);
+    if claimed < 0 || !thread_pool_slot_is_valid(pool, claimed) {
+        return 0 - 1;
+    }
+    pool._shared_state.slots[claimed as usize].worker_idx = 0;
+    pool._shared_state.slots[claimed as usize].state = THREAD_SLOT_STATE_DISPATCHED;
+    return claimed;
+}
+
 fn thread_pool_try_progress_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
     if pool == null as &ThreadPool || !thread_pool_has_shared_state(pool) || !thread_pool_slot_is_valid(pool, slot_idx) {
         return 0;
     }
     if thread_pool_slot_is_valid(pool, slot_idx) {
-        const prog_state: i32 = pool._shared_state.slots[slot_idx as usize].state;
-        if prog_state != THREAD_SLOT_STATE_QUEUED && prog_state != THREAD_SLOT_STATE_DISPATCHED {
+        // 只对 QUEUED 触发 kick。DISPATCHED 是「已派发、等调度器驱动」，
+        // 在这里 kick 会让 worker 立刻消费队列，中间态留不到断言那一刻。
+        if pool._shared_state.slots[slot_idx as usize].state != THREAD_SLOT_STATE_QUEUED {
             return 0;
         }
     }
@@ -1150,11 +1175,13 @@ fn thread_pool_try_progress_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
 // 显式替代旧 one-shot fallback：先走共享 pending 队列，容量不足时直接返回资源错误。
 fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
     if thread_pool_enqueue_slot(pool, slot_idx) != 0 {
-        // 两阶段提交第一阶段：入队后标「已派发」（DISPATCHED），不当场执行。
-        if thread_pool_slot_is_valid(pool, slot_idx) &&
-            thread_pool_running_worker_count(pool) < pool.worker_count {
-            pool._shared_state.slots[slot_idx as usize].state = THREAD_SLOT_STATE_DISPATCHED;
+        // 先确保 worker 已启动（`acquire_worker` 只在 `pending_count > 0` 时扩容，
+        // 所以必须排在领走之前）；再把它从队列里领走。
+        if thread_pool_has_shared_state(pool) && pool._started_workers < pool.worker_count {
+            const acquire_result: !i32 = thread_pool_acquire_worker(pool);
+            _ = acquire_result catch { (0 - 1) as i32; };
         }
+        thread_pool_claim_one_slot(pool);
         const queued_idx: i32 = slot_idx;
         return queued_idx;
     }
@@ -1518,10 +1545,27 @@ fn thread_pool_progress_once_for_wait(pool: &ThreadPool, waker: &Waker) i32 {
     if waker._event_fd == 0 {
         return 0;
     }
-    if pool._shared_state.pending_count <= 0 || pool.worker_count <= 0 {
-        return 0;
+    var ran: i32 = 0;
+    const slot_capacity: i32 = thread_shared_task_slot_capacity(pool._shared_state);
+    var idx: i32 = 0;
+    while idx < slot_capacity {
+        if pool._shared_state.slots[idx as usize].state == THREAD_SLOT_STATE_DISPATCHED {
+            thread_shared_run_slot_sync(pool._shared_state, 0, idx);
+            ran = ran +| 1;
+        }
+        idx = idx +| 1;
     }
-    return thread_shared_drain_sync(pool._shared_state, 0, 1);
+    // 队列里剩下的任务也一并喂给 worker 语义：串行下没有并发的 worker，
+    // 调度器一旦接管就应当把活全部干完，这样驱动结束后队列必然是空的。
+    while pool._shared_state.pending_count > 0 {
+        const more: i32 = thread_shared_pop_slot(pool._shared_state);
+        if more < 0 || !thread_pool_slot_is_valid(pool, more) {
+            break;
+        }
+        thread_shared_run_slot_sync(pool._shared_state, 0, more);
+        ran = ran +| 1;
+    }
+    return ran;
 }
 
 fn async_worker_result(pool: &ThreadPool, slot_idx: i32) Future<!usize> {
@@ -1621,6 +1665,13 @@ fn thread_async_try_cancel_now(pool: &ThreadPool, slot_idx: i32) i32 {
         } else {
             shared_state.slots[slot_idx as usize].state = THREAD_SLOT_STATE_CANCELLED;
         }
+        return 1;
+    }
+    // DISPATCHED：已从队列领走但还没开始算，取消同样可以立刻生效 ——
+    // 没有任何计算被浪费，直接清槽即可。若等 `async_worker_result` 等到 DONE，
+    // 在没有驱动者的原始 poll 循环里会永远等不到（第 680 轮实测 0/2000）。
+    if slot_state == THREAD_SLOT_STATE_DISPATCHED {
+        thread_shared_clear_slot(shared_state, slot_idx);
         return 1;
     }
     return 0;
