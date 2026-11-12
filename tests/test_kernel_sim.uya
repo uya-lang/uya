@@ -1215,6 +1215,11 @@ test "sim_load_image_stack_pages_mapped_at_top" {
     try assert_eq_i32(heap_va as i32, 65536);
 }
 
+// exec VM（std.backend == .be_exec_vm）把 `@asm` 当无副作用语句、函数体走解释执行：
+// 既拿不到真实硬件 rsp，也不会把 Uya 函数编成能被原生 trampoline 尾跳的机器码，
+// 更不会真的切到私有栈。这两个用例验的是原生 ABI 语义，解释执行下无从观察，
+// 因此和上面的 arch 门控一样，只在非 VM 目标上跑。
+std.cfg(std.backend == .be_native, {
 test "call_gate_stack_helper_switches_to_private_stack" {
     const stack_size: usize = 65536;
     const raw_stack: &void = try sys_mmap(
@@ -1239,6 +1244,7 @@ test "call_gate_stack_helper_switches_to_private_stack" {
 
     _ = sys_munmap(raw_stack as *void, stack_size) catch {};
 }
+}, {})
 
 std.cfg(std.target_arch == .ta_x86_64, {
 test "x86_call_gate_trampoline_invokes_target" {
@@ -1248,6 +1254,7 @@ test "x86_call_gate_trampoline_invokes_target" {
     try sim_free_x86_64_call_gate_trampoline(trampoline_ptr);
 }
 
+std.cfg(std.backend == .be_native, {
 test "x86_call_gate_trampoline_keeps_stack_alignment" {
     // trampoline 必须是尾跳：payload 入口的 rsp % 16 应为 8（call 已压入返回地址）。
     // 写成 call rax; ret 时这里会是 0，进而让下游的 movaps 崩溃。
@@ -1277,6 +1284,7 @@ test "x86_call_gate_trampoline_stack_helper_keeps_stack_alignment" {
     try sim_free_x86_64_call_gate_trampoline(trampoline_ptr);
     _ = sys_munmap(raw_stack as *void, stack_size) catch {};
 }
+}, {})
 }, {})
 
 std.cfg(std.target_arch == .ta_arm64, {

@@ -23642,3 +23642,54 @@ if (a != (void*)0) { r = a->alloc(a->data, 头 + sizeof(帧)); if (r.error_id ==
 - 单例回归：`test_json_from_json_slice` / `test_json_struct_collections` /
   `test_overlap_fields` / `test_simd_sse_lower_i32x4` / `test_std_thread` 全绿。
 - 全量 census 复跑见下一轮记录。
+
+## 第 687 轮：`std.backend` 选择器 —— 把「原生才成立」的用例按后端门控（910/912）
+
+### 问题：VM 的宿主线程/进程模型和原生 pthread 断言直接冲突
+
+第 686 轮之后 census 剩 5 例，逐例看下来有 3 例根本不是「VM 缺语义」，
+而是**用例断言的是原生 pthread/进程模型本身的性质**：
+
+| 用例 | 断言什么 | 为什么 VM 上不成立 |
+| --- | --- | --- |
+| `test_kernel_sim`（3 个子用例） | `call_gate` 切换私有栈、`x86` 调用门 trampoline 的栈对齐 | 都建立在 `switch_to_private_stack` / 汇编 trampoline 上，解释执行没有这层栈切换 |
+| `test_pthread_heap_cache_identity` | 每个线程各有独立 `pthread_heap_cache_t` 且地址互不相同 | `lib/libc/pthread.uya:pthread_current_heap_cache` 对**没登记进 pthread 线程表**的线程直接返回 `null`（VM 线程是宿主线程，不走 Uya 的 `pthread_create`，注释里已写明这一点） |
+| `test_typed_pipeline_capability`（3 个子用例） | pty + `fork` + `tcsetpgrp` 的前台进程组语义 | `src/exec/vm.uya` 明确拒绝：`exec: 解释器不支持创建线程/进程(clone/fork)` |
+
+这三类用一个 `std.cfg(...)` 门控掉，是**如实描述能力边界**，不是掩盖 VM 缺陷：
+VM 侧该支持的语义（async 帧、json、SIMD、kernel_sim 其余子用例……）一条没跳。
+
+### 改法：给 `std.cfg` 加一个真正能区分后端的谓词
+
+原来想用 `std.cfg(std.target_os == .tos_unknown)` 糊过去，实测**两条后端都报 `tos_linux`**
+（`/tmp/probe_cfg.uya` 验证），区分不了。于是按既有约定补一条配置选择器：
+
+1. `src/std_cfg.uya`：
+   - `export var g_compiling_for_exec_vm: i32 = 0;`
+   - `export fn std_cfg_set_exec_vm_backend(enable: i32) void`
+   - `std_cfg_is_backend_selector` 认 `"backend"`；`std_cfg_is_valid_variant` 认
+     `be_native` / `be_exec_vm`；`std_cfg_current_value` / `std_cfg_selector_enum_name`
+     分别返回对应变体和 `"Backend"`。
+2. `lib/std/platform.uya`：新增 `export enum Backend { be_native, be_exec_vm, }`。
+3. `src/main.uya`：`--exec` / `--vm` 分支调 `std_cfg_set_exec_vm_backend(1)`，
+   于是源码里能写 `std.cfg(std.backend == .be_native, { ... }, {})`。
+4. `src/parser/main.uya`：`std.cfg` 谓词的报错信息补上 `/std.backend`。
+5. 用例侧：
+   - `tests/test_kernel_sim.uya`：3 个原生子用例包进 `std.cfg(std.backend == .be_native, { ... }, {})`；
+   - `tests/test_pthread_heap_cache_identity.uya`：`main` 开头 `--vm` 直接 `return 0`；
+   - `tests/test_typed_pipeline_capability.uya`：3 个 pty/fork 用例包进同一个门控。
+   每处都写了「为什么在 VM 上不适用」的注释，指向具体代码/报错，方便以后有人想真支持时接手。
+
+### 验证
+
+- `test_kernel_sim`、`test_pthread_heap_cache_identity`、`test_typed_pipeline_capability`：
+  C99 与 `--vm` 都 1/1 通过（typed_pipeline 在 VM 跑 20 个子用例，C99 跑 23 个）。
+- 全量 census：**910/912（99.8%）**，只剩两条 `dynamic` 用例（见下轮），
+  零新增失败、跳过数仍是 5。
+
+### 剩下的 2 例不是后端差异
+
+`test_async_compute_dynamic_resource_pressure` 和 `test_async_thread_pool_dynamic_growth`
+在 C99 上也一样挂（基线 `b2755c34` 编出的编译器同样复现），是**库层真实 bug**：
+用打点探针复现到 `block_on<i32>(first)` 一直返回 `Pending`，
+而 worker 函数里的打印一次都没出现 —— 提交的任务根本没被任何 worker 执行。

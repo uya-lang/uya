@@ -20,6 +20,14 @@ export enum TargetOS {
     tos_unknown,
 }
 
+// 编译后端：C99 生成（原生机器码）与 exec VM 解释执行。
+// 只给 `std.cfg(std.backend == …)` 用：少数"只在原生机器码下才有意义"的用例
+// （裸函数里的 @asm 读硬件栈指针、原生 trampoline 回跳、真切栈）用它自我排除。
+export enum Backend {
+    be_native,
+    be_exec_vm,
+}
+
 export enum TargetArch {
     ta_x86_64,
     ta_arm,

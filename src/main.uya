@@ -1944,9 +1944,12 @@ fn parse_args(
             g_manifest_path_override_active = 1;
         } else if strcmp(arg, "--exec" as *byte) == 0 {
             exec_requested[0] = 1;
+            // 供 `std.cfg(std.backend == .be_exec_vm, …)` 判断：本次要解释执行。
+            std_cfg_set_exec_vm_backend(1);
         } else if strcmp(arg, "--vm" as *byte) == 0 {
             exec_requested[0] = 1;
             exec_only[0] = 1;
+            std_cfg_set_exec_vm_backend(1);
         } else if strcmp(arg, "--dump-exec-hir" as *byte) == 0 {
             exec_requested[0] = 1;
             dump_exec_hir[0] = 1;
