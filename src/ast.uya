@@ -406,6 +406,10 @@ struct ASTNode {
             call_expr_has_ellipsis_forward: i32,  // 1 表示末尾为 ... 转发可变参数
             call_expr_type_args: & & ASTNode,     // 类型参数数组（泛型函数调用，如 max<i32>，从 Arena 分配）
             call_expr_type_arg_count: i32,        // 类型参数数量
+            // simd helper（@vector.splat / @vector.load / @vector.store / @vector.select / @vector.reduce_add：
+            // splat/load/select/reduce_add 关联向量类型 AST；store 为第二实参向量类型）。
+            // 这一项必须和 call_expr_* 同组：两者是同一次调用的字段，写其中一组不能枪掉另一组。
+            simd_splat_target_type: &ASTNode,
         }
         struct {
             // member_access
@@ -651,10 +655,6 @@ struct ASTNode {
         struct {
             // print/println（@print/@println）
             print_expr: &ASTNode,    // 要打印的表达式
-        }
-        struct {
-            // simd helper（@vector.splat / @vector.load / @vector.store / @vector.select / @vector.reduce_add：splat/load/select/reduce_add 关联向量类型 AST；store 为第二实参向量类型）
-            simd_splat_target_type: &ASTNode,
         }
         struct {
             // type_atomic（atomic T）
