@@ -23373,3 +23373,85 @@ VM 值竞技场（120MB）和编译器堆（109MB）是另外两块，需要各�
    规范文档 `docs/uya.md` 都要动。好处是**访问点零改动**。
 3. 只做 AST 只能把单用例从 396MB 降到 241MB；要真正压到几十 MB，
    还要动 VM 值竞技场（120MB）和编译器堆（109MB）。
+
+## 第 683 轮：匿名 union 重叠块落地 —— `ASTNode` 实测 152 字节（12.2×）
+
+第 682 轮定了方案（union 重叠，而不是指针载荷），本轮把它做成语言特性并改造 AST。
+
+### 语言特性（规范 0.49.57）
+
+struct 体里可以写匿名 union 重叠块：
+
+```uya
+struct OverlapBasic {
+    tag: i32,
+    small: i32,
+    union {
+        struct { a: i32, b: i32, }
+        struct { c: i64, }
+    }
+}
+```
+
+- 块内每个 `struct { ... }` 是一组**互斥使用**的字段，不同组共享同一段存储；
+  字段仍按 `v.a`、`v.c` 直接访问，**不需要 `match`** —— 这正是它与 `extern union` 的
+  关键差别，也是「3986 处访问点零改动」的前提。
+- 布局按 C99 原生语义：块偏移 = 按块内最大对齐向上取整，块大小 = max(各组大小)，
+  结构体总大小再按最大对齐收尾。
+- 字段名在**整个结构体内**（含跨组）必须唯一；
+  含重叠块的结构体**不能**用结构体字面量初始化（按名字逐字段赋值会同时写多组、互相覆盖）。
+
+### 实现落点
+
+| 层次 | 文件 | 做法 |
+| --- | --- | --- |
+| 解析 | `src/parser/declarations.uya` | 新增 `ParserFieldBuf` 字段缓冲；组字段按源码顺序追加进同一个 `fields` 数组，打 `var_decl_overlap_block` / `var_decl_overlap_group` 标记 |
+| 检查 | `src/checker/check_stmt.uya`、`check_expr_extra.uya` | 字段名全结构体唯一（含跨组）；拒结构体字面量 |
+| 布局 | `src/checker/type_layout.uya` | 块内按组排布、取 max 组大小/对齐 |
+| C99 | `src/codegen/c99/structs.uya` | 发射 `__extension__ union { __extension__ struct { ... }; ... };`（`-std=c99` 合法，`__extension__` 顺带抑制 pedantic） |
+| VM | `src/exec/lower.uya` | `exec_lower_native_field_layout` 走同一套分组偏移；顺带抽出 `exec_lower_set_native_field_info`，`atomic T` 字段按内层类型编码、定长数组字段按字节数推元素个数 |
+
+### 实测（本轮新增）
+
+```
+ASTNode（匿名 union 重叠）      sizeof = 152   align = 8
+ASTNode（把各组字段摊平重建）   sizeof = 1856  align = 8
+```
+
+- 摊平重建的 1856 减去本轮新增的两个标记字段（`var_decl_overlap_block` /
+  `var_decl_overlap_group`，各 4 字节）= **1848 字节**，正是改动前扁结构的尺寸，
+  与第 681 轮「257 字段全内联」的估算吻合。
+- **1848 → 152，12.2×**，且 `src/` 下 3986 处字段访问一行没改。
+- 测量方法可复用：`make uya` 产出的 `src/.uyacache/uya_part1_types.h` 就是真实 C 结构体，
+  用 `gcc -std=c99` 编一个 `sizeof` 探针即可，不需要任何估算。
+
+### 测试
+
+- `tests/test_overlap_fields.uya`：5 个用例（大小/对齐、同组共存、跨组别名、
+  块后字段、三组），C99 与 `--vm` 各 5/5。
+- 负例 `tests/error_overlap_duplicate_field.uya`（跨组重名）、
+  `tests/error_overlap_struct_literal.uya`（字面量初始化）都按预期编译失败。
+
+### 自举坑：冷启动断链（务必记住）
+
+改完 `src/ast.uya` 之后一旦 `make clean` 再 `make uya`，**会失败**：
+
+```
+语法分析失败 (src/ast.uya:180:5): 意外的 token 'union'
+```
+
+原因是 `backup/uya.c` 的种子仍是**不认识新语法**的旧编译器，而 `src/ast.uya`
+自己已经用上新语法 —— 鸡生蛋。破解靠两阶段：
+
+1. **stage1**：把 `src/ast.uya` 的 `union { struct {...} ... }` 临时摊平成普通字段
+   （字段集合不变，只是不再重叠），用旧种子编出「懂重叠语法」的 `bin/uya`；
+2. **stage2**：恢复 union 版 `src/ast.uya`，用 stage1 的 `bin/uya` 重新自举。
+
+之后**必须 `make backup-seed`**，把新种子落进 `backup/uya.c` 与
+`backup/uya-<host>-<arch>.c`，否则任何干净克隆都再也冷启动不起来。
+
+### 下一步
+
+- census 复测：AST 从 ~165MB/用例 降到 1/12 之后，单用例峰值与并行预算都要重测；
+  `tests/exec_vm_census_mems.txt` 现有额度可能可以下调。
+- 另外两块内存（VM 值竞技场 ~120MB、编译器堆 ~109MB）各自独立，需单独处理。
