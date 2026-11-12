@@ -107821,7 +107821,12 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
                         }
         }
         if (expr->right != NULL) {
-            const int32_t base_slot_addr = exec_builder_compile_addressable_expr_slot(ctx, expr->left, expr->ast_node);
+            int32_t base_slot_addr = (0 - 1);
+            if (expr->left->type_ref.type.kind == checker_TypeKind_TYPE_POINTER) {
+                base_slot_addr = exec_builder_compile_expr(ctx, expr->left);
+            } else {
+                base_slot_addr = exec_builder_compile_addressable_expr_slot(ctx, expr->left, expr->ast_node);
+            }
             const int32_t index_slot_addr = exec_builder_compile_expr(ctx, expr->right);
             if (((base_slot_addr < 0) || (index_slot_addr < 0))) {
                                 {
@@ -135693,7 +135698,9 @@ static __attribute__((used)) struct ExecValue exec_vm_native_field_load(int32_t 
                 }
     }
     if (kind_code == (int32_t)checker_TypeKind_TYPE_ARRAY) {
-        if ((((pointee_kind_code > 0) && (elem_count > 0)) && (exec_value_is_raw_array_element_type(pointee_kind_code) != 0))) {
+        const int32_t nf_addr_resident = (int32_t)exec_vm_address_is_vm_resident(addr);
+        const int32_t nf_ptr_raw_ok = (int32_t)((nf_addr_resident == 0) && (pointee_kind_code == (int32_t)checker_TypeKind_TYPE_POINTER));
+        if ((((pointee_kind_code > 0) && (elem_count > 0)) && ((exec_value_is_raw_array_element_type(pointee_kind_code) != 0) || (nf_ptr_raw_ok != 0)))) {
                         {
                 struct ExecValue _uya_ret = exec_value_make_raw_array_view(elem_count, pointee_kind_code, (uint8_t *)(void *)(uintptr_t)(addr));
                 return _uya_ret;
@@ -143302,6 +143309,22 @@ static __attribute__((used)) int32_t vm_step(struct BCProgram * program, struct 
                                                                                                                                                                             }
                                                                                                                                                                             const int32_t index_value = (int32_t)slot_c->i64_value;
                                                                                                                                                                             if (exec_value_is_raw_array(slot_b) != 0) {
+                                                                                                                                                                                const int32_t li_elem_kind = exec_value_raw_array_element_kind(slot_b);
+                                                                                                                                                                                const size_t li_base_addr = (uintptr_t)((void *)slot_b->ptr_value);
+                                                                                                                                                                                const int32_t li_native_backed = (int32_t)((int32_t)exec_vm_address_is_vm_resident(li_base_addr) == 0);
+                                                                                                                                                                                if (((((li_native_backed != 0) && (li_elem_kind == (int32_t)checker_TypeKind_TYPE_POINTER)) && (index_value >= 0)) && (index_value < (int32_t)slot_b->i64_value))) {
+                                                                                                                                                                                    struct ExecValue li_elem = exec_vm_raw_array_element_ptr(slot_b, index_value);
+                                                                                                                                                                                    if (li_elem.kind == exec_ExecValueKind_EXEC_VALUE_POINTER) {
+                                                                                                                                                                                        size_t * const li_cell = (size_t *)(void *)(uintptr_t)((size_t)li_elem.i64_value);
+                                                                                                                                                                                        const size_t li_got = li_cell[0];
+                                                                                                                                                                                        (void)(exec_vm_store_slot_shallow(slot_a, exec_make_pointer_with_kind(li_got, (int32_t)checker_TypeKind_TYPE_VOID))                                                                                                                                                                                        );
+                                                                                                                                                                                        frame->ip = (frame->ip + 1);
+                                                                                                                                                                                                                                                                                                                                                                                {
+                                                                                                                                                                                            int32_t _uya_ret = 0;
+                                                                                                                                                                                            return _uya_ret;
+                                                                                                                                                                                                                                                                                                                                                                                }
+                                                                                                                                                                                    }
+                                                                                                                                                                                }
                                                                                                                                                                                 struct ExecValue raw_ptr_value3 = exec_vm_raw_array_element_ptr(slot_b, index_value);
                                                                                                                                                                                 if (raw_ptr_value3.kind != exec_ExecValueKind_EXEC_VALUE_POINTER) {
                                                                                                                                                                                     uint8_t idx_msg[384] = {0};
