@@ -1380,36 +1380,48 @@ fn thread_async_drain_result_fd(read_fd: i32) void {
 // 它直接承接 ThreadPool shared slot / result pipe / cooperative cancel / cleanup 协议，当前不能无损下沉成通用 fd wait substrate。
 // 对外业务入口继续只暴露 `@async_fn async_compute<T>`；这组 leaf 只负责线程调度桥接。
 // 拆出 slot-wait awaitable，供后续 `@async_fn` 直接复用。
+/// 槽位等待的一步推进（**无分配**版本）。
+///
+/// `AsyncThreadSlotWaitFuture::poll` 的实体放在这里。等待点会被 `block_on` 的忙等
+/// 循环高压重复调用；如果每一轮都把 future 装箱（`async_box_alloc_current`）再丢弃，
+/// 帧池会以每秒 GB 级的速度长胖 —— 第 684 轮实测单用例吃掉整机 60GB 内存。
+///
+/// 参数：`pool` 线程池；`slot_idx` 共享槽下标；`waker` 当前 waker。
+/// 返回值：`Ready` 携带 slot_idx 或结果管道 fd；未就绪返回 `Pending`。
+fn async_thread_slot_wait_poll(pool: &ThreadPool, slot_idx: i32, waker: &Waker) Poll<!usize> {
+    // 槽位已经跑完（DONE）就直接交回 slot_idx：结果值已经写在
+    // `slots[slot_idx].result_bits` 里，由 AsyncWorkerComputeFuture 的
+    // resolve 步骤读取，不需要再走 result pipe。
+    //
+    // 这一条在串行解释器下是必需的：worker 被「当场跑完」之后 active 会清 0，
+    // 而 `thread_async_try_slot_result_fd` 要求 active != 0，
+    // 于是同步 drain 出来的结果永远拿不到，调用方只能一直 Pending。
+    if thread_async_slot_is_done(pool, slot_idx) {
+        return async_poll_ready_ok_usize(slot_idx as usize);
+    }
+
+    const read_fd: i32 = thread_async_try_slot_result_fd(pool, slot_idx);
+    if read_fd >= 0 {
+        return async_poll_ready_ok_usize(read_fd as usize);
+    }
+
+    const progress_result: !i32 = thread_pool_try_progress_slot(pool, slot_idx);
+    const progressed: i32 = progress_result catch {
+        const err_value: !usize = progress_result as! usize;
+        return Poll<!usize>.Ready(err_value);
+    };
+    if progressed != 0 {
+        waker.wake();
+    }
+    return Poll<!usize>.Pending({});
+}
+
 struct AsyncThreadSlotWaitFuture : Future<!usize> {
     pool: &ThreadPool,
     slot_idx: i32,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        // 槽位已经跑完（DONE）就直接交回 slot_idx：结果值已经写在
-        // `slots[slot_idx].result_bits` 里，由 AsyncWorkerComputeFuture 的
-        // resolve 步骤读取，不需要再走 result pipe。
-        //
-        // 这一条在串行解释器下是必需的：worker 被「当场跑完」之后 active 会清 0，
-        // 而 `thread_async_try_slot_result_fd` 要求 active != 0，
-        // 于是同步 drain 出来的结果永远拿不到，调用方只能一直 Pending。
-        if thread_async_slot_is_done(self.pool, self.slot_idx) {
-            return async_poll_ready_ok_usize(self.slot_idx as usize);
-        }
-
-        const read_fd: i32 = thread_async_try_slot_result_fd(self.pool, self.slot_idx);
-        if read_fd >= 0 {
-            return async_poll_ready_ok_usize(read_fd as usize);
-        }
-
-        const progress_result: !i32 = thread_pool_try_progress_slot(self.pool, self.slot_idx);
-        const progressed: i32 = progress_result catch {
-            const err_value: !usize = progress_result as! usize;
-            return Poll<!usize>.Ready(err_value);
-        };
-        if progressed != 0 {
-            waker.wake();
-        }
-        return Poll<!usize>.Pending({});
+        return async_thread_slot_wait_poll(self.pool, self.slot_idx, waker);
     }
 
     fn release(self: &Self) void {
@@ -1428,6 +1440,24 @@ fn async_thread_slot_wait(pool: &ThreadPool, slot_idx: i32) Future<!usize> {
 }
 
 // 拆出 worker submit/queue awaitable，后续 `@async_fn` 组合层可直接 await。
+/// worker 提交的一步推进（**无分配**版本）。
+///
+/// 参数：`pool` 线程池；`compute_fn` 计算函数；`task_kind` 任务种类；
+///       `arg_bits` 按位传的参数；`waker` 当前 waker。
+/// 返回值：`Ready` 携带槽位下标（或错误）；否则 `Pending`。
+fn async_worker_submit_poll(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize,
+                            waker: &Waker) Poll<!usize> {
+    const submit_result: !i32 = thread_pool_submit_slot_raw(pool, compute_fn, task_kind, arg_bits);
+    const slot_idx: i32 = submit_result catch {
+        const err_value: !usize = submit_result as! usize;
+        return Poll<!usize>.Ready(err_value);
+    };
+    if thread_pool_has_pending(pool) {
+        waker.wake();
+    }
+    return async_poll_ready_ok_usize(slot_idx as usize);
+}
+
 struct AsyncWorkerSubmitFuture : Future<!usize> {
     pool: &ThreadPool,
     compute_fn: &void,
@@ -1435,15 +1465,7 @@ struct AsyncWorkerSubmitFuture : Future<!usize> {
     arg_bits: usize,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        const submit_result: !i32 = thread_pool_submit_slot_raw(self.pool, self.compute_fn, self.task_kind, self.arg_bits);
-        const slot_idx: i32 = submit_result catch {
-            const err_value: !usize = submit_result as! usize;
-            return Poll<!usize>.Ready(err_value);
-        };
-        if thread_pool_has_pending(self.pool) {
-            waker.wake();
-        }
-        return async_poll_ready_ok_usize(slot_idx as usize);
+        return async_worker_submit_poll(self.pool, self.compute_fn, self.task_kind, self.arg_bits, waker);
     }
 
     fn release(self: &Self) void {
@@ -1463,68 +1485,80 @@ fn async_worker_submit(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg
 // worker result leaf 仍留在上述 substrate 内部：
 // 它依赖 ThreadPool slot/worker 协议，而不是通用 fd runtime 叶子。
 // raw compute substrate 只对上层暴露单个 awaitable，不再让 typed wrapper 手工拼接 slot wait + pipe read 两段桥接。
+
+/// worker 结果的一步推进（**无分配**版本）。
+///
+/// `AsyncWorkerResultFuture::poll` 的实体放在这里：它每轮都会走 `slot wait`，
+/// 而 `block_on` 是忙等循环，装箱 future 会把帧池撑爆（见
+/// `async_thread_slot_wait_poll` 的说明）。
+///
+/// 参数：`pool` 线程池；`slot_idx` 共享槽下标；`waker` 当前 waker。
+/// 返回值：`Ready` 携带 resolve 所需的值（slot_idx 或 raw 结果）；未就绪返回 `Pending`。
+fn async_worker_result_poll(pool: &ThreadPool, slot_idx: i32, waker: &Waker) Poll<!usize> {
+    if thread_async_slot_is_done(pool, slot_idx) {
+        const done_fd: i32 = thread_async_try_slot_result_fd(pool, slot_idx);
+        thread_async_drain_result_fd(done_fd);
+        return async_poll_ready_ok_usize(slot_idx as usize);
+    }
+
+    const wait_poll: Poll<!usize> = async_thread_slot_wait_poll(pool, slot_idx, waker);
+    var read_fd: i32 = 0 - 1;
+    match wait_poll {
+        .Ready(wait_result) => {
+            const read_fd_bits: usize = wait_result catch {
+                return wait_poll;
+            };
+            // `AsyncThreadSlotWaitFuture` 的 Ready 载荷有**两种含义**：
+            //   * 槽位已经 DONE —— 直接交回 `slot_idx`（见 `:1357` 的分支，
+            //     值是**索引**，不是 fd）；
+            //   * 槽位还在跑但结果管道可读 —— 交回的是**真实的 fd**。
+            // 这里必须先按「是不是自己的 slot_idx」判一次，否则会把索引
+            // 当 fd 交给 `sys_read`：slot_idx 是 0/1 时正好读到 stdin/stdout，
+            // 返回 EBADF（error id 9），整条 compute 链路被误判成失败。
+            // 实测表现就是 `test_async_compute_types` 那批用例随机挂
+            // （哪个用例先抢到 slot 0/1 哪个挂），C99 侧尤其明显。
+            if read_fd_bits == slot_idx as usize {
+                return async_poll_ready_ok_usize(read_fd_bits);
+            }
+            read_fd = read_fd_bits as i32;
+        },
+        .Pending(_) => {
+            _ = thread_pool_progress_once_for_wait(pool, waker);
+            if thread_async_slot_is_done(pool, slot_idx) {
+                return async_poll_ready_ok_usize(slot_idx as usize);
+            }
+            return wait_poll;
+        },
+    };
+
+    var raw_value: usize = 0 as usize;
+    const read_result: !isize = sys_read(read_fd, (&raw_value) as *byte, @size_of(usize));
+    const n: isize = read_result catch |err| {
+        if thread_error_id_is_would_block(@error_id(err)) {
+            return async_poll_pending_readable_usize(waker, read_fd);
+        }
+        const err_value: !usize = read_result as! usize;
+        return Poll<!usize>.Ready(err_value);
+    };
+    if n != @size_of(usize) as isize {
+        return Poll<!usize>.Ready(thread_generic_error_usize());
+    }
+    if raw_value != slot_idx as usize {
+        if thread_async_slot_is_done(pool, slot_idx) {
+            thread_async_drain_result_fd(read_fd);
+            return async_poll_ready_ok_usize(slot_idx as usize);
+        }
+        return Poll<!usize>.Pending({});
+    }
+    return async_poll_ready_ok_usize(raw_value);
+}
+
 struct AsyncWorkerResultFuture : Future<!usize> {
     pool: &ThreadPool,
     slot_idx: i32,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if thread_async_slot_is_done(self.pool, self.slot_idx) {
-            const done_fd: i32 = thread_async_try_slot_result_fd(self.pool, self.slot_idx);
-            thread_async_drain_result_fd(done_fd);
-            return async_poll_ready_ok_usize(self.slot_idx as usize);
-        }
-
-        const wait_future: Future<!usize> = async_thread_slot_wait(self.pool, self.slot_idx);
-        const wait_poll: Poll<!usize> = wait_future.poll(waker);
-        var read_fd: i32 = 0 - 1;
-        match wait_poll {
-            .Ready(wait_result) => {
-                const read_fd_bits: usize = wait_result catch {
-                    return wait_poll;
-                };
-                // `AsyncThreadSlotWaitFuture` 的 Ready 载荷有**两种含义**：
-                //   * 槽位已经 DONE —— 直接交回 `slot_idx`（见 `:1357` 的分支，
-                //     值是**索引**，不是 fd）；
-                //   * 槽位还在跑但结果管道可读 —— 交回的是**真实的 fd**。
-                // 这里必须先按「是不是自己的 slot_idx」判一次，否则会把索引
-                // 当 fd 交给 `sys_read`：slot_idx 是 0/1 时正好读到 stdin/stdout，
-                // 返回 EBADF（error id 9），整条 compute 链路被误判成失败。
-                // 实测表现就是 `test_async_compute_types` 那批用例随机挂
-                // （哪个用例先抢到 slot 0/1 哪个挂），C99 侧尤其明显。
-                if read_fd_bits == self.slot_idx as usize {
-                    return async_poll_ready_ok_usize(read_fd_bits);
-                }
-                read_fd = read_fd_bits as i32;
-            },
-            .Pending(_) => {
-                _ = thread_pool_progress_once_for_wait(self.pool, waker);
-                if thread_async_slot_is_done(self.pool, self.slot_idx) {
-                    return async_poll_ready_ok_usize(self.slot_idx as usize);
-                }
-                return wait_poll;
-            },
-        };
-
-        var raw_value: usize = 0 as usize;
-        const read_result: !isize = sys_read(read_fd, (&raw_value) as *byte, @size_of(usize));
-        const n: isize = read_result catch |err| {
-            if thread_error_id_is_would_block(@error_id(err)) {
-                return async_poll_pending_readable_usize(waker, read_fd);
-            }
-            const err_value: !usize = read_result as! usize;
-            return Poll<!usize>.Ready(err_value);
-        };
-        if n != @size_of(usize) as isize {
-            return Poll<!usize>.Ready(thread_generic_error_usize());
-        }
-        if raw_value != self.slot_idx as usize {
-            if thread_async_slot_is_done(self.pool, self.slot_idx) {
-                thread_async_drain_result_fd(read_fd);
-                return async_poll_ready_ok_usize(self.slot_idx as usize);
-            }
-            return Poll<!usize>.Pending({});
-        }
-        return async_poll_ready_ok_usize(raw_value);
+        return async_worker_result_poll(self.pool, self.slot_idx, waker);
     }
 
     fn release(self: &Self) void {
@@ -1578,27 +1612,34 @@ fn async_worker_result(pool: &ThreadPool, slot_idx: i32) Future<!usize> {
     };
 }
 
+/// worker 取消的一步推进（**无分配**版本）。
+///
+/// 参数：`pool` 线程池；`slot_idx` 共享槽下标；`waker` 当前 waker。
+/// 返回值：取消已生效返回 `Ready(cancelled error)`；否则 `Pending`。
+fn async_worker_cancel_poll(pool: &ThreadPool, slot_idx: i32, waker: &Waker) Poll<!usize> {
+    if thread_async_try_cancel_now(pool, slot_idx) != 0 {
+        return Poll<!usize>.Ready(thread_cancelled_error_usize());
+    }
+
+    const raw_poll: Poll<!usize> = async_worker_result_poll(pool, slot_idx, waker);
+    match raw_poll {
+        .Ready(_) => {
+            return Poll<!usize>.Ready(thread_cancelled_error_usize());
+        },
+        .Pending(_) => {
+            return Poll<!usize>.Pending({});
+        },
+    };
+    abort();
+    return Poll<!usize>.Pending({});
+}
+
 struct AsyncWorkerCancelFuture : Future<!usize> {
     pool: &ThreadPool,
     slot_idx: i32,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if thread_async_try_cancel_now(self.pool, self.slot_idx) != 0 {
-            return Poll<!usize>.Ready(thread_cancelled_error_usize());
-        }
-
-        const raw_future: Future<!usize> = async_worker_result(self.pool, self.slot_idx);
-        const raw_poll: Poll<!usize> = raw_future.poll(waker);
-        match raw_poll {
-            .Ready(_) => {
-                return Poll<!usize>.Ready(thread_cancelled_error_usize());
-            },
-            .Pending(_) => {
-                return Poll<!usize>.Pending({});
-            },
-        };
-        abort();
-        return Poll<!usize>.Pending({});
+        return async_worker_cancel_poll(self.pool, self.slot_idx, waker);
     }
 
     fn release(self: &Self) void {
@@ -1757,8 +1798,7 @@ struct AsyncWorkerComputeFuture : Future<!usize> {
             thread_pool_record_cancel(self.pool);
         }
         if self.cancel_requested != 0 {
-            const cancel_future: Future<!usize> = async_worker_cancel(self.pool, self.slot_idx);
-            const cancel_poll: Poll<!usize> = cancel_future.poll(waker);
+            const cancel_poll: Poll<!usize> = async_worker_cancel_poll(self.pool, self.slot_idx, waker);
             match cancel_poll {
                 .Ready(_) => {
                     return self.finish_cancelled(waker);
@@ -1769,8 +1809,7 @@ struct AsyncWorkerComputeFuture : Future<!usize> {
             };
         }
         if self.slot_idx < 0 {
-            const submit_future: Future<!usize> = async_worker_submit(self.pool, self.compute_fn, self.task_kind, self.arg_bits);
-            const submit_poll: Poll<!usize> = submit_future.poll(waker);
+            const submit_poll: Poll<!usize> = async_worker_submit_poll(self.pool, self.compute_fn, self.task_kind, self.arg_bits, waker);
             match submit_poll {
                 .Ready(submit_result) => {
                     const submitted_slot_bits: usize = submit_result catch {
@@ -1784,8 +1823,7 @@ struct AsyncWorkerComputeFuture : Future<!usize> {
             };
         }
 
-        const raw_future: Future<!usize> = async_worker_result(self.pool, self.slot_idx);
-        const raw_poll: Poll<!usize> = raw_future.poll(waker);
+        const raw_poll: Poll<!usize> = async_worker_result_poll(self.pool, self.slot_idx, waker);
         match raw_poll {
             .Ready(raw_result) => {
                 const raw_value: usize = raw_result catch {

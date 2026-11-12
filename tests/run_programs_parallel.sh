@@ -577,11 +577,32 @@ run_command_with_timeout() {
     "$@"
 }
 
+# 单用例运行时的地址空间上限（MB，`UYA_TEST_MEM_MB=0` 关闭，默认 8GB）。
+#
+# 只为一件事：把「内存无限增长」型缺陷挡在单个子进程里，别让它吃光整机。
+# 第 684 轮实测过一个真实案例 —— `test_async_thread_pool_dynamic_growth`
+# 里每轮 `poll` 都装箱一个中间 future，`block_on` 忙等循环一分钟就能吃掉
+# 整机 60GB，`make check` 的并行 worker 只来得及被内核 OOM killer 收走。
+run_test_binary_with_memory_cap() {
+    local test_timeout="$1"
+    shift
+
+    local mem_mb="${UYA_TEST_MEM_MB:-8192}"
+    if [ "$mem_mb" = "0" ]; then
+        run_command_with_timeout "$test_timeout" "$@" > /dev/null 2>&1
+        return $?
+    fi
+    (
+        ulimit -v $((mem_mb * 1024)) 2>/dev/null || true
+        run_command_with_timeout "$test_timeout" "$@"
+    ) > /dev/null 2>&1
+}
+
 run_test_binary_with_timeout() {
     local test_timeout="$1"
     shift
 
-    run_command_with_timeout "$test_timeout" "$@" > /dev/null 2>&1
+    run_test_binary_with_memory_cap "$test_timeout" "$@"
 }
 
 # 统一测试执行函数：支持单文件、多文件和目录聚合用例
@@ -846,7 +867,7 @@ process_ready_single_results() {
 }
 
 # 导出函数和变量供子进程使用
-export -f generate_test_id link_generated_test_output run_command_with_timeout run_test_binary_with_timeout run_compiled_test_args run_compiled_test_input run_single_test run_multifile_test process_ready_single_results normalize_os normalize_arch test_should_use_nostdlib
+export -f generate_test_id link_generated_test_output run_command_with_timeout run_test_binary_with_memory_cap run_test_binary_with_timeout run_compiled_test_args run_compiled_test_input run_single_test run_multifile_test process_ready_single_results normalize_os normalize_arch test_should_use_nostdlib
 export COMPILER USE_UYA SCRIPT_DIR BUILD_DIR USE_C99 CC CC_DRIVER CC_TARGET_FLAGS HOST_OS HOST_ARCH TARGET_OS TARGET_ARCH TARGET_TRIPLE TARGET_EXE_SUFFIX TEST_PROFILE RUNTIME_MODE LINK_MODE UYA_TEST_NOSTDLIB_MODE REPO_ROOT
 
 SKIP_TESTS=()
