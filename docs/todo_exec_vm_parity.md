@@ -24032,3 +24032,68 @@ compiler_arena_alloc(ctx.arena, @size_of(BCInstr) * EXEC_MAX_BYTECODE_INSTRS)
 2. 判断「有没有回归」不能只跑一次：async 系列要重复跑 4 次以上看是否随机段错，
    否则会把 3/4 崩溃的版本当成「通过」提交。
 3. 解释器里跑编译器要 `--split-c-dir`，否则内外两层编译进程抢 `.uyacache` 锁。
+
+## 第 693 轮：`--vm` 跑通编译器本体 —— 全局表堆化 + 指令表扩容
+
+第 692 轮把两张表的堆化试成又回退。这一轮换了策略：**一次只动一张表，每动一张都拿
+async 用例连跑 4 次当稳定性闸门**，最后拿到了可用组合。
+
+### 改动一：全局表堆化（真需求：编译器本体有 1048 个全局）
+
+`ExecLowerContext` 里 `global_names/global_decls/global_is_const` 原来是
+`[T: EXEC_MAX_GLOBALS]` 内联数组（把上下文撑到 819KB），改成指针 + `global_capacity`，
+新增 `exec_lower_global_tables_init(ctx, need)` 一次性按需分配四张表
+（names/decls/is_const/**global_types**，首次 1024，之后翻倍并拷贝旧内容）。
+`exec_lower_seed_globals` 先 `init(global_count)` 再填；`exec_lower_type_slot(ctx, 2, …)`
+的容量参数统一改成 `ctx.global_capacity`。
+
+收集侧（`exec_lower_append_global_slot` 写入的 `HIRGlobalSlot` 数组）**不再穿透改 15 个
+函数签名**，而是用独立常量 `EXEC_MAX_GLOBAL_SLOTS = 8192`：它是**每程序一次**的 arena
+分配，不是每函数，多给几 MB 完全值得。
+
+踩坑：改完还是段错，因为漏了三处仍按 `EXEC_MAX_GLOBALS`(1024) 的旧边界 ——
+`exec_lower_lower_global_init_exprs` 里的 `var emitted: [i32: EXEC_MAX_GLOBALS]`
+（按全局槽下标写，1048 个时越界写栈）以及两处 `slot < EXEC_MAX_GLOBALS` 判断。
+改成 `EXEC_MAX_GLOBAL_SLOTS` / `ctx.global_capacity` 后段错消失。
+
+打点确认：编译器本体 `collected=1048`，ctx 表自动长到 2048。
+
+### 改动二：指令表扩容（真需求：`src/codegen/c99/main.uya:2220` 超 16384 条）
+
+`ExecFunctionBuildContext` 加 `instr_capacity`；`exec_builder_emit` 首次仍按
+`EXEC_MAX_BYTECODE_INSTRS` 预分配（与旧行为逐字节一致），**只有超过上限才翻倍扩容**
+（`exec_builder_instr_grow`）；`exec_builder_instr_slot` 按 `instr_capacity` 判定，
+「bytecode 指令超出上限」这个硬失败取消。
+
+### 改动三：const pool 保持内联，只把上限抬到 32768
+
+试过把 `ExecConstPoolBuilder.values` 也堆化（指针 + 翻倍）：`--vm` 自举更顺，
+但 async 用例**重新开始随机段错**（4 次里 2 次 rc=139），而只保留前两项改动时 4/4 稳定。
+所以 const pool 继续用内联数组 —— 它是**程序级**的一份局部量
+（`exec_builder_build_program`），32768 × 56B = 1.8MB 栈，代价可以接受。
+结论：**VM 里「池子的分配方式」比容量本身更敏感**，能动的是全局表和指令表，
+const pool 暂时别动。
+
+### 本轮结果
+
+| 检查 | 结果 |
+| --- | --- |
+| `test_async_compute_types --vm` | 4/4 通过（稳定性闸门） |
+| `test_http_uyagin --vm` / `test_std_runtime --vm` | 通过 |
+| `run --vm --dump-bytecode src/main.uya` | 构建成功并输出 636 540 行字节码 |
+| **`run --vm src/main.uya -- --version`** | **输出 `v0.11.0`** |
+| `run --vm src/main.uya -- build /tmp/hello_vm.uya -o … --split-c-dir …` | 仍挂 `peek_char` 的 LOAD_INDEX |
+| 全量 census / make check | 本轮末尾复跑 |
+
+### 下一个 bug（证据已收敛）
+
+`--vm` 下 build 卡在 `src/lexer.uya:148`。打点显示 `peek_char` 的 `lexer` 形参是
+**普通指针**（`isref=0`、`aux=16` 普通 pointee kind），而它的地址**落在 VM 值 arena 段内**
+—— 这正好说明它是「调用方参数槽的地址」而不是真实的 Lexer 地址：
+传 `&T` 实参时 VM 会把槽地址交过去，正常情况下要靠内部引用编码
+（`aux = EXEC_VM_REF_KIND_BASE +| pointee_kind`）让被调方走聚合语义，
+这里编码丢了，于是 `exec_vm_field_native_base` 判成「VM 驻留」返回 0 →
+聚合路径给出 VOID 字段 → LOAD_INDEX 越界。
+
+下一步：在 CALL 绑参/`&T` 强转路径上找出丢编码的那一处（打印 `function.name` 为
+`peek_char` 时实参的 kind/aux），修完再谈 build 自举与 5.1GB 加载内存。

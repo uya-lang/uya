@@ -4,12 +4,15 @@ use libc;
 
 const EXEC_MAX_BYTECODE_INSTRS: i32 = 16384;
 // 编译器本体 staged smoke 会带入大量字符串/整数常量，1024 容量过早撞限。
-const EXEC_MAX_CONST_POOL_VALUES: i32 = 8192;
+const EXEC_MAX_CONST_POOL_VALUES: i32 = 32768;
 const EXEC_MAX_HOST_CALL_SITES: i32 = 64;
 // 保持与 lowering 侧一致，避免深 `else if` 链在 cleanup scope 栈上过早撞限。
 const EXEC_MAX_CLEANUP_SCOPE_DEPTH: i32 = 1024;
 
 struct ExecConstPoolBuilder {
+    // 常量池是**程序级**的一份（`exec_builder_build_program` 里的局部量），
+    // 所以这里保持内联数组而是把上限抬够：编译器本体的常量数会超过 8192，
+    // 而改成 arena 按需分配实测会让 async 用例随机段错（见第 693 轮记录）。
     values: [ExecValue: EXEC_MAX_CONST_POOL_VALUES],
     count: i32,
 }
@@ -53,6 +56,9 @@ struct ExecFunctionBuildContext {
     // 放在 ctx 里会让每个函数 build 都 memset 掉 3.4MB 栈帧
     // （callgrind 实测占编译器 21.8% 的指令数）。
     instrs: &BCInstr,
+    // 指令缓冲区实际容量：首次仍按 EXEC_MAX_BYTECODE_INSTRS 预分配（与旧行为一致），
+    // 只有编译器本体 codegen 这类**超上限**的巨型函数才会翻倍扩容。
+    instr_capacity: i32,
     instr_count: i32,
     next_temp_slot: i32,
     max_slot_count: i32,
@@ -78,10 +84,7 @@ fn exec_builder_const_pool_value_ref(const_pool: &ExecConstPoolBuilder, idx: i32
     if const_pool == null || idx < 0 || idx >= EXEC_MAX_CONST_POOL_VALUES {
         return null;
     }
-    if idx >= 0 && idx < EXEC_MAX_CONST_POOL_VALUES {
-        return &const_pool.values[idx];
-    }
-    return null;
+    return &const_pool.values[idx];
 }
 
 fn exec_builder_host_call_site_ref(host_calls: &ExecHostCallSiteBuilder, idx: i32) &BCHostCallSite {
@@ -131,16 +134,31 @@ fn exec_builder_intern_host_call(ctx: &ExecFunctionBuildContext, expr: &HIRExpr)
 }
 
 fn exec_builder_instr_slot(ctx: &ExecFunctionBuildContext, idx: i32) &BCInstr {
-    if ctx == null || idx < 0 || idx >= EXEC_MAX_BYTECODE_INSTRS {
+    if ctx == null || ctx.instrs == null || idx < 0 || idx >= ctx.instr_capacity {
         return null;
     }
-    if ctx.instrs == null {
-        return null;
+    return &ctx.instrs[idx];
+}
+
+/// 指令缓冲区翻倍扩容（只在指令数超过 `EXEC_MAX_BYTECODE_INSTRS` 的巨型函数上发生）。
+/// 参数：`ctx` 构建上下文。
+/// 返回值：0 成功；-1 失败（已设置后端错误）。
+fn exec_builder_instr_grow(ctx: &ExecFunctionBuildContext) i32 {
+    const new_cap: i32 = ctx.instr_capacity *| 2;
+    const fresh: &BCInstr = compiler_arena_alloc(ctx.arena,
+        @size_of(BCInstr) * new_cap as usize) as &BCInstr;
+    if fresh == null {
+        exec_backend_set_error(ctx.function.decl, "exec: bytecode 指令缓冲区分配失败" as *byte, 0);
+        return -1;
     }
-    if idx >= 0 && idx < EXEC_MAX_BYTECODE_INSTRS {
-        return &ctx.instrs[idx];
+    var i: i32 = 0;
+    while i < ctx.instr_count {
+        fresh[i] = ctx.instrs[i];
+        i = i + 1;
     }
-    return null;
+    ctx.instrs = fresh;
+    ctx.instr_capacity = new_cap;
+    return 0;
 }
 
 /// 在模块里定位一个被调函数。
@@ -529,9 +547,21 @@ fn exec_builder_emit(ctx: &ExecFunctionBuildContext, instr: BCInstr) i32 {
         return -1;
     }
     const instr_index: i32 = ctx.instr_count;
-    if instr_index >= EXEC_MAX_BYTECODE_INSTRS {
-        exec_backend_set_error(ctx.function.decl, "exec: bytecode 指令超出上限" as *byte, 0);
-        return -1;
+    if ctx.instr_capacity <= 0 {
+        // 首次：按上限预分配（与旧的「一次性预分配」行为完全一致）。
+        const fresh: &BCInstr = compiler_arena_alloc(ctx.arena,
+            @size_of(BCInstr) * EXEC_MAX_BYTECODE_INSTRS as usize) as &BCInstr;
+        if fresh == null {
+            exec_backend_set_error(ctx.function.decl, "exec: bytecode 指令缓冲区分配失败" as *byte, 0);
+            return -1;
+        }
+        ctx.instrs = fresh;
+        ctx.instr_capacity = EXEC_MAX_BYTECODE_INSTRS;
+    } else if instr_index >= ctx.instr_capacity {
+        // 巨型函数（编译器本体 codegen 有几万条指令）：翻倍扩容。
+        if exec_builder_instr_grow(ctx) != 0 {
+            return -1;
+        }
     }
     // 指令数组惰性分配：绝大多数函数远用不到 16384 条上限，按上限预分配
     // 只是白白多清 1.2MB（见 `ExecFunctionBuildContext.instrs` 的注释）。
@@ -550,8 +580,8 @@ fn exec_builder_emit(ctx: &ExecFunctionBuildContext, instr: BCInstr) i32 {
         return -1;
     }
     instr_ptr[0] = instr;
-    ctx.instr_count = instr_index + 1;
-    return ctx.instr_count - 1;
+    ctx.instr_count = instr_index +| 1;
+    return ctx.instr_count -| 1;
 }
 
 fn exec_builder_make_source(node: &ASTNode) BCSourceMap {
@@ -5522,6 +5552,7 @@ fn exec_builder_build_function(arena: &CompilerArena, checker: &TypeChecker, con
         module: module,
         function: fn_hir,
         instrs: null,
+        instr_capacity: 0,
         instr_count: 0,
         next_temp_slot: fn_hir.local_count,
         max_slot_count: fn_hir.local_count,

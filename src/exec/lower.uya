@@ -6,6 +6,10 @@ use ast;
 const EXEC_MAX_LOCALS: i32 = 1024;
 // 保持平铺数组查找的热路径简单，同时给编译器本体 staged smoke 留足全局槽位。
 const EXEC_MAX_GLOBALS: i32 = 1024;
+/// 收集阶段全局槽表的容量上限（**每程序一次**从 arena 分配，不是每函数）。
+/// `ExecLowerContext` 的全局表已改成按需分配（见 `exec_lower_global_tables_init`），
+/// 所以这里可以给足余量：解释器跑 uya 编译器本体需要 >1024 个全局槽。
+const EXEC_MAX_GLOBAL_SLOTS: i32 = 8192;
 // `else if` 会在 AST 中嵌套成深链；编译器本体的 SIMD codegen 路径会明显超过 64 层。
 const EXEC_MAX_SCOPE_DEPTH: i32 = 512;
 const EXEC_MAX_INTERFACE_METHODS: i32 = 64;
@@ -27,12 +31,16 @@ struct ExecLowerContext {
     arena: &CompilerArena,
     checker: &TypeChecker,
     function_decl: &ASTNode,
-    global_names: [&byte: EXEC_MAX_GLOBALS],
-    global_decls: [&ASTNode: EXEC_MAX_GLOBALS],
+    // 全局表四张表按需从 arena 分配（见 `exec_lower_global_tables_init`）：
+    // 原来是 `[T: EXEC_MAX_GLOBALS]` 内联数组，直接把 `ExecLowerContext` 撑到 819KB，
+    // 而解释器跑编译器本体需要 >1024 个全局槽 —— 只抬常量会让帧更肥、每函数白清。
+    global_names: & &byte,
+    global_decls: & &ASTNode,
     // 这三个 `[Type: …]` 每个约 200KB，是 `ExecLowerContext` 819KB 栈帧的主体。
     // 改成按需分配（见 `exec_lower_type_array`），没用到就不清。
     global_types: &Type,
-    global_is_const: [i32: EXEC_MAX_GLOBALS],
+    global_is_const: &i32,
+    global_capacity: i32,
     global_count: i32,
     local_names: [&byte: EXEC_MAX_LOCALS],
     local_slots: [i32: EXEC_MAX_LOCALS],
@@ -96,6 +104,47 @@ fn exec_lower_type_slot(ctx: &ExecLowerContext, which: i32, idx: i32, cap: i32) 
         target[0] = fresh;
     }
     return &target[0][idx];
+}
+
+/// 全局表按需分配：`global_names` / `global_decls` / `global_is_const` /
+/// `global_types` 四张表一起按 `need` 重新分配（旧的直接丢弃，arena 不回收）。
+/// 参数：`ctx` lowering 上下文；`need` 需要的最小槽数。
+/// 返回值：0 成功；-1 分配失败。
+fn exec_lower_global_tables_init(ctx: &ExecLowerContext, need: i32) i32 {
+    if ctx == null || need <= 0 {
+        return 0;
+    }
+    if ctx.global_capacity >= need {
+        return 0;
+    }
+    var new_cap: i32 = ctx.global_capacity;
+    if new_cap <= 0 {
+        new_cap = EXEC_MAX_GLOBALS;
+    }
+    while new_cap < need {
+        new_cap = new_cap *| 2;
+    }
+    const names: & &byte = compiler_arena_alloc(ctx.arena, @size_of(&byte) * new_cap as usize) as & &byte;
+    const decls: & &ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode) * new_cap as usize) as & &ASTNode;
+    const is_const: &i32 = compiler_arena_alloc(ctx.arena, @size_of(i32) * new_cap as usize) as &i32;
+    const types: &Type = compiler_arena_alloc(ctx.arena, @size_of(Type) * new_cap as usize) as &Type;
+    if names == null || decls == null || is_const == null || types == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < ctx.global_count {
+        names[i] = ctx.global_names[i];
+        decls[i] = ctx.global_decls[i];
+        is_const[i] = ctx.global_is_const[i];
+        types[i] = ctx.global_types[i];
+        i = i + 1;
+    }
+    ctx.global_names = names;
+    ctx.global_decls = decls;
+    ctx.global_is_const = is_const;
+    ctx.global_types = types;
+    ctx.global_capacity = new_cap;
+    return 0;
 }
 
 fn exec_lower_set_unsupported(node: &ASTNode, reason: &byte) i32 {
@@ -1754,7 +1803,7 @@ fn exec_lower_find_global_slot(ctx: &ExecLowerContext, name: &byte) i32 {
     }
     var i: i32 = ctx.global_count -| 1;
     while i >= 0 {
-        if i >= 0 && i < EXEC_MAX_GLOBALS {
+        if i >= 0 && i < ctx.global_capacity {
             if ctx.global_names[i] != null && str_equals(ctx.global_names[i], name) != 0 {
                 return i;
             }
@@ -1770,7 +1819,7 @@ fn exec_lower_find_global_slot_by_decl(ctx: &ExecLowerContext, decl: &ASTNode) i
     }
     var i: i32 = 0;
     while i < ctx.global_count {
-        if i >= 0 && i < EXEC_MAX_GLOBALS && ctx.global_decls[i] == decl {
+        if i >= 0 && i < ctx.global_capacity && ctx.global_decls[i] == decl {
             return i;
         }
         i = i + 1;
@@ -1786,11 +1835,14 @@ fn exec_lower_seed_globals(ctx: &ExecLowerContext, globals: &HIRGlobalSlot, glob
     if globals == null || global_count <= 0 {
         return;
     }
+    if exec_lower_global_tables_init(ctx, global_count) != 0 {
+        return;
+    }
     var i: i32 = 0;
-    while i < global_count && i < EXEC_MAX_GLOBALS {
+    while i < global_count {
         ctx.global_names[i] = globals[i].name;
         ctx.global_decls[i] = globals[i].decl;
-        exec_lower_type_slot(ctx, 2, i, EXEC_MAX_GLOBALS)[0] = copy_type(&globals[i].type_ref.type);
+        ctx.global_types[i] = copy_type(&globals[i].type_ref.type);
         ctx.global_is_const[i] = globals[i].is_const;
         i = i + 1;
     }
@@ -3011,8 +3063,8 @@ fn exec_lower_known_len_for_expr(ctx: &ExecLowerContext, expr: &ASTNode) i32 {
             return exec_lower_known_len(exec_lower_type_slot(ctx, 0, local_slot, EXEC_MAX_LOCALS));
         }
         const global_slot: i32 = exec_lower_find_global_slot(ctx, expr.identifier_name);
-        if global_slot >= 0 && global_slot < EXEC_MAX_GLOBALS {
-            return exec_lower_known_len(exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS));
+        if global_slot >= 0 && global_slot < ctx.global_capacity {
+            return exec_lower_known_len(exec_lower_type_slot(ctx, 2, global_slot, ctx.global_capacity));
         }
     }
     const expr_type: Type = exec_lower_resolve_exact_type(ctx, expr);
@@ -3236,8 +3288,8 @@ fn exec_lower_resolve_exact_type(ctx: &ExecLowerContext, expr: &ASTNode) Type {
             return exec_lower_type_slot(ctx, 0, slot, EXEC_MAX_LOCALS)[0];
         }
         const global_slot: i32 = exec_lower_find_global_slot(ctx, expr.identifier_name);
-        if global_slot >= 0 && global_slot < EXEC_MAX_GLOBALS {
-            return exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0];
+        if global_slot >= 0 && global_slot < ctx.global_capacity {
+            return exec_lower_type_slot(ctx, 2, global_slot, ctx.global_capacity)[0];
         }
         return resolved;
     }
@@ -3364,8 +3416,8 @@ fn exec_lower_make_ref_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             return addr_local;
         }
         const global_slot: i32 = exec_lower_find_global_slot(ctx, expr.identifier_name);
-        if global_slot >= 0 && global_slot < EXEC_MAX_GLOBALS {
-            const addr_global: &HIRExpr = exec_lower_make_addr_expr(ctx, expr, exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS));
+        if global_slot >= 0 && global_slot < ctx.global_capacity {
+            const addr_global: &HIRExpr = exec_lower_make_addr_expr(ctx, expr, exec_lower_type_slot(ctx, 2, global_slot, ctx.global_capacity));
             if addr_global == null {
                 return null;
             }
@@ -4784,11 +4836,11 @@ fn exec_lower_member_base_type(ctx: &ExecLowerContext, object: &ASTNode) Type {
             return exec_lower_type_slot(ctx, 0, slot, EXEC_MAX_LOCALS)[0];
         }
         const global_slot: i32 = exec_lower_find_global_slot(ctx, object.identifier_name);
-        if global_slot >= 0 && global_slot < EXEC_MAX_GLOBALS {
-            if exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0].kind == TypeKind.TYPE_POINTER && exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0].pointer_to != null {
-                return exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0].pointer_to[0];
+        if global_slot >= 0 && global_slot < ctx.global_capacity {
+            if exec_lower_type_slot(ctx, 2, global_slot, ctx.global_capacity)[0].kind == TypeKind.TYPE_POINTER && exec_lower_type_slot(ctx, 2, global_slot, ctx.global_capacity)[0].pointer_to != null {
+                return exec_lower_type_slot(ctx, 2, global_slot, ctx.global_capacity)[0].pointer_to[0];
             }
-            return exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0];
+            return exec_lower_type_slot(ctx, 2, global_slot, ctx.global_capacity)[0];
         }
     }
     if object != null && object.type == ASTNodeType.AST_MEMBER_ACCESS &&
@@ -6488,7 +6540,7 @@ fn exec_lower_append_global_slot(checker: &TypeChecker, decl: &ASTNode, globals:
     if allow_uya_root_runtime == 0 && exec_lower_decl_is_uya_root_runtime(checker, decl) != 0 {
         return 0;
     }
-    if out_count[0] >= EXEC_MAX_GLOBALS {
+    if out_count[0] >= EXEC_MAX_GLOBAL_SLOTS {
         exec_backend_set_error(decl, "exec: global 数量超出上限" as *byte, 0);
         return -1;
     }
@@ -7383,7 +7435,7 @@ fn exec_lower_collect_global_slots(arena: &CompilerArena, checker: &TypeChecker,
     if arena == null || checker == null || program == null || program.type != ASTNodeType.AST_PROGRAM {
         return null;
     }
-    const globals: &HIRGlobalSlot = compiler_arena_alloc(arena, @size_of(HIRGlobalSlot) * EXEC_MAX_GLOBALS as usize) as &HIRGlobalSlot;
+    const globals: &HIRGlobalSlot = compiler_arena_alloc(arena, @size_of(HIRGlobalSlot) * EXEC_MAX_GLOBAL_SLOTS as usize) as &HIRGlobalSlot;
     if globals == null {
         exec_backend_set_error(program, "exec: global slot 表分配失败" as *byte, 0);
         return null;
@@ -7637,10 +7689,11 @@ fn exec_lower_lower_global_init_exprs(arena: &CompilerArena, checker: &TypeCheck
         arena: arena,
         checker: checker,
         function_decl: null,
-        global_names: [],
-        global_decls: [],
+        global_names: null,
+        global_decls: null,
         global_types: null,
-        global_is_const: [],
+        global_is_const: null,
+        global_capacity: 0,
         global_count: 0,
         local_names: [],
         local_slots: [],
@@ -7863,7 +7916,9 @@ fn exec_lower_build_global_init_function(arena: &CompilerArena, globals: &HIRGlo
     // 否则 M 读到的还是零。槽位编号是「首次出现」顺序而不是声明顺序，实测
     // heap.uya 里 `CHUNK_STATE_MASK` 的槽位比它依赖的两个 flag 更小，按槽位
     // 顺序初始化会让 mask 恒为 0（FREE 位永远清不掉，free() 静默丢块）。
-    var emitted: [i32: EXEC_MAX_GLOBALS] = [];
+    // 按**全局槽上限**开表：真实全局数可能超过 EXEC_MAX_GLOBALS（解释器跑编译器本体
+    // 实测 1048 个），用旧常量会越界写栈。
+    var emitted: [i32: EXEC_MAX_GLOBAL_SLOTS] = [];
     var emitted_count: i32 = 0;
     var stmt_idx: i32 = 1;
     var rounds: i32 = 0;
@@ -9091,8 +9146,8 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             }
             if resolved_global_slot_by_decl >= 0 {
                 var global_type_by_decl: Type = copy_type(&expr_type);
-                if resolved_global_slot_by_decl >= 0 && resolved_global_slot_by_decl < EXEC_MAX_GLOBALS {
-                    global_type_by_decl = exec_lower_type_slot(ctx, 2, resolved_global_slot_by_decl, EXEC_MAX_GLOBALS)[0];
+                if resolved_global_slot_by_decl >= 0 && resolved_global_slot_by_decl < ctx.global_capacity {
+                    global_type_by_decl = exec_lower_type_slot(ctx, 2, resolved_global_slot_by_decl, ctx.global_capacity)[0];
                 }
                 const hir_global_by_decl: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_GLOBAL, &global_type_by_decl);
                 if hir_global_by_decl == null {
@@ -9123,8 +9178,8 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         const global_slot: i32 = exec_lower_find_global_slot(ctx, expr.identifier_name);
         if global_slot >= 0 {
             var global_type: Type = copy_type(&expr_type);
-            if global_slot >= 0 && global_slot < EXEC_MAX_GLOBALS {
-                global_type = exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0];
+            if global_slot >= 0 && global_slot < ctx.global_capacity {
+                global_type = exec_lower_type_slot(ctx, 2, global_slot, ctx.global_capacity)[0];
             }
             const hir_global: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_GLOBAL, &global_type);
             if hir_global == null {
@@ -10226,8 +10281,8 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                 }
                 if resolved_module_global_slot >= 0 {
                     var module_global_type: Type = copy_type(&expr_type);
-                    if resolved_module_global_slot >= 0 && resolved_module_global_slot < EXEC_MAX_GLOBALS {
-                        module_global_type = exec_lower_type_slot(ctx, 2, resolved_module_global_slot, EXEC_MAX_GLOBALS)[0];
+                    if resolved_module_global_slot >= 0 && resolved_module_global_slot < ctx.global_capacity {
+                        module_global_type = exec_lower_type_slot(ctx, 2, resolved_module_global_slot, ctx.global_capacity)[0];
                     }
                     const hir_module_global: &HIRExpr = exec_lower_alloc_expr(ctx, expr, HIRExprKind.HIR_EXPR_GLOBAL, &module_global_type);
                     if hir_module_global == null {
@@ -11613,10 +11668,11 @@ fn exec_lower_function(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &A
         arena: arena,
         checker: checker,
         function_decl: fn_decl,
-        global_names: [],
-        global_decls: [],
+        global_names: null,
+        global_decls: null,
         global_types: null,
-        global_is_const: [],
+        global_is_const: null,
+        global_capacity: 0,
         global_count: 0,
         local_names: [],
         local_slots: [],
