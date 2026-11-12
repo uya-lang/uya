@@ -24683,3 +24683,60 @@ repro 结果（`--vm`）：`/tmp/ptra2.uya` → `a=7`，`/tmp/ptra_rep.uya` → 
 读/写指针数组的改动再次**全部回退**（整机 build 仍崩，不能带病提交），
 仓库回到 `181f926b`：census 912/912、make check 1197/1197、种子已重建、
 `--vm --version` 正常、`test_http_uyagin` 复核通过。
+
+## 第 705 轮：崩溃定位到「宏展开的递归自调用」，实参丢的是 index-ref 编码
+
+第 704 轮把整机 build 的崩溃点推到 `expand_macros_in_node_simple`（`node_ptr[0]` 读到 28）。
+这一轮把**调用方**钉死了。
+
+### 已排除：存储/MOV 不丢编码
+
+给 `BC_MOV` 加打点（只打印「源是内部引用指针」的那些），大量样本显示：
+
+```
+[dbg-mov] fn=type_from_ast_cache_store line=166 src_aux=65552 dst_aux=65552
+[dbg-mov] fn=checker_register_fn_decl  line=474 src_aux=65552 dst_aux=65552
+[dbg-mov] fn=checker_check              line=2860 src_aux=65554 dst_aux=65554
+```
+
+`aux` 里的引用编码（`EXEC_VM_REF_KIND_BASE = 65536` 起）在
+`exec_vm_store_aggregate_in_place` / `exec_vm_store_slot` / `BC_MOV` 链路上都保住了。
+
+### 真凶位置：同一个函数的递归自调用
+
+给 CALL 打点（打印 `caller/line/argN kind/i64/aux/isref`），崩溃前最后几条：
+
+```
+[dbg-call] caller=expand_macros_in_node_simple line=4125 ip=368 arg0 kind=14 aux=16 isref=0
+[dbg-call] caller=expand_macros_in_node_simple line=4125 ip=368 arg1 kind=14 aux=18 isref=0
+```
+
+`src/checker/macro_expand.uya:4125` 是：
+
+```uya
+fn expand_macros_in_node_simple(checker: &TypeChecker, node_ptr: & & ASTNode) void {
+    …
+    expand_macros_in_node_simple(checker, &node.program_decls[i]);   // ← 4125
+```
+
+也就是说：**实参是 `&node.program_decls[i]`（对数组元素取址），但到 CALL 时
+`aux=18`（普通指针的 pointee kind），没有 `65536+…` 的引用编码**。
+被调方于是把「元素地址」当普通指针，`node_ptr[0]` 读出 8 字节 —— 恰好是 28，
+再当 `&ASTNode` 用就段错误。
+
+### 下一步（很具体）
+
+需要确认 `&node.program_decls[i]` 这条 **ADDR_INDEX**：它应该产出
+`exec_vm_encode_index_ref_kind(...)`（`131072 +| kind`）的 index-ref，
+而现在结果既不是 index-ref 也不是普通 ref。两件事要一起看：
+
+1. `ADDR_INDEX` 的 index-ref 分支在「基址是原生结构体字段数组」时是否被绕开
+   （走成了「原生地址 + elementsize*idx」的普通指针），以及那个地址算得对不对；
+2. 若它确实走成了普通指针，那么 `node.program_decls`（`& & ASTNode`）的元素地址
+   到底指向哪里 —— 28 这个值很像「读到了 ASTNode 的前 8 字节」而不是指针数组元素。
+
+### 本轮仓库状态
+
+所有打点已移除，读/写指针数组的改动随整机崩溃一并回退，
+仓库回到 `44ae5e91`（census 912/912、make check 1197/1197、种子已重建、
+`--vm --version` 正常、`test_http_uyagin` 复核通过）。
