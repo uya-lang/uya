@@ -3683,173 +3683,173 @@ static const char str2004[] = "错误: verify-image 仅支持 .pobj 或 .uapp: %
 static const char str2005[] = "exec: hostcall builder 输入无效";
 static const char str2006[] = "exec: hostcall site 超出上限";
 static const char str2007[] = "exec: hostcall site 写入失败";
-static const char str2008[] = "exec: const pool builder 输入无效";
-static const char str2009[] = "exec: const pool 超出上限";
-static const char str2010[] = "exec: const pool 索引非法";
-static const char str2011[] = "exec: const pool 写入失败";
-static const char str2012[] = "exec: bytecode 指令超出上限";
-static const char str2013[] = "exec: bytecode 指令缓冲区分配失败";
-static const char str2014[] = "exec: bytecode 指令写入失败";
-static const char str2015[] = "exec: frame slot 超出上限";
-static const char str2016[] = "exec: zero union 缺少 checker 上下文";
-static const char str2017[] = "exec: zero union 无法解析联合体声明";
-static const char str2018[] = "exec: zero union 首个变体声明异常";
-static const char str2019[] = "exec: zero interface 缺少声明";
-static const char str2020[] = "exec: zero interface 无法解析接口声明";
-static const char str2021[] = "exec: zero interface 方法过多";
-static const char str2022[] = "exec: zero tuple 元素超出上限";
-static const char str2023[] = "exec: zero struct 缺少 checker 上下文";
-static const char str2024[] = "exec: zero struct 无法解析结构体声明(name=%s)";
-static const char str2025[] = "exec: zero struct 字段超出上限";
-static const char str2026[] = "exec: zero struct 字段类型缺失";
-static const char str2027[] = "exec: 当前不支持该类型的零值初始化(kind=%d)";
-static const char str2028[] = "exec: 聚合值元素超出上限";
-static const char str2029[] = "exec: 当前不支持该赋值目标";
-static const char str2030[] = "exec: checked 算术缺少 catch 上下文";
-static const char str2031[] = "exec: catch 不支持该算术运算符";
-static const char str2032[] = "exec: catch 的溢出跳转过多";
-static const char str2033[] = "exec: 无法为表达式构造地址";
-static const char str2034[] = "exec: @vector 操作缺少名称";
-static const char str2035[] = "exec: @embed_dir 常量构造失败";
-static const char str2036[] = "exec: if 表达式缺少条件或分支";
-static const char str2037[] = "exec: 赋值表达式缺少操作数";
-static const char str2038[] = "exec: repeat array literal item 数量异常";
-static const char str2039[] = "exec: repeat array literal 次数超出范围";
-static const char str2040[] = "exec: interface 装箱缺少方法表";
-static const char str2041[] = "exec: interface 方法表过大";
-static const char str2042[] = "exec: interface dispatch decl 为空";
-static const char str2043[] = "exec: interface 方法未进入 reachable 集合";
-static const char str2044[] = "exec: interface 方法表下标越界";
-static const char str2045[] = "exec: 当前仅支持 ! / - / ~ unary";
-static const char str2046[] = "exec: 当前不支持该 binary 运算符";
-static const char str2047[] = "exec: 字符串插值实参过多";
-static const char str2048[] = "exec: 字符串插值实参槽位不连续";
-static const char str2049[] = "exec: 字符串插值缺少实参";
-static const char str2050[] = "exec: 无法解析被调用函数";
-static const char str2051[] = "exec: 被调用函数未进入模块: %s";
-static const char str2052[] = "exec: builder 不支持该表达式";
-static const char str2053[] = "exec: cleanup scope 嵌套过深";
-static const char str2054[] = "exec: cleanup scope 栈越界";
-static const char str2055[] = "exec: cleanup scope 读取失败";
-static const char str2056[] = "exec: errdefer 数量超出上限";
-static const char str2057[] = "exec: errdefer 写入失败";
-static const char str2058[] = "exec: defer 数量超出上限";
-static const char str2059[] = "exec: defer 写入失败";
-static const char str2060[] = "exec: drop cleanup scope 读取失败";
-static const char str2061[] = "exec: 每个作用域的 drop local 超出上限";
-static const char str2062[] = "exec: drop local 写入失败";
-static const char str2063[] = "exec: 未能解析 local drop 方法";
-static const char str2064[] = "exec: drop 方法未进入可执行函数集";
-static const char str2065[] = "exec: errdefer cleanup block 无效";
-static const char str2066[] = "exec: defer cleanup block 无效";
-static const char str2067[] = "exec: scope exit 时 cleanup scope 为空";
-static const char str2068[] = "exec: scope enter/exit 不匹配";
-static const char str2069[] = "exec: loop 嵌套过深";
-static const char str2070[] = "exec: loop patch 栈越界";
-static const char str2071[] = "exec: loop patch 读取失败";
-static const char str2072[] = "exec: break patch 读取失败";
-static const char str2073[] = "exec: continue patch 读取失败";
-static const char str2074[] = "exec: break 不在 loop 内";
-static const char str2075[] = "exec: break patch 栈越界";
-static const char str2076[] = "exec: break patch 超出上限";
-static const char str2077[] = "exec: break patch 写入失败";
-static const char str2078[] = "exec: continue 不在 loop 内";
-static const char str2079[] = "exec: continue patch 栈越界";
-static const char str2080[] = "exec: continue patch 超出上限";
-static const char str2081[] = "exec: continue patch 写入失败";
-static const char str2082[] = "exec: builder 不支持该语句";
-static const char str2083[] = "exec: block cleanup scope 未正确收口";
-static const char str2084[] = "exec: bytecode 读取了未初始化槽位(slot=%d msg=%s)";
-static const char str2085[] = "%s @ %s:%d:%d (slot=%d, slot_count=%d)";
-static const char str2086[] = "%s @ <unknown> (slot=%d, slot_count=%d)";
-static const char str2087[] = "%s @ %s:%d:%d (slot=%d 未初始化)";
-static const char str2088[] = "%s @ <unknown> (slot=%d 未初始化)";
-static const char str2089[] = "exec: LOAD_CONST 目标槽位非法";
-static const char str2090[] = "exec: LOAD_LOCAL 源槽位非法";
-static const char str2091[] = "exec: LOAD_LOCAL 目标槽位非法";
-static const char str2092[] = "exec: LOAD_GLOBAL 目标槽位非法";
-static const char str2093[] = "exec: LOAD_GLOBAL 全局槽位非法";
-static const char str2094[] = "exec: STORE_GLOBAL 全局槽位非法";
-static const char str2095[] = "exec: STORE_GLOBAL 源槽位非法";
-static const char str2096[] = "exec: STORE_LOCAL 源槽位非法";
-static const char str2097[] = "exec: STORE_LOCAL 目标槽位非法";
-static const char str2098[] = "exec: MOV 源槽位非法";
-static const char str2099[] = "exec: MOV 目标槽位非法";
-static const char str2100[] = "exec: 二元指令左操作数槽位非法";
-static const char str2101[] = "exec: 二元指令右操作数槽位非法";
-static const char str2102[] = "exec: 二元指令目标槽位非法";
-static const char str2103[] = "exec: ADDR_LOCAL 源槽位非法";
-static const char str2104[] = "exec: ADDR_LOCAL 目标槽位非法";
-static const char str2105[] = "exec: ADDR_GLOBAL 目标全局非法";
-static const char str2106[] = "exec: ADDR_GLOBAL 目标槽位非法";
-static const char str2107[] = "exec: ADDR_FIELD 基槽位非法";
-static const char str2108[] = "exec: ADDR_FIELD 目标槽位非法";
-static const char str2109[] = "exec: ADDR_INDEX 基槽位非法";
-static const char str2110[] = "exec: ADDR_INDEX 下标槽位非法";
-static const char str2111[] = "exec: ADDR_INDEX 目标槽位非法";
-static const char str2112[] = "exec: BOX_VALUE 源槽位非法";
-static const char str2113[] = "exec: BOX_VALUE 目标槽位非法";
-static const char str2114[] = "exec: 一元指令源槽位非法";
-static const char str2115[] = "exec: 一元指令目标槽位非法";
-static const char str2116[] = "exec: MAKE_ARRAY_REPEAT 源槽位非法";
-static const char str2117[] = "exec: MAKE_* 源槽位非法";
-static const char str2118[] = "exec: MAKE_* 目标槽位非法";
-static const char str2119[] = "exec: STRING_INTERP 源槽位非法";
-static const char str2120[] = "exec: STRING_INTERP 目标槽位非法";
-static const char str2121[] = "exec: VECTOR_OP 源槽位非法";
-static const char str2122[] = "exec: VECTOR_OP 目标槽位非法";
-static const char str2123[] = "exec: MAKE_UNION 载荷槽位非法";
-static const char str2124[] = "exec: MAKE_UNION 目标槽位非法";
-static const char str2125[] = "exec: MAKE_SLICE 基槽位非法";
-static const char str2126[] = "exec: MAKE_SLICE 起始槽位非法";
-static const char str2127[] = "exec: MAKE_SLICE 长度槽位非法";
-static const char str2128[] = "exec: MAKE_SLICE 目标槽位非法";
-static const char str2129[] = "exec: LOAD_FIELD 基槽位非法";
-static const char str2130[] = "exec: LOAD_FIELD 目标槽位非法";
-static const char str2131[] = "exec: STORE_FIELD 基槽位非法";
-static const char str2132[] = "exec: STORE_FIELD 源槽位非法";
-static const char str2133[] = "exec: LOAD_INDEX 基槽位非法";
-static const char str2134[] = "exec: LOAD_INDEX 下标槽位非法";
-static const char str2135[] = "exec: LOAD_INDEX 目标槽位非法";
-static const char str2136[] = "exec: STORE_INDEX 基槽位非法";
-static const char str2137[] = "exec: STORE_INDEX 下标槽位非法";
-static const char str2138[] = "exec: STORE_INDEX 源槽位非法";
-static const char str2139[] = "exec: JMP 目标越界";
-static const char str2140[] = "exec: 条件跳转槽位非法";
-static const char str2141[] = "exec: 条件跳转目标越界";
-static const char str2142[] = "exec: CALL 参数槽位非法";
-static const char str2143[] = "exec: CALL 返回槽位非法";
-static const char str2144[] = "exec: CALL 目标函数索引非法";
-static const char str2145[] = "exec: CALL_INDIRECT 目标槽位非法";
-static const char str2146[] = "exec: CALL_INDIRECT 参数槽位非法";
-static const char str2147[] = "exec: CALL_INDIRECT 返回槽位非法";
-static const char str2148[] = "exec: HOSTCALL 参数槽位非法";
-static const char str2149[] = "exec: HOSTCALL 返回槽位非法";
-static const char str2150[] = "exec: HOSTCALL 目标非法";
-static const char str2151[] = "exec: SYSCALL 号槽位非法";
-static const char str2152[] = "exec: SYSCALL 参数槽位非法";
-static const char str2153[] = "exec: SYSCALL 返回槽位非法";
-static const char str2154[] = "exec: va 指令槽位非法";
-static const char str2155[] = "exec: va 指令返回槽位非法";
-static const char str2156[] = "exec: va_copy 目标槽位非法";
-static const char str2157[] = "exec: va_copy 源槽位非法";
-static const char str2158[] = "exec: va_copy 返回槽位非法";
-static const char str2159[] = "exec: print 槽位非法";
-static const char str2160[] = "exec: print 返回槽位非法";
-static const char str2161[] = "exec: RET 槽位非法";
-static const char str2162[] = "exec: void 函数不应返回值";
-static const char str2163[] = "exec: 非 void 函数缺少返回值";
-static const char str2164[] = "exec: return 类型与函数返回类型不一致(actual=%d expected=%d line=%d)";
-static const char str2165[] = "exec: bytecode function 分配失败";
-static const char str2166[] = "exec: bytecode builder 输入无效";
-static const char str2167[] = "exec: BCProgram 分配失败";
-static const char str2168[] = "exec: bytecode 函数构建失败";
-static const char str2169[] = "exec: bytecode 全局初始化函数构建失败";
-static const char str2170[] = "exec: 测试索引表分配失败";
-static const char str2171[] = "exec: 测试函数未进入 bytecode 函数表";
-static const char str2172[] = "exec: 未找到 entry bytecode 函数";
-static const char str2173[] = "_test_passed";
-static const char str2174[] = "saved_argc";
+static const char str2008[] = "exec: bytecode 指令缓冲区分配失败";
+static const char str2009[] = "exec: const pool builder 输入无效";
+static const char str2010[] = "exec: const pool 超出上限";
+static const char str2011[] = "exec: const pool 索引非法";
+static const char str2012[] = "exec: const pool 写入失败";
+static const char str2013[] = "exec: bytecode 指令写入失败";
+static const char str2014[] = "exec: frame slot 超出上限";
+static const char str2015[] = "exec: zero union 缺少 checker 上下文";
+static const char str2016[] = "exec: zero union 无法解析联合体声明";
+static const char str2017[] = "exec: zero union 首个变体声明异常";
+static const char str2018[] = "exec: zero interface 缺少声明";
+static const char str2019[] = "exec: zero interface 无法解析接口声明";
+static const char str2020[] = "exec: zero interface 方法过多";
+static const char str2021[] = "exec: zero tuple 元素超出上限";
+static const char str2022[] = "exec: zero struct 缺少 checker 上下文";
+static const char str2023[] = "exec: zero struct 无法解析结构体声明(name=%s)";
+static const char str2024[] = "exec: zero struct 字段超出上限";
+static const char str2025[] = "exec: zero struct 字段类型缺失";
+static const char str2026[] = "exec: 当前不支持该类型的零值初始化(kind=%d)";
+static const char str2027[] = "exec: 聚合值元素超出上限";
+static const char str2028[] = "exec: 当前不支持该赋值目标";
+static const char str2029[] = "exec: checked 算术缺少 catch 上下文";
+static const char str2030[] = "exec: catch 不支持该算术运算符";
+static const char str2031[] = "exec: catch 的溢出跳转过多";
+static const char str2032[] = "exec: 无法为表达式构造地址";
+static const char str2033[] = "exec: @vector 操作缺少名称";
+static const char str2034[] = "exec: @embed_dir 常量构造失败";
+static const char str2035[] = "exec: if 表达式缺少条件或分支";
+static const char str2036[] = "exec: 赋值表达式缺少操作数";
+static const char str2037[] = "exec: repeat array literal item 数量异常";
+static const char str2038[] = "exec: repeat array literal 次数超出范围";
+static const char str2039[] = "exec: interface 装箱缺少方法表";
+static const char str2040[] = "exec: interface 方法表过大";
+static const char str2041[] = "exec: interface dispatch decl 为空";
+static const char str2042[] = "exec: interface 方法未进入 reachable 集合";
+static const char str2043[] = "exec: interface 方法表下标越界";
+static const char str2044[] = "exec: 当前仅支持 ! / - / ~ unary";
+static const char str2045[] = "exec: 当前不支持该 binary 运算符";
+static const char str2046[] = "exec: 字符串插值实参过多";
+static const char str2047[] = "exec: 字符串插值实参槽位不连续";
+static const char str2048[] = "exec: 字符串插值缺少实参";
+static const char str2049[] = "exec: 无法解析被调用函数";
+static const char str2050[] = "exec: 被调用函数未进入模块: %s";
+static const char str2051[] = "exec: builder 不支持该表达式";
+static const char str2052[] = "exec: cleanup scope 嵌套过深";
+static const char str2053[] = "exec: cleanup scope 栈越界";
+static const char str2054[] = "exec: cleanup scope 读取失败";
+static const char str2055[] = "exec: errdefer 数量超出上限";
+static const char str2056[] = "exec: errdefer 写入失败";
+static const char str2057[] = "exec: defer 数量超出上限";
+static const char str2058[] = "exec: defer 写入失败";
+static const char str2059[] = "exec: drop cleanup scope 读取失败";
+static const char str2060[] = "exec: 每个作用域的 drop local 超出上限";
+static const char str2061[] = "exec: drop local 写入失败";
+static const char str2062[] = "exec: 未能解析 local drop 方法";
+static const char str2063[] = "exec: drop 方法未进入可执行函数集";
+static const char str2064[] = "exec: errdefer cleanup block 无效";
+static const char str2065[] = "exec: defer cleanup block 无效";
+static const char str2066[] = "exec: scope exit 时 cleanup scope 为空";
+static const char str2067[] = "exec: scope enter/exit 不匹配";
+static const char str2068[] = "exec: loop 嵌套过深";
+static const char str2069[] = "exec: loop patch 栈越界";
+static const char str2070[] = "exec: loop patch 读取失败";
+static const char str2071[] = "exec: break patch 读取失败";
+static const char str2072[] = "exec: continue patch 读取失败";
+static const char str2073[] = "exec: break 不在 loop 内";
+static const char str2074[] = "exec: break patch 栈越界";
+static const char str2075[] = "exec: break patch 超出上限";
+static const char str2076[] = "exec: break patch 写入失败";
+static const char str2077[] = "exec: continue 不在 loop 内";
+static const char str2078[] = "exec: continue patch 栈越界";
+static const char str2079[] = "exec: continue patch 超出上限";
+static const char str2080[] = "exec: continue patch 写入失败";
+static const char str2081[] = "exec: builder 不支持该语句";
+static const char str2082[] = "exec: block cleanup scope 未正确收口";
+static const char str2083[] = "exec: bytecode 读取了未初始化槽位(slot=%d msg=%s)";
+static const char str2084[] = "%s @ %s:%d:%d (slot=%d, slot_count=%d)";
+static const char str2085[] = "%s @ <unknown> (slot=%d, slot_count=%d)";
+static const char str2086[] = "%s @ %s:%d:%d (slot=%d 未初始化)";
+static const char str2087[] = "%s @ <unknown> (slot=%d 未初始化)";
+static const char str2088[] = "exec: LOAD_CONST 目标槽位非法";
+static const char str2089[] = "exec: LOAD_LOCAL 源槽位非法";
+static const char str2090[] = "exec: LOAD_LOCAL 目标槽位非法";
+static const char str2091[] = "exec: LOAD_GLOBAL 目标槽位非法";
+static const char str2092[] = "exec: LOAD_GLOBAL 全局槽位非法";
+static const char str2093[] = "exec: STORE_GLOBAL 全局槽位非法";
+static const char str2094[] = "exec: STORE_GLOBAL 源槽位非法";
+static const char str2095[] = "exec: STORE_LOCAL 源槽位非法";
+static const char str2096[] = "exec: STORE_LOCAL 目标槽位非法";
+static const char str2097[] = "exec: MOV 源槽位非法";
+static const char str2098[] = "exec: MOV 目标槽位非法";
+static const char str2099[] = "exec: 二元指令左操作数槽位非法";
+static const char str2100[] = "exec: 二元指令右操作数槽位非法";
+static const char str2101[] = "exec: 二元指令目标槽位非法";
+static const char str2102[] = "exec: ADDR_LOCAL 源槽位非法";
+static const char str2103[] = "exec: ADDR_LOCAL 目标槽位非法";
+static const char str2104[] = "exec: ADDR_GLOBAL 目标全局非法";
+static const char str2105[] = "exec: ADDR_GLOBAL 目标槽位非法";
+static const char str2106[] = "exec: ADDR_FIELD 基槽位非法";
+static const char str2107[] = "exec: ADDR_FIELD 目标槽位非法";
+static const char str2108[] = "exec: ADDR_INDEX 基槽位非法";
+static const char str2109[] = "exec: ADDR_INDEX 下标槽位非法";
+static const char str2110[] = "exec: ADDR_INDEX 目标槽位非法";
+static const char str2111[] = "exec: BOX_VALUE 源槽位非法";
+static const char str2112[] = "exec: BOX_VALUE 目标槽位非法";
+static const char str2113[] = "exec: 一元指令源槽位非法";
+static const char str2114[] = "exec: 一元指令目标槽位非法";
+static const char str2115[] = "exec: MAKE_ARRAY_REPEAT 源槽位非法";
+static const char str2116[] = "exec: MAKE_* 源槽位非法";
+static const char str2117[] = "exec: MAKE_* 目标槽位非法";
+static const char str2118[] = "exec: STRING_INTERP 源槽位非法";
+static const char str2119[] = "exec: STRING_INTERP 目标槽位非法";
+static const char str2120[] = "exec: VECTOR_OP 源槽位非法";
+static const char str2121[] = "exec: VECTOR_OP 目标槽位非法";
+static const char str2122[] = "exec: MAKE_UNION 载荷槽位非法";
+static const char str2123[] = "exec: MAKE_UNION 目标槽位非法";
+static const char str2124[] = "exec: MAKE_SLICE 基槽位非法";
+static const char str2125[] = "exec: MAKE_SLICE 起始槽位非法";
+static const char str2126[] = "exec: MAKE_SLICE 长度槽位非法";
+static const char str2127[] = "exec: MAKE_SLICE 目标槽位非法";
+static const char str2128[] = "exec: LOAD_FIELD 基槽位非法";
+static const char str2129[] = "exec: LOAD_FIELD 目标槽位非法";
+static const char str2130[] = "exec: STORE_FIELD 基槽位非法";
+static const char str2131[] = "exec: STORE_FIELD 源槽位非法";
+static const char str2132[] = "exec: LOAD_INDEX 基槽位非法";
+static const char str2133[] = "exec: LOAD_INDEX 下标槽位非法";
+static const char str2134[] = "exec: LOAD_INDEX 目标槽位非法";
+static const char str2135[] = "exec: STORE_INDEX 基槽位非法";
+static const char str2136[] = "exec: STORE_INDEX 下标槽位非法";
+static const char str2137[] = "exec: STORE_INDEX 源槽位非法";
+static const char str2138[] = "exec: JMP 目标越界";
+static const char str2139[] = "exec: 条件跳转槽位非法";
+static const char str2140[] = "exec: 条件跳转目标越界";
+static const char str2141[] = "exec: CALL 参数槽位非法";
+static const char str2142[] = "exec: CALL 返回槽位非法";
+static const char str2143[] = "exec: CALL 目标函数索引非法";
+static const char str2144[] = "exec: CALL_INDIRECT 目标槽位非法";
+static const char str2145[] = "exec: CALL_INDIRECT 参数槽位非法";
+static const char str2146[] = "exec: CALL_INDIRECT 返回槽位非法";
+static const char str2147[] = "exec: HOSTCALL 参数槽位非法";
+static const char str2148[] = "exec: HOSTCALL 返回槽位非法";
+static const char str2149[] = "exec: HOSTCALL 目标非法";
+static const char str2150[] = "exec: SYSCALL 号槽位非法";
+static const char str2151[] = "exec: SYSCALL 参数槽位非法";
+static const char str2152[] = "exec: SYSCALL 返回槽位非法";
+static const char str2153[] = "exec: va 指令槽位非法";
+static const char str2154[] = "exec: va 指令返回槽位非法";
+static const char str2155[] = "exec: va_copy 目标槽位非法";
+static const char str2156[] = "exec: va_copy 源槽位非法";
+static const char str2157[] = "exec: va_copy 返回槽位非法";
+static const char str2158[] = "exec: print 槽位非法";
+static const char str2159[] = "exec: print 返回槽位非法";
+static const char str2160[] = "exec: RET 槽位非法";
+static const char str2161[] = "exec: void 函数不应返回值";
+static const char str2162[] = "exec: 非 void 函数缺少返回值";
+static const char str2163[] = "exec: return 类型与函数返回类型不一致(actual=%d expected=%d line=%d)";
+static const char str2164[] = "exec: bytecode function 分配失败";
+static const char str2165[] = "exec: bytecode builder 输入无效";
+static const char str2166[] = "exec: BCProgram 分配失败";
+static const char str2167[] = "exec: bytecode 函数构建失败";
+static const char str2168[] = "exec: bytecode 全局初始化函数构建失败";
+static const char str2169[] = "exec: 测试索引表分配失败";
+static const char str2170[] = "exec: 测试函数未进入 bytecode 函数表";
+static const char str2171[] = "exec: 未找到 entry bytecode 函数";
+static const char str2172[] = "_test_passed";
+static const char str2173[] = "saved_argc";
+static const char str2174[] = "saved_argv";
 static const char str2175[] = "saved_envp";
 static const char str2176[] = "exec: const pool 分配失败";
 static const char str2177[] = "exec: hostcall 表分配失败";
@@ -7875,7 +7875,7 @@ struct ExecValue {
 };
 
 struct ExecConstPoolBuilder {
-    struct ExecValue values[8192];
+    struct ExecValue values[32768];
     int32_t count;
 };
 
@@ -7917,6 +7917,7 @@ struct ExecFunctionBuildContext {
     struct HIRModule * module;
     struct HIRFunction * function;
     struct BCInstr * instrs;
+    int32_t instr_capacity;
     int32_t instr_count;
     int32_t next_temp_slot;
     int32_t max_slot_count;
@@ -7987,6 +7988,9 @@ struct BCProgram {
     int32_t test_passed_global_index;
     int32_t saved_argc_global_index;
     int32_t saved_envp_global_index;
+    int32_t saved_argv_global_index;
+    int32_t host_argc;
+    uint8_t * * host_argv;
 };
 
 struct ExecFormatBuffer {
@@ -8143,10 +8147,11 @@ struct ExecLowerContext {
     struct CompilerArena * arena;
     struct TypeChecker * checker;
     struct ASTNode * function_decl;
-    uint8_t * global_names[1024];
-    struct ASTNode * global_decls[1024];
+    uint8_t * * global_names;
+    struct ASTNode * * global_decls;
     struct Type * global_types;
-    int32_t global_is_const[1024];
+    int32_t * global_is_const;
+    int32_t global_capacity;
     int32_t global_count;
     uint8_t * local_names[1024];
     int32_t local_slots[1024];
@@ -9990,6 +9995,7 @@ wint_t towlower(wint_t wc);
 wint_t towupper(wint_t wc);
 int32_t std_runtime_get_argc();
 uint8_t * std_runtime_get_argv(int32_t index);
+uint8_t * * std_runtime_get_argv_slot(int32_t index);
 int32_t std_runtime_ptr_diff(uint8_t * ptr1, uint8_t * ptr2);
 void std_runtime__uya_exit(int32_t code);
 static __attribute__((used)) int32_t std_io_file_pool_grow();
@@ -10890,6 +10896,7 @@ static __attribute__((used)) struct ExecValue * exec_builder_const_pool_value_re
 static __attribute__((used)) struct BCHostCallSite * exec_builder_host_call_site_ref(struct ExecHostCallSiteBuilder * host_calls, int32_t idx);
 static __attribute__((used)) int32_t exec_builder_intern_host_call(struct ExecFunctionBuildContext * ctx, struct HIRExpr * expr);
 static __attribute__((used)) struct BCInstr * exec_builder_instr_slot(struct ExecFunctionBuildContext * ctx, int32_t idx);
+static __attribute__((used)) int32_t exec_builder_instr_grow(struct ExecFunctionBuildContext * ctx);
 static __attribute__((used)) int32_t exec_builder_find_function_index(struct HIRModule * module, struct ASTNode * callee_decl, uint8_t * callee_name);
 static __attribute__((used)) int32_t exec_builder_const_value_equals(struct ExecValue left, struct ExecValue right);
 static __attribute__((used)) int32_t exec_builder_intern_const(struct ExecFunctionBuildContext * ctx, struct ExecValue value);
@@ -10994,6 +11001,7 @@ static __attribute__((used)) int32_t exec_format_append_value(struct ExecFormatB
 static __attribute__((used)) int32_t exec_format_render(const uint8_t * fmt, struct ExecValue * args, int32_t arg_count, struct ExecFormatBuffer * out);
 static __attribute__((used)) int32_t exec_format_printf_like(int32_t target, int32_t fd, struct FILE * file, uint8_t * dst, size_t cap, const uint8_t * fmt, struct ExecValue * args, int32_t arg_count);
 static __attribute__((used)) struct Type * exec_lower_type_slot(struct ExecLowerContext * ctx, int32_t which, int32_t idx, int32_t cap);
+static __attribute__((used)) int32_t exec_lower_global_tables_init(struct ExecLowerContext * ctx, int32_t need);
 static __attribute__((used)) int32_t exec_lower_set_unsupported(struct ASTNode * node, uint8_t * reason);
 static __attribute__((used)) int32_t exec_lower_set_unsupported_reason(struct ASTNode * node, uint8_t * reason, enum exec_ExecUnsupportedReason code);
 static __attribute__((used)) struct HIRExpr * exec_lower_fail_expr(struct ASTNode * node, uint8_t * reason);
@@ -11253,6 +11261,7 @@ int32_t exec_main_exec_build_program(struct TypeChecker * checker, struct ASTNod
 static __attribute__((used)) int32_t exec_c_import_is_candidate_extern(struct ASTNode * decl);
 static __attribute__((used)) int32_t exec_c_import_append(uint8_t * buf, size_t cap, uint8_t * text);
 static __attribute__((used)) int32_t exec_c_import_prepare_bridge(struct ASTNode * program);
+void exec_main_exec_set_program_args(int32_t argc, uint8_t * * argv);
 int32_t exec_main_exec_run_program();
 void exec_main_exec_dump_hir();
 void exec_main_exec_dump_bytecode();
@@ -15174,7 +15183,7 @@ __attribute__((used)) const int32_t EXEC_MAX_BYTECODE_INSTRS = 16384;
 #ifdef EXEC_MAX_CONST_POOL_VALUES
 #undef EXEC_MAX_CONST_POOL_VALUES
 #endif
-__attribute__((used)) const int32_t EXEC_MAX_CONST_POOL_VALUES = 8192;
+__attribute__((used)) const int32_t EXEC_MAX_CONST_POOL_VALUES = 32768;
 
 #ifdef EXEC_MAX_HOST_CALL_SITES
 #undef EXEC_MAX_HOST_CALL_SITES
@@ -15265,6 +15274,11 @@ __attribute__((used)) const int32_t EXEC_MAX_LOCALS = 1024;
 #undef EXEC_MAX_GLOBALS
 #endif
 __attribute__((used)) const int32_t EXEC_MAX_GLOBALS = 1024;
+
+#ifdef EXEC_MAX_GLOBAL_SLOTS
+#undef EXEC_MAX_GLOBAL_SLOTS
+#endif
+__attribute__((used)) const int32_t EXEC_MAX_GLOBAL_SLOTS = 8192;
 
 #ifdef EXEC_MAX_SCOPE_DEPTH
 #undef EXEC_MAX_SCOPE_DEPTH
@@ -16574,6 +16588,10 @@ __attribute__((used)) int64_t g_exec_last_lower_time_ms = 0;
 __attribute__((used)) int64_t g_exec_last_bytecode_build_time_ms = 0;
 
 __attribute__((used)) int64_t g_exec_last_vm_run_time_ms = 0;
+
+__attribute__((used)) int32_t g_exec_program_argc = 0;
+
+__attribute__((used)) uint8_t * * g_exec_program_argv = NULL;
 
 __attribute__((used)) uint8_t g_exec_c_import_bridge_path[512] = {0};
 
@@ -42068,6 +42086,20 @@ uint8_t * std_runtime_get_argv(int32_t index) {
     }
         {
         uint8_t * _uya_ret = saved_argv[index];
+        return _uya_ret;
+        }
+}
+
+uint8_t * * std_runtime_get_argv_slot(int32_t index) {
+    (void)index;
+    if (((index < 0) || (saved_argv == NULL))) {
+                {
+            uint8_t * * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+        {
+        uint8_t * * _uya_ret = (&saved_argv[index]);
         return _uya_ret;
         }
 }
@@ -105175,14 +105207,8 @@ static __attribute__((used)) struct ExecValue * exec_builder_const_pool_value_re
             return _uya_ret;
                 }
     }
-    if (((idx >= 0) && (idx < EXEC_MAX_CONST_POOL_VALUES))) {
-                {
-            struct ExecValue * _uya_ret = (&const_pool->values[idx]);
-            return _uya_ret;
-                }
-    }
         {
-        struct ExecValue * _uya_ret = NULL;
+        struct ExecValue * _uya_ret = (&const_pool->values[idx]);
         return _uya_ret;
         }
 }
@@ -105256,26 +105282,38 @@ static __attribute__((used)) int32_t exec_builder_intern_host_call(struct ExecFu
 static __attribute__((used)) struct BCInstr * exec_builder_instr_slot(struct ExecFunctionBuildContext * ctx, int32_t idx) {
     (void)ctx;
     (void)idx;
-    if ((((ctx == NULL) || (idx < 0)) || (idx >= EXEC_MAX_BYTECODE_INSTRS))) {
+    if (((((ctx == NULL) || (ctx->instrs == NULL)) || (idx < 0)) || (idx >= ctx->instr_capacity))) {
                 {
             struct BCInstr * _uya_ret = NULL;
-            return _uya_ret;
-                }
-    }
-    if (ctx->instrs == NULL) {
-                {
-            struct BCInstr * _uya_ret = NULL;
-            return _uya_ret;
-                }
-    }
-    if (((idx >= 0) && (idx < EXEC_MAX_BYTECODE_INSTRS))) {
-                {
-            struct BCInstr * _uya_ret = (&ctx->instrs[idx]);
             return _uya_ret;
                 }
     }
         {
-        struct BCInstr * _uya_ret = NULL;
+        struct BCInstr * _uya_ret = (&ctx->instrs[idx]);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t exec_builder_instr_grow(struct ExecFunctionBuildContext * ctx) {
+    (void)ctx;
+    const int32_t new_cap = ({ int32_t _l = (ctx->instr_capacity); int32_t _r = (2); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+    struct BCInstr * const fresh = (struct BCInstr *)compiler_arena_alloc(ctx->arena, ((int32_t)sizeof(struct BCInstr) * (size_t)new_cap));
+    if (fresh == NULL) {
+        (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2008, 0)        );
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    int32_t i = 0;
+    while (i < ctx->instr_count) {
+        fresh[i] = ctx->instrs[i];
+        i = (i + 1);
+    }
+    ctx->instrs = fresh;
+    ctx->instr_capacity = new_cap;
+        {
+        int32_t _uya_ret = 0;
         return _uya_ret;
         }
 }
@@ -105386,7 +105424,7 @@ static __attribute__((used)) int32_t exec_builder_intern_const(struct ExecFuncti
     (void)ctx;
     (void)value;
     if (((ctx == NULL) || (ctx->const_pool == NULL))) {
-        (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2008, 0)        );
+        (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2009, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -105403,7 +105441,7 @@ static __attribute__((used)) int32_t exec_builder_intern_const(struct ExecFuncti
         i = (i + 1);
     }
     if (ctx->const_pool->count >= EXEC_MAX_CONST_POOL_VALUES) {
-        (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2009, 0)        );
+        (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2010, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -105411,7 +105449,7 @@ static __attribute__((used)) int32_t exec_builder_intern_const(struct ExecFuncti
     }
     const int32_t const_idx = ctx->const_pool->count;
     if (((const_idx < 0) || (const_idx >= EXEC_MAX_CONST_POOL_VALUES))) {
-        (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2010, 0)        );
+        (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2011, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -105419,7 +105457,7 @@ static __attribute__((used)) int32_t exec_builder_intern_const(struct ExecFuncti
     }
     struct ExecValue * const value_ref = exec_builder_const_pool_value_ref(ctx->const_pool, const_idx);
     if (value_ref == NULL) {
-        (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2011, 0)        );
+        (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2012, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -105898,17 +105936,31 @@ static __attribute__((used)) int32_t exec_builder_emit(struct ExecFunctionBuildC
                 }
     }
     const int32_t instr_index = ctx->instr_count;
-    if (instr_index >= EXEC_MAX_BYTECODE_INSTRS) {
-        (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2012, 0)        );
-                {
-            int32_t _uya_ret = (-1);
-            return _uya_ret;
-                }
+    if (ctx->instr_capacity <= 0) {
+        struct BCInstr * const fresh = (struct BCInstr *)compiler_arena_alloc(ctx->arena, ((int32_t)sizeof(struct BCInstr) * (size_t)EXEC_MAX_BYTECODE_INSTRS));
+        if (fresh == NULL) {
+            (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2008, 0)            );
+                        {
+                int32_t _uya_ret = (-1);
+                return _uya_ret;
+                        }
+        }
+        ctx->instrs = fresh;
+        ctx->instr_capacity = EXEC_MAX_BYTECODE_INSTRS;
+    } else {
+        if (instr_index >= ctx->instr_capacity) {
+            if (exec_builder_instr_grow(ctx) != 0) {
+                                {
+                    int32_t _uya_ret = (-1);
+                    return _uya_ret;
+                                }
+            }
+        }
     }
     if (ctx->instrs == NULL) {
         struct BCInstr * const fresh = (struct BCInstr *)compiler_arena_alloc(ctx->arena, ((int32_t)sizeof(struct BCInstr) * (size_t)EXEC_MAX_BYTECODE_INSTRS));
         if (fresh == NULL) {
-            (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2013, 0)            );
+            (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2008, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -105918,16 +105970,16 @@ static __attribute__((used)) int32_t exec_builder_emit(struct ExecFunctionBuildC
     }
     struct BCInstr * const instr_ptr = exec_builder_instr_slot(ctx, instr_index);
     if (instr_ptr == NULL) {
-        (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2014, 0)        );
+        (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2013, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
                 }
     }
     instr_ptr[0] = instr;
-    ctx->instr_count = (instr_index + 1);
+    ctx->instr_count = ({ int32_t _l = (instr_index); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
         {
-        int32_t _uya_ret = (ctx->instr_count - 1);
+        int32_t _uya_ret = ({ int32_t _l = (ctx->instr_count); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
         return _uya_ret;
         }
 }
@@ -105956,7 +106008,7 @@ static __attribute__((used)) int32_t exec_builder_new_temp(struct ExecFunctionBu
         ctx->max_slot_count = ctx->next_temp_slot;
     }
     if (ctx->max_slot_count >= EXEC_MAX_FRAME_SLOTS) {
-        (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2015, 0)        );
+        (void)(exec_backend_set_error(ctx->function->decl, (uint8_t *)(uint8_t *)str2014, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -106323,7 +106375,7 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
     }
     if (((ty->kind == checker_TypeKind_TYPE_UNION) && (type_get_union_name(ty) != NULL))) {
         if (((ctx->checker == NULL) || (ctx->checker->program_node == NULL))) {
-            (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2016, 0)            );
+            (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2015, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -106331,7 +106383,7 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
         }
         struct ASTNode * const union_decl = find_union_decl_from_program(ctx->checker->program_node, type_get_union_name(ty));
         if ((((union_decl == NULL) || (union_decl->union_decl_variants == NULL)) || (union_decl->union_decl_variant_count <= 0))) {
-            (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2017, 0)            );
+            (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2016, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -106339,7 +106391,7 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
         }
         struct ASTNode * const first_variant = union_decl->union_decl_variants[0];
         if (((first_variant == NULL) || (first_variant->type != main_ASTNodeType_AST_VAR_DECL))) {
-            (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2018, 0)            );
+            (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2017, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -106397,7 +106449,7 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
     if (ty->kind == checker_TypeKind_TYPE_INTERFACE) {
         uint8_t * const interface_name_zero = type_get_interface_name(ty);
         if ((((ctx->checker == NULL) || (ctx->checker->program_node == NULL)) || (interface_name_zero == NULL))) {
-            (void)(exec_backend_set_generic_unsupported_error(ast_node, (uint8_t *)(uint8_t *)str2019)            );
+            (void)(exec_backend_set_generic_unsupported_error(ast_node, (uint8_t *)(uint8_t *)str2018)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -106405,7 +106457,7 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
         }
         struct ASTNode * const interface_decl_zero = find_interface_decl_from_program(ctx->checker->program_node, interface_name_zero);
         if (interface_decl_zero == NULL) {
-            (void)(exec_backend_set_generic_unsupported_error(ast_node, (uint8_t *)(uint8_t *)str2020)            );
+            (void)(exec_backend_set_generic_unsupported_error(ast_node, (uint8_t *)(uint8_t *)str2019)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -106416,7 +106468,7 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
             iface_item_count = 1;
         }
         if (iface_item_count > 256) {
-            (void)(exec_backend_set_generic_unsupported_error(ast_node, (uint8_t *)(uint8_t *)str2021)            );
+            (void)(exec_backend_set_generic_unsupported_error(ast_node, (uint8_t *)(uint8_t *)str2020)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -106479,7 +106531,7 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
         int32_t ti = 0;
         while (ti < ty->tuple_count) {
             if (((ti < 0) || (ti >= 256))) {
-                (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2022, 0)                );
+                (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2021, 0)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -106516,7 +106568,7 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
     }
     if (((ty->kind == checker_TypeKind_TYPE_STRUCT) && (type_get_struct_name(ty) != NULL))) {
         if (((ctx->checker == NULL) || (ctx->checker->program_node == NULL))) {
-            (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2023, 0)            );
+            (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2022, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -106544,7 +106596,7 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
         }
         if (((struct_decl == NULL) || (struct_decl->struct_decl_fields == NULL))) {
             uint8_t zero_struct_msg[192] = {0};
-            (void)(snprintf((char *)(uint8_t *)(&zero_struct_msg[0]), 192, (const char *)str2024, (uint8_t *)type_get_struct_name(ty)));
+            (void)(snprintf((char *)(uint8_t *)(&zero_struct_msg[0]), 192, (const char *)str2023, (uint8_t *)type_get_struct_name(ty)));
             (void)(exec_backend_set_error(ast_node, (uint8_t *)(&zero_struct_msg[0]), 0)            );
                         {
                 int32_t _uya_ret = (-1);
@@ -106555,7 +106607,7 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
         int32_t si = 0;
         while (si < struct_decl->struct_decl_field_count) {
             if (((si < 0) || (si >= 256))) {
-                (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2025, 0)                );
+                (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2024, 0)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -106563,7 +106615,7 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
             }
             struct ASTNode * const field_decl = struct_decl->struct_decl_fields[si];
             if (((field_decl == NULL) || (field_decl->var_decl_type == NULL))) {
-                (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2026, 0)                );
+                (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2025, 0)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -106600,7 +106652,7 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
                 }
     }
     uint8_t zero_kind_msg[160] = {0};
-    (void)(snprintf((char *)(uint8_t *)(&zero_kind_msg[0]), 160, (const char *)str2027, (int32_t)ty->kind));
+    (void)(snprintf((char *)(uint8_t *)(&zero_kind_msg[0]), 160, (const char *)str2026, (int32_t)ty->kind));
     (void)(exec_backend_set_generic_unsupported_error(ast_node, (&zero_kind_msg[0]))    );
         {
         int32_t _uya_ret = (-1);
@@ -107061,7 +107113,7 @@ static __attribute__((used)) int32_t exec_builder_compile_item_pack(struct ExecF
     int32_t src_slots[1024] = {0};
     int32_t item_base = (-1);
     if (((item_count < 0) || (item_count > 1024))) {
-        (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2028, 0)        );
+        (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2027, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -107387,7 +107439,7 @@ static __attribute__((used)) int32_t exec_builder_compile_lvalue_store(struct Ex
             return _uya_ret;
                 }
     }
-    (void)(exec_backend_set_generic_unsupported_error(ast_node, (uint8_t *)(uint8_t *)str2029)    );
+    (void)(exec_backend_set_generic_unsupported_error(ast_node, (uint8_t *)(uint8_t *)str2028)    );
         {
         int32_t _uya_ret = (-1);
         return _uya_ret;
@@ -107483,7 +107535,7 @@ static __attribute__((used)) int32_t exec_builder_compile_checked_arith(struct E
     }
     const int32_t union_slot = ctx->checked_err_union_slot;
     if (union_slot < 0) {
-        (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2030)        );
+        (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2029)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -107491,7 +107543,7 @@ static __attribute__((used)) int32_t exec_builder_compile_checked_arith(struct E
     }
     enum exec_BCOpcode opcode = exec_BCOpcode_BC_ADD_CHECK;
     if (exec_builder_checked_opcode(expr->binary_op, (&opcode)) == 0) {
-        (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2031)        );
+        (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2030)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -107531,7 +107583,7 @@ static __attribute__((used)) int32_t exec_builder_compile_checked_arith(struct E
     }
     const int32_t jump_index = ctx->checked_err_count;
     if (((jump_index < 0) || (jump_index >= 64))) {
-        (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2032)        );
+        (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2031)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -107826,7 +107878,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
                 return _uya_ret;
                         }
         }
-        (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2033)        );
+        (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2032)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -107834,7 +107886,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
     }
     if (expr->kind == exec_HIRExprKind_HIR_EXPR_VECTOR_OP) {
         if (expr->callee_name == NULL) {
-            (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2034, 0)            );
+            (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2033, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -107883,7 +107935,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
         }
         struct ExecValue dir_value = exec_builder_make_embed_dir_value(expr->ast_node);
         if (dir_value.kind == exec_ExecValueKind_EXEC_VALUE_VOID) {
-            (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2035, 0)            );
+            (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2034, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -108011,7 +108063,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
     }
     if (expr->kind == exec_HIRExprKind_HIR_EXPR_IF) {
         if ((((((expr->left == NULL) || (expr->right == NULL)) || (expr->items == NULL)) || (expr->item_count < 1)) || (expr->items[0] == NULL))) {
-            (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2036, 0)            );
+            (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2035, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -108080,7 +108132,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
     }
     if (expr->kind == exec_HIRExprKind_HIR_EXPR_ASSIGN) {
         if (((expr->left == NULL) || (expr->right == NULL))) {
-            (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2037, 0)            );
+            (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2036, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -108154,7 +108206,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
         }
         if (((((expr->kind == exec_HIRExprKind_HIR_EXPR_ARRAY_INIT) && (expr->ast_node != NULL)) && (expr->ast_node->type == main_ASTNodeType_AST_ARRAY_LITERAL)) && (expr->ast_node->array_literal_repeat_count_expr != NULL))) {
             if (((expr->items == NULL) || (expr->item_count != 1))) {
-                (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2038)                );
+                (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2037)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -108168,7 +108220,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
                                 }
             }
             if (((expr->int_value < 0) || (expr->int_value > 2147483647))) {
-                (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2039)                );
+                (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2038)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -108213,14 +108265,14 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
     }
     if (expr->kind == exec_HIRExprKind_HIR_EXPR_INTERFACE_BOX) {
         if (((expr->dispatch_decl_count <= 0) || (expr->dispatch_decls == NULL))) {
-            (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2040)            );
+            (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2039)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
                         }
         }
         if (({ int32_t _l = (expr->dispatch_decl_count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) > 256) {
-            (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2041)            );
+            (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2040)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -108231,7 +108283,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
         while (di < expr->dispatch_decl_count) {
             struct ASTNode * const decl = expr->dispatch_decls[di];
             if (decl == NULL) {
-                (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2042)                );
+                (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2041)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -108239,7 +108291,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
             }
             const int32_t fn_index = exec_builder_find_function_index(ctx->module, decl, decl->fn_decl_name);
             if (fn_index < 0) {
-                (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2043)                );
+                (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2042)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -108266,7 +108318,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
         if (((dispatch_slot_idx >= 0) && (dispatch_slot_idx < 256))) {
             item_sources[dispatch_slot_idx] = data_ref_slot;
         } else {
-            (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2044)            );
+            (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2043)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -109137,7 +109189,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
                 opcode = exec_BCOpcode_BC_NOT;
             } else {
                 if (expr->unary_op != (int32_t)main_TokenType_TOKEN_MINUS) {
-                    (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2045)                    );
+                    (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2044)                    );
                                         {
                         int32_t _uya_ret = (-1);
                         return _uya_ret;
@@ -109251,7 +109303,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
                                                                                             if (expr->binary_op == (int32_t)main_TokenType_TOKEN_ASTERISK_PERCENT) {
                                                                                                 opcode = exec_BCOpcode_BC_MUL;
                                                                                             } else {
-                                                                                                (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2046)                                                                                                );
+                                                                                                (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2045)                                                                                                );
                                                                                                                                                                                                 {
                                                                                                     int32_t _uya_ret = (-1);
                                                                                                     return _uya_ret;
@@ -109397,7 +109449,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
     if (expr->kind == exec_HIRExprKind_HIR_EXPR_STRING_INTERP) {
         const int32_t interp_arg_count = expr->item_count;
         if (((interp_arg_count < 0) || (interp_arg_count > 16))) {
-            (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2047, 0)            );
+            (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2046, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -109414,7 +109466,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
         int32_t interp_reserve = 1;
         while (interp_reserve < interp_arg_count) {
             if (exec_builder_new_temp(ctx) != ({ int32_t _l = (interp_first); int32_t _r = (interp_reserve); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })) {
-                (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2048, 0)                );
+                (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2047, 0)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -109425,7 +109477,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
         int32_t interp_i = 0;
         while (interp_i < interp_arg_count) {
             if (expr->items == NULL) {
-                (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2049, 0)                );
+                (void)(exec_backend_set_error(expr->ast_node, (uint8_t *)(uint8_t *)str2048, 0)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -109551,7 +109603,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
                         }
         }
         if (((expr->callee_decl == NULL) || (expr->callee_name == NULL))) {
-            (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2050)            );
+            (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2049)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -109560,7 +109612,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
         const int32_t callee_index = exec_builder_find_function_index(ctx->module, expr->callee_decl, expr->callee_name);
         if (callee_index < 0) {
             uint8_t missing_callee_msg[160] = {0};
-            (void)(snprintf((char *)(uint8_t *)(&missing_callee_msg[0]), 160, (const char *)str2051, (uint8_t *)expr->callee_name));
+            (void)(snprintf((char *)(uint8_t *)(&missing_callee_msg[0]), 160, (const char *)str2050, (uint8_t *)expr->callee_name));
             (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (&missing_callee_msg[0]))            );
                         {
                 int32_t _uya_ret = (-1);
@@ -109716,7 +109768,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
             return _uya_ret;
                 }
     }
-    (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2052)    );
+    (void)(exec_backend_set_generic_unsupported_error(expr->ast_node, (uint8_t *)(uint8_t *)str2051)    );
         {
         int32_t _uya_ret = (-1);
         return _uya_ret;
@@ -109747,7 +109799,7 @@ static __attribute__((used)) int32_t exec_builder_push_cleanup_scope(struct Exec
                 }
     }
     if (ctx->cleanup_depth >= EXEC_MAX_CLEANUP_SCOPE_DEPTH) {
-        (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2053, 0)        );
+        (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2052, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -109755,7 +109807,7 @@ static __attribute__((used)) int32_t exec_builder_push_cleanup_scope(struct Exec
     }
     struct ExecCleanupScope * const scope = exec_builder_cleanup_scope_ref(ctx, ctx->cleanup_depth);
     if (scope == NULL) {
-        (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2054, 0)        );
+        (void)(exec_backend_set_error(ast_node, (uint8_t *)(uint8_t *)str2053, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -109803,7 +109855,7 @@ static __attribute__((used)) int32_t exec_builder_register_cleanup(struct ExecFu
     }
     struct ExecCleanupScope * const scope = exec_builder_cleanup_scope_ref(ctx, (ctx->cleanup_depth - 1));
     if (scope == NULL) {
-        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2055, 0)        );
+        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2054, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -109812,14 +109864,14 @@ static __attribute__((used)) int32_t exec_builder_register_cleanup(struct ExecFu
     if (is_errdefer != 0) {
         struct HIRStmt * * const errdefer_slot = exec_builder_errdefer_stmt_slot_ref(scope, scope->errdefer_count);
         if (((scope->errdefer_count < 0) || (scope->errdefer_count >= 64))) {
-            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2056, 0)            );
+            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2055, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
                         }
         }
         if (errdefer_slot == NULL) {
-            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2057, 0)            );
+            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2056, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -109834,14 +109886,14 @@ static __attribute__((used)) int32_t exec_builder_register_cleanup(struct ExecFu
     }
     struct HIRStmt * * const defer_slot = exec_builder_defer_stmt_slot_ref(scope, scope->defer_count);
     if (((scope->defer_count < 0) || (scope->defer_count >= 64))) {
-        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2058, 0)        );
+        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2057, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
                 }
     }
     if (defer_slot == NULL) {
-        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2059, 0)        );
+        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2058, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -109883,7 +109935,7 @@ static __attribute__((used)) int32_t exec_builder_register_drop_local(struct Exe
     }
     struct ExecCleanupScope * const scope = exec_builder_cleanup_scope_ref(ctx, (ctx->cleanup_depth - 1));
     if (scope == NULL) {
-        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2060, 0)        );
+        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2059, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -109892,7 +109944,7 @@ static __attribute__((used)) int32_t exec_builder_register_drop_local(struct Exe
     (void)(local);
     (void)(scope);
     if (((scope->drop_local_count < 0) || (scope->drop_local_count >= 64))) {
-        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2061, 0)        );
+        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2060, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -109900,7 +109952,7 @@ static __attribute__((used)) int32_t exec_builder_register_drop_local(struct Exe
     }
     struct HIRLocalSlot * * const drop_local_slot = exec_builder_drop_local_slot_ref(scope, scope->drop_local_count);
     if (drop_local_slot == NULL) {
-        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2062, 0)        );
+        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2061, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -109931,7 +109983,7 @@ static __attribute__((used)) int32_t exec_builder_emit_drop_local(struct ExecFun
     }
     struct ASTNode * const drop_decl = exec_builder_find_drop_decl_for_local(ctx, local);
     if (drop_decl == NULL) {
-        (void)(exec_backend_set_error(local->decl, (uint8_t *)(uint8_t *)str2063, 0)        );
+        (void)(exec_backend_set_error(local->decl, (uint8_t *)(uint8_t *)str2062, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -109939,7 +109991,7 @@ static __attribute__((used)) int32_t exec_builder_emit_drop_local(struct ExecFun
     }
     const int32_t callee_index = exec_builder_find_function_index(ctx->module, drop_decl, drop_decl->fn_decl_name);
     if (callee_index < 0) {
-        (void)(exec_backend_set_error(local->decl, (uint8_t *)(uint8_t *)str2064, 0)        );
+        (void)(exec_backend_set_error(local->decl, (uint8_t *)(uint8_t *)str2063, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -110338,7 +110390,7 @@ static __attribute__((used)) int32_t exec_builder_emit_cleanup_scope_body(struct
         while (ei >= 0) {
             struct HIRStmt * const stmt_err = exec_builder_errdefer_stmt_ref(scope, ei);
             if (((stmt_err == NULL) || (stmt_err->cleanup_block == NULL))) {
-                (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2065, 0)                );
+                (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2064, 0)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -110357,7 +110409,7 @@ static __attribute__((used)) int32_t exec_builder_emit_cleanup_scope_body(struct
     while (di >= 0) {
         struct HIRStmt * const stmt_defer = exec_builder_defer_stmt_ref(scope, di);
         if (((stmt_defer == NULL) || (stmt_defer->cleanup_block == NULL))) {
-            (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2066, 0)            );
+            (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2065, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -110472,14 +110524,14 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
             if (stmt->kind == exec_HIRStmtKind_HIR_STMT_SCOPE_EXIT) {
                 struct ExecCleanupScope * const scope = exec_builder_current_cleanup_scope(ctx);
                 if (scope == NULL) {
-                    (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2067, 0)                    );
+                    (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2066, 0)                    );
                                         {
                         int32_t _uya_ret = (-1);
                         return _uya_ret;
                                         }
                 }
                 if (scope->scope_id != stmt->scope_id) {
-                    (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2068, 0)                    );
+                    (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2067, 0)                    );
                                         {
                         int32_t _uya_ret = (-1);
                         return _uya_ret;
@@ -110726,7 +110778,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                             } else {
                                                 if (stmt->kind == exec_HIRStmtKind_HIR_STMT_LOOP) {
                                                     if (ctx->loop_depth >= 1024) {
-                                                        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2069, 0)                                                        );
+                                                        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2068, 0)                                                        );
                                                                                                                 {
                                                             int32_t _uya_ret = (-1);
                                                             return _uya_ret;
@@ -110735,7 +110787,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                     const int32_t loop_start = ctx->instr_count;
                                                     struct ExecLoopPatch * const loop_patch_ptr = exec_builder_loop_patch_ref(ctx, ctx->loop_depth);
                                                     if (loop_patch_ptr == NULL) {
-                                                        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2070, 0)                                                        );
+                                                        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2069, 0)                                                        );
                                                                                                                 {
                                                             int32_t _uya_ret = (-1);
                                                             return _uya_ret;
@@ -110758,7 +110810,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                     const int32_t loop_end = ctx->instr_count;
                                                     struct ExecLoopPatch * const loop_patch = exec_builder_loop_patch_ref(ctx, ({ int32_t _l = (ctx->loop_depth); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }));
                                                     if (loop_patch == NULL) {
-                                                        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2071, 0)                                                        );
+                                                        (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2070, 0)                                                        );
                                                                                                                 {
                                                             int32_t _uya_ret = (-1);
                                                             return _uya_ret;
@@ -110768,7 +110820,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                     while (bi < loop_patch->break_count) {
                                                         int32_t * const break_jump = exec_builder_break_jump_ref(loop_patch, bi);
                                                         if (break_jump == NULL) {
-                                                            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2072, 0)                                                            );
+                                                            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2071, 0)                                                            );
                                                                                                                         {
                                                                 int32_t _uya_ret = (-1);
                                                                 return _uya_ret;
@@ -110781,7 +110833,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                     while (ci < loop_patch->continue_count) {
                                                         int32_t * const continue_jump = exec_builder_continue_jump_ref(loop_patch, ci);
                                                         if (continue_jump == NULL) {
-                                                            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2073, 0)                                                            );
+                                                            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2072, 0)                                                            );
                                                                                                                         {
                                                                 int32_t _uya_ret = (-1);
                                                                 return _uya_ret;
@@ -110794,7 +110846,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                 } else {
                                                     if (stmt->kind == exec_HIRStmtKind_HIR_STMT_BREAK) {
                                                         if (ctx->loop_depth <= 0) {
-                                                            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2074, 0)                                                            );
+                                                            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2073, 0)                                                            );
                                                                                                                         {
                                                                 int32_t _uya_ret = (-1);
                                                                 return _uya_ret;
@@ -110802,7 +110854,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                         }
                                                         struct ExecLoopPatch * const loop_patch_for_break = exec_builder_loop_patch_ref(ctx, (ctx->loop_depth - 1));
                                                         if (loop_patch_for_break == NULL) {
-                                                            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2075, 0)                                                            );
+                                                            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2074, 0)                                                            );
                                                                                                                         {
                                                                 int32_t _uya_ret = (-1);
                                                                 return _uya_ret;
@@ -110817,7 +110869,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                         const int32_t patch_idx = loop_patch_for_break->break_count;
                                                         const int32_t jump_idx = exec_builder_emit(ctx, (struct BCInstr){.opcode = exec_BCOpcode_BC_JMP, .a = 0, .b = 0, .c = 0, .imm = 0, .text = NULL, .source = exec_builder_make_source(stmt->ast_node)});
                                                         if (((jump_idx < 0) || (patch_idx >= 128))) {
-                                                            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2076, 0)                                                            );
+                                                            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2075, 0)                                                            );
                                                                                                                         {
                                                                 int32_t _uya_ret = (-1);
                                                                 return _uya_ret;
@@ -110825,7 +110877,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                         }
                                                         int32_t * const break_jump_dst = exec_builder_break_jump_ref(loop_patch_for_break, patch_idx);
                                                         if (break_jump_dst == NULL) {
-                                                            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2077, 0)                                                            );
+                                                            (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2076, 0)                                                            );
                                                                                                                         {
                                                                 int32_t _uya_ret = (-1);
                                                                 return _uya_ret;
@@ -110836,7 +110888,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                     } else {
                                                         if (stmt->kind == exec_HIRStmtKind_HIR_STMT_CONTINUE) {
                                                             if (ctx->loop_depth <= 0) {
-                                                                (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2078, 0)                                                                );
+                                                                (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2077, 0)                                                                );
                                                                                                                                 {
                                                                     int32_t _uya_ret = (-1);
                                                                     return _uya_ret;
@@ -110844,7 +110896,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                             }
                                                             struct ExecLoopPatch * const loop_patch_for_continue = exec_builder_loop_patch_ref(ctx, (ctx->loop_depth - 1));
                                                             if (loop_patch_for_continue == NULL) {
-                                                                (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2079, 0)                                                                );
+                                                                (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2078, 0)                                                                );
                                                                                                                                 {
                                                                     int32_t _uya_ret = (-1);
                                                                     return _uya_ret;
@@ -110859,7 +110911,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                             const int32_t patch_idx2 = loop_patch_for_continue->continue_count;
                                                             const int32_t jump_idx2 = exec_builder_emit(ctx, (struct BCInstr){.opcode = exec_BCOpcode_BC_JMP, .a = 0, .b = 0, .c = 0, .imm = 0, .text = NULL, .source = exec_builder_make_source(stmt->ast_node)});
                                                             if (((jump_idx2 < 0) || (patch_idx2 >= 128))) {
-                                                                (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2080, 0)                                                                );
+                                                                (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2079, 0)                                                                );
                                                                                                                                 {
                                                                     int32_t _uya_ret = (-1);
                                                                     return _uya_ret;
@@ -110867,7 +110919,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                             }
                                                             int32_t * const continue_jump_dst = exec_builder_continue_jump_ref(loop_patch_for_continue, patch_idx2);
                                                             if (continue_jump_dst == NULL) {
-                                                                (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2081, 0)                                                                );
+                                                                (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2080, 0)                                                                );
                                                                                                                                 {
                                                                     int32_t _uya_ret = (-1);
                                                                     return _uya_ret;
@@ -110876,7 +110928,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
                                                             continue_jump_dst[0] = jump_idx2;
                                                             loop_patch_for_continue->continue_count = (patch_idx2 + 1);
                                                         } else {
-                                                            (void)(exec_backend_set_generic_unsupported_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2082)                                                            );
+                                                            (void)(exec_backend_set_generic_unsupported_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2081)                                                            );
                                                                                                                         {
                                                                 int32_t _uya_ret = (-1);
                                                                 return _uya_ret;
@@ -110898,7 +110950,7 @@ static __attribute__((used)) int32_t exec_builder_compile_block(struct ExecFunct
         i = (i + 1);
     }
     if (ctx->cleanup_depth != start_cleanup_depth) {
-        (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2083, 0)        );
+        (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2082, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -110925,7 +110977,7 @@ static __attribute__((used)) int32_t exec_builder_validate_slot_read(struct HIRF
     }
     if (((slot_written != NULL) && (slot_written[slot] == 0))) {
         uint8_t uninit_msg[128] = {0};
-        (void)(snprintf((char *)(uint8_t *)(&uninit_msg[0]), 160, (const char *)str2084, slot, (uint8_t *)message));
+        (void)(snprintf((char *)(uint8_t *)(&uninit_msg[0]), 160, (const char *)str2083, slot, (uint8_t *)message));
         (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(&uninit_msg[0]), 0)        );
                 {
             int32_t _uya_ret = (-1);
@@ -110954,9 +111006,9 @@ static __attribute__((used)) int32_t exec_builder_validate_slot_read_with_source
     if (((slot < 0) || (slot >= slot_count))) {
         uint8_t detail[384] = {0};
         if (source.filename != NULL) {
-            (void)(snprintf((char *)(uint8_t *)(&detail[0]), 384, (const char *)str2085, (uint8_t *)message, (uint8_t *)source.filename, source.line, source.column, slot, slot_count));
+            (void)(snprintf((char *)(uint8_t *)(&detail[0]), 384, (const char *)str2084, (uint8_t *)message, (uint8_t *)source.filename, source.line, source.column, slot, slot_count));
         } else {
-            (void)(snprintf((char *)(uint8_t *)(&detail[0]), 384, (const char *)str2086, (uint8_t *)message, slot, slot_count));
+            (void)(snprintf((char *)(uint8_t *)(&detail[0]), 384, (const char *)str2085, (uint8_t *)message, slot, slot_count));
         }
         (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(&detail[0]), 0)        );
                 {
@@ -110967,9 +111019,9 @@ static __attribute__((used)) int32_t exec_builder_validate_slot_read_with_source
     if (((slot_written != NULL) && (slot_written[slot] == 0))) {
         uint8_t detail2[384] = {0};
         if (source.filename != NULL) {
-            (void)(snprintf((char *)(uint8_t *)(&detail2[0]), 384, (const char *)str2087, (uint8_t *)message, (uint8_t *)source.filename, source.line, source.column, slot));
+            (void)(snprintf((char *)(uint8_t *)(&detail2[0]), 384, (const char *)str2086, (uint8_t *)message, (uint8_t *)source.filename, source.line, source.column, slot));
         } else {
-            (void)(snprintf((char *)(uint8_t *)(&detail2[0]), 384, (const char *)str2088, (uint8_t *)message, slot));
+            (void)(snprintf((char *)(uint8_t *)(&detail2[0]), 384, (const char *)str2087, (uint8_t *)message, slot));
         }
         (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(&detail2[0]), 0)        );
                 {
@@ -111004,7 +111056,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
         struct BCInstr * const instr = (out_fn->instrs + i);
         if (instr->opcode == exec_BCOpcode_BC_LOAD_CONST) {
             if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2089, 0)                );
+                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2088, 0)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -111016,14 +111068,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
             }
         } else {
             if (instr->opcode == exec_BCOpcode_BC_LOAD_LOCAL) {
-                if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2090) != 0) {
+                if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2089) != 0) {
                                         {
                         int32_t _uya_ret = (-1);
                         return _uya_ret;
                                         }
                 }
                 if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2091, 0)                    );
+                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2090, 0)                    );
                                         {
                         int32_t _uya_ret = (-1);
                         return _uya_ret;
@@ -111036,14 +111088,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
             } else {
                 if (instr->opcode == exec_BCOpcode_BC_LOAD_GLOBAL) {
                     if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2092, 0)                        );
+                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2091, 0)                        );
                                                 {
                             int32_t _uya_ret = (-1);
                             return _uya_ret;
                                                 }
                     }
                     if (((instr->b < 0) || (instr->b >= module->global_count))) {
-                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2093, 0)                        );
+                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2092, 0)                        );
                                                 {
                             int32_t _uya_ret = (-1);
                             return _uya_ret;
@@ -111056,13 +111108,13 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                 } else {
                     if (instr->opcode == exec_BCOpcode_BC_STORE_GLOBAL) {
                         if (((instr->a < 0) || (instr->a >= module->global_count))) {
-                            (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2094, 0)                            );
+                            (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2093, 0)                            );
                                                         {
                                 int32_t _uya_ret = (-1);
                                 return _uya_ret;
                                                         }
                         }
-                        if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2095) != 0) {
+                        if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2094) != 0) {
                                                         {
                                 int32_t _uya_ret = (-1);
                                 return _uya_ret;
@@ -111070,14 +111122,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                         }
                     } else {
                         if (instr->opcode == exec_BCOpcode_BC_STORE_LOCAL) {
-                            if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2096) != 0) {
+                            if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2095) != 0) {
                                                                 {
                                     int32_t _uya_ret = (-1);
                                     return _uya_ret;
                                                                 }
                             }
                             if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2097, 0)                                );
+                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2096, 0)                                );
                                                                 {
                                     int32_t _uya_ret = (-1);
                                     return _uya_ret;
@@ -111089,14 +111141,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                             }
                         } else {
                             if (instr->opcode == exec_BCOpcode_BC_MOV) {
-                                if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2098) != 0) {
+                                if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2097) != 0) {
                                                                         {
                                         int32_t _uya_ret = (-1);
                                         return _uya_ret;
                                                                         }
                                 }
                                 if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2099, 0)                                    );
+                                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2098, 0)                                    );
                                                                         {
                                         int32_t _uya_ret = (-1);
                                         return _uya_ret;
@@ -111108,14 +111160,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                 }
                             } else {
                                 if (((((((((((((((((((((((((instr->opcode == exec_BCOpcode_BC_ADD) || (instr->opcode == exec_BCOpcode_BC_SUB)) || (instr->opcode == exec_BCOpcode_BC_MUL)) || (instr->opcode == exec_BCOpcode_BC_DIV)) || (instr->opcode == exec_BCOpcode_BC_ADD_SAT)) || (instr->opcode == exec_BCOpcode_BC_SUB_SAT)) || (instr->opcode == exec_BCOpcode_BC_MUL_SAT)) || (instr->opcode == exec_BCOpcode_BC_ADD_CHECK)) || (instr->opcode == exec_BCOpcode_BC_SUB_CHECK)) || (instr->opcode == exec_BCOpcode_BC_MUL_CHECK)) || (instr->opcode == exec_BCOpcode_BC_DIV_CHECK)) || (instr->opcode == exec_BCOpcode_BC_REM_CHECK)) || (instr->opcode == exec_BCOpcode_BC_REM)) || (instr->opcode == exec_BCOpcode_BC_BIT_AND)) || (instr->opcode == exec_BCOpcode_BC_BIT_OR)) || (instr->opcode == exec_BCOpcode_BC_BIT_XOR)) || (instr->opcode == exec_BCOpcode_BC_SHL)) || (instr->opcode == exec_BCOpcode_BC_SHR)) || (instr->opcode == exec_BCOpcode_BC_CMP_EQ)) || (instr->opcode == exec_BCOpcode_BC_CMP_NE)) || (instr->opcode == exec_BCOpcode_BC_CMP_LT)) || (instr->opcode == exec_BCOpcode_BC_CMP_LE)) || (instr->opcode == exec_BCOpcode_BC_CMP_GT)) || (instr->opcode == exec_BCOpcode_BC_CMP_GE))) {
-                                    if (((exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2100) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->c, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2101) != 0))) {
+                                    if (((exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2099) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->c, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2100) != 0))) {
                                                                                 {
                                             int32_t _uya_ret = (-1);
                                             return _uya_ret;
                                                                                 }
                                     }
                                     if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2102, 0)                                        );
+                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2101, 0)                                        );
                                                                                 {
                                             int32_t _uya_ret = (-1);
                                             return _uya_ret;
@@ -111127,14 +111179,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                     }
                                 } else {
                                     if (instr->opcode == exec_BCOpcode_BC_ADDR_LOCAL) {
-                                        if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2103) != 0) {
+                                        if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2102) != 0) {
                                                                                         {
                                                 int32_t _uya_ret = (-1);
                                                 return _uya_ret;
                                                                                         }
                                         }
                                         if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                            (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2104, 0)                                            );
+                                            (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2103, 0)                                            );
                                                                                         {
                                                 int32_t _uya_ret = (-1);
                                                 return _uya_ret;
@@ -111147,14 +111199,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                     } else {
                                         if (instr->opcode == exec_BCOpcode_BC_ADDR_GLOBAL) {
                                             if (((instr->b < 0) || (instr->b >= module->global_count))) {
-                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2105, 0)                                                );
+                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2104, 0)                                                );
                                                                                                 {
                                                     int32_t _uya_ret = (-1);
                                                     return _uya_ret;
                                                                                                 }
                                             }
                                             if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2106, 0)                                                );
+                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2105, 0)                                                );
                                                                                                 {
                                                     int32_t _uya_ret = (-1);
                                                     return _uya_ret;
@@ -111166,14 +111218,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                             }
                                         } else {
                                             if (instr->opcode == exec_BCOpcode_BC_ADDR_FIELD) {
-                                                if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2107) != 0) {
+                                                if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2106) != 0) {
                                                                                                         {
                                                         int32_t _uya_ret = (-1);
                                                         return _uya_ret;
                                                                                                         }
                                                 }
                                                 if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2108, 0)                                                    );
+                                                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2107, 0)                                                    );
                                                                                                         {
                                                         int32_t _uya_ret = (-1);
                                                         return _uya_ret;
@@ -111185,14 +111237,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                 }
                                             } else {
                                                 if (instr->opcode == exec_BCOpcode_BC_ADDR_INDEX) {
-                                                    if (((exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2109) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->c, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2110) != 0))) {
+                                                    if (((exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2108) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->c, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2109) != 0))) {
                                                                                                                 {
                                                             int32_t _uya_ret = (-1);
                                                             return _uya_ret;
                                                                                                                 }
                                                     }
                                                     if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2111, 0)                                                        );
+                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2110, 0)                                                        );
                                                                                                                 {
                                                             int32_t _uya_ret = (-1);
                                                             return _uya_ret;
@@ -111204,14 +111256,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                     }
                                                 } else {
                                                     if (instr->opcode == exec_BCOpcode_BC_BOX_VALUE) {
-                                                        if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2112) != 0) {
+                                                        if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2111) != 0) {
                                                                                                                         {
                                                                 int32_t _uya_ret = (-1);
                                                                 return _uya_ret;
                                                                                                                         }
                                                         }
                                                         if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                            (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2113, 0)                                                            );
+                                                            (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2112, 0)                                                            );
                                                                                                                         {
                                                                 int32_t _uya_ret = (-1);
                                                                 return _uya_ret;
@@ -111223,14 +111275,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                         }
                                                     } else {
                                                         if ((((((((((((((((((instr->opcode == exec_BCOpcode_BC_NEG) || (instr->opcode == exec_BCOpcode_BC_NOT)) || (instr->opcode == exec_BCOpcode_BC_CAST)) || (instr->opcode == exec_BCOpcode_BC_LOAD_LEN)) || (instr->opcode == exec_BCOpcode_BC_LOAD_SLICE_PTR)) || (instr->opcode == exec_BCOpcode_BC_LOAD_UNION_TAG)) || (instr->opcode == exec_BCOpcode_BC_LOAD_UNION_PAYLOAD)) || (instr->opcode == exec_BCOpcode_BC_LOAD_ERROR_TAG)) || (instr->opcode == exec_BCOpcode_BC_LOAD_ERROR_PAYLOAD)) || (instr->opcode == exec_BCOpcode_BC_MAKE_OK)) || (instr->opcode == exec_BCOpcode_BC_MAKE_ERR)) || (instr->opcode == exec_BCOpcode_BC_IS_ERR)) || (instr->opcode == exec_BCOpcode_BC_UNWRAP_OK)) || (instr->opcode == exec_BCOpcode_BC_UNWRAP_ERR)) || (instr->opcode == exec_BCOpcode_BC_ERROR_ID)) || (instr->opcode == exec_BCOpcode_BC_ERROR_NAME)) || (instr->opcode == exec_BCOpcode_BC_AWAIT))) {
-                                                            if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2114) != 0) {
+                                                            if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2113) != 0) {
                                                                                                                                 {
                                                                     int32_t _uya_ret = (-1);
                                                                     return _uya_ret;
                                                                                                                                 }
                                                             }
                                                             if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2115, 0)                                                                );
+                                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2114, 0)                                                                );
                                                                                                                                 {
                                                                     int32_t _uya_ret = (-1);
                                                                     return _uya_ret;
@@ -111243,7 +111295,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                         } else {
                                                             if (((((instr->opcode == exec_BCOpcode_BC_MAKE_STRUCT) || (instr->opcode == exec_BCOpcode_BC_MAKE_ARRAY)) || (instr->opcode == exec_BCOpcode_BC_MAKE_ARRAY_REPEAT)) || (instr->opcode == exec_BCOpcode_BC_MAKE_TUPLE))) {
                                                                 if (instr->opcode == exec_BCOpcode_BC_MAKE_ARRAY_REPEAT) {
-                                                                    if (exec_builder_validate_slot_read_with_source(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2116, instr->source) != 0) {
+                                                                    if (exec_builder_validate_slot_read_with_source(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2115, instr->source) != 0) {
                                                                                                                                                 {
                                                                             int32_t _uya_ret = (-1);
                                                                             return _uya_ret;
@@ -111252,7 +111304,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                 } else {
                                                                     int32_t si = 0;
                                                                     while (si < instr->c) {
-                                                                        if (exec_builder_validate_slot_read_with_source(fn_hir, (instr->b + si), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2117, instr->source) != 0) {
+                                                                        if (exec_builder_validate_slot_read_with_source(fn_hir, (instr->b + si), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2116, instr->source) != 0) {
                                                                                                                                                         {
                                                                                 int32_t _uya_ret = (-1);
                                                                                 return _uya_ret;
@@ -111262,7 +111314,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                     }
                                                                 }
                                                                 if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2118, 0)                                                                    );
+                                                                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2117, 0)                                                                    );
                                                                                                                                         {
                                                                         int32_t _uya_ret = (-1);
                                                                         return _uya_ret;
@@ -111276,7 +111328,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                 if (instr->opcode == exec_BCOpcode_BC_STRING_INTERP) {
                                                                     int32_t interp_vi = 0;
                                                                     while (interp_vi < instr->c) {
-                                                                        if (exec_builder_validate_slot_read_with_source(fn_hir, (instr->b + interp_vi), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2119, instr->source) != 0) {
+                                                                        if (exec_builder_validate_slot_read_with_source(fn_hir, (instr->b + interp_vi), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2118, instr->source) != 0) {
                                                                                                                                                         {
                                                                                 int32_t _uya_ret = (-1);
                                                                                 return _uya_ret;
@@ -111285,7 +111337,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                         interp_vi = (interp_vi + 1);
                                                                     }
                                                                     if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2120, 0)                                                                        );
+                                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2119, 0)                                                                        );
                                                                                                                                                 {
                                                                             int32_t _uya_ret = (-1);
                                                                             return _uya_ret;
@@ -111299,7 +111351,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                     if (instr->opcode == exec_BCOpcode_BC_VECTOR_OP) {
                                                                         int32_t vec_vi = 0;
                                                                         while (vec_vi < instr->c) {
-                                                                            if (exec_builder_validate_slot_read(fn_hir, (instr->b + vec_vi), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2121) != 0) {
+                                                                            if (exec_builder_validate_slot_read(fn_hir, (instr->b + vec_vi), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2120) != 0) {
                                                                                                                                                                 {
                                                                                     int32_t _uya_ret = (-1);
                                                                                     return _uya_ret;
@@ -111308,7 +111360,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                             vec_vi = (vec_vi + 1);
                                                                         }
                                                                         if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                            (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2122, 0)                                                                            );
+                                                                            (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2121, 0)                                                                            );
                                                                                                                                                         {
                                                                                 int32_t _uya_ret = (-1);
                                                                                 return _uya_ret;
@@ -111321,7 +111373,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                     } else {
                                                                         if (instr->opcode == exec_BCOpcode_BC_MAKE_UNION) {
                                                                             if (instr->b >= 0) {
-                                                                                if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2123) != 0) {
+                                                                                if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2122) != 0) {
                                                                                                                                                                         {
                                                                                         int32_t _uya_ret = (-1);
                                                                                         return _uya_ret;
@@ -111329,7 +111381,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                 }
                                                                             }
                                                                             if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2124, 0)                                                                                );
+                                                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2123, 0)                                                                                );
                                                                                                                                                                 {
                                                                                     int32_t _uya_ret = (-1);
                                                                                     return _uya_ret;
@@ -111341,14 +111393,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                             }
                                                                         } else {
                                                                             if (instr->opcode == exec_BCOpcode_BC_MAKE_SLICE) {
-                                                                                if ((((exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2125) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->c, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2126) != 0)) || (exec_builder_validate_slot_read(fn_hir, (int32_t)instr->imm, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2127) != 0))) {
+                                                                                if ((((exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2124) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->c, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2125) != 0)) || (exec_builder_validate_slot_read(fn_hir, (int32_t)instr->imm, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2126) != 0))) {
                                                                                                                                                                         {
                                                                                         int32_t _uya_ret = (-1);
                                                                                         return _uya_ret;
                                                                                                                                                                         }
                                                                                 }
                                                                                 if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2128, 0)                                                                                    );
+                                                                                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2127, 0)                                                                                    );
                                                                                                                                                                         {
                                                                                         int32_t _uya_ret = (-1);
                                                                                         return _uya_ret;
@@ -111360,14 +111412,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                 }
                                                                             } else {
                                                                                 if (instr->opcode == exec_BCOpcode_BC_LOAD_FIELD) {
-                                                                                    if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2129) != 0) {
+                                                                                    if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2128) != 0) {
                                                                                                                                                                                 {
                                                                                             int32_t _uya_ret = (-1);
                                                                                             return _uya_ret;
                                                                                                                                                                                 }
                                                                                     }
                                                                                     if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2130, 0)                                                                                        );
+                                                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2129, 0)                                                                                        );
                                                                                                                                                                                 {
                                                                                             int32_t _uya_ret = (-1);
                                                                                             return _uya_ret;
@@ -111379,7 +111431,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                     }
                                                                                 } else {
                                                                                     if (instr->opcode == exec_BCOpcode_BC_STORE_FIELD) {
-                                                                                        if (((exec_builder_validate_slot_read(fn_hir, instr->a, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2131) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2132) != 0))) {
+                                                                                        if (((exec_builder_validate_slot_read(fn_hir, instr->a, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2130) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2131) != 0))) {
                                                                                                                                                                                         {
                                                                                                 int32_t _uya_ret = (-1);
                                                                                                 return _uya_ret;
@@ -111387,14 +111439,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                         }
                                                                                     } else {
                                                                                         if (instr->opcode == exec_BCOpcode_BC_LOAD_INDEX) {
-                                                                                            if (((exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2133) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->c, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2134) != 0))) {
+                                                                                            if (((exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2132) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->c, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2133) != 0))) {
                                                                                                                                                                                                 {
                                                                                                     int32_t _uya_ret = (-1);
                                                                                                     return _uya_ret;
                                                                                                                                                                                                 }
                                                                                             }
                                                                                             if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2135, 0)                                                                                                );
+                                                                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2134, 0)                                                                                                );
                                                                                                                                                                                                 {
                                                                                                     int32_t _uya_ret = (-1);
                                                                                                     return _uya_ret;
@@ -111406,7 +111458,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                             }
                                                                                         } else {
                                                                                             if (instr->opcode == exec_BCOpcode_BC_STORE_INDEX) {
-                                                                                                if ((((exec_builder_validate_slot_read(fn_hir, instr->a, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2136) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2137) != 0)) || (exec_builder_validate_slot_read(fn_hir, instr->c, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2138) != 0))) {
+                                                                                                if ((((exec_builder_validate_slot_read(fn_hir, instr->a, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2135) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2136) != 0)) || (exec_builder_validate_slot_read(fn_hir, instr->c, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2137) != 0))) {
                                                                                                                                                                                                         {
                                                                                                         int32_t _uya_ret = (-1);
                                                                                                         return _uya_ret;
@@ -111415,7 +111467,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                             } else {
                                                                                                 if (instr->opcode == exec_BCOpcode_BC_JMP) {
                                                                                                     if (((instr->imm < 0) || (instr->imm > (int64_t)out_fn->instr_count))) {
-                                                                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2139, 0)                                                                                                        );
+                                                                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2138, 0)                                                                                                        );
                                                                                                                                                                                                                 {
                                                                                                             int32_t _uya_ret = (-1);
                                                                                                             return _uya_ret;
@@ -111423,14 +111475,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                     }
                                                                                                 } else {
                                                                                                     if (((instr->opcode == exec_BCOpcode_BC_JMP_IF_TRUE) || (instr->opcode == exec_BCOpcode_BC_JMP_IF_FALSE))) {
-                                                                                                        if (exec_builder_validate_slot_read(fn_hir, instr->a, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2140) != 0) {
+                                                                                                        if (exec_builder_validate_slot_read(fn_hir, instr->a, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2139) != 0) {
                                                                                                                                                                                                                         {
                                                                                                                 int32_t _uya_ret = (-1);
                                                                                                                 return _uya_ret;
                                                                                                                                                                                                                         }
                                                                                                         }
                                                                                                         if (((instr->imm < 0) || (instr->imm > (int64_t)out_fn->instr_count))) {
-                                                                                                            (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2141, 0)                                                                                                            );
+                                                                                                            (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2140, 0)                                                                                                            );
                                                                                                                                                                                                                         {
                                                                                                                 int32_t _uya_ret = (-1);
                                                                                                                 return _uya_ret;
@@ -111440,7 +111492,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                         if (instr->opcode == exec_BCOpcode_BC_CALL) {
                                                                                                             int32_t ai = 0;
                                                                                                             while (ai < instr->c) {
-                                                                                                                if (exec_builder_validate_slot_read(fn_hir, (instr->b + ai), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2142) != 0) {
+                                                                                                                if (exec_builder_validate_slot_read(fn_hir, (instr->b + ai), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2141) != 0) {
                                                                                                                                                                                                                                         {
                                                                                                                         int32_t _uya_ret = (-1);
                                                                                                                         return _uya_ret;
@@ -111449,14 +111501,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                                 ai = (ai + 1);
                                                                                                             }
                                                                                                             if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2143, 0)                                                                                                                );
+                                                                                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2142, 0)                                                                                                                );
                                                                                                                                                                                                                                 {
                                                                                                                     int32_t _uya_ret = (-1);
                                                                                                                     return _uya_ret;
                                                                                                                                                                                                                                 }
                                                                                                             }
                                                                                                             if (((instr->imm < 0) || (instr->imm >= (int64_t)module->function_count))) {
-                                                                                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2144, 0)                                                                                                                );
+                                                                                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2143, 0)                                                                                                                );
                                                                                                                                                                                                                                 {
                                                                                                                     int32_t _uya_ret = (-1);
                                                                                                                     return _uya_ret;
@@ -111468,7 +111520,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                             }
                                                                                                         } else {
                                                                                                             if (instr->opcode == exec_BCOpcode_BC_CALL_INDIRECT) {
-                                                                                                                if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2145) != 0) {
+                                                                                                                if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2144) != 0) {
                                                                                                                                                                                                                                         {
                                                                                                                         int32_t _uya_ret = (-1);
                                                                                                                         return _uya_ret;
@@ -111476,7 +111528,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                                 }
                                                                                                                 int32_t ai_indirect = 0;
                                                                                                                 while (ai_indirect < (int32_t)instr->imm) {
-                                                                                                                    if (exec_builder_validate_slot_read(fn_hir, (instr->c + ai_indirect), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2146) != 0) {
+                                                                                                                    if (exec_builder_validate_slot_read(fn_hir, (instr->c + ai_indirect), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2145) != 0) {
                                                                                                                                                                                                                                                 {
                                                                                                                             int32_t _uya_ret = (-1);
                                                                                                                             return _uya_ret;
@@ -111485,7 +111537,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                                     ai_indirect = (ai_indirect + 1);
                                                                                                                 }
                                                                                                                 if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                                                                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2147, 0)                                                                                                                    );
+                                                                                                                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2146, 0)                                                                                                                    );
                                                                                                                                                                                                                                         {
                                                                                                                         int32_t _uya_ret = (-1);
                                                                                                                         return _uya_ret;
@@ -111499,7 +111551,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                                 if (instr->opcode == exec_BCOpcode_BC_HOSTCALL) {
                                                                                                                     int32_t ai2 = 0;
                                                                                                                     while (ai2 < instr->c) {
-                                                                                                                        if (exec_builder_validate_slot_read(fn_hir, (instr->b + ai2), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2148) != 0) {
+                                                                                                                        if (exec_builder_validate_slot_read(fn_hir, (instr->b + ai2), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2147) != 0) {
                                                                                                                                                                                                                                                         {
                                                                                                                                 int32_t _uya_ret = (-1);
                                                                                                                                 return _uya_ret;
@@ -111508,14 +111560,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                                         ai2 = (ai2 + 1);
                                                                                                                     }
                                                                                                                     if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2149, 0)                                                                                                                        );
+                                                                                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2148, 0)                                                                                                                        );
                                                                                                                                                                                                                                                 {
                                                                                                                             int32_t _uya_ret = (-1);
                                                                                                                             return _uya_ret;
                                                                                                                                                                                                                                                 }
                                                                                                                     }
                                                                                                                     if (instr->imm < 0) {
-                                                                                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2150, 0)                                                                                                                        );
+                                                                                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2149, 0)                                                                                                                        );
                                                                                                                                                                                                                                                 {
                                                                                                                             int32_t _uya_ret = (-1);
                                                                                                                             return _uya_ret;
@@ -111529,7 +111581,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                                     if (instr->opcode == exec_BCOpcode_BC_SYSCALL) {
                                                                                                                         const int32_t syscall_arg_base = (int32_t)(instr->imm & 65535LL);
                                                                                                                         const int32_t syscall_arg_count = (int32_t)((instr->imm >> 16) & 255LL);
-                                                                                                                        if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2151) != 0) {
+                                                                                                                        if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2150) != 0) {
                                                                                                                                                                                                                                                         {
                                                                                                                                 int32_t _uya_ret = (-1);
                                                                                                                                 return _uya_ret;
@@ -111537,7 +111589,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                                         }
                                                                                                                         int32_t sai = 0;
                                                                                                                         while (sai < syscall_arg_count) {
-                                                                                                                            if (exec_builder_validate_slot_read(fn_hir, (syscall_arg_base + sai), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2152) != 0) {
+                                                                                                                            if (exec_builder_validate_slot_read(fn_hir, (syscall_arg_base + sai), out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2151) != 0) {
                                                                                                                                                                                                                                                                 {
                                                                                                                                     int32_t _uya_ret = (-1);
                                                                                                                                     return _uya_ret;
@@ -111546,7 +111598,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                                             sai = (sai + 1);
                                                                                                                         }
                                                                                                                         if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                                                                            (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2153, 0)                                                                                                                            );
+                                                                                                                            (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2152, 0)                                                                                                                            );
                                                                                                                                                                                                                                                         {
                                                                                                                                 int32_t _uya_ret = (-1);
                                                                                                                                 return _uya_ret;
@@ -111558,14 +111610,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                                         }
                                                                                                                     } else {
                                                                                                                         if ((((instr->opcode == exec_BCOpcode_BC_VA_START) || (instr->opcode == exec_BCOpcode_BC_VA_END)) || (instr->opcode == exec_BCOpcode_BC_VA_ARG))) {
-                                                                                                                            if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2154) != 0) {
+                                                                                                                            if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2153) != 0) {
                                                                                                                                                                                                                                                                 {
                                                                                                                                     int32_t _uya_ret = (-1);
                                                                                                                                     return _uya_ret;
                                                                                                                                                                                                                                                                 }
                                                                                                                             }
                                                                                                                             if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                                                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2155, 0)                                                                                                                                );
+                                                                                                                                (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2154, 0)                                                                                                                                );
                                                                                                                                                                                                                                                                 {
                                                                                                                                     int32_t _uya_ret = (-1);
                                                                                                                                     return _uya_ret;
@@ -111577,14 +111629,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                                             }
                                                                                                                         } else {
                                                                                                                             if (instr->opcode == exec_BCOpcode_BC_VA_COPY) {
-                                                                                                                                if (((exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2156) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->c, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2157) != 0))) {
+                                                                                                                                if (((exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2155) != 0) || (exec_builder_validate_slot_read(fn_hir, instr->c, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2156) != 0))) {
                                                                                                                                                                                                                                                                         {
                                                                                                                                         int32_t _uya_ret = (-1);
                                                                                                                                         return _uya_ret;
                                                                                                                                                                                                                                                                         }
                                                                                                                                 }
                                                                                                                                 if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                                                                                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2158, 0)                                                                                                                                    );
+                                                                                                                                    (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2157, 0)                                                                                                                                    );
                                                                                                                                                                                                                                                                         {
                                                                                                                                         int32_t _uya_ret = (-1);
                                                                                                                                         return _uya_ret;
@@ -111596,14 +111648,14 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                                                 }
                                                                                                                             } else {
                                                                                                                                 if (((instr->opcode == exec_BCOpcode_BC_PRINT) || (instr->opcode == exec_BCOpcode_BC_PRINTLN))) {
-                                                                                                                                    if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2159) != 0) {
+                                                                                                                                    if (exec_builder_validate_slot_read(fn_hir, instr->b, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2158) != 0) {
                                                                                                                                                                                                                                                                                 {
                                                                                                                                             int32_t _uya_ret = (-1);
                                                                                                                                             return _uya_ret;
                                                                                                                                                                                                                                                                                 }
                                                                                                                                     }
                                                                                                                                     if (((instr->a < 0) || (instr->a >= out_fn->slot_count))) {
-                                                                                                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2160, 0)                                                                                                                                        );
+                                                                                                                                        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2159, 0)                                                                                                                                        );
                                                                                                                                                                                                                                                                                 {
                                                                                                                                             int32_t _uya_ret = (-1);
                                                                                                                                             return _uya_ret;
@@ -111615,7 +111667,7 @@ static __attribute__((used)) int32_t exec_builder_validate_function(struct HIRMo
                                                                                                                                     }
                                                                                                                                 } else {
                                                                                                                                     if (instr->opcode == exec_BCOpcode_BC_RET) {
-                                                                                                                                        if (((instr->a >= 0) && (exec_builder_validate_slot_read(fn_hir, instr->a, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2161) != 0))) {
+                                                                                                                                        if (((instr->a >= 0) && (exec_builder_validate_slot_read(fn_hir, instr->a, out_fn->slot_count, (&slot_written[0]), (uint8_t *)(uint8_t *)str2160) != 0))) {
                                                                                                                                                                                                                                                                                         {
                                                                                                                                                 int32_t _uya_ret = (-1);
                                                                                                                                                 return _uya_ret;
@@ -111749,7 +111801,7 @@ static __attribute__((used)) int32_t exec_builder_validate_return_types_in_block
         if (stmt->kind == exec_HIRStmtKind_HIR_STMT_RETURN) {
             if (fn_hir->return_type.type.kind == checker_TypeKind_TYPE_VOID) {
                 if (stmt->expr != NULL) {
-                    (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2162, 0)                    );
+                    (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2161, 0)                    );
                                         {
                         int32_t _uya_ret = (-1);
                         return _uya_ret;
@@ -111757,7 +111809,7 @@ static __attribute__((used)) int32_t exec_builder_validate_return_types_in_block
                 }
             } else {
                 if (stmt->expr == NULL) {
-                    (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2163, 0)                    );
+                    (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(uint8_t *)str2162, 0)                    );
                                         {
                         int32_t _uya_ret = (-1);
                         return _uya_ret;
@@ -111769,7 +111821,7 @@ static __attribute__((used)) int32_t exec_builder_validate_return_types_in_block
                 }
                 if (rtm_ok == 0) {
                     uint8_t rtm_msg[192] = {0};
-                    (void)(snprintf((char *)(uint8_t *)(&rtm_msg[0]), 192, (const char *)str2164, (int32_t)stmt->expr->type_ref.type.kind, (int32_t)fn_hir->return_type.type.kind, stmt->ast_node->line));
+                    (void)(snprintf((char *)(uint8_t *)(&rtm_msg[0]), 192, (const char *)str2163, (int32_t)stmt->expr->type_ref.type.kind, (int32_t)fn_hir->return_type.type.kind, stmt->ast_node->line));
                     (void)(exec_backend_set_error(stmt->ast_node, (uint8_t *)(&rtm_msg[0]), 0)                    );
                                         {
                         int32_t _uya_ret = (-1);
@@ -111832,7 +111884,7 @@ static __attribute__((used)) struct BCFunction * exec_builder_build_function(str
             return _uya_ret;
                 }
     }
-    struct ExecFunctionBuildContext ctx = (struct ExecFunctionBuildContext){.arena = arena, .checker = checker, .const_pool = const_pool, .host_calls = host_calls, .module = module, .function = fn_hir, .instrs = NULL, .instr_count = 0, .next_temp_slot = fn_hir->local_count, .max_slot_count = fn_hir->local_count, .loop_stack = NULL, .loop_depth = 0, .cleanup_scopes = NULL, .cleanup_depth = 0, .checked_err_jumps = {0}, .checked_err_count = 0, .checked_err_union_slot = (-1), .emitting_cleanup_scope_plus1 = 0};
+    struct ExecFunctionBuildContext ctx = (struct ExecFunctionBuildContext){.arena = arena, .checker = checker, .const_pool = const_pool, .host_calls = host_calls, .module = module, .function = fn_hir, .instrs = NULL, .instr_capacity = 0, .instr_count = 0, .next_temp_slot = fn_hir->local_count, .max_slot_count = fn_hir->local_count, .loop_stack = NULL, .loop_depth = 0, .cleanup_scopes = NULL, .cleanup_depth = 0, .checked_err_jumps = {0}, .checked_err_count = 0, .checked_err_union_slot = (-1), .emitting_cleanup_scope_plus1 = 0};
     if (exec_builder_validate_return_types_in_block(fn_hir, fn_hir->body) != 0) {
                 {
             struct BCFunction * _uya_ret = NULL;
@@ -111857,7 +111909,7 @@ static __attribute__((used)) struct BCFunction * exec_builder_build_function(str
     struct BCInstr * const out_instrs = (struct BCInstr *)compiler_arena_alloc(arena, ((int32_t)sizeof(struct BCInstr) * (size_t)ctx.instr_count));
     struct BCFunction * const out_fn = (struct BCFunction *)compiler_arena_alloc(arena, (int32_t)sizeof(struct BCFunction));
     if (((out_instrs == NULL) || (out_fn == NULL))) {
-        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2165, 0)        );
+        (void)(exec_backend_set_error(fn_hir->decl, (uint8_t *)(uint8_t *)str2164, 0)        );
                 {
             struct BCFunction * _uya_ret = NULL;
             return _uya_ret;
@@ -111892,7 +111944,7 @@ struct BCProgram * exec_builder_exec_build_bytecode(struct CompilerArena * arena
     (void)checker;
     (void)module;
     if ((((arena == NULL) || (checker == NULL)) || (module == NULL))) {
-        (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2166, 0)        );
+        (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2165, 0)        );
                 {
             struct BCProgram * _uya_ret = NULL;
             return _uya_ret;
@@ -111907,7 +111959,7 @@ struct BCProgram * exec_builder_exec_build_bytecode(struct CompilerArena * arena
     struct BCFunction * const functions = (struct BCFunction *)compiler_arena_alloc(arena, ((int32_t)sizeof(struct BCFunction) * (size_t)total_function_count));
     struct BCProgram * const program = (struct BCProgram *)compiler_arena_alloc(arena, (int32_t)sizeof(struct BCProgram));
     if ((((total_function_count > 0) && (functions == NULL)) || (program == NULL))) {
-        (void)(exec_backend_set_error(module->entry_function->decl, (uint8_t *)(uint8_t *)str2167, 0)        );
+        (void)(exec_backend_set_error(module->entry_function->decl, (uint8_t *)(uint8_t *)str2166, 0)        );
                 {
             struct BCProgram * _uya_ret = NULL;
             return _uya_ret;
@@ -111920,7 +111972,7 @@ struct BCProgram * exec_builder_exec_build_bytecode(struct CompilerArena * arena
         struct BCFunction * const built = exec_builder_build_function(arena, checker, (&const_pool_builder), (&host_call_builder), module, module->functions[i]);
         if (built == NULL) {
             if (exec_backend_get_last_error() == NULL) {
-                (void)(exec_backend_set_error(module->functions[i]->decl, (uint8_t *)(uint8_t *)str2168, 0)                );
+                (void)(exec_backend_set_error(module->functions[i]->decl, (uint8_t *)(uint8_t *)str2167, 0)                );
             }
                         {
                 struct BCProgram * _uya_ret = NULL;
@@ -111937,7 +111989,7 @@ struct BCProgram * exec_builder_exec_build_bytecode(struct CompilerArena * arena
         struct BCFunction * const built_global_init = exec_builder_build_function(arena, checker, (&const_pool_builder), (&host_call_builder), module, module->global_init_function);
         if (built_global_init == NULL) {
             if (exec_backend_get_last_error() == NULL) {
-                (void)(exec_backend_set_error(module->global_init_function->decl, (uint8_t *)(uint8_t *)str2169, 0)                );
+                (void)(exec_backend_set_error(module->global_init_function->decl, (uint8_t *)(uint8_t *)str2168, 0)                );
             }
                         {
                 struct BCProgram * _uya_ret = NULL;
@@ -111951,7 +112003,7 @@ struct BCProgram * exec_builder_exec_build_bytecode(struct CompilerArena * arena
     if (module->test_count > 0) {
         test_indices = (int32_t *)compiler_arena_alloc(arena, ((int32_t)sizeof(int32_t) * (size_t)module->test_count));
         if (test_indices == NULL) {
-            (void)(exec_backend_set_error(module->entry_function->decl, (uint8_t *)(uint8_t *)str2170, 0)            );
+            (void)(exec_backend_set_error(module->entry_function->decl, (uint8_t *)(uint8_t *)str2169, 0)            );
                         {
                 struct BCProgram * _uya_ret = NULL;
                 return _uya_ret;
@@ -111969,7 +112021,7 @@ struct BCProgram * exec_builder_exec_build_bytecode(struct CompilerArena * arena
                 fn_i = (fn_i + 1);
             }
             if (found_index < 0) {
-                (void)(exec_backend_set_error(module->entry_function->decl, (uint8_t *)(uint8_t *)str2171, 0)                );
+                (void)(exec_backend_set_error(module->entry_function->decl, (uint8_t *)(uint8_t *)str2170, 0)                );
                                 {
                     struct BCProgram * _uya_ret = NULL;
                     return _uya_ret;
@@ -111980,7 +112032,7 @@ struct BCProgram * exec_builder_exec_build_bytecode(struct CompilerArena * arena
         }
     }
     if (entry_index < 0) {
-        (void)(exec_backend_set_error(module->entry_function->decl, (uint8_t *)(uint8_t *)str2172, 0)        );
+        (void)(exec_backend_set_error(module->entry_function->decl, (uint8_t *)(uint8_t *)str2171, 0)        );
                 {
             struct BCProgram * _uya_ret = NULL;
             return _uya_ret;
@@ -111998,7 +112050,7 @@ struct BCProgram * exec_builder_exec_build_bytecode(struct CompilerArena * arena
     program->test_passed_global_index = (-1);
     int32_t test_global_i = 0;
     while (test_global_i < module->global_count) {
-        if ((((module->globals != NULL) && (module->globals[test_global_i].name != NULL)) && (str_equals(module->globals[test_global_i].name, (uint8_t *)(uint8_t *)str2173) != 0))) {
+        if ((((module->globals != NULL) && (module->globals[test_global_i].name != NULL)) && (str_equals(module->globals[test_global_i].name, (uint8_t *)(uint8_t *)str2172) != 0))) {
             program->test_passed_global_index = test_global_i;
             break;
         }
@@ -112007,12 +112059,23 @@ struct BCProgram * exec_builder_exec_build_bytecode(struct CompilerArena * arena
     program->saved_argc_global_index = (-1);
     int32_t argc_global_i = 0;
     while (argc_global_i < module->global_count) {
-        if ((((module->globals != NULL) && (module->globals[argc_global_i].name != NULL)) && (str_equals(module->globals[argc_global_i].name, (uint8_t *)(uint8_t *)str2174) != 0))) {
+        if ((((module->globals != NULL) && (module->globals[argc_global_i].name != NULL)) && (str_equals(module->globals[argc_global_i].name, (uint8_t *)(uint8_t *)str2173) != 0))) {
             program->saved_argc_global_index = argc_global_i;
             break;
         }
         argc_global_i = (argc_global_i + 1);
     }
+    program->saved_argv_global_index = (-1);
+    int32_t argv_global_i = 0;
+    while (argv_global_i < module->global_count) {
+        if ((((module->globals != NULL) && (module->globals[argv_global_i].name != NULL)) && (str_equals(module->globals[argv_global_i].name, (uint8_t *)(uint8_t *)str2174) != 0))) {
+            program->saved_argv_global_index = argv_global_i;
+            break;
+        }
+        argv_global_i = (argv_global_i + 1);
+    }
+    program->host_argc = 0;
+    program->host_argv = NULL;
     program->saved_envp_global_index = (-1);
     int32_t envp_global_i = 0;
     while (envp_global_i < module->global_count) {
@@ -113683,6 +113746,57 @@ static __attribute__((used)) struct Type * exec_lower_type_slot(struct ExecLower
     }
         {
         struct Type * _uya_ret = (&target[0][idx]);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t exec_lower_global_tables_init(struct ExecLowerContext * ctx, int32_t need) {
+    (void)ctx;
+    (void)need;
+    if (((ctx == NULL) || (need <= 0))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (ctx->global_capacity >= need) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    int32_t new_cap = ctx->global_capacity;
+    if (new_cap <= 0) {
+        new_cap = EXEC_MAX_GLOBALS;
+    }
+    while (new_cap < need) {
+        new_cap = ({ int32_t _l = (new_cap); int32_t _r = (2); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+    }
+    uint8_t * * const names = (uint8_t * *)compiler_arena_alloc(ctx->arena, ((int32_t)sizeof(uint8_t *) * (size_t)new_cap));
+    struct ASTNode * * const decls = (struct ASTNode * *)compiler_arena_alloc(ctx->arena, ((int32_t)sizeof(struct ASTNode *) * (size_t)new_cap));
+    int32_t * const is_const = (int32_t *)compiler_arena_alloc(ctx->arena, ((int32_t)sizeof(int32_t) * (size_t)new_cap));
+    struct Type * const types = (struct Type *)compiler_arena_alloc(ctx->arena, ((int32_t)sizeof(struct Type) * (size_t)new_cap));
+    if (((((names == NULL) || (decls == NULL)) || (is_const == NULL)) || (types == NULL))) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    int32_t i = 0;
+    while (i < ctx->global_count) {
+        names[i] = ctx->global_names[i];
+        decls[i] = ctx->global_decls[i];
+        is_const[i] = ctx->global_is_const[i];
+        types[i] = ctx->global_types[i];
+        i = (i + 1);
+    }
+    ctx->global_names = names;
+    ctx->global_decls = decls;
+    ctx->global_is_const = is_const;
+    ctx->global_types = types;
+    ctx->global_capacity = new_cap;
+        {
+        int32_t _uya_ret = 0;
         return _uya_ret;
         }
 }
@@ -116102,7 +116216,7 @@ static __attribute__((used)) int32_t exec_lower_find_global_slot(struct ExecLowe
     }
     int32_t i = ({ int32_t _l = (ctx->global_count); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     while (i >= 0) {
-        if (((i >= 0) && (i < EXEC_MAX_GLOBALS))) {
+        if (((i >= 0) && (i < ctx->global_capacity))) {
             if (((ctx->global_names[i] != NULL) && (str_equals(ctx->global_names[i], (uint8_t *)name) != 0))) {
                                 {
                     int32_t _uya_ret = i;
@@ -116129,7 +116243,7 @@ static __attribute__((used)) int32_t exec_lower_find_global_slot_by_decl(struct 
     }
     int32_t i = 0;
     while (i < ctx->global_count) {
-        if ((((i >= 0) && (i < EXEC_MAX_GLOBALS)) && (ctx->global_decls[i] == decl))) {
+        if ((((i >= 0) && (i < ctx->global_capacity)) && (ctx->global_decls[i] == decl))) {
                         {
                 int32_t _uya_ret = i;
                 return _uya_ret;
@@ -116154,11 +116268,14 @@ static __attribute__((used)) void exec_lower_seed_globals(struct ExecLowerContex
     if (((globals == NULL) || (global_count <= 0))) {
         return;
     }
+    if (exec_lower_global_tables_init(ctx, global_count) != 0) {
+        return;
+    }
     int32_t i = 0;
-    while (((i < global_count) && (i < EXEC_MAX_GLOBALS))) {
+    while (i < global_count) {
         ctx->global_names[i] = globals[i].name;
         ctx->global_decls[i] = globals[i].decl;
-        exec_lower_type_slot(ctx, 2, i, EXEC_MAX_GLOBALS)[0] = copy_type((&globals[i].type_ref.type));
+        ctx->global_types[i] = copy_type((&globals[i].type_ref.type));
         ctx->global_is_const[i] = globals[i].is_const;
         i = (i + 1);
     }
@@ -117605,7 +117722,7 @@ static __attribute__((used)) struct HIRExpr * exec_lower_make_bare_return_expr(s
                 }
     }
         {
-        struct HIRExpr * _uya_ret = exec_lower_fail_expr(ast_node, (uint8_t *)(uint8_t *)str2163);
+        struct HIRExpr * _uya_ret = exec_lower_fail_expr(ast_node, (uint8_t *)(uint8_t *)str2162);
         return _uya_ret;
         }
 }
@@ -117751,9 +117868,9 @@ static __attribute__((used)) int32_t exec_lower_known_len_for_expr(struct ExecLo
                         }
         }
         const int32_t global_slot = exec_lower_find_global_slot(ctx, expr->identifier_name);
-        if (((global_slot >= 0) && (global_slot < EXEC_MAX_GLOBALS))) {
+        if (((global_slot >= 0) && (global_slot < ctx->global_capacity))) {
                         {
-                int32_t _uya_ret = exec_lower_known_len(exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS));
+                int32_t _uya_ret = exec_lower_known_len(exec_lower_type_slot(ctx, 2, global_slot, ctx->global_capacity));
                 return _uya_ret;
                         }
         }
@@ -118102,9 +118219,9 @@ static __attribute__((used)) struct Type exec_lower_resolve_exact_type(struct Ex
                         }
         }
         const int32_t global_slot = exec_lower_find_global_slot(ctx, expr->identifier_name);
-        if (((global_slot >= 0) && (global_slot < EXEC_MAX_GLOBALS))) {
+        if (((global_slot >= 0) && (global_slot < ctx->global_capacity))) {
                         {
-                struct Type _uya_ret = exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0];
+                struct Type _uya_ret = exec_lower_type_slot(ctx, 2, global_slot, ctx->global_capacity)[0];
                 return _uya_ret;
                         }
         }
@@ -118299,8 +118416,8 @@ static __attribute__((used)) struct HIRExpr * exec_lower_make_ref_expr(struct Ex
                         }
         }
         const int32_t global_slot = exec_lower_find_global_slot(ctx, expr->identifier_name);
-        if (((global_slot >= 0) && (global_slot < EXEC_MAX_GLOBALS))) {
-            struct HIRExpr * const addr_global = exec_lower_make_addr_expr(ctx, expr, exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS));
+        if (((global_slot >= 0) && (global_slot < ctx->global_capacity))) {
+            struct HIRExpr * const addr_global = exec_lower_make_addr_expr(ctx, expr, exec_lower_type_slot(ctx, 2, global_slot, ctx->global_capacity));
             if (addr_global == NULL) {
                                 {
                     struct HIRExpr * _uya_ret = NULL;
@@ -120202,15 +120319,15 @@ static __attribute__((used)) struct Type exec_lower_member_base_type(struct Exec
                         }
         }
         const int32_t global_slot = exec_lower_find_global_slot(ctx, object->identifier_name);
-        if (((global_slot >= 0) && (global_slot < EXEC_MAX_GLOBALS))) {
-            if (((exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0].kind == checker_TypeKind_TYPE_POINTER) && (exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0].pointer_to != NULL))) {
+        if (((global_slot >= 0) && (global_slot < ctx->global_capacity))) {
+            if (((exec_lower_type_slot(ctx, 2, global_slot, ctx->global_capacity)[0].kind == checker_TypeKind_TYPE_POINTER) && (exec_lower_type_slot(ctx, 2, global_slot, ctx->global_capacity)[0].pointer_to != NULL))) {
                                 {
-                    struct Type _uya_ret = exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0].pointer_to[0];
+                    struct Type _uya_ret = exec_lower_type_slot(ctx, 2, global_slot, ctx->global_capacity)[0].pointer_to[0];
                     return _uya_ret;
                                 }
             }
                         {
-                struct Type _uya_ret = exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0];
+                struct Type _uya_ret = exec_lower_type_slot(ctx, 2, global_slot, ctx->global_capacity)[0];
                 return _uya_ret;
                         }
         }
@@ -122579,7 +122696,7 @@ static __attribute__((used)) int32_t exec_lower_append_global_slot(struct TypeCh
             return _uya_ret;
                 }
     }
-    if (out_count[0] >= EXEC_MAX_GLOBALS) {
+    if (out_count[0] >= EXEC_MAX_GLOBAL_SLOTS) {
         (void)(exec_backend_set_error(decl, (uint8_t *)(uint8_t *)str2583, 0)        );
                 {
             int32_t _uya_ret = (-1);
@@ -123848,7 +123965,7 @@ static __attribute__((used)) struct HIRGlobalSlot * exec_lower_collect_global_sl
             return _uya_ret;
                 }
     }
-    struct HIRGlobalSlot * const globals = (struct HIRGlobalSlot *)compiler_arena_alloc(arena, ((int32_t)sizeof(struct HIRGlobalSlot) * (size_t)EXEC_MAX_GLOBALS));
+    struct HIRGlobalSlot * const globals = (struct HIRGlobalSlot *)compiler_arena_alloc(arena, ((int32_t)sizeof(struct HIRGlobalSlot) * (size_t)EXEC_MAX_GLOBAL_SLOTS));
     if (globals == NULL) {
         (void)(exec_backend_set_error(program, (uint8_t *)(uint8_t *)str2591, 0)        );
                 {
@@ -124115,7 +124232,7 @@ static __attribute__((used)) int32_t exec_lower_lower_global_init_exprs(struct C
                 }
     }
     int32_t i = 0;
-    struct ExecLowerContext ctx = (struct ExecLowerContext){.arena = arena, .checker = checker, .function_decl = NULL, .global_names = {0}, .global_decls = {0}, .global_types = NULL, .global_is_const = {0}, .global_count = 0, .local_names = {0}, .local_slots = {0}, .local_types = NULL, .local_is_param = {0}, .slot_names = {0}, .slot_decls = {0}, .slot_types = NULL, .slot_is_param = {0}, .slot_scope_ids = {0}, .slot_needs_drop = {0}, .slot_drop_decls = {0}, .slot_field_drop_indices = {0}, .slot_field_drop_decls = {0}, .slot_field_drop_count = {0}, .active_local_count = 0, .next_slot = 0, .max_slot_count = 0, .next_scope_id = 0, .scope_markers = {0}, .scope_ids = {0}, .scope_depth = 0, .keep_scope_block = NULL, .catch_prefix_scope_open = 0, .suppress_async_return_wrap = 0, .heap_box_interface_data = 0};
+    struct ExecLowerContext ctx = (struct ExecLowerContext){.arena = arena, .checker = checker, .function_decl = NULL, .global_names = NULL, .global_decls = NULL, .global_types = NULL, .global_is_const = NULL, .global_capacity = 0, .global_count = 0, .local_names = {0}, .local_slots = {0}, .local_types = NULL, .local_is_param = {0}, .slot_names = {0}, .slot_decls = {0}, .slot_types = NULL, .slot_is_param = {0}, .slot_scope_ids = {0}, .slot_needs_drop = {0}, .slot_drop_decls = {0}, .slot_field_drop_indices = {0}, .slot_field_drop_decls = {0}, .slot_field_drop_count = {0}, .active_local_count = 0, .next_slot = 0, .max_slot_count = 0, .next_scope_id = 0, .scope_markers = {0}, .scope_ids = {0}, .scope_depth = 0, .keep_scope_block = NULL, .catch_prefix_scope_open = 0, .suppress_async_return_wrap = 0, .heap_box_interface_data = 0};
     while (i < global_count) {
         struct ASTNode * const decl = globals[i].decl;
         struct ASTNode * const init_expr_ast = exec_lower_global_init_ast(decl);
@@ -124388,7 +124505,7 @@ static __attribute__((used)) struct HIRFunction * exec_lower_build_global_init_f
                 }
     }
     (void)((uint8_t *)memset((char *)(uint8_t *)fn_hir, 0, (int32_t)sizeof(struct HIRFunction)));
-    int32_t emitted[1024] = {0};
+    int32_t emitted[8192] = {0};
     int32_t emitted_count = 0;
     int32_t stmt_idx = 1;
     int32_t rounds = 0;
@@ -126024,8 +126141,8 @@ static __attribute__((used)) struct HIRExpr * exec_lower_expr_inner(struct ExecL
             }
             if (resolved_global_slot_by_decl >= 0) {
                 struct Type global_type_by_decl = copy_type((&expr_type));
-                if (((resolved_global_slot_by_decl >= 0) && (resolved_global_slot_by_decl < EXEC_MAX_GLOBALS))) {
-                    global_type_by_decl = exec_lower_type_slot(ctx, 2, resolved_global_slot_by_decl, EXEC_MAX_GLOBALS)[0];
+                if (((resolved_global_slot_by_decl >= 0) && (resolved_global_slot_by_decl < ctx->global_capacity))) {
+                    global_type_by_decl = exec_lower_type_slot(ctx, 2, resolved_global_slot_by_decl, ctx->global_capacity)[0];
                 }
                 struct HIRExpr * const hir_global_by_decl = exec_lower_alloc_expr(ctx, expr, exec_HIRExprKind_HIR_EXPR_GLOBAL, (&global_type_by_decl));
                 if (hir_global_by_decl == NULL) {
@@ -126071,8 +126188,8 @@ static __attribute__((used)) struct HIRExpr * exec_lower_expr_inner(struct ExecL
         const int32_t global_slot = exec_lower_find_global_slot(ctx, expr->identifier_name);
         if (global_slot >= 0) {
             struct Type global_type = copy_type((&expr_type));
-            if (((global_slot >= 0) && (global_slot < EXEC_MAX_GLOBALS))) {
-                global_type = exec_lower_type_slot(ctx, 2, global_slot, EXEC_MAX_GLOBALS)[0];
+            if (((global_slot >= 0) && (global_slot < ctx->global_capacity))) {
+                global_type = exec_lower_type_slot(ctx, 2, global_slot, ctx->global_capacity)[0];
             }
             struct HIRExpr * const hir_global = exec_lower_alloc_expr(ctx, expr, exec_HIRExprKind_HIR_EXPR_GLOBAL, (&global_type));
             if (hir_global == NULL) {
@@ -127468,8 +127585,8 @@ static __attribute__((used)) struct HIRExpr * exec_lower_expr_inner(struct ExecL
                 }
                 if (resolved_module_global_slot >= 0) {
                     struct Type module_global_type = copy_type((&expr_type));
-                    if (((resolved_module_global_slot >= 0) && (resolved_module_global_slot < EXEC_MAX_GLOBALS))) {
-                        module_global_type = exec_lower_type_slot(ctx, 2, resolved_module_global_slot, EXEC_MAX_GLOBALS)[0];
+                    if (((resolved_module_global_slot >= 0) && (resolved_module_global_slot < ctx->global_capacity))) {
+                        module_global_type = exec_lower_type_slot(ctx, 2, resolved_module_global_slot, ctx->global_capacity)[0];
                     }
                     struct HIRExpr * const hir_module_global = exec_lower_alloc_expr(ctx, expr, exec_HIRExprKind_HIR_EXPR_GLOBAL, (&module_global_type));
                     if (hir_module_global == NULL) {
@@ -128463,7 +128580,7 @@ static __attribute__((used)) struct HIRExpr * exec_lower_expr_inner(struct ExecL
     if (expr->type == main_ASTNodeType_AST_IF_STMT) {
         if ((((expr->if_stmt_condition == NULL) || (expr->if_stmt_then_branch == NULL)) || (expr->if_stmt_else_branch == NULL))) {
                         {
-                struct HIRExpr * _uya_ret = exec_lower_fail_expr(expr, (uint8_t *)(uint8_t *)str2036);
+                struct HIRExpr * _uya_ret = exec_lower_fail_expr(expr, (uint8_t *)(uint8_t *)str2035);
                 return _uya_ret;
                         }
         }
@@ -129281,7 +129398,7 @@ static __attribute__((used)) struct HIRFunction * exec_lower_function(struct Com
             return _uya_ret;
                 }
     }
-    struct ExecLowerContext ctx = (struct ExecLowerContext){.arena = arena, .checker = checker, .function_decl = fn_decl, .global_names = {0}, .global_decls = {0}, .global_types = NULL, .global_is_const = {0}, .global_count = 0, .local_names = {0}, .local_slots = {0}, .local_types = NULL, .local_is_param = {0}, .slot_names = {0}, .slot_decls = {0}, .slot_types = NULL, .slot_is_param = {0}, .slot_scope_ids = {0}, .slot_needs_drop = {0}, .slot_drop_decls = {0}, .slot_field_drop_indices = {0}, .slot_field_drop_decls = {0}, .slot_field_drop_count = {0}, .active_local_count = 0, .next_slot = 0, .max_slot_count = 0, .next_scope_id = 0, .scope_markers = {0}, .scope_ids = {0}, .scope_depth = 0, .keep_scope_block = NULL, .catch_prefix_scope_open = 0, .suppress_async_return_wrap = 0, .heap_box_interface_data = 0};
+    struct ExecLowerContext ctx = (struct ExecLowerContext){.arena = arena, .checker = checker, .function_decl = fn_decl, .global_names = NULL, .global_decls = NULL, .global_types = NULL, .global_is_const = NULL, .global_capacity = 0, .global_count = 0, .local_names = {0}, .local_slots = {0}, .local_types = NULL, .local_is_param = {0}, .slot_names = {0}, .slot_decls = {0}, .slot_types = NULL, .slot_is_param = {0}, .slot_scope_ids = {0}, .slot_needs_drop = {0}, .slot_drop_decls = {0}, .slot_field_drop_indices = {0}, .slot_field_drop_decls = {0}, .slot_field_drop_count = {0}, .active_local_count = 0, .next_slot = 0, .max_slot_count = 0, .next_scope_id = 0, .scope_markers = {0}, .scope_ids = {0}, .scope_depth = 0, .keep_scope_block = NULL, .catch_prefix_scope_open = 0, .suppress_async_return_wrap = 0, .heap_box_interface_data = 0};
     (void)(exec_lower_seed_globals((&ctx), globals, global_count)    );
     int32_t i = 0;
     while (i < fn_decl->fn_decl_param_count) {
@@ -130295,6 +130412,13 @@ static __attribute__((used)) int32_t exec_c_import_prepare_bridge(struct ASTNode
         }
 }
 
+void exec_main_exec_set_program_args(int32_t argc, uint8_t * * argv) {
+    (void)argc;
+    (void)argv;
+    g_exec_program_argc = argc;
+    g_exec_program_argv = argv;
+}
+
 int32_t exec_main_exec_run_program() {
     if (g_exec_bc_program == NULL) {
         (void)(exec_backend_set_error(NULL, (uint8_t *)(uint8_t *)str2759, 0)        );
@@ -130303,6 +130427,8 @@ int32_t exec_main_exec_run_program() {
             return _uya_ret;
                 }
     }
+    g_exec_bc_program->host_argc = g_exec_program_argc;
+    g_exec_bc_program->host_argv = g_exec_program_argv;
     const int64_t run_start_time = clock();
     const int32_t exit_code = exec_vm_vm_run_program(g_exec_bc_program, g_exec_trace_vm_enabled);
     (void)(std_io_fflush(stdout));
@@ -142093,7 +142219,8 @@ static __attribute__((used)) int32_t vm_step(struct BCProgram * program, struct 
                                                                                         }
                                         }
                                         struct ExecValue * const field_ref = exec_vm_field_ref(slot_b, (int32_t)instr->imm);
-                                        if ((((field_ref == NULL) && (addr_native_kind > 0)) && (addr_native_base == (size_t)0))) {
+                                        const int32_t af_ref_is_void = (int32_t)((field_ref != NULL) && (field_ref[0].kind == exec_ExecValueKind_EXEC_VALUE_VOID));
+                                        if (((((field_ref == NULL) || (af_ref_is_void != 0)) && (addr_native_kind > 0)) && (addr_native_base == (size_t)0))) {
                                             const size_t af_relaxed = exec_vm_field_native_base_relaxed(slot_b);
                                             if (af_relaxed != (size_t)0) {
                                                 int32_t af_relaxed_pointee = (instr->c & 255);
@@ -143053,7 +143180,8 @@ static __attribute__((used)) int32_t vm_step(struct BCProgram * program, struct 
                                                                                                                                                                     if (fld_native_done == 0) {
                                                                                                                                                                         field_ref = exec_vm_field_ref(slot_b, (int32_t)instr->imm);
                                                                                                                                                                     }
-                                                                                                                                                                    if (((((fld_native_done == 0) && (field_ref == NULL)) && (fld_native_kind > 0)) && (fld_native_base == (size_t)0))) {
+                                                                                                                                                                    const int32_t fld_ref_is_void = (int32_t)((field_ref != NULL) && (field_ref[0].kind == exec_ExecValueKind_EXEC_VALUE_VOID));
+                                                                                                                                                                    if (((((fld_native_done == 0) && ((field_ref == NULL) || (fld_ref_is_void != 0))) && (fld_native_kind > 0)) && (fld_native_base == (size_t)0))) {
                                                                                                                                                                         const size_t fld_relaxed = exec_vm_field_native_base_relaxed(slot_b);
                                                                                                                                                                         if (fld_relaxed != (size_t)0) {
                                                                                                                                                                             const int32_t fld_pointee1 = ({ int32_t _l = (exec_vm_field_imm_kind(instr->imm, 40)); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
@@ -143509,7 +143637,7 @@ static __attribute__((used)) int32_t vm_step(struct BCProgram * program, struct 
                                                                                                                                                                                                     if (((str_equals(instr->text, (uint8_t *)(uint8_t *)str1110) != 0) || (str_equals(instr->text, (uint8_t *)(uint8_t *)str1114) != 0))) {
                                                                                                                                                                                                         struct ExecValue * const src_arg = exec_vm_slot_ref(frame, instr->b);
                                                                                                                                                                                                         if (src_arg == NULL) {
-                                                                                                                                                                                                            (void)(exec_backend_set_error(function->decl, (uint8_t *)(uint8_t *)str2121, 0)                                                                                                                                                                                                            );
+                                                                                                                                                                                                            (void)(exec_backend_set_error(function->decl, (uint8_t *)(uint8_t *)str2120, 0)                                                                                                                                                                                                            );
                                                                                                                                                                                                                                                                                                                                                                                                                         {
                                                                                                                                                                                                                 int32_t _uya_ret = (-1);
                                                                                                                                                                                                                 return _uya_ret;
@@ -143550,7 +143678,7 @@ static __attribute__((used)) int32_t vm_step(struct BCProgram * program, struct 
                                                                                                                                                                                                         if (((((((str_equals(instr->text, (uint8_t *)(uint8_t *)str1112) != 0) || (str_equals(instr->text, (uint8_t *)(uint8_t *)str1111) != 0)) || (str_equals(instr->text, (uint8_t *)(uint8_t *)str1093) != 0)) || (str_equals(instr->text, (uint8_t *)(uint8_t *)str1101) != 0)) || (str_equals(instr->text, (uint8_t *)(uint8_t *)str1105) != 0)) || (str_equals(instr->text, (uint8_t *)(uint8_t *)str1097) != 0))) {
                                                                                                                                                                                                             struct ExecValue * const arg0v = exec_vm_slot_ref(frame, instr->b);
                                                                                                                                                                                                             if (arg0v == NULL) {
-                                                                                                                                                                                                                (void)(exec_backend_set_error(function->decl, (uint8_t *)(uint8_t *)str2121, 0)                                                                                                                                                                                                                );
+                                                                                                                                                                                                                (void)(exec_backend_set_error(function->decl, (uint8_t *)(uint8_t *)str2120, 0)                                                                                                                                                                                                                );
                                                                                                                                                                                                                                                                                                                                                                                                                                 {
                                                                                                                                                                                                                     int32_t _uya_ret = (-1);
                                                                                                                                                                                                                     return _uya_ret;
@@ -144152,7 +144280,7 @@ static __attribute__((used)) int32_t vm_step(struct BCProgram * program, struct 
                                                                                                                                                                                                                                                             if (instr->opcode == exec_BCOpcode_BC_HOSTCALL) {
                                                                                                                                                                                                                                                             struct BCHostCallSite * const host_site = exec_vm_host_call_site_ref(program, (int32_t)instr->imm);
                                                                                                                                                                                                                                                             if (host_site == NULL) {
-                                                                                                                                                                                                                                                            (void)(exec_backend_set_error(function->decl, (uint8_t *)(uint8_t *)str2150, 0)                                                                                                                                                                                                                                                            );
+                                                                                                                                                                                                                                                            (void)(exec_backend_set_error(function->decl, (uint8_t *)(uint8_t *)str2149, 0)                                                                                                                                                                                                                                                            );
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         {
                                                                                                                                                                                                                                                             int32_t _uya_ret = (-1);
                                                                                                                                                                                                                                                             return _uya_ret;
@@ -145060,8 +145188,15 @@ int32_t exec_vm_vm_run_program(struct BCProgram * program, int32_t trace_vm) {
                         }
         }
     }
+    int32_t vm_argc = 1;
+    if (program->host_argc > 0) {
+        vm_argc = program->host_argc;
+    }
     if (((program->saved_argc_global_index >= 0) && (program->saved_argc_global_index < program->global_count))) {
-        program->globals[program->saved_argc_global_index] = exec_make_i32(1);
+        program->globals[program->saved_argc_global_index] = exec_make_i32(vm_argc);
+    }
+    if ((((program->saved_argv_global_index >= 0) && (program->saved_argv_global_index < program->global_count)) && (program->host_argv != NULL))) {
+        program->globals[program->saved_argv_global_index] = exec_make_pointer_with_kind((uintptr_t)((void *)program->host_argv), (int32_t)checker_TypeKind_TYPE_POINTER);
     }
     if ((((program->saved_envp_global_index >= 0) && (program->saved_envp_global_index < program->global_count)) && (saved_envp != NULL))) {
         program->globals[program->saved_envp_global_index] = exec_make_pointer_with_kind((uintptr_t)((void *)saved_envp), (int32_t)checker_TypeKind_TYPE_POINTER);
@@ -183287,7 +183422,7 @@ static __attribute__((used)) void gen_assign_non_array(struct C99CodeGenerator *
         if (((dest->type == main_ASTNodeType_AST_IDENTIFIER) && (src->type == main_ASTNodeType_AST_IDENTIFIER))) {
             uint8_t * const dn = dest->identifier_name;
             uint8_t * const sn = src->identifier_name;
-            if (((((dn != NULL) && (sn != NULL)) && (std_string_strcmp((uint8_t *)dn, (uint8_t *)(uint8_t *)"saved_argv") == 0)) && (std_string_strcmp((uint8_t *)sn, (uint8_t *)(uint8_t *)"argv") == 0))) {
+            if (((((dn != NULL) && (sn != NULL)) && (std_string_strcmp((uint8_t *)dn, (uint8_t *)(uint8_t *)str2174) == 0)) && (std_string_strcmp((uint8_t *)sn, (uint8_t *)(uint8_t *)"argv") == 0))) {
                 is_argv_to_saved_argv = 1;
             }
         }
@@ -212052,6 +212187,11 @@ int32_t main_main(void) {
     }
     if (((command == main_CommandType_COMMAND_RUN) || (command == main_CommandType_COMMAND_TEST))) {
         if (backend == main_BackendType_BACKEND_EXEC) {
+            if ((((exec_requested != 0) && (run_arg_start >= 0)) && (std_runtime_get_argv_slot(0) != NULL))) {
+                const int32_t host_argv_base = ({ int32_t _l = (run_arg_start); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                const int32_t host_argc = ({ int32_t _l = (std_runtime_get_argc()); int32_t _r = (host_argv_base); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                (void)(exec_main_exec_set_program_args(host_argc, std_runtime_get_argv_slot(host_argv_base))                );
+            }
             const int32_t child_exit_exec = exec_main_exec_run_program();
             if (g_verbose_output != 0) {
                 (void)(fprintf(stderr, (const char *)str334, exec_backend_get_last_vm_run_time_ms())                );

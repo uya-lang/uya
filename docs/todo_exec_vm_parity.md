@@ -24152,3 +24152,54 @@ fn=peek_char line=148 addr=139936373666504 store=0 skind=-1 lfkind=19 pointee=16
 「基值 = 指向原生 spill 块的引用 → 按元素尺寸算原生地址」的通道，
 并且判据必须能区分「ExecValue 槽」与「裸字节块」（`exec_vm_address_is_exec_value_storage`
 已经是这个语义，只是上一处用错了地方）。
+
+## 第 695 轮：把「arena 内指针」的三种解释都试了一遍，全部证伪
+
+第 694 轮修完 `LOAD_FIELD/ADDR_FIELD` 的 VOID 回退后，`--vm build` 卡在
+`src/lexer.uya:160 lexer_buffer_ptr_at` 的 `ADDR_INDEX 越界(IDXREF … isref=1 cnt=-1 pointee=19)`。
+这一轮沿着它把「这个指针到底是什么」的三条假设逐个验证。
+
+### 假设 1：它是「原生 spill 块」的地址 → 证伪
+
+判据来自打点：地址落在 VM 值 arena 段内、`exec_vm_address_is_exec_value_storage` 返回 0。
+于是把 `exec_vm_field_native_base_relaxed`（只给 `LOAD_FIELD`/`ADDR_FIELD` 的**末位兜底**用，
+不碰全局严格版）改成「沿内部引用链走一跳，非引用指针直接当地址」。
+结果：`--vm build` **必现段错**（不是报错，是 SIGSEGV）。
+说明那块内存**不是**原生布局的字节块 —— 按原生结构体读就越界。
+
+### 假设 2：程序侧分配的块落进了 arena 段 → 证伪
+
+怀疑 VM 的 200MB 竞技场段范围被「过度声明」（`hi = lo + 200MB` 但实际块更小），
+导致解释程序的 mmap 块落在段内被误判。两个探针实测：
+
+```
+# sys_mmap 在 VM 下可用
+--vm -> mmap ok, ptr=139708347654144
+
+# malloc(200MB) 与后续 malloc(1MB) 的关系
+C99  -> a=139623992074304 b=139623991021632 b-a=-1052672
+--vm -> a=140459556200512 b=140459555147840 b-a 同样为负
+```
+
+两次分配不重叠（后续块在 200MB 块**下方**），所以段范围没问题；
+解释程序的堆确实是原生 mmap 地址。假设 2 不成立。
+
+### 假设 3（当前最可能）：它是「指向 ExecValue 数组元素」但该数组没登记进 storage 表
+
+段中部出现指针（`addr - lo ≈ 153MB`）最自然的解释就是它指向某个聚合元素；
+而 `exec_vm_address_is_exec_value_storage` 要求「地址属于已登记的聚合元素数组」，
+返回 0 说明**登记缺失**（`exec_value_address_is_array_element` 查的登记表没覆盖它）。
+这种情况既不能当原生存（假设 1 已经证明会崩），也不能走聚合路（`field_ref` 拿到 VOID），
+于是报越界 —— 与现象完全吻合。
+
+### 下一步（明确）
+
+1. 找出「聚合元素数组登记」的写入点（`exec_value_array_*` 那张表），确认
+   `exec_vm_native_agg_ensure` / 聚合扩容 / 原生 agg 迁移这几条路径是否都登记了；
+   漏登记的地方补上，`store` 判定就能恢复正确。
+2. 然后再看 `ADDR_INDEX` 的 `IDXREF` 分支能否顺着这条修正自己恢复。
+
+### 本轮仓库状态
+
+`src/exec/vm.uya` 全部实验改动已回退，工作区与已验证提交 `ad54d98f` 一致
+（census 912/912、`--vm --version` 正常、async 稳定）。本轮只追加文档。
