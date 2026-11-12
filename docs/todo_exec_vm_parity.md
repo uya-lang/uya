@@ -24348,3 +24348,86 @@ VM 值 arena 的段范围内。
 
 所有打点已移除，工作区与 `773c6144` 一致（census 912/912、make check 1197/1197、
 `--vm --version` 正常）。`bin/uya` 已按该状态重建。
+
+## 第 699 轮：真凶找到 —— 编译器把根 arena 建在 `[byte: N]` 数组上
+
+第 698 轮只查到「解释执行的编译器堆在 VM 值 arena 里」。这一轮把「为什么」钉死了：
+
+```uya
+// src/main.uya:2567
+compiler_arena_init(&arena, &arena_buffer[0], ARENA_BUFFER_SIZE as usize);
+```
+
+编译器把**根 arena 建在一个 `[byte: ARENA_BUFFER_SIZE]` 数组上**（`arena_buffer`）。
+在 exec VM 里，程序的 raw array 承载内存是从**值 arena** 切出来的
+（`exec_value_alloc_bytes`），于是：
+
+- `Lexer`（1MB）、`TypeChecker`、AST 节点……所有 arena 分配都在值 arena 段内；
+- 它们是**原生布局的字节块**，不是 `ExecValue` 数组；
+- 而 `exec_vm_address_is_value` 只按段范围判断 → 全被当成「VM 值」→
+  字段访问退化聚合路径 → 读成 VOID → `LOAD_INDEX/ADDR_INDEX 越界`。
+
+这就同时解释了第 694～698 轮所有互相矛盾的观察。
+
+### 修复：在分配侧登记「原生字节块」
+
+1. `src/exec/value.uya` 新增登记表与接口：
+   - `exec_value_register_raw_bytes(base, size)`（表上限 `EXEC_VALUE_RAW_BYTES_MAX = 8192`）；
+   - `export fn exec_value_address_is_raw_bytes(addr) bool`；
+   - 在 `exec_value_make_raw_array()` 分配承载内存后立刻登记。
+2. `src/exec/vm.uya` 的 `exec_vm_field_native_base()`：裸指针地址若命中
+   「原生字节块」表，**直接当原生基址返回**，不再被「arena 驻留」拒绝。
+
+### 效果
+
+`--vm build` 一口气越过了**整个 lexer 族**的 bug：
+
+- 第 693 轮修掉的 `peek_char` `LOAD_INDEX`；
+- 第 694 轮卡住的 `lexer_buffer_ptr_at` `ADDR_FIELD` / `ADDR_INDEX`；
+- 现在停在 `src/checker/symbols.uya:348` 的 `checker.scope_heads[idx]`。
+
+`test_http_uyagin`、`test_kernel_sim`、`test_async_compute_types`（×2）全部通过；
+全量 census 见本轮末尾。
+
+### 试过但回退：指针元素数组不能直接给原生视图
+
+`scope_heads` 是 `[&Symbol: 64]`（**指针元素**数组）。`exec_value_is_raw_array_element_type`
+历来排除指针元素（VM 值里的指针可能带引用编码，写进原生槽位再读回来是野指针）。
+本轮试过「只在已登记的原生字节块里放宽指针元素」，结果 `--vm build` **必现段错**，
+已回退。
+
+下一轮的安全做法：不要给整块原生视图，而是给「指针元素数组」一个**专用标记**
+（例如 `aux_kind` 里记一个 native-pointer-array 变体），`LOAD_INDEX` 命中时按
+8 字节读出一个**不带引用编码的普通指针**，并按指令 imm 里的 pointee 类型重建；
+这样既不会把带编码的内部引用漏进原生槽位，也能读 `scope_heads` 这类字段。
+
+### 本轮结尾的坏消息：这条路太宽，census 掉到 900/912
+
+把「raw-bytes 登记表 → 原生基址」接到 `exec_vm_field_native_base` 之后，全量 census
+从 912/912 掉到 **900/912**，12 例 `test_fmt_api*` 报：
+
+```
+LOAD_FIELD 字段越界(kind=14 … ref=0 aux=16 res=1 addr=… fn=print_use_stmt)
+```
+
+原因很清楚：**登记表按地址划得太宽**。程序的 raw array 既包括编译器根 arena
+（该按原生结构体读），也包括字符串/字节缓冲（绝不能按结构体读）。
+只看「地址在 raw-bytes 块内」无法区分这两类，于是把字符串缓冲当结构体读，字段偏移直接越界。
+
+所以本轮把 `src/exec/value.uya` / `src/exec/vm.uya` 的改动**全部回退**，
+仓库回到已验证状态（census 912/912、`--vm --version` 正常、`test_http_uyagin` 复核通过）。
+
+### 改换的正确方向（下一轮直接做）
+
+不要在每个字段访问上猜「这块内存像不像结构体」，而是**让编译器根 arena 变成原生内存**：
+
+> 在 `exec_value_make_raw_array()` 里，给「超大 raw array」（阈值例如 1MB）改成用
+> **宿主 malloc** 分配承载内存，而不是从值 arena 里切。
+
+理由：`arena_buffer` 是 `[byte: ARENA_BUFFER_SIZE]` 这种上 MB 的数组，
+C99 侧它本来就在 BSS/堆上；VM 只要让这类大数组也拿到原生地址，
+`exec_vm_address_is_value` 自然返回 false，现成的原生字段通道（第 692～694 轮修的那些）
+立刻生效，**不需要任何新的字段判定启发式**，也不会误伤字符串缓冲（它们通常很小，仍走 arena）。
+
+需要一并验证的点：大数组的释放路径（VM 不做 GC，`free` 只对已 `alloc_track` 的块生效）、
+以及 `exec_vm_load_pointer_index` 对非 arena 指针的步进（它已经支持原生字节视图）。
