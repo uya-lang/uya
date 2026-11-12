@@ -24474,3 +24474,59 @@ if raw_bytes >= EXEC_VALUE_RAW_ARRAY_NATIVE_MIN {   // 1MB
 野指针。下一轮的正确做法：给指针元素数组的 raw view 打**专用标记**，
 `LOAD_INDEX` 命中时按指令 imm 里的 pointee 类型重建指针（只解一层），
 而不是把 POINTER 元素当成普通标量元素。
+
+## 第 701 轮：把 `[&T: N]` 指针数组问题压缩成「秒级 repro」
+
+前几轮每次验证都要跑「解释执行整个编译器」（约 5 分钟 + 5GB），迭代太慢。
+这一轮先做了一件更值钱的事：**写最小 repro**（`/tmp/ptra_rep.uya`、`/tmp/ptra2.uya`）：
+
+```uya
+struct Inner { a: i32, b: i32 }
+struct Holder { items: [&Inner: 8], n: i32 }
+// malloc 出来的 Holder（原生内存），store 一个指针再读回来
+h.items[0] = i0;
+const p0: &Inner = h.items[0];   // ← --vm 在这里崩
+```
+
+C99 侧正常（`a=7`），`--vm` 侧在**读回**那一步 SIGSEGV。迭代从 6 分钟降到 1 秒。
+
+### 诊断到的精确信息
+
+把 `LOAD_FIELD` 的错误串加上 imm 拆包后一目了然：
+
+```
+LOAD_FIELD 字段越界(… kind=14 … nk=19 fpointee=18 cnt=64 off=0)
+```
+
+- `nk=19` = `TYPE_ARRAY`，`fpointee=18` = `TYPE_POINTER`，`cnt=64` → 字段确实是 `[&T: N]`；
+- 原生数组视图（`exec_vm_native_field_load` 的 TYPE_ARRAY 分支）因为
+  `exec_value_is_raw_array_element_type` **历来排除指针元素**而返回 VOID。
+
+### 试过的改法（本轮回退）
+
+1. 允许「非驻留内存 + 指针元素」的原生数组视图；
+2. `LOAD_INDEX` 命中指针元素 raw array 时，**直接按 8 字节读出地址**、
+   建一个 pointee=VOID 的普通指针（避免多解一层）。
+
+结果：staged repro 显示
+
+```
+stage1..stage4（store 成功）
+[dbg-li]  fn=main line=20 idx=0 cnt=8 ek=18 auxk=14 ptr=139774533161024
+[dbg-li2] base=139774533161024 idx=0
+                                        ← 紧接着 SIGSEGV（读 8 字节时）
+```
+
+也就是：**store 走的是 A 地址，load 建的视图指针指向的 B 地址不可读**。
+（store 阶段一切正常，说明写入路径拿到的基址是对的；读路径的视图基址来源不同。）
+两处改动已全部回退，仓库回到已验证提交 `33861653`（census 912/912、`--vm --version` 正常）。
+
+### 下一轮的具体查法（有了秒级 repro，成本很低）
+
+1. 打印 **store 路径**用的基址（`STORE_INDEX` 里 raw array 的 `ptr`）与 load 路径的 `ptr` 对比，
+   确认两者是否一致；
+2. 检查 `exec_value_make_raw_array_view(count, TYPE_POINTER, addr)` 内部：
+   `aux_kind = exec_value_scalar_kind_from_type_kind(TYPE_POINTER)` 之后
+   `exec_value_is_raw_array` / `exec_value_raw_array_ptr` 的判定是否仍成立；
+3. 若视图本身没问题，那就是 `LOAD_FIELD` 传给它的 `addr`（字段地址）不对 ——
+   回头查 `exec_vm_field_imm_kind(instr.imm, 32)`/`instr.c` 里数组字段的 offset 拆包。
