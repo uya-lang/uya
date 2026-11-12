@@ -24203,3 +24203,44 @@ C99  -> a=139623992074304 b=139623991021632 b-a=-1052672
 
 `src/exec/vm.uya` 全部实验改动已回退，工作区与已验证提交 `ad54d98f` 一致
 （census 912/912、`--vm --version` 正常、async 稳定）。本轮只追加文档。
+
+## 第 696 轮：聚合元素登记表「有序插入」实验（证伪）+ `make check` 全绿
+
+### 实验：登记表二分查找可能是 `store=0` 的真因 → 不成立
+
+第 695 轮留下的假设 3 是「地址其实指向 ExecValue 数组元素，但登记表查不到」。
+登记表的查询侧（`exec_value_address_is_array_element`）用的是**二分**，而登记侧是
+「追加」；竞技场分段地址并不单调递增（`malloc(200MB)` 之后 `malloc(1MB)` 的地址
+更小，实测 `b-a` 为负），所以表可能并非升序 → 二分失效。
+
+于是把 `exec_value_register_array` 改成**有序插入**（二分定位 + 尾部整体后移）。
+结果：
+
+- `src/lexer.uya:160 lexer_buffer_ptr_at` 的 `ADDR_INDEX 越界` **一点没变**；
+- `test_http_uyagin --vm` 反而**必现超时**（卡在 `uyagin_error_recovery_500`，rc=124）。
+
+结论：登记表有序性不是本 bug 的原因，而且这条改动有副作用。**已整体回退**
+（`git checkout -- src/exec/value.uya`），回退后 `test_http_uyagin` /
+`test_kernel_sim` / `test_async_compute_types`(×2) 全部恢复通过，工作区干净。
+
+顺带说明：连续把「原生 spill 块」「段范围过度声明」「登记表乱序」三条假设都证伪后，
+这个 bug 已经不是「判据松紧」问题，而是**指针的来源本身**没搞清 ——
+它在 arena 段中部、不是 `ExecValue` 元素槽、也不是原生布局块。
+下一轮应该反过来做：从 `lexer_buffer_ptr_at` 的**调用方字节码**倒推这个值是谁写进
+那个槽的（`src/rename`/`lexer_init` 的 `&lexer.buffer[0]` 之类），而不是继续猜判定条件。
+
+### 目标硬指标：`make check` 全绿
+
+本轮把第 693～695 轮的全部改动（global 表堆化、instr 扩容、const pool 上限、
+LOAD_FIELD/ADDR_FIELD 的 VOID 回退）在 C99 侧跑了一遍完整回归：
+
+```
+总计: 1197 个测试
+通过: 1197
+失败: 0
+✓ 验证通过（自举 + 测试 + 证明优化 + 默认顶层函数发射 + SIMD select C + 切片形参 C99
+  + @syscall C99 + SIMD NEON + http_bench C99）
+```
+
+配合此前的 exec VM census **912/912** 与本轮重建的自举种子，
+`goal` 里「不引入回归 + 种子可重建」这一半已经成立；剩下的是 `--vm build` 自举本身。
