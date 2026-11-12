@@ -24302,3 +24302,49 @@ VM 值 arena 的段范围内。
 
 实验打点全部移除，工作区与 `002b5ec3` 一致（census 912/912、make check 1197/1197、
 `--vm --version` 正常、`test_http_uyagin` 复核通过）。本轮只追加文档。
+
+## 第 698 轮：定位到「解释执行的编译器，堆内存落在 VM 值 arena 里」
+
+第 697 轮只能证明「那个指针就是 Lexer 本体，且落在 arena 段内」。这一轮用
+**同一次运行内的三方打点**（`lexer_init` 的实参、arena 段表、程序侧 mmap）把它钉死：
+
+```
+# 内层（解释执行的编译器）第一次 lexer_init：
+[dbg-lexinit] lexer=140354385535688 source=140354367709728 len=92
+[dbg-tab] addr=140354385535688 seg_count=2 fb_count=0
+  seg[0] lo=140354232952832 hi=140354442668032      ← lexer 就在这段里
+  seg[1] lo=140353813518336 hi=140354232948736
+# 同一次运行里程序侧真正发出去的 mmap：
+[dbg-mmap] len=4128  res=140353812508672 resident=0
+[dbg-mmap] len=65632 res=140353812439040 resident=0
+```
+
+结论：
+
+1. 解释执行的编译器里 `lexer`（1MB）地址**确实在 arena 段内**，
+   而同期程序侧只发出过两次很小的 `mmap`（4KB / 64KB），都在 arena 之外。
+   也就是说这 1MB **没有**走 `heap.uya → sys_mmap` 的原生通道。
+2. 既然没走 mmap，就只能是解释器替它分配的 —— 即 `exec_value_alloc_bytes`
+   这条竞技场通道（全局数组的 raw array 视图、聚合元素数组、字符串缓冲都走它）。
+3. 于是「arena 里的块」同时存在两种东西：ExecValue 数组（已登记）和
+   **原生布局的字节块**（未登记，`exec_vm_address_is_exec_value_storage` 返回 0）。
+   纯靠地址范围判断「这是不是 VM 值」必然出错：第 695 轮把非登记地址一律当原生内存
+   → 段错；第 694 轮把 VOID 当没找到再试 relaxed → 只解开了一半。
+
+### 下一轮的唯一正解（已经很清楚）
+
+**在分配侧登记**「这块是原生字节块（不是 ExecValue 数组）」，而不是在访问侧靠猜：
+
+- `exec_value_alloc_bytes` 的调用点分两类：
+  - `exec_value_make_aggregate` / `exec_vm_native_agg_ensure` → ExecValue 数组（已登记）；
+  - `exec_value_make_raw_array`（`[byte: N]` 的 raw array 视图）等 → **原生字节块**，
+    需要在分配时登记进一张「原生字节块」表；
+- 然后 `exec_vm_field_native_base` 的驻留判据改成：
+  「在 arena 段内 && 在原生字节块表内 → 原生；否则按 VM 值处理」。
+- 这样既不会把 ExecValue 数组误当原生（第 695 轮的段错），
+  也能让 `Lexer`/`TypeChecker` 这类 1MB 结构体正常按原生布局读字段。
+
+### 本轮仓库状态
+
+所有打点已移除，工作区与 `773c6144` 一致（census 912/912、make check 1197/1197、
+`--vm --version` 正常）。`bin/uya` 已按该状态重建。
