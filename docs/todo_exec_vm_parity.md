@@ -23769,3 +23769,73 @@ if thread_pool_enqueue_slot(pool, slot_idx) != 0 {
 - VM 侧「语义缺失」类问题已经清完：census **910/912（99.8%）**，零新增失败，跳过仍 5 例。
 - 剩下 2 例是**线程池槽状态机的库层缺陷**，两后端同挂在先，不属于执行后端的差距；
   要修请单独开一轮按上面两条线索（claim 抢任务 / 索引与 fd 混淆）动手。
+
+## 第 689 轮：两条 `dynamic` 用例修好 —— fd 号与槽号撞车 + 解释器缺「驱动方」
+
+第 688 轮把这两例定性成库层缺陷并留了两条线索，这一轮按线索修完，
+`test_async_thread_pool_dynamic_growth` 与 `test_async_compute_dynamic_resource_pressure`
+在 C99 和 `--vm` 上**都通过**。
+
+### 缺陷一：提交线程把任务从队列里抢走（native 挂死）
+
+`thread_pool_queue_or_error_slot` 无条件调 `thread_pool_claim_one_slot`，把队头槽 pop 成
+`DISPATCHED` 并指望「等待点」去执行。原生侧真 worker 线程才是该 pop 任务的人：
+被提交线程抢走之后 worker 看到空队列，那个槽永远不执行 → `block_on` 忙等不返回。
+
+改法：claim 只在解释器下做（`std.cfg(std.backend == .be_exec_vm, { claim }, {})`）。
+原生把 pop 权还给真 worker；解释器没有真 worker，仍在这里还原
+`pending_count` 减一 / `running_workers` 加一 的中间态。
+
+### 缺陷二：结果管道的 fd 号与槽号撞车（native 报 EBADF）
+
+`AsyncThreadSlotWaitFuture` 的 Ready 载荷是 `usize`，同时承载两种含义：
+「槽已 DONE，值是槽索引」和「结果管道可读，值是 fd」。原代码靠
+`read_fd_bits == slot_idx` 区分。实测 worker 的 `result_read_fd` 就是 **7**，
+处理 slot **7** 时两者相等 → 被当成索引直接返回 Ready，而槽其实还在 RUNNING，
+上层 `thread_async_compute_resolve_raw_value` 拿不到结果，返回
+`thread_generic_error_usize()`（就是 `sys_close(-1)` 的 EBADF，error id 9）。
+
+改法：给「真 fd」打高位 tag `THREAD_SLOT_WAIT_FD_TAG`（1 << 62），
+索引永远不带 tag，判定无歧义；读 fd 时用 `bits ^ TAG` 取回。
+（这也解释了 `test_async_compute_types` 那批「谁先抢到 slot 0/1 谁挂」的历史随机失败，
+那段注释记录的正是同一个坑的另一种表现。）
+
+### 缺陷三：解释器里没有「驱动方」，等待点永不推进
+
+`thread_pool_progress_once_for_wait` 用 `waker._event_fd == 0` 判「测试自建的空 waker，
+要保住中间态」。而 `block_on` 自己建的也是空 waker —— 解释器下于是没人推进任务。
+`block_on` 的语义就是「阻塞等结果」，等同调度器驱动，因此：
+
+- `lib/std/async.uya` 新增 `WAKER_DRIVEN_BY_BLOCK_ON = -2`（非 0 哨兵），
+  `block_on` / `block_on_plain` 在 **exec VM 下**给 waker 打上它
+  （`std.cfg(std.backend == .be_exec_vm, ...)`）。
+  C99 侧**不能**打：等待点会同步 drain 队列，和真 worker 抢同一批任务造成重复执行。
+- 顺带补齐指标语义：这条等待点 drain 也是「一次 drain」，
+  用 `thread_shared_begin_drain` / `thread_shared_finish_drain` 记
+  `drain_count` / `last_drain_time_us` / `max` / `total`
+  （此前只有 worker 自己的 drain 循环记，VM 上永远看不到 drain 指标，
+  `wait_drain_metrics_recorded` 恒为 0）。
+
+### 验证
+
+| 用例 | C99 | `--vm` |
+| --- | --- | --- |
+| `test_async_thread_pool_dynamic_growth`（5 个子用例） | 5/5 | 5/5 |
+| `test_async_compute_dynamic_resource_pressure` | 1/1 | 1/1 |
+
+全量 census 与 `make check` 见下轮记录。
+
+### 全量验收（第 689 轮）
+
+```
+exec VM 覆盖普查结果
+总数:   912
+通过:   912
+失败:   0
+跳过:   5（跳过表里都是 C99 同样不适用的用例）
+通过率: 100.0%
+```
+
+`make check`（C99 全量，1197 个）见提交说明。这一轮之后 exec VM 后端
+在全量用例上已经**没有语义缺口**：剩下的 5 条跳过用例是「C99 也同样不适用」
+（见 `tests/exec_vm_census_skip.txt` 的逐条理由），不是 VM 特例。

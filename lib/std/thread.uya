@@ -3,6 +3,7 @@
 // 模块路径：use std.thread
 // 当前提供：ThreadPool + 基于 raw compute substrate 的 async_compute<T>（整数/bool/f32/f64）
 
+use std;
 use std.async;
 use std.macro_typeinfo.TypeInfo;
 use libc.errno;
@@ -33,6 +34,13 @@ const THREAD_SLOT_STATE_CANCELLED: i32 = 5;
 /// 「任务已被领走、这一刻还没执行」—— 若直接标 RUNNING，refresh 会认为 worker 忙，
 /// `acquire_worker` 恒返回 -1，推进彻底失效（第 674 轮实测挂死）。
 const THREAD_SLOT_STATE_DISPATCHED: i32 = 6;
+/// `AsyncThreadSlotWaitFuture` 的 Ready 载荷是 `usize`，两种含义共用一条通道：
+/// **槽索引**（槽已 DONE，值就是 `slot_idx`）和**结果管道 fd**。
+/// 早期靠「值等不等于 `slot_idx`」来区分，fd 号恰好等于槽号时会误判
+/// （实测：worker 的结果 fd 就是 7，处理 slot 7 时把它当索引直接返回 Ready，
+/// 槽其实还在 RUNNING，上层 resolve 拿不到结果 → 报 generic error）。
+/// 这里给「真 fd」打一个高位 tag，索引永远不带 tag，判定就无歧义了。
+const THREAD_SLOT_WAIT_FD_TAG: usize = 4611686018427387904; // 1 << 62
 const THREAD_WORKER_STOP_SLOT: i32 = 0 - 1;
 const THREAD_WORKER_DRAIN_QUEUE: i32 = 0 - 2;
 const THREAD_TASK_KIND_I32: i32 = 1;
@@ -1181,7 +1189,14 @@ fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
             const acquire_result: !i32 = thread_pool_acquire_worker(pool);
             _ = acquire_result catch { (0 - 1) as i32; };
         }
-        thread_pool_claim_one_slot(pool);
+        // 原生：pending 队列里的任务由真 worker 线程自己 pop（pop 到才会执行）；
+        // 提交线程在这里抢先 pop 会留下一个永远不会被执行的 DISPATCHED 槽。
+        // 解释器（exec VM）没有真 worker，必须在这里「领走」以还原
+        // pending_count 减一 / running_workers 加一 的中间态，
+        // 真正的执行交给等待点（`thread_pool_progress_once_for_wait`）。
+        std.cfg(std.backend == .be_exec_vm, {
+            thread_pool_claim_one_slot(pool);
+        }, {})
         const queued_idx: i32 = slot_idx;
         return queued_idx;
     }
@@ -1402,7 +1417,7 @@ fn async_thread_slot_wait_poll(pool: &ThreadPool, slot_idx: i32, waker: &Waker) 
 
     const read_fd: i32 = thread_async_try_slot_result_fd(pool, slot_idx);
     if read_fd >= 0 {
-        return async_poll_ready_ok_usize(read_fd as usize);
+        return async_poll_ready_ok_usize((read_fd as usize) | THREAD_SLOT_WAIT_FD_TAG);
     }
 
     const progress_result: !i32 = thread_pool_try_progress_slot(pool, slot_idx);
@@ -1508,19 +1523,20 @@ fn async_worker_result_poll(pool: &ThreadPool, slot_idx: i32, waker: &Waker) Pol
             const read_fd_bits: usize = wait_result catch {
                 return wait_poll;
             };
-            // `AsyncThreadSlotWaitFuture` 的 Ready 载荷有**两种含义**：
-            //   * 槽位已经 DONE —— 直接交回 `slot_idx`（见 `:1357` 的分支，
-            //     值是**索引**，不是 fd）；
-            //   * 槽位还在跑但结果管道可读 —— 交回的是**真实的 fd**。
-            // 这里必须先按「是不是自己的 slot_idx」判一次，否则会把索引
-            // 当 fd 交给 `sys_read`：slot_idx 是 0/1 时正好读到 stdin/stdout，
-            // 返回 EBADF（error id 9），整条 compute 链路被误判成失败。
-            // 实测表现就是 `test_async_compute_types` 那批用例随机挂
-            // （哪个用例先抢到 slot 0/1 哪个挂），C99 侧尤其明显。
-            if read_fd_bits == slot_idx as usize {
-                return async_poll_ready_ok_usize(read_fd_bits);
+            // `AsyncThreadSlotWaitFuture` 的 Ready 载荷有**两种含义**，靠高位 tag 区分：
+            //   * 不带 tag —— 槽位已经 DONE，值是**索引**（正常情况下就是自己的 `slot_idx`）；
+            //   * 带 `THREAD_SLOT_WAIT_FD_TAG` —— 槽位还在跑但结果管道可读，带 tag 的是**真实 fd**。
+            // 早期靠「值等不等于 `slot_idx`」区分，fd 号与槽号撞车时（实测 fd 7 / slot 7）
+            // 会把 fd 当索引直接返回 Ready，槽其实还在 RUNNING，上层 resolve 拿不到结果
+            // → generic error（EBADF, error id 9）。
+            if (read_fd_bits & THREAD_SLOT_WAIT_FD_TAG) == 0 {
+                // 携带的是槽索引：唯一的合法值是自己的 `slot_idx`，否则当作还没就绪。
+                if read_fd_bits == slot_idx as usize {
+                    return async_poll_ready_ok_usize(read_fd_bits);
+                }
+                return Poll<!usize>.Pending({});
             }
-            read_fd = read_fd_bits as i32;
+            read_fd = (read_fd_bits ^ THREAD_SLOT_WAIT_FD_TAG) as i32;
         },
         .Pending(_) => {
             _ = thread_pool_progress_once_for_wait(pool, waker);
@@ -1580,10 +1596,14 @@ fn thread_pool_progress_once_for_wait(pool: &ThreadPool, waker: &Waker) i32 {
         return 0;
     }
     var ran: i32 = 0;
+    // 这条路径就是解释器里的「一次 drain」，指标要和 worker 自己 drain 时一致：
+    // 记 drain_count / last_drain_time_us / max / total（否则 metrics 用例在 VM 上永远看不到 drain）。
+    var drain_started_us: u64 = 0u64;
     const slot_capacity: i32 = thread_shared_task_slot_capacity(pool._shared_state);
     var idx: i32 = 0;
     while idx < slot_capacity {
         if pool._shared_state.slots[idx as usize].state == THREAD_SLOT_STATE_DISPATCHED {
+            drain_started_us = thread_shared_begin_drain(drain_started_us);
             thread_shared_run_slot_sync(pool._shared_state, 0, idx);
             ran = ran +| 1;
         }
@@ -1596,8 +1616,12 @@ fn thread_pool_progress_once_for_wait(pool: &ThreadPool, waker: &Waker) i32 {
         if more < 0 || !thread_pool_slot_is_valid(pool, more) {
             break;
         }
+        drain_started_us = thread_shared_begin_drain(drain_started_us);
         thread_shared_run_slot_sync(pool._shared_state, 0, more);
         ran = ran +| 1;
+    }
+    if drain_started_us != 0u64 {
+        _ = thread_shared_finish_drain(pool._shared_state, drain_started_us);
     }
     return ran;
 }

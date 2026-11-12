@@ -200,6 +200,16 @@ fn waker_eventfd_drain(fd: i32) void {
     }
 }
 
+/// `block_on` 在 exec VM 下给 waker 打的「我在真的阻塞等」哨兵。
+///
+/// 说明：解释器是串行的，没有别的线程会推进任务；线程池的等待点
+/// （`thread_pool_progress_once_for_wait`）用 `Waker._event_fd` 区分
+/// 「测试自建的空 waker（要保住入队/已派发的中间态）」和「调度器驱动」。
+/// `block_on` 是真正等结果的语义，等同于调度器驱动，所以打一个非 0 哨兵。
+/// C99 侧任务由真 worker 线程执行，**不能**打哨兵：等待点会同步 drain 队列，
+/// 和真 worker 抢同一批任务造成重复执行。
+const WAKER_DRIVEN_BY_BLOCK_ON: i32 = 0 - 2;
+
 const WAKER_WAKE_SOURCE_NONE: i32 = 0;
 const WAKER_WAKE_SOURCE_EXPLICIT: i32 = 1;
 const WAKER_WAKE_SOURCE_EVENT_LOOP: i32 = 2;
@@ -579,6 +589,9 @@ fn block_on_wait_io(w: &Waker) void {
 /// 同步运行 Future<!T> 直到 Ready，返回 !T。Pending 时轮询直到就绪（忙等待，测试用）。
 export fn block_on<T>(f: Future<!T>) !T {
     var w: Waker = Waker{};
+    std.cfg(std.backend == .be_exec_vm, {
+        w._event_fd = WAKER_DRIVEN_BY_BLOCK_ON;
+    }, { })
     while true {
         w.reset();
         w.clear_io_interest();
@@ -593,6 +606,9 @@ export fn block_on<T>(f: Future<!T>) !T {
 /// 同步运行 Future<T>（无 `!`）直到 Ready，直接返回 T。
 export fn block_on_plain<T>(f: Future<T>) T {
     var w: Waker = Waker{};
+    std.cfg(std.backend == .be_exec_vm, {
+        w._event_fd = WAKER_DRIVEN_BY_BLOCK_ON;
+    }, { })
     while true {
         w.reset();
         w.clear_io_interest();
