@@ -24097,3 +24097,58 @@ const pool 暂时别动。
 
 下一步：在 CALL 绑参/`&T` 强转路径上找出丢编码的那一处（打印 `function.name` 为
 `peek_char` 时实参的 kind/aux），修完再谈 build 自举与 5.1GB 加载内存。
+
+## 第 694 轮：`--vm` 自举的第二道墙 —— 大结构体内嵌数组字段读成 VOID
+
+第 693 轮让 `--vm` 跑通了编译器的 `--version`，但 `build` 卡在
+`src/lexer.uya:148` 的 `LOAD_INDEX 越界(base_kind=0 count=0)`。这一轮把它
+推进了一步（`peek_char` 通了），并试出两处**不能**这么改的地方。
+
+### 根因：`LOAD_FIELD` 的 relaxed 原生基址分支被「VOID 字段」挡住
+
+打点（`[dbg-lf2]`，已移除）显示 `peek_char` 里 `lexer` 形参：
+
+```
+fn=peek_char line=148 addr=139936373666504 store=0 skind=-1 lfkind=19 pointee=16
+```
+
+- 地址**在 VM 值 arena 段内**，但 `store=0` —— 它不是 ExecValue 槽，
+  而是「原生布局的裸字节块」（大结构体被 spill 成原生内存，地址恰好落在值 arena 里）。
+- 于是 `exec_vm_field_native_base`（严格版）判「VM 驻留」返回 0，
+  聚合路径又拿不到 `buffer` 字段（返回 VOID），
+  而 `exec_vm_field_native_base_relaxed`（本来专治这种地址）**只在
+  `field_ref == null` 时才尝试** —— VOID 非 null，于是永远轮不到它。
+
+改法（本轮保留）：`LOAD_FIELD` / `ADDR_FIELD` 里把「字段是 VOID」也当成
+「没找到」，再给 relaxed 原生基址一次机会。`peek_char` 的 `LOAD_INDEX` 因此通掉。
+
+### 试过但回退的两处（重要）
+
+1. **把 `exec_vm_field_native_base` 的驻留判据改成「arena 内且是真 ExecValue 槽」**
+   （即 arena 里的非槽地址一律按原生内存）：
+   能解开 `lexer_buffer_ptr_at` 的 `ADDR_FIELD`，但 `--vm build` 随即**必现段错**
+   —— value arena 里还住着源码文本、捕获缓冲这类裸字节块，被当成原生结构体读就越界。
+   判据太粗，回退。
+2. **`ADDR_FIELD` 在 `field_ref` 是 VOID 时直接报错**：
+   `test_http_uyagin` 立刻从通过变 `ADDR_FIELD 字段越界(fn=tcache_flush_bin_locked …)`。
+   说明「对 VOID 字段槽取引用」这条老路径虽然怪，但有调用方依赖它 —— 只保留
+   relaxed 加宽，错误条件还原。
+
+### 当前状态
+
+| 检查 | 结果 |
+| --- | --- |
+| `test_http_uyagin` / `test_kernel_sim` / `test_std_runtime --vm` | 通过 |
+| `test_async_compute_types --vm` | 2/2 通过（稳定性抽检） |
+| `run --vm src/main.uya -- build /tmp/hello_vm.uya …` | 前进到 `src/lexer.uya:160 lexer_buffer_ptr_at` 的 `ADDR_INDEX 越界(IDXREF … isref=1 pointee=19)` |
+| 全量 census | 本轮末尾复跑 |
+
+### 下一步（同族问题）
+
+`ADDR_INDEX` 的 `IDXREF` 分支（`cnt=-1` 表示基值不是聚合）与
+`checker.scope_heads[idx]`（`src/checker/symbols.uya:348`，`base_kind=0`）都是同一件事：
+**大结构体的内嵌数组字段在「原生 spill 块」上取址/取下标**。
+接着要做的不是再放宽全局判据，而是在 `ADDR_INDEX`/`LOAD_INDEX` 里加一条
+「基值 = 指向原生 spill 块的引用 → 按元素尺寸算原生地址」的通道，
+并且判据必须能区分「ExecValue 槽」与「裸字节块」（`exec_vm_address_is_exec_value_storage`
+已经是这个语义，只是上一处用错了地方）。

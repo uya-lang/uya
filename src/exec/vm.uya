@@ -7508,7 +7508,11 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return 0;
         }
         const field_ref: &ExecValue = exec_vm_field_ref(slot_b, instr.imm as i32);
-        if field_ref == null && addr_native_kind > 0 && addr_native_base == 0 as usize {
+        // 聚合路径给出 VOID 字段时也算「没找到」：原生聚合的大结构体字段必须
+        // 再试一次 relaxed 原生基址（与 BC_LOAD_FIELD 同一处修复，见那里的注释）。
+        const af_ref_is_void: i32 = (field_ref != null &&
+            field_ref[0].kind == ExecValueKind.EXEC_VALUE_VOID) as i32;
+        if (field_ref == null || af_ref_is_void != 0) && addr_native_kind > 0 && addr_native_base == 0 as usize {
             const af_relaxed: usize = exec_vm_field_native_base_relaxed(slot_b);
             if af_relaxed != 0 as usize {
                 var af_relaxed_pointee: i32 = instr.c & 0xFF;
@@ -8278,7 +8282,14 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         if fld_native_done == 0 {
             field_ref = exec_vm_field_ref(slot_b, instr.imm as i32);
         }
-        if fld_native_done == 0 && field_ref == null && fld_native_kind > 0 &&
+        // 注意：聚合路径给出 VOID 字段时也必须再试一次 relaxed 原生基址 ——
+        // 原生聚合（`exec_vm_native_agg_*` 物化的大结构体）的字节块地址**可能**
+        // 落在值 arena 的地址范围里，严格版基址判定会把它当 VM 值拒掉，
+        // 而聚合路径又拿不到字段（VOID）。实测 `--vm` 自举时 `peek_char` 的
+        // `lexer.buffer[pos]` 就是这么变成 LOAD_INDEX 越界的。
+        const fld_ref_is_void: i32 = (field_ref != null &&
+            field_ref[0].kind == ExecValueKind.EXEC_VALUE_VOID) as i32;
+        if fld_native_done == 0 && (field_ref == null || fld_ref_is_void != 0) && fld_native_kind > 0 &&
             fld_native_base == 0 as usize {
             const fld_relaxed: usize = exec_vm_field_native_base_relaxed(slot_b);
             if fld_relaxed != 0 as usize {
