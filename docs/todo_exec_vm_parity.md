@@ -23545,3 +23545,100 @@ tests/test_simd_sse_lower_i32x4.uya:(7:26): 错误: 向量比较要求左右操�
 两条用例 **C99 与 `--vm` 都卡**，所以不是 C99 codegen 的问题，更像是 ThreadPool
 「队列满 → `TaskQueueFull`」这条语义在分支上发生了变化（队列不再满，等待循环转不停）。
 下一步从这里切。
+
+---
+
+## 第 685 轮：`ASTNode` 退回扁平布局 —— 重叠组第三次踩字，正确性优先
+
+上轮结束时的 census 基线是 **904/912**，本轮先复跑定位，失败 8 例，其中
+
+```
+test_json_from_json_slice      VM 返回码 4   （out.ids.len != 3）
+test_json_struct_collections   VM 返回码 73  （slice_out.points.len != 2）
+```
+
+是**本轮重叠组改造引入的回归**：基线 `b2755c34`（扁平 AST）两例在 `--vm` 上都过。
+
+### 定位过程（都留下了数据）
+
+- `UYA_DEBUG_FIELD_LAYOUT=1` 打开降级期字段布局打印：`WithSlice{ id: i64, ids: &[i64] }`
+  的原生字段布局**完全正确**（`ids off=8 kind=21 size=16`，block/group 全 0）——
+  说明结构体布局计算没坏，坏的是更上游的 AST。
+- 探针（把 `out.ids.len` 编进返回码）：当前编译器 VM 下 `len=0`（`ptr` 非空），基线 `=3`。
+- 字节码差分（`--dump-bytecode`，好变体 vs 坏变体）：坏变体在宏展开出来的
+  `from_json$m1` 里**多出一条** `BC_STORE_FIELD(offset=0, kind=0)`。
+  `kind=0` 表示「类型没解析出来」——即**宏展开阶段 AST 已经被踩**，凭空多出一条
+  无类型的字段赋值语句，正好把 `&[T]` 切片的 `len` 覆盖掉。
+- 回装扰验（把 `var_decl` 组的字段逐个移出重叠组再放回）得到的规律：
+  **只要偏移 8 上落的是指针（`var_decl_type` 或 `var_decl_init`）就失败，换成 i32 就通过**。
+  也就是说有代码在 `var_decl` 节点的 offset 8 写了一个指针，而 `block` 组的
+  `block_stmt_count` 正好也在 offset 8（i32）→ 宏展开读到的语句计数被污染。
+- 试过但没走通的定位手段：hoist 单组二分（已定位到 `var_decl` 组）、
+  ASan 构建（`src/build/uya.c` 是 nostdlib 单文件，自带 `_start` 与自写 `malloc`，
+  与 ASan 运行期链接冲突，路线不可用）。
+
+**没能**把那条「往 offset 8 写指针」的语句揪出来。一天之内第三次踩同一类坑。
+
+### 决定
+
+正确性优先：`ASTNode` 回到扁平布局（`sizeof = 1856`，align 8），编译器自己的 AST
+不再用匿名 union 重叠组。**匿名 union 重叠块作为语言特性照旧保留**
+（`parser` / `checker/type_layout` / `codegen/c99` / `exec/lower` 一行未改），
+`tests/test_overlap_fields.uya` 在 C99 与 `--vm` 上都过。
+
+代价是 AST 内存回到 12.2× 之前，这个取舍记在这里：想重新拿回收益，得先有
+「同一节点跨组写」的检测手段（例如每个节点记一个已写组位图 + 调试期断言），
+不能再靠测试用例去撞。
+
+### 结果
+
+census **906/912（99.3%）**，失败 6 例（json 两例修复）。
+`test_simd_sse_lower_i32x4` / `test_overlap_fields` / `test_std_thread` 在两条后端上仍全绿。
+
+---
+
+## 第 686 轮：VM 补上 async 帧分配语义（`AsyncFramePoolFull`）
+
+`test_async_frame_pool_full` 在 C99 上过、VM 上卡在 `assert failed: got_pool_full`。
+
+### 根因
+
+C99 后端给每个 `@async_fn` 生成一个 per-function 帧分配器，形状是：
+
+```c
+struct uya_interface_IAllocator *a = std_get_async_frame_allocator();
+if (a != (void*)0) { r = a->alloc(a->data, 头 + sizeof(帧)); if (r.error_id == 0) {...} return 0; }
+// 没设 allocator 才走私有 free-list / malloc
+```
+
+分配失败时包装函数返回 `error.AsyncFramePoolFull`。
+**VM 把 `@async_fn` 当同步函数执行**（返回的 `Future` 一定是 `Ready`），
+根本没有「申请帧」这一步，于是这条语义在 VM 上完全缺失。用例里设了
+`set_async_frame_allocator(失败分配器)`，VM 照样跑成功 → `got_pool_full` 一直是 false。
+
+### 改法
+
+1. `lib/std/async.uya` 新增 `export fn _uya_async_frame_probe(size: usize) bool`：
+   拿当前线程的 async frame allocator；没设过 → `false`（C99 这时也不走分配器）；
+   设过 → 按 `size` 真分配一次，**成功立刻 `dealloc` 归还**，失败返回 `true`。
+   VM 不真需要帧，这里只要把「分配器会不会拒绝帧分配」这条可观察语义还原出来。
+2. `src/exec/lower.uya`：`exec_lower_function` 里，对
+   `fn_decl_is_async != 0` 且返回值是非 void 错误联合（`!Future<T>`）的函数，
+   在函数体最前面合成一段探测块：
+   `if _uya_async_frame_probe(<字节数>) { return error.AsyncFramePoolFull; }`
+   （`exec_lower_async_frame_probe_block` + `exec_lower_concat_blocks` 拼接 HIR 块）。
+3. 帧大小：`checker_async_frame_meta_for_fn` 的元信息只有 C99 代码生成阶段才注册，
+   VM 路径上拿不到，于是用 64 字节的保守探针（这里要观察的是「拒绝」而不是逐字节一致）。
+4. 新增 `ExecLowerContext.suppress_async_return_wrap`：探测块里的
+   `return error.X` 是函数**真实**的错误返回，不能再被
+   `exec_lower_wrap_async_return` 包成 `Future{ state: Ready(err) }`
+   （否则调用方的 `catch` 永远看不到错误）。
+
+### 验证
+
+- `test_async_frame_pool_full`：C99 与 `--vm` 都过（1/1）。
+- 分配器语义探针（自建 FailingAlloc + `get_async_frame_allocator().alloc()`）：
+  两条后端都返回「分配失败」分支。
+- 单例回归：`test_json_from_json_slice` / `test_json_struct_collections` /
+  `test_overlap_fields` / `test_simd_sse_lower_i32x4` / `test_std_thread` 全绿。
+- 全量 census 复跑见下一轮记录。

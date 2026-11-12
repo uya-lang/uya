@@ -60,6 +60,9 @@ struct ExecLowerContext {
     keep_scope_block: &ASTNode,
     // 上一次 exec_lower_make_block_prefix 是否留下了未弹出的作用域。
     catch_prefix_scope_open: i32,
+    // 1 = 正在降级编译器合成的 async 帧探测块：里面的 `return error.X`
+    // 就是函数真实错误返回，不能再被包成 `Future{Ready(..)}`。
+    suppress_async_return_wrap: i32,
     // 非 0 表示当前正在降级 `return` 的返回值：接口装箱的数据必须搬到堆单元，
     // 否则 `&局部` 会随着本帧弹出而失效（见 box_interface_expr 的注释）。
     heap_box_interface_data: i32,
@@ -4981,6 +4984,110 @@ fn exec_lower_synth_block(ctx: &ExecLowerContext, like: &ASTNode, stmts: & & AST
     return block;
 }
 
+/// 按顺序把两个 HIR 块拼成一个新块（`first` 的语句在前）。
+/// 参数：`ctx` 上下文；`first`/`second` 待拼接的块；`like` 位置模板。
+/// 返回值：拼接后的块；任一为空时返回另一个。
+fn exec_lower_concat_blocks(ctx: &ExecLowerContext, first: &HIRBlock, second: &HIRBlock,
+    like: &ASTNode) &HIRBlock {
+    if first == null || first.stmt_count == 0 {
+        return second;
+    }
+    if second == null || second.stmt_count == 0 {
+        return first;
+    }
+    const total: i32 = first.stmt_count +| second.stmt_count;
+    const stmts: & & HIRStmt = compiler_arena_alloc(ctx.arena, @size_of(&HIRStmt) * (total as usize)) as & & HIRStmt;
+    const block: &HIRBlock = compiler_arena_alloc(ctx.arena, @size_of(HIRBlock)) as &HIRBlock;
+    if stmts == null || block == null {
+        exec_backend_set_error(like, "exec: async 帧探测块分配失败" as *byte, 0);
+        return null;
+    }
+    _ = memset(block as *byte, 0, @size_of(HIRBlock));
+    var i: i32 = 0;
+    while i < first.stmt_count {
+        stmts[i] = first.stmts[i];
+        i = i +| 1;
+    }
+    var j: i32 = 0;
+    while j < second.stmt_count {
+        stmts[i] = second.stmts[j];
+        i = i +| 1;
+        j = j +| 1;
+    }
+    block.stmts = stmts;
+    block.stmt_count = total;
+    block.scope_id = second.scope_id;
+    return block;
+}
+
+/// 合成 `@async_fn` 入口的帧分配探测块，展开成：
+/// `if _uya_async_frame_probe(<帧字节数>) { return error.AsyncFramePoolFull; }`
+///
+/// C99 后端给每个 `@async_fn` 生成了 per-function 帧分配器，显式设了
+/// `set_async_frame_allocator` 时分配失败要返回 `error.AsyncFramePoolFull`；
+/// VM 把 async 当同步执行、不真分配帧，这条语义原本完全缺失
+/// （`tests/test_async_frame_pool_full.uya` 因此在 VM 上失败）。
+/// 参数：`ctx` 上下文；`fn_decl` 当前 `@async_fn` 声明。
+/// 返回值：探测块的 HIR；没有帧元数据时返回 null（调用方退回原样降级）。
+fn exec_lower_async_frame_probe_block(ctx: &ExecLowerContext, fn_decl: &ASTNode) &HIRBlock {
+    if ctx == null || ctx.checker == null || fn_decl == null {
+        return null;
+    }
+    const meta: &AsyncFrameMeta = checker_async_frame_meta_for_fn(ctx.checker, fn_decl);
+    // 帧元信息目前只有 C99 代码生成阶段才会注册，VM 路径上通常是空的；
+    // 这时用一个保守的固定长度探针——这里要观察的只是「当前分配器会不会拒绝
+    // 帧分配」这一条语义，不追求和 C99 的帧大小逐字节一致。
+    var frame_bytes: usize = 64;
+    if meta != null && meta.frame_size != 0 {
+        // 与 C99 生成的分配请求一致：长度 = 分配头（一个 uintptr）+ 帧大小。
+        frame_bytes = meta.frame_size +| (@size_of(usize) as usize);
+    }
+    if frame_bytes > 2147483647 as usize {
+        return null;
+    }
+    const callee: &ASTNode = exec_lower_alloc_synth_ast(ctx, fn_decl, ASTNodeType.AST_IDENTIFIER);
+    const arg: &ASTNode = exec_lower_alloc_synth_ast(ctx, fn_decl, ASTNodeType.AST_NUMBER);
+    const call: &ASTNode = exec_lower_alloc_synth_ast(ctx, fn_decl, ASTNodeType.AST_CALL_EXPR);
+    const err_value: &ASTNode = exec_lower_alloc_synth_ast(ctx, fn_decl, ASTNodeType.AST_ERROR_VALUE);
+    const ret: &ASTNode = exec_lower_alloc_synth_ast(ctx, fn_decl, ASTNodeType.AST_RETURN_STMT);
+    const then_block: &ASTNode = exec_lower_alloc_synth_ast(ctx, fn_decl, ASTNodeType.AST_BLOCK);
+    const if_node: &ASTNode = exec_lower_alloc_synth_ast(ctx, fn_decl, ASTNodeType.AST_IF_STMT);
+    const outer_block: &ASTNode = exec_lower_alloc_synth_ast(ctx, fn_decl, ASTNodeType.AST_BLOCK);
+    if callee == null || arg == null || call == null || err_value == null || ret == null ||
+        then_block == null || if_node == null || outer_block == null {
+        return null;
+    }
+    const args: & & ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode)) as & & ASTNode;
+    const then_stmts: & & ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode)) as & & ASTNode;
+    const outer_stmts: & & ASTNode = compiler_arena_alloc(ctx.arena, @size_of(&ASTNode)) as & & ASTNode;
+    if args == null || then_stmts == null || outer_stmts == null {
+        return null;
+    }
+    callee.identifier_name = "_uya_async_frame_probe" as &byte;
+    arg.number_value = frame_bytes as i32;
+    arg.number_value_i64 = frame_bytes as i64;
+    args[0] = arg;
+    call.call_expr_callee = callee;
+    call.call_expr_args = args;
+    call.call_expr_arg_count = 1;
+    err_value.error_value_name = "AsyncFramePoolFull" as &byte;
+    ret.return_stmt_expr = err_value;
+    then_stmts[0] = ret;
+    then_block.block_stmts = then_stmts;
+    then_block.block_stmt_count = 1;
+    if_node.if_stmt_condition = call;
+    if_node.if_stmt_then_branch = then_block;
+    if_node.if_stmt_else_branch = null;
+    outer_stmts[0] = if_node;
+    outer_block.block_stmts = outer_stmts;
+    outer_block.block_stmt_count = 1;
+    const saved_suppress: i32 = ctx.suppress_async_return_wrap;
+    ctx.suppress_async_return_wrap = 1;
+    const probe_hir: &HIRBlock = exec_lower_block(ctx, outer_block);
+    ctx.suppress_async_return_wrap = saved_suppress;
+    return probe_hir;
+}
+
 /// 把 `for iter |v| { ... }` 改写成等价的 while 形状（迭代器协议）。
 ///
 /// 协议来自 checker：迭代器类型有 `next(self: &Self) !void` 和
@@ -7558,6 +7665,7 @@ fn exec_lower_lower_global_init_exprs(arena: &CompilerArena, checker: &TypeCheck
         scope_depth: 0,
         keep_scope_block: null,
         catch_prefix_scope_open: 0,
+        suppress_async_return_wrap: 0,
     };
     while i < global_count {
         const decl: &ASTNode = globals[i].decl;
@@ -11372,7 +11480,8 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
                         // 「这是错误返回」，用 int_value 提醒它跑 errdefer。
                         stmt.int_value = 1;
                     }
-                    if ctx.function_decl.fn_decl_is_async != 0 && exec_lower_async_return_needs_wrap(
+                    if ctx.suppress_async_return_wrap == 0 && ctx.function_decl.fn_decl_is_async != 0 &&
+                        exec_lower_async_return_needs_wrap(
                             ctx, stmt_node.return_stmt_expr, copy_type(&return_type)) != 0 {
                         return_value = exec_lower_wrap_async_return(ctx, stmt_node.return_stmt_expr,
                             return_value, copy_type(&return_type));
@@ -11532,6 +11641,7 @@ fn exec_lower_function(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &A
         scope_depth: 0,
         keep_scope_block: null,
         catch_prefix_scope_open: 0,
+        suppress_async_return_wrap: 0,
     };
     exec_lower_seed_globals(&ctx, globals, global_count);
     var i: i32 = 0;
@@ -11562,7 +11672,22 @@ fn exec_lower_function(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &A
         }
         i = i + 1;
     }
-    const body: &HIRBlock = exec_lower_block(&ctx, fn_decl.fn_decl_body);
+    var body: &HIRBlock = null;
+    // `@async_fn` 入口的帧分配探测：C99 后端在帧分配失败时返回
+    // `error.AsyncFramePoolFull`，VM 不真分配帧，得自己把这条语义补上。
+    // 只有返回值是 `!Future<T>`（有地方放错误分支）的 async 函数才插。
+    if fn_decl.fn_decl_is_async != 0 && return_type.kind == TypeKind.TYPE_ERROR_UNION &&
+        return_type.error_union_payload_type != null &&
+        return_type.error_union_payload_type[0].kind != TypeKind.TYPE_VOID {
+        const probe_block: &HIRBlock = exec_lower_async_frame_probe_block(&ctx, fn_decl);
+        if probe_block != null {
+            body = exec_lower_concat_blocks(&ctx, probe_block,
+                exec_lower_block(&ctx, fn_decl.fn_decl_body), fn_decl);
+        }
+    }
+    if body == null {
+        body = exec_lower_block(&ctx, fn_decl.fn_decl_body);
+    }
     if body == null {
         checker.current_self_type_name = saved_self_type_name;
         checker.current_self_is_union = saved_self_is_union;

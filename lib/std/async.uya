@@ -90,6 +90,29 @@ export fn get_async_frame_allocator() &IAllocator {
     return _uya_get_default_async_frame_allocator();
 }
 
+/// exec VM 专用：`@async_fn` 入口的帧分配探测。
+///
+/// C99 后端给每个 `@async_fn` 生成一个 per-function 帧分配器：只要显式设了
+/// `set_async_frame_allocator`，它就一律委托给那个分配器，分配失败让调用方
+/// 返回 `error.AsyncFramePoolFull`。VM 后端把 async 函数当同步函数跑、不需要
+/// 真帧，但为了让这条语义在 VM 上也能被观察到，入口处仍探一次「这个大小分配
+/// 得出来吗」，成功立刻归还（不占内存），失败由调用方返回 `AsyncFramePoolFull`。
+/// 参数说明：size 为帧字节数（含分配头，与 C99 生成的分配请求一致）。
+/// 返回值说明：true 表示当前分配器拒绝了这次分配。
+export fn _uya_async_frame_probe(size: usize) bool {
+    const alloc_ptr: &IAllocator = get_async_frame_allocator();
+    if alloc_ptr == null {
+        return false;
+    }
+    const alloc: IAllocator = *alloc_ptr;
+    const frame_res: !&byte = alloc.alloc(size);
+    const frame_ptr: &byte = frame_res catch {
+        return true;
+    };
+    alloc.dealloc(frame_ptr);
+    return false;
+}
+
 /// 供接口 box / async helper 复用的分配入口：优先当前线程的 async frame allocator。
 export fn async_box_alloc_current(size: usize) &byte {
     const header_size: usize = (@size_of(usize) as usize) *| 2;
