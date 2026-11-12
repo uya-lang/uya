@@ -466,6 +466,10 @@ fn exec_value_alloc_failure_count() i64 {
 //
 // 两张表一起参与「这个地址是不是 VM 值内存」的判定，互不争抢名额。
 const EXEC_VALUE_FALLBACK_MAX: i32 = 4096;
+/// 超过这个字节数的程序 raw array，其承载内存改从**宿主堆**分配（而不是值 arena）。
+/// 目的是让「程序里的大缓冲区」（编译器把根 arena 建在 `[byte: ARENA_BUFFER_SIZE]` 上）
+/// 落在值 arena 之外，从而按原生内存语义被字段访问。
+const EXEC_VALUE_RAW_ARRAY_NATIVE_MIN: usize = 1048576;
 var g_exec_value_fallback_lo: [usize: 4096] = [0:4096];
 var g_exec_value_fallback_hi: [usize: 4096] = [0:4096];
 var g_exec_value_fallback_count: i32 = 0;
@@ -749,7 +753,19 @@ fn exec_value_make_raw_array(count: i32, elem_kind_code: i32) ExecValue {
     }
     var data: &byte = null;
     if count > 0 {
-        data = exec_value_alloc_bytes(elem_size * (count as usize));
+        const raw_bytes: usize = elem_size * (count as usize);
+        if raw_bytes >= EXEC_VALUE_RAW_ARRAY_NATIVE_MIN {
+            // 超大数组的承载内存改用**宿主堆**：程序里这种量级的数组（编译器根 arena 就是
+            // `[byte: ARENA_BUFFER_SIZE]`）在 C99 侧本来就在堆/BSS 上，解释执行时也从
+            // 宿主堆拿，它的地址天然落在值 arena 之外 —— 于是结构体字段访问直接走现成的
+            // 原生通道，不需要任何「这块内存像不像结构体」的判定启发式。
+            data = malloc(raw_bytes) as &byte;
+            if data != null {
+                _ = memset(data as *void, 0, raw_bytes);
+            }
+        } else {
+            data = exec_value_alloc_bytes(raw_bytes);
+        }
         if data == null {
             return exec_make_void();
         }

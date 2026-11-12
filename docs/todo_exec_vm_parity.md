@@ -24431,3 +24431,46 @@ C99 侧它本来就在 BSS/堆上；VM 只要让这类大数组也拿到原生�
 
 需要一并验证的点：大数组的释放路径（VM 不做 GC，`free` 只对已 `alloc_track` 的块生效）、
 以及 `exec_vm_load_pointer_index` 对非 arena 指针的步进（它已经支持原生字节视图）。
+
+## 第 700 轮：超大 raw array 改走宿主堆 —— 编译器根 arena 变成原生内存
+
+第 699 轮末尾定的方向落地了，只改一处（`src/exec/value.uya`）：
+
+```uya
+// exec_value_make_raw_array()
+if raw_bytes >= EXEC_VALUE_RAW_ARRAY_NATIVE_MIN {   // 1MB
+    data = malloc(raw_bytes);                       // 宿主堆
+    memset(data, 0, raw_bytes);
+} else {
+    data = exec_value_alloc_bytes(raw_bytes);       // 值 arena
+}
+```
+
+### 为什么这样就够
+
+编译器 `src/main.uya:2567` 把根 arena 建在 `[byte: ARENA_BUFFER_SIZE]` 数组上。
+数组一旦从**宿主堆**分配，`exec_vm_address_is_value` 自然返回 false，
+`exec_vm_field_native_base` 走现成的严格原生通道（第 692～694 轮打磨的那些），
+**不需要任何「这块内存像不像结构体」的启发式** —— 也就不会像第 699 轮那样
+把字符串缓冲误当结构体读。
+
+### 验证
+
+| 检查 | 结果 |
+| --- | --- |
+| 全量 exec VM census | **912/912（100%）** |
+| `test_http_uyagin` / `test_kernel_sim` / `test_async_compute_types`（×2） | 通过 |
+| `--vm build /tmp/hello_vm.uya …` | 越过整个 lexer 族，前进到 `checker_scope_head_at` |
+| `--vm --version` | 仍正常输出 v0.11.0 |
+
+### 试过又回退：指针元素数组的 native view
+
+`checker.scope_heads` 是 `[&Symbol: 64]`（指针元素）。放宽
+`exec_vm_native_field_load` 的数组分支（只对**非驻留内存**放宽）后，
+`--vm build` **必现段错**，已回退。
+
+推断：`exec_vm_load_pointer_index` 对 POINTER 元素按 8 字节读出地址后，
+建出来的指针 pointee 类型是「指针的指针」，于是后续字段访问多解了一层 →
+野指针。下一轮的正确做法：给指针元素数组的 raw view 打**专用标记**，
+`LOAD_INDEX` 命中时按指令 imm 里的 pointee 类型重建指针（只解一层），
+而不是把 POINTER 元素当成普通标量元素。
