@@ -2568,6 +2568,225 @@ fn c99_find_struct_field_type(codegen: &C99CodeGenerator, struct_decl: &ASTNode,
 }
 
 // 生成结构体定义
+
+/// 发射一行结构体字段声明（`类型 名字;` 或 `元素 名字[N];`）。
+///
+/// 参数：`codegen` 代码生成器；`field` 字段声明（取名字）；`field_type` 已解析的
+///       字段类型（单态化时是替换后的类型）。
+/// 返回值：1 成功；0 失败。
+fn c99_emit_one_struct_field(codegen: &C99CodeGenerator, field: &ASTNode, field_type: &ASTNode) i32 {
+    if codegen == null || field == null || field_type == null {
+        return 0;
+    }
+    const field_name: &byte = get_safe_c_identifier(codegen, field.var_decl_name);
+    if field_name == null {
+        return 0;
+    }
+    // 检查是否为数组类型
+    if field_type.type == ASTNodeType.AST_TYPE_ARRAY {
+        const element_type: &ASTNode = field_type.type_array_element_type;
+        const size_expr: &ASTNode = field_type.type_array_size_expr;
+        const elem_type_c: &byte = c99_type_to_c(codegen, element_type);
+
+        // 评估数组大小
+        var array_size: i32 = 1;
+        if size_expr != null {
+            array_size = eval_const_expr(codegen, size_expr);
+            if array_size <= 0 {
+                array_size = 1;  // 占位符
+            }
+        }
+
+        c99_emit_indent(codegen);
+        fprintf(codegen.emit_stream as *void, "%s %s[%d];\n" as *byte, elem_type_c as *byte, field_name as *byte, array_size);
+        return 1;
+    }
+    const field_type_c: &byte = c99_type_to_c(codegen, field_type);
+    c99_emit_indent(codegen);
+    fprintf(codegen.emit_stream as *void, "%s %s;\n" as *byte, field_type_c as *byte, field_name as *byte);
+    return 1;
+}
+
+/// 发射单态化结构体的一个字段（含泛型 interface/union/struct 字段的类型名特判）。
+///
+/// 参数：`codegen` 代码生成器；`struct_decl` 泛型结构体声明；`field` 字段声明；
+///       `subst_args`/`subst_count` 单态化类型实参。
+/// 返回值：1 成功；0 失败。
+fn c99_emit_mono_struct_field(codegen: &C99CodeGenerator, struct_decl: &ASTNode, field: &ASTNode,
+                              subst_args: & & ASTNode, subst_count: i32) i32 {
+    if codegen == null || struct_decl == null || field == null {
+        return 0;
+    }
+    const field_name: &byte = get_safe_c_identifier(codegen, field.var_decl_name);
+    const field_type: &ASTNode = field.var_decl_type;
+    if field_name == null || field_type == null {
+        return 0;
+    }
+
+    var emit_field_type: &ASTNode = field_type;
+    const resolved_field_type: &ASTNode = substitute_type_arg_explicit(codegen, field_type,
+        struct_decl.struct_decl_type_params, subst_args, subst_count);
+    if resolved_field_type != null {
+        emit_field_type = resolved_field_type;
+    }
+
+    if emit_field_type != null && emit_field_type.type == ASTNodeType.AST_TYPE_ARRAY {
+        const element_type: &ASTNode = emit_field_type.type_array_element_type;
+        const size_expr: &ASTNode = emit_field_type.type_array_size_expr;
+        const elem_type_c: &byte = c99_type_to_c(codegen, element_type);
+        var array_size: i32 = 1;
+        if size_expr != null {
+            array_size = eval_const_expr(codegen, size_expr);
+            if array_size <= 0 {
+                array_size = 1;
+            }
+        }
+        c99_emit_indent(codegen);
+        fprintf(codegen.emit_stream as *void, "%s %s[%d];\n" as *byte, elem_type_c as *byte, field_name as *byte, array_size);
+        return 1;
+    }
+    var field_type_c: &byte = null;
+    if emit_field_type != null && emit_field_type.type == ASTNodeType.AST_TYPE_NAMED &&
+        emit_field_type.type_named_name != null &&
+        emit_field_type.type_named_type_arg_count > 0 &&
+        emit_field_type.type_named_type_args != null {
+        const generic_name: &byte = emit_field_type.type_named_name;
+        const generic_arg_count: i32 = emit_field_type.type_named_type_arg_count;
+        const generic_args: & & ASTNode = compiler_arena_alloc(codegen.arena, (@size_of(&ASTNode) * generic_arg_count) as usize) as & & ASTNode;
+        if generic_args != null {
+            var gi: i32 = 0;
+            while gi < generic_arg_count {
+                generic_args[gi] = substitute_type_arg_explicit(codegen,
+                    emit_field_type.type_named_type_args[gi],
+                    struct_decl.struct_decl_type_params, subst_args, subst_count);
+                gi = gi + 1;
+            }
+            const iface_decl: &ASTNode = find_interface_decl_c99(codegen, generic_name);
+            if iface_decl != null && iface_decl.interface_decl_type_param_count > 0 {
+                const mono_iface_name: &byte = get_mono_struct_name(codegen, generic_name, generic_args, generic_arg_count);
+                if mono_iface_name != null {
+                    const mono_iface_len: i32 = (strlen(mono_iface_name as *byte) as i32) +| 24;
+                    const mono_iface_buf: &byte = compiler_arena_alloc(codegen.arena, mono_iface_len as usize) as &byte;
+                    if mono_iface_buf != null {
+                        snprintf(mono_iface_buf as *byte, mono_iface_len, "struct uya_interface_%s" as *byte, mono_iface_name as *byte);
+                        field_type_c = mono_iface_buf;
+                    }
+                }
+            }
+            if field_type_c == null {
+                const generic_union_decl: &ASTNode = find_union_decl_c99(codegen, generic_name);
+                if generic_union_decl != null && is_generic_union_c99(generic_union_decl) != 0 {
+                    const mono_union_name: &byte = get_mono_union_name(codegen, generic_name, generic_args, generic_arg_count);
+                    if mono_union_name != null {
+                        const mono_union_len: i32 = (strlen(mono_union_name as *byte) as i32) +| 24;
+                        const mono_union_buf: &byte = compiler_arena_alloc(codegen.arena, mono_union_len as usize) as &byte;
+                        if mono_union_buf != null {
+                            snprintf(mono_union_buf as *byte, mono_union_len, "struct uya_tagged_%s" as *byte, mono_union_name as *byte);
+                            field_type_c = mono_union_buf;
+                        }
+                    }
+                }
+            }
+            if field_type_c == null {
+                const mono_struct_name: &byte = get_mono_struct_name(codegen, generic_name, generic_args, generic_arg_count);
+                if mono_struct_name != null {
+                    const mono_struct_len: i32 = (strlen(mono_struct_name as *byte) as i32) +| 8;
+                    const mono_struct_buf: &byte = compiler_arena_alloc(codegen.arena, mono_struct_len as usize) as &byte;
+                    if mono_struct_buf != null {
+                        snprintf(mono_struct_buf as *byte, mono_struct_len, "struct %s" as *byte, mono_struct_name as *byte);
+                        field_type_c = mono_struct_buf;
+                    }
+                }
+            }
+        }
+    }
+    if field_type_c == null {
+        field_type_c = c99_type_to_c(codegen, emit_field_type);
+    }
+    c99_emit_indent(codegen);
+    fprintf(codegen.emit_stream as *void, "%s %s;\n" as *byte, field_type_c as *byte, field_name as *byte);
+    return 1;
+}
+
+/// 发射结构体字段列表，包含匿名 union 重叠块。
+///
+/// 普通字段直接顺序发射；`var_decl_overlap_block != 0` 的连续字段按块发射成
+/// `__extension__ union { __extension__ struct { ... }; ... };`（C11 匿名成员，
+/// gcc/clang 在 `-std=c99` 下作为扩展接受，`__extension__` 抑制 `-pedantic` 告警）。
+/// 字段名仍然直接挂在结构体下，访问点不需要改。
+///
+/// 参数：`codegen` 代码生成器；`struct_decl` 结构体声明；`mono_decl` 非 null 时
+///       表示单态化上下文（用 `subst_args` 替换字段类型）；`subst_args` 类型实参；
+///       `subst_count` 类型实参数量。
+/// 返回值：1 成功；0 失败。
+fn c99_emit_struct_fields(codegen: &C99CodeGenerator, struct_decl: &ASTNode,
+                          mono_decl: &ASTNode, subst_args: & & ASTNode, subst_count: i32) i32 {
+    if codegen == null || struct_decl == null || struct_decl.struct_decl_fields == null {
+        return 0;
+    }
+    const field_count: i32 = struct_decl.struct_decl_field_count;
+    var i: i32 = 0;
+    while i < field_count {
+        const field: &ASTNode = struct_decl.struct_decl_fields[i];
+        if field == null || field.type != ASTNodeType.AST_VAR_DECL {
+            return 0;
+        }
+        if field.var_decl_overlap_block == 0 {
+            if mono_decl != null {
+                if c99_emit_mono_struct_field(codegen, mono_decl, field, subst_args, subst_count) == 0 {
+                    return 0;
+                }
+            } else {
+                if c99_emit_one_struct_field(codegen, field, field.var_decl_type) == 0 {
+                    return 0;
+                }
+            }
+            i = i + 1;
+            continue;
+        }
+        // 匿名 union 重叠块
+        const block: i32 = field.var_decl_overlap_block;
+        c99_emit_indent(codegen);
+        fputs("__extension__ union {\n" as *byte, codegen.emit_stream as *void);
+        codegen.indent_level = codegen.indent_level +| 1;
+        while i < field_count {
+            const group_field: &ASTNode = struct_decl.struct_decl_fields[i];
+            if group_field == null || group_field.type != ASTNodeType.AST_VAR_DECL ||
+                group_field.var_decl_overlap_block != block {
+                break;
+            }
+            const group: i32 = group_field.var_decl_overlap_group;
+            c99_emit_indent(codegen);
+            fputs("__extension__ struct {\n" as *byte, codegen.emit_stream as *void);
+            codegen.indent_level = codegen.indent_level +| 1;
+            while i < field_count {
+                const gf: &ASTNode = struct_decl.struct_decl_fields[i];
+                if gf == null || gf.type != ASTNodeType.AST_VAR_DECL ||
+                    gf.var_decl_overlap_block != block || gf.var_decl_overlap_group != group {
+                    break;
+                }
+                if mono_decl != null {
+                    if c99_emit_mono_struct_field(codegen, mono_decl, gf, subst_args, subst_count) == 0 {
+                        return 0;
+                    }
+                } else {
+                    if c99_emit_one_struct_field(codegen, gf, gf.var_decl_type) == 0 {
+                        return 0;
+                    }
+                }
+                i = i + 1;
+            }
+            codegen.indent_level = codegen.indent_level -| 1;
+            c99_emit_indent(codegen);
+            fputs("};\n" as *byte, codegen.emit_stream as *void);
+        }
+        codegen.indent_level = codegen.indent_level -| 1;
+        c99_emit_indent(codegen);
+        fputs("};\n" as *byte, codegen.emit_stream as *void);
+    }
+    return 1;
+}
+
 fn gen_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode) i32 {
     if struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL {
         return -1;
@@ -2614,46 +2833,8 @@ fn gen_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode) i32 
         c99_emit_indent(codegen);
         fputs("char _empty;\n" as *byte, codegen.emit_stream as *void);
     } else {
-        var i: i32 = 0;
-        while i < field_count {
-            const field: &ASTNode = struct_decl.struct_decl_fields[i];
-            if field == null || field.type != ASTNodeType.AST_VAR_DECL {
-                return -1;
-            }
-            
-            const field_name: &byte = get_safe_c_identifier(codegen, field.var_decl_name);
-            const field_type: &ASTNode = field.var_decl_type;
-            
-            if field_name == null || field_type == null {
-                return -1;
-            }
-            
-            // 检查是否为数组类型
-            if field_type.type == ASTNodeType.AST_TYPE_ARRAY {
-                const element_type: &ASTNode = field_type.type_array_element_type;
-                const size_expr: &ASTNode = field_type.type_array_size_expr;
-                const elem_type_c: &byte = c99_type_to_c(codegen, element_type);
-                
-                // 评估数组大小
-                var array_size: i32 = -1;
-                if size_expr != null {
-                    array_size = eval_const_expr(codegen, size_expr);
-                    if array_size <= 0 {
-                        array_size = 1;  // 占位符
-                    }
-                } else {
-                    array_size = 1;  // 占位符
-                }
-                
-                c99_emit_indent(codegen);
-                fprintf(codegen.emit_stream as *void, "%s %s[%d];\n" as *byte, elem_type_c as *byte, field_name as *byte, array_size);
-            } else {
-                const field_type_c: &byte = c99_type_to_c(codegen, field_type);
-                c99_emit_indent(codegen);
-                fprintf(codegen.emit_stream as *void, "%s %s;\n" as *byte, field_type_c as *byte, field_name as *byte);
-            }
-            
-            i = i + 1;
+        if c99_emit_struct_fields(codegen, struct_decl, null, null, 0) == 0 {
+            return -1;
         }
     }
     
@@ -3445,121 +3626,17 @@ fn gen_mono_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode,
         c99_emit_indent(codegen);
         fputs("char _empty;\n" as *byte, codegen.emit_stream as *void);
     } else {
-        fi = 0;
-        while fi < field_count {
-            const field: &ASTNode = struct_decl.struct_decl_fields[fi];
-            if field == null || field.type != ASTNodeType.AST_VAR_DECL {
-                codegen.indent_level = codegen.indent_level -| 1;
-                codegen.current_type_params = saved_type_params;
-                codegen.current_type_param_count = saved_type_param_count;
-                codegen.current_type_args = saved_type_args;
-                codegen.current_type_arg_count = saved_type_arg_count;
-                codegen.struct_type_params = saved_struct_type_params;
-                codegen.struct_type_param_count = saved_struct_type_param_count;
-                codegen.struct_type_args = saved_struct_type_args;
-                codegen.struct_type_arg_count = saved_struct_type_arg_count;
-                return -1;
-            }
-            
-            const field_name: &byte = get_safe_c_identifier(codegen, field.var_decl_name);
-            const field_type: &ASTNode = field.var_decl_type;
-            
-            if field_name == null || field_type == null {
-                codegen.indent_level = codegen.indent_level -| 1;
-                codegen.current_type_params = saved_type_params;
-                codegen.current_type_param_count = saved_type_param_count;
-                codegen.current_type_args = saved_type_args;
-                codegen.current_type_arg_count = saved_type_arg_count;
-                codegen.struct_type_params = saved_struct_type_params;
-                codegen.struct_type_param_count = saved_struct_type_param_count;
-                codegen.struct_type_args = saved_struct_type_args;
-                codegen.struct_type_arg_count = saved_struct_type_arg_count;
-                return -1;
-            }
-            
-            var emit_field_type: &ASTNode = field_type;
-            const resolved_field_type: &ASTNode = substitute_type_arg_explicit(codegen, field_type,
-                struct_decl.struct_decl_type_params, subst_args, type_arg_count);
-            if resolved_field_type != null {
-                emit_field_type = resolved_field_type;
-            }
-
-            if emit_field_type != null && emit_field_type.type == ASTNodeType.AST_TYPE_ARRAY {
-                const element_type: &ASTNode = emit_field_type.type_array_element_type;
-                const size_expr: &ASTNode = emit_field_type.type_array_size_expr;
-                const elem_type_c: &byte = c99_type_to_c(codegen, element_type);
-                var array_size: i32 = 1;
-                if size_expr != null {
-                    array_size = eval_const_expr(codegen, size_expr);
-                    if array_size <= 0 {
-                        array_size = 1;
-                    }
-                }
-                c99_emit_indent(codegen);
-                fprintf(codegen.emit_stream as *void, "%s %s[%d];\n" as *byte, elem_type_c as *byte, field_name as *byte, array_size);
-            } else {
-                var field_type_c: &byte = null;
-                if emit_field_type != null && emit_field_type.type == ASTNodeType.AST_TYPE_NAMED &&
-                    emit_field_type.type_named_name != null &&
-                    emit_field_type.type_named_type_arg_count > 0 &&
-                    emit_field_type.type_named_type_args != null {
-                    const generic_name: &byte = emit_field_type.type_named_name;
-                    const generic_arg_count: i32 = emit_field_type.type_named_type_arg_count;
-                    const generic_args: & & ASTNode = compiler_arena_alloc(codegen.arena, (@size_of(&ASTNode) * generic_arg_count) as usize) as & & ASTNode;
-                    if generic_args != null {
-                        var gi: i32 = 0;
-                        while gi < generic_arg_count {
-                            generic_args[gi] = substitute_type_arg_explicit(codegen,
-                                emit_field_type.type_named_type_args[gi],
-                                struct_decl.struct_decl_type_params, subst_args, type_arg_count);
-                            gi = gi + 1;
-                        }
-                        const iface_decl: &ASTNode = find_interface_decl_c99(codegen, generic_name);
-                        if iface_decl != null && iface_decl.interface_decl_type_param_count > 0 {
-                            const mono_iface_name: &byte = get_mono_struct_name(codegen, generic_name, generic_args, generic_arg_count);
-                            if mono_iface_name != null {
-                                const mono_iface_len: i32 = (strlen(mono_iface_name as *byte) as i32) +| 24;
-                                const mono_iface_buf: &byte = compiler_arena_alloc(codegen.arena, mono_iface_len as usize) as &byte;
-                                if mono_iface_buf != null {
-                                    snprintf(mono_iface_buf as *byte, mono_iface_len, "struct uya_interface_%s" as *byte, mono_iface_name as *byte);
-                                    field_type_c = mono_iface_buf;
-                                }
-                            }
-                        }
-                        if field_type_c == null {
-                            const generic_union_decl: &ASTNode = find_union_decl_c99(codegen, generic_name);
-                            if generic_union_decl != null && is_generic_union_c99(generic_union_decl) != 0 {
-                                const mono_union_name: &byte = get_mono_union_name(codegen, generic_name, generic_args, generic_arg_count);
-                                if mono_union_name != null {
-                                    const mono_union_len: i32 = (strlen(mono_union_name as *byte) as i32) +| 24;
-                                    const mono_union_buf: &byte = compiler_arena_alloc(codegen.arena, mono_union_len as usize) as &byte;
-                                    if mono_union_buf != null {
-                                        snprintf(mono_union_buf as *byte, mono_union_len, "struct uya_tagged_%s" as *byte, mono_union_name as *byte);
-                                        field_type_c = mono_union_buf;
-                                    }
-                                }
-                            }
-                        }
-                        if field_type_c == null {
-                            const mono_struct_name: &byte = get_mono_struct_name(codegen, generic_name, generic_args, generic_arg_count);
-                            if mono_struct_name != null {
-                                const mono_struct_len: i32 = (strlen(mono_struct_name as *byte) as i32) +| 8;
-                                const mono_struct_buf: &byte = compiler_arena_alloc(codegen.arena, mono_struct_len as usize) as &byte;
-                                if mono_struct_buf != null {
-                                    snprintf(mono_struct_buf as *byte, mono_struct_len, "struct %s" as *byte, mono_struct_name as *byte);
-                                    field_type_c = mono_struct_buf;
-                                }
-                            }
-                        }
-                    }
-                }
-                if field_type_c == null {
-                    field_type_c = c99_type_to_c(codegen, emit_field_type);
-                }
-                c99_emit_indent(codegen);
-                fprintf(codegen.emit_stream as *void, "%s %s;\n" as *byte, field_type_c as *byte, field_name as *byte);
-            }
-            fi = fi + 1;
+        if c99_emit_struct_fields(codegen, struct_decl, struct_decl, subst_args, type_arg_count) == 0 {
+            codegen.indent_level = codegen.indent_level -| 1;
+            codegen.current_type_params = saved_type_params;
+            codegen.current_type_param_count = saved_type_param_count;
+            codegen.current_type_args = saved_type_args;
+            codegen.current_type_arg_count = saved_type_arg_count;
+            codegen.struct_type_params = saved_struct_type_params;
+            codegen.struct_type_param_count = saved_struct_type_param_count;
+            codegen.struct_type_args = saved_struct_type_args;
+            codegen.struct_type_arg_count = saved_struct_type_arg_count;
+            return -1;
         }
     }
     

@@ -402,6 +402,19 @@ fn checker_check_struct_init(checker: &TypeChecker, node: &ASTNode) Type {
         return result;
     }
     
+    // 含匿名 union 重叠字段的结构体不能用结构体字面量初始化：不同组共享存储，
+    // 按名字逐字段赋值会互相覆盖（C 侧也只应该初始化其中一组）。
+    var oi: i32 = 0;
+    while oi < struct_decl.struct_decl_field_count {
+        const of: &ASTNode = struct_decl.struct_decl_fields[oi];
+        if of != null && of.type == ASTNodeType.AST_VAR_DECL && of.var_decl_overlap_block != 0 {
+            checker_report_error(checker, node,
+                "含匿名 union 重叠字段的结构体不能用结构体字面量初始化" as *byte);
+            return make_named_type(TypeKind.TYPE_STRUCT, struct_name);
+        }
+        oi = oi + 1;
+    }
+
     // 检查字段数量和类型
     if node.struct_init_field_count != struct_decl.struct_decl_field_count {
         // 放宽检查：字段数量不匹配时，允许通过（不报错）

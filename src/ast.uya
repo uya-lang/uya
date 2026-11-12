@@ -1,7 +1,7 @@
 // ast.uya - AST 节点创建和操作
 // Uya 自举编译器
 //
-// 注意：Uya 没有 union，所有 union 字段都转换为结构体的独立字段（扁平化）
+// 注意：ASTNode 用匿名 union 重叠组压缩体积；各 kind 只访问自己的那组字段。
 
 // match 模式种类
 enum MatchPatternKind {
@@ -167,354 +167,534 @@ struct ASTStringInterpSegment {
     format_kind: i32,
 }
 
-// AST 节点结构（Uya 无 union，所有变体字段扁平化为独立字段）
+// AST 节点结构：所有节点类型共用的字段放在最外层，各类型独有的负载字段放进
+// 同一个匿名 union 块里的不同 struct 组（互斥使用、共享存储），字段仍按 `node.field` 访问。
 struct ASTNode {
     type: ASTNodeType,
     line: i32,
     column: i32,
     filename: &byte,
-    // program（指针数组在 C 中为 T**，Uya 中用 & & T 表示）
-    program_decls: & & ASTNode,
-    program_decl_count: i32,
-    // enum_decl
-    enum_decl_name: &byte,
-    enum_decl_variants: &EnumVariant,
-    enum_decl_variant_count: i32,
-    enum_decl_is_export: i32,  // 1 表示 export enum，0 表示私有
-    // error_decl（预定义错误声明 error Name;）
-    error_decl_name: &byte,
-    error_decl_is_export: i32,  // 1 表示 export error，0 表示私有
-    // interface_decl（interface I { fn method(self: *Self,...) Ret; ... }）
-    interface_decl_name: &byte,
-    interface_decl_type_params: &TypeParam,   // 类型参数数组（泛型参数，如 <T>，从 Arena 分配）
-    interface_decl_type_param_count: i32,     // 类型参数数量
-    interface_decl_method_sigs: & & ASTNode,
-    interface_decl_method_sig_count: i32,
-    interface_decl_composed_interfaces: & & byte,  // 组合的接口名称数组
-    interface_decl_composed_count: i32,            // 组合的接口数量
-    interface_decl_is_export: i32,  // 1 表示 export interface，0 表示私有
-    // struct_decl
-    struct_decl_name: &byte,
-    struct_decl_type_params: &TypeParam,      // 类型参数数组（泛型参数，如 <T: Default>，从 Arena 分配）
-    struct_decl_type_param_count: i32,        // 类型参数数量
-    struct_decl_interface_names: & & byte,  // 实现的接口名称数组（可为 null）
-    struct_decl_interface_count: i32,
-    struct_decl_fields: & & ASTNode,
-    struct_decl_field_count: i32,
-    struct_decl_methods: & & ASTNode,  // 内部方法数组（AST_FN_DECL 节点，可为 null）
-    struct_decl_method_count: i32,     // 内部方法数量
-    struct_decl_is_export: i32,  // 1 表示 export struct，0 表示私有
-    struct_decl_is_opaque: i32,  // 1 表示字段仅声明模块可见且类型不可复制
-    // union_decl（union Name { variant1: T1, variant2: T2 [ , fn ... ] }）
-    union_decl_name: &byte,
-    union_decl_variants: & & ASTNode,  // 变体数组（变体是 AST_VAR_DECL 节点）
-    union_decl_variant_count: i32,
-    union_decl_methods: & & ASTNode,   // 内部方法数组（AST_FN_DECL 节点，可为 null；extern union 无方法）
-    union_decl_method_count: i32,
-    union_decl_is_extern: i32,  // 1 表示 extern union（C 互操作，仅生成 union，无 tagged 包装）
-    union_decl_is_export: i32,  // 1 表示 export union，0 表示私有
-    union_decl_type_params: &TypeParam,  // 泛型参数（如 <T>），null 表示非泛型
-    union_decl_type_param_count: i32,
-    // method_block（StructName/UnionName { fn method(...) { ... } ... }）
-    method_block_struct_name: &byte,
-    method_block_union_name: &byte,    // 联合体名称（为 null 时表示结构体方法块）
-    method_block_methods: & & ASTNode,
-    method_block_method_count: i32,
-    // fn_decl
-    fn_decl_name: &byte,
-    fn_decl_type_params: &TypeParam,          // 类型参数数组（泛型参数，如 <T: Ord>，从 Arena 分配）
-    fn_decl_type_param_count: i32,            // 类型参数数量
-    fn_decl_params: & & ASTNode,
-    fn_decl_param_count: i32,
-    fn_decl_return_type: &ASTNode,
-    fn_decl_body: &ASTNode,
-    fn_decl_is_varargs: i32,
-    fn_decl_is_export: i32,  // 1 表示 export fn，0 表示私有
-    fn_decl_is_extern: i32,  // 1 表示 extern fn（含 export extern fn main），0 表示普通函数
-    fn_decl_is_async: i32,   // 1 表示 @async_fn，0 表示普通函数
-    fn_decl_is_naked: i32,   // 1 表示 @naked_fn，0 表示普通函数
-    fn_decl_align: i32,       // @align(N) 指定的帧对齐（仅对 async 生效），0 表示未指定
-    fn_decl_extern_lib_name: &byte,  // extern "libc" fn 中的库名（如 "libc"），null 表示普通 extern fn
-    // macro_decl（宏声明）
-    macro_decl_name: &byte,
-    macro_decl_params: & & ASTNode,
-    macro_decl_param_count: i32,
-    macro_decl_return_tag: &byte,      // "expr", "stmt", "struct", "type"
-    macro_decl_body: &ASTNode,
-    macro_decl_is_export: i32,
-    // type_alias（类型别名）
-    type_alias_name: &byte,
-    type_alias_target_type: &ASTNode,
-    type_alias_is_export: i32,
-    // mc_* 宏内建函数
-    mc_eval_operand: &ASTNode,
-    mc_code_operand: &ASTNode,
-    mc_ast_operand: &ASTNode,
-    mc_error_operand: &ASTNode,
-    mc_interp_operand: &ASTNode,
-    mc_type_operand: &ASTNode,
-    mc_source_operand: &ASTNode,
-    // var_decl
-    var_decl_name: &byte,
-    var_decl_type: &ASTNode,
-    var_decl_init: &ASTNode,
-    var_decl_is_const: i32,
-    var_decl_was_moved: i32,   // 移动语义：1 表示该绑定曾被移动，离开作用域时不调用 drop
-    var_decl_moved_field_src: &byte,  // 嵌套字段移动：源访问路径（如 "h.buf"），未移动时为 null
-    var_decl_is_export: i32,  // 1 表示 export const，0 表示私有（仅顶层 const 声明使用）
-    var_decl_is_thread_local: i32,  // 1 表示 @thread_local 全局（C99 发射 _Thread_local）
-    // extern_var_decl（顶层：extern const/var name: type; 或 export const/var name: type = val;）
-    extern_var_decl_name: &byte,           // 变量名
-    extern_var_decl_var_type: &ASTNode,    // 类型节点
-    extern_var_decl_init_expr: &ASTNode,   // 初始化表达式（可为 null，extern 声明无初始化）
-    extern_var_decl_is_const: i32,         // 1 = const, 0 = var
-    extern_var_decl_is_extern: i32,        // 1 = extern 声明，0 = 有初始化
-    extern_var_decl_is_export: i32,        // 1 = export，0 = 私有
-    extern_var_decl_extern_lib_name: &byte, // extern "libc" 的库名（如 "libc"），null 表示普通 extern
-    // destructure_decl（const (x, y) = expr）
-    destructure_decl_names: & & byte,
-    destructure_decl_name_count: i32,
-    destructure_decl_is_const: i32,
-    destructure_decl_init: &ASTNode,
-    // use_stmt（use path; 或 use path.item; 或 use path as alias;）
-    use_stmt_path_segments: & & byte,  // 模块路径段数组（如 ["std", "io"] 表示 std.io，存储在 Arena）
-    use_stmt_path_segment_count: i32,   // 路径段数量
-    use_stmt_item_name: &byte,          // 可选：导入的特定项名称（如 use std.io.read_file 中的 "read_file"，为 null 表示导入整个模块）
-    use_stmt_alias: &byte,              // 可选：别名（如 use std.io as io 中的 "io"，为 null 表示无别名）
-    // c_import_decl（@c_import("path", cflags?, ldflags?);）
-    c_import_path_literal: &byte,
-    c_import_resolved_path: &byte,
-    c_import_cflags_literal: &byte,
-    c_import_ldflags_literal: &byte,
-    c_import_cflags_normalized: &byte,
-    c_import_ldflags_normalized: &byte,
-    c_import_expanded_paths: & & byte,
-    c_import_expanded_rel_paths: & & byte,
-    c_import_expanded_count: i32,
-    // binary_expr
-    binary_expr_left: &ASTNode,
-    binary_expr_op: i32,
-    binary_expr_right: &ASTNode,
-    // pipeline_expr (left |> right)
-    pipeline_expr_left: &ASTNode,
-    pipeline_expr_right: &ASTNode,
-    // 最外层 pipeline 表达式是否已经完成 move 消费检查。
-    // checker 可能对同一 AST 重复推断；该标记避免把重复推断误报为二次消费。
-    pipeline_expr_move_checked: i32,
-    // unary_expr
-    unary_expr_op: i32,
-    unary_expr_operand: &ASTNode,
-    // try_expr（try expr）
-    try_expr_operand: &ASTNode,
-    // 操作数按「checked 整数算术」求值：操作数是整数算术表达式（根为 + - * / %
-    // 或一元 -），在 try 上下文中产出 !T，溢出 → error.Overflow，除零 →
-    // error.DivisionByZero。由 checker 置位，codegen 据此选择 checked 发射器。
-    try_expr_is_checked_arith: i32,
-    // checked 算术载荷的 TypeKind（checker 期在符号表有效时解析并记录，
-    // codegen 期局部符号已退出作用域，无法再从叶子表达式反推）
-    try_expr_checked_kind: i32,
-    // catch_expr（expr catch [|err|] { stmts }）
-    catch_expr_operand: &ASTNode,
-    catch_expr_err_name: &byte,
-    catch_expr_catch_block: &ASTNode,
-    // 同 try_expr_is_checked_arith：catch 的操作数是 checked 整数算术
-    catch_expr_is_checked_arith: i32,
-    // 同 try_expr_checked_kind
-    catch_expr_checked_kind: i32,
-    // await_expr（try @await expr）- 异步等待
-    await_expr_operand: &ASTNode,
-    // error_value（error.Name）
-    error_value_name: &byte,
-    // match_expr（match expr { pat => expr, ... }）
-    match_expr_expr: &ASTNode,
-    match_expr_arms: &ASTMatchArm,
-    match_expr_arm_count: i32,
-    // call_expr
-    call_expr_callee: &ASTNode,
-    call_expr_args: & & ASTNode,
-    call_expr_arg_count: i32,
-    call_expr_has_ellipsis_forward: i32,  // 1 表示末尾为 ... 转发可变参数
-    call_expr_type_args: & & ASTNode,     // 类型参数数组（泛型函数调用，如 max<i32>，从 Arena 分配）
-    call_expr_type_arg_count: i32,        // 类型参数数量
-    // member_access
-    member_access_object: &ASTNode,
-    member_access_field_name: &byte,
-    member_access_is_module_access: i32,
-    member_access_module_name: &byte,  // 模块名（如 "std.testing"，由 checker 设置）
-    // array_access
-    array_access_array: &ASTNode,
-    array_access_index: &ASTNode,
-    // slice_expr（base[start:len]）
-    slice_expr_base: &ASTNode,
-    slice_expr_start_expr: &ASTNode,
-    slice_expr_len_expr: &ASTNode,
-    // struct_init
-    struct_init_struct_name: &byte,
-    struct_init_field_names: & & byte,
-    struct_init_field_values: & & ASTNode,
-    struct_init_field_count: i32,
-    struct_init_type_args: & & ASTNode,   // 类型实参数组（泛型结构体，如 Pair<i32, i64>）
-    struct_init_type_arg_count: i32,      // 类型实参数量
-    // array_literal（[expr1, ...] 或 [value: N]）
-    array_literal_elements: & & ASTNode,
-    array_literal_element_count: i32,
-    array_literal_repeat_count_expr: &ASTNode,
-    // tuple_literal（(expr1, expr2, ...)）
-    tuple_literal_elements: & & ASTNode,
-    tuple_literal_element_count: i32,
-    // sizeof_expr
-    sizeof_expr_target: &ASTNode,
-    sizeof_expr_is_type: i32,
-    // len_expr
-    len_expr_array: &ASTNode,
-    // alignof_expr
-    alignof_expr_target: &ASTNode,
-    alignof_expr_is_type: i32,
-    // cast_expr（expr as type 或 expr as! type）
-    cast_expr_expr: &ASTNode,
-    cast_expr_target_type: &ASTNode,
-    cast_expr_is_force_cast: i32,  // 1 表示 as!（强转，返回 !T），0 表示 as
-    // identifier
-    identifier_name: &byte,
-    // number
-    number_value: i32,
-    number_value_i64: i64,  // 完整 i64 值，供 codegen 生成超出 i32 的常量；解析时与 number_value 同步
-    literal_suffix: i32,  // 字面量类型后缀 (0=NONE, 1=I8, 2=I16, 3=I32, 4=I64, 5=U8, 6=U16, 7=U32, 8=U64, 9=USIZE, 10=F32, 11=F64)
-    // float_literal
-    float_literal_value: f64,
-    float_literal_suffix: i32,  // 浮点字面量类型后缀
-    // bool_literal
-    bool_literal_value: i32,
-    // int_limit (max/min)
-    int_limit_is_max: i32,
-    int_limit_resolved_kind: i32,
-    // string_literal
-    string_literal_value: &byte,
-    // embed / embed_dir
-    embed_path_literal: &byte,
-    embed_resolved_path: &byte,
-    embed_data: &byte,
-    embed_size: i32,
-    embed_dir_paths: & & byte,
-    embed_dir_resolved_paths: & & byte,
-    embed_dir_data: & & byte,
-    embed_dir_sizes: &i32,
-    embed_dir_entry_count: i32,
-    // char_literal（字符字面量，赋给 byte）
-    char_literal_value: i32,
-    // string_interp（"text${expr}text" 或 "text${expr:spec}text"）
-    string_interp_segments: &ASTStringInterpSegment,
-    string_interp_segment_count: i32,
-    string_interp_computed_size: i32,  // 由 checker 填充
-    // if_stmt
-    if_stmt_condition: &ASTNode,
-    if_stmt_then_branch: &ASTNode,
-    if_stmt_else_branch: &ASTNode,
-    // while_stmt
-    while_stmt_condition: &ASTNode,
-    while_stmt_body: &ASTNode,
-    // for_stmt
-    for_stmt_array: &ASTNode,
-    for_stmt_var_name: &byte,
-    for_stmt_is_ref: i32,
-    for_stmt_is_range: i32,
-    for_stmt_range_start: &ASTNode,
-    for_stmt_range_end: &ASTNode,
-    for_stmt_body: &ASTNode,
-    // return_stmt
-    return_stmt_expr: &ASTNode,
-    // defer_stmt（defer stmt 或 defer { ... }）
-    defer_stmt_body: &ASTNode,
-    // errdefer_stmt（errdefer stmt 或 errdefer { ... }）
-    errdefer_stmt_body: &ASTNode,
-    // test_stmt（test "description" { body }）
-    test_stmt_description: &byte,  // 测试说明（字符串存储在 Arena 中）
-    test_stmt_body: &ASTNode,      // 测试体（AST_BLOCK）
-    // assign
-    assign_dest: &ASTNode,
-    assign_src: &ASTNode,
-    // block
-    block_stmts: & & ASTNode,
-    block_stmt_count: i32,
-    // type_named（命名类型：i32, bool, void, struct Name, 或泛型类型 Vec<i32>）
-    type_named_name: &byte,
-    type_named_type_args: & & ASTNode,    // 类型参数数组（泛型类型参数，如 Vec<i32> 中的 [i32]，从 Arena 分配）
-    type_named_type_arg_count: i32,       // 类型参数数量（0 表示非泛型类型）
-    // type_pointer
-    type_pointer_pointed_type: &ASTNode,
-    type_pointer_is_ffi_pointer: i32,
-    type_pointer_is_const: i32,  // 是否为只读指针（1 表示 &const T 或 *const T，0 表示 &T 或 *T）
-    // type_array
-    type_array_element_type: &ASTNode,
-    type_array_size_expr: &ASTNode,
-    // type_slice（&[T] 或 &[T: N]）；type_slice_element_const=1 表示 &[const T]
-    type_slice_element_type: &ASTNode,
-    type_slice_size_expr: &ASTNode,
-    type_slice_element_const: i32,
-    // type_tuple（(T1, T2, ...)）
-    type_tuple_element_types: & & ASTNode,
-    type_tuple_element_count: i32,
-    // type_error_union（!T）
-    type_error_union_payload_type: &ASTNode,
-    // syscall（@syscall(nr, arg1, ..., arg6)）
-    syscall_number: &ASTNode,    // 系统调用号（必须）
-    syscall_args: & & ASTNode,   // 参数数组（0-6 个）
-    syscall_arg_count: i32,      // 参数个数
-    // ptr_from_usize_expr
-    ptr_from_usize_value: &ASTNode,  // usize 值表达式
-    // usize_from_ptr_expr
-    usize_from_ptr_ptr: &ASTNode,    // 指针表达式
-    // error_id_expr
-    error_id_operand: &ASTNode,      // 错误表达式
-    // error_name_expr
-    error_name_operand: &ASTNode,    // 错误表达式
-    // va_start_expr
-    va_start_ap: &ASTNode,
-    va_start_last_param: &ASTNode,
-    // va_end_expr
-    va_end_ap: &ASTNode,
-    // va_arg_expr
-    va_arg_ap: &ASTNode,
-    va_arg_arg_type: &ASTNode,
-    // va_copy_expr
-    va_copy_dest: &ASTNode,
-    va_copy_src: &ASTNode,
-    // asm（@asm { ... } 内联汇编块）
-    asm_instructions: & & byte,     // 指令字符串数组
-    asm_instruction_count: i32,     // 指令数量
-    asm_inputs: & & ASTNode,        // 输入表达式数组（每条指令的输入连续存储）
-    asm_input_counts: & i32,        // 每条指令的输入数量
-    asm_outputs: & & ASTNode,       // 输出表达式数组（每条指令的输出连续存储）
-    asm_output_counts: & i32,       // 每条指令的输出数量
-    asm_clobbers: & & byte,         // clobber 寄存器名称数组
-    asm_clobber_count: i32,         // clobber 个数
-    asm_clobbers_memory: i32,       // 是否修改内存（1=是）
-    // print/println（@print/@println）
-    print_expr: &ASTNode,    // 要打印的表达式
-    // simd helper（@vector.splat / @vector.load / @vector.store / @vector.select / @vector.reduce_add：splat/load/select/reduce_add 关联向量类型 AST；store 为第二实参向量类型）
-    simd_splat_target_type: &ASTNode,
-    // type_atomic（atomic T）
-    type_atomic_inner_type: &ASTNode,
-    // type_vector（@vector(T, N)）
-    type_vector_element_type: &ASTNode,
-    type_vector_size_expr: &ASTNode,
-    // type_mask（@mask(N)）
-    type_mask_size_expr: &ASTNode,
-    // type_frame（@frame(foo)）
-    type_frame_operand: &ASTNode,
-    // 优化相关字段（v0.7.3 新增）
+
+    // 各节点类型独有的负载字段：同一个匿名 union 块里的每个 struct 是一个重叠组，
+    // 不同组共享同一段存储（按 kind 互斥使用）；字段仍按 `node.field` 访问。
+    union {
+        struct {
+            // program（指针数组在 C 中为 T**，Uya 中用 & & T 表示）
+            program_decls: & & ASTNode,
+            program_decl_count: i32,
+        }
+        struct {
+            // enum_decl
+            enum_decl_name: &byte,
+            enum_decl_variants: &EnumVariant,
+            enum_decl_variant_count: i32,
+            enum_decl_is_export: i32,  // 1 表示 export enum，0 表示私有
+        }
+        struct {
+            // error_decl（预定义错误声明 error Name;）
+            error_decl_name: &byte,
+            error_decl_is_export: i32,  // 1 表示 export error，0 表示私有
+        }
+        struct {
+            // interface_decl（interface I { fn method(self: *Self,...) Ret; ... }）
+            interface_decl_name: &byte,
+            interface_decl_type_params: &TypeParam,   // 类型参数数组（泛型参数，如 <T>，从 Arena 分配）
+            interface_decl_type_param_count: i32,     // 类型参数数量
+            interface_decl_method_sigs: & & ASTNode,
+            interface_decl_method_sig_count: i32,
+            interface_decl_composed_interfaces: & & byte,  // 组合的接口名称数组
+            interface_decl_composed_count: i32,            // 组合的接口数量
+            interface_decl_is_export: i32,  // 1 表示 export interface，0 表示私有
+        }
+        struct {
+            // struct_decl
+            struct_decl_name: &byte,
+            struct_decl_type_params: &TypeParam,      // 类型参数数组（泛型参数，如 <T: Default>，从 Arena 分配）
+            struct_decl_type_param_count: i32,        // 类型参数数量
+            struct_decl_interface_names: & & byte,  // 实现的接口名称数组（可为 null）
+            struct_decl_interface_count: i32,
+            struct_decl_fields: & & ASTNode,
+            struct_decl_field_count: i32,
+            struct_decl_methods: & & ASTNode,  // 内部方法数组（AST_FN_DECL 节点，可为 null）
+            struct_decl_method_count: i32,     // 内部方法数量
+            struct_decl_is_export: i32,  // 1 表示 export struct，0 表示私有
+            struct_decl_is_opaque: i32,  // 1 表示字段仅声明模块可见且类型不可复制
+        }
+        struct {
+            // union_decl（union Name { variant1: T1, variant2: T2 [ , fn ... ] }）
+            union_decl_name: &byte,
+            union_decl_variants: & & ASTNode,  // 变体数组（变体是 AST_VAR_DECL 节点）
+            union_decl_variant_count: i32,
+            union_decl_methods: & & ASTNode,   // 内部方法数组（AST_FN_DECL 节点，可为 null；extern union 无方法）
+            union_decl_method_count: i32,
+            union_decl_is_extern: i32,  // 1 表示 extern union（C 互操作，仅生成 union，无 tagged 包装）
+            union_decl_is_export: i32,  // 1 表示 export union，0 表示私有
+            union_decl_type_params: &TypeParam,  // 泛型参数（如 <T>），null 表示非泛型
+            union_decl_type_param_count: i32,
+        }
+        struct {
+            // method_block（StructName/UnionName { fn method(...) { ... } ... }）
+            method_block_struct_name: &byte,
+            method_block_union_name: &byte,    // 联合体名称（为 null 时表示结构体方法块）
+            method_block_methods: & & ASTNode,
+            method_block_method_count: i32,
+        }
+        struct {
+            // fn_decl
+            fn_decl_name: &byte,
+            fn_decl_type_params: &TypeParam,          // 类型参数数组（泛型参数，如 <T: Ord>，从 Arena 分配）
+            fn_decl_type_param_count: i32,            // 类型参数数量
+            fn_decl_params: & & ASTNode,
+            fn_decl_param_count: i32,
+            fn_decl_return_type: &ASTNode,
+            fn_decl_body: &ASTNode,
+            fn_decl_is_varargs: i32,
+            fn_decl_is_export: i32,  // 1 表示 export fn，0 表示私有
+            fn_decl_is_extern: i32,  // 1 表示 extern fn（含 export extern fn main），0 表示普通函数
+            fn_decl_is_async: i32,   // 1 表示 @async_fn，0 表示普通函数
+            fn_decl_is_naked: i32,   // 1 表示 @naked_fn，0 表示普通函数
+            fn_decl_align: i32,       // @align(N) 指定的帧对齐（仅对 async 生效），0 表示未指定
+            fn_decl_extern_lib_name: &byte,  // extern "libc" fn 中的库名（如 "libc"），null 表示普通 extern fn
+        }
+        struct {
+            // macro_decl（宏声明）
+            macro_decl_name: &byte,
+            macro_decl_params: & & ASTNode,
+            macro_decl_param_count: i32,
+            macro_decl_return_tag: &byte,      // "expr", "stmt", "struct", "type"
+            macro_decl_body: &ASTNode,
+            macro_decl_is_export: i32,
+        }
+        struct {
+            // type_alias（类型别名）
+            type_alias_name: &byte,
+            type_alias_target_type: &ASTNode,
+            type_alias_is_export: i32,
+        }
+        struct {
+            // mc_* 宏内建函数
+            mc_eval_operand: &ASTNode,
+        }
+        struct {
+            mc_code_operand: &ASTNode,
+        }
+        struct {
+            mc_ast_operand: &ASTNode,
+        }
+        struct {
+            mc_error_operand: &ASTNode,
+        }
+        struct {
+            mc_interp_operand: &ASTNode,
+        }
+        struct {
+            mc_type_operand: &ASTNode,
+        }
+        struct {
+            mc_source_operand: &ASTNode,
+        }
+        struct {
+            // var_decl
+            var_decl_name: &byte,
+            var_decl_type: &ASTNode,
+            var_decl_init: &ASTNode,
+            var_decl_is_const: i32,
+            var_decl_was_moved: i32,   // 移动语义：1 表示该绑定曾被移动，离开作用域时不调用 drop
+            var_decl_moved_field_src: &byte,  // 嵌套字段移动：源访问路径（如 "h.buf"），未移动时为 null
+            var_decl_is_export: i32,  // 1 表示 export const，0 表示私有（仅顶层 const 声明使用）
+            var_decl_is_thread_local: i32,  // 1 表示 @thread_local 全局（C99 发射 _Thread_local）
+            // 结构体字段的重叠分组（仅 struct 声明里的字段使用，其他 AST_VAR_DECL 为 0）：
+            // 同一个匿名 union 块内的不同 group 互不共存，共享同一段存储。
+            var_decl_overlap_block: i32,  // 所属匿名 union 块序号（0 = 普通字段，不参与重叠）
+            var_decl_overlap_group: i32,  // 块内 struct 组序号（同块同组字段顺序排布、互不重叠）
+        }
+        struct {
+            // extern_var_decl（顶层：extern const/var name: type; 或 export const/var name: type = val;）
+            extern_var_decl_name: &byte,           // 变量名
+            extern_var_decl_var_type: &ASTNode,    // 类型节点
+            extern_var_decl_init_expr: &ASTNode,   // 初始化表达式（可为 null，extern 声明无初始化）
+            extern_var_decl_is_const: i32,         // 1 = const, 0 = var
+            extern_var_decl_is_extern: i32,        // 1 = extern 声明，0 = 有初始化
+            extern_var_decl_is_export: i32,        // 1 = export，0 = 私有
+            extern_var_decl_extern_lib_name: &byte, // extern "libc" 的库名（如 "libc"），null 表示普通 extern
+        }
+        struct {
+            // destructure_decl（const (x, y) = expr）
+            destructure_decl_names: & & byte,
+            destructure_decl_name_count: i32,
+            destructure_decl_is_const: i32,
+            destructure_decl_init: &ASTNode,
+        }
+        struct {
+            // use_stmt（use path; 或 use path.item; 或 use path as alias;）
+            use_stmt_path_segments: & & byte,  // 模块路径段数组（如 ["std", "io"] 表示 std.io，存储在 Arena）
+            use_stmt_path_segment_count: i32,   // 路径段数量
+            use_stmt_item_name: &byte,          // 可选：导入的特定项名称（如 use std.io.read_file 中的 "read_file"，为 null 表示导入整个模块）
+            use_stmt_alias: &byte,              // 可选：别名（如 use std.io as io 中的 "io"，为 null 表示无别名）
+        }
+        struct {
+            // c_import_decl（@c_import("path", cflags?, ldflags?);）
+            c_import_path_literal: &byte,
+            c_import_resolved_path: &byte,
+            c_import_cflags_literal: &byte,
+            c_import_ldflags_literal: &byte,
+            c_import_cflags_normalized: &byte,
+            c_import_ldflags_normalized: &byte,
+            c_import_expanded_paths: & & byte,
+            c_import_expanded_rel_paths: & & byte,
+            c_import_expanded_count: i32,
+        }
+        struct {
+            // binary_expr
+            binary_expr_left: &ASTNode,
+            binary_expr_op: i32,
+            binary_expr_right: &ASTNode,
+        }
+        struct {
+            // pipeline_expr (left |> right)
+            pipeline_expr_left: &ASTNode,
+            pipeline_expr_right: &ASTNode,
+            // 最外层 pipeline 表达式是否已经完成 move 消费检查。
+            // checker 可能对同一 AST 重复推断；该标记避免把重复推断误报为二次消费。
+            pipeline_expr_move_checked: i32,
+        }
+        struct {
+            // unary_expr
+            unary_expr_op: i32,
+            unary_expr_operand: &ASTNode,
+        }
+        struct {
+            // try_expr（try expr）
+            try_expr_operand: &ASTNode,
+            // 操作数按「checked 整数算术」求值：操作数是整数算术表达式（根为 + - * / %
+            // 或一元 -），在 try 上下文中产出 !T，溢出 → error.Overflow，除零 →
+            // error.DivisionByZero。由 checker 置位，codegen 据此选择 checked 发射器。
+            try_expr_is_checked_arith: i32,
+            // checked 算术载荷的 TypeKind（checker 期在符号表有效时解析并记录，
+            // codegen 期局部符号已退出作用域，无法再从叶子表达式反推）
+            try_expr_checked_kind: i32,
+        }
+        struct {
+            // catch_expr（expr catch [|err|] { stmts }）
+            catch_expr_operand: &ASTNode,
+            catch_expr_err_name: &byte,
+            catch_expr_catch_block: &ASTNode,
+            // 同 try_expr_is_checked_arith：catch 的操作数是 checked 整数算术
+            catch_expr_is_checked_arith: i32,
+            // 同 try_expr_checked_kind
+            catch_expr_checked_kind: i32,
+        }
+        struct {
+            // await_expr（try @await expr）- 异步等待
+            await_expr_operand: &ASTNode,
+        }
+        struct {
+            // error_value（error.Name）
+            error_value_name: &byte,
+        }
+        struct {
+            // match_expr（match expr { pat => expr, ... }）
+            match_expr_expr: &ASTNode,
+            match_expr_arms: &ASTMatchArm,
+            match_expr_arm_count: i32,
+        }
+        struct {
+            // call_expr
+            call_expr_callee: &ASTNode,
+            call_expr_args: & & ASTNode,
+            call_expr_arg_count: i32,
+            call_expr_has_ellipsis_forward: i32,  // 1 表示末尾为 ... 转发可变参数
+            call_expr_type_args: & & ASTNode,     // 类型参数数组（泛型函数调用，如 max<i32>，从 Arena 分配）
+            call_expr_type_arg_count: i32,        // 类型参数数量
+        }
+        struct {
+            // member_access
+            member_access_object: &ASTNode,
+            member_access_field_name: &byte,
+            member_access_is_module_access: i32,
+            member_access_module_name: &byte,  // 模块名（如 "std.testing"，由 checker 设置）
+        }
+        struct {
+            // array_access
+            array_access_array: &ASTNode,
+            array_access_index: &ASTNode,
+        }
+        struct {
+            // slice_expr（base[start:len]）
+            slice_expr_base: &ASTNode,
+            slice_expr_start_expr: &ASTNode,
+            slice_expr_len_expr: &ASTNode,
+        }
+        struct {
+            // struct_init
+            struct_init_struct_name: &byte,
+            struct_init_field_names: & & byte,
+            struct_init_field_values: & & ASTNode,
+            struct_init_field_count: i32,
+            struct_init_type_args: & & ASTNode,   // 类型实参数组（泛型结构体，如 Pair<i32, i64>）
+            struct_init_type_arg_count: i32,      // 类型实参数量
+        }
+        struct {
+            // array_literal（[expr1, ...] 或 [value: N]）
+            array_literal_elements: & & ASTNode,
+            array_literal_element_count: i32,
+            array_literal_repeat_count_expr: &ASTNode,
+        }
+        struct {
+            // tuple_literal（(expr1, expr2, ...)）
+            tuple_literal_elements: & & ASTNode,
+            tuple_literal_element_count: i32,
+        }
+        struct {
+            // sizeof_expr
+            sizeof_expr_target: &ASTNode,
+            sizeof_expr_is_type: i32,
+        }
+        struct {
+            // len_expr
+            len_expr_array: &ASTNode,
+        }
+        struct {
+            // alignof_expr
+            alignof_expr_target: &ASTNode,
+            alignof_expr_is_type: i32,
+        }
+        struct {
+            // cast_expr（expr as type 或 expr as! type）
+            cast_expr_expr: &ASTNode,
+            cast_expr_target_type: &ASTNode,
+            cast_expr_is_force_cast: i32,  // 1 表示 as!（强转，返回 !T），0 表示 as
+        }
+        struct {
+            // identifier
+            identifier_name: &byte,
+        }
+        struct {
+            // number
+            number_value: i32,
+            number_value_i64: i64,  // 完整 i64 值，供 codegen 生成超出 i32 的常量；解析时与 number_value 同步
+            literal_suffix: i32,  // 字面量类型后缀 (0=NONE, 1=I8, 2=I16, 3=I32, 4=I64, 5=U8, 6=U16, 7=U32, 8=U64, 9=USIZE, 10=F32, 11=F64)
+        }
+        struct {
+            // float_literal
+            float_literal_value: f64,
+            float_literal_suffix: i32,  // 浮点字面量类型后缀
+        }
+        struct {
+            // bool_literal
+            bool_literal_value: i32,
+        }
+        struct {
+            // int_limit (max/min)
+            int_limit_is_max: i32,
+            int_limit_resolved_kind: i32,
+        }
+        struct {
+            // string_literal
+            string_literal_value: &byte,
+        }
+        struct {
+            // embed / embed_dir
+            embed_path_literal: &byte,
+            embed_resolved_path: &byte,
+            embed_data: &byte,
+            embed_size: i32,
+            embed_dir_paths: & & byte,
+            embed_dir_resolved_paths: & & byte,
+            embed_dir_data: & & byte,
+            embed_dir_sizes: &i32,
+            embed_dir_entry_count: i32,
+        }
+        struct {
+            // char_literal（字符字面量，赋给 byte）
+            char_literal_value: i32,
+        }
+        struct {
+            // string_interp（"text${expr}text" 或 "text${expr:spec}text"）
+            string_interp_segments: &ASTStringInterpSegment,
+            string_interp_segment_count: i32,
+            string_interp_computed_size: i32,  // 由 checker 填充
+        }
+        struct {
+            // if_stmt
+            if_stmt_condition: &ASTNode,
+            if_stmt_then_branch: &ASTNode,
+            if_stmt_else_branch: &ASTNode,
+        }
+        struct {
+            // while_stmt
+            while_stmt_condition: &ASTNode,
+            while_stmt_body: &ASTNode,
+        }
+        struct {
+            // for_stmt
+            for_stmt_array: &ASTNode,
+            for_stmt_var_name: &byte,
+            for_stmt_is_ref: i32,
+            for_stmt_is_range: i32,
+            for_stmt_range_start: &ASTNode,
+            for_stmt_range_end: &ASTNode,
+            for_stmt_body: &ASTNode,
+        }
+        struct {
+            // return_stmt
+            return_stmt_expr: &ASTNode,
+        }
+        struct {
+            // defer_stmt（defer stmt 或 defer { ... }）
+            defer_stmt_body: &ASTNode,
+        }
+        struct {
+            // errdefer_stmt（errdefer stmt 或 errdefer { ... }）
+            errdefer_stmt_body: &ASTNode,
+        }
+        struct {
+            // test_stmt（test "description" { body }）
+            test_stmt_description: &byte,  // 测试说明（字符串存储在 Arena 中）
+            test_stmt_body: &ASTNode,      // 测试体（AST_BLOCK）
+        }
+        struct {
+            // assign
+            assign_dest: &ASTNode,
+            assign_src: &ASTNode,
+        }
+        struct {
+            // block
+            block_stmts: & & ASTNode,
+            block_stmt_count: i32,
+        }
+        struct {
+            // type_named（命名类型：i32, bool, void, struct Name, 或泛型类型 Vec<i32>）
+            type_named_name: &byte,
+            type_named_type_args: & & ASTNode,    // 类型参数数组（泛型类型参数，如 Vec<i32> 中的 [i32]，从 Arena 分配）
+            type_named_type_arg_count: i32,       // 类型参数数量（0 表示非泛型类型）
+        }
+        struct {
+            // type_pointer
+            type_pointer_pointed_type: &ASTNode,
+            type_pointer_is_ffi_pointer: i32,
+            type_pointer_is_const: i32,  // 是否为只读指针（1 表示 &const T 或 *const T，0 表示 &T 或 *T）
+        }
+        struct {
+            // type_array
+            type_array_element_type: &ASTNode,
+            type_array_size_expr: &ASTNode,
+        }
+        struct {
+            // type_slice（&[T] 或 &[T: N]）；type_slice_element_const=1 表示 &[const T]
+            type_slice_element_type: &ASTNode,
+            type_slice_size_expr: &ASTNode,
+            type_slice_element_const: i32,
+        }
+        struct {
+            // type_tuple（(T1, T2, ...)）
+            type_tuple_element_types: & & ASTNode,
+            type_tuple_element_count: i32,
+        }
+        struct {
+            // type_error_union（!T）
+            type_error_union_payload_type: &ASTNode,
+        }
+        struct {
+            // syscall（@syscall(nr, arg1, ..., arg6)）
+            syscall_number: &ASTNode,    // 系统调用号（必须）
+            syscall_args: & & ASTNode,   // 参数数组（0-6 个）
+            syscall_arg_count: i32,      // 参数个数
+        }
+        struct {
+            // ptr_from_usize_expr
+            ptr_from_usize_value: &ASTNode,  // usize 值表达式
+        }
+        struct {
+            // usize_from_ptr_expr
+            usize_from_ptr_ptr: &ASTNode,    // 指针表达式
+        }
+        struct {
+            // error_id_expr
+            error_id_operand: &ASTNode,      // 错误表达式
+        }
+        struct {
+            // error_name_expr
+            error_name_operand: &ASTNode,    // 错误表达式
+        }
+        struct {
+            // va_start_expr
+            va_start_ap: &ASTNode,
+            va_start_last_param: &ASTNode,
+        }
+        struct {
+            // va_end_expr
+            va_end_ap: &ASTNode,
+        }
+        struct {
+            // va_arg_expr
+            va_arg_ap: &ASTNode,
+            va_arg_arg_type: &ASTNode,
+        }
+        struct {
+            // va_copy_expr
+            va_copy_dest: &ASTNode,
+            va_copy_src: &ASTNode,
+        }
+        struct {
+            // asm（@asm { ... } 内联汇编块）
+            asm_instructions: & & byte,     // 指令字符串数组
+            asm_instruction_count: i32,     // 指令数量
+            asm_inputs: & & ASTNode,        // 输入表达式数组（每条指令的输入连续存储）
+            asm_input_counts: & i32,        // 每条指令的输入数量
+            asm_outputs: & & ASTNode,       // 输出表达式数组（每条指令的输出连续存储）
+            asm_output_counts: & i32,       // 每条指令的输出数量
+            asm_clobbers: & & byte,         // clobber 寄存器名称数组
+            asm_clobber_count: i32,         // clobber 个数
+            asm_clobbers_memory: i32,       // 是否修改内存（1=是）
+        }
+        struct {
+            // print/println（@print/@println）
+            print_expr: &ASTNode,    // 要打印的表达式
+        }
+        struct {
+            // simd helper（@vector.splat / @vector.load / @vector.store / @vector.select / @vector.reduce_add：splat/load/select/reduce_add 关联向量类型 AST；store 为第二实参向量类型）
+            simd_splat_target_type: &ASTNode,
+        }
+        struct {
+            // type_atomic（atomic T）
+            type_atomic_inner_type: &ASTNode,
+        }
+        struct {
+            // type_vector（@vector(T, N)）
+            type_vector_element_type: &ASTNode,
+            type_vector_size_expr: &ASTNode,
+        }
+        struct {
+            // type_mask（@mask(N)）
+            type_mask_size_expr: &ASTNode,
+        }
+        struct {
+            // type_frame（@frame(foo)）
+            type_frame_operand: &ASTNode,
+        }
+    }
+
+    // 优化器通用标记：跨节点类型使用，不能放进重叠组。
     is_optimized: i32,          // 是否已被优化（1=是，0=否）
     optimized_value: i32,       // 优化后的值（常量折叠）
     is_dead_code: i32,          // 是否为死代码（1=是，需要跳过）
     is_proved_safe: i32,        // 是否已证明安全（1=是，可跳过运行时检查）
-    // -O3 优化字段
     is_inlined: i32,            // 是否被内联（1=是）
     inlined_body: &ASTNode,     // 内联后的函数体
     is_unrolled: i32,           // 是否被展开（1=是）
     unroll_count: i32,          // 循环展开次数
 }
 
-// 创建新的 AST 节点
+/// 创建并零初始化一个新的 AST 节点。
+///
+/// `ASTNode` 的变体字段放在匿名 union 重叠组里，不同组共享同一段存储：逐字段赋值
+/// 只会保留「最后写入那组」的字节，其余组读到的仍是 `malloc` 残留。所以这里按
+/// 机器字把整块内存清零（等价于旧扁结构的全字段零初始化），再写回非零缺省值。
+///
+/// 参数：`type` 节点种类；`line`/`column` 源码位置；`arena` 分配用 arena；
+/// `filename` 源文件名（可为 null）。
+/// 返回值：新节点；`arena` 为 null 或分配失败时返回 null。
 export fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &CompilerArena, filename: &byte) &ASTNode {
     if arena == null {
         return null;
@@ -523,263 +703,31 @@ export fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Compil
     if node == null {
         return null;
     }
+    // arena 按 8 字节对齐（ARENA_ALIGNMENT），可以按机器字清零。
+    const words: &usize = node as &usize;
+    const word_bytes: usize = @size_of(usize);
+    const word_count: usize = (@size_of(ASTNode) as usize) / word_bytes;
+    var wi: usize = 0 as usize;
+    while wi < word_count {
+        words[wi] = 0 as usize;
+        wi = wi + 1 as usize;
+    }
+    const raw: &byte = node as &byte;
+    var bi: usize = word_count * word_bytes;
+    while bi < (@size_of(ASTNode) as usize) {
+        raw[bi] = 0 as byte;
+        bi = bi + 1 as usize;
+    }
     node.type = type;
     node.line = line;
     node.column = column;
     node.filename = filename;
-    node.program_decls = null;
-    node.program_decl_count = 0;
-    node.enum_decl_name = null;
-    node.enum_decl_variants = null;
-    node.enum_decl_variant_count = 0;
-    node.enum_decl_is_export = 0;
-    node.error_decl_name = null;
-    node.error_decl_is_export = 0;
-    node.interface_decl_name = null;
-    node.interface_decl_type_params = null;
-    node.interface_decl_type_param_count = 0;
-    node.interface_decl_method_sigs = null;
-    node.interface_decl_method_sig_count = 0;
-    node.interface_decl_composed_interfaces = null;
-    node.interface_decl_composed_count = 0;
-    node.interface_decl_is_export = 0;
-    node.struct_decl_name = null;
-    node.struct_decl_type_params = null;
-    node.struct_decl_type_param_count = 0;
-    node.struct_decl_interface_names = null;
-    node.struct_decl_interface_count = 0;
-    node.struct_decl_fields = null;
-    node.struct_decl_field_count = 0;
-    node.struct_decl_methods = null;
-    node.struct_decl_method_count = 0;
-    node.struct_decl_is_export = 0;
-    node.struct_decl_is_opaque = 0;
-    node.union_decl_name = null;
-    node.union_decl_variants = null;
-    node.union_decl_variant_count = 0;
-    node.union_decl_methods = null;
-    node.union_decl_method_count = 0;
-    node.union_decl_is_extern = 0;
-    node.union_decl_is_export = 0;
-    node.union_decl_type_params = null;
-    node.union_decl_type_param_count = 0;
-    node.method_block_struct_name = null;
-    node.method_block_union_name = null;
-    node.method_block_methods = null;
-    node.method_block_method_count = 0;
-    node.fn_decl_name = null;
-    node.fn_decl_type_params = null;
-    node.fn_decl_type_param_count = 0;
-    node.fn_decl_params = null;
-    node.fn_decl_param_count = 0;
-    node.fn_decl_return_type = null;
-    node.fn_decl_body = null;
-    node.fn_decl_is_varargs = 0;
-    node.fn_decl_is_export = 0;
-    node.fn_decl_is_extern = 0;
-    node.fn_decl_is_async = 0;
-    node.fn_decl_is_naked = 0;
-    node.fn_decl_align = 0;
-    node.fn_decl_extern_lib_name = null;
-    node.macro_decl_name = null;
-    node.macro_decl_params = null;
-    node.macro_decl_param_count = 0;
-    node.macro_decl_return_tag = null;
-    node.macro_decl_body = null;
-    node.macro_decl_is_export = 0;
-    node.type_alias_name = null;
-    node.type_alias_target_type = null;
-    node.type_alias_is_export = 0;
-    node.mc_eval_operand = null;
-    node.mc_code_operand = null;
-    node.mc_ast_operand = null;
-    node.mc_error_operand = null;
-    node.mc_interp_operand = null;
-    node.mc_type_operand = null;
-    node.mc_source_operand = null;
-    node.var_decl_name = null;
-    node.var_decl_type = null;
-    node.var_decl_init = null;
-    node.var_decl_is_const = 0;
-    node.var_decl_was_moved = 0;
-    node.var_decl_moved_field_src = null;
-    node.var_decl_is_export = 0;
-    node.var_decl_is_thread_local = 0;
-    node.destructure_decl_names = null;
-    node.destructure_decl_name_count = 0;
-    node.destructure_decl_is_const = 0;
-    node.destructure_decl_init = null;
-    node.use_stmt_path_segments = null;
-    node.use_stmt_path_segment_count = 0;
-    node.use_stmt_item_name = null;
-    node.use_stmt_alias = null;
-    node.c_import_path_literal = null;
-    node.c_import_resolved_path = null;
-    node.c_import_cflags_literal = null;
-    node.c_import_ldflags_literal = null;
-    node.c_import_cflags_normalized = null;
-    node.c_import_ldflags_normalized = null;
-    node.c_import_expanded_paths = null;
-    node.c_import_expanded_rel_paths = null;
-    node.c_import_expanded_count = 0;
-    node.binary_expr_left = null;
-    node.binary_expr_op = 0;
-    node.binary_expr_right = null;
-    node.pipeline_expr_left = null;
-    node.pipeline_expr_right = null;
-    node.pipeline_expr_move_checked = 0;
-    node.unary_expr_op = 0;
-    node.unary_expr_operand = null;
-    node.try_expr_operand = null;
-    node.try_expr_is_checked_arith = 0;
-    node.try_expr_checked_kind = -1;  // -1 = 未设置（TYPE_I8 的枚举值是 0，不能用 0 当哨兵）
-    node.catch_expr_operand = null;
-    node.catch_expr_err_name = null;
-    node.catch_expr_catch_block = null;
-    node.catch_expr_is_checked_arith = 0;
-    node.catch_expr_checked_kind = -1;  // -1 = 未设置
-    node.await_expr_operand = null;
-    node.error_value_name = null;
-    node.match_expr_expr = null;
-    node.match_expr_arms = null;
-    node.match_expr_arm_count = 0;
-    node.call_expr_callee = null;
-    node.call_expr_args = null;
-    node.call_expr_arg_count = 0;
-    node.call_expr_has_ellipsis_forward = 0;
-    node.call_expr_type_args = null;
-    node.call_expr_type_arg_count = 0;
-    node.member_access_object = null;
-    node.member_access_field_name = null;
-    node.member_access_is_module_access = 0;
-    node.member_access_module_name = null;
-    node.array_access_array = null;
-    node.array_access_index = null;
-    node.slice_expr_base = null;
-    node.slice_expr_start_expr = null;
-    node.slice_expr_len_expr = null;
-    node.struct_init_struct_name = null;
-    node.struct_init_field_names = null;
-    node.struct_init_field_values = null;
-    node.struct_init_field_count = 0;
-    node.struct_init_type_args = null;
-    node.struct_init_type_arg_count = 0;
-    node.array_literal_elements = null;
-    node.array_literal_element_count = 0;
-    node.array_literal_repeat_count_expr = null;
-    node.tuple_literal_elements = null;
-    node.tuple_literal_element_count = 0;
-    node.sizeof_expr_target = null;
-    node.sizeof_expr_is_type = 0;
-    node.len_expr_array = null;
-    node.alignof_expr_target = null;
-    node.alignof_expr_is_type = 0;
-    node.cast_expr_expr = null;
-    node.cast_expr_target_type = null;
-    node.cast_expr_is_force_cast = 0;
-    node.identifier_name = null;
-    node.number_value = 0;
-    node.number_value_i64 = 0;
-    node.literal_suffix = LiteralSuffix.LITERAL_SUFFIX_NONE;
-    node.float_literal_value = 0.0;
-    node.float_literal_suffix = LiteralSuffix.LITERAL_SUFFIX_NONE;
-    node.bool_literal_value = 0;
-    node.int_limit_is_max = 0;
-    node.int_limit_resolved_kind = 0;
-    node.string_literal_value = null;
-    node.embed_path_literal = null;
-    node.embed_resolved_path = null;
-    node.embed_data = null;
-    node.embed_size = 0;
-    node.embed_dir_paths = null;
-    node.embed_dir_resolved_paths = null;
-    node.embed_dir_data = null;
-    node.embed_dir_sizes = null;
-    node.embed_dir_entry_count = 0;
-    node.char_literal_value = 0;
-    node.string_interp_segments = null;
-    node.string_interp_segment_count = 0;
-    node.string_interp_computed_size = 0;
-    node.if_stmt_condition = null;
-    node.if_stmt_then_branch = null;
-    node.if_stmt_else_branch = null;
-    node.while_stmt_condition = null;
-    node.while_stmt_body = null;
-    node.for_stmt_array = null;
-    node.for_stmt_var_name = null;
-    node.for_stmt_is_ref = 0;
-    node.for_stmt_is_range = 0;
-    node.for_stmt_range_start = null;
-    node.for_stmt_range_end = null;
-    node.for_stmt_body = null;
-    node.return_stmt_expr = null;
-    node.defer_stmt_body = null;
-    node.errdefer_stmt_body = null;
-    node.test_stmt_description = null;
-    node.test_stmt_body = null;
-    node.assign_dest = null;
-    node.assign_src = null;
-    node.block_stmts = null;
-    node.block_stmt_count = 0;
-    node.type_named_name = null;
-    node.type_named_type_args = null;
-    node.type_named_type_arg_count = 0;
-        node.type_pointer_pointed_type = null;
-        node.type_pointer_is_ffi_pointer = 0;
-        node.type_pointer_is_const = 0;
-    node.type_array_element_type = null;
-    node.type_array_size_expr = null;
-    node.type_slice_element_type = null;
-    node.type_slice_size_expr = null;
-    node.type_slice_element_const = 0;
-    node.type_tuple_element_types = null;
-    node.type_tuple_element_count = 0;
-    node.type_error_union_payload_type = null;
-    node.syscall_number = null;
-    node.syscall_args = null;
-    node.syscall_arg_count = 0;
-    node.ptr_from_usize_value = null;
-    node.usize_from_ptr_ptr = null;
-    node.error_id_operand = null;
-    node.error_name_operand = null;
-    node.va_start_ap = null;
-    node.va_start_last_param = null;
-    node.va_end_ap = null;
-    node.va_arg_ap = null;
-    node.va_arg_arg_type = null;
-    // asm 字段初始化
-    node.asm_instructions = null;
-    node.asm_instruction_count = 0;
-    node.asm_inputs = null;
-    node.asm_input_counts = null;
-    node.asm_outputs = null;
-    node.asm_output_counts = null;
-    node.asm_clobbers = null;
-    node.asm_clobber_count = 0;
-    node.asm_clobbers_memory = 0;
-    node.print_expr = null;
-    node.simd_splat_target_type = null;
-    node.type_frame_operand = null;
-    node.type_atomic_inner_type = null;
-    node.type_vector_element_type = null;
-    node.type_vector_size_expr = null;
-    node.type_mask_size_expr = null;
-    node.extern_var_decl_name = null;
-    node.extern_var_decl_var_type = null;
-    node.extern_var_decl_init_expr = null;
-    node.extern_var_decl_is_const = 0;
-    node.extern_var_decl_is_extern = 0;
-    node.extern_var_decl_is_export = 0;
-    node.extern_var_decl_extern_lib_name = null;
-    // 优化字段初始化
-    node.is_optimized = 0;
-    node.optimized_value = 0;
-    node.is_dead_code = 0;
-    node.is_proved_safe = 0;
-    node.is_inlined = 0;
-    node.inlined_body = null;
-    node.is_unrolled = 0;
-    node.unroll_count = 0;
+    // 其余字段一律保持 0：重叠组共享存储，这里写任何非零缺省值都会踩坏别的组
+    // （例如往 `try_expr_checked_kind` 写 -1，落点正好是别的组第 2 个指针字段的
+    // 高 4 字节，于是那个指针变成 0xffffffff00000000）。
+    // 「未设置」哨兵因此改成按需设置：`try_expr_checked_kind` /
+    // `catch_expr_checked_kind` 的读取方全部先判 `is_checked_arith != 0`，
+    // 由 checker 在判定为 checked 算术时写入真实 TypeKind。
     return node;
 }
 

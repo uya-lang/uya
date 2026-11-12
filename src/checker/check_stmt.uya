@@ -1109,6 +1109,29 @@ fn checker_check_struct_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         return 1;
     }
     
+    // 字段名必须唯一：同名成员在 C 里会冲突；匿名 union 重叠块里的不同组
+    // 也共享同一个成员命名空间（即使它们不共存）。
+    var di: i32 = 0;
+    while di < node.struct_decl_field_count {
+        const df: &ASTNode = node.struct_decl_fields[di];
+        if df != null && df.type == ASTNodeType.AST_VAR_DECL && df.var_decl_name != null {
+            var dj: i32 = di + 1;
+            while dj < node.struct_decl_field_count {
+                const df2: &ASTNode = node.struct_decl_fields[dj];
+                if df2 != null && df2.type == ASTNodeType.AST_VAR_DECL && df2.var_decl_name != null &&
+                    str_equals(df.var_decl_name, df2.var_decl_name) != 0 {
+                    checker_report_error_with_note(checker, node,
+                        "结构体字段名重复" as &byte, df2,
+                        "字段名在结构体（含匿名 union 重叠块）内必须唯一" as &byte,
+                        CheckerNoteKind.NOTE_SUGGESTION);
+                    return 0;
+                }
+                dj = dj + 1;
+            }
+        }
+        di = di + 1;
+    }
+
     // 检查字段
     var i: i32 = 0;
     while i < node.struct_decl_field_count {

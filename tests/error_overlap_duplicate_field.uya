@@ -1,0 +1,18 @@
+// error_overlap_duplicate_field.uya - 预期编译失败
+// 预期：编译失败（匿名 union 重叠块里不同组的字段名重复）
+use std.runtime.entry;
+
+struct Bad {
+    union {
+        struct {
+            a: i32,
+        }
+        struct {
+            a: i64,
+        }
+    }
+}
+
+export fn main() i32 {
+    return 0;
+}
