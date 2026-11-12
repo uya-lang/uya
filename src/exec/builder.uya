@@ -2152,7 +2152,17 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             return dst_addr;
         }
         if expr.right != null {
-            const base_slot_addr: i32 = exec_builder_compile_addressable_expr_slot(ctx, expr.left, expr.ast_node);
+            // `&p[i]` 的基址：p 是**指针**时要按指针的**值**走（`p + i*elem`）；
+            // 只有当 p 本身是内嵌数组（结构体字段数组）时，取「地址」才等价于数组首地址。
+            // 早期一律用 addressable slot，于是 `&h.items[3]` 里 `h.items` 是指针字段时
+            // 拿到的是**字段地址**，真值在字段里被跳过 —— 解释执行时算出的元素地址
+            // 整整偏了一个结构体字段偏移（第 707 轮 repro 实测 base-40）。
+            var base_slot_addr: i32 = 0 - 1;
+            if expr.left.type_ref.type.kind == TypeKind.TYPE_POINTER {
+                base_slot_addr = exec_builder_compile_expr(ctx, expr.left);
+            } else {
+                base_slot_addr = exec_builder_compile_addressable_expr_slot(ctx, expr.left, expr.ast_node);
+            }
             const index_slot_addr: i32 = exec_builder_compile_expr(ctx, expr.right);
             if base_slot_addr < 0 || index_slot_addr < 0 {
                 return -1;

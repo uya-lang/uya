@@ -24793,3 +24793,75 @@ arr[3] = ip;                   // ip.a = 13
 所有打点移除、实验改动回退，仓库回到 `96fc2e47`
 （census 912/912、make check 1197/1197、种子已重建、`--vm --version` 正常、
 `test_http_uyagin` 复核通过）。
+
+## 第 707 轮：找到真凶 —— `&指针字段[i]` 取的是「字段地址」而不是「字段值」
+
+第 706 轮把矛盾压到「同一地址，写侧/程序侧读到指针、`take` 里读 0」。这一轮把
+三个地址摆到同一行日志里，直接对出了真相：
+
+```
+# 写侧（正确）
+[dbg-spi] base=140355284439152 idx=3 pk=18 es=8 addr=140355284439176 si64=140355284439408
+# 程序直接索引 raw[3]（正确）
+[dbg-mli] baddr=140355284439152 idx=3 imm=8 res=140355284439408
+# 取地址 &h.items[3]
+elem3addr = 140355284439112        ← 比 base 还小 40！
+```
+
+`base = 140355284439152`（数组首地址），元素 3 应该在 `base+24 = ...176`，
+但 `&h.items[3]` 给的是 `...112`。这个值正好等于 **`base - 40`**，
+也就是「Holder 结构体里 `items` 字段的地址 + 24」——说明降级侧拿的是**字段地址**。
+
+### 根因与修复（`src/exec/builder.uya`）
+
+`BC_ADDR_INDEX` 的基址原来一律走 `exec_builder_compile_addressable_expr_slot`：
+
+```uya
+const base_slot_addr: i32 = exec_builder_compile_addressable_expr_slot(ctx, expr.left, expr.ast_node);
+```
+
+对**内嵌数组**字段（`lexer.buffer` 那类）这是对的（字段地址 = 数组首地址）；
+但对**指针**字段（`h.items: & &Inner`）就错了 —— 字段地址 ≠ 字段里存的那个指针。
+
+修复：
+
+```uya
+var base_slot_addr: i32 = 0 - 1;
+if expr.left.type_ref.type.type == TypeKind.TYPE_POINTER {   // 指针基址按【值】编译
+    base_slot_addr = exec_builder_compile_expr(ctx, expr.left);
+} else {
+    base_slot_addr = exec_builder_compile_addressable_expr_slot(ctx, expr.left, expr.ast_node);
+}
+```
+
+同时把第 702/703 轮的**指针元素数组支持**重新挂上并保留：
+
+1. `exec_vm_native_field_load` 的 TYPE_ARRAY 分支：非驻留（原生）内存上的 `[&T: N]`
+   字段也给原生数组视图；
+2. `LOAD_INDEX` 命中「指针元素 + 原生承载」时，用 `exec_vm_raw_array_element_ptr()`
+   取元素地址、按 8 字节读出普通地址（不走会多解一层的 `exec_vm_load_pointer_index`）。
+
+### 验证
+
+| 检查 | 结果 |
+| --- | --- |
+| `/tmp/ptrp5.uya`（指针字段 `&h.items[3]` 传参） | `--vm` 13 = C99 ✔ |
+| `/tmp/ptra2.uya`（内嵌 `[&Inner: N]` 字段） | `--vm` 7 = C99 ✔ |
+| `/tmp/ptrp_rep.uya` | `--vm` 11 = C99 ✔ |
+| `test_http_uyagin` / `test_kernel_sim` / `test_async_compute_types` ×2 | 全过 |
+| **全量 census** | **912/912（100%）** |
+
+### 整机 build 又前进一格
+
+```
+src/checker/symbols.uya:644:1: exec: LOAD_INDEX 越界(
+    idx=241276 base_kind=17 fn=checker_mark_reachability_node_visited ip=39 line=655)
+```
+
+`symbols.uya:655` 是 `checker.reachability_visit_cache[slot]`，
+`base_kind=17` = **UNION** —— 说明这个字段在 `TypeChecker` 里处于**匿名 union 重叠区**，
+`LOAD_FIELD` 交回的是 union 值而不是数组，`LOAD_INDEX` 自然越界。
+（这项 union 重叠是语言特性，第 685 轮 ASTNode 退回扁平布局时也踩过。）
+
+下一轮：让 `LOAD_INDEX`/`ADDR_INDEX` 能对「union 值里的数组字段」按成员类型取址 ——
+即把 union 字段访问解析成「字段偏移 + 成员类型」，而不是把 union 当聚合下标。
