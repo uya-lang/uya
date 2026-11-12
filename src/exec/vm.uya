@@ -2538,15 +2538,24 @@ fn exec_vm_native_field_load(kind_code: i32, pointee_kind_code: i32, elem_count:
         return exec_make_void();
     }
     if kind_code == TypeKind.TYPE_ARRAY as i32 {
+        // 元素个数在字段 imm 里只有 16 位（`(count-1) & 0xFFFF`），
+        // 大数组会饱和成 65536。这里把 65536 当「无界」处理：真正的 262144 元素
+        // 数组（`TypeChecker.reachability_visit_cache` 就是）否则会在
+        // `arr[241276]` 这种合法下标上误报越界。C99 侧本来就不做边界检查，
+        // 饱和值放宽到 2^31-1 与之一致。
+        var type_array_count: i32 = elem_count;
+        if elem_count == 65536 {
+            type_array_count = 2147483647;
+        }
         // 原生结构体里的定长数组字段：给出指向数据区的数组视图（不拷贝）。
         // 只对**标量元素**生成视图：指针元素的 VM 值可能带引用编码，写进原生槽位
         // 再读回来就是野指针（实测会段错误），那类字段继续走 VM 聚合语义。
         const nf_addr_resident: i32 = exec_vm_address_is_vm_resident(addr) as i32;
         const nf_ptr_raw_ok: i32 = (nf_addr_resident == 0 &&
             pointee_kind_code == TypeKind.TYPE_POINTER as i32) as i32;
-        if pointee_kind_code > 0 && elem_count > 0 &&
+        if pointee_kind_code > 0 && type_array_count > 0 &&
             (exec_value_is_raw_array_element_type(pointee_kind_code) != 0 || nf_ptr_raw_ok != 0) {
-            return exec_value_make_raw_array_view(elem_count, pointee_kind_code,
+            return exec_value_make_raw_array_view(type_array_count, pointee_kind_code,
                 @ptr_from_usize(addr) as &byte);
         }
         return exec_make_void();

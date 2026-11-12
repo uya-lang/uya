@@ -24865,3 +24865,67 @@ src/checker/symbols.uya:644:1: exec: LOAD_INDEX 越界(
 
 下一轮：让 `LOAD_INDEX`/`ADDR_INDEX` 能对「union 值里的数组字段」按成员类型取址 ——
 即把 union 字段访问解析成「字段偏移 + 成员类型」，而不是把 union 当聚合下标。
+
+## 第 708 轮：数组元素数被截成 16 位 —— `reachability_visit_cache[241276]` 误报越界
+
+第 707 轮末尾整机 build 停在：
+
+```
+src/checker/symbols.uya:644:1: exec: LOAD_INDEX 越界(
+    idx=241276 base_kind=17 fn=checker_mark_reachability_node_visited ip=39 line=655)
+```
+
+先纠正一个误读：`base_kind=17` 是 **`EXEC_VALUE_ARRAY`**（不是 union），
+也就是字段确实被当成了（原生）数组视图，只是下标被判定越界。
+
+### 根因：字段 imm 里元素数只有 16 位
+
+`exec_builder_pack_field_imm()` 把定长数组的元素个数塞进 imm 的 48..63 位：
+
+```uya
+const arr_count: i64 = ((expr.bool_value - 1) as i64) & (0xFFFF as i64);
+```
+
+`TypeChecker.reachability_visit_cache` 是 `[&ASTNode: 262144]`，
+`(262144-1) & 0xFFFF = 0xFFFF` → 解出来是 **65536** —— 数组视图只有 65536 个元素，
+于是 `arr[241276]`（合法下标）被判越界。
+
+反汇编确认（`--dump-bytecode`）：
+
+```
+37: op=BC_LOAD_FIELD a=10 b=9 c=156000 imm=-260498356436924
+    → fkind=19(ARRAY) pointee=18(POINTER) count=65536(饱和)
+```
+
+### 修复
+
+`exec_vm_native_field_load()` 的 TYPE_ARRAY 分支把 **65536（16 位饱和值）当「无界」**：
+
+```uya
+var type_array_count: i32 = elem_count;
+if elem_count == 65536 { type_array_count = 2147483647; }
+```
+
+理由：C99 侧本来就不做数组边界检查，饱和值只会出现在 ≥65536 元素的数组上，
+把它们当无界与 C 语义一致（真正 65536 元素的数组也只是失去防御性检查，不影响正确性）。
+
+### 验证
+
+| 检查 | 结果 |
+| --- | --- |
+| `/tmp/ptrp5.uya` / `/tmp/ptra2.uya` / `/tmp/ptrp_rep.uya` | `--vm` 与 C99 一致（13 / 7 / 11） |
+| `test_http_uyagin --vm` | 通过 |
+| **全量 census** | **912/912（100%）** |
+
+### 整机 build 又前进一格
+
+越过 `symbols.uya`，进入 `src/checker/check_call.uya:1440`：
+
+```
+exec runtime: src/checker/check_call.uya:1440:1: exec: 指针算术不支持该元素类型
+```
+
+`exec_vm_pointer_add()` 在 `exec_vm_type_kind_size(pointee) == 0`
+（pointee 是 STRUCT/ARRAY/UNION 这类无标量尺寸的类型）时直接报错。
+下一轮：这类指针算术应当改用**指令带的元素步长**（`BC_ADD/BC_SUB` 的 imm）
+或退化成按字节步进，而不是拒绝执行。
