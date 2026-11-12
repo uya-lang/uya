@@ -23917,3 +23917,38 @@ exec runtime: src/lexer.uya:143:1: exec: LOAD_INDEX 越界
 
 `--vm` 跑编译器本体时，光是 lowering + 构建 bytecode 就吃掉 **~4.7GB RSS**
 （C99 编译编译器的峰值是 2543MB）。真要自举得把这层放大收敛掉。
+
+## 第 691 轮：argv 注入保留，容量上调先回退（它踩到同族的字段索引 bug）
+
+第 690 轮的容量上调能让 `--vm` 跑起编译器本体，但 census 复跑暴露一个回归：
+`test_http_uyagin` 挂 `exec: ADDR_INDEX 越界(IDXREF fn=add ip=40 idx=1 kind=14 cnt=-1
+isref=1 pointee=19 line=646 col=52)`，出在
+`lib/std/http/uyagin.uya:647 &self.route_meta[idx]`（`Engine` 里 `[UyaginRouteMeta: 1024]`
+的大内嵌数组字段取地址）。回退三个常量后该用例恢复正常，所以是容量上调把这条路径
+推到了另一个分支上（`cnt=-1` 说明基值是内部引用、元素数未知）。
+
+同族的另一处是第 690 轮记的 `peek_char`（`lexer.buffer[pos]`，`base_kind=0 count=0`）。
+两处都是「大结构体的内嵌数组字段」：VM 只有在**原生结构体**上才会给出 raw array view，
+拿不到基址/元素类型时就退化成聚合语义，而聚合语义里这个数组根本不存在 → 越界或 VOID。
+
+按这个形状试过的 repro 全部**不复现**（1MB 内嵌数组 + `&byte` 强转、数组字段非 0 偏移 +
+init 写入、`&b.items[i]` 取地址 / LOAD_INDEX 两种形状）——说明触发条件比「大数组」更特殊，
+大概率与「结构体本身是不是原生形态」有关（`Engine` / `Lexer` 都可能是 VM 聚合）。
+
+### 本轮保留/回退了什么
+
+- **保留**：宿主 argv 注入全链路。它本身是 VM 语义缺口（`saved_argv` 恒为 null），
+  且验证过 `--` 参数能进解释程序；`run`/`test` 没有 `--` 时仍保持原语义
+  （`saved_argc=1`、`saved_argv=null`），否则 `pipeline_exec_worker_stage_is_enabled_by_default`
+  这类「重启自身进程」的用例会拿到编译器自己的 argv（实测 rc=8）。
+- **回退**：`EXEC_MAX_GLOBALS` / `EXEC_MAX_BYTECODE_INSTRS` / `EXEC_MAX_CONST_POOL_VALUES`
+  三处上调 —— 留着会让 `test_http_uyagin` 挂。要做成自举，得先把这三个静态表改成
+  **堆分配 / 按需增长**（现在 `ConstPoolBuilder.values[32768]`、每函数
+  `BCInstr[65536]` 都是定长内联），再谈上调。
+- `--vm` 自举的进度因此回退到：`--version` 会先撞 `global 数量超出上限`。
+
+### 教训（构建）
+
+改 `EXEC_MAX_*` 这类会改变结构体尺寸的常量后，必须 **`rm -rf src/.uyacache` 全量重建**：
+增量构建里 `.o` 与生成 C 的布局不一致，会得到「同一份源码一次挂一次过」的假象
+（本次就被它骗了两轮）。

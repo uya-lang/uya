@@ -2,9 +2,9 @@
 
 use libc;
 
-const EXEC_MAX_BYTECODE_INSTRS: i32 = 65536;
+const EXEC_MAX_BYTECODE_INSTRS: i32 = 16384;
 // 编译器本体 staged smoke 会带入大量字符串/整数常量，1024 容量过早撞限。
-const EXEC_MAX_CONST_POOL_VALUES: i32 = 32768;
+const EXEC_MAX_CONST_POOL_VALUES: i32 = 8192;
 const EXEC_MAX_HOST_CALL_SITES: i32 = 64;
 // 保持与 lowering 侧一致，避免深 `else if` 链在 cleanup scope 栈上过早撞限。
 const EXEC_MAX_CLEANUP_SCOPE_DEPTH: i32 = 1024;

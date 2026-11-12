@@ -3484,11 +3484,12 @@ export fn main() i32 {
             // 把 `--` 之后那段参数交给解释器：C99 侧是 execve 传 argv，VM 侧没有
             // C 运行时的 `uya_rt_init(argc, argv)`，只能由这里显式注入
             // （否则被解释的 uya 编译器看不到任何命令行参数）。
-            if exec_requested != 0 && get_argv_slot(0) != null {
-                var host_argv_base: i32 = 0;
-                if run_arg_start >= 0 {
-                    host_argv_base = run_arg_start -| 1;  // argv[0] 用被运行的文件名
-                }
+            // 只有显式给了 `--` 参数才注入：没有 `--` 时保持 VM 原语义
+            // （saved_argc=1、saved_argv=null），否则被解释程序会看到编译器
+            // 自己的 argv，依赖 get_argv 的用例（如 pipeline worker 重启自身）
+            // 会拿到错误的参数。
+            if exec_requested != 0 && run_arg_start >= 0 && get_argv_slot(0) != null {
+                const host_argv_base: i32 = run_arg_start -| 1;  // argv[0] 用被运行的文件名
                 const host_argc: i32 = get_argc() -| host_argv_base;
                 exec_set_program_args(host_argc, get_argv_slot(host_argv_base));
             }
