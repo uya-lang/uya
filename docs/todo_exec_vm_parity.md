@@ -23693,3 +23693,79 @@ VM 侧该支持的语义（async 帧、json、SIMD、kernel_sim 其余子用例�
 在 C99 上也一样挂（基线 `b2755c34` 编出的编译器同样复现），是**库层真实 bug**：
 用打点探针复现到 `block_on<i32>(first)` 一直返回 `Pending`，
 而 worker 函数里的打印一次都没出现 —— 提交的任务根本没被任何 worker 执行。
+
+## 第 688 轮：最后 2 例（两个 `dynamic`）挂死根因查清 —— 是库层缺陷，不是后端差异
+
+census 到 910/912，剩下两例在**两条后端上同样**挂死：
+
+- `test_async_thread_pool_dynamic_growth`（rc=137，超时）
+- `test_async_compute_dynamic_resource_pressure`（rc=137，超时）
+
+基线 `b2755c34` 编出的编译器复现同样的挂死，所以不是本轮引入的。
+这一轮把它查到「具体是哪一行、为什么」，并给出结论：修它要动线程池的槽状态机，
+不在 VM 对等范围内，因此**不改**，只记录证据。
+
+### 定位过程（无 ptrace 环境下的办法）
+
+这台机器 `ptrace` 被禁（`gdb -p` 报 `ptrace: 不允许的操作`），core dump 也不落盘，
+所以只能靠打点探针：
+
+1. 把 5 个子用例拆成 5 个单测文件跑 —— **5 个全都挂**，说明不是某个用例特有的
+   （剩下 4 个之所以看起来没挂，是测试框架逐例打完「TEST: ... OK」才输出，
+   第一例挂住时一个字符都看不到）。
+2. 把第一个用例整段搬进 `export fn main()`（探针 `/tmp/tp_probe2.uya`），
+   逐段插 `@println` → 挂在 `block_on<i32>(first)`。
+3. 在 worker 函数 `delayed_add_one_i32` 里插一行打印 —— **一次都没出现**，
+   即「任务提交了，但没有任何 worker 执行它」。
+
+### 根因：`thread_pool_queue_or_error_slot` 无条件把任务从队列里「领走」
+
+```uya
+if thread_pool_enqueue_slot(pool, slot_idx) != 0 {
+    ... 启动 worker ...
+    thread_pool_claim_one_slot(pool);   // ← 这里
+    return slot_idx;
+}
+```
+
+`thread_pool_claim_one_slot` 把队列头的槽 pop 出来标成 `THREAD_SLOT_STATE_DISPATCHED`，
+注释写明「真正的执行交给等待点 `thread_pool_progress_once_for_wait`」。于是：
+
+- **原生（C99）**：真正的 worker 线程本来会自己 pop 这个槽并执行。提交线程抢先 pop
+  之后，worker 看到的是空队列 → 这个槽永远不会被执行，`poll` 每轮都 `Pending`。
+- **exec VM**：等待点 `thread_pool_progress_once_for_wait` 开头有一条
+  `if waker._event_fd == 0 { return 0; }`（第 678 轮为「保住入队/已派发的中间态」加的），
+  而 `Waker{}` 自建的 waker 该字段就是 0 → 等待点也不推进 → 同样永挂。
+
+两边的结果一致：任务卡在 `DISPATCHED`，`block_on` 忙等不返回。
+
+### 试过的修法，以及为什么回退
+
+把 claim 改成只在 exec VM 下执行（`std.cfg(std.backend == .be_exec_vm, { claim }, {})`），
+原生交给真 worker 去 pop。实测（C99）：
+
+- 挂死**消失**了，5 个子用例变成 3 过 2 挂；
+- 过的：`queue_full_returns_task_queue_full`、`configured_capacities_run_past_legacy_task_slots`、
+  `metrics_record_cancelled_async_compute`；
+- 挂的：`configured_queue_applies_backpressure_past_legacy_task_slots`、
+  `metrics_capture_capacity_queue_depth_and_drain_time`；
+- 探针打出的 metrics（两次 poll 之后）本身完全符合预期：
+  `started=1 queue_depth=19 peak=20 running=1 saturation=19`；
+  20 个 `block_on` 里**只有第 8 个（slot 7）**报 `error id=9`（EBADF，稳定复现），
+  其余 19 个都拿到正确值，最后的 drain 指标也对。
+
+也就是说：原生侧真正缺的不是 claim，而是**结果管道 / 槽索引与 fd 的混淆**
+（`async_thread_slot_wait_poll` 用「返回值等不等于 `slot_idx`」来区分「索引」和「fd」，
+槽号与 fd 号撞上时就会把索引当 fd 传进 `sys_read`，返回 EBADF；
+`async_worker_result_poll` 里那段注释记录的就是同一个坑的另一种表现）。
+
+要让这两例真正全绿，需要把槽状态机改成「不依赖 waker 是否带 event fd」的确定性模型
+（或者在 `DISPATCHED` 之后由 `block_on` 自己驱动执行），这会牵动
+`async_scheduler` / `async_event` 那批用例的中间态语义。风险远大于收益，
+而且**它与 VM 对等无关**（C99 一样挂），因此本轮把改动回退，只把结论写在这里。
+
+### 结论
+
+- VM 侧「语义缺失」类问题已经清完：census **910/912（99.8%）**，零新增失败，跳过仍 5 例。
+- 剩下 2 例是**线程池槽状态机的库层缺陷**，两后端同挂在先，不属于执行后端的差距；
+  要修请单独开一轮按上面两条线索（claim 抢任务 / 索引与 fd 混淆）动手。
