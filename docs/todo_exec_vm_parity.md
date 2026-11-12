@@ -24639,3 +24639,47 @@ repro 结果（`--vm`）：`/tmp/ptra2.uya` → `a=7`，`/tmp/ptra_rep.uya` → 
    确认它是否被按 `ExecValue` 读（若是，就该只复制 ptr+count，把数据当不透明字节）；
 2. 或给这类视图加「不可按值复制」的显式标记，让克隆路径直接报错暴露问题点；
 3. 之后再回到 `--vm build` 推进。
+
+## 第 704 轮：`scope_heads` 解决了，崩溃点推进到「宏展开的指针槽」
+
+第 703 轮末尾猜「原生指针数组视图被按值克隆」——**排除了**：
+`exec_value_clone` 对 raw array 走的是 `memcpy(elem_size * count)`，
+指针元素照样只复制地址，不会把原生内存按 `ExecValue` 解。
+
+### 进展：`checker.scope_heads[idx]` 已经通了
+
+把第 702/703 轮的读路径改动重新挂上，打点显示 `checker_scope_head_at` 正常读出：
+
+```
+[dbg-pli] fn=checker_scope_head_at line=348 idx=0 cnt=64 got=0
+[dbg-pli] fn=checker_scope_head_at line=348 idx=0 cnt=64 got=140327824117528
+```
+
+空槽读 0、有值的槽读出真实地址 —— `[&T: N]` 字段的读语义成立。
+
+### 崩溃点推进到 `expand_macros_in_node_simple`
+
+带修复跑整机 build，崩溃点从 checker 换到了宏展开。用 `--trace-vm`（2 100 万行）
+定位到最后一条指令，再用定点打点确认：
+
+```
+[vm] fn=expand_macros_in_node_simple ip=23 op=BC_LOAD_FIELD(40) …
+[dbg-emn] line=4036 ip=23 nk=14 off=0 base=28 bkind=14 isref=0 paddr=28 res=0
+```
+
+`src/checker/macro_expand.uya:4036` 是 `if node.type == ASTNodeType.AST_CALL_EXPR`，
+而 `node` 来自上一行 `const node: &ASTNode = node_ptr[0];` ——
+也就是说**传入的指针槽里装的是 `28`**（一个极小的非法地址），
+`node + 0` 取 `type` 字段（枚举，nk=14）时直接段错误。
+
+`28` 这个值很可疑：它不像地址，更像「某个枚举/索引值被当成指针存进了槽」。
+下一轮要查的是 `expand_macros_in_node_simple` 的**实参是怎么造出来的**：
+调用方传 `&some_pointer_local`（`&&ASTNode`），需要确认
+`ADDR_LOCAL` 建引用之后、CALL 绑参时槽里的值仍是「指针值」而不是被别的写入覆盖
+（该函数在宏展开里递归很频繁，槽复用极易踩到）。
+
+### 本轮仓库状态
+
+读/写指针数组的改动再次**全部回退**（整机 build 仍崩，不能带病提交），
+仓库回到 `181f926b`：census 912/912、make check 1197/1197、种子已重建、
+`--vm --version` 正常、`test_http_uyagin` 复核通过。
