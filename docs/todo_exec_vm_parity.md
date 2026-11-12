@@ -24740,3 +24740,56 @@ fn expand_macros_in_node_simple(checker: &TypeChecker, node_ptr: & & ASTNode) vo
 所有打点已移除，读/写指针数组的改动随整机崩溃一并回退，
 仓库回到 `44ae5e91`（census 912/912、make check 1197/1197、种子已重建、
 `--vm --version` 正常、`test_http_uyagin` 复核通过）。
+
+## 第 706 轮：`&arr[i]` 传参后读成 0 —— 读侧地址对了，取出来的值却不对
+
+第 705 轮把问题压到「实参 `&node.program_decls[i]` 到 CALL 时没有引用编码」。
+这一轮又做了一个更小的 repro 复现同一件事（1 秒级）：
+
+```uya
+struct Holder { items: & &Inner, n: i32 }
+fn take(p: & &Inner) i32 { const v: &Inner = p[0]; if v == null { return 0 - 1; } return v.a; }
+…
+h.items = arr;                 // arr 是 malloc 出来的 &Inner 数组
+arr[3] = ip;                   // ip.a = 13
+@println(h.items[3].a);        // --vm: 13   ✔
+@println(take(&h.items[3]));   // --vm: -1   ✘（v == null）
+```
+
+### 已经排除的部分
+
+| 检查 | 结果 |
+| --- | --- |
+| 直接索引 `h.items[3].a` | 13 ✔ |
+| 程序侧原生读（`arr as &usize` 取 `[3]`） | 读到真实指针 ✔（说明写入确实落进了原生内存） |
+| `ADDR_INDEX`（`&h.items[3]`）打点 | `base` 普通指针、`idx=3`、`stride=8`、`immmk=18(POINTER)` 全对 |
+| 被调方参数 | 普通指针，`paddr = arr + 24`（正是第 3 个元素）✔ |
+| `LOAD_FIELD/STORE/ BC_MOV` 的 aux | 引用编码都保住（第 705 轮已验） |
+
+### 还剩的矛盾：读侧地址对、值不对
+
+在 `take` 里打点 `p[0]` 的加载结果：
+
+```
+[dbg-tli]  line=7 idx=0 bkind=14 aux=18 isref=0 paddr=139764841168968 imm=8
+[dbg-tres] idx=0 kind=14 i64=0 aux=13
+```
+
+`paddr` 已经是 `arr + 24`（正确），`imm=8`（元素 8 字节），
+但 `exec_vm_load_pointer_index` 交回的指针 **i64 = 0**。
+
+也就是说：**同一条地址，写侧落下真实指针、程序侧原生读得到真实指针，
+而 `exec_vm_load_pointer_index` 读出来是 0**。下一步只需在
+`exec_vm_load_pointer_index` 内部把小算盘摊开：
+
+1. 打印它实际用的 `pointee_kind / elem_size / addr`；
+2. 打印 `exec_vm_check_deref_addr` 的判定结果（是否会走到「拒绝解引用」后返回 0）；
+3. 与写侧 `exec_vm_store_pointer_index` 的 `addr` 逐位比对。
+
+三者一比就能定位是「步长算错」「偏移加错」还是「读的是影子槽」。
+
+### 本轮仓库状态
+
+所有打点移除、实验改动回退，仓库回到 `96fc2e47`
+（census 912/912、make check 1197/1197、种子已重建、`--vm --version` 正常、
+`test_http_uyagin` 复核通过）。
