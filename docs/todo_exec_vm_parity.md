@@ -23455,3 +23455,93 @@ ASTNode（把各组字段摊平重建）   sizeof = 1856  align = 8
 - census 复测：AST 从 ~165MB/用例 降到 1/12 之后，单用例峰值与并行预算都要重测；
   `tests/exec_vm_census_mems.txt` 现有额度可能可以下调。
 - 另外两块内存（VM 值竞技场 ~120MB、编译器堆 ~109MB）各自独立，需单独处理。
+
+## 第 684 轮：把「内存爆炸」按死 —— 忙等循环每轮装箱 future（60GB → 1.6MB）
+
+### 现象
+
+`make check` 跑到一半整机没内存（62GB 全占满、0 available）。`ps` 定位到单进程：
+
+```
+1802527  60507496  test_async_thre ...        # RSS ≈ 60GB
+```
+
+### 根因
+
+`block_on` 是忙等循环（`while true { poll }`）。`AsyncWorkerComputeFuture::poll`
+在 Pending 路径上**每一轮**都新建中间 future：
+
+```uya
+const raw_future: Future<!usize> = async_worker_result(self.pool, self.slot_idx);
+```
+
+`async_worker_result` / `async_worker_submit` / `async_worker_cancel` /
+`async_thread_slot_wait` 这些工厂函数都是 `@async_fn`，返回**装箱**的 future
+（`async_box_alloc_current`，帧池在 `lib/std/async_frame.uya`）。装箱出来之后没有人
+释放，而忙等循环一秒跑几十万轮 —— 帧池以每秒 GB 级增长。
+
+### 修法
+
+把四个中间 future 的 poll 实体抽成**不分配**的 free 函数，结构体 `poll` 只做转调：
+
+| free 函数 | 原工厂（仍在，但热路径不再用） |
+| --- | --- |
+| `async_thread_slot_wait_poll` | `async_thread_slot_wait` |
+| `async_worker_submit_poll` | `async_worker_submit` |
+| `async_worker_result_poll` | `async_worker_result` |
+| `async_worker_cancel_poll` | `async_worker_cancel` |
+
+`AsyncWorkerComputeFuture::poll` 改为直接调 `*_poll`，不再每轮装箱。
+
+内存效果（`test_async_thread_pool_dynamic_growth`）：
+
+| | 修前 | 修后 |
+| --- | --- | --- |
+| RSS | 60 507 496 KB | 1.6 MB |
+| VmPeak | 无限增长 | 12 MB |
+
+`tests/test_std_thread.uya` 里三条按源码文本断言的结构守护用例同步改成锁新形态
+（并要求旧的装箱写法**不存在**），防止回退。
+
+### 顺手加的护栏
+
+`tests/run_programs_parallel.sh` 新增 `run_test_binary_with_memory_cap`：
+单用例地址空间上限 `UYA_TEST_MEM_MB`（默认 8192，`0` 关闭），走 subshell
+`ulimit -v`。无限增长型缺陷会在单进程内快速失败，而不是被内核 OOM killer 收走整机。
+验证：`UYA_TEST_MEM_MB=1` 跑普通用例 → 失败；默认值跑 → 通过。
+
+### AST 重叠组的坑：同节点上会同时用的字段**必须同组**
+
+重叠组从偏移 0 开始对齐，`simd_splat_target_type` 上一轮被单独拆成一组，
+写它（组内第 0 项）正好落在同一调用节点的 `call_expr_callee` 上，把调用目标指针
+踩成 0。结果 `a == @vector.splat(5)` 这种「变量对 splat」的写法在 check 阶段误报：
+
+```
+tests/test_simd_sse_lower_i32x4.uya:(7:26): 错误: 向量比较要求左右操作数都是 @vector(T, N)
+```
+
+（`a == a`、`splat == splat` 不受影响，因为 splat 的类型解析路径不依赖
+`call_expr_callee` —— 这就是最初 `make check` 偏偏在这里断开的原因。）
+
+修法：`simd_splat_target_type` 并回 `call_expr` 组。**规则**：拆重叠组时先问
+「这两个字段会不会出现在同一个节点上、且都会被读到」，会 → 必须同组。
+
+### 自举种子
+
+上一轮记的「两阶段自举」坑已经填掉：`make backup-seed` 重生后的种子**认识重叠语法**，
+`rm bin/uya && make uya` 冷启动单步即可（实测 90s 构建成功，且冷启动出来的编译器
+跑 `test_overlap_fields` / `test_simd_sse_lower_i32x4` / `test_std_thread`
+在 C99 与 `--vm` 两条路径上全绿）。
+
+### 当前 `make check` 基线
+
+**1195 / 1197 通过**，剩两个超时，都是**分支既有**问题（A/B 可复现：拿 `b2755c34`
+编出来的基线编译器跑同一用例一样卡）：
+
+- `test_async_thread_pool_dynamic_growth`（>180s，卡在第一个用例
+  `thread_pool_queue_full_returns_task_queue_full_without_fork_fallback`）
+- `test_async_compute_dynamic_resource_pressure`（>60s）
+
+两条用例 **C99 与 `--vm` 都卡**，所以不是 C99 codegen 的问题，更像是 ThreadPool
+「队列满 → `TaskQueueFull`」这条语义在分支上发生了变化（队列不再满，等待循环转不停）。
+下一步从这里切。
