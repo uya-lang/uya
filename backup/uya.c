@@ -15321,6 +15321,11 @@ __attribute__((used)) const int32_t EXEC_VALUE_ARENA_MAX_SEGMENTS = 256;
 #endif
 __attribute__((used)) const int32_t EXEC_VALUE_FALLBACK_MAX = 4096;
 
+#ifdef EXEC_VALUE_RAW_ARRAY_NATIVE_MIN
+#undef EXEC_VALUE_RAW_ARRAY_NATIVE_MIN
+#endif
+__attribute__((used)) const size_t EXEC_VALUE_RAW_ARRAY_NATIVE_MIN = 1048576;
+
 #ifdef EXEC_VALUE_ARENA_SEQ_CST
 #undef EXEC_VALUE_ARENA_SEQ_CST
 #endif
@@ -131131,7 +131136,15 @@ static __attribute__((used)) struct ExecValue exec_value_make_raw_array(int32_t 
     }
     uint8_t * data = NULL;
     if (count > 0) {
-        data = exec_value_alloc_bytes((elem_size * (size_t)count));
+        const size_t raw_bytes = (elem_size * (size_t)count);
+        if (raw_bytes >= EXEC_VALUE_RAW_ARRAY_NATIVE_MIN) {
+            data = (uint8_t *)malloc(raw_bytes);
+            if (data != NULL) {
+                (void)((uint8_t *)memset((char *)(void *)data, 0, raw_bytes));
+            }
+        } else {
+            data = exec_value_alloc_bytes(raw_bytes);
+        }
         if (data == NULL) {
                         {
                 struct ExecValue _uya_ret = exec_make_void();

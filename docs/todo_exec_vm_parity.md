@@ -24593,3 +24593,49 @@ repro 与结论留在 `/tmp/ptra2.uya`、`/tmp/ptra3.uya` 与本文件里。
 2. 若确实是编码值，就在**写入时**统一降级成普通地址（同时保留旁路表登记），
    而不是在读取时猜；
 3. 顺带查上面那个 Uya 指针算术异常。
+
+## 第 703 轮：指针数组读写都补齐了（repro 绿），整机 build 仍崩 → 回退；补完 make check 与种子
+
+### 本轮改动（在 repro 上验证通过，整机 build 仍崩，已回退）
+
+第 702 轮只补了读路径的「原生内存 + 指针元素」一半，这一轮把**写侧**也补上：
+
+1. 读侧沿用：`LOAD_INDEX` 命中「指针元素 + 原生承载」时，用
+   `exec_vm_raw_array_element_ptr()` 拿元素地址、按 8 字节读出普通地址，
+   建 pointee=VOID 的指针（不走会多解一层的 `exec_vm_load_pointer_index`）。
+2. 写侧新增：`STORE_INDEX` 往原生指针数组写值时，若值本身是**内部引用**
+   （`exec_vm_pointer_is_internal_ref != 0`），先用新助手
+   `exec_vm_pointer_plain_address()` 沿引用链解成**普通地址**再写进去。
+   理由：原生内存里只能存普通地址，存进去槽地址，读回来当指针用必崩。
+
+repro 结果（`--vm`）：`/tmp/ptra2.uya` → `a=7`，`/tmp/ptra_rep.uya` → `a=7`。
+
+### 整机 build 仍 SIGSEGV
+
+```
+./bin/uya run --vm src/main.uya -- build /tmp/hello_vm.uya -o … --split-c-dir …
+→ SIGSEGV（连 checker_scope_head_at 的报错都没到）
+```
+
+说明还有第三条路径在碰这类数组。当前最可疑的是「**原生指针数组视图被按值传递/克隆**」：
+`exec_value_clone` 之类如果按 `count` 把元素当 `ExecValue` 读，
+原生内存（普通地址）就会被解释成 ExecValue 头，指针全成垃圾。
+按仓库纪律，本轮改动**全部回退**到 `33861653`。
+
+### 本轮补完的硬指标
+
+| 项目 | 结果 |
+| --- | --- |
+| `make check`（C99 全量） | **1197/1197 通过**（自举 + 全套验证） |
+| 自举种子 | `make backup-seed` 重新生成并随本轮提交 |
+| exec VM census | 912/912（在 `33861653` 上已验证） |
+
+也就是目标里的「不引入回归 + 自举种子可用」这一半持续成立，
+只剩 `--vm build` 自举本身与加载阶段内存（详见前面几轮）。
+
+### 下一轮
+
+1. 在 `exec_value_clone` / 按值传参 / 返回 路径上给「原生指针数组视图」打点，
+   确认它是否被按 `ExecValue` 读（若是，就该只复制 ptr+count，把数据当不透明字节）；
+2. 或给这类视图加「不可按值复制」的显式标记，让克隆路径直接报错暴露问题点；
+3. 之后再回到 `--vm build` 推进。
