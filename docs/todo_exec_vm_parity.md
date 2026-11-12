@@ -24244,3 +24244,61 @@ LOAD_FIELD/ADDR_FIELD 的 VOID 回退）在 C99 侧跑了一遍完整回归：
 
 配合此前的 exec VM census **912/912** 与本轮重建的自举种子，
 `goal` 里「不引入回归 + 种子可重建」这一半已经成立；剩下的是 `--vm build` 自举本身。
+
+## 第 697 轮：`lexer_buffer_ptr_at` 的指针到底是什么 —— 它就是 Lexer 本体
+
+第 696 轮结论是「不能再猜判定条件，要从字节码倒推指针来源」。这一轮照做。
+
+### 字节码路径
+
+```
+fn[666] lexer_buffer_ptr_at slots=15 params=2
+ 17: BC_ADDR_LOCAL a=12 b=0 c=18      // &param0（对形参取址 → 内部引用）
+ 18: BC_ADDR_FIELD a=11 b=12 c=660499 // &(*param0).buffer（off=0）
+ 19: BC_LOAD_LOCAL a=13 b=1           // idx
+ 20: BC_ADDR_INDEX a=10 b=11 c=13     // &base[idx]   ← 在这里越界
+```
+
+`ADDR_FIELD` 的基址是「对 `&Lexer` 形参取址」得到的引用，沿链解一层就拿到
+Lexer 指针本身，然后 `field_native_base` 判它「VM 驻留」→ 返回 0 → 走聚合 → 报错。
+
+### 决定性证据：那个地址处的内存是**源码文本**
+
+在 `exec_vm_field_native_base` 的「plain 指针 + 驻留」分支打印该地址前 24 字节：
+
+```
+[dbg-head] depth=1 addr=140151633826504 pointee=16 head=use std;
+```
+
+`Lexer` 的第一个字段就是 `buffer: [byte: 1024*1024]`，所以**这块内存确实是 Lexer 本体**，
+而且在 `depth=1`（沿引用解一层之后）就已经是它。也就是说：
+
+> Lexer 本体确实住在「被 VM 判成 arena 驻留」的地址上，但它不是 ExecValue 数组。
+
+这与第 695/696 轮的三条证伪并不矛盾：它不是「原生布局的 spill 块」（按原生结构体读会崩），
+也不是「未登记的 ExecValue 数组」，而是**编译器自己的堆内存**，其地址恰好落在
+VM 值 arena 的段范围内。
+
+### 下一步只剩一个方向：查清「编译器堆」为什么落在 arena 段里
+
+两条待验证的具体路径（下一轮直接测）：
+
+1. VM 的竞技场段是 `malloc(200MB)` 拿的；而编译器堆也是同一个 `heap.uya`
+   （`--vm` 下 `sys_mmap` 走 `BC_SYSCALL` → `exec_vm_exec_syscall`）。如果
+   `heap.uya` 把 arena 那段 200MB 从**同一个 chunk** 里切出来，随后又把编译器
+   的 1MB 块从该 chunk 的**剩余部分**切出来，就可能落在 `[lo, hi)` 里 ——
+   这需要打印 arena 段地址与 Lexer 地址做一次同场对比，而不是分两次跑。
+2. `BC_SYSCALL` 的 mmap 到底有没有真的转发到宿主（`exec_vm_exec_syscall`
+   对 0/1/20/56/435 有专门分支，其余走通用转发），以及 `heap.uya` 在 mmap
+   失败时是否有静态回退区（若回退到 BSS 全局数组，那它在 VM 里也是驻留内存）。
+
+两条都能一次打点回答。修法取决于答案：
+- 若「编译器堆确实在 arena 段内」→ VM 必须能区分「arena 里的原生字节块」与
+  「ExecValue 数组」，而**判据不能再只看地址范围**（第 695 轮已经证明单看范围会崩），
+  要么在分配侧登记「这是原生块」，要么把程序堆挪出 arena 段。
+- 若「mmap 被模拟、堆其实在回退区」→ 修 `BC_SYSCALL` 的 mmap 转发即可。
+
+### 本轮仓库状态
+
+实验打点全部移除，工作区与 `002b5ec3` 一致（census 912/912、make check 1197/1197、
+`--vm --version` 正常、`test_http_uyagin` 复核通过）。本轮只追加文档。
