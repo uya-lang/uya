@@ -24530,3 +24530,66 @@ stage1..stage4（store 成功）
    `exec_value_is_raw_array` / `exec_value_raw_array_ptr` 的判定是否仍成立；
 3. 若视图本身没问题，那就是 `LOAD_FIELD` 传给它的 `addr`（字段地址）不对 ——
    回头查 `exec_vm_field_imm_kind(instr.imm, 32)`/`instr.c` 里数组字段的 offset 拆包。
+
+## 第 702 轮：指针数组的读路径修好了（repro 全绿），但整机 build 仍崩
+
+接着第 701 轮的秒级 repro 继续。这一轮把**读路径**修通了，也踩到一个很可疑的
+「Uya 侧指针算术」问题。
+
+### 修法（repro 已验证）
+
+1. `exec_vm_native_field_load` 的 TYPE_ARRAY 分支：对**非驻留（原生）内存**上的
+   `[&T: N]` 字段也给出原生数组视图（此前指针元素一律被拒 → 字段读成 VOID）。
+2. `LOAD_INDEX` 的 raw array 分支，命中「指针元素 + 原生承载」时：
+   用 `exec_vm_raw_array_element_ptr()` 拿到元素地址，**按 8 字节读出地址**，
+   建一个 pointee=VOID 的普通指针（不再走 `exec_vm_load_pointer_index`，那条路径
+   会按「指针的指针」多解一层）。
+   关键限定：`li_native_backed = !exec_vm_address_is_vm_resident(ptr)`——
+   arena 承载的 raw array 元素是 `ExecValue`（指针带引用编码），必须继续走老路径。
+
+效果（`--vm`）：
+
+```
+/tmp/ptra2.uya     -> a= 7     （stage1..stage6 全过）
+/tmp/ptra_rep.uya  -> a= 7
+test_http_uyagin / test_kernel_sim / test_async_compute_types ×2 -> 全过
+```
+
+### 踩到的可疑点：Uya 侧手算指针地址会算错
+
+第一版读路径是手写地址算术：
+
+```uya
+const li_addr: usize = @usize_from_ptr(li_base as &void) +| (8 as usize) * (index_value as usize);
+```
+
+打点显示 `ptr=140371977203776` 打印正确，但紧接着 `li_addr` 变成
+`18446744073270620224`（一个负数模 2^64 的形状）—— 于是读取必崩。
+换成 `exec_vm_raw_array_element_ptr()` 给出的地址后一切正常。
+**这是一个独立于本 bug 的可疑代码生成问题**（`@usize_from_ptr` 在结构体字段表达式上
++ 饱和加法 `+|` 的组合），已记在这里，等 VM 自举打通后单独查。
+
+### 但整机 `--vm build` 还是崩
+
+带这两处修复跑自举：
+
+```
+./bin/uya run --vm src/main.uya -- build /tmp/hello_vm.uya -o … --split-c-dir …
+→ SIGSEGV（连原来的 checker_scope_head_at 报错都没到）
+```
+
+说明编译器里还有**另一种**指针数组模式：很可能是「原生承载的 raw array 里存的是
+VM 编码过的指针」（例如把 `&T` 局部变量的内部引用直接写进数组），
+按原生 8 字节读出来就是槽地址/编码值，一解引用必崩。
+
+按仓库纪律，本轮把这些改动**全部回退**，回到已验证提交 `33861653`
+（census 912/912、`--vm --version` 正常、`test_http_uyagin` 复核通过），
+repro 与结论留在 `/tmp/ptra2.uya`、`/tmp/ptra3.uya` 与本文件里。
+
+### 下一轮
+
+1. 在自举构建里给「指针写进原生数组」的 `STORE_INDEX` 路径打点，
+   确认写入的是普通地址还是带编码的内部引用；
+2. 若确实是编码值，就在**写入时**统一降级成普通地址（同时保留旁路表登记），
+   而不是在读取时猜；
+3. 顺带查上面那个 Uya 指针算术异常。
