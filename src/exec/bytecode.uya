@@ -151,4 +151,10 @@ struct BCProgram {
     // std.runtime 的 saved_argc 全局槽位；未导入时为 -1（VM 没有 C 运行时的 argc 注入）
     saved_argc_global_index: i32,
     saved_envp_global_index: i32,
+    saved_argv_global_index: i32,
+    // 宿主（编译器进程）传给被解释程序的 argv。解释器没有 C 运行时的
+    // `uya_rt_init(argc, argv)`，只能由宿主显式注入（见 `vm_run_program`）。
+    // host_argc <= 0 表示「只有程序名」，此时 saved_argc 退化为 1。
+    host_argc: i32,
+    host_argv: & &byte,
 }

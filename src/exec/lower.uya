@@ -5,7 +5,7 @@ use ast;
 
 const EXEC_MAX_LOCALS: i32 = 1024;
 // 保持平铺数组查找的热路径简单，同时给编译器本体 staged smoke 留足全局槽位。
-const EXEC_MAX_GLOBALS: i32 = 1024;
+const EXEC_MAX_GLOBALS: i32 = 4096;
 // `else if` 会在 AST 中嵌套成深链；编译器本体的 SIMD codegen 路径会明显超过 64 层。
 const EXEC_MAX_SCOPE_DEPTH: i32 = 512;
 const EXEC_MAX_INTERFACE_METHODS: i32 = 64;

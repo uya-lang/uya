@@ -9818,10 +9818,21 @@ export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
             return 1;
         }
     }
-    // VM 没有 C 运行时的 `uya_rt_init(argc, argv)`：把 `std.runtime.saved_argc`
-    // 补成 1（只有程序名），让 `get_argc`/`get_argv` 在 VM 里也自洽。
+    // VM 没有 C 运行时的 `uya_rt_init(argc, argv)`：由宿主（编译器入口）把
+    // `run`/`test` 的 `--` 之后那段参数注入 `std.runtime.saved_argc` / `saved_argv`，
+    // 让 `get_argc`/`get_argv` 在 VM 里与 C99 语义一致（之前只把 argc 补成 1
+    // 且不设 argv，被解释的 uya 编译器因此看不到任何命令行参数）。
+    var vm_argc: i32 = 1;
+    if program.host_argc > 0 {
+        vm_argc = program.host_argc;
+    }
     if program.saved_argc_global_index >= 0 && program.saved_argc_global_index < program.global_count {
-        program.globals[program.saved_argc_global_index] = exec_make_i32(1);
+        program.globals[program.saved_argc_global_index] = exec_make_i32(vm_argc);
+    }
+    if program.saved_argv_global_index >= 0 && program.saved_argv_global_index < program.global_count &&
+        program.host_argv != null {
+        program.globals[program.saved_argv_global_index] = exec_make_pointer_with_kind(
+            @usize_from_ptr(program.host_argv as &void), TypeKind.TYPE_POINTER as i32);
     }
     // `saved_envp: &&byte` 指向**编译器进程自己的**环境表（`std.runtime.saved_envp`
     // 由编译器入口填好）。解释器与 C99 子进程继承同一份环境，语义一致。

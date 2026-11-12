@@ -23839,3 +23839,81 @@ exec VM 覆盖普查结果
 `make check`（C99 全量，1197 个）见提交说明。这一轮之后 exec VM 后端
 在全量用例上已经**没有语义缺口**：剩下的 5 条跳过用例是「C99 也同样不适用」
 （见 `tests/exec_vm_census_skip.txt` 的逐条理由），不是 VM 特例。
+
+## 第 690 轮：`--vm` 让解释器跑起编译器本体 —— 缺的是 argv 注入，不是容量
+
+第 689 轮之后 census 已经 912/912。这一轮回答另一个问题：**能不能用 `--vm` 自举**。
+
+### 结论（阶段性）
+
+`./bin/uya run --vm src/main.uya -- --version` 现在能输出 **v0.11.0** ——
+解释器真的把 uya 编译器本体跑起来了。要到「真自举」（`--vm` 下 build 出可运行二进制）
+还差两处：VM 的一个字段索引 bug（见下）和加载阶段 ~4.7GB 的内存占用。
+
+### 第一道墙：argv 根本没进解释器（根因，最要紧）
+
+`vm_run_program` 原来只做了一件事：
+
+```uya
+program.globals[program.saved_argc_global_index] = exec_make_i32(1);
+```
+
+也就是**只把 argc 补成 1，`saved_argv` 一直是 null**。于是被解释的 uya 编译器
+`get_argc()` 拿到 1、`get_argv(1)` 拿到 null —— 它看不到 `--version`、看不到输入文件，
+只能走「没有参数」的分支（实测这一支会在加载后就闷头做重活，把 arena 撑到 19GB 才失败）。
+C99 侧是 `std.runtime.entry` 的 C `main(argc, argv)` 写进 `saved_argc/saved_argv`，
+VM 侧没有 C 运行时，必须由宿主显式注入。
+
+改法（四段接线）：
+
+1. `src/exec/bytecode.uya`：`BCProgram` 增加
+   `saved_argv_global_index`、`host_argc`、`host_argv` 三个字段。
+2. `src/exec/builder.uya`：像找 `saved_argc` 那样找 `saved_argv` 全局槽；默认
+   `host_argc = 0`、`host_argv = null`。
+3. `src/exec/main.uya`：新增
+   `export fn exec_set_program_args(argc: i32, argv: & &byte) void`，
+   `exec_run_program()` 里把它写进 `g_exec_bc_program.host_*`。
+4. `src/exec/vm.uya` `vm_run_program`：`host_argc > 0` 时注入
+   `saved_argc = host_argc`、`saved_argv = <指针>`（`exec_make_pointer_with_kind(...,
+   TYPE_POINTER)`，和 `saved_envp` 同一套）。
+5. `src/main.uya`：`run`/`test` 的 `--` 之后那段参数交给 exec 后端 ——
+   `argv[0]` 用被运行的文件名（`run_arg_start -| 1`），`argc = get_argc() -| base`。
+6. `lib/std/runtime/runtime.uya`：新增
+   `export fn get_argv_slot(index: i32) & &byte`（把 `&saved_argv[i]` 取址放在拥有
+   该全局的模块里；直接在 main.uya 里对导入全局取下标会生成非法 C：
+   `subscripted value is neither array nor pointer nor vector`）。
+
+### 第二道墙：静态容量表（编译器本体太大）
+
+按顺序撞到并已上调（都在 `src/exec/`，注释说明用途）：
+
+| 常量 | 原值 | 现值 | 撞墙点 |
+| --- | --- | --- | --- |
+| `EXEC_MAX_GLOBALS` | 1024 | 4096 | `./lib/libc/pthread.uya:104:1: exec: global 数量超出上限` |
+| `EXEC_MAX_BYTECODE_INSTRS` | 16384 | 65536 | `src/codegen/c99/main.uya:2220:1: exec: bytecode 指令超出上限` |
+| `EXEC_MAX_CONST_POOL_VALUES` | 8192 | 32768 | 同步上调（同量级） |
+
+### 第三道墙（未修）：`peek_char` 的 LOAD_INDEX 越界
+
+`--vm` 下真正开始 build 一个文件时报：
+
+```
+exec runtime: src/lexer.uya:143:1: exec: LOAD_INDEX 越界
+(idx=0 base_kind=0 count=0 fn=peek_char ip=15 line=148 col=24)
+```
+
+`peek_char` 干的是 `lexer.buffer[pos]`，`Lexer.buffer` 是**内嵌数组**
+`[byte: 1024*1024]`，而 Lexer 本身是
+`compiler_arena_alloc(&arena, HOST_SIZE_LEXER_BYTES) as &Lexer` 强转出来的指针。
+`base_kind=0 count=0` 说明被索引的基值已经既不是指针、也不是数组聚合 ——
+字段读回来的 kind 丢了。
+
+按这个形状试了三个最小 repro（结构体指针字段 + `&Struct` 形参索引；1MB 内嵌数组 +
+`&byte` 强转；数组字段放在非 0 偏移 + init 函数写入）——**三个在 C99 和 `--vm` 上都正常**，
+所以触发条件还要更特殊（大概率与「大结构体被 spill 成 native aggregate 之后
+再读内嵌数组字段」有关）。这一条留给下一轮。
+
+### 另外记一笔：加载阶段内存
+
+`--vm` 跑编译器本体时，光是 lowering + 构建 bytecode 就吃掉 **~4.7GB RSS**
+（C99 编译编译器的峰值是 2543MB）。真要自举得把这层放大收敛掉。

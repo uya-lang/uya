@@ -2,9 +2,9 @@
 
 use libc;
 
-const EXEC_MAX_BYTECODE_INSTRS: i32 = 16384;
+const EXEC_MAX_BYTECODE_INSTRS: i32 = 65536;
 // 编译器本体 staged smoke 会带入大量字符串/整数常量，1024 容量过早撞限。
-const EXEC_MAX_CONST_POOL_VALUES: i32 = 8192;
+const EXEC_MAX_CONST_POOL_VALUES: i32 = 32768;
 const EXEC_MAX_HOST_CALL_SITES: i32 = 64;
 // 保持与 lowering 侧一致，避免深 `else if` 链在 cleanup scope 栈上过早撞限。
 const EXEC_MAX_CLEANUP_SCOPE_DEPTH: i32 = 1024;
@@ -5691,6 +5691,18 @@ export fn exec_build_bytecode(arena: &CompilerArena, checker: &TypeChecker, modu
         }
         argc_global_i = argc_global_i + 1;
     }
+    program.saved_argv_global_index = -1;
+    var argv_global_i: i32 = 0;
+    while argv_global_i < module.global_count {
+        if module.globals != null && module.globals[argv_global_i].name != null &&
+            str_equals(module.globals[argv_global_i].name, "saved_argv" as &byte) != 0 {
+            program.saved_argv_global_index = argv_global_i;
+            break;
+        }
+        argv_global_i = argv_global_i + 1;
+    }
+    program.host_argc = 0;
+    program.host_argv = null;
     program.saved_envp_global_index = -1;
     var envp_global_i: i32 = 0;
     while envp_global_i < module.global_count {

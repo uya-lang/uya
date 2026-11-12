@@ -30,6 +30,10 @@ var g_exec_bc_program: &BCProgram = null;
 var g_exec_last_lower_time_ms: i64 = 0;
 var g_exec_last_bytecode_build_time_ms: i64 = 0;
 var g_exec_last_vm_run_time_ms: i64 = 0;
+// `run`/`test` 的 `--` 之后那段参数（被解释程序的 argv）。解释器没有 C 运行时的
+// `uya_rt_init(argc, argv)`，所以由编译器入口显式注入。
+var g_exec_program_argc: i32 = 0;
+var g_exec_program_argv: & &byte = null;
 
 fn exec_write_error_prefix(node: &ASTNode) i32 {
     if node != null && node.filename != null {
@@ -449,6 +453,15 @@ fn exec_c_import_prepare_bridge(program: &ASTNode) i32 {
     return 0;
 }
 
+/// 登记被解释程序的命令行参数（`run`/`test` 的 `--` 之后那一段）。
+/// 参数：`argc` 参数个数（含程序名）；`argv` 参数表（`argv[0]` 是程序名）。
+/// 返回值：无。下一次 `exec_run_program()` 会把它们注入
+/// `std.runtime.saved_argc` / `saved_argv`。
+export fn exec_set_program_args(argc: i32, argv: & &byte) void {
+    g_exec_program_argc = argc;
+    g_exec_program_argv = argv;
+}
+
 /// 运行最近一次由 exec backend 构建完成的程序。
 /// 参数：无，运行目标来自最近一次 `exec_build_program(...)` 成功产物。
 /// 返回值：成功时返回程序退出码；失败时返回非 0。
@@ -457,6 +470,8 @@ export fn exec_run_program() i32 {
         exec_backend_set_error(null, "exec: 尚无可运行的 bytecode 程序" as *byte, 0);
         return 1;
     }
+    g_exec_bc_program.host_argc = g_exec_program_argc;
+    g_exec_bc_program.host_argv = g_exec_program_argv;
     const run_start_time: i64 = clock();
     const exit_code: i32 = vm_run_program(g_exec_bc_program, g_exec_trace_vm_enabled);
     // VM 在编译器进程内运行，Uya stdio 带行/块缓冲：返回前显式 flush，
