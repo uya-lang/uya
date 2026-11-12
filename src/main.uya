@@ -3017,6 +3017,17 @@ export fn main() i32 {
 
     // 临时缓冲区用于自动生成输出路径
     var auto_output_path: [byte: PATH_MAX] = [];
+    // 自动生成的临时 C 文件（`$TMPDIR/uya_output_<pid>.c`）：命令结束时删除。
+    // 以前从不删除，`make check` 一遍就留 2 400 个文件，几十遍之后 `$TMPDIR`
+    // 里堆了 4 万多个 `.c`（21 GB）——`/tmp` 是 tmpfs 时这些文件本身就是内存，
+    // 足以把整机撑到 OOM。
+    var auto_c_temp_owned: i32 = 0;
+    defer {
+        if auto_c_temp_owned != 0 {
+            _ = unlink(&auto_output_path[0] as *byte);
+            auto_c_temp_owned = 0;
+        }
+    }
 
     if parse_args(&command, &input_files, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &opt_level, &outlibc_index, &run_arg_start, &is_nostdlib, &stack_size, &async_frame_heap_fallback, &exec_requested, &exec_only, &dump_exec_hir, &dump_bytecode, &trace_vm) != 0 {
         return 1;
@@ -3120,6 +3131,7 @@ export fn main() i32 {
             fprintf(libc.stderr, "错误：无法生成临时输出路径\n" as *byte);
             return 1;
         }
+        auto_c_temp_owned = 1;
         output_file_index = -2;  // 标记为自动生成的路径
         backend = BackendType.BACKEND_C99;  // build 模式默认使用 C99 后端
     }
@@ -3137,6 +3149,7 @@ export fn main() i32 {
             fprintf(libc.stderr, "错误: 无法生成临时输出路径\n" as *byte);
             return 1;
         }
+        auto_c_temp_owned = 1;
         output_file_index = -2;  // 标记为自动生成的路径
         backend = BackendType.BACKEND_C99;  // run/test 模式默认使用 C99 后端
     }
@@ -3170,6 +3183,7 @@ export fn main() i32 {
                     fprintf(libc.stderr, "错误: 无法生成临时输出路径\n" as *byte);
                     return 1;
                 }
+                auto_c_temp_owned = 1;
                 output_file_index = -2;  // 标记为自动生成的路径
                 backend = BackendType.BACKEND_C99;
             }
@@ -3556,6 +3570,9 @@ export fn main() i32 {
         }
         const run_result: i32 = system(&run_cmd[0] as *byte);
         const child_exit: i32 = exit_code_from_system_status(run_result);
+        // 运行结束立刻删除临时可执行文件（`$TMPDIR/uya_out_<pid>`）：
+        // run/test 是测试回归的主力路径，一遍全量回归就留 1 200 个可执行文件。
+        _ = unlink(&run_output[0] as *byte);
         if command == CommandType.COMMAND_TEST {
             const cleanup_result: i32 = system("/bin/sh -c 'rm -f /tmp/uya_allow_skip_network'" as *byte);
             if cleanup_result != 0 {
