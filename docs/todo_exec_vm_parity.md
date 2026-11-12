@@ -23952,3 +23952,83 @@ init 写入、`&b.items[i]` 取地址 / LOAD_INDEX 两种形状）——说明�
 改 `EXEC_MAX_*` 这类会改变结构体尺寸的常量后，必须 **`rm -rf src/.uyacache` 全量重建**：
 增量构建里 `.o` 与生成 C 的布局不一致，会得到「同一份源码一次挂一次过」的假象
 （本次就被它骗了两轮）。
+
+## 第 692 轮：自举又近一步，但「堆化定长表」这一版不安全，回退
+
+第 691 轮回退了容量上调（它把 `test_http_uyagin` 顶到 ADDR_INDEX 越界）。
+这一轮先把那个「回归」的真正原因查清，再试着把定长表堆化 —— 堆化能跑通
+`--vm` 自举的 `--version`，但会让 async 用例**随机段错**，所以最终**回退**，
+只留下结论和证据。
+
+### 结论一：上次的「语义回归」其实是内存压力
+
+`exec_builder_emit` 原来按上限一次性分配指令数组：
+
+```uya
+compiler_arena_alloc(ctx.arena, @size_of(BCInstr) * EXEC_MAX_BYTECODE_INSTRS)
+```
+
+`EXEC_MAX_BYTECODE_INSTRS` 抬到 65536 后，**每个函数**就是 3MB 级 arena 占用，
+编译器本体上千个函数直接把内存顶爆。压力下聚合/原生分配失败，VM 里就表现为
+「字段读成 VOID」「内部引用 count=-1」这类看起来像类型语义错误的现象 ——
+上一轮的 `ADDR_INDEX 越界(IDXREF … cnt=-1)` 正是这么来的。把常量改回 1024 就消失。
+
+### 结论二：堆化能通 `--version`，但会破坏 async 稳定性（所以回退）
+
+试的两处改动：
+
+1. `ExecConstPoolBuilder.values`：`[ExecValue: 8192]`（内联 458KB）→
+   指针 + capacity + 翻倍增长（`exec_builder_const_pool_grow`）。
+2. `ExecFunctionBuildContext`：新增 `instr_capacity` + `exec_builder_instr_grow`，
+   `exec_builder_emit` 不再有「指令超上限」的硬失败。
+
+效果与代价：
+
+| 版本 | `run --vm src/main.uya -- --version` | `test_async_compute_types --vm`（跑 4 次） |
+| --- | --- | --- |
+| 已提交基线（d61b1009） | 撞 global 上限 | **4/4 通过** |
+| 只堆化 const pool | 撞 global 上限 | 3/4（1 次 rc=139 段错） |
+| const pool + instr 扩容（首次 256） | — | 4/4 段错 |
+| const pool + instr 扩容（首次按上限） | **v0.11.0（峰值 5.1GB）** | 1/4 通过 |
+
+也就是说：**只要动这两张表的分配方式，async 用例就开始随机段错**，
+越接近「少预分配」越严重。基线在同样 4 次里 0 次崩溃。
+这不是内存上限问题（8GB/4GB 限额下都会崩），是真实的**内存损坏**，
+而 async 测试（线程池 + 帧池 + 大量跳转）是最敏感的探针。
+
+判断：这两张表的分配与 VM 里「内部引用/VOID 兜底」的假设绑得太紧
+（字段读到 VOID 时很多地方是**静默退化成空聚合**而不是报错），
+改动分配方式就会让某条路径提前拿到未初始化/已搬移的槽位。
+在把「VOID 兜底」和「扩容搬移」这两件事理清之前，不再动这两张表 ——
+所以本轮把 `src/exec/builder.uya`、`src/exec/lower.uya` 全部回退，
+仓库回到「census 912/912 + async 稳定」的状态。
+
+### 结论三：`--vm` 自举的下一步卡点（证据留档）
+
+`--split-c-dir` 绕过 `.uyacache` 锁之后（解释器里跑编译器时，内外两层会抢同一个
+缓存锁目录），自举 `build` 卡在 `src/lexer.uya:148` 的 LOAD_INDEX。打点结果：
+
+```
+[dbg-lf] fn=peek_char line=148 off=0 pointee=10 cnt=65536 base=0 done=0 bkind=14 isref=0
+[dbg-lf]   addr=140141122433736 pointee_of_base=16 aux=16
+[dbg-res] addr=140141122433736 SEG i=0 lo=140140968849472 hi=140141178564672
+[dbg-lf]   null=0 count=0 kind=0
+```
+
+`peek_char` 里 `lexer.buffer` 的基址指针**落在 VM 值 arena 段内**，
+但 `aux` 里是普通 pointee kind（16），没有内部引用编码
+（`exec_vm_pointer_is_internal_ref` 比的是 `EXEC_VM_REF_KIND_BASE +| kind`）。
+于是 `exec_vm_field_native_base` 判定「VM 驻留」返回 0 → 走聚合路径 →
+`exec_vm_field_ref` 给出 `kind=0 (VOID)` 的字段 → LOAD_INDEX 越界。
+
+下一步方向：**凡是把「VM 聚合元素地址」交给程序的地方都必须带内部引用编码**。
+这条修完，再谈（用稳定版策略）把 global 表堆化以突破 1024 上限 ——
+`--vm --version` 需要的正是 global > 1024。
+
+### 教训
+
+1. 改 `EXEC_MAX_*` 这类会改变结构体尺寸的常量后，必须 `rm -rf src/.uyacache`
+   全量重建（增量构建会出现 .o 与生成 C 布局不一致的假象，本轮被骗两次）。
+2. 判断「有没有回归」不能只跑一次：async 系列要重复跑 4 次以上看是否随机段错，
+   否则会把 3/4 崩溃的版本当成「通过」提交。
+3. 解释器里跑编译器要 `--split-c-dir`，否则内外两层编译进程抢 `.uyacache` 锁。
