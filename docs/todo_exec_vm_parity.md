@@ -26759,3 +26759,9 @@ parse/merge/prepass/exports/macros/embed 干净、`checker_check_node` 之后变
 
 - 探针已全部撤销（`git status --porcelain` 为空），`make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
 - census36 在后台跑，结果补记在下一轮。
+
+### 补记（census36）
+
+- census36：**912/912 通过，0 失败，5 跳过，rc=0**（本轮只有文档改动，探针已撤销）。
+- `C99_MAX_STRUCT_DEFINITIONS` 与 `struct_definitions` 数组维度一致（都是 1024），
+  所以「表越界写进相邻缓冲区」这条线要先看**别的**定长数组/结构体字段排布。
