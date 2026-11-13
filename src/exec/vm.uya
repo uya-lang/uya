@@ -3488,6 +3488,95 @@ fn exec_vm_scalar_from_bytes(kind: ExecValueKind, src: &byte, count: usize, out_
     return 0;
 }
 
+/// 把 `offset` 上取整到 `align` 的整数倍（C99 结构体布局的对齐填充）。
+///
+/// 参数：`offset` 当前偏移；`align` 对齐字节数（1/2/4/8）。
+/// 返回值：对齐后的偏移。
+fn exec_vm_align_up(offset: usize, align: usize) usize {
+    if align <= 1 as usize {
+        return offset;
+    }
+    const rem: usize = offset % align;
+    if rem == 0 as usize {
+        return offset;
+    }
+    return offset +| (align -| rem);
+}
+
+/// VM 值在 C 布局里的**自然对齐**：i64/f64/指针/isize/usize 对齐 8，i32/f32 对齐 4，
+/// i16 对齐 2，其余 1；聚合取成员最大对齐。
+///
+/// 参数：`value` 待测的 VM 值。
+/// 返回值：对齐字节数（至少 1）。
+fn exec_vm_value_byte_align(value: &ExecValue) usize {
+    if value == null {
+        return 1 as usize;
+    }
+    const scalar_width: usize = exec_vm_scalar_width_bytes(value.kind);
+    if scalar_width >= 8 as usize {
+        return 8 as usize;
+    }
+    if scalar_width >= 4 as usize {
+        return 4 as usize;
+    }
+    if scalar_width == 2 as usize {
+        return 2 as usize;
+    }
+    if scalar_width > 0 as usize {
+        return 1 as usize;
+    }
+    if exec_value_is_raw_array(value) != 0 {
+        // 原生数组：对齐取元素对齐（元素宽度就是对齐的近似上界）。
+        const raw_elem: usize = exec_vm_type_kind_size(value.aux_i64_value as i32);
+        if raw_elem >= 8 as usize {
+            return 8 as usize;
+        }
+        if raw_elem >= 4 as usize {
+            return 4 as usize;
+        }
+        if raw_elem == 2 as usize {
+            return 2 as usize;
+        }
+        return 1 as usize;
+    }
+    const aggregate: &ExecAggregate = exec_value_as_aggregate(value);
+    if aggregate == null || aggregate.values == null || aggregate.count <= 0 {
+        return 1 as usize;
+    }
+    var best: usize = 1 as usize;
+    var i: i32 = 0;
+    while i < aggregate.count {
+        const elem_align: usize = exec_vm_value_byte_align(&aggregate.values[i]);
+        if elem_align > best {
+            best = elem_align;
+        }
+        i = i + 1;
+    }
+    return best;
+}
+
+/// 聚合第 `index` 个元素在 C 布局里的字节偏移（前面每个成员都按自然对齐填充）。
+///
+/// 参数：`aggregate` 聚合；`index` 元素下标。
+/// 返回值：字节偏移；`index` 越界时返回聚合总宽度。
+fn exec_vm_aggregate_elem_offset(aggregate: &ExecAggregate, index: i32) usize {
+    if aggregate == null || aggregate.values == null || aggregate.count <= 0 {
+        return 0 as usize;
+    }
+    var offset: usize = 0 as usize;
+    var i: i32 = 0;
+    while i < aggregate.count {
+        const elem: &ExecValue = &aggregate.values[i];
+        offset = exec_vm_align_up(offset, exec_vm_value_byte_align(elem));
+        if i >= index {
+            return offset;
+        }
+        offset = offset +| exec_vm_value_byte_width(elem);
+        i = i + 1;
+    }
+    return offset;
+}
+
 /// VM 值在「按字节展开」时占多少字节：标量取 kind 宽度，聚合取其元素宽度之和。
 ///
 /// 参数：`value` 待测的 VM 值。
@@ -3512,12 +3601,27 @@ fn exec_vm_value_byte_width(value: &ExecValue) usize {
     if aggregate == null || aggregate.values == null || aggregate.count <= 0 {
         return 0 as usize;
     }
-    const first: &ExecValue = &aggregate.values[0];
-    const elem_width: usize = exec_vm_value_byte_width(first);
-    if elem_width == 0 as usize {
-        return 0 as usize;
+    // 逐个成员累加，每个成员前按自然对齐填充；总宽度再上取整到最大对齐
+    // （C99 `sizeof(struct)` 的规则）。漏掉填充会让 `st_size` 这类混合宽度
+    // 结构体的后段字段整体错位 4 字节。
+    var offset: usize = 0 as usize;
+    var max_align: usize = 1 as usize;
+    var i: i32 = 0;
+    while i < aggregate.count {
+        const elem: &ExecValue = &aggregate.values[i];
+        const elem_align: usize = exec_vm_value_byte_align(elem);
+        const elem_width: usize = exec_vm_value_byte_width(elem);
+        if elem_width == 0 as usize {
+            return 0 as usize;
+        }
+        if elem_align > max_align {
+            max_align = elem_align;
+        }
+        offset = exec_vm_align_up(offset, elem_align);
+        offset = offset +| elem_width;
+        i = i + 1;
     }
-    return elem_width *| (aggregate.count as usize);
+    return exec_vm_align_up(offset, max_align);
 }
 
 /// 从原生字节缓冲的 `offset` 起，把能**完整覆盖**的标量写进 VM 值 `target`。
@@ -3566,19 +3670,13 @@ fn exec_vm_copy_native_bytes_into_value(target: &ExecValue, src: &byte, offset: 
     if aggregate == null || aggregate.values == null || aggregate.count <= 0 {
         return -1;
     }
-    var inner: usize = offset;
     var i: i32 = 0;
     while i < aggregate.count {
+        const inner: usize = offset +| exec_vm_aggregate_elem_offset(aggregate, i);
         const rc: i32 = exec_vm_copy_native_bytes_into_value(&aggregate.values[i], src, inner, count);
         if rc != 0 {
             return rc;
         }
-        const elem_width: usize = exec_vm_value_byte_width(&aggregate.values[i]);
-        if elem_width == 0 as usize {
-            // 宽度不可知（例如未展开的接口值）：后面元素的偏移无从推算，就此收手。
-            return 0;
-        }
-        inner = inner +| elem_width;
         i = i + 1;
     }
     return 0;
@@ -3687,17 +3785,16 @@ fn exec_vm_read_value_byte(target: &ExecValue, offset: usize, out: &ExecValue) i
     if aggregate == null || aggregate.values == null || aggregate.count <= 0 {
         return -1;
     }
-    var inner: usize = 0 as usize;
     var i: i32 = 0;
     while i < aggregate.count {
+        const start: usize = exec_vm_aggregate_elem_offset(aggregate, i);
         const elem_width: usize = exec_vm_value_byte_width(&aggregate.values[i]);
         if elem_width == 0 as usize {
             return -1;
         }
-        if offset < inner +| elem_width {
-            return exec_vm_read_value_byte(&aggregate.values[i], offset -| inner, out);
+        if offset >= start && offset < start +| elem_width {
+            return exec_vm_read_value_byte(&aggregate.values[i], offset -| start, out);
         }
-        inner = inner +| elem_width;
         i = i + 1;
     }
     return -1;

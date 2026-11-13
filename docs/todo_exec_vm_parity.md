@@ -26522,3 +26522,24 @@ VM  ： probe ./src rc=0 type=16384 isdir=1 size=8
 - `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
 - `--vm --version` = `v0.11.0`；census32 在旁路表改堆表之后重跑：
   **912/912 通过，0 失败，5 跳过，rc=0**（无回归）。
+
+### 4. 追加（本轮末尾）：字节布局补上 C99 自然对齐
+
+`exec_vm_value_byte_width` / `exec_vm_read_value_byte` / `exec_vm_copy_native_bytes_into_value`
+原来按「元素宽度直接累加」算偏移，缺少 C 的自然对齐填充。新增三个助手：
+
+- `exec_vm_align_up(offset, align)`；
+- `exec_vm_value_byte_align(value)`：i64/f64/指针/isize/usize → 8，i32/f32 → 4，
+  i16 → 2，其余 1；聚合取成员最大对齐；原生数组按元素宽度取；
+- `exec_vm_aggregate_elem_offset(aggregate, index)`：按对齐填充推进的成员偏移。
+
+`exec_vm_value_byte_width` 的聚合分支改成「逐成员对齐累加，最后上取整到最大对齐」
+（C99 `sizeof(struct)` 规则），另外两个函数改用 `exec_vm_aggregate_elem_offset`。
+
+这条改动**不是**本轮失败点的解药（失败点在模块导出表），但它是实测到的真错：
+`libc.stat` 探针里 `Stat.st_size` 读成 8（应当 4096），原因正是
+`st_mode/st_uid/st_gid/_pad0` 四个 i32 之后 `st_rdev: i64` 需要 4 字节填充。
+残留说明：`libc.stat`/`sys_stat` 走的是「一字段一个 i64」的 shield scratch 约定
+（`exec_vm_syscall_out_struct_apply`），那条路与真实 C 布局仍有偏移差，
+所以 `st_size` 目前依旧读成 8 —— 要修得把 shield 打包/回填两侧一起改成
+C 布局（涉及 census 覆盖面很广的 syscall 路径，留作单独一轮）。
