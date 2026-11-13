@@ -284,7 +284,13 @@ var g_exec_vm_box_alloc_fn_index: i32 = -2;
 /// 就直接回退到竞技场装箱，别在分配器里再调一次分配器。
 
 
-const EXEC_VM_SLOT_POOL_INITIAL: i32 = 8192;
+// 初始容量：共享槽位栈只有**调用栈为空**时才能换块扩容（`ExecFrame.slots` 是指向
+// 池内的裸指针，搬移会让栈上所有帧悬挂），所以单条调用链的深度上限就是这里。
+// 8192 连「用 --vm 跑编译器本体编译编译器」都撑不住（实测在
+// `src/lexer.uya:192` 的 `skip_whitespace_and_comments` 处报「VM frame slot 超限」，
+// 该函数本身只有几个槽 —— 真正撞墙的是整条链的总槽位数）。
+// 每个 ExecValue 约 56 字节，1<<17 个槽约 7MB，只在这一层真正需要时才分配。
+const EXEC_VM_SLOT_POOL_INITIAL: i32 = 1 << 17;
 // 池的容量上限。`ExecValue` 是 56 字节，所以槽数直接决定内存：`1 << 18`
 //（26 万槽 ≈ 14.7MB）已经比任何真实调用链都宽裕得多。不要往上调 ——
 // census 会用 `ulimit -v 1024`（1GB 地址空间）跑每个用例，上限设成

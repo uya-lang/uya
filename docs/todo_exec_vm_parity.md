@@ -26302,3 +26302,53 @@ exec runtime: src/lexer.uya:192:1: exec: VM frame slot 超限
 - `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
 - 里程碑：`./bin/uya run --vm src/main.uya -- --version` = `v0.11.0`；
   **新增里程碑：`--vm` 内层 `build` 全流程通过，产物可运行。**
+
+## 第 732 轮：抬高档位池初始容量，越过了「frame slot 超限」——下一道墙是内存函数写 VM 值
+
+### 1. 改动
+
+`src/exec/vm.uya`：
+
+```uya
+// 改前
+const EXEC_VM_SLOT_POOL_INITIAL: i32 = 8192;
+// 改后（每个 ExecValue ≈ 56 字节，1<<17 槽 ≈ 7MB，只在真正跑 VM 时才分配）
+const EXEC_VM_SLOT_POOL_INITIAL: i32 = 1 << 17;
+```
+
+为什么只能抬初始值、而不是「按需增长」：`exec_vm_slot_pool_reserve()` 只有在
+**调用栈为空**（`vm.slot_top == 0`）时才允许换块——`ExecFrame.slots` 是指向池内的裸指针，
+搬到新块会让栈上所有帧悬挂。所以「单条调用链的深度上限」就等于初始容量。
+（真正的链内扩容需要把所有活跃帧的 `slots` 指针一并修正，工程量大得多，留作后续。）
+
+### 2. 效果
+
+- `--vm` 编译**编译器本体**不再报 `exec: VM frame slot 超限`，走过了槽位池这一关；
+- `./bin/uya run --vm src/main.uya -- --version` = `v0.11.0`（里程碑保持）；
+- `--vm` 内层 `build /tmp/t2.uya` 重跑仍 rc=0，产物运行 rc=0，`uya_common.c` 干净。
+
+### 3. 新的挡路点（下一轮从这里开始）
+
+```
+$ UYA_JOBS=1 ./bin/uya run --vm src/main.uya -- build src/main.uya -o /tmp/uya_vm --split-c-dir /tmp/vmfull2
+exec backend 已构建: src/main.uya
+exec runtime: ./lib/libc/stdlib.uya:1298:22: exec: 内存函数目标是 VM 值，无法按字节写
+程序运行返回码：1
+```
+
+出错函数是 `lib/libc/stdlib.uya:1298` 的 `export extern "libc" fn readdir()`（函数体内做
+`memcpy`/`memset` 之类），报错点在 `src/exec/vm.uya:6045`：
+内存函数（`memcpy`/`memset`/`memmove`）的**目标被判成「VM 值本体」**（驻留在 VM 值竞技场里的聚合/标量），
+而 6000-6044 行那几条兜底路径（目标为空值 → 清零；源也是 VM 值 → 位搬运；
+源是原生缓冲 → 按 kind 组装；源是单标量 → 按字节展开）都没匹配上，于是直接报错返回。
+
+⇒ 下一轮要做的：给 `readdir` 这条路径补一档「目标是 VM 值、但目标其实是**聚合内部的字节区间**」
+（例如 `&dirent.d_name[off]`）的通用处理：按 `mem_count` 把源字节写进目标聚合的对应偏移，
+而不是只支持「单标量」形态。定位手段现成：把 `exec_vm_ref_target_value()` /
+`exec_vm_mem_view()` 对这条调用算出的 `dst_view/src_view/count` 打出来即可。
+
+### 本轮回归
+
+- `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
+- `--vm --version` = `v0.11.0`；`--vm` 内层 `build /tmp/t2.uya` rc=0（产物可运行）。
+- census30（含本轮常量改动）在后台跑，结果记在下一轮。
