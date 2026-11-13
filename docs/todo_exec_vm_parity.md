@@ -24985,3 +24985,55 @@ lib/std/runtime/entry/entry.uya:(94:48): 错误: i8 溢出无法证明（--stric
 | `/tmp/ptrp5.uya` / `/tmp/ptra2.uya` | `--vm` 13 / 7（与 C99 一致） |
 | `test_http_uyagin` / `test_kernel_sim --vm` | 通过 |
 | 全量 census | 本轮末尾复跑（见下条记录） |
+
+## 第 710 轮：内层诊断为什么全错 —— 缩小到「命名类型解析成 void」
+
+第 709 轮之后 `--vm build` 已经能跑完内层词法/解析/类型检查，但诊断内容是错的。
+这一轮用最小文件和三个结构体 repro 把范围压小。
+
+### 最小文件对比
+
+| 输入 | 内层诊断 |
+| --- | --- |
+| `export fn main() void { return; }` | 只有 `entry.uya` 那批系统性错误 |
+| `export fn main() i32 { return 0; }` | 多一条 `/tmp/t2.uya:(2:12): return 返回值：期望类型 void，推断为 i32` |
+
+`entry.uya` 那批错误在两个输入下都一样，且形态高度一致：
+
+```
+entry.uya:(55:13): catch 的操作数必须是错误联合类型 !T
+entry.uya:(93:59): @usize_from_ptr 的参数必须是指针类型
+entry.uya:(94:48): i8 溢出无法证明（--strict-overflow）
+```
+
+也就是说：**能解析出正确的名字/位置（行号列号全对），但类型信息一律退化成 void**。
+`main` 的返回类型 `i32` 被当成 void、指针表达式被当成非指针、
+错误联合被当成非错误联合、i8 算术被当成无类型 —— 全是同一件事。
+
+### 已排除：基础 struct / 数组 / 返回路径
+
+三个 repro 在 `--vm` 与 C99 上**完全一致**：
+
+1. `/tmp/union_rep.uya` —— malloc 出来的大结构体（含嵌套 struct + 5 个指针字段）读写；
+2. `/tmp/ret_rep.uya` —— 同一结构体**按值从函数返回**后再读字段；
+3. `/tmp/arr_rep.uya` —— `&T` 数组下标（直接与经函数传参两种）读多字段。
+
+所以不是「结构体字段偏移」「数组步长」「按值返回」这些基础通道的问题。
+
+### 下一轮的查法（已缩小到很小范围）
+
+内层 checker 的 `check_type_from_ast` / 类型名解析是关键路径，重点看：
+
+1. `ASTNode.type`（ASTNodeType 枚举）在**类型节点**上是否被读成 `AST_TYPE_VOID`；
+   若如此，`parse_type` 会直接返回 void，正好解释全部症状；
+2. 类型名解析（`i32`/`&T`）是否依赖某张**全局表**或 `checker` 内的缓存数组
+   —— 若这张表在 VM 下没被全局初始化函数据填满，同样会全部退化成 void；
+3. 建议在 `parse_type_from_node` 入口打印 `node.type / node.type_named_name`
+   （仅内层运行时可分辨：外层编译不会走 VM），一次运行即可定性。
+
+### 本轮仓库状态
+
+无代码改动（本轮全是分析），仓库保持 `5bd66361`：
+census 912/912、make check 1196/1197（唯一失败是并行负载下
+`test_async_compute_dynamic_resource_pressure` 超 60s，单跑 9s/2s 均通过）、
+自举种子已重建、`--vm --version` 正常。
