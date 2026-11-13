@@ -3331,6 +3331,102 @@ fn exec_vm_scalar_from_bytes(kind: ExecValueKind, src: &byte, count: usize, out_
     return 0;
 }
 
+/// VM 值在「按字节展开」时占多少字节：标量取 kind 宽度，聚合取其元素宽度之和。
+///
+/// 参数：`value` 待测的 VM 值。
+/// 返回值：字节宽度；无法确定（如接口/错误联合）返回 0。
+fn exec_vm_value_byte_width(value: &ExecValue) usize {
+    if value == null {
+        return 0 as usize;
+    }
+    const scalar_width: usize = exec_vm_scalar_width_bytes(value.kind);
+    if scalar_width > 0 as usize {
+        return scalar_width;
+    }
+    if exec_value_is_raw_array(value) != 0 {
+        // 原生数组（`[byte: 256]` 这类字段在 VM 里就是一块原生内存）。
+        const raw_elem: usize = exec_vm_type_kind_size(value.aux_i64_value as i32);
+        if raw_elem == 0 as usize {
+            return 0 as usize;
+        }
+        return raw_elem *| (value.i64_value as usize);
+    }
+    const aggregate: &ExecAggregate = exec_value_as_aggregate(value);
+    if aggregate == null || aggregate.values == null || aggregate.count <= 0 {
+        return 0 as usize;
+    }
+    const first: &ExecValue = &aggregate.values[0];
+    const elem_width: usize = exec_vm_value_byte_width(first);
+    if elem_width == 0 as usize {
+        return 0 as usize;
+    }
+    return elem_width *| (aggregate.count as usize);
+}
+
+/// 从原生字节缓冲的 `offset` 起，把能**完整覆盖**的标量写进 VM 值 `target`。
+///
+/// 用于 `memcpy(&全局结构体, 原生缓冲, N)` 这种形态：目标在 VM 里是按字段展开的聚合，
+/// 没有连续的原生内存可写，只能按字段宽度逐个从字节还原。只写完全落在 N 字节内的
+/// 标量，跨界元素（例如只覆盖前 0 字节的 `d_name: [byte: 256]`）保持原样 ——
+/// 与 C 侧 memcpy「只覆盖前缀」的可见效果一致。
+///
+/// 参数：`target` 目标 VM 值（就地修改）；`src` 原生字节缓冲；`offset` 当前元素在缓冲里的偏移；
+///       `count` 本次 memcpy 的字节数。
+/// 返回值：0 成功；-1 目标形态不受支持。
+fn exec_vm_copy_native_bytes_into_value(target: &ExecValue, src: &byte, offset: usize, count: usize) i32 {
+    if target == null || src == null {
+        return -1;
+    }
+    const width: usize = exec_vm_scalar_width_bytes(target.kind);
+    if width > 0 as usize {
+        if offset +| width > count {
+            return 0;
+        }
+        return exec_vm_scalar_from_bytes(target.kind, src + offset, width, target);
+    }
+    // 原生数组（结构体里的 `[byte: N]` 字段）：它就是一块原生内存，直接按字节写前缀，
+    // 与 C 侧 memcpy 的语义完全一致。
+    if exec_value_is_raw_array(target) != 0 && target.ptr_value != null {
+        const raw_elem: usize = exec_vm_type_kind_size(target.aux_i64_value as i32);
+        const total: usize = raw_elem *| (target.i64_value as usize);
+        if raw_elem == 0 as usize || total == 0 as usize {
+            return -1;
+        }
+        var take: usize = 0 as usize;
+        if count > offset {
+            take = count - offset;
+        }
+        if take > total {
+            take = total;
+        }
+        if take == 0 as usize {
+            return 0;
+        }
+        _ = memcpy(target.ptr_value as *void, (src + offset) as *const void, take);
+        return 0;
+    }
+    const aggregate: &ExecAggregate = exec_value_as_aggregate(target);
+    if aggregate == null || aggregate.values == null || aggregate.count <= 0 {
+        return -1;
+    }
+    var inner: usize = offset;
+    var i: i32 = 0;
+    while i < aggregate.count {
+        const rc: i32 = exec_vm_copy_native_bytes_into_value(&aggregate.values[i], src, inner, count);
+        if rc != 0 {
+            return rc;
+        }
+        const elem_width: usize = exec_vm_value_byte_width(&aggregate.values[i]);
+        if elem_width == 0 as usize {
+            // 宽度不可知（例如未展开的接口值）：后面元素的偏移无从推算，就此收手。
+            return 0;
+        }
+        inner = inner +| elem_width;
+        i = i + 1;
+    }
+    return 0;
+}
+
 /// 把 `src` 的位按 `count` 字节搬进 `dst`（两者都已是 VM 值本体）。
 ///
 /// `memcpy(&dst, &src, n)` 在两个操作数都被判成单元素 VM 视图时用：语义就是
@@ -3401,6 +3497,53 @@ fn exec_vm_scalar_byte_at(v: &ExecValue, idx: usize) byte {
     }
     const shift: i32 = (idx as i32) *| 8;
     return ((bits >> shift) & 0xFF) as byte;
+}
+
+/// 读 VM 值「字节布局」里的第 `offset` 个字节（`(&结构体 as &byte)[18]` 这种访问）。
+///
+/// VM 聚合没有连续原生内存，只能按元素宽度累加定位到目标标量/原生数组再取字节。
+///
+/// 参数：`target` 目标 VM 值；`offset` 字节偏移；`out` 结果（BYTE 值）。
+/// 返回值：0 成功；-1 偏移越界或形态不支持。
+fn exec_vm_read_value_byte(target: &ExecValue, offset: usize, out: &ExecValue) i32 {
+    if target == null || out == null {
+        return -1;
+    }
+    const width: usize = exec_vm_scalar_width_bytes(target.kind);
+    if width > 0 as usize {
+        if offset >= width {
+            return -1;
+        }
+        out[0] = exec_make_byte(exec_vm_scalar_byte_at(target, offset) as i32);
+        return 0;
+    }
+    if exec_value_is_raw_array(target) != 0 && target.ptr_value != null {
+        const raw_elem: usize = exec_vm_type_kind_size(target.aux_i64_value as i32);
+        const total: usize = raw_elem *| (target.i64_value as usize);
+        if raw_elem != 1 as usize || offset >= total {
+            return -1;
+        }
+        out[0] = exec_make_byte(target.ptr_value[offset] as i32);
+        return 0;
+    }
+    const aggregate: &ExecAggregate = exec_value_as_aggregate(target);
+    if aggregate == null || aggregate.values == null || aggregate.count <= 0 {
+        return -1;
+    }
+    var inner: usize = 0 as usize;
+    var i: i32 = 0;
+    while i < aggregate.count {
+        const elem_width: usize = exec_vm_value_byte_width(&aggregate.values[i]);
+        if elem_width == 0 as usize {
+            return -1;
+        }
+        if offset < inner +| elem_width {
+            return exec_vm_read_value_byte(&aggregate.values[i], offset -| inner, out);
+        }
+        inner = inner +| elem_width;
+        i = i + 1;
+    }
+    return -1;
 }
 
 /// 标量 kind 的字节宽度；聚合/非标量返回 0。
@@ -6042,6 +6185,19 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                     }
                 }
             }
+            // 目标是 VM 聚合、源是原生缓冲（`memcpy(&全局结构体, base, 19)`）：
+            // 按字段宽度把 N 字节内能完整覆盖的标量逐个还原。以前这条路径直接报错，
+            // 表现为 `--vm` 跑编译器本体时在 `libc.stdlib.readdir` 里失败。
+            if site.id != ExecHostCallId.EXEC_HOST_CALL_MEMSET && mem_src_ptr != null &&
+                src_view != EXEC_MEM_VIEW_VALUE {
+                const agg_target: &ExecValue = exec_vm_ref_target_value(mem_dst);
+                if agg_target != null && exec_vm_value_is_aggregate(agg_target) != 0 {
+                    if exec_vm_copy_native_bytes_into_value(agg_target, mem_src_ptr, 0 as usize, mem_count) == 0 {
+                        out_value[0] = mem_dst[0];
+                        return 0;
+                    }
+                }
+            }
             exec_backend_set_error(function.decl, "exec: 内存函数目标是 VM 值，无法按字节写" as *byte, 0);
             return -1;
         }
@@ -8563,7 +8719,12 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             if exec_vm_pointer_is_index_base_ref(slot_b) != 0 {
                 const index_ref_ib: &ExecValue = exec_vm_index_ref(slot_b, index_value);
                 if index_ref_ib == null {
-                    exec_backend_set_error(function.decl, "exec: LOAD_INDEX 越界" as *byte, 0);
+                                    var idx_msg_ib: [byte: 384] = [];
+                _ = snprintf(&idx_msg_ib[0] as *byte, 384,
+                    "exec: LOAD_INDEX 越界(site=index_base idx=%d base_kind=%d fn=%s ip=%d line=%d col=%d)" as *byte,
+                    index_value, slot_b[0].kind as i32, function.name as *byte,
+                    frame.ip, instr.source.line, instr.source.column);
+                exec_backend_set_error(function.decl, &idx_msg_ib[0] as &byte, 0);
                     return -1;
                 }
                 exec_vm_store_slot(slot_a, index_ref_ib[0]);
@@ -8573,7 +8734,12 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             if exec_value_is_raw_array(base_target2) != 0 {
                 const raw_ptr_value4: ExecValue = exec_vm_raw_array_element_ptr(base_target2, index_value);
                 if raw_ptr_value4.kind != ExecValueKind.EXEC_VALUE_POINTER {
-                    exec_backend_set_error(function.decl, "exec: LOAD_INDEX 越界" as *byte, 0);
+                                    var idx_msg_ra: [byte: 384] = [];
+                _ = snprintf(&idx_msg_ra[0] as *byte, 384,
+                    "exec: LOAD_INDEX 越界(site=raw_array idx=%d base_kind=%d fn=%s ip=%d line=%d col=%d)" as *byte,
+                    index_value, slot_b[0].kind as i32, function.name as *byte,
+                    frame.ip, instr.source.line, instr.source.column);
+                exec_backend_set_error(function.decl, &idx_msg_ra[0] as &byte, 0);
                     return -1;
                 }
                 if exec_vm_load_pointer_index(function, raw_ptr_value4, 0, 0 as usize, slot_a) != 0 {
@@ -8582,7 +8748,12 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             } else if exec_value_is_raw_slice(base_target2) != 0 {
                 const raw_slice_ptr_value3: ExecValue = exec_vm_raw_slice_element_ptr(base_target2, index_value, 0);
                 if raw_slice_ptr_value3.kind != ExecValueKind.EXEC_VALUE_POINTER {
-                    exec_backend_set_error(function.decl, "exec: LOAD_INDEX 越界" as *byte, 0);
+                                    var idx_msg_rs: [byte: 384] = [];
+                _ = snprintf(&idx_msg_rs[0] as *byte, 384,
+                    "exec: LOAD_INDEX 越界(site=raw_slice idx=%d base_kind=%d fn=%s ip=%d line=%d col=%d)" as *byte,
+                    index_value, slot_b[0].kind as i32, function.name as *byte,
+                    frame.ip, instr.source.line, instr.source.column);
+                exec_backend_set_error(function.decl, &idx_msg_rs[0] as &byte, 0);
                     return -1;
                 }
                 if exec_vm_load_pointer_index(function, raw_slice_ptr_value3, 0, 0 as usize, slot_a) != 0 {
@@ -8602,9 +8773,26 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                     return -1;
                 }
             } else {
+                // `(&结构体 as &byte)[18]`：把聚合当字节视图按下标读。指针的 pointee 是
+                // 单字节标量时，下标语义就是「字节偏移」而不是「第几个字段」——
+                // `--vm` 自举时 `dirent_get_type` 读 `d_type`（偏移 18）正卡在这里。
+                if index_value >= 0 &&
+                    exec_vm_type_kind_size(exec_value_pointer_pointee_kind(slot_b[0])) == 1 as usize {
+                    var byte_view_out: [ExecValue: 1] = [];
+                    if exec_vm_read_value_byte(base_target2, index_value as usize, &byte_view_out[0]) == 0 {
+                        exec_vm_store_slot(slot_a, byte_view_out[0]);
+                        frame.ip = frame.ip + 1;
+                        return 0;
+                    }
+                }
                 const index_ref2: &ExecValue = exec_vm_index_ref(slot_b, index_value);
                 if index_ref2 == null {
-                    exec_backend_set_error(function.decl, "exec: LOAD_INDEX 越界" as *byte, 0);
+                var idx_msg_ir: [byte: 384] = [];
+                _ = snprintf(&idx_msg_ir[0] as *byte, 384,
+                    "exec: LOAD_INDEX 越界(site=index_ref idx=%d base_kind=%d fn=%s ip=%d line=%d col=%d)" as *byte,
+                    index_value, slot_b[0].kind as i32, function.name as *byte,
+                    frame.ip, instr.source.line, instr.source.column);
+                exec_backend_set_error(function.decl, &idx_msg_ir[0] as &byte, 0);
                     return -1;
                 }
                 exec_vm_store_slot(slot_a, index_ref2[0]);

@@ -26362,3 +26362,70 @@ exec runtime: ./lib/libc/stdlib.uya:1298:22: exec: 内存函数目标是 VM 值�
 
 `make check`（含自举验证）：**1197/1197 通过，0 失败，rc=0**。
 （上一轮记录里的 `test_async_compute_dynamic_resource_pressure` 偶发失败这次也通过了。）
+
+## 第 733 轮：内存函数写 VM 聚合、聚合的字节视图下标 —— 自举又推进两层
+
+### 1. `memcpy` 目标是 VM 聚合（`src/exec/vm.uya`）
+
+上一轮留下的挡路点是：
+
+```
+exec runtime: ./lib/libc/stdlib.uya:1298:22: exec: 内存函数目标是 VM 值，无法按字节写
+```
+
+探针实测到的形态（`readdir` 里的 `memcpy(&readdir_result as *byte, base, 19)`）：
+
+```
+dst_view=VALUE(1) src_view=HOST(0) count=19 dst_ptr=null src_ptr=<原生> kind=POINTER(14) internal=1
+tgt=<聚合> is_agg=1
+```
+
+即：目标是 VM 里按字段展开的聚合，没有连续原生内存可写。新增两个助手：
+
+- `exec_vm_value_byte_width(value)`：标量取 `exec_vm_scalar_width_bytes`，聚合累加元素宽度，
+  原生数组按 `exec_vm_type_kind_size(elem) * count`。
+- `exec_vm_copy_native_bytes_into_value(target, src, offset, count)`：按元素宽度遍历聚合，
+  把**完全被 `count` 覆盖**的标量用 `exec_vm_scalar_from_bytes` 从字节还原；
+  原生数组（结构体里的 `[byte: N]` 字段）按其原生块直接 `memcpy` 前缀 —— 与 C 侧语义一致。
+
+失败兜底顺序不变：这条路径放在原有的「单标量 target」兜底之后、报错之前，成功才 `return 0`。
+（第一版没处理原生数组元素，`[byte: 256]` 字段让 `exec_value_as_aggregate()` 返回 null，
+助手返回 -1 → 仍走到报错；补上原生数组分支后通过。）
+
+### 2. 聚合的字节视图下标：`(&结构体 as &byte)[18]`（`src/exec/vm.uya`）
+
+`readdir` 修好后下一处是 `dirent_get_type`：
+
+```
+exec: LOAD_INDEX 越界(idx=18 base_kind=14 fn=dirent_get_type ip=2 line=1534 col=21)
+```
+
+（这条详细消息是本轮新加的：之前四处 `LOAD_INDEX 越界` 只有裸消息，四个分支都补上了
+`site=/idx=/base_kind=/fn=/ip=/line=/col=`。）
+
+`base_kind=14` 是 POINTER，`index=18` 是 `DIRENT_OFF_D_TYPE`：guest 把结构体地址 cast 成 `&byte`
+再按下标取字节。VM 里 `exec_vm_index_ref()` 把下标当「第几个字段」，18 ≥ 字段数 → 判越界。
+
+新增 `exec_vm_read_value_byte(target, offset, out)`：在 VM 值的**字节布局**上按偏移取一个字节
+（标量取第 offset 字节、原生数组按块取、聚合先按元素宽度累加定位再递归）。
+`LOAD_INDEX` 的兜底分支里，当指针 pointee 是单字节标量（`exec_vm_type_kind_size(...) == 1`）
+且下标非负时，先尝试字节视图读取，成功即返回。
+
+### 3. 推进轨迹
+
+```
+readdir memcpy 写聚合       → 修掉
+dirent_get_type 字节视图读  → 修掉
+下一道墙：
+exec runtime: src/checker/type_from_ast.uya:125:1: exec: 当前不支持该指针元素类型
+```
+
+出错函数是 `type_from_ast_cache_store`（往全局 `&Type` 缓存数组里写指针），
+裸消息共有 5 处（`src/exec/vm.uya:3690/3892/3971/4055/4130`）。下一轮先给这 5 处补
+`kind/fn/ip/line/col` 诊断再定位 —— 与本轮 validate 过的做法一致。
+
+### 本轮回归
+
+- `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
+- `--vm --version` = `v0.11.0`；`--vm` 内层 `build /tmp/t2.uya` rc=0，产物运行 rc=0，
+  `uya_common.c` 干净（`saved_envp` 三处都对）。
