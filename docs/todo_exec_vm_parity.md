@@ -26683,3 +26683,9 @@ parse/merge/prepass/exports/macros/embed 干净、`checker_check_node` 之后变
 - census35：**912/912 通过，0 失败，5 跳过，rc=0**（探针已全部撤销，工作树干净）。
 - `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
 - `--vm --version`、`--vm` 内层 `build /tmp/t2.uya` 在后台复验（记录在下一轮）。
+
+### 补记（复验）
+
+- `./bin/uya run --vm src/main.uya -- --version` → `v0.11.0`，rc=0。
+- `--vm` 内层 `build /tmp/t2.uya` → rc=0，产物运行 rc=0。
+- 探针全部撤销后 `git status --porcelain` 为空。
