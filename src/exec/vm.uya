@@ -2929,6 +2929,78 @@ fn exec_vm_native_agg_table_init() i32 {
     return 0;
 }
 
+/// 旁路表基址条目满时倍增扩容：五张平行表整体搬到新块，**元素存储本身不动**
+/// （`handles[slot].values` 仍指向各自的元素数组）。
+///
+/// 为什么必须能扩：基址键是「原生内存地址」，arena 不释放，条目只增不减；
+/// 自举时内部编译器的 arena 会产出**几十万**个不同的聚合地址，任何固定上限
+/// 都迟早会耗尽 —— 耗尽时的表现就是 `exec: 当前不支持该指针元素类型`。
+///
+/// 参数：无。
+/// 返回值：0 成功；-1 已达上限或分配失败。
+fn exec_vm_native_agg_table_grow() i32 {
+    const old_cap: i32 = g_exec_native_agg_capacity;
+    if old_cap <= 0 {
+        return exec_vm_native_agg_table_init();
+    }
+    if old_cap >= EXEC_NATIVE_AGG_MAX_BASES {
+        return -1;
+    }
+    var new_cap: i32 = old_cap *| 2;
+    if new_cap > EXEC_NATIVE_AGG_MAX_BASES || new_cap <= old_cap {
+        new_cap = EXEC_NATIVE_AGG_MAX_BASES;
+    }
+    const base_bytes: usize = (@size_of(usize) as usize) *| (new_cap as usize);
+    const count_bytes: usize = (@size_of(i32) as usize) *| (new_cap as usize);
+    const storage_bytes: usize = (@size_of(&ExecValue) as usize) *| (new_cap as usize);
+    const handle_bytes: usize = (@size_of(ExecAggregate) as usize) *| (new_cap as usize);
+    const new_base: &usize = exec_value_alloc_bytes(base_bytes) as &usize;
+    const new_count: &i32 = exec_value_alloc_bytes(count_bytes) as &i32;
+    const new_caps: &i32 = exec_value_alloc_bytes(count_bytes) as &i32;
+    const new_storage: & &ExecValue = exec_value_alloc_bytes(storage_bytes) as & &ExecValue;
+    const new_handles: &ExecAggregate = exec_value_alloc_bytes(handle_bytes) as &ExecAggregate;
+    if new_base == null || new_count == null || new_caps == null ||
+        new_storage == null || new_handles == null {
+        return -1;
+    }
+    _ = memset(new_base as *void, 0, base_bytes);
+    _ = memset(new_count as *void, 0, count_bytes);
+    _ = memset(new_caps as *void, 0, count_bytes);
+    _ = memset(new_storage as *void, 0, storage_bytes);
+    _ = memset(new_handles as *void, 0, handle_bytes);
+    const old_base: &usize = g_exec_native_agg_base;
+    const old_count: &i32 = g_exec_native_agg_count;
+    const old_caps: &i32 = g_exec_native_agg_caps;
+    const old_storage: & &ExecValue = g_exec_native_agg_storage;
+    const old_handles: &ExecAggregate = g_exec_native_agg_handles;
+    var i: i32 = 0;
+    while i < old_cap {
+        if old_base != null {
+            new_base[i] = old_base[i];
+        }
+        if old_count != null {
+            new_count[i] = old_count[i];
+        }
+        if old_caps != null {
+            new_caps[i] = old_caps[i];
+        }
+        if old_storage != null {
+            new_storage[i] = old_storage[i];
+        }
+        if old_handles != null {
+            new_handles[i] = old_handles[i];
+        }
+        i = i + 1;
+    }
+    g_exec_native_agg_base = new_base;
+    g_exec_native_agg_count = new_count;
+    g_exec_native_agg_caps = new_caps;
+    g_exec_native_agg_storage = new_storage;
+    g_exec_native_agg_handles = new_handles;
+    g_exec_native_agg_capacity = new_cap;
+    return 0;
+}
+
 /// 保证某条旁路表基址至少能容纳 `need` 个元素（倍增扩容，旧内容整体搬过去）。
 /// 参数：`slot` 基址条目下标；`need` 需要的元素个数。
 /// 返回值：0 成功，-1 无法分配。
@@ -3040,16 +3112,31 @@ fn exec_vm_native_agg_slot_index(vm: &ExecVmState, base: usize) i32 {
         agg_handles[reusable].count = 0;
         return reusable;
     }
-    var used_slot: i32 = g_exec_native_agg_used;
+    // 表满：先倍增扩容，再重新读一遍并行表（扩容会换掉所有指针，老的别名全失效）
+    if g_exec_native_agg_used >= g_exec_native_agg_capacity {
+        if exec_vm_native_agg_table_grow() != 0 {
+            return -1;
+        }
+    }
+    const base2: &usize = g_exec_native_agg_base;
+    const count2: &i32 = g_exec_native_agg_count;
+    const caps2: &i32 = g_exec_native_agg_caps;
+    const storage2: & &ExecValue = g_exec_native_agg_storage;
+    const handles2: &ExecAggregate = g_exec_native_agg_handles;
+    if base2 == null || count2 == null || caps2 == null ||
+        storage2 == null || handles2 == null {
+        return -1;
+    }
+    const used_slot: i32 = g_exec_native_agg_used;
     if used_slot < 0 || used_slot >= g_exec_native_agg_capacity {
         return -1;
     }
     slot = used_slot;
-    agg_base[slot] = base;
-    agg_count[slot] = 0;
-    agg_handles[slot].count = 0;
-    agg_caps[slot] = 0;
-    agg_storage[slot] = null;
+    base2[slot] = base;
+    count2[slot] = 0;
+    handles2[slot].count = 0;
+    caps2[slot] = 0;
+    storage2[slot] = null;
     g_exec_native_agg_used = slot +| 1;
     return slot;
 }
@@ -3283,11 +3370,18 @@ fn exec_vm_native_agg_slot(vm: &ExecVmState, base: usize, index: i64) &ExecValue
     if exec_vm_native_agg_ensure(vm, slot, idx + 1) != 0 {
         return null;
     }
-    if idx >= agg_count[slot] {
-        agg_count[slot] = idx + 1;
-        agg_handles[slot].count = idx + 1;
+    // slot_index / ensure 可能触发表扩容，别名必须重新读
+    const count3: &i32 = g_exec_native_agg_count;
+    const storage3: & &ExecValue = g_exec_native_agg_storage;
+    const handles3: &ExecAggregate = g_exec_native_agg_handles;
+    if count3 == null || storage3 == null || handles3 == null || storage3[slot] == null {
+        return null;
     }
-    return &agg_storage[slot][idx];
+    if idx >= count3[slot] {
+        count3[slot] = idx + 1;
+        handles3[slot].count = idx + 1;
+    }
+    return &storage3[slot][idx];
 }
 
 /// 取原生指针聚合元素旁路表的聚合视图（按需建表）。
@@ -3311,7 +3405,11 @@ fn exec_vm_native_agg_handle(vm: &ExecVmState, base: usize) &ExecAggregate {
     if slot < 0 || slot >= g_exec_native_agg_capacity {
         return null;
     }
-    return &agg_handles[slot];
+    const handles3: &ExecAggregate = g_exec_native_agg_handles;
+    if handles3 == null {
+        return null;
+    }
+    return &handles3[slot];
 }
 
 /// 内存函数（memset/memcpy/memmove）目标/源的三态视图。
@@ -4320,8 +4418,9 @@ fn exec_vm_store_pointer_index(function: &BCFunction, base: ExecValue, index_val
         if agg_slot == null {
                         var ipe_msg4: [byte: 384] = [];
             _ = snprintf(&ipe_msg4[0] as *byte, 384,
-                "exec: 当前不支持该指针元素类型(site=store_agg_slot kind=%d base=%p index=%lld elem_size=%zu fn=%s)" as *byte,
-                pointee_kind, base_addr as *void, index_value, elem_size, function.name as *byte);
+                "exec: 当前不支持该指针元素类型(site=store_agg_slot kind=%d base=%p index=%lld elem_size=%zu agg_used=%d agg_cap=%d fn=%s)" as *byte,
+                pointee_kind, base_addr as *void, index_value, elem_size,
+                g_exec_native_agg_used, g_exec_native_agg_capacity, function.name as *byte);
             exec_backend_set_error(function.decl, &ipe_msg4[0] as &byte, 0);
             return -1;
         }

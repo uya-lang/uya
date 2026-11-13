@@ -26902,3 +26902,127 @@ make check 回归。
 - 整编自举（`--vm` 编 `src/main.uya` 自身，`/tmp/vmfull139.log`）在后台继续跑。
 - `make check` 1197/1197 的复验是在这条 codegen 改动**之前**的树上做的（本轮改动只把
   `struct_names` 从栈上搬到 arena，语义等价），改动后的 census 已复验通过。
+
+## 第 740 轮：旁路表按需增长 + `--strict-overflow` 判定分歧的根因
+
+### 1. `store_agg_slot kind=16` 的真正原因：旁路表基址条目耗尽
+
+第 739 轮之后整编自举（`--vm` 编 `src/main.uya` 自身）在
+`src/checker/type_from_ast.uya:125`（`type_from_ast_cache_store`）挂掉：
+
+```
+exec: 当前不支持该指针元素类型(site=store_agg_slot kind=16 base=... index=0 elem_size=0)
+```
+
+`kind=16` 是 `TYPE_STRUCT`、`elem_size=0`，说明目标地址既不是 VM 值本体（
+`exec_vm_address_is_exec_value_storage()` 为假），`exec_vm_native_agg_slot()`
+也返回 null。`slot()` 返回 null 的唯一原因是
+`exec_vm_native_agg_slot_index()` 拿不到条目 —— 而那张表**固定 65536 条**、
+满了以后既不报错也不扩容，于是所有「原生内存里的聚合」读写全落进
+「当前不支持该指针元素类型」兜底。
+
+为什么 65536 条会满：基址键是**原生内存地址**，arena 永不释放，条目只增不减。
+被 VM 跑起来的编译器要处理 200+ 模块，`compiler_arena_alloc` 出的聚合地址是
+几十万个量级 —— 任何固定上限都迟早耗尽（第 731 轮已把 256 调到 65536，只是把
+时间往后推了）。
+
+修法（`src/exec/vm.uya`）：
+
+- 新增 `exec_vm_native_agg_table_grow()`：五张平行表（`base/count/caps/storage/handles`）
+  倍增搬到新块，上限 `EXEC_NATIVE_AGG_MAX_BASES`（= `EXEC_NATIVE_AGG_MAX`，1<<20）。
+  **元素存储本身不搬**：`handles[slot].values` 仍指向各自的元素数组。
+- `exec_vm_native_agg_slot_index()`：`g_exec_native_agg_used >= capacity` 时先扩容，
+  然后**重新读一遍并行表指针**再写入（扩容换掉了所有指针，老别名全失效）。
+- `exec_vm_native_agg_slot()` / `exec_vm_native_agg_handle()`：`slot_index` /
+  `ensure` 返回后同样重新取别名 —— 否则会拿扩容前的旧 `storage[slot]` 去写。
+- 报错文案补上 `agg_used=%d agg_cap=%d`，下次再满能一眼看出来。
+
+改完 `--vm` 编 `src/main.uya` 不再报 `exec:` 错误（说明 VM 侧容量问题清干净了），
+转而暴露下面这个**编译器自身的判定分歧**。
+
+### 2. 真正的拦路虎：`--strict-overflow` 在两个后端结论不同
+
+整编自举改报类型检查错误（宿主 `make uya` 同一个文件、同一套 flags 是过的）：
+
+```
+src/checker/proof.uya:(117:12) i32 溢出无法证明   // -left
+src/checker/proof.uya:(117:30) i32 溢出无法证明   // -right
+src/checker/proof.uya:(713:20) i32 溢出无法证明   // -operand_val
+src/checker/interval.uya:(2044:29) i32 溢出无法证明 // -offset
+src/checker/interval.uya:(2139:29) i32 溢出无法证明 // -offset
+```
+
+最小复现（1 分钟出结果）：
+
+```uya
+fn f(left: i32, right: i32) i32 {
+    if left < 0 && right < 0 {
+        if -left > 2147483647 / -right { return 1; }
+    }
+    return 0;
+}
+export fn main() i32 { return f(-2, -2); }
+```
+
+- `./bin/uya build /tmp/p1.uya` → rc=0（证明通过）
+- `./bin/uya run --vm src/main.uya -- build /tmp/p1.uya ...` → rc=1（证明失败）
+
+探针打区间后定位到 `checker_prove_no_overflow()` 里 `-left` 的宽区间：
+
+| 后端 | `left` 区间 | `wide_neg` 后 |
+| --- | --- | --- |
+| 宿主 C99 | `[-2147483648, -1]` | `[1, 2147483647]` ✅ |
+| exec VM | `[-2147483648, -1]` | `[1, 2147483648]` ❌ |
+
+两者 `left` 区间一样，`wide_neg` 里就是一句 `0i64 -| a.lo`（`src/checker/interval.uya`），
+所以差异出在**饱和减法本身**。看宿主生成的 C：
+
+```c
+out.hi = ({ int32_t _l = (0LL); int32_t _r = (a.lo); int32_t _s;
+            __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+```
+
+`_l/_r/_s` 全是 **int32_t**：`0 - (-2147483648)` 在 i32 域溢出，于是被钳到
+`2147483647` —— **i64 的 `-|` 在宿主后端退化成 i32 域运算**。解释执行按 i64 精确算，
+得到正确的 `2147483648`。所以这一处分歧**宿主后端是错的那一方**。
+
+根因在 `src/codegen/c99/expr.uya` 的饱和/包装分支：
+
+```uya
+var type_c: &byte = get_c_type_of_expr(codegen, left);   // 只看左操作数
+if type_c == null { type_c = "int32_t" as &byte; }
+```
+
+`0i64 -| x` 的左操作数是**字面量**，`get_c_type_of_expr()` 拿不到类型 → 兜底
+`int32_t`，于是整个表达式的宽度、饱和边界（`2147483647LL`）全成了 i32 域。
+试过改成取「整个二元表达式的类型」，但 `get_c_type_of_expr()` 对二元节点同样
+返回 null（退化更严重，`i64_max -| b` 也被写成 int32_t，gcc `-Werror=overflow`
+直接挡下），本轮**不动宿主 codegen**，作为已知缺陷记录（见下）。
+
+本轮的处理：把 4 处源码改成**两种语义都可证**的写法（宿主不再依赖那条错误钳位）：
+
+- `proof.uya` 乘法溢出检查：`-left > I32_MAX / -right` → i64 域饱和求负
+  （`0i64 -| (left as i64)` + `neg_right <= 0` 守卫）。**不能**用 `0 -| left`：
+  饱和会让 `I32_MIN * -2` 这类乘法溢出漏报。
+- `proof.uya:713`：`check_i32_neg_overflow()` 已排除 `I32_MIN`，该处
+  `-operand_val` → `0 -| operand_val`（完全等价）。
+- `interval.uya` 两处 `const need_lower: i32 = -offset;` → u32 回绕求负
+  `((0 as u32) - (offset as u32)) as i32`（与相邻 `need_upper` 同款写法，位模式一致）。
+
+### 3. 已知缺陷（本轮记录，未修）
+
+**宿主 C99 后端把 i64/u64 的饱和/包装运算按 i32 域算**：`gen_binary_expr()` 里
+`type_c` 只看左操作数，左操作数是字面量时兜底 `int32_t`。影响：
+
+- `0i64 -| (-2147483648i64)`：宿主产物 `2147483647`，解释执行 `2147483648`（正确）。
+- 同理 `+|`、`*|`、`+%`、`-%`、`*%` 在「左操作数是字面量」的 i64/u64 表达式上都会截断。
+- 直接后果之一就是本文上面的 `--strict-overflow` 判定分歧（编译器自己 `wide_neg`
+  里正好这么写）。修它需要给 `get_c_type_of_expr()` 补上二元节点（乃至字面量）的
+  类型解析，改动面比本轮大，留作后续。
+
+### 4. 本轮验证
+
+- `make uya` rc=0（含上面 4 处源码改动）；`./bin/uya --version` = `v0.11.0`。
+- 整编自举：`--vm` 编 `src/main.uya` 已不再出现 `exec:` 上限报错，也不再出现
+  `--strict-overflow` 误报，进入真正的整编阶段（耗时以小时计，后台跑）。
+- census / make check 复验见下一条补记。
