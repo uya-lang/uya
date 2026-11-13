@@ -26543,3 +26543,7 @@ VM  ： probe ./src rc=0 type=16384 isdir=1 size=8
 （`exec_vm_syscall_out_struct_apply`），那条路与真实 C 布局仍有偏移差，
 所以 `st_size` 目前依旧读成 8 —— 要修得把 shield 打包/回填两侧一起改成
 C 布局（涉及 census 覆盖面很广的 syscall 路径，留作单独一轮）。
+
+### 补记（census33）
+
+含「字节布局自然对齐」改动的重跑：**912/912 通过，0 失败，5 跳过，rc=0**（无回归）。
