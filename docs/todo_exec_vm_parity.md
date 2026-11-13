@@ -26547,3 +26547,78 @@ C 布局（涉及 census 覆盖面很广的 syscall 路径，留作单独一轮�
 ### 补记（census33）
 
 含「字节布局自然对齐」改动的重跑：**912/912 通过，0 失败，5 跳过，rc=0**（无回归）。
+
+## 第 735 轮：`--vm` 自举推进到「代码生成 + make 链接」，卡在生成头的 1 字节脏写
+
+### 1. 死路回顾：模块导出为空 = `dirent_get_name` 的指针算术
+
+上一轮记录的最小复现（`src/t7probe.uya` 引 `use cmd.upm.upm_lib.UPMPackageBuildPlan;`）
+内层报「模块中未找到导出项」。给 `src/driver/modules.uya` 加探针（**探针文件不能放在
+`src/` 下**，否则会被 `make uya` 的文件清单收进去、生成 `int32_t .tmp_t7_main();`
+这种非法 C 原型把构建搞挂）后拿到：
+
+```
+[dbg-dep] mod=cmd.upm.upm_lib found_dir=1 dir=src/cmd/upm/upm_lib
+[dbg-dir] open src/cmd/upm/upm_lib -> 0x7f1b1f558890
+[dbg-dir] entry= isreg=1          ← 名字全空！
+...（18 条，isreg 正确）
+[dbg-dir] pending=0
+```
+
+目录枚举个数、`d_type` 都对，但 `dirent_get_name()` 拿到的是空串。原因在
+`src/main.uya:1537`：
+
+```uya
+fn dirent_get_name(entry_ptr: &byte) &byte {
+    var p: &byte = entry_ptr;
+    p = p + DIRENT_OFF_D_NAME;   // ← 对 VM 聚合做指针算术
+    return p;
+}
+```
+
+`entry_ptr` 是 `&readdir_result`（VM 聚合）cast 成 `&byte` 的内部引用：
+`exec_vm_pointer_add()` 用的是 `base.i64_value`，而内部引用的 `i64_value` 是
+**ExecValue 的宿主地址**，`+19` 落到 ExecValue 头后面的垃圾区，读出来就是空串。
+（`entry_ptr[18]` 那种**下标**读取走的是本轮之前加的字节视图路径，所以 `d_type` 正常。）
+
+改成逐字节下标拷贝进静态缓冲区（生命周期与原来一致：下一次 `readdir` 前有效）：
+
+```uya
+var g_dirent_name_scratch: [byte: 256] = [];
+fn dirent_get_name(entry_ptr: &byte) &byte { /* entry_ptr[19 + i] 逐字节拷，遇 0 收尾 */ }
+```
+
+改完后内层编译的模块收集正常（18 个 upm_lib 文件全部入列）。
+
+> 这是**绕过**而不是根治：exec VM 还不支持「VM 聚合上的字节偏移指针算术」
+> （要给内部引用再加一层「字节偏移」编码，涉及 `exec_vm_ref_target_value` /
+> `exec_vm_mem_view` / LOAD_INDEX / STORE_INDEX 全线，工程量大）。
+> 以后遇到同类 `ptr + N` 形态（`&struct as &byte` 之后做算术）都会踩同一个坑。
+
+### 2. 顺带：`lib/libc/pthread.uya` 的取负改成饱和
+
+内层检查器报 `lib/libc/pthread.uya:(2301:21): 错误: i32 溢出无法证明（--strict-overflow）`——
+`k.seq = -k.seq;` 在 `seq != 0` 守卫下仍证不出不溢出（宿主构建能过，两边分析路径不同）。
+按项目惯例改成 `k.seq = 0 -| k.seq;`（`seq` 只会是小正数，语义不变）。
+
+### 3. 现在的进度：一直跑到代码生成 + `make` 链接
+
+内层编译 `src/t7probe.uya` 现在走完全流程并调用宿主 `make`，卡在生成 C 的**单字节脏写**：
+
+```
+./uya_part1_types.h:2068:6: error: stray '\370' in program
+    ...
+    p\xf8hread_mutex_t mutex;      ← 应为 pthread_mutex_t
+```
+
+全目录扫描确认：`/tmp/vminnerP4` 里所有 `.h/.c` 只有**这一个** 0xF8 脏字节，
+位置是 `pthread_barrier_t` 结构体字段类型名 `pthread_mutex_t` 的第 1 个字节之后。
+形态与第 731 轮修掉的 `saved_envp` 完全同类（目标串首字节正常、只脏一个非 ASCII 字节），
+所以下一轮可以直接复用第 731 轮的定位手法（对类型名字符串做 arena 级 watch：
+parse/merge/prepass/exports/macros/embed 干净、`checker_check_node` 之后变脏）。
+
+### 本轮回归
+
+- `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
+- 探针文件已删除，工作树只剩本轮两处 guest 改动（`src/main.uya`、`lib/libc/pthread.uya`）。
+- census34 与 `--vm` 内层 `build /tmp/t2.uya` 在后台跑，结果记在下一轮。

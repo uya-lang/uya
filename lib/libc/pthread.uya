@@ -2298,7 +2298,7 @@ export extern "libc" fn pthread_key_delete(key: &pthread_key_t) i32 {
     while idx < PTHREAD_KEYS_MAX as i32 {
         var k: &pthread_key_t = (_pthread_keys as usize + idx as usize * @size_of(pthread_key_t)) as &pthread_key_t;
         if k.seq == key.seq && k.seq != 0 {
-            k.seq = -k.seq;
+            k.seq = 0 -| k.seq;  // 饱和取负：seq 只会是小的正数，`-` 在检查器里证不出不溢出
             k.destructor = null;
             _pthread_key_count = _pthread_key_count -| 1;
             _ = pthread_mutex_unlock(&_pthread_key_mutex);
