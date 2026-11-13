@@ -27224,3 +27224,10 @@ VmRSS: 57772616 kB   VmData/VmPeak: 125298460 kB（几乎全是 anon dirty）
 - `./bin/uya run --vm src/main.uya -- --version` → `v0.11.0`，rc=0。
 - `--vm` 内层 `build /tmp/t2.uya` → 产物运行 rc=0，生成头文件 0xF8 计数 0（无损坏）。
 - census / make check 见下一条补记。
+
+### 5. 补记：第 742 轮回归
+
+- census183：**912/912 通过，0 失败，5 跳过**，rc=0（带内存诊断的树）。
+- `make check`（check184）：**1197 通过 / 0 失败**，rc=0。
+- `make from-c-native`：rc=0，种子可从 C 重建，重建后 `--version` = `v0.11.0`。
+- `--vm --version` → `v0.11.0`；`--vm` 内层 `build /tmp/t2.uya` → 产物运行 rc=0。
