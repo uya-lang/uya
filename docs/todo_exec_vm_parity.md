@@ -25749,3 +25749,51 @@ new_variants[i].value = variants[i].value;
    - 只有一个指针 ⇒ 说明是写入侧的问题，改用在写入前后加唯一标记定位。
 2. 顺手修 `UYA_SPLIT_C_MIRROR=0` 时 Makefile 依赖 `uya_part1_types.h` 的问题（该模式要么也生成该头，
    要么不把它写进依赖）。
+
+## 第 724 轮：缩进改用 fputs 窗口写法；探针法把「1 字节」问题逼到偏移相关
+
+### 保留的改动
+
+`c99_emit_indent()` 原来用 `fwrite(&g_indent_spaces[0], 1, total, stream)` 写缩进（每行都走一次），
+改成「尾部 NUL 的窗口 + fputs」：
+
+```uya
+var g_indent_spaces: [byte: 257] = [];   // 256 个空格 + 结尾 NUL
+...
+fputs(&g_indent_spaces[256 - total] as *byte, codegen.emit_stream as *void);
+```
+
+好处：绕开 VM 下 `fwrite(ptr,1,n,stream)` 这条高频路径（每行一次），且比原来少一次 strlen。
+全量重建 `make uya` rc=0，产物 `bin/uya --version` 正常。
+
+### 本轮新证据（依然没修掉那 1 字节，但把范围压到最小）
+
+1. `get_safe_c_identifier()` 的 HIT/STORE 与 `gen_expr()` 的发射点同时打点：
+   ```
+   [dbg-cache] STORE name=0x7fe4c4228ca0 copy=0x7fe4cf5c25e0 b=115,97,118
+   [dbg-cache] HIT   name=0x7fe4c82838b0 val=0x7fe4cf5c25e0 b=115,97,118
+   [dbg-emit]  name=0x7fe4c82838b0 ref=0x7fe4c4228ca0 b=115,97,118
+   ```
+   ⇒ 缓存命中返回的**是同一份**（指针相同），发射前字节正确，且**只发射一次**。
+2. 把发射改成 `/*A*/名字/*B*/名字/*C*/` 双写（多 5 字节前缀）：文件里**两份拷贝都完全正确**。
+   ⇒ 脏字节不是「字符串本身有洞」，而是**与它落在文件里的偏移相关**。
+3. 为此专门写了 `/tmp/nest23.uya`：完全模仿 codegen 的写入形态（`fwrite` 写 8 字节缩进 +
+   `fprintf("%s")` 写标识符 + `fprintf` 写后半句 + `fprintf` 写整型字面量），循环 3000 行、
+   输出 ~60 KB。**两后端产物 md5 完全相同** ⇒ 单纯的 stdio 写入形态不丢字节。
+
+### 目前的最小化结论
+
+- 单进程、串行 codegen、无 mirror 分片、无并行解析（`UYA_JOBS=1`）、镜像关闭（`UYA_SPLIT_C_MIRROR=0`）
+  全部试过，脏字节依旧出现，且每次取值不同（0xB0 / 'p'）。
+- 同一份写入形态在「小规模独立程序」里 100% 正确，只有在「编译器自己跑自己」时才出现
+  ⇒ 与进程内已打开的一批 `FILE*`、arena 分配压力、或 VM 的调用栈深度相关，而不是格式化/字符串内容。
+
+### 下一步（下轮直接做）
+
+在内层即将 `fclose(uya_common.c)` 的地方插入「`fflush` → 用 `fopen(path,"rb")` 读回 → 在文件里搜
+`ved_envp` 并打印前一个字节 → 再 `fclose`」，用这一步区分：
+
+- 读回时已经脏 ⇒ 脏字节来自**写入过程**（VM 的 stdio 写入路径 / FILE 缓冲）；
+- 读回时干净、跑完却脏 ⇒ 脏字节来自**关闭/收尾阶段的 flush**，或是**第二个句柄**在同一偏移回写。
+
+同时把「`UYA_SPLIT_C_MIRROR=0` 时 Makefile 仍依赖 `uya_part1_types.h`」这个独立 bug 一起修。

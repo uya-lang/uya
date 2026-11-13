@@ -1859,14 +1859,18 @@ fn emit_line_directive(codegen: &C99CodeGenerator, line: i32, filename: &byte) v
 
 // 缩进输出
 // 缩进缓存：避免循环调用 fputs
-var g_indent_spaces: [byte: 256] = [];
+var g_indent_spaces: [byte: 257] = [];
 var g_indent_spaces_init: i32 = 0;
 
 fn init_indent_spaces() void {
     if g_indent_spaces_init == 0 {
         var j: i32 = 0;
-        while j < 256 {
-            g_indent_spaces[j] = 32; // space
+        while j < 257 {
+            if j == 256 {
+                g_indent_spaces[j] = 0; // 结尾 NUL：下面按 `fputs(&g_indent_spaces[256 - total])` 写 total 个空格
+            } else {
+                g_indent_spaces[j] = 32; // space
+            }
             j = j + 1;
         }
         g_indent_spaces_init = 1;
@@ -1895,8 +1899,10 @@ fn c99_emit_indent(codegen: &C99CodeGenerator) void {
         }
         return;
     }
-    // 使用 fwrite 一次性写入，比循环 fputs 快
-    fwrite(&g_indent_spaces[0] as *void, 1, total, codegen.emit_stream as *void);
+    // 用 fputs 写尾部 NUL 结尾的窗口：`&g_indent_spaces[256 - total]` 正好是 total 个空格 + NUL。
+    // 不用 `fwrite(...)`：exec VM 下这条路径偶发把前一行/本行的一个字节写成脏值
+    // （内层自举时 `saved_envp` 第 2 个字节变成 0xB0，C 编译直接报 unknown type name）。
+    fputs(&g_indent_spaces[256 - total] as *byte, codegen.emit_stream as *void);
 }
 
 // 换行
