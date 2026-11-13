@@ -733,7 +733,9 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     const prev_function_decl: &ASTNode = checker.current_function_decl;
     
     // 设置当前函数的返回类型
-    checker.current_return_type = copy_type(&return_type);
+    // 直接赋值，不经 `copy_type()`：解释执行下「大结构体按值返回」那条路径会丢 Type 首字段
+    // （第 714/715 轮观测：copy_type 内部 kind 正确、调用方收到 0），这里本来就是冗余复制。
+    checker.current_return_type = return_type;
     checker.in_function = 1;
     checker.current_function_decl = node;
     

@@ -25226,3 +25226,66 @@ error: incompatible types when assigning to type 'struct uya_tagged_U' from type
    `fn copy(t: &R) R { return R{ 逐字段 }; }`，调用方再原样返回；
 2. 若复现，逐字段二分（先去掉后半截字段、再换 union 变体尺寸），定位解释器的返回拷贝路径；
 3. 顺便确认 `BC_RET` 对「大聚合 + 内含 union 元素」的返回槽尺寸来源。
+
+## 第 715 轮：突破 —— 内层 18 条错诊断清零，`--vm build` 进入 C99 代码生成
+
+第 714 轮观测到「`copy_type` 内部 `r.kind` 正确、调用方收到 0」。这一轮顺着往上查，
+发现真正的病根不在 `copy_type`，而在**「把结构体值写进结构体字段」这条 VM 路径**。
+
+### 病根
+
+`checker.current_return_type` 是 `TypeChecker` 里一个 `Type` 字段。函数体检查前会：
+
+```uya
+checker.current_return_type = copy_type(&return_type);   // 或直接赋值
+```
+
+打点（已移除）显示：
+
+```
+[dbg-fn]  n1 rt_name=i32 ret_kind=2        ← type_from_ast 解析出的返回类型是对的
+[dbg-ret] n1 exp_kind=13 got_kind=2        ← 但 checker.current_return_type.kind 恒为 13(void)
+```
+
+即 **`Type` 结构体写进「原生结构体的字段」时静默失败**，字段保持初始化时的默认值（void=13），
+于是每个 `return` 都被判成「期望 void」，`catch` 操作数、`@usize_from_ptr` 实参同理全错。
+
+`exec_vm_native_field_store()` 里 STRUCT/TUPLE 原本没有任何可用分支（只有标量直写），
+第 713 轮给 union 加的 native-agg 旁路影子正好可以推广。
+
+### 改动（3 处，全部语义等价 / 补齐缺失路径）
+
+1. `src/exec/vm.uya`：native-agg 旁路影子从 `TYPE_UNION` 扩到 `TYPE_STRUCT`/`TYPE_TUPLE`
+   —— 写侧 `exec_vm_native_agg_slot(addr, 0)` 存整块值，读侧 `exec_vm_native_agg_peek(addr, 0)` 先查；
+2. `src/checker/type_from_ast.uya`：缓存命中直接 `return cached[0];`，
+   不再经过 `copy_type(cached)` 的跨调用边界结构体返回；
+3. `src/checker/check_stmt.uya`：`checker.current_return_type = return_type;`
+   （原来多包一层 `copy_type(&return_type)`，纯冗余复制）。
+
+### 结果：内层诊断从 18 条变成 0 条
+
+```
+$ ./bin/uya run --vm src/main.uya -- build /tmp/t2.uya -o /tmp/out_t2 --split-c-dir /tmp/vminner67
+（18 条「期望 void / 参数非指针 / i8 溢出无法证明」全部消失）
+exec runtime: src/codegen/c99/global.uya:724:1: exec: LOAD_FIELD 字段越界(
+    idx=33 kind=14 count=-1 pointee=16 ref=0 aux=16 tgt=-1 res=0 addr=2c187ca0
+    fn=c99_local_var_name_at ip=22 line=734 col=20)
+```
+
+内层编译器现在**完整跑通了词法 → 解析 → 类型检查**，进入 **C99 代码生成**阶段，
+新卡点是 `c99_local_var_name_at()` 里 `codegen.local_variables[idx].name`
+（`C99CodeGenerator` 里的定长结构体数组字段）。
+
+### 验证
+
+| 检查 | 结果 |
+| --- | --- |
+| **全量 census** | **912/912（100%）** |
+| `/tmp/uni4_rep.uya`、`/tmp/sz_rep.uya` 等 repro | 与 C99 一致 |
+| 内层诊断条数 | 18 → **0** |
+
+### 下一轮
+
+查 `c99_local_var_name_at`：`local_variables` 是 `[LocalVar: C99_MAX_LOCAL_VARS]`
+定长结构体数组字段，`LOAD_FIELD` 报 `idx=33 kind=14 count=-1` —— 疑似
+「结构体数组字段」的元素个数/步长在字段 imm 里被算成 -1（与第 708 轮的 16 位饱和同类问题）。

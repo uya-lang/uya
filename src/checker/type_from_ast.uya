@@ -181,7 +181,10 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
     }
     const cached: &Type = type_from_ast_cache_lookup(checker, type_node);
     if cached != null {
-        return copy_type(cached);
+        // 直接按值取出缓存项：`copy_type(cached)` 会多一层「大结构体按值返回」的调用边界，
+        // 解释执行下那条路径会丢掉 Type 的首字段（第 714 轮打点：copy_type 内部 kind 正确、
+        // 调用方收到 0）。这里语义完全等价，只是省掉一次跨调用边界的结构体返回。
+        return cached[0];
     }
     const result: Type = type_from_ast_uncached(checker, type_node);
     type_from_ast_cache_store(checker, type_node, &result);

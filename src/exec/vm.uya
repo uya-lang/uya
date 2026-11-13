@@ -2612,10 +2612,11 @@ fn exec_vm_native_field_load(kind_code: i32, pointee_kind_code: i32, elem_count:
         const pf64: *u64 = @ptr_from_usize(addr) as *u64;
         return exec_make_f64_bits(pf64[0]);
     }
-    if kind_code == TypeKind.TYPE_UNION as i32 {
-        const union_shadow: &ExecValue = exec_vm_native_agg_peek(exec_vm_main_vm(), addr, 0);
-        if union_shadow != null {
-            return exec_value_clone(union_shadow);
+    if kind_code == TypeKind.TYPE_UNION as i32 || kind_code == TypeKind.TYPE_STRUCT as i32 ||
+        kind_code == TypeKind.TYPE_TUPLE as i32 {
+        const agg_shadow: &ExecValue = exec_vm_native_agg_peek(exec_vm_main_vm(), addr, 0);
+        if agg_shadow != null {
+            return exec_value_clone(agg_shadow);
         }
     }
     if kind_code == TypeKind.TYPE_STRUCT as i32 || kind_code == TypeKind.TYPE_UNION as i32 ||
@@ -2647,10 +2648,16 @@ fn exec_vm_native_field_store(kind_code: i32, addr: usize, value: ExecValue) i32
     // （键 = 字段地址，元素下标固定 0），读侧先查这张表。
     // 否则 `Type.data` 这类字段读回来会退化成「指向 union 的指针」，`match` 直接报
     // `LOAD_UNION_TAG 目标不是 union`（第 712 轮 repro /tmp/uni4_rep.uya）。
-    if kind_code == TypeKind.TYPE_UNION as i32 {
-        const union_slot: &ExecValue = exec_vm_native_agg_slot(exec_vm_main_vm(), addr, 0);
-        if union_slot != null {
-            union_slot[0] = exec_value_clone(&value);
+    if kind_code == TypeKind.TYPE_UNION as i32 || kind_code == TypeKind.TYPE_STRUCT as i32 ||
+        kind_code == TypeKind.TYPE_TUPLE as i32 {
+        // 带 tag 的 union 与聚合结构体都无法用「原生字节装下整个值」：
+        // 原生内存里只放得下扁平字段。整块值写进 native-agg 旁路表
+        // （键 = 字段地址，元素下标固定 0），读侧先查这张表。
+        // 否则 `checker.current_return_type = <Type 值>` 这类「把结构体写进结构体字段」
+        // 会静默失败（字段保持默认值，Type.kind 恒为 void=13）。
+        const agg_slot: &ExecValue = exec_vm_native_agg_slot(exec_vm_main_vm(), addr, 0);
+        if agg_slot != null {
+            agg_slot[0] = exec_value_clone(&value);
             return 1;
         }
         return 0;
