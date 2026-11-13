@@ -26352,3 +26352,8 @@ exec runtime: ./lib/libc/stdlib.uya:1298:22: exec: 内存函数目标是 VM 值�
 - `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
 - `--vm --version` = `v0.11.0`；`--vm` 内层 `build /tmp/t2.uya` rc=0（产物可运行）。
 - census30（含本轮常量改动）在后台跑，结果记在下一轮。
+
+### 补记（census30）
+
+含 `EXEC_VM_SLOT_POOL_INITIAL: 8192 → 1<<17` 的改动重跑全量普查：
+**912/912 通过，0 失败，5 跳过，rc=0**（无回归）。
