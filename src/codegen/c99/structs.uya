@@ -1139,17 +1139,32 @@ fn emit_struct_deps_for_struct(codegen: &C99CodeGenerator, struct_decl: &ASTNode
     if codegen == null || struct_decl == null {
         return 0;
     }
-    var struct_names: [&byte: 128] = [];
+    // ⚠ 这里原本是 `var struct_names: [&byte: 128] = [];`（128 个指针的栈上数组）。
+    // 在 exec VM 下，这种大栈上数组的初始化会把 1 个字节写到别处（实测把 libc 里
+    // `pthread_mutex_t` 类型名字符串的第 1 个字节写成 0xF8，于是 `--vm` 自举生成的
+    // uya_part1_types.h 出现 `p\xf8hread_mutex_t`）。宿主 C 后端不受影响。
+    // 改成 arena 分配 + 显式清零：行为一致，但不再依赖 VM 的栈槽布局。
+    const names_cap: i32 = 128;
+    const struct_names: & & byte = compiler_arena_alloc(codegen.arena,
+        (@size_of(&byte) as usize) *| (names_cap as usize)) as & & byte;
+    if struct_names == null {
+        return 0;
+    }
+    var names_zero_i: i32 = 0;
+    while names_zero_i < names_cap {
+        (struct_names + names_zero_i)[0] = null;
+        names_zero_i = names_zero_i + 1;
+    }
     var struct_count: i32 = 0;
-    collect_struct_types_in_struct(codegen, struct_decl, &struct_names[0], 128, &struct_count);
+    collect_struct_types_in_struct(codegen, struct_decl, struct_names, names_cap, &struct_count);
     if struct_count <= 0 {
         return 0;
     }
     var generated: i32 = 0;
     var i: i32 = 0;
-    while i < @len(struct_names) {
+    while i < names_cap {
         if i < struct_count {
-            const struct_name: &byte = struct_names[i];
+            const struct_name: &byte = (struct_names + i)[0];
             if struct_name != null && is_struct_defined(codegen, struct_name) == 0 {
                 const dep_decl: &ASTNode = find_struct_decl_c99(codegen, struct_name);
                 if dep_decl != null && dep_decl.type == ASTNodeType.AST_STRUCT_DECL {

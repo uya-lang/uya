@@ -26843,3 +26843,53 @@ parse/merge/prepass/exports/macros/embed 干净、`checker_check_node` 之后变
   `dirent_get_name` 改字节视图读取、`pthread_key_delete` 取负改饱和）。
 - 三条验收线同时成立：census 912/912、make check 1197/1197、`--vm` 版本/内层小文件
   构建两项里程碑。
+
+## 第 739 轮：找到并修掉「1 字节脏写」——栈上 `[&byte: 128]` 数组在 VM 下的初始化副作用
+
+### 1. 继续压缩窗口
+
+在 `collect_value_struct_deps_from_type` 的 `AST_TYPE_NAMED` 分支里加逐调用检查点
+（`-20` 进入分支、`-21` 过 `is_primitive_type_name`、`-22` 过
+`find_interface_decl_c99`、`-23` 过 `find_struct_decl_c99`、`-24` 过去重循环）：
+
+```
+[dbg-w] DIRTY tag=-20 name=i32 k=44 ptr=0x7fcda005f5e8 want=116 got=248
+```
+
+`-20` 是**第一个字段**（`count: i32`）进入分支时的检查点，却已经脏了。也就是说
+脏写发生在「`emit_struct_deps_for_struct` 入口（上一轮 `-11` 干净）→ 第一次
+`collect_value_struct_deps_from_type` 调用」之间，这段里**只有一句可疑代码**：
+
+```uya
+var struct_names: [&byte: 128] = [];   // 128 个指针的栈上数组
+```
+
+### 2. 修法：把这块栈上数组搬到 arena（与第 731 轮 `assigned_names` 同一手法）
+
+```uya
+const names_cap: i32 = 128;
+const struct_names: & & byte = compiler_arena_alloc(codegen.arena,
+    (@size_of(&byte) as usize) *| (names_cap as usize)) as & & byte;
+if struct_names == null { return 0; }
+var names_zero_i: i32 = 0;
+while names_zero_i < names_cap {          // 原来 `= []` 的显式清零
+    (struct_names + names_zero_i)[0] = null;
+    names_zero_i = names_zero_i + 1;
+}
+collect_struct_types_in_struct(codegen, struct_decl, struct_names, names_cap, &struct_count);
+...
+while i < names_cap { const struct_name: &byte = (struct_names + i)[0]; ... }
+```
+
+### 3. 结果
+
+- 探针仍在时复跑：`[dbg-w]` **不再报脏**，内层 `build src/t7probe.uya`（依赖
+  `cmd.upm.upm_lib`）**rc=0**，生成的 `.h/.c` 里 0xF8 计数 **0**。
+- 探针摘掉后 `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
+- 结论：这是 **exec VM 对大块栈上数组（指针元素）初始化的写偏**，宿主 C 后端正常；
+  编译器侧的正确应对是把这类大数组改用 arena 分配（与第 731 轮同一类修复）。
+
+### 4. 下一步
+
+跑真正的自举：`--vm` 编 `src/main.uya` 自身（`/tmp/vmfull139`），再补 census 与
+make check 回归。
