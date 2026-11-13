@@ -490,6 +490,15 @@ var g_exec_dbg_enabled: i32 = 0 - 1;    // -1 = 还没查过环境变量
 var g_exec_dbg_big_bytes: i64 = 0;      // ≥64KB 的大块累计字节（怀疑是放大主因）
 var g_exec_dbg_big_calls: i64 = 0;
 var g_exec_dbg_max_size: i64 = 0;
+// 按「是不是 sizeof(ExecValue)=48 的整数倍」分桶：聚合元素数组必然是整数倍，
+// 字符串/切片数据一般不是。用来区分放大到底来自「结构体值拷贝」还是「字符串」。
+var g_exec_dbg_agg_bytes: i64 = 0;
+var g_exec_dbg_agg_calls: i64 = 0;
+var g_exec_dbg_str_bytes: i64 = 0;
+var g_exec_dbg_str_calls: i64 = 0;
+// 尺寸直方图：7 档（≤64/128/256/512/1K/4K/>4K）的字节与次数。
+var g_exec_dbg_bucket_bytes: [i64: 7] = [0:7];
+var g_exec_dbg_bucket_calls: [i64: 7] = [0:7];
 
 // 竞技场是**进程级共享**的 bump 分配器：真宿主线程（`UYA_EXEC_REAL_THREADS=1`）
 // 下每个线程的 VM 都从这里切块，`g_exec_value_arena_used` 的读-改-写必须串行化，
@@ -593,6 +602,23 @@ fn exec_vm_dbg_count_alloc(size: usize) void {
     if (size as i64) > g_exec_dbg_max_size {
         g_exec_dbg_max_size = size as i64;
     }
+    const ev_size: usize = @size_of(ExecValue) as usize;
+    if ev_size > 0 as usize && size >= ev_size && (size % ev_size) == 0 as usize {
+        g_exec_dbg_agg_bytes = g_exec_dbg_agg_bytes +| (size as i64);
+        g_exec_dbg_agg_calls = g_exec_dbg_agg_calls +| 1;
+    } else {
+        g_exec_dbg_str_bytes = g_exec_dbg_str_bytes +| (size as i64);
+        g_exec_dbg_str_calls = g_exec_dbg_str_calls +| 1;
+    }
+    var bi: i32 = 6;
+    if size <= 64 as usize { bi = 0; }
+    else if size <= 128 as usize { bi = 1; }
+    else if size <= 256 as usize { bi = 2; }
+    else if size <= 512 as usize { bi = 3; }
+    else if size <= 1024 as usize { bi = 4; }
+    else if size <= 4096 as usize { bi = 5; }
+    g_exec_dbg_bucket_bytes[bi] = g_exec_dbg_bucket_bytes[bi] +| (size as i64);
+    g_exec_dbg_bucket_calls[bi] = g_exec_dbg_bucket_calls[bi] +| 1;
     if exec_vm_dbg_enabled() == 0 {
         return;
     }
@@ -603,6 +629,17 @@ fn exec_vm_dbg_count_alloc(size: usize) void {
             g_exec_dbg_alloc_bytes / 1048576, g_exec_dbg_alloc_calls, g_exec_dbg_clone_calls,
             g_exec_value_arena_segment_count, g_exec_dbg_big_bytes / 1048576, g_exec_dbg_big_calls,
             g_exec_dbg_max_size / 1024i64);
+        fprintf(libc.stderr, "[mem2] EvSize=%d 聚合类=%lldMB/%lld次 非聚合类=%lldMB/%lld次 直方图MB/calls:\n" as *byte,
+            @size_of(ExecValue), g_exec_dbg_agg_bytes / 1048576, g_exec_dbg_agg_calls,
+            g_exec_dbg_str_bytes / 1048576, g_exec_dbg_str_calls);
+        fprintf(libc.stderr, "  <=64:%lld/%lld <=128:%lld/%lld <=256:%lld/%lld <=512:%lld/%lld <=1K:%lld/%lld <=4K:%lld/%lld >4K:%lld/%lld\n" as *byte,
+            g_exec_dbg_bucket_bytes[0] / 1048576, g_exec_dbg_bucket_calls[0],
+            g_exec_dbg_bucket_bytes[1] / 1048576, g_exec_dbg_bucket_calls[1],
+            g_exec_dbg_bucket_bytes[2] / 1048576, g_exec_dbg_bucket_calls[2],
+            g_exec_dbg_bucket_bytes[3] / 1048576, g_exec_dbg_bucket_calls[3],
+            g_exec_dbg_bucket_bytes[4] / 1048576, g_exec_dbg_bucket_calls[4],
+            g_exec_dbg_bucket_bytes[5] / 1048576, g_exec_dbg_bucket_calls[5],
+            g_exec_dbg_bucket_bytes[6] / 1048576, g_exec_dbg_bucket_calls[6]);
     }
 }
 

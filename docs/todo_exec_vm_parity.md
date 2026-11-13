@@ -27231,3 +27231,67 @@ VmRSS: 57772616 kB   VmData/VmPeak: 125298460 kB（几乎全是 anon dirty）
 - `make check`（check184）：**1197 通过 / 0 失败**，rc=0。
 - `make from-c-native`：rc=0，种子可从 C 重建，重建后 `--version` = `v0.11.0`。
 - `--vm --version` → `v0.11.0`；`--vm` 内层 `build /tmp/t2.uya` → 产物运行 rc=0。
+
+## 第 743 轮：放大的定量归因（聚合数组 + 发射阶段按模块线性增长）
+
+### 1. 尺寸直方图把放大钉死了
+
+`src/exec/value.uya` 诊断再细化：按「尺寸是否为 `sizeof(ExecValue)` 的整数倍」分
+聚合类/非聚合类，并加 7 档尺寸直方图。`--vm` 编 `src/main.uya` 跑到类型检查
+3000/4209 时的实测：
+
+```
+[mem] vm值竞技场累计=25856MB 次数=67109742 clone=6182578588 段数=8 大块=309MB/310次 最大=32768KB
+[mem2] EvSize=56 聚合类=22330MB/22820844次 非聚合类=3525MB/44288898次
+  <=64 ... <=1K ... >4K ...
+```
+
+| 项目 | 数值 |
+| --- | --- |
+| `sizeof(ExecValue)` | **56 字节**（kind4+i64 8+ptr 8+aux_kind4+aux_i64 8+aux_ptr 8+error_id4，对齐补到 56） |
+| 聚合元素数组（`size % 56 == 0`） | **22.3 GB / 2282 万次**，单次均值 ≈ **1 KB ≈ 18 个元素** |
+| 非聚合类（字符串/切片头等） | 3.5 GB / 4429 万次，单次 ≈ 80 字节 |
+| ≥64KB 大块 | 309 MB / 310 次（**排除**大缓冲假设） |
+
+结论：放大 = **海量「结构体值深拷贝」**。`exec_value_clone()` 对
+STRUCT/ARRAY/TUPLE 会 `exec_value_make_aggregate(count)` 新开一块 `count×56` 的
+数组再逐元素递归克隆，而 VM 的值竞技场是 **bump-only、永不回收**（段表 256 段、
+每段从 200MB 翻倍）。宿主编译器同一条代码路径用的是 `malloc/free`，
+VM 里就变成「全部垃圾常驻」。
+
+### 2. 发射阶段的增长是「按模块」的，而且更大
+
+同一次运行（`/tmp/vmfull191.log`）接着往 codegen 走：
+
+| 阶段 | 竞技场累计 | 已发射模块 |
+| --- | --- | --- |
+| 类型检查结束 | 25.8 GB | 0 |
+| 发射中 | 53.2 GB（1.37 亿次分配） | **8** |
+
+即每发射 1 个模块涨 ≈ **3.4 GB**。宿主 `make uya` 全量只要 1~2GB —— 因为它的
+临时聚合值会被 `free`；VM 侧一份都留。按这个斜率，编完 108 个模块要几百 GB，
+**不是调大上限能解决的**，必须引入回收。
+
+另外：这台机器有 62GB 物理内存 + 62GB swap 分区，实测跑到 29GB RSS 时就已有
+~24GB 被换出（`free -h` 的 swap used 一度到 50GB），整个进程陷入换页抖动 ——
+这也解释了之前「55 分钟没有任何输出」的假死。
+
+### 3. 下一轮要做的（回收，而不是继续调参数）
+
+按性价比排序：
+
+1. **聚合数组回收 + 所有权位**：
+   - `ExecAggregate` 加 `owned: i32`；
+   - `exec_value_make_aggregate`/`exec_value_clone` 建出来的数组标 `owned=1`；
+   - VM 里约 25 处**浅拷贝**（`args[0] = self_cell[0]`、`frame_args[fi] = arg_ref[0]`、
+     `out_value[0] = mem_dst[0]` 等）改成「拷贝时清 owned 位」；
+   - `STORE_LOCAL/STORE_FIELD/STORE_INDEX` 覆盖旧值时，若旧值 `owned=1` →
+     把 `.values` 数组还给**尺寸分档空闲链**（按元素个数分档，≤4/8/16/32/... ），
+     `exec_value_make_aggregate` 优先从空闲链取。
+   这样「临时值反复覆盖同一个槽」的垃圾就能真正复用，编译器这类高翻台负载受益最大。
+2. **`exec_value_clone` 的快速通道**：元素全是标量（无嵌套聚合）时整块
+   `memcpy` + 一次分配（已部分如此，可再省掉逐元素 clone 的递归开销）。
+3. （后续）收缩 `ExecValue`：`aux_ptr_value` 只服务 error-union 的 ok 载荷
+   （`value.uya:364/397` 两处），可换成把指针位塞进 `aux_i64_value`
+   + `aux_kind` 判别，`ExecValue` 56 → 40 字节（约 -29% 内存）。风险在于
+   error-union 的 ok 载荷语义，要单独一轮验证。
