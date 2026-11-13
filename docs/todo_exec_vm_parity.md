@@ -26357,3 +26357,8 @@ exec runtime: ./lib/libc/stdlib.uya:1298:22: exec: 内存函数目标是 VM 值�
 
 含 `EXEC_VM_SLOT_POOL_INITIAL: 8192 → 1<<17` 的改动重跑全量普查：
 **912/912 通过，0 失败，5 跳过，rc=0**（无回归）。
+
+### 补记（make check）
+
+`make check`（含自举验证）：**1197/1197 通过，0 失败，rc=0**。
+（上一轮记录里的 `test_async_compute_dynamic_resource_pressure` 偶发失败这次也通过了。）
