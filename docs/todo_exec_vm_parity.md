@@ -25797,3 +25797,8 @@ fputs(&g_indent_spaces[256 - total] as *byte, codegen.emit_stream as *void);
 - 读回时干净、跑完却脏 ⇒ 脏字节来自**关闭/收尾阶段的 flush**，或是**第二个句柄**在同一偏移回写。
 
 同时把「`UYA_SPLIT_C_MIRROR=0` 时 Makefile 仍依赖 `uya_part1_types.h`」这个独立 bug 一起修。
+
+### 第 724 轮回归
+
+`tests/verify_exec_vm_census.sh`（census27）：**912/912 通过，0 失败，5 跳过，rc=0**。
+缩进改动（`fwrite` → `fputs` 窗口）无回归。
