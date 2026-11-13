@@ -27401,3 +27401,59 @@ VM 里其实**已经有所有权标记**：`ExecValue.error_id`。
 - `make check`（check202）：**1197 通过 / 0 失败**，rc=0。
 - 定点：`--vm tests/test_exec_vm_aggregates.uya`、`test_crypto_bigint.uya`、
   `test_typed_pipeline_capability.uya` 均 rc=0。
+
+## 第 745 轮：把「返回/实参/调用结果」从深拷贝改成移动或借用 —— 内存砍掉 47%
+
+### 1. 先做归因（按字节码指令统计聚合分配）
+
+在 `exec_value_make_aggregate()` 里按「当前正在执行的 opcode」计数，并在 `[mem2]`
+里打印 Top5。`--vm` 编 `src/main.uya`、类型检查 3008/4211 处：
+
+| 排名 | opcode | 聚合分配次数 |
+| --- | --- | --- |
+| 1 | `BC_RET`(70) | **9,879,257**（43%） |
+| 2 | `BC_STORE_LOCAL`(9) | 5,016,924（22%） |
+| 3 | `BC_MAKE_STRUCT`(34) | 3,348,893（15%） |
+| 4 | `BC_MOV`(2) | 1,001,930（4%） |
+| 5 | `BC_CALL`(62) | 911,684（4%） |
+
+尺寸直方图同时显示：**>4KB 档占了 22.5GB / 15.3M 次**（单次均值 ≈1.5KB），
+也就是大结构体（`ASTNode`/`Type` 这类）的拷贝贡献了绝大部分字节。
+
+结论：**返回值深拷贝是最大的一处**，而返回值/实参/调用结果这三种值都是
+「马上就会被丢弃的临时值」，根本不需要拷贝。
+
+### 2. 三处改动（全部是「语义等价的移动/借用」）
+
+1. **`BC_RET` 改成移动**：`exec_value_clone(slot_a)` → `slot_a[0]`。
+   返回后本帧立即作废，槽位里的聚合内存不会再有第二个持有者。
+2. **调用实参改成借用**：新增 `exec_value_borrow_copy()`（浅拷贝 + `error_id = 1`）。
+   `BC_CALL`/`BC_CALL_INDIRECT` 的 `call_args[i] = exec_value_clone(arg_slot)`
+   改成借用 —— 被调帧本来就是浅拷贝接收（`frame.slots[si] = args[si]`），
+   克隆一份纯属重复分配；`error_id = 1` 保证被调函数里任何赋值仍走深拷贝
+   （`exec_vm_value_owns_buffer()` 会拒绝原地写），值语义不变。
+3. **调用结果改成移动**：新增 `exec_vm_store_slot_move()`（能原地就原地，
+   否则直接接管聚合内存），`BC_CALL` 的返回值用它写回目标槽位。
+
+### 3. 效果（同一负载、同一进度点）
+
+| 指标 | 第 744 轮 | 本轮 | 变化 |
+| --- | --- | --- | --- |
+| 竞技场累计 | 25,856 MB | **13,824 MB** | **-47%** |
+| 分配次数 | 67.1M | 35.8M | -47% |
+| 聚合类 | 22,330 MB / 22.8M 次 | 11,065 MB / 12.1M 次 | -50% |
+| `exec_value_clone` 调用 | 61.9 亿 | 43.6 亿 | -30% |
+
+`BC_RET` 从 Top1 直接消失；现在 Top1 是 `BC_STORE_LOCAL`（5.05M）、
+Top2 `BC_MAKE_STRUCT`（3.37M）—— 前者是「把表达式结果写进变量」，
+后者是「构造结构体字面量」，都还需要字节码层面区分「临时源/变量源」才能再优化。
+
+### 4. 回归
+
+- census222：**912/912 通过，0 失败，5 跳过**，rc=0。
+- `make check`（check223）：**1197 通过 / 0 失败**，rc=0。
+- 定点：`test_exec_vm_aggregates` / `test_crypto_bigint` /
+  `test_typed_pipeline_capability` / `test_async_channel` /
+  `test_exec_vm_builtin_bridge` 全部 rc=0。
+- 同进度点的整编自举竞技场用量从 53.2GB（第 743 轮，8 个前导文件时）
+  降到 **29.4GB**。

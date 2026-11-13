@@ -497,6 +497,12 @@ var g_exec_dbg_agg_calls: i64 = 0;
 var g_exec_dbg_str_bytes: i64 = 0;
 var g_exec_dbg_str_calls: i64 = 0;
 // 尺寸直方图：7 档（≤64/128/256/512/1K/4K/>4K）的字节与次数。
+// 按「当前正在执行的字节码指令」归因的聚合分配次数（下标 = opcode & 255）。
+// 用来定位到底是哪些指令在制造 1KB 级的聚合垃圾 —— 只有定位到指令，才能判断
+// 该不该给它加「移动语义」而不是深拷贝。
+var g_exec_dbg_cur_op: i32 = 0;
+var g_exec_dbg_op_alloc: [i64: 256] = [0:256];
+var g_exec_dbg_op_top: [i32: 5] = [0:5];
 var g_exec_dbg_bucket_bytes: [i64: 7] = [0:7];
 var g_exec_dbg_bucket_calls: [i64: 7] = [0:7];
 
@@ -632,6 +638,33 @@ fn exec_vm_dbg_count_alloc(size: usize) void {
         fprintf(libc.stderr, "[mem2] EvSize=%d 聚合类=%lldMB/%lld次 非聚合类=%lldMB/%lld次 直方图MB/calls:\n" as *byte,
             @size_of(ExecValue), g_exec_dbg_agg_bytes / 1048576, g_exec_dbg_agg_calls,
             g_exec_dbg_str_bytes / 1048576, g_exec_dbg_str_calls);
+        // Top5：哪几条指令在造聚合垃圾
+        var top_i: i32 = 0;
+        while top_i < 5 {
+            var best: i32 = 0 - 1;
+            var best_v: i64 = 0;
+            var qi: i32 = 0;
+            while qi < 256 {
+                const v: i64 = g_exec_dbg_op_alloc[qi];
+                var already: i32 = 0;
+                var tj: i32 = 0;
+                while tj < top_i {
+                    if g_exec_dbg_op_top[tj] == qi { already = 1; }
+                    tj = tj +| 1;
+                }
+                if already == 0 && v > best_v {
+                    best_v = v;
+                    best = qi;
+                }
+                qi = qi + 1;
+            }
+            if best >= 0 && best_v > 0 {
+                g_exec_dbg_op_top[top_i] = best;
+                fprintf(libc.stderr, "  top%d op=%d(%s) 分配=%lld\n" as *byte,
+                    top_i + 1, best, exec_debug_opcode_name(best as u8) as *byte, best_v);
+            }
+            top_i = top_i + 1;
+        }
         fprintf(libc.stderr, "  <=64:%lld/%lld <=128:%lld/%lld <=256:%lld/%lld <=512:%lld/%lld <=1K:%lld/%lld <=4K:%lld/%lld >4K:%lld/%lld\n" as *byte,
             g_exec_dbg_bucket_bytes[0] / 1048576, g_exec_dbg_bucket_calls[0],
             g_exec_dbg_bucket_bytes[1] / 1048576, g_exec_dbg_bucket_calls[1],
@@ -1103,6 +1136,10 @@ fn exec_value_make_aggregate(kind: ExecValueKind, count: i32) ExecValue {
             return exec_make_void();
         }
         exec_value_register_array(@usize_from_ptr(values as &void), count);
+        if g_exec_dbg_enabled >= 0 {
+            const obi: i32 = g_exec_dbg_cur_op & 255;
+            g_exec_dbg_op_alloc[obi] = g_exec_dbg_op_alloc[obi] +| 1;
+        }
     }
     return exec_value_aggregate_from_parts(kind, count, values);
 }
@@ -1217,6 +1254,22 @@ fn exec_value_as_union(value: &ExecValue) &ExecUnionData {
         return null;
     }
     return value.ptr_value as &ExecUnionData;
+}
+
+/// 浅拷贝一个值，并把聚合内存标成「借来的」（`error_id = 1`）。
+///
+/// 调用参数就是这种语义：被调函数拿到的是调用方那块聚合内存的借用副本，
+/// 不重新分配（`BC_CALL` 曾对每个聚合实参深拷贝一次，是自举时的主要垃圾源之一），
+/// 同时 `exec_vm_value_owns_buffer()` 会因此拒绝在借用值上原地写 ——
+/// 被调函数里任何赋值仍走深拷贝，值语义不变。
+fn exec_value_borrow_copy(value: &ExecValue) ExecValue {
+    var out: ExecValue = value[0];
+    if out.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
+        out.kind == ExecValueKind.EXEC_VALUE_STRUCT ||
+        out.kind == ExecValueKind.EXEC_VALUE_TUPLE {
+        out.error_id = 1;
+    }
+    return out;
 }
 
 fn exec_value_clone(value: &ExecValue) ExecValue {

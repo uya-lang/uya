@@ -514,6 +514,19 @@ fn exec_vm_store_slot(slot: &ExecValue, value: ExecValue) void {
 /// 复制整个数组，循环里直接把内存吃到 GB 级（test_crypto_bigint 的 7GB 就是这么
 /// 来的）。读出来的临时值不会被写回，浅拷贝即可；真正的赋值（BC_MOV /
 /// BC_STORE_LOCAL / 字段与下标写）仍然走深拷贝，值语义不变。
+/// 把值**移动**进槽位：源是马上丢弃的临时值，接管它的聚合内存即可，不深拷贝。
+/// 参数：`slot` 目标槽位；`value` 源值（调用后不可再使用）。
+/// 返回值：无。
+fn exec_vm_store_slot_move(slot: &ExecValue, value: ExecValue) void {
+    if slot == null {
+        return;
+    }
+    if exec_vm_store_aggregate_in_place(&slot[0], &value) != 0 {
+        return;
+    }
+    slot[0] = value;
+}
+
 fn exec_vm_store_slot_shallow(slot: &ExecValue, value: ExecValue) void {
     if slot == null {
         return;
@@ -8252,6 +8265,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
         return -1;
     }
     const instr: &BCInstr = function.instrs + frame.ip;
+    g_exec_dbg_cur_op = instr.opcode as i32;
     // 条件前移：trace 关掉时这里是每条指令一次的纯函数调用开销
     // （函数体只有 `if trace_vm == 0 { return; }`，perf 上仍占 ~2%）。
     if trace_vm != 0 {
@@ -9984,7 +9998,9 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 exec_backend_set_error(function.decl, "exec: CALL 参数槽位越界" as *byte, 0);
                 return -1;
             }
-            call_args[ai] = exec_value_clone(arg_slot);
+            // 实参只借用（不深拷贝）：被调帧的槽位本来也是浅拷贝接收
+            // （`frame.slots[si] = args[si]`），克隆一份纯属重复分配。
+            call_args[ai] = exec_value_borrow_copy(arg_slot);
             ai = ai + 1;
         }
         var call_result: ExecValue = exec_make_void();
@@ -9995,7 +10011,8 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, "exec: CALL 返回槽位越界" as *byte, 0);
             return -1;
         }
-        exec_vm_store_slot(slot_a, call_result);
+        // 调用的返回值只活在 `call_result` 这个临时里，直接移动进目标槽位。
+        exec_vm_store_slot_move(slot_a, call_result);
     } else if instr.opcode == BCOpcode.BC_CALL_INDIRECT {
         if slot_a == null || slot_b == null {
             exec_backend_set_error(function.decl, "exec: CALL_INDIRECT 槽位越界" as *byte, 0);
@@ -10019,7 +10036,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 exec_backend_set_error(function.decl, "exec: CALL_INDIRECT 参数槽位越界" as *byte, 0);
                 return -1;
             }
-            call_args3[ai3] = exec_value_clone(arg_slot3);
+            call_args3[ai3] = exec_value_borrow_copy(arg_slot3);
             ai3 = ai3 + 1;
         }
         var indirect_result: ExecValue = exec_make_void();
@@ -10145,7 +10162,10 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 exec_backend_set_error(function.decl, "exec: RET 槽位越界" as *byte, 0);
                 return -1;
             }
-            const ret_value: ExecValue = exec_value_clone(slot_a);
+            // 返回值直接**移动**：返回后本帧就作废了，槽位里的聚合内存不会再有
+            // 第二个持有者。原来这里深拷贝一次，是自举时最大的一处聚合垃圾源
+            // （BC_RET 占聚合分配次数的 43%）。
+            const ret_value: ExecValue = slot_a[0];
             out_value[0] = exec_vm_relocate_escaped_box(program, frame.slots,
                 function.slot_count, ret_value);
         } else {
