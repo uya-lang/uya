@@ -27342,3 +27342,62 @@ VM 里其实**已经有所有权标记**：`ExecValue.error_id`。
 
 - census195：**912/912 通过，0 失败，5 跳过**，rc=0。
 - `make check`（check196）：**1197 通过 / 0 失败**，rc=0。
+
+## 第 744 轮：验证「槽位覆盖复用」不是放大来源（结论：只能上回收）
+
+### 1. 假设与实验
+
+猜测：解释器里槽位被反复覆盖（循环变量、临时槽），如果「目标缓冲区容量够就复用」
+能省掉大量新分配。于是把 `exec_vm_store_aggregate_in_place()` 的复用条件从
+**等形**放宽到**容量够**：
+
+- 聚合：`dst_agg.count >= src_agg.count` → 只覆盖前 `src.count` 个元素，
+  再把 `dst_agg.count` 收窄到 `src.count`；
+- 原始数组：`dst.i64_value >= src.i64_value` 且元素类型相同 → memcpy 前
+  `src.count` 个元素后收窄长度。
+
+安全性依据与原地覆盖同一不变量（`exec_vm_value_owns_buffer()`：`error_id == 0`
+表示这块聚合内存归当前槽位独占），写进去的都是合法值。
+
+### 2. 结果：分配次数一点没降
+
+同一负载（`--vm` 编 `src/main.uya`，类型检查 3008/4209 处采样）：
+
+| 版本 | 竞技场累计 | 分配次数 |
+| --- | --- | --- |
+| 改动前 | 25,856 MB | 67,109,833 |
+| 改动后 | 25,856 MB | 67,109,800 |
+
+**差异在噪声里**。也就是说：垃圾不是「覆盖旧值产生的」，而是
+**新建聚合值产生的**（结构体字面量、函数返回、`exec_value_clone` 到新槽位），
+这些值没有任何「可复用的目标缓冲区」。
+
+结论：想真正止住放大，**必须做回收（引用计数）**，调复用条件/调上限都没用。
+
+这个改动仍然保留（不亏：收缩形状覆盖时省一次分配，且已过 census + make check），
+但它不是解法。
+
+### 3. 下一轮要做的：`ExecAggregate` 引用计数
+
+必须同时计数**结构体与 `.values` 数组**（二者在 `exec_value_aggregate_from_parts`
+里一起分配，且浅拷贝会共享结构体）。要点：
+
+1. `ExecAggregate` 加 `ref_count: i32`；`exec_value_make_aggregate` /
+   `exec_value_clone` 建出来置 1。
+2. 浅拷贝点位 +1：`exec_vm_store_slot_shallow()` 以及约 25 处直接结构体赋值
+   （`args[0] = self_cell[0]`、`frame_args[fi] = arg_ref[0]`、`out_value[0] = mem_dst[0]` …），
+   统一改走一个 `exec_value_borrow_aggregate(value)`。
+3. 释放点 -1：`exec_vm_store_slot()` 覆盖旧值前、frame pop、旁路表 `forget`/覆盖、
+   聚合元素覆盖（`exec_vm_store_aggregate_in_place` 里逐元素 store 已经复用 store_slot，
+   自动覆盖到）。
+4. 归零时把 `.values` 数组按元素个数分档（2/4/8/16/32/64/128/1024/65536）还给
+   空闲链，`exec_value_make_aggregate` 优先取空闲链。
+5. 护栏：census 912/912 + make check 1197/1197；再跑整编自举看
+   `[mem] vm值竞技场累计` 的斜率。
+
+### 4. 本轮回归
+
+- census201：**912/912 通过，0 失败，5 跳过**，rc=0。
+- `make check`（check202）：**1197 通过 / 0 失败**，rc=0。
+- 定点：`--vm tests/test_exec_vm_aggregates.uya`、`test_crypto_bigint.uya`、
+  `test_typed_pipeline_capability.uya` 均 rc=0。

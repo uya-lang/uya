@@ -447,7 +447,10 @@ fn exec_vm_store_aggregate_in_place(dst: &ExecValue, src: &ExecValue) i32 {
         return 0;
     }
     if exec_value_is_raw_array(src) != 0 {
-        if exec_value_is_raw_array(dst) == 0 || dst.i64_value != src.i64_value {
+        // 容量够就复用：目标缓冲区**更大**时只覆盖前 src 个元素，再把长度改小。
+        // 所有权不变量（`exec_vm_value_owns_buffer`）已经保证这块内存是本槽独占的，
+        // 写进去的一定是合法值，所以「缩小形状复用」与「等形复用」一样安全。
+        if exec_value_is_raw_array(dst) == 0 || dst.i64_value < src.i64_value {
             return 0;
         }
         if dst.aux_i64_value != src.aux_i64_value || dst.ptr_value == src.ptr_value {
@@ -462,22 +465,27 @@ fn exec_vm_store_aggregate_in_place(dst: &ExecValue, src: &ExecValue) i32 {
         }
         _ = memcpy(dst.ptr_value as *void, src.ptr_value as *const void,
             elem_size * (src.i64_value as usize));
+        dst.i64_value = src.i64_value;
         return 1;
     }
     const dst_agg: &ExecAggregate = exec_value_as_aggregate(dst);
     const src_agg: &ExecAggregate = exec_value_as_aggregate(src);
-    if dst_agg == null || src_agg == null || dst_agg.count != src_agg.count {
+    // `count` 是本槽独占缓冲区的容量，目标更大时同样可以复用（只覆盖前
+    // src.count 个元素，随后把 count 收窄）。槽位在 VM 里被反复复用于不同类型，
+    // 「新值比旧值小」非常常见，允许收缩复用能省掉大量新分配。
+    if dst_agg == null || src_agg == null || dst_agg.count < src_agg.count {
         return 0;
     }
     if dst_agg.values == src_agg.values {
         return 1;
     }
     var i: i32 = 0;
-    while i < dst_agg.count {
+    while i < src_agg.count {
         exec_vm_store_slot(&dst_agg.values[i], src_agg.values[i]);
         i = i + 1;
     }
-    dst.i64_value = src.i64_value;
+    dst_agg.count = src_agg.count;
+    dst.i64_value = src_agg.count as i64;
     return 1;
 }
 
