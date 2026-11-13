@@ -26622,3 +26622,8 @@ parse/merge/prepass/exports/macros/embed 干净、`checker_check_node` 之后变
 - `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
 - 探针文件已删除，工作树只剩本轮两处 guest 改动（`src/main.uya`、`lib/libc/pthread.uya`）。
 - census34 与 `--vm` 内层 `build /tmp/t2.uya` 在后台跑，结果记在下一轮。
+
+### 补记（census34 / 内层 build）
+
+- census34：**912/912 通过，0 失败，5 跳过，rc=0**（两处 guest 改动无回归）。
+- `--vm` 内层 `build /tmp/t2.uya`：rc=0，产物运行 rc=0（里程碑保持）。
