@@ -3513,10 +3513,16 @@ fn exec_vm_pointer_element_ptr(function: &BCFunction, base: ExecValue, index_val
         // 内部引用分支里找不到聚合 → 报 `STORE_INDEX 越界`
         // （/tmp/nest10.uya，编译器 `c99_split_mirror_prepare` 同款）。
         const agg_native_first: i32 = (pointee_kind == TypeKind.TYPE_ARRAY as i32) as i32;
+        // 旁路槽位存在 ≠ 那里有真实内容：`exec_vm_native_agg_slot()` 会按需建表，
+        // 未写入过的元素是 VOID。若把它当「已存值」优先返回，`variants + i` 这类
+        // 纯原生数组会读到空聚合（内层 build 的 TargetArch 枚举变体全丢就是这个）。
+        const agg_slot_unused: i32 = (agg_stored_addr != null &&
+            agg_stored_addr[0].kind == ExecValueKind.EXEC_VALUE_VOID) as i32;
         // 与 `exec_vm_load_pointer_index` 对称：该元素此前被 `STORE_INDEX` 写进过
         // 旁路表，真实内容在那里。先按编译期字节数步进会返回指向原生缓冲区零值的
         // 指针（`&queue.slots[i]` 之后读字段全是 0，13x 那批用例挂住就是这个）。
-        if (agg_stored_addr == null || agg_native_first != 0) && elem_size_hint > 0 as usize &&
+        if (agg_stored_addr == null || agg_native_first != 0 || agg_slot_unused != 0) &&
+            elem_size_hint > 0 as usize &&
             !exec_vm_address_is_vm_resident(base_addr) {
             // 元素是**数组**时，取到的应该是「铺平的数组值」：VM 里数组值就是
             // 指向首元素的指针，元素 kind 用 BYTE 兜底（下一层下标按字节步进，
@@ -3717,7 +3723,9 @@ fn exec_vm_load_pointer_index(function: &BCFunction, base: ExecValue, index_valu
         // 数组元素同 `exec_vm_pointer_element_ptr`：旁路表只服务「整块写入的聚合值」，
         // 数组元素要按原生步长读。
         const agg_native_first2: i32 = (pointee_kind == TypeKind.TYPE_ARRAY as i32) as i32;
-        if agg_stored != null && agg_native_first2 == 0 {
+        const agg_stored_unused2: i32 = (agg_stored != null &&
+            agg_stored[0].kind == ExecValueKind.EXEC_VALUE_VOID) as i32;
+        if agg_stored != null && agg_native_first2 == 0 && agg_stored_unused2 == 0 {
             out_value[0] = exec_value_clone(agg_stored);
             return 0;
         }

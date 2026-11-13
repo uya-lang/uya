@@ -25575,3 +25575,44 @@ while i < variant_count {
 `variants + i` 的步长已经用 `/tmp/nest12.uya`（双指针结构体，`@size_of = 16`）验证是对的，
 所以问题更可能在「AST 里 `enum_decl_variants` 这个指针/计数字段读回的值」上。
 下一轮直接在内层运行里打点这个枚举的 `variant_count` 与 `variants[0].name`。
+
+## 第 720 轮：内层残留缺陷定位到「旁路表影子 vs 原生内存」与「fork 并行解析」
+
+### 打点结论（内层 `--vm build /tmp/t2.uya`，打点已全部清掉）
+
+| 打点位置 | 结果 | 说明 |
+| --- | --- | --- |
+| `gen_enum_definition()` 入口（TargetArch） | `count=5 variants=0x…5690 n0=0x0` | 计数对、数组指针非空，但 `variants[0].name` 是 **null** |
+| 变体循环内 | **一次都没触发** | 第 1 圈就 `variant.name == null` → `return -1`，所以「5 个变体 + `};`」一起消失，与症状完全吻合 |
+| `parser_parse_enum()` 扩容点 | `count=4 cap=8 cap2=8 c0=0x…54f8`（有效） | 扩容拷贝 `new_variants[i] = variants[i]` 在内层**成功了** |
+| `parser_parse_enum()` 收尾 | `variants=0x…5690 f0=0x…54f8`（有效） | 解析结束时数据还在 |
+| 宿主同源跑 | 解析 `std.platform` **2 次**，`parser` 与 `codegen` 的指针/内容**完全一致** | 宿主无此问题 |
+| 内层跑 | 解析 **6 次**，最后一次 `decl/variants` 地址与 `codegen` 读到的相同，但内容已被清零 | 只有内层出现 |
+
+⇒ **同一份声明解析结束时是对的、到 codegen 时被清零**，且内层解析次数是宿主的 3 倍。
+
+`aspect` 指向 `parallel_parse_run()`（`src/parallel.uya` 的 `fork` + `MAP_SHARED`）：子进程把 AST 写进
+**共享映射**，父进程再读。若子进程的部分写入走了 VM 内部的**旁路表影子**（`g_exec_native_agg_*`），
+父进程看到的就是「从未写过的共享页」（全 0）——这正好解释「`variant_count=5` 对、数组内容全 0」：
+标量字段通过共享控制块传回，指针指向的数组没传回。
+
+同一机制也能解释 `saved_envp` 的单字节损坏（`s\260ved_envp`）：共享页里有一个字节从未被真正写入，
+留下上一轮映射的残值（两次运行逐字节相同 ⇒ 残值稳定）。
+
+`cmp -l` 复核宿主/内层同源产物：除 split 边界缩进空白外，**只剩两处语义差异**（即上面这两个）。
+
+### 本轮修复
+
+`exec_vm_pointer_element_ptr()` / `exec_vm_load_pointer_index()`：旁路槽位**存在 ≠ 有内容**。
+`exec_vm_native_agg_slot()` 是按需建表的，从未写入过的元素是 `VOID`；之前只要槽位存在就优先返回，
+于是 `variants + i` 这类纯原生数组读到空聚合。现在槽位为 `VOID` 时退回原生内存。
+
+验证：census25 **912/912**（0 失败，5 跳过）；`/tmp/nest10/11/13/14/15/16` 两后端逐行一致
+（含 `memcpy` 非对齐、奇数长度的逐字节比对）。
+
+### 下一步
+
+1. 在 `compiler_arena_alloc()` 里做自检：分配后回读 `arena.offset` / `chunk.used`，没前递就报错，
+   确认「bump 指针的写入是否进了旁路表影子」。
+2. 若确认，改 `exec_vm_native_field_store()`：目标在共享映射（非 VM 本地）里时**必须**写原生内存。
+3. 兜底：VM 下让 `parallel_available()` 返回 0（串行解析），先跑通自举再回头修并行路径。
