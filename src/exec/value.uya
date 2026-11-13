@@ -478,6 +478,19 @@ var g_exec_value_fallback_count: i32 = 0;
 // 后面 400MB/800MB/1.6GB 全被浪费，长跑程序会白白吃光内存。
 var g_exec_value_arena_capacity: usize = 0;
 
+// ===== 内存放大诊断（`UYA_PROGRESS=1` 时每 256MB 打一行）=====
+//
+// 解释器一次整编自举能涨到 57GB（宿主编同一份源码只要 1~2GB），必须先看清
+// 是「VM 值竞技场」还是「guest malloc」占大头，再决定优化方向。
+var g_exec_dbg_alloc_bytes: i64 = 0;    // VM 值竞技场累计分配字节
+var g_exec_dbg_alloc_calls: i64 = 0;    // VM 值竞技场累计分配次数
+var g_exec_dbg_clone_calls: i64 = 0;    // exec_value_clone 调用次数
+var g_exec_dbg_printed_chunk: i64 = 0;  // 上次打印到第几个 256MB
+var g_exec_dbg_enabled: i32 = 0 - 1;    // -1 = 还没查过环境变量
+var g_exec_dbg_big_bytes: i64 = 0;      // ≥64KB 的大块累计字节（怀疑是放大主因）
+var g_exec_dbg_big_calls: i64 = 0;
+var g_exec_dbg_max_size: i64 = 0;
+
 // 竞技场是**进程级共享**的 bump 分配器：真宿主线程（`UYA_EXEC_REAL_THREADS=1`）
 // 下每个线程的 VM 都从这里切块，`g_exec_value_arena_used` 的读-改-写必须串行化，
 // 否则两个线程会拿到同一段地址、互相覆盖对方的聚合值。
@@ -556,6 +569,43 @@ fn exec_value_arena_grow_locked(need: usize) &byte {
     return mem;
 }
 
+/// 诊断开关：只在 `UYA_PROGRESS=1` 时打开（结果缓存，避免每次分配都 getenv）。
+fn exec_vm_dbg_enabled() i32 {
+    if g_exec_dbg_enabled < 0 {
+        const env: *byte = getenv("UYA_PROGRESS" as *byte);
+        g_exec_dbg_enabled = 0;
+        if env != null && env[0] != 0 as byte {
+            g_exec_dbg_enabled = 1;
+        }
+    }
+    return g_exec_dbg_enabled;
+}
+
+/// 记一笔 VM 值分配；每累计 256MB 打一行，方便和进程 RSS 对照。
+/// 参数：`size` 本次分配字节数。返回值：无。
+fn exec_vm_dbg_count_alloc(size: usize) void {
+    g_exec_dbg_alloc_bytes = g_exec_dbg_alloc_bytes +| (size as i64);
+    g_exec_dbg_alloc_calls = g_exec_dbg_alloc_calls +| 1;
+    if (size as i64) >= 65536i64 {
+        g_exec_dbg_big_bytes = g_exec_dbg_big_bytes +| (size as i64);
+        g_exec_dbg_big_calls = g_exec_dbg_big_calls +| 1;
+    }
+    if (size as i64) > g_exec_dbg_max_size {
+        g_exec_dbg_max_size = size as i64;
+    }
+    if exec_vm_dbg_enabled() == 0 {
+        return;
+    }
+    const chunk: i64 = g_exec_dbg_alloc_bytes / 268435456;
+    if chunk > g_exec_dbg_printed_chunk {
+        g_exec_dbg_printed_chunk = chunk;
+        fprintf(libc.stderr, "[mem] vm值竞技场累计=%lldMB 次数=%lld clone=%lld 段数=%d 大块=%lldMB/%lld次 最大=%lldKB\n" as *byte,
+            g_exec_dbg_alloc_bytes / 1048576, g_exec_dbg_alloc_calls, g_exec_dbg_clone_calls,
+            g_exec_value_arena_segment_count, g_exec_dbg_big_bytes / 1048576, g_exec_dbg_big_calls,
+            g_exec_dbg_max_size / 1024i64);
+    }
+}
+
 /// 竞技场 bump 分配（**调用方必须已持有竞技场锁**）。
 /// 参数：`size` 需要的字节数。
 /// 返回值：按 16 字节对齐的新块；分配失败返回 null。
@@ -594,6 +644,7 @@ fn exec_value_alloc_bytes_locked(size: usize) &byte {
         if fallback == null {
             return null;
         }
+        exec_vm_dbg_count_alloc(size);
         // **必须登记进段表**。`exec_vm_address_is_value`（本文件 `:580`）靠段表
         // 判断「某地址是不是 VM 值内存」，`exec_vm_address_is_vm_resident`
         // 再靠它区分「VM 内部引用」与「宿主指针」。漏登记会让这批块的地址被
@@ -619,6 +670,7 @@ fn exec_value_alloc_bytes_locked(size: usize) &byte {
     const mem: &byte = g_exec_value_arena_base + g_exec_value_arena_used;
     g_exec_value_arena_used = g_exec_value_arena_used +| total;
     _ = memset(mem as *byte, 0, size);
+    exec_vm_dbg_count_alloc(size);
     return mem;
 }
 
@@ -1131,6 +1183,7 @@ fn exec_value_as_union(value: &ExecValue) &ExecUnionData {
 }
 
 fn exec_value_clone(value: &ExecValue) ExecValue {
+    g_exec_dbg_clone_calls = g_exec_dbg_clone_calls +| 1;
     if value == null {
         return exec_make_void();
     }
