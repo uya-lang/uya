@@ -25802,3 +25802,61 @@ fputs(&g_indent_spaces[256 - total] as *byte, codegen.emit_stream as *void);
 
 `tests/verify_exec_vm_census.sh`（census27）：**912/912 通过，0 失败，5 跳过，rc=0**。
 缩进改动（`fwrite` → `fputs` 窗口）无回归。
+
+## 第 725 轮：脏字节发生在 flush 之前，且不是 VM 模拟的 `fprintf` 写的
+
+### 实验一：`fflush` 之后、`fclose` 之前读回（`c99_codegen_free`）
+
+在关 `uya_common.c` 之前插：`fflush` → 用 `fopen(path,"rb")` 读回 [4096, 12288) 窗口 →
+搜 `ed_envp`（只坏一个字节时仍能匹配）→ 打印前 3 字节 → 再 `fclose`。结果：
+
+```
+[dbg-scan] at-free off=5536 s=115 a=97 v=118
+[dbg-scan] at-free off=8954 s=115 a=176 v=118     <-- 已经是 0xB0
+[dbg-scan] at-free off=9033 s=115 a=97 v=118
+```
+
+⇒ 脏字节**在 flush 前就已经是脏的**，与 `fclose`、第二个写句柄、页面回写都无关；
+丢失发生在写入过程中。
+
+### 实验二：在 VM 模拟的 `fprintf` 上按文件偏移设窗（`src/exec/format.uya`）
+
+`exec_format_printf_like()` 是所有 `printf` 家族的宿主实现（`EXEC_HOST_CALL_FPRINTF_FIXED`）。
+在渲染完成、真正写文件之前插：`ftell(file)` 落在 `[8900, 9060)` 且该次写入覆盖窗口时打印
+`pos/len/fmt`。跑了两种配置：
+
+- 默认并行 codegen（写临时分片再回填）；
+- `UYA_JOBS=1`（单进程直写 `uya_common.c`，无分片）。
+
+**两次都一条 `[dbg-pos]` 都没有**，而 `uya_common.c:260` 依旧坏（这次坏字节是 `'p'` 0x70）。
+
+结论：写坏这几个字节的**不是** VM 模拟的 `fprintf`。`fputs` / `fputc` / `fwrite` 在
+`ExecHostCallId` 里**没有任何专属 id**（枚举 95 项里只有 `FPRINTF_FIXED`/`PRINTF_FIXED`/
+`SPRINTF_FIXED`/`SNPRINTF_FIXED`/`SSCANF_FIXED`），所以它们的路径既不是
+`exec_format_printf_like`，也没走代码里能直接看到的 host-call 分支 —— 这就是下一轮要
+钉死的地方。
+
+### 本轮已排除（累计）
+
+| 假设 | 证据 |
+|---|---|
+| `fclose` / 残留句柄回写 | 实验一：`fflush` 后、`fclose` 前已脏 |
+| 模拟 `fprintf` 的渲染缓冲 | 实验二：FILE 目标全窗口无命中 |
+| 缩进写的 `fwrite` | 第 724 轮改成 `fputs` 后依旧坏 |
+| 字符串本身有洞 | 同一字符串在 5536/9033 两处完好 |
+| 纯 stdio 形态 | `nest23`（`fwrite` 缩进 + `fprintf("%s")` ×3000 行）两后端 md5 相同 |
+| fork / `std.io` 16 KB 拼接 / mirror 分片 / 并行 codegen | 前几轮单项排除 |
+
+### 下一步
+
+1. 找到 `fputs` / `fputc` / `fwrite` 在 VM 里的实际分派路径（`exec_lower_match_host_call_impl`
+   没有它们的名字分支，`hir.uya` 也没有对应 `ExecHostCallId`），确认它们最终落到
+   `@c_import` 动态桥、宿主直调，还是 Uya 实现体。
+2. 在同一条路径上按 `ftell` 设窗打点，定位到底哪一次调用写坏了 8954 这个字节。
+
+### 本轮回归
+
+探针全部清除（`grep -rc "dbg-" src/exec/format.uya src/codegen/c99/utils.uya` 均为 0），
+`make uya` rc=0；`./bin/uya run --vm` 冒烟：`test_overlap_fields`、`test_alignof`、
+`test_string`、`test_exec_vm_printf_varargs`、`test_fmt_api` 全部 rc=0。
+（本轮无功能改动，未重跑全量 census；上一轮 census27 为 912/912。）
