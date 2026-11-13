@@ -25145,3 +25145,39 @@ fn sum_of(t: &T) i32 {
 ### 本轮仓库状态
 
 无代码改动（纯分析 + repro），仓库保持 `e35a1e02`。
+
+## 第 713 轮：union 字段旁路影子（修好 repro，但救不了内层编译器）
+
+第 712 轮定位到「原生结构体的 union 字段读回来是指针」。这一轮按方案 1 落地。
+
+### 改动（`src/exec/vm.uya`）
+
+- **写侧** `exec_vm_native_field_store()`：`kind_code == TYPE_UNION` 时，把整块 union 值
+  （tag + payload）写进 native-agg 旁路表（键 = 字段地址，元素下标固定 0）：
+  `exec_vm_native_agg_slot(vm, addr, 0)[0] = clone(value)`；
+- **读侧** `exec_vm_native_field_load()`：`TYPE_UNION` 先 `exec_vm_native_agg_peek(vm, addr, 0)`，
+  查得到就返回它的克隆，查不到才退回「指向字段内存的视图」。
+
+### 验证
+
+| 检查 | 结果 |
+| --- | --- |
+| `/tmp/uni4_rep.uya`（tagged union 字段 + match） | `--vm` 与 C99 一致（kind=3 sum=15 tail=55） |
+| `test_http_uyagin` / `test_kernel_sim` / `test_async_compute_types` ×2 | 全过 |
+| **全量 census** | **912/912（100%）** |
+
+### 但内层编译器的 18 条错误照旧
+
+`--vm build /tmp/t2.uya` 仍然报 `return 返回值：期望类型 void，推断为 i32` 等。
+原因是影子表**按地址**存：一旦 `Type` 值被按值复制（`copy_type` 是逐字段构造），
+或者整块 `memcpy` 进原生数组（符号表/类型缓存都是 `&Type` 数组），
+新地址上没有影子 → 读 `data` 又退化成指针视图。
+
+### 下一轮的两条路
+
+1. **把 tag+payload 写进原生布局**：先确认 C99 侧 union 的实际布局
+   （tag 在哪个偏移、payload 怎么对齐），VM 按同一布局读写，union 就能随拷贝存活；
+2. 或者让 checker 里 `Type` 的拷贝/存储不落到原生字节（只用 VM 值），
+   但那是改编译器本体，代价大、影响面广。
+
+优先 1。

@@ -2612,6 +2612,12 @@ fn exec_vm_native_field_load(kind_code: i32, pointee_kind_code: i32, elem_count:
         const pf64: *u64 = @ptr_from_usize(addr) as *u64;
         return exec_make_f64_bits(pf64[0]);
     }
+    if kind_code == TypeKind.TYPE_UNION as i32 {
+        const union_shadow: &ExecValue = exec_vm_native_agg_peek(exec_vm_main_vm(), addr, 0);
+        if union_shadow != null {
+            return exec_value_clone(union_shadow);
+        }
+    }
     if kind_code == TypeKind.TYPE_STRUCT as i32 || kind_code == TypeKind.TYPE_UNION as i32 ||
         kind_code == TypeKind.TYPE_TUPLE as i32 {
         // 原生结构体里的**按值嵌套结构体**字段：给出指向字段内存的指针视图。
@@ -2635,6 +2641,18 @@ fn exec_vm_native_field_load(kind_code: i32, pointee_kind_code: i32, elem_count:
 /// 返回值：1 写入成功；0 kind 不支持。
 fn exec_vm_native_field_store(kind_code: i32, addr: usize, value: ExecValue) i32 {
     if addr == 0 as usize {
+        return 0;
+    }
+    // Uya 的 union 是**带 tag 的**，原生字节装不下 tag：整块值写进 native-agg 旁路表
+    // （键 = 字段地址，元素下标固定 0），读侧先查这张表。
+    // 否则 `Type.data` 这类字段读回来会退化成「指向 union 的指针」，`match` 直接报
+    // `LOAD_UNION_TAG 目标不是 union`（第 712 轮 repro /tmp/uni4_rep.uya）。
+    if kind_code == TypeKind.TYPE_UNION as i32 {
+        const union_slot: &ExecValue = exec_vm_native_agg_slot(exec_vm_main_vm(), addr, 0);
+        if union_slot != null {
+            union_slot[0] = exec_value_clone(&value);
+            return 1;
+        }
         return 0;
     }
     if kind_code == TypeKind.TYPE_I8 as i32 || kind_code == TypeKind.TYPE_U8 as i32 ||
