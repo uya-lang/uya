@@ -25675,3 +25675,43 @@ new_variants[i].value = variants[i].value;
 
 1. 定位 `saved_envp` 这条语句的发射路径（疑似某个临时/栈缓冲区第 2 字节没写）。
 2. 修掉后内层 `--vm build` 产物即可直接 `make` 通过 → 产出可运行二进制 → 自举闭环。
+
+## 第 722 轮：内层产物已与宿主等价，只剩 1 个**偶发**字节
+
+### 现状（内层 `--vm build /tmp/t2.uya` vs 宿主同源产物）
+
+| 文件 | 结果 |
+| --- | --- |
+| `uya_part1_types.h` | **完全相同**（`enum std_platform_TargetArch` 5 个变体都在） |
+| `uya_part1.c` | **完全相同** |
+| `uya_strings_extern.h` / `uya_mirror_globals.h` | **完全相同** |
+| `uya_common.c` | 只差**空白**（`diff -w` 无 hunk）+ 第 8955 字节偶发错误 |
+| `Makefile` | 只差 `./lib/std/…` 与 `lib/std/…` 的路径写法 |
+
+### 剩下这 1 个字节
+
+`uya_common.c:260` 的 `saved_envp = (uint8_t * *)(void *)(uintptr_t)(envp_addr);`，
+标识符第 2 个字节在文件里变成随机值：本轮两次跑分别是 `s\260ved_envp`（0xB0）和
+`spved_envp`（'p'）⇒ **该字节没被写过**，读到的是残留值。
+
+打点证据（`gen_expr()` 的 `AST_IDENTIFIER` 分支，`ref_name` 出口处）：
+
+| 时机 | 结果 |
+| --- | --- |
+| `fprintf("%s", ref_name)` **之前** | `ref=0x…7ca0 b=115,97,118 txt=saved_envp` ✔ |
+| 同一 `fprintf` **之后** | `b=115,97,118`（源串未受影响）✔ |
+| 该分支触发次数 | 1 次（就是这条语句；声明与 `= NULL` 走别的路径） |
+| `/tmp/nest18.uya`（`fprintf("%s")` 连写 80 行到文件） | 两后端产物 **md5 相同**、无损坏 |
+
+⇒ 源串正确、`fprintf("%s")` 单独用也正确，但这条语句落到文件里第 2 字节是脏的。
+即损坏发生在**写入落盘这一段**（很可能是同一个输出文件被两个 `FILE*`/两次 open 交替写，
+或者 `emit_stream` 的定位与预期差 1）。这条语句的特殊之处是 RHS 是
+`(T * *)(void *)(uintptr_t)(…)` 的嵌套 cast，且紧邻一条带 `/* optimized */` 的语句。
+
+### 下一步（下轮直接做）
+
+1. 在 `gen_expr()` 该分支里对这条语句打 `ftell(codegen.emit_stream)`：写前应等于
+   8954（`'s'` 的偏移）。若不等 → 输出流定位被人动过；若相等 → 查是否有第二个
+   `FILE*` 打开同一个 `uya_common.c`（`c99/global.uya:1248` 的 mirror 写文件也要核对）。
+2. 若确认是双句柄/双写，改成全部写同一个 `emit_stream` 或改成单次 `fwrite`。
+3. 通过后内层 `--vm build` 产物即可直接 `make` → 产出可运行二进制 → 自举闭环。
