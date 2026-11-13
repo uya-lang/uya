@@ -27457,3 +27457,41 @@ Top2 `BC_MAKE_STRUCT`（3.37M）—— 前者是「把表达式结果写进变�
   `test_exec_vm_builtin_bridge` 全部 rc=0。
 - 同进度点的整编自举竞技场用量从 53.2GB（第 743 轮，8 个前导文件时）
   降到 **29.4GB**。
+
+### 5. 里程碑：整编自举第一次跑到「全套 C 文件发射完毕 + gcc 编译」
+
+第 745 轮的移动/借用改动之后重跑整编自举（`/tmp/vmfull224.log`，14400s 上限）：
+
+- 类型检查跑完（4211 个顶层声明）；
+- **前导文件与全部模块的 C 都发射出来了**（`/tmp/vmfull224/` 下 `uya_part1.c`、
+  `uya_part1_types.h`、`src/*.c`、`lib/*.c`、`Makefile`、`mirror_manifest.txt` 全在）；
+- 内层 `make` 真的开始编译了，然后卡在**生成 C 的字符串损坏**上：
+
+```
+./uya_part1_types.h:2717:9: error: stray ‘\370’ in program
+ 2717 |     Px���@pata pointer;
+```
+
+同一行宿主 `make uya` 生成的是正确的 `struct PointerData pointer;`
+（`src/.uyacache/uya_part1_types.h:2642`）。也就是说：**发射出来的字符串在
+解释执行时被写坏了**，而且坏字节里又出现了 **0xF8** —— 与第 739 轮
+（`p\xf8hread_mutex_t`）**完全同一类**的「字符串被越界写」症状。
+
+第 739 轮那一处是靠「把栈上的 `[&byte: 128]` 数组搬到 arena」绕过的；
+这次要在 0xF8 的同类里继续找（`PointerData` 这个 token 落在
+`union TypeData` 的成员发射路径上，怀疑点仍然在
+`c99_emit_one_struct_field` / `c99_type_to_c` / `get_safe_c_identifier`
+附近的栈上数组或缓冲区）。
+
+下一轮的做法建议（比上次更快）：
+
+1. 先用小目标复现：`--vm build <中等文件>`，扫产物里 0xF8 个数，
+   二分出「哪些 struct 定义会触发」；
+2. 用 arena 扫描定位被写坏的那块字符串（第 739 轮用过的手法：
+   全 arena 搜 0xF8，看它落在谁的缓冲区里）；
+3. 定位到具体栈上数组后，按第 739 轮的手法搬到 `compiler_arena_alloc`。
+
+### 6. 本轮回归
+
+- census222：**912/912 通过，0 失败，5 跳过**，rc=0。
+- `make check`（check223）：**1197 通过 / 0 失败**，rc=0。
