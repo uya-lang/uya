@@ -1815,10 +1815,19 @@ fn parser_parse_enum(parser: &Parser) &ASTNode {
             }
             
             // 复制旧变体
+            //
+            // 必须**逐字段**复制，不能写 `new_variants[i] = variants[i]`：
+            // 整体结构体赋值在 exec VM 里只能落进「原生聚合旁路表」
+            // （`exec_vm_store_pointer_index` 的 `elem_size == 0` 分支），
+            // 而旁路表是**进程私有**的。并行解析（`fork` + `MAP_SHARED` 竞技场）
+            // 时子进程写在旁路表里、父进程从共享页读到全 0，内层 build 的
+            // `std_platform_TargetArch`（唯一需要扩容的枚举）5 个变体因此全丢。
+            // 字段级赋值走原生字节，跨进程可见。
             if variants != null {
                 var i: i32 = 0;
                 while i < variant_count {
-                    new_variants[i] = variants[i];
+                    new_variants[i].name = variants[i].name;
+                    new_variants[i].value = variants[i].value;
                     i = i +| 1;
                 }
             }

@@ -25616,3 +25616,62 @@ while i < variant_count {
    确认「bump 指针的写入是否进了旁路表影子」。
 2. 若确认，改 `exec_vm_native_field_store()`：目标在共享映射（非 VM 本地）里时**必须**写原生内存。
 3. 兜底：VM 下让 `parallel_available()` 返回 0（串行解析），先跑通自举再回头修并行路径。
+
+## 第 721 轮：内层 `TargetArch` 变体全丢的**真因**（跨进程旁路表）+ 已修
+
+### 排除过程
+
+| 实验 | 结果 | 结论 |
+| --- | --- | --- |
+| `/tmp/nest13/14/15`（原生数组、结构体指针字段、整体结构体拷贝） | 两后端逐行一致 | 单进程内语义没问题 |
+| `/tmp/nest16`（`memcpy` 对齐/非对齐/奇数长度逐字节） | 两后端完全一致 | 不是 `memcpy` 的问题 |
+| `compiler_arena_alloc()` 加重叠检测（前 25 次分配地址 + 任意重叠上报） | 内层与宿主**都是 0 次重叠** | 竞技场没有双重分配，bump 指针正常前递 |
+| 解析处打点（扩容点 / 收尾） vs codegen 打点 | 同一 `decl`/`variants` 地址：解析结束时 `variants[0].name` 有效，codegen 时读回 0 | 数据在解析之后“消失” |
+| 宿主同源跑 vs 内层跑 | 宿主解析 `std.platform` 2 次、指针前后一致；内层 6 次且最后一次内容已清零 | 只有内层出现 |
+
+### 真因
+
+`parser_parse_enum()` 扩容时用**整体结构体赋值**复制变体：
+
+```uya
+new_variants[i] = variants[i];   // ← 内层把这一步写进了「原生聚合旁路表」
+```
+
+`exec_vm_store_pointer_index()` 在 `elem_size == 0`（聚合元素，字节步长未知）的分支里，
+只能把整块值写进 `g_exec_native_agg_*` **旁路表**（进程私有）。而并行解析是
+`fork()` + `MAP_SHARED` 竞技场：子进程解析、父进程从共享页读 AST。
+旁路表写在子进程私有内存里 ⇒ 父进程读到的是**从未写过的共享页（全 0）**。
+
+这解释了此前所有观察：
+- 只有 `std_platform_TargetArch`（唯一有 5 个变体、需要 4→8 扩容的枚举）坏，
+  因为只有它走扩容拷贝；`HostArch`/`TargetOS`(4)、`Backend`(2) 不扩容 ⇒ 变体字段是
+  逐字段赋值，走原生字节，跨进程可见 ⇒ 一直正常。
+- `variant_count = 5` 却是对的：标量字段写在 AST 节点本体（原生），不经旁路表。
+- 两次运行逐字节相同：共享页内容在 fork 后就不再变化。
+
+### 修复
+
+`parser_parse_enum()` 的扩容拷贝改成**逐字段**赋值（`name` / `value`），
+每个字段都是原生字节写，跨进程可见：
+
+```uya
+new_variants[i].name = variants[i].name;
+new_variants[i].value = variants[i].value;
+```
+
+### 验证
+
+内层 `--vm build /tmp/t2.uya` 重新生成 C：`uya_part1_types.h` 与宿主同源产物
+`diff -w` **完全一致**（`enum std_platform_TargetArch` 的 5 个变体 + `};` 都在）。
+
+当前**只剩一处**差异：`uya_common.c` 里 `saved_envp` 的**第 2 个字节**变成随机值
+（本轮两次跑分别是 `s\260ved_envp` 和 `spved_envp`，文件偏移 8957）。
+`.h` 侧全对，说明解析/枚举链路已经干净。下一次要定位的是这条语句的发射路径：
+`gen_assign_non_array()` 的入口打点显示读到的名字是**正确**的 `saved_envp`，
+说明写坏的那个分支走的是另一条发射路径（该语句 RHS 是 `(T * *)(void *)(uintptr_t)(…)` 的
+嵌套 cast），需要在 `gen_expr` 的标识符发射处打点区分。
+
+### 下一步
+
+1. 定位 `saved_envp` 这条语句的发射路径（疑似某个临时/栈缓冲区第 2 字节没写）。
+2. 修掉后内层 `--vm build` 产物即可直接 `make` 通过 → 产出可运行二进制 → 自举闭环。
