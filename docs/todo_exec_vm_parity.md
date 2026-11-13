@@ -27134,3 +27134,38 @@ fn f(left: i32, right: i32) i32 {
   都是 rc=0（这两条在「更宽的秩替换」版本下崩过）。
 - 整编自举（`--vm` 编 `src/main.uya` 自身）：跑到 codegen 阶段，后台继续（日志
   `/tmp/vmfull170.log`，`UYA_PROGRESS=1` 有进度）。
+
+### 5. 补记：整编自举跑到 codegen，但撞上**解释执行的内存放大**
+
+`--vm` 编 `src/main.uya` 本轮已经能走完「解析 → 类型检查（4207 个顶层声明）
+→ 优化」并开始发射 C 文件（`/tmp/vmfull170/*.c` 出了 8 个），但内存顶到天花板：
+
+```
+VmRSS: 57772616 kB   VmData/VmPeak: 125298460 kB（几乎全是 anon dirty）
+```
+
+时间线：类型检查结束时 RSS ≈ 8GB，**每发射 1 个模块涨 ~6GB**，8 个模块就 57GB
+（机器 62GB，只剩 1GB 可用，只能 `kill -9`）。宿主 `make uya` 全量只需要 1~2GB，
+所以这是解释执行侧独有的放大。
+
+已排除：
+
+- 旁路表：2M 基址 × (60B 指针表 + 2×48B 元素) ≈ 300MB 量级；扩容泄漏 ~2× 同量级。
+- 调用帧槽池：`EXEC_VM_SLOT_POOL_MAX = 1<<18` × `sizeof(ExecValue)` 只有十几 MB。
+
+下一个怀疑对象（下一轮从这里查）：
+
+- `exec_value_alloc_bytes()` 是**竞技场 bump、永不回收**
+  （`src/exec/value.uya:562`，段表 `EXEC_VALUE_ARENA_MAX_SEGMENTS`，满了再开新段），
+  被解释的编译器每复制一个聚合值就多一份 VM 值内存；
+- `exec_value_clone()` 深拷贝 `.values` 数组 —— 编译器自举里 `Type`/`ASTNode`
+  的大结构体拷贝极多，这最可能是放大源；
+- 需要先量化再优化：在 `exec_value_alloc_bytes_locked()` 里累计
+  「分配总字节 / 次数」，`UYA_PROGRESS=1` 时周期性打印，对比 VmRSS 判断是
+  竞技场还是 `malloc` 回退路径占大头；然后考虑
+  ① 只读共享 `.values`（写时复制）、② 大幅收缩 `ExecValue`、
+  ③ 给竞技场按块记录并在解释器空闲点回收不可达块。
+
+结论：`--vm` 自举的距离已经从「VM 容量上限 + 检查期误报」推进到
+**「能编完检查、进入 codegen，只差内存占用」**。census 912/912、make check
+1197/1197 在本轮所有改动上都是绿的。
