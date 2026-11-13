@@ -3572,6 +3572,14 @@ fn exec_vm_index_ref(value: &ExecValue, index_value: i32) &ExecValue {
              ref_kind == TypeKind.TYPE_INTERFACE as i32 || ref_kind == TypeKind.TYPE_UNION as i32) {
             return target;
         }
+        // `*ref`：引用指向**标量**本体（`&test_count[0]` 里的 `test_count: &i32` 形参在 VM 里
+        // 就是值引用）时，下标 0 取到的就是该标量本身。少了这一条会一路回落到
+        // `exec_value_as_aggregate(target) == null` → 返回 null，报
+        // `ADDR_INDEX 越界(IDXREF …)`（内层 build 卡在 c99/main.uya:1680）。
+        if is_index_base == 0 && index_value == 0 && target_aggregate == null &&
+            ref_kind >= TypeKind.TYPE_I8 as i32 && ref_kind <= TypeKind.TYPE_ENUM as i32 {
+            return target;
+        }
         // 嵌套数组 `arr[0][1]`：引用指向内层数组本体，下标要按内层 aggregate.values 取，
         // 不能沿外层 aggregate 步进。判据是引用的元素类型是数组。
         if is_index_base != 0 && target_aggregate != null &&

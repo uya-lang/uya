@@ -25477,3 +25477,60 @@ src/codegen/c99/main.uya:1673: exec: ADDR_INDEX 越界(IDXREF fn=collect_tests_f
 标量会一路回落到 `exec_value_as_aggregate(target) == null` → 返回 null。
 修法：`is_index_base == 0 && index_value == 0` 且目标既不是聚合也不是原生数组/slice 时，
 直接返回 target 本体（这正是 `*ref` 的语义）。
+
+## 第 719 轮：值引用指向标量时的 `*ref` 语义（收窄版）+ 内层已能产出 C
+
+### 背景
+
+第 718 轮把内层 build 推到 `src/codegen/c99/main.uya:1680`：
+
+```uya
+count = (&test_count[0])[0];      // test_count: &i32
+```
+
+`test_count` 在 VM 里是**值引用**（ref kind = i32）。`exec_vm_index_ref()` 只在
+`is_index_base == 0 && index == 0` 且目标是 STRUCT/TUPLE/INTERFACE/UNION 聚合时返回本体，
+标量一路回落到 `exec_value_as_aggregate(target) == null` → 返回 null →
+`ADDR_INDEX 越界(IDXREF …)`。
+
+### 第一次尝试（失败，已记录）
+
+放宽成「目标既不是聚合也不是原生数组/slice 就返回 target」，结果
+**census 894/912**：`test_fmt_*`（14 个）与 `test_typed_pipeline_*`（4 个）全线 runtime 失败。
+说明 `&ref[0]` 对**字符串 / 指针 / slice 类**的目标绝不能返回本体（`s[0]` 要的是首字节）。
+
+### 收窄后的版本（本轮保留）
+
+```uya
+if is_index_base == 0 && index_value == 0 && target_aggregate == null &&
+    ref_kind >= TypeKind.TYPE_I8 as i32 && ref_kind <= TypeKind.TYPE_ENUM as i32 {
+    return target;      // *ref 指向标量数值：下标 0 就是该标量本身
+}
+```
+
+只认标量数值（I8..ENUM 这一段）。验证：
+
+| 检查 | 结果 |
+| --- | --- |
+| 上轮失败的 18 个用例（fmt 14 + typed_pipeline 4）单独跑 | **全部通过** |
+| 内层 build | 越过 `c99/main.uya:1680` |
+
+### 里程碑：内层编译器已经能产出 C
+
+越过上面那处之后，`--vm build` 第一次**跑完整个代码生成**，写出
+`uya_part1_types.h` / `uya_common.c` / `uya_part1.c` / `Makefile`，进入宿主编译阶段：
+
+```
+uya_part1_types.h:1724:1: error: expected identifier before 'struct'
+uya_common.c:260:14: error: stray '\260' in program
+make: *** [Makefile:11：uya_part1.o] 错误 1
+```
+
+两个症状都指向「内层运行时把**字符串内容写坏了**」：
+
+1. `enum std_platform_TargetArch {` 之后是空行 —— 变体名一个都没输出（枚举体也没闭合，
+   于是 C 编译器在 `struct …` 处报 expected identifier）；
+2. `saved_envp` 在同一个函数里出现 4 次，其中**一次**变成 `s\260ved_envp`
+   （第 2 个字节 `a` 变成 0xB0）。
+
+即：不是整段丢失，而是**单个字节被改写**，典型的越界写/别名写。下一轮从这里入手。
