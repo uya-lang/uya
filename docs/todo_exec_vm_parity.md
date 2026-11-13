@@ -26627,3 +26627,59 @@ parse/merge/prepass/exports/macros/embed 干净、`checker_check_node` 之后变
 
 - census34：**912/912 通过，0 失败，5 跳过，rc=0**（两处 guest 改动无回归）。
 - `--vm` 内层 `build /tmp/t2.uya`：rc=0，产物运行 rc=0（里程碑保持）。
+
+## 第 736 轮：脏字节不在检查器/竞技场（检查结束）里，只在代码生成期出现
+
+### 1. 探针方法论（可复用）
+
+在 `src/arena.uya` 里临时加「扫竞技场找脏字节」，在 `src/checker/main.uya` 的
+`checker_check_program_node` 首尾各打一次，逐步把探针收敛成两个形态：
+
+1. **滚动扫描**（每次调用只扫 4096 字节、游标在 chunk 间循环）：能把「脏写时刻」
+   定位到一个几十节点的区间，但判据太松（只要求 0xF8 左右邻居可打印）→ 在
+   `src/checker/generics.uya` 开头就误报（AST 二进制数据里恰好有 0xF8）。
+2. **整串判据**（向左/右各找 0 字节，中间除 0xF8 外必须全是可打印 ASCII，首字符字母、
+   长度 >= 4）：误报没了，但**在「程序检查结束」这一刻一次都没命中**。
+
+结论：`pthread_mutex_t` 被写脏**不是**在解析/检查阶段、也（此刻）不在竞技场里。
+
+### 2. 发射期探针：脏串是「裸名」缓冲区，脏写发生在代码生成期间
+
+在 `src/codegen/c99/structs.uya` 的 `c99_emit_one_struct_field` 里，对
+`field_type_c` 做 0xF8 检查并打印指针/前 12 字节：
+
+```
+[dbg-emit] field=mutex type_ptr=0x7fdc56ec1e08 head=p?hread_mute
+[dbg-emit] arena F8 at chunk=0x7fdd114e58b0 off=32 / 200 / 944 / 1232
+```
+
+- 脏串内容就是 `p 0xF8 hread_mutex_t`，**没有 `struct ` 前缀**——说明它不是
+  `c99_type_to_c_uncached` 里 `snprintf(buf, len, "struct %s", safe_name)` 那次
+  分配（那里必然带前缀），而是「裸名」路径（`types.uya:1111 return safe_name`
+  / `get_safe_c_identifier` 的 `c99_arena_strdup` 副本）。
+- 竞技场里确实有 0xF8（4 处），但那是二进制数据；关键点是：**检查器结束时干净、
+  到发射这个字段时已经脏**，即脏写发生在「检查结束 → 发射该字段」之间的代码生成阶段。
+
+### 3. 为什么 `--vm` 内层编 `t2.uya`（`export fn main`）从不脏
+
+`/tmp/vminner129/uya_part1_types.h` 里**根本没有 `pthread_barrier_t`**——类型是按需
+发射的；小程序的依赖图里不出现这个结构体，所以这条路径没跑到。只有像
+`use cmd.upm.upm_lib.*` 这样把 pthread 拉进依赖图时才会触发。
+
+### 4. 下一步（第 737 轮的入口）
+
+在「检查结束」与「发射 `pthread_barrier_t`」之间二分，找第一个能命中脏串的检查点。
+最省事的两个候选钩子（都在代码生成里、且只跑一次）：
+
+1. `c99_generate` / `c99_emit_types_header` 入口（对应 `uya_part1_types.h` 的开头）；
+2. `c99_emit_struct_fields` 每发射一个 struct 前。
+
+命中后即可把窗口压到「某个 struct 发射之前」的几十行代码内，再对着 `safe_name`
+/ `get_safe_c_identifier` 的全局缓存（`g_c99_safe_ident_keys/values`、
+`c99_safe_ident_cache_store`）找那 1 字节写。
+
+### 本轮回归
+
+- census35：**912/912 通过，0 失败，5 跳过，rc=0**（探针已全部撤销，工作树干净）。
+- `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
+- `--vm --version`、`--vm` 内层 `build /tmp/t2.uya` 在后台复验（记录在下一轮）。
