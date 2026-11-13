@@ -26689,3 +26689,73 @@ parse/merge/prepass/exports/macros/embed 干净、`checker_check_node` 之后变
 - `./bin/uya run --vm src/main.uya -- --version` → `v0.11.0`，rc=0。
 - `--vm` 内层 `build /tmp/t2.uya` → rc=0，产物运行 rc=0。
 - 探针全部撤销后 `git status --porcelain` 为空。
+
+## 第 737 轮：把 1 字节脏写定位到「发射 pthread_barrier_t 的字段依赖时」
+
+### 1. 先否掉「竞技场里的旧串被写脏」：脏的是 AST 源串本身
+
+在 `c99_emit_one_struct_field` 里同时打印**源串**（`field.var_decl_type.type_named_name`）
+和 `c99_type_to_c` 的**结果串**：
+
+```
+[dbg-f] field=count   src=0x7f20c6d669f0:i32                 dst=0x7f24858e1060:int32_t
+[dbg-f] field=arrived src=0x7f24b2eb8108:-                   dst=0x7f20072fcd10:_Atomic(int32_t)
+[dbg-f] field=cond    src=0x7f20c6d6b4f8:pthread_cond_t      dst=0x7f20072fce98:struct pthread_cond_t
+[dbg-f] field=mutex   src=0x7f20c6d6a5e8:p?hread_mutex_t     dst=0x7f20072fce08:p?hread_mutex_t
+```
+
+- 脏的是**源串**（AST 里的 `type_named_name`），不是 `c99_type_to_c` 的副本。
+- 同一区域里相邻的 `pthread_cond_t`（`src` 只差 0xF10）是干净的 → 不是大范围踩踏，
+  而是**精确写到某个串的第 1 个字节**。
+- 源串不在 `codegen.arena` 的 chunk 链里（第一处 `gen_struct_definition` 时按内容扫
+  不到 `pthread_mutex_t`）——**AST 名字串在另一个 arena/静态缓冲区里**，所以第 736 轮
+  「检查结束时扫竞技场是干净的」并不能证明它干净。
+
+### 2. 换成「按指针盯住」的探针，一路二分到具体调用
+
+做法：在第一次 `gen_struct_definition` 时遍历 `codegen.program_node.program_decls`，
+把所有 struct 字段的 `var_decl_type.type_named_name` 指针和「当前第 1 字节」记进
+**arena 分配的表**（158 条，`[&byte: 2048]` 静态数组会吃掉全局槽，不能用），
+之后每个 `gen_struct_definition` 检查点复查第 1 字节，一变就打印。
+
+```
+[dbg-w] collected=158 cap=2048
+[dbg-w] DIRTY n=24 struct=pthread_barrierattr_t k=44 ptr=... want=116 got=248   # want='t', got=0xF8
+```
+
+即「发射 `pthread_barrier_t` 期间」变脏。再把检查点插进 `gen_struct_definition` 内部：
+
+```
+[dbg-w] DIRTY n=-1 struct=pthread_barrier_t k=44 ptr=... want=116 got=248
+```
+
+`-1` 是「`emit_struct_deps_for_struct()` 之后」这个点，而更深层的嵌套
+`gen_struct_definition(pthread_mutex_t)` 的 `-1/-2/-3/-4` 全都是干净的。
+
+### 3. 结论（下一轮的入口）
+
+脏写在 **`emit_struct_deps_for_struct(pthread_barrier_t)` 的依赖循环里、嵌套
+`gen_struct_definition(pthread_mutex_t)` 的阶段 `-4`（字段发射完成）之后到外层
+`-1` 之间**：只剩 `c99_emit_newline`、循环自增、`gen_struct_definition` 的
+`mark_struct_defined` 和返回路径。
+
+- `mark_struct_defined` / `add_struct_definition` 写的是
+  `codegen.struct_definitions[idx].name/*.defined`：**若 `codegen` 结构体实际尺寸小于
+  编译期认知的 `C99_MAX_STRUCT_DEFINITIONS`，越界写就会落进紧邻的 arena/静态缓冲区**，
+  这与「精确 1 字节、值为指针低字节/标志」的现象吻合，是下一轮首选检查对象。
+- 注意：宿主（C 后端）编译器编同一份代码是**完全正确**的，所以这要么是 VM 下才暴露的
+  布局/越界写，要么是 VM 自己的写入路径问题（`exec_vm_pointer_add` 对内部引用只取
+  `i64_value`，见第 735 轮 `dirent_get_name`）。
+
+### 4. 探针纪律（本轮踩到的坑）
+
+- 探针里的静态 `[&byte: 2048]` 计数表会让「全局槽」爆掉；用
+  `compiler_arena_alloc` 存表、只留 2 个全局指针。
+- 全局数组下标同样要过安全证明：`(base + k)[0]` 这种指针算术写法可以直接编过。
+- 计数自增要用 `+|`，否则 `--strict-overflow` 报「i32 溢出无法证明」。
+- 探针文件绝不能放在 `src/` 下（会被 `make uya` 当源文件收进去）。
+
+### 本轮回归
+
+- 探针已全部撤销（`git status --porcelain` 为空），`make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
+- census36 在后台跑，结果补记在下一轮。
