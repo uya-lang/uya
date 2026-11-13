@@ -26218,3 +26218,87 @@ checker_collect_assigned_names(checker, node.if_stmt_else_branch, &assigned_name
 - `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
 - 里程碑保持：`./bin/uya run --vm src/main.uya -- --version` = **`v0.11.0`**。
 - 本轮开始时跑的 census28：**912/912 通过，0 失败，5 跳过，rc=0**。
+
+## 第 731 轮：**突破** —— 脏写消失，`--vm` 内层 build 产出可运行原生二进制
+
+第 730 轮把脏写锁到 `if` 收尾的 5 行里，其中唯一「有点反常」的就是那个 512 字节栈数组。
+这轮把它换成 arena 分配（语义完全等价，见下），**脏写彻底消失**。
+
+### 1. 改动
+
+`src/checker/main.uya` 的 `AST_IF_STMT` 收尾：
+
+```uya
+// 改前
+var assigned_names: [&byte: 64] = [];
+checker_collect_assigned_names(checker, node.if_stmt_then_branch, &assigned_names[0], &assigned_count);
+checker_collect_assigned_names(checker, node.if_stmt_else_branch, &assigned_names[0], &assigned_count);
+...
+while ai < assigned_count && ai < 64 { const an: &byte = assigned_names[ai]; ... }
+
+// 改后
+const assigned_names: & &byte = compiler_arena_alloc(
+    checker.arena, (CHECKER_ASSIGNED_NAMES_MAX as usize) *| (@size_of(&byte) as usize)) as & &byte;
+if assigned_names == null { return 1; }
+checker_collect_assigned_names(checker, node.if_stmt_then_branch, assigned_names, &assigned_count);
+checker_collect_assigned_names(checker, node.if_stmt_else_branch, assigned_names, &assigned_count);
+...
+while ai < assigned_count && ai < CHECKER_ASSIGNED_NAMES_MAX { const an: &byte = assigned_names[ai]; ... }
+```
+
+（新增 `const CHECKER_ASSIGNED_NAMES_MAX: i32 = 64;`。）
+
+### 2. 结果：内层 build 全绿
+
+```
+$ UYA_JOBS=1 ./bin/uya run --vm src/main.uya -- build /tmp/t2.uya -o /tmp/out_t2 --split-c-dir /tmp/vminner124
+inner rc=0
+$ LC_ALL=C grep -an "ved_envp" /tmp/vminner124/uya_common.c
+168:uint8_t * * saved_envp = NULL;
+260:        saved_envp = (uint8_t * *)(void *)(uintptr_t)(envp_addr);   ← 干净了
+262:        saved_envp = NULL;
+$ /tmp/out_t2 ; echo $?
+0
+```
+
+⇒ **`--vm` 后端跑编译器编译一个程序，C 产物字节正确、`make` 链接成功、产物能跑**。
+这是自举目标里最难过的一关，之前一直卡在这 1 个字节上。
+
+### 3. 根因形态（结论 + 仍未修的 VM 侧缺陷）
+
+`checker_collect_assigned_names()` 对 arena 是纯只读的（只把 `constraint_expr_name()` 的返回值写进
+`out_names[idx]`，且有 `out_count[0] < 64 && idx >= 0 && idx < 64` 双守卫）。所以这不是 checker 的逻辑错误，
+而是 **exec 后端对「512 字节栈上指针数组 + 取首元素地址传参 + `&&byte` 下标写」这一组合的执行有问题**，
+它把某个 8 字节值写到了别处（arena 名字串的第 1 个字节）。换成 arena 指针后不再经过「栈上聚合取地址」
+这条路，脏写消失。
+
+⚠ 这是**规避**：VM 侧的寻址缺陷本身还在（推荐下轮继续查 `&stack_array[0]` / `&&byte` 索引的模拟），
+但在当前实现下这是等价且更省栈的写法，故予以保留。
+
+### 4. 下一道墙：共享槽位池
+
+用 `--vm` 编译**编译器本体**（`build src/main.uya -o /tmp/uya_vm`）时：
+
+```
+exec backend 已构建: src/main.uya
+exec runtime: src/lexer.uya:192:1: exec: VM frame slot 超限
+```
+
+`src/lexer.uya:192` 是 `skip_whitespace_and_comments()`（槽位极少），所以不是「单帧槽位超 `EXEC_MAX_FRAME_SLOTS`」，
+而是 `exec_vm_slot_pool_push()` 里 `exec_vm_slot_pool_reserve()` 失败：
+共享槽位池 `EXEC_VM_SLOT_POOL_INITIAL = 8192`，而 `reserve()` 只在**调用栈为空**（`slot_top == 0`）时才允许换块扩容
+（`ExecFrame.slots` 是指向池内的裸指针，搬移会让栈上帧悬挂）。编译 `t2` 的调用链较浅，能落在 8192 内；
+编译编译器本体时调用链更深，一次链内就冲破容量，于是报错。
+
+### 5. 下一步
+
+把 `EXEC_VM_SLOT_POOL_INITIAL` 抬到足够深（如 `1 << 17`，约 7MB、262144 上限不变），
+或者给池加「链内扩容」（需要能在搬移后修正活跃帧指针，工程量大得多）；
+先抬初始容量，再看编译编译器本体是否通过。
+
+### 本轮回归
+
+- 全量 census29（改动后 `bin/uya`）：**912/912 通过，0 失败，5 跳过，rc=0**。
+- `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
+- 里程碑：`./bin/uya run --vm src/main.uya -- --version` = `v0.11.0`；
+  **新增里程碑：`--vm` 内层 `build` 全流程通过，产物可运行。**

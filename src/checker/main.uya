@@ -155,6 +155,8 @@ fn checker_node_definitely_returns(node: &ASTNode) i32 {
 
 // 返回：1 表示检查通过，0 表示检查失败
 // 注意：这是一个简化版本，包含所有主要节点类型的检查
+const CHECKER_ASSIGNED_NAMES_MAX: i32 = 64;
+
 fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
     if checker == null || node == null {
         return 0;
@@ -722,12 +724,24 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         }
 
         // 分支汇合：分支里被赋值过的变量取两分支末态的凸包（修 P0 越界读漏洞）
-        var assigned_names: [&byte: 64] = [];
+        //
+        // 这里原来是一个 512 字节的栈上指针数组 `[&byte: 64]`，再把 `&assigned_names[0]`
+        // 传给收集函数。改成 arena 分配有两个好处：一是这一层本来就只是「收集后立刻消费」，
+        // 不需要栈上生命周期；二是避免 512 字节栈帧 + 取出首元素地址这种形态
+        // （exec 后端上实测这种 512 字节栈数组 + `&arr[0]` + `&&byte` 下标写会在
+        // 别处 arena 名字串上留下 1 个字节的脏写，见 docs/todo_exec_vm_parity.md 第 730 轮）。
+        const assigned_names: & &byte = compiler_arena_alloc(
+            checker.arena,
+            (CHECKER_ASSIGNED_NAMES_MAX as usize) *| (@size_of(&byte) as usize)
+        ) as & &byte;
+        if assigned_names == null {
+            return 1;
+        }
         var assigned_count: i32 = 0;
-        checker_collect_assigned_names(checker, node.if_stmt_then_branch, &assigned_names[0], &assigned_count);
-        checker_collect_assigned_names(checker, node.if_stmt_else_branch, &assigned_names[0], &assigned_count);
+        checker_collect_assigned_names(checker, node.if_stmt_then_branch, assigned_names, &assigned_count);
+        checker_collect_assigned_names(checker, node.if_stmt_else_branch, assigned_names, &assigned_count);
         var ai: i32 = 0;
-        while ai < assigned_count && ai < 64 {
+        while ai < assigned_count && ai < CHECKER_ASSIGNED_NAMES_MAX {
             const an: &byte = assigned_names[ai];
             if an != null {
                 constraint_join_branch_var(checker, an,
