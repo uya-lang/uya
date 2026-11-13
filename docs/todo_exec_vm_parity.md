@@ -25037,3 +25037,59 @@ entry.uya:(94:48): i8 溢出无法证明（--strict-overflow）
 census 912/912、make check 1196/1197（唯一失败是并行负载下
 `test_async_compute_dynamic_resource_pressure` 超 60s，单跑 9s/2s 均通过）、
 自举种子已重建、`--vm --version` 正常。
+
+## 第 711 轮：类型解析本身是对的 —— 嫌疑转到「union 变体访问（match）」
+
+第 710 轮猜「内层 checker 把命名类型解析成 void」。这一轮在 `type_from_ast`
+入口和出口各打了一次点（现已全部移除），**假设被证伪**。
+
+### 打点结果：内层拿到的类型节点和解析结果都正确
+
+```
+[dbg-tfa]  n1 node_type=83 name=i32        # 83 = AST_TYPE_NAMED
+[dbg-tfa]  n10 node_type=84 name=          # 84 = AST_TYPE_POINTER
+[dbg-tfa2] node_type=83 name=i32  -> kind=2    # TYPE_I32
+[dbg-tfa2] node_type=83 name=u64  -> kind=8    # TYPE_U64
+[dbg-tfa2] node_type=83 name=void -> kind=13   # TYPE_VOID
+[dbg-tfa2] node_type=83 name=byte -> kind=10   # TYPE_BYTE
+[dbg-tfa2] node_type=84 name=     -> kind=18   # TYPE_POINTER
+```
+
+也就是说：解释执行的编译器**读 AST 类型节点正常、`type_from_ast` 解析正常**。
+那 18 条诊断不可能来自「类型名解析」，问题在别处。
+
+### 新线索：Uya 的 union 必须用 `match` 访问变体
+
+写 union repro 时编译器直接报：
+
+```
+错误: 联合体只能通过 match 访问变体，或调用方法
+```
+
+这提醒了 `Type` 的结构：
+
+```uya
+struct Type {
+    kind: TypeKind,     // 兼作 union 的 tag
+    data: TypeData,     // union，按 kind 用 match 取变体
+    …                   // 过渡期旧字段
+}
+```
+
+checker 里所有「取类型细节」的代码都是 `match t.kind { … => t.data.pointer / .array / … }`。
+**如果 VM 的 union 变体读（match 分支里的 `data.xxx`）把偏移或布局算错**，
+取到的就是别的变体的字节 —— 表现恰好就是「类型信息整体走样、名字对但类型不对」。
+
+### 下一轮（直接做）
+
+1. 写 tagged-union repro（结构体 `{ kind: i32, data: <union with struct variants> }`，
+   按 `kind` 用 `match` 取 `data.pointer.x` / `data.array.n` 这类嵌套变体），
+   在 malloc 内存与局部变量两种形态下对比两后端；
+2. 若复现，修 VM 的 union 变体读写偏移（`exec_vm_native_field_load/store` 对
+   TYPE_UNION 成员的处理）；
+3. 若不复现，再回到「checker 的 return_type 传递链」逐点打点。
+
+### 本轮仓库状态
+
+打点已全部移除并重建（`bin/uya` 为干净版本），工作区无改动，
+仓库保持 `6cf4d472`：census 912/912、`--vm --version` 正常、`test_http_uyagin --vm` 通过。
