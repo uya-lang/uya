@@ -2740,6 +2740,12 @@ fn exec_vm_pointer_add(function: &BCFunction, base: &ExecValue, offset: &ExecVal
     if base == null || offset == null {
         return exec_make_void();
     }
+    // `p ± 0` 与元素尺寸无关：结构体指针（pointee 无标量尺寸）也能安全提前返回。
+    // 解释器跑编译器本体时 `&some_struct + 0` 很常见（`checker_check_call_expr`
+    // 里的 `&call_args[0]` 就是一种），按元素尺寸算反而会误报「不支持该元素类型」。
+    if offset.kind != ExecValueKind.EXEC_VALUE_POINTER && offset.i64_value == 0 {
+        return base[0];
+    }
     const pointee_kind: i32 = exec_value_pointer_pointee_kind(base);
     var elem_size: usize = exec_vm_type_kind_size(pointee_kind);
     var eff_pointee: i32 = pointee_kind;

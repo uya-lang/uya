@@ -24929,3 +24929,59 @@ exec runtime: src/checker/check_call.uya:1440:1: exec: 指针算术不支持该�
 （pointee 是 STRUCT/ARRAY/UNION 这类无标量尺寸的类型）时直接报错。
 下一轮：这类指针算术应当改用**指令带的元素步长**（`BC_ADD/BC_SUB` 的 imm）
 或退化成按字节步进，而不是拒绝执行。
+
+## 第 709 轮：`p ± 0` 不该看元素尺寸 —— `--vm build` 第一次跑完内层类型检查
+
+第 708 轮末尾整机 build 卡在：
+
+```
+src/checker/check_call.uya:1440:1: exec: 指针算术不支持该元素类型
+```
+
+打点（`[dbg-pa]`，已移除）显示：
+
+```
+[dbg-pa] fn=checker_check_call_expr basekind=14 pointee=16 base=… off=0
+```
+
+- `pointee=16` = **TYPE_STRUCT**（结构体指针）
+- `off=0` —— 也就是 `ptr + 0`
+
+### 修复
+
+`exec_vm_pointer_add()` 开头加一条与元素尺寸无关的快速路径：
+
+```uya
+// `p ± 0` 与元素尺寸无关：结构体指针（pointee 无标量尺寸）也能安全提前返回
+if offset.kind != ExecValueKind.EXEC_VALUE_POINTER && offset.i64_value == 0 {
+    return base[0];
+}
+```
+
+（解释器跑编译器本体时 `&some_struct + 0` 很常见，`checker_check_call_expr` 里
+`&call_args[0]` 就是这种形态。）
+
+### 结果：`--vm build` 第一次跑进内层类型检查
+
+之前每次都是 VM 自己的硬错误（越界/不支持/段错），这次不再报 VM 错误，
+而是**内层编译器给出了 18 条诊断**：
+
+```
+/tmp/hello_vm.uya:(4:12): 错误: return 返回值：期望类型 void，推断为 i32
+lib/std/runtime/entry/entry.uya:(55:13): 错误: catch 的操作数必须是错误联合类型 !T
+lib/std/runtime/entry/entry.uya:(93:59): 错误: @usize_from_ptr 的参数必须是指针类型
+lib/std/runtime/entry/entry.uya:(94:48): 错误: i8 溢出无法证明（--strict-overflow）
+…
+```
+
+这是**里程碑**：VM 已经能把编译器跑到「词法 → 解析 → 类型检查」全程。
+但诊断本身是错的（`export fn main() i32` 被当成返回 void），
+说明内层 checker 的类型数据在 VM 下走样了 —— 下一轮从这里接手。
+
+### 验证（本轮改动）
+
+| 检查 | 结果 |
+| --- | --- |
+| `/tmp/ptrp5.uya` / `/tmp/ptra2.uya` | `--vm` 13 / 7（与 C99 一致） |
+| `test_http_uyagin` / `test_kernel_sim --vm` | 通过 |
+| 全量 census | 本轮末尾复跑（见下条记录） |
