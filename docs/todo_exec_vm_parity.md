@@ -26836,3 +26836,10 @@ parse/merge/prepass/exports/macros/embed 干净、`checker_check_node` 之后变
 - `./bin/uya run --vm src/main.uya -- --version` → `v0.11.0`，rc=0。
 - `--vm` 内层 `build /tmp/t2.uya` → rc=0，产物运行 rc=0。
 - 完整自举（`--vm` 编 `src/main.uya` 自身）仍卡在上面那条 1 字节脏写上。
+
+### 补记（make check 复验，第 738 轮树）
+
+- `make check`：**1197/1197 通过，0 失败，rc=0**（含本轮两处 guest 改动：
+  `dirent_get_name` 改字节视图读取、`pthread_key_delete` 取负改饱和）。
+- 三条验收线同时成立：census 912/912、make check 1197/1197、`--vm` 版本/内层小文件
+  构建两项里程碑。
