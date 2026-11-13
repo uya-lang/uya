@@ -25534,3 +25534,44 @@ make: *** [Makefile:11：uya_part1.o] 错误 1
    （第 2 个字节 `a` 变成 0xB0）。
 
 即：不是整段丢失，而是**单个字节被改写**，典型的越界写/别名写。下一轮从这里入手。
+
+### 719 轮补充：主机/内层同源产物对比（缩小到两处）
+
+用**同一个命令**在宿主机跑一遍（C99 后端）当参考：
+
+```
+./bin/uya build /tmp/t2.uya -o /tmp/host2/uya_ref --split-c-dir /tmp/host2        # 宿主
+./bin/uya run --vm src/main.uya -- build /tmp/t2.uya -o /tmp/out_t2 \
+    --split-c-dir /tmp/vminner79                                                  # 内层
+```
+
+逐文件对比（`diff -w`，忽略缩进）：
+
+| 文件 | 差异 |
+| --- | --- |
+| `uya_part1.c`、`uya_strings_extern.h`、`uya_mirror_globals.h` | **完全相同** |
+| `uya_common.c` | 只有 1 行：`saved_envp = …` → `s\260ved_envp = …` |
+| `uya_part1_types.h` | 只缺 `enum std_platform_TargetArch` 的 5 个变体与闭合 `};` |
+
+（缩进差异是 split 边界的空白，不影响语义。）
+
+内层产物**两次运行逐字节相同** ⇒ 确定性缺陷，不是随机踩内存。
+
+### 目前最可疑的一处
+
+`gen_enum_definition()` 里：
+
+```uya
+const variants: &EnumVariant = enum_decl.enum_decl_variants;
+const variant_count: i32 = enum_decl.enum_decl_variant_count;
+…
+while i < variant_count {
+    const variant: &EnumVariant = variants + i;
+    if variant.name == null { return -1; }     // ← 变体和 `};` 会一起消失
+```
+
+缺的正好是「变体 + 闭合 `};`」——与这里提前 `return -1` 的症状完全一致，
+即内层跑到这个枚举时 `variant.name` 读回 null（或 `variant_count` 读成 0/负数）。
+`variants + i` 的步长已经用 `/tmp/nest12.uya`（双指针结构体，`@size_of = 16`）验证是对的，
+所以问题更可能在「AST 里 `enum_decl_variants` 这个指针/计数字段读回的值」上。
+下一轮直接在内层运行里打点这个枚举的 `variant_count` 与 `variants[0].name`。
