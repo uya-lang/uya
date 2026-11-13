@@ -25715,3 +25715,37 @@ new_variants[i].value = variants[i].value;
    `FILE*` 打开同一个 `uya_common.c`（`c99/global.uya:1248` 的 mirror 写文件也要核对）。
 2. 若确认是双句柄/双写，改成全部写同一个 `emit_stream` 或改成单次 `fwrite`。
 3. 通过后内层 `--vm build` 产物即可直接 `make` → 产出可运行二进制 → 自举闭环。
+
+## 第 723 轮：把「偶发 1 字节」的嫌疑面逐个排除（fork / stdio / 并行 / mirror）
+
+内层产物与宿主只差 `uya_common.c`（或 mirror 关闭时的 `uya_part2.c`）里
+`saved_envp` 的第 2 个字节，且该字节每次跑取值不同（0xB0 / 'p' / …）⇒ 未初始化。
+
+本轮逐个排除：
+
+| 假设 | 实验 | 结论 |
+| --- | --- | --- |
+| `extern "libc" fn fork()` 在 VM 下返回 0（不支持） | `/tmp/nest20.uya`（`extern "libc"` 写法）确实全是 0 | 但那是**绑定写法**问题 |
+| VM 里 fork 真坏了 | `/tmp/nest21.uya`（用 Uya 自己 `libc.unistd` 的 `sys_fork`）打印真实 pid、父/子分支都正确 | **fork 正常**，排除 |
+| `std.io` 的 16 KB `fread`/`fwrite` 拼接丢字节（`c99_parallel_body_append`） | `/tmp/nest22.uya` 写 32 KB 再分块读回逐字节比对 | 两后端 **0 字节差异**，排除 |
+| mirror 分片路径 | `UYA_SPLIT_C_MIRROR=0` 重跑内层 build | 仍复现（`uya_part2.c:678`），排除 |
+| 并行 codegen（fork worker + 分片回填） | `UYA_JOBS=1`（`parallel_jobs_for()==1` ⇒ `parallel_workers=1`）重跑 | 仍复现（`spved_envp`），排除 |
+
+另外发现：`UYA_SPLIT_C_MIRROR=0` 模式自身有独立 bug —— Makefile 依赖
+`uya_part1_types.h`，但关 mirror 后不再生成该头文件，`make` 直接报「没有规则可制作目标」。
+
+### 目前唯一还没解释的
+
+发射 `saved_envp = (uint8_t * *)(void *)(uintptr_t)(envp_addr);` 这一句时，
+`gen_expr()` 标识符分支里打点看到的是**正确**的 `saved_envp`（`b=115,97,118`，写前后都一样），
+而文件里同一句的第 2 字节是脏的。推论：**这一句被发射了不止一次**（AST 变换/重试会产生副本），
+打点命中的是正确那一次；脏的那次走的是另一条路径（标识符字符串是**另建**的副本，创建时就有洞）。
+
+### 下一步
+
+1. 在 `get_safe_c_identifier()` 与 `get_c_name_for_identifier_ref()` 两处对 `saved_env` 打点，
+   打印**返回指针**；与 `gen_expr()` 里那次打印的指针比对：
+   - 出现第二个指针且其字节有洞 ⇒ 定位到「字符串副本创建处」，按创建路径修。
+   - 只有一个指针 ⇒ 说明是写入侧的问题，改用在写入前后加唯一标记定位。
+2. 顺手修 `UYA_SPLIT_C_MIRROR=0` 时 Makefile 依赖 `uya_part1_types.h` 的问题（该模式要么也生成该头，
+   要么不把它写进依赖）。
