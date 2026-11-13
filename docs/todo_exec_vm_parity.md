@@ -25343,3 +25343,62 @@ uniq[uniq_count][z] = fnm[z];        // ← 元素是 [byte:512]，按字节写
 下一轮：给 `BC_STORE_INDEX`（以及 `BC_ADDR_INDEX`）补同样的「聚合元素按 imm 步长取址」，
 并且保证元素内的字节写直接落到原生内存（这里 `uniq[u][z] = ...` 是逐字节写，
 不能用旁路影子，否则后续按字节读会看不到）。
+
+## 第 717 轮：`&arr[i]` 的指针 pointee kind 错（嵌套下标的步长变 1）
+
+第 716 轮的新卡点是 `src/codegen/c99/utils.uya:993: exec: STORE_INDEX 越界`，
+位置在 `c99_split_mirror_prepare()` 的
+
+```uya
+const uniq: &([byte: 512]) = compiler_arena_alloc(...) as &([byte: 512]);
+…
+uniq[uniq_count][z] = fnm[z];       // ← 逐字节写
+```
+
+### 三个秒级 repro（`/tmp`，未入库）
+
+| repro | 内容 | C99 | exec VM |
+| --- | --- | --- | --- |
+| `nest3.uya` | 直接对全局 `[[byte:8]:4]` 做 `store[i][j] = v` | 正确 | **正确** |
+| `nest2.uya` | `const base: &([byte:8]) = &store[0]; base[i][j] = v` | `65 97 / 66 98 / 67 99 / 68 100` | `65 66 / 0 0 / 0 0 / 0 0` |
+| `nest1.uya` | 同 nest2 + 从 `&byte` 源逐字节拷贝 | 580 | 361 |
+
+`nest3` 两后端一致 ⇒ **嵌套下标本身没问题**；坏的是「指针基」这条：`base[i]` 的步长。
+
+### 打点结论（已全部移除）
+
+在 `BC_STORE_INDEX` 入口打点，写 `base[i][j]` 时：
+
+```
+[dbg-st] line=7 idx=0 akind=14(POINTER) aaddr=1767375664 aaux=10 imm=1
+[dbg-st] line=7 idx=0 akind=14(POINTER) aaddr=1767375665 aaux=10 imm=1
+[dbg-st] line=7 idx=0 akind=14(POINTER) aaddr=1767375666 aaux=10 imm=1
+```
+
+- `slot_a`（即 `base[i]`）是 POINTER，`aux=10` ⇒ **pointee kind = TYPE_BYTE**；
+- 每次 `i+1` 地址只前进 **1 字节**（应为 8）。
+
+而在 `BC_LOAD_INDEX` 的「普通原生指针」分支、`BC_ADDR_INDEX` 的「普通原生指针」分支打点
+**都没有触发** ⇒ `base[i]` 不是走指针算术，而是走 **raw-array 视图**分支：
+`&store[0]` 生成的是**按 byte 铺平的**原生数组视图（元素 kind=BYTE、count=32），
+于是 `base[i]` 就是「第 i 个字节」的地址 —— 步长 1。
+
+正确语义：`store: [[byte:8]:4]` 的 `&store[0]` 应是 `&([byte:8])`，pointee kind = ARRAY(19)。
+
+### 本轮顺带补的一处（`src/exec/vm.uya`）
+
+`BC_ADDR_INDEX` 的 raw-array 分支补上「聚合元素按指令 `imm` 步长取址」，
+与第 716 轮 `BC_LOAD_INDEX` 的修改对称（`uniq[i][z]` 这类链路的取址侧要用）。
+
+### 踩坑记录
+
+给 `src/exec/lower.uya` 加 `fprintf` 打点会让 `src/exec/lower.o` **链接失败**
+（`Makefile:147: 错误 1`），降级侧暂时只能靠 VM 侧观测反推。
+
+### 下一轮
+
+修 `&arr[i]`（AST_ADDR_OF 作用于数组元素）产出的指针 pointee kind：
+应当是元素类型（`[byte:8]`），而不是铺平后的 `byte`；
+或让「数组的数组」生成视图时元素 kind 取 ARRAY 而不是 BYTE。
+改好后 `base[i]` 步长回到 8，`uniq[uniq_count][z] = fnm[z]` 才能写对，
+接着看内层 build 还能推进到哪里。
