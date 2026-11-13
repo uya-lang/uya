@@ -26037,3 +26037,84 @@ arena 里 139 份同名串全部干净。而且 139→170 说明检查阶段确�
 - 探针全部清除（`git status --short` 空）。
 - `make from-c-native` rc=0 → `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
 - 里程碑保持：`./bin/uya run --vm src/main.uya -- --version` = **`v0.11.0`**。
+
+## 第 729 轮：脏字节的写入点缩到「约 7 行源码」——`entry.uya` 里 `saved_envp = null;` 之后到下一句之前
+
+第 728 轮把脏写定位到 `checker_check_node()` 期间。这轮用两级探针把它压到具体语句。
+
+### 1. 声明级：脏读发生在检查 `fn main` 的时候
+
+`arena_dbg_watch()` 写成「第一次脏就返回 1、之后静默」，在
+`checker_check_program_node()` 的三个顶层声明循环里每检查完一个声明复查一次：
+
+```
+[dbg-collect] pre-check n=119
+[dbg-watch] other idx=5 slot=14 b=115,112,118
+[dbg-watch] decl i=5 name=main
+```
+
+`other_decls[5]` 是 `fn main`（`lib/std/runtime/entry/entry.uya:80`，`export extern fn main`）——
+脏字节就是在检查这个函数体的过程中出现的。
+
+### 2. 节点级：把「旅行路径」整段打出来
+
+在 `checker_check_node()` 入口维护一个 32 槽的 (line, type) 环，第一次发现脏就把整环 + 当前节点
+的 `filename` 打出来。实测（`pos=22`，所以时间顺序是 slot22→31→0→21）：
+
+```
+file=…/lib/std/runtime/entry/entry.uya line=104   ← 当前节点（脏已存在）
+(53,10) (53,43) (54,10) (54,70) (55,52) (55,41) (55,26) (55,43) (55,26) (55,43) (55,43)
+(80,7) (80,26) (82,24) (82,41) (83,24) (83,41) (91,26) (92,15) (92,27) (92,26)
+(93,10) (93,72) (93,40) (94,10) (94,27) (95,24) (95,40) (96,26) (97,24) (97,41)
+```
+
+对照 `entry.uya` 源码，最后 8 个节点正是第一个 `std.cfg(...)` 的 linux 分支：
+
+| 行 | 源码 |
+|---|---|
+| 93 | `const argv_addr: usize = @usize_from_ptr(argv as &void);` |
+| 94 | `const envp_addr: usize = argv_addr + …` |
+| 95 | `saved_envp = @ptr_from_usize(envp_addr) as & &byte;` |
+| 96 | `} else {` |
+| 97 | `saved_envp = null;` |
+| 104 | `std.cfg(std.target_os == .tos_linux, { set_process_stack_limit_bytes(…); }, {})` |
+
+⇒ **脏写发生在「检查完第 97 行的标识符 `null`」到「进入第 104 行那块 block」之间**，
+也就是赋值/if/block 检查的**收尾记账**里，而不是表达式类型推断里。
+
+### 3. 这一轮排掉的嫌疑（全部在脏读前进入过却没报警）
+
+在第 728 轮已排除（字符串池新建分支、11 字节漏填）之外，这轮把探针放到下列函数入口，
+都在「第一次脏读」之前被调用过、且都没有在脏读之前报脏：
+
+- `check_assign_node()` 入口 / 出口
+- `checker_check_cast_expr()`
+- `checker_mark_moved()`
+- `create_hygiene_name()`
+- `checker_infer_type_bypass_moved()`
+- `checker_check_expr_type()`
+- `constraint_remove_var()`
+- `eval_expr_interval()`
+- `checker_mark_reachability_node_visited()`
+
+（`checker_scope_pop` 这类「退作用域」函数在 checker 里并不存在，作用域是靠 `scope_level` 数值比较的。）
+
+### 4. 一个重要的形态结论：这是**定点**单字节写，不是顺序越界
+
+arena 是按 8 字节对齐 bump 分配的。若是「前一个块写穿了尾巴」，它会先写坏偏移 0 再写偏移 1；
+但实测**偏移 0 一直是 `'s'`，偏移 2..9 一直完好**，只有偏移 1 变（每次运行值不同：`'p'`=0x70、`0xB0`）。
+⇒ 写方是**冲着第 1 个字节**去的（`name[1] = …` 形态，或者把这块内存当成某个「首字节已被正确写入」
+的结构在写第 1 个字段）。
+
+### 5. 下一步
+
+把探针放到**块语句循环**和 `checker_check_node()` 里 `AST_ASSIGN` / `AST_IF_STMT` 分支的收尾处
+（现在已知「嫌疑在赋值/if/block 的收尾」，下一步就在这些收尾语句之间夹检查点），
+重点看收尾里对名字做的**就地改写**（例如为了比较/哈希而临时改字符、或者把名字当结构体首字段写）。
+
+### 本轮回归
+
+- 探针全部清除（`git status --porcelain` 空）。
+- `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
+- 里程碑保持：`./bin/uya run --vm src/main.uya -- --version` = **`v0.11.0`**。
+- 全量 census28：**912/912 通过，0 失败，5 跳过，rc=0**（无回归）。
