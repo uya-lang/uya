@@ -26118,3 +26118,103 @@ arena 是按 8 字节对齐 bump 分配的。若是「前一个块写穿了尾�
 - `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
 - 里程碑保持：`./bin/uya run --vm src/main.uya -- --version` = **`v0.11.0`**。
 - 全量 census28：**912/912 通过，0 失败，5 跳过，rc=0**（无回归）。
+
+## 第 730 轮：脏写点压到 **4 行源码**——`if` 语句尾部的 `checker_collect_assigned_names` 两次调用之间
+
+第 729 轮把范围压到「`entry.uya` 第 97 行赋值之后到第 104 行之前」。这轮用三级探针继续切。
+
+### 1. 15 个 `checker_exit_scope()` 调用点编号定位
+
+给 checker 里全部 15 处 `checker_exit_scope(checker);` 前各插一个带编号的只读探针（`x1`…`x15`），
+第一次脏读报的是：
+
+```
+[dbg-watch] x14 idx=0 slot=14 b=115,112,118
+```
+
+`x14` = `src/checker/main.uya:498`，即 `checker_check_node()` 里 `AST_BLOCK` 分支的**语句循环尾部**：
+
+```uya
+while i < node.block_stmt_count {
+    ...
+    checker_check_node(checker, stmt);
+    if checker.error_count == prev_errors &&
+       stmt.type != ASTNodeType.AST_BLOCK && stmt.type != ASTNodeType.AST_IF_STMT && ... {
+        const stmt_type: Type = checker_infer_type(checker, stmt);   // 481 行
+        ...
+    }
+    i = i + 1;
+}
+arena_dbg_watch("x14", 0)
+checker_exit_scope(checker);
+```
+
+### 2. 排除 `checker_infer_type`：脏的不是被推断的那条语句
+
+把 481 行包成 `pre-infer` / `post-infer` 两个探针再跑：**两个都没报脏**，但 `x14` 报了。
+说明「弄脏的那条语句」根本没走到 `checker_infer_type`——按 476-480 行的条件，这只能是
+`AST_BLOCK` / `AST_IF_STMT` / `AST_WHILE_STMT` / `AST_FOR_STMT` 之一。结合第 729 轮的旅行路径
+（第 92 行的 `if`），可以确定弄脏的是 **`AST_IF_STMT` 分支的收尾代码**（main.uya:520-745）。
+
+### 3. `if` 收尾里再切四刀：脏写落在两行之间
+
+在 `AST_IF_STMT` 收尾插 4 个探针：
+
+| 探针 | 位置 | 结果 |
+|---|---|---|
+| `if-a` | 725 行之后（约束恢复循环之后） | 干净 |
+| `if-b` | 731 行之后（两次 `checker_collect_assigned_names` 之后） | **脏** |
+| `if-c` | 742 行（汇合循环体内） | — |
+| `if-d` | 744 行（`return 1` 前） | — |
+
+也就是脏写发生在**这 5 行**之间：
+
+```uya
+var assigned_names: [&byte: 64] = [];              // 728 行：512 字节栈数组 + 零初始化
+var assigned_count: i32 = 0;
+checker_collect_assigned_names(checker, node.if_stmt_then_branch, &assigned_names[0], &assigned_count);  // 730
+checker_collect_assigned_names(checker, node.if_stmt_else_branch, &assigned_names[0], &assigned_count);  // 731
+```
+
+### 4. 关键矛盾：这段代码「看起来不可能写坏 arena」
+
+`checker_collect_assigned_names()`（main.uya:91-126）对 arena 是**只读**的：
+它只把 `constraint_expr_name()` 返回的指针写进 `out_names[idx]`，且有
+`out_count[0] < 64 && idx >= 0 && idx < 64` 双重守卫；对普通标识符
+（`saved_envp` 就是）`constraint_expr_name()` 只是 `return expr.identifier_name`，
+既不分配也不写。栈数组 `[&byte: 64]` 的 512 字节零初始化也只落在栈上。
+
+⇒ 这条路径用「正常 C 语义」解释不通，最可能是 **VM 对这一段帧/寻址的模拟出错**：
+`&assigned_names[0]`（512 字节栈数组取首元素地址）→ `out_names: & &byte` → `out_names[idx] = dest_name`
+这条链上，索引缩放、栈帧地址或 `&&byte` 的取值在 exec 后端上表现异常，
+从而把 8 字节指针写到「不该去的地方」，最终落到某份 arena 名字串的第 1 个字节上
+（偏移 0 和 2..9 完好 —— 与「写了一个指针、但低字节恰好在 +1 处不同」的形态吻合）。
+
+### 5. 一个待澄清的旁证
+
+把同一个探针版编译器在**宿主后端**跑一遍（`./bin/uya build src/main.uya --split-c-dir /tmp/hostprobe`）：
+
+```
+[dbg-collect] pre-check n=0
+```
+
+宿主侧在 pre-check 时刻**一个 `s?ved_envp` 串都没扫到**（VM 侧是 119 个），
+所以这次对照暂时没有信息量 —— 需要加 `UYA_JOBS=1` 重跑（并行/fork 路径下 arena 里的名字可能
+在主进程之外），才能判断「VM 独有」还是「两边都有、只是宿主布局不受影响」。
+
+### 6. 下一步（很具体）
+
+1. 探针版宿主后端加 `UYA_JOBS=1` 重跑，确认 `n` 是否仍为 0；若 n>0，看 `if-b` 是否也在宿主报脏
+   → 直接给出「VM 独有 / 编译器自身逻辑」的判定；
+2. 若判定为 VM 独有：把 728 行的栈数组换成 arena 分配（或缩到 8 个元素）做对照实验 ——
+   若脏写消失，就锁定在「512 字节栈数组 + `&arr[0]` + `&&byte` 索引」这条组合上，
+   然后去查 exec 后端对「栈上聚合取元素地址后按元素写」的处理；
+3. 若判定两边都有：那就是 checker 逻辑里真有一处「把名字当结构体首字段写」的代码，
+   继续在 728-731 这 5 行里逐字节复查。
+
+### 本轮回归
+
+- 探针全部清除（`git status --porcelain` 空）。
+- `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
+- 里程碑保持：`./bin/uya run --vm src/main.uya -- --version` = **`v0.11.0`**。
+- 本轮开始时跑的 census28：**912/912 通过，0 失败，5 跳过，rc=0**。
