@@ -2889,6 +2889,143 @@ const EXEC_NATIVE_AGG_MAX_ELEMS: i32 = 65536;
 /// 旁路表初始基址条目数（堆表一次分配；静态数组撑不住 —— 见下）。
 const EXEC_NATIVE_AGG_TABLE_INITIAL: i32 = 1 << 16;
 
+// 基址 → 条目下标的**开放寻址哈希索引**（桶里存 slot+1；0 = 空桶；-1 = 墓碑）。
+//
+// 为什么必须有：`exec_vm_native_agg_*` 原来每次访问都线性扫 `g_exec_native_agg_used`
+// 个基址（`slot_index` 还要再扫一遍找可复用槽）。整编自举时基址条目到几十万，
+// 一次 `ptr[i].field` 就是几十万次比较 → 平方级退化，表现为「编译卡住不动」。
+// 有索引之后单次访问是常数时间。
+var g_exec_native_agg_hash: &i32 = null;
+var g_exec_native_agg_hash_mask: i32 = 0;   // 桶数 - 1（桶数恒为 2 的幂）
+var g_exec_native_agg_hash_used: i32 = 0;   // 已占用桶数（含墓碑，用于触发重建）
+// `forget` 释放的条目挂在空闲链上复用，避免条目只增不减。
+var g_exec_native_agg_free_head: i32 = 0;   // 0 = 空；否则 slot+1
+var g_exec_native_agg_next: &i32 = null;    // 每条目的后继（存 slot+1）
+
+/// 基址散列：对齐用的低位没有熵，先右移，再做 FNV 风格的异或/乘法混合。
+/// 参数：`base` 原生基址；`mask` 桶掩码（桶数-1）。
+/// 返回值：起始桶下标。
+fn exec_vm_native_agg_hash_pos(base: usize, mask: i32) i32 {
+    var h: usize = base >> 4;
+    h = h ^ (h >> 16);
+    h = h *% (16777619 as usize);
+    h = h ^ (h >> 13);
+    return (h as i32) & mask;
+}
+
+/// 往索引里插一条（调用方保证桶数足够空）。
+/// 参数：`table` 桶数组；`mask` 桶掩码；`base` 基址；`slot` 条目下标。
+/// 返回值：无。
+fn exec_vm_native_agg_hash_insert(table: &i32, mask: i32, base: usize, slot: i32) void {
+    if table == null || mask <= 0 || slot < 0 {
+        return;
+    }
+    const buckets: i32 = mask +| 1;
+    var pos: i32 = exec_vm_native_agg_hash_pos(base, mask);
+    var steps: i32 = 0;
+    while steps < buckets {
+        if table[pos] <= 0 {
+            table[pos] = slot +| 1;
+            g_exec_native_agg_hash_used = g_exec_native_agg_hash_used +| 1;
+            return;
+        }
+        pos = (pos +| 1) & mask;
+        steps = steps +| 1;
+    }
+}
+
+/// 按基址查条目下标；未登记返回 -1。常数时间。
+/// 参数：`base` 原生基址。
+/// 返回值：条目下标；未登记/未建表返回 -1。
+fn exec_vm_native_agg_find(base: usize) i32 {
+    if base == 0 as usize {
+        return -1;
+    }
+    const table: &i32 = g_exec_native_agg_hash;
+    const mask: i32 = g_exec_native_agg_hash_mask;
+    const agg_base: &usize = g_exec_native_agg_base;
+    if table == null || mask <= 0 || agg_base == null {
+        return -1;
+    }
+    const buckets: i32 = mask +| 1;
+    var pos: i32 = exec_vm_native_agg_hash_pos(base, mask);
+    var steps: i32 = 0;
+    while steps < buckets {
+        const hv: i32 = table[pos];
+        if hv == 0 {
+            return -1;
+        }
+        if hv > 0 && (hv -| 1) < g_exec_native_agg_used && agg_base[hv - 1] == base {
+            return hv -| 1;
+        }
+        pos = (pos +| 1) & mask;
+        steps = steps +| 1;
+    }
+    return -1;
+}
+
+/// 从索引里摘掉某基址（写墓碑，保住探测链）。
+/// 参数：`base` 原生基址。
+/// 返回值：无。
+fn exec_vm_native_agg_hash_remove(base: usize) void {
+    const table: &i32 = g_exec_native_agg_hash;
+    const mask: i32 = g_exec_native_agg_hash_mask;
+    const agg_base: &usize = g_exec_native_agg_base;
+    if table == null || mask <= 0 || agg_base == null || base == 0 as usize {
+        return;
+    }
+    const buckets: i32 = mask +| 1;
+    var pos: i32 = exec_vm_native_agg_hash_pos(base, mask);
+    var steps: i32 = 0;
+    while steps < buckets {
+        const hv: i32 = table[pos];
+        if hv == 0 {
+            return;
+        }
+        if hv > 0 && (hv -| 1) < g_exec_native_agg_used && agg_base[hv - 1] == base {
+            table[pos] = 0 - 1;
+            return;
+        }
+        pos = (pos +| 1) & mask;
+        steps = steps +| 1;
+    }
+}
+
+/// 重建哈希索引：桶数取 ≥ 2×cap 的 2 的幂，清掉墓碑后把活条目全部重插。
+/// 参数：`cap` 条目容量（`g_exec_native_agg_capacity`）。
+/// 返回值：0 成功；-1 分配失败。
+fn exec_vm_native_agg_hash_rebuild(cap: i32) i32 {
+    if cap <= 0 {
+        return -1;
+    }
+    var buckets: i32 = 16;
+    while buckets < cap *| 2 {
+        buckets = buckets *| 2;
+    }
+    const bytes: usize = (@size_of(i32) as usize) *| (buckets as usize);
+    const table: &i32 = exec_value_alloc_bytes(bytes) as &i32;
+    if table == null {
+        return -1;
+    }
+    _ = memset(table as *void, 0, bytes);
+    g_exec_native_agg_hash = table;
+    g_exec_native_agg_hash_mask = buckets - 1;
+    g_exec_native_agg_hash_used = 0;
+    const agg_base: &usize = g_exec_native_agg_base;
+    if agg_base == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < g_exec_native_agg_used {
+        const b: usize = agg_base[i];
+        if b != 0 as usize {
+            exec_vm_native_agg_hash_insert(table, buckets - 1, b, i);
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 /// 惰性建立旁路表：一次分配到位、之后**永不搬移**，函数里取的别名长期有效。
 ///
 /// 以前这里是 `[T: 256]` 静态全局数组：编译器自举要登记几千个基址
@@ -2925,7 +3062,26 @@ fn exec_vm_native_agg_table_init() i32 {
     g_exec_native_agg_caps = new_caps;
     g_exec_native_agg_storage = new_storage;
     g_exec_native_agg_handles = new_handles;
+    const next_tbl: &i32 = exec_value_alloc_bytes(count_bytes) as &i32;
+    if next_tbl == null {
+        return -1;
+    }
+    _ = memset(next_tbl as *void, 0, count_bytes);
+    g_exec_native_agg_next = next_tbl;
+    g_exec_native_agg_free_head = 0;
     g_exec_native_agg_capacity = cap;
+    if exec_vm_native_agg_hash_rebuild(cap) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+/// 是否输出旁路表扩容日志（`UYA_PROGRESS=1` 开启，避免污染正常 stderr）。
+fn exec_vm_agg_progress_enabled() i32 {
+    const env: *byte = getenv("UYA_PROGRESS" as *byte);
+    if env != null && env[0] != 0 as byte {
+        return 1;
+    }
     return 0;
 }
 
@@ -2968,6 +3124,11 @@ fn exec_vm_native_agg_table_grow() i32 {
     _ = memset(new_caps as *void, 0, count_bytes);
     _ = memset(new_storage as *void, 0, storage_bytes);
     _ = memset(new_handles as *void, 0, handle_bytes);
+    const new_next: &i32 = exec_value_alloc_bytes(count_bytes) as &i32;
+    if new_next == null {
+        return -1;
+    }
+    _ = memset(new_next as *void, 0, count_bytes);
     const old_base: &usize = g_exec_native_agg_base;
     const old_count: &i32 = g_exec_native_agg_count;
     const old_caps: &i32 = g_exec_native_agg_caps;
@@ -2992,12 +3153,28 @@ fn exec_vm_native_agg_table_grow() i32 {
         }
         i = i + 1;
     }
+    const old_next: &i32 = g_exec_native_agg_next;
+    if old_next != null {
+        var ni: i32 = 0;
+        while ni < old_cap {
+            new_next[ni] = old_next[ni];
+            ni = ni + 1;
+        }
+    }
     g_exec_native_agg_base = new_base;
     g_exec_native_agg_count = new_count;
     g_exec_native_agg_caps = new_caps;
     g_exec_native_agg_storage = new_storage;
     g_exec_native_agg_handles = new_handles;
+    g_exec_native_agg_next = new_next;
     g_exec_native_agg_capacity = new_cap;
+    if exec_vm_agg_progress_enabled() != 0 {
+        fprintf(libc.stderr, "[agg] 旁路表扩容 cap=%d used=%d\n" as *byte, new_cap, g_exec_native_agg_used);
+    }
+    // 索引跟着换容量重建（顺带清墓碑）
+    if exec_vm_native_agg_hash_rebuild(new_cap) != 0 {
+        return -1;
+    }
     return 0;
 }
 
@@ -3030,7 +3207,9 @@ fn exec_vm_native_agg_ensure(vm: &ExecVmState, slot: i32, need: i32) i32 {
     }
     var cap: i32 = old_cap;
     if cap <= 0 {
-        cap = 16;
+        // 初值只给 2：`ptr[0] = 结构体` 这种单元素写入占绝大多数，初值 16 会让
+        // 每个基址白占 14 个 ExecValue（整编自举 100 万基址 ≈ 700MB 纯浪费）。
+        cap = 2;
     }
     while cap < want && cap < EXEC_NATIVE_AGG_MAX_ELEMS {
         cap = cap *| 2;
@@ -3080,37 +3259,38 @@ fn exec_vm_native_agg_slot_index(vm: &ExecVmState, base: usize) i32 {
     if base == 0 as usize {
         return -1;
     }
-    var slot: i32 = -1;
-    var i: i32 = 0;
-    while i < g_exec_native_agg_used {
-        if agg_base[i] == base {
-            slot = i;
-            break;
-        }
-        i = i + 1;
-    }
+    var slot: i32 = exec_vm_native_agg_find(base);
     if slot >= 0 {
         return slot;
     }
-    // 先复用已被 `forget` 释放的空槽（`base == 0`）：旁路表**只增不回收**时，
-    // 长时间运行或多线程高频分配只要登记过 256 个不同基址就会永久耗尽，
+    // 先复用已被 `forget` 释放的空条目（挂在空闲链上）：旁路表**只增不回收**时，
+    // 长时间运行或多线程高频分配只要登记过足够多不同基址就会永久耗尽，
     // 之后所有新结构体都拿不到槽 → 元素访问报 `count=-1` 并很快段错误。
-    var reusable: i32 = -1;
-    var ri: i32 = 0;
-    while ri < g_exec_native_agg_used {
-        if agg_base[ri] == 0 as usize {
-            reusable = ri;
-            break;
+    if g_exec_native_agg_free_head > 0 {
+        const reusable: i32 = g_exec_native_agg_free_head -| 1;
+        if reusable >= 0 && reusable < g_exec_native_agg_capacity {
+            const next_arr: &i32 = g_exec_native_agg_next;
+            g_exec_native_agg_free_head = 0;
+            if next_arr != null {
+                g_exec_native_agg_free_head = next_arr[reusable];
+            }
+            const b3: &usize = g_exec_native_agg_base;
+            const c3: &i32 = g_exec_native_agg_count;
+            const p3: &i32 = g_exec_native_agg_caps;
+            const st3: & &ExecValue = g_exec_native_agg_storage;
+            const h3: &ExecAggregate = g_exec_native_agg_handles;
+            if b3 == null || c3 == null || p3 == null || st3 == null || h3 == null {
+                return -1;
+            }
+            b3[reusable] = base;
+            c3[reusable] = 0;
+            p3[reusable] = 0;
+            st3[reusable] = null;
+            h3[reusable].count = 0;
+            exec_vm_native_agg_hash_insert(g_exec_native_agg_hash, g_exec_native_agg_hash_mask, base, reusable);
+            return reusable;
         }
-        ri = ri + 1;
-    }
-    if reusable >= 0 && reusable < g_exec_native_agg_capacity {
-        agg_base[reusable] = base;
-        agg_count[reusable] = 0;
-        agg_caps[reusable] = 0;
-        agg_storage[reusable] = null;
-        agg_handles[reusable].count = 0;
-        return reusable;
+        g_exec_native_agg_free_head = 0;
     }
     // 表满：先倍增扩容，再重新读一遍并行表（扩容会换掉所有指针，老的别名全失效）
     if g_exec_native_agg_used >= g_exec_native_agg_capacity {
@@ -3138,6 +3318,13 @@ fn exec_vm_native_agg_slot_index(vm: &ExecVmState, base: usize) i32 {
     caps2[slot] = 0;
     storage2[slot] = null;
     g_exec_native_agg_used = slot +| 1;
+    // 索引太满（含墓碑）先重建，再插入新条目
+    if (g_exec_native_agg_hash_used +| 1) *| 4 >= (g_exec_native_agg_hash_mask +| 1) *| 3 {
+        if exec_vm_native_agg_hash_rebuild(g_exec_native_agg_capacity) != 0 {
+            return -1;
+        }
+    }
+    exec_vm_native_agg_hash_insert(g_exec_native_agg_hash, g_exec_native_agg_hash_mask, base, slot);
     return slot;
 }
 
@@ -3163,13 +3350,17 @@ fn exec_vm_native_agg_rebase(vm: &ExecVmState, old_base: usize, new_base: usize)
     if old_base == 0 as usize || new_base == 0 as usize || old_base == new_base {
         return;
     }
-    var i: i32 = 0;
-    while i < g_exec_native_agg_used {
-        if agg_base[i] == old_base {
-            agg_base[i] = new_base;
-        }
-        i = i + 1;
+    const slot: i32 = exec_vm_native_agg_find(old_base);
+    if slot < 0 || slot >= g_exec_native_agg_capacity {
+        return;
     }
+    exec_vm_native_agg_hash_remove(old_base);
+    const b2: &usize = g_exec_native_agg_base;
+    if b2 == null {
+        return;
+    }
+    b2[slot] = new_base;
+    exec_vm_native_agg_hash_insert(g_exec_native_agg_hash, g_exec_native_agg_hash_mask, new_base, slot);
 }
 
 /// 把旁路表里 `src_base` 名下的元素整体搬到 `dst_base` 名下。
@@ -3229,17 +3420,27 @@ fn exec_vm_native_agg_forget(vm: &ExecVmState, base: usize) void {
     if base == 0 as usize {
         return;
     }
-    var i: i32 = 0;
-    while i < g_exec_native_agg_used {
-        if agg_base[i] == base {
-            agg_base[i] = 0 as usize;
-            agg_count[i] = 0;
-            agg_handles[i].count = 0;
-            agg_storage[i] = null;
-            return;
-        }
-        i = i + 1;
+    const slot: i32 = exec_vm_native_agg_find(base);
+    if slot < 0 || slot >= g_exec_native_agg_capacity {
+        return;
     }
+    exec_vm_native_agg_hash_remove(base);
+    const b2: &usize = g_exec_native_agg_base;
+    const c2: &i32 = g_exec_native_agg_count;
+    const st2: & &ExecValue = g_exec_native_agg_storage;
+    const h2: &ExecAggregate = g_exec_native_agg_handles;
+    const n2: &i32 = g_exec_native_agg_next;
+    if b2 == null || c2 == null || st2 == null || h2 == null {
+        return;
+    }
+    b2[slot] = 0 as usize;
+    c2[slot] = 0;
+    h2[slot].count = 0;
+    st2[slot] = null;
+    if n2 != null {
+        n2[slot] = g_exec_native_agg_free_head;
+    }
+    g_exec_native_agg_free_head = slot +| 1;
 }
 
 /// 查找原生指针第 index 个聚合元素的**已登记**旁路槽位（不建表）。
@@ -3267,19 +3468,16 @@ fn exec_vm_native_agg_peek(vm: &ExecVmState, base: usize, index: i64) &ExecValue
     if base == 0 as usize || index < 0 || index >= (EXEC_NATIVE_AGG_MAX_ELEMS as i64) {
         return null;
     }
-    var i: i32 = 0;
-    while i < g_exec_native_agg_used {
-        if agg_base[i] == base {
-            if (index as i32) < agg_count[i] {
-                const storage: &ExecValue = agg_storage[i];
-                if storage == null {
-                    return null;
-                }
-                return &storage[index as i32];
-            }
+    const slot: i32 = exec_vm_native_agg_find(base);
+    if slot < 0 || slot >= g_exec_native_agg_capacity {
+        return null;
+    }
+    if (index as i32) < agg_count[slot] {
+        const storage: &ExecValue = agg_storage[slot];
+        if storage == null {
             return null;
         }
-        i = i + 1;
+        return &storage[index as i32];
     }
     return null;
 }
@@ -3308,15 +3506,7 @@ fn exec_vm_native_agg_migrate(vm: &ExecVmState, dst_base: usize, src_base: usize
     if dst_base == 0 as usize || src_base == 0 as usize || dst_base == src_base {
         return 0;
     }
-    var src_slot: i32 = -1;
-    var i: i32 = 0;
-    while i < g_exec_native_agg_used {
-        if agg_base[i] == src_base {
-            src_slot = i;
-            break;
-        }
-        i = i + 1;
-    }
+    const src_slot: i32 = exec_vm_native_agg_find(src_base);
     if src_slot < 0 || src_slot >= g_exec_native_agg_capacity {
         return 0;
     }

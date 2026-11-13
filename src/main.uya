@@ -2600,6 +2600,9 @@ fn compile_files(
     // 词法或语法错误 / fork 失败）都会返回 -1，于是走下面的串行循环重做，
     // 报错文本与顺序因此与纯串行路径完全一致。
     var parsed_in_parallel: i32 = 0;
+    if g_verbose_output != 0 {
+        fprintf(libc.stderr, "[v] 解析开始 files=%d\n" as *byte, all_file_count);
+    }
     if all_file_count > 1 {
         if parse_parallel_run(programs, all_files.items, all_file_count, FILE_BUFFER_SIZE as usize) == 0 {
             parsed_in_parallel = 1;
@@ -2660,6 +2663,9 @@ fn compile_files(
     }
     parse_end_time = clock();
     arena_bytes_after_parse = arena.total_allocated;
+    if g_verbose_output != 0 {
+        fprintf(libc.stderr, "[v] 解析完成 files=%d 并行=%d\n" as *byte, all_file_count, parsed_in_parallel);
+    }
 
     var merged_ast: &ASTNode = ast_merge_programs(programs, all_file_count, &arena);
     if merged_ast == null {
@@ -2760,6 +2766,9 @@ fn compile_files(
     checker.strict_div = g_strict_div;
     checker.container_mode = g_container_mode;
 
+    if g_verbose_output != 0 {
+        fprintf(libc.stderr, "[v] 类型检查开始\n" as *byte);
+    }
     if checker_check(checker, merged_ast) != 0 {
         fprintf(libc.stderr, "错误: 类型检查失败（错误数量: %d）\n" as *byte, checker_get_error_count(checker));
         const err_msg: &byte = get_last_checker_error();

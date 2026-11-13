@@ -8301,6 +8301,32 @@ fn c99_gen_simd_unary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
     return 1;
 }
 
+/// C 整数类型的宽度秩（用于在左右操作数类型不一致时挑更宽的那个）。
+/// 参数：`type_c` C 类型名（可为 null，可带 `const ` 前缀）。
+/// 返回值：0 = 未知/非整数；1..4 = int8/16/32/64 系列。
+fn c99_scalar_type_rank(type_c: &byte) i32 {
+    if type_c == null {
+        return 0;
+    }
+    var name: &byte = type_c;
+    if strncmp(name as *byte, "const " as *byte, 6) == 0 {
+        name = (name as *byte + 6) as &byte;
+    }
+    if strcmp(name as *byte, "int64_t" as *byte) == 0 || strcmp(name as *byte, "uint64_t" as *byte) == 0 {
+        return 4;
+    }
+    if strcmp(name as *byte, "int32_t" as *byte) == 0 || strcmp(name as *byte, "uint32_t" as *byte) == 0 {
+        return 3;
+    }
+    if strcmp(name as *byte, "int16_t" as *byte) == 0 || strcmp(name as *byte, "uint16_t" as *byte) == 0 {
+        return 2;
+    }
+    if strcmp(name as *byte, "int8_t" as *byte) == 0 || strcmp(name as *byte, "uint8_t" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         const left: &ASTNode = expr.binary_expr_left;
         const right: &ASTNode = expr.binary_expr_right;
@@ -8363,12 +8389,34 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         } else if op_code == TokenType.TOKEN_PLUS_PIPE as i32 || op_code == TokenType.TOKEN_MINUS_PIPE as i32 || op_code == TokenType.TOKEN_ASTERISK_PIPE as i32 ||
             op_code == TokenType.TOKEN_PLUS_PERCENT as i32 || op_code == TokenType.TOKEN_MINUS_PERCENT as i32 || op_code == TokenType.TOKEN_ASTERISK_PERCENT as i32 {
             // 饱和运算 +| -| *| 或包装运算 +% -% *%
+            // 类型未知时**不要**退成 int32_t：`0i64 -| x` 这种左操作数是字面量的写法
+            // 拿不到类型，退成 i32 会把整个 i64 饱和/包装运算截断成 i32 域
+            // （实测 `0i64 -| (-2147483648i64)` 宿主产物 2147483647，解释执行 2147483648），
+            // 进而让两后端的 --strict-overflow 证明结论不一致。退成 int64_t 只会
+            // 把值算宽，不会丢信息。
+            // 类型取左右操作数中**更宽**的那个：`0i64 -| x` 这种左边是字面量的写法，
+            // 字面量解析出来是 int32_t，只看左边会把整个 i64 饱和/包装运算截断成
+            // i32 域（实测 `0i64 -| (-2147483648i64)` 宿主产物 2147483647，而解释
+            // 执行给出正确的 2147483648 → 两后端的 --strict-overflow 结论不一致）。
             var type_c: &byte = get_c_type_of_expr(codegen, left);
-            if type_c == null { type_c = "int32_t" as &byte; }
+            // 左操作数是**字面量**时改取右操作数的类型：字面量在 `get_c_type_of_expr`
+            // 里恒为 int32_t（不看 `i64` 后缀），只看左边会把整个 i64 饱和/包装运算
+            // 截断成 i32 域（实测 `0i64 -| (-2147483648i64)` 宿主产物 2147483647，
+            // 解释执行给出正确的 2147483648 → 两后端 --strict-overflow 结论不一致）。
+            // 只在「左边是字面量 + 右边类型秩已知（整数）」时替换：绝不拿秩未知的
+            // size_t/指针类型反过来覆盖（那会把 `size_t +| 1` 降级成 int32_t，
+            // 指针被截断，VM 直接崩）；也不能把 `u8 +| 1` 升级成 int32（饱和边界错）。
+            if left != null && left.type == ASTNodeType.AST_NUMBER {
+                const right_type_c: &byte = get_c_type_of_expr(codegen, right);
+                if c99_scalar_type_rank(right_type_c) > 0 {
+                    type_c = right_type_c;
+                }
+            }
+            if type_c == null { type_c = "int64_t" as &byte; }
             if op_code == TokenType.TOKEN_PLUS_PIPE as i32 || op_code == TokenType.TOKEN_MINUS_PIPE as i32 || op_code == TokenType.TOKEN_ASTERISK_PIPE as i32 {
                 var base_type: &byte = type_c;
                 if type_c != null && strncmp(type_c as *byte, "const " as *byte, 6) == 0 { base_type = (type_c as *byte + 6) as &byte; }
-                if base_type == null { base_type = "int32_t" as &byte; }
+                if base_type == null { base_type = "int64_t" as &byte; }
                 fputs("({ " as *byte, codegen.emit_stream as *void);
                 fprintf(codegen.emit_stream as *void, "%s _l = (" as *byte, base_type as *byte);
                 gen_expr(codegen, left);

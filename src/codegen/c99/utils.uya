@@ -2804,7 +2804,12 @@ fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
         if op == TokenType.TOKEN_PLUS {
             return operand_val;
         } else if op == TokenType.TOKEN_MINUS {
-            return -operand_val;
+            // `-1` 是本函数的错误标记；`-I32_MIN` 在 i32 域不可表示，一并按错误返回。
+            // 直接写一元负过不了 --strict-overflow（两后端结论一致地过不了）。
+            if operand_val == (-2147483647 - 1) {
+                return -1;
+            }
+            return 0 -| operand_val;
         } else {
             // 不支持的其他一元操作符
             return -1;

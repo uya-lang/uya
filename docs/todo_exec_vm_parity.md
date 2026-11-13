@@ -27026,3 +27026,111 @@ if type_c == null { type_c = "int32_t" as &byte; }
 - 整编自举：`--vm` 编 `src/main.uya` 已不再出现 `exec:` 上限报错，也不再出现
   `--strict-overflow` 误报，进入真正的整编阶段（耗时以小时计，后台跑）。
 - census / make check 复验见下一条补记。
+
+## 第 741 轮：宿主 i64 饱和运算 codegen 修好 + 旁路表哈希索引
+
+### 1. 宿主 C99 后端的 i64 饱和/包装运算按 i32 算（真 bug，已修）
+
+第 740 轮记录的那个「已知缺陷」本轮定位并修掉了。`src/codegen/c99/expr.uya`
+的 `gen_binary_expr()` 里：
+
+```uya
+var type_c: &byte = get_c_type_of_expr(codegen, left);
+if type_c == null { type_c = "int32_t" as &byte; }
+```
+
+`get_c_type_of_expr()` 对 `AST_NUMBER` 是**恒返回 `int32_t`**（`src/codegen/c99/types.uya:7301`，
+不看 `i64` 后缀），所以 `0i64 -| x` 这种「左操作数是字面量」的写法整条表达式都按
+i32 域发射：
+
+```c
+int32_t _l = (0LL); int32_t _r = (a.lo); int32_t _s;
+__builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s
+```
+
+解释执行按 i64 精确算（`2147483648`），宿主编译出来的程序给出 `2147483647` ——
+既是一条真错的结果，又让两后端的 `--strict-overflow` 证明结论不一致（同一份
+源码，宿主 `make uya` 过、`--vm` 自举不过）。
+
+修法（只放开「左操作数是字面量」这一种情况，其余一律不动）：
+
+```uya
+if left != null && left.type == ASTNodeType.AST_NUMBER {
+    const right_type_c: &byte = get_c_type_of_expr(codegen, right);
+    if c99_scalar_type_rank(right_type_c) > 0 { type_c = right_type_c; }
+}
+if type_c == null { type_c = "int64_t" as &byte; }
+```
+
+配套新增 `c99_scalar_type_rank()`（int8/16/32/64、uint8/16/32/64 → 1..4，其余 0）。
+
+**两次踩坑记录**（都实测崩过，别再犯）：
+
+- 改成「取整个二元表达式的类型」→ `get_c_type_of_expr()` 对二元节点也返回
+  int32_t，退得更狠：`i64_max -| b` 也被写成 int32_t，gcc `-Werror=overflow`
+  直接挡下（`overflow in conversion from int64_t to int32_t`）。
+- 改成「取左右里更宽的那个」→ `size_t`/`uintptr_t` 的秩是 0，`size_t +| 1` 被
+  降级成 int32_t，指针截断：census 里 `test_async_channel`、`test_async_catch_await`
+  报 `指针下标解引用地址非法(addr=0xc8d6cef0 ...)`，`test_exec_vm_aggregates` 段错误
+  （status 139）、`make check` 崩。**只有字面量左侧才允许换类型**。
+
+修完两个后端对同一份源码的判定一致了：
+
+```uya
+fn f(left: i32, right: i32) i32 {
+    if left < 0 && right < 0 { if -left > 2147483647 / -right { return 1; } }
+    return 0;
+}
+```
+
+`./bin/uya build` 与 `./bin/uya run --vm src/main.uya -- build` 现在**都**报
+`(3:12)/(3:33) i32 溢出无法证明`（此前宿主 rc=0、VM rc=1）。
+
+### 2. 旁路表从「线性扫」改成哈希索引（整编自举真正卡住的点）
+
+第 740 轮加的增长让表能到 65536 以上，但**每次访问仍线性扫基址**：
+`exec_vm_native_agg_slot_index()` 扫一遍找基址、再扫一遍找可复用槽，
+`peek()/forget()/rebase()/migrate()` 各自再扫一遍。整编自举时基址条目到几十万，
+一次 `ptr[i].field` 就是几十万次比较 —— 平方级退化：`--vm` 编 `src/main.uya`
+跑到 55 分钟**一行输出都没有**（进程 100% CPU、RSS 7GB），看起来像死锁。
+
+修法（`src/exec/vm.uya`）：
+
+- 新增 `g_exec_native_agg_hash`（开放寻址、桶里存 slot+1，0 空桶、-1 墓碑）+
+  `g_exec_native_agg_hash_mask/used`，`exec_vm_native_agg_hash_pos/insert/find/remove/rebuild`。
+  散列先右移 4 位（对齐低位没熵）再 FNV 乘法混合。
+- 五个线性扫描点全部换成 `exec_vm_native_agg_find(base)`（O(1)）。
+- `forget` 摘条目改走墓碑（保住探测链），并把 slot 挂到空闲链
+  `g_exec_native_agg_free_head`（并行 `next` 表），`slot_index` 直接复用，不再扫。
+- 桶占用超 3/4（含墓碑）时 `hash_rebuild` 重建；扩容时一并重建。
+- 基址条目上限 `EXEC_NATIVE_AGG_MAX` 1<<20 → **1<<22**（实测光类型检查阶段就要
+  ~100 万条，1<<20 正好在检查收尾时耗尽）。
+- 每条目元素存储初值 16 → **2**：`ptr[0] = 结构体` 是绝对主流，初值 16 让每个基址
+  白占 14 个 `ExecValue`（100 万基址 ≈ 700MB 纯浪费）。
+- `UYA_PROGRESS=1` 时打印 `[agg] 旁路表扩容 cap=… used=…`，便于观察用量。
+
+效果：同样 `--vm` 编 `src/main.uya`，类型检查从「55 分钟无输出」变成
+**~25 分钟跑完 4207 个顶层声明**（`[check] other 4160/4207`）。
+
+### 3. 编译器自举源码里再修 5 处一元负
+
+`--vm` 自举期间（宿主判定一致之后）宿主也会报出来，所以这是一次性清干净的：
+
+| 位置 | 原写法 | 改成 |
+| --- | --- | --- |
+| `src/checker/proof.uya:117`（乘法溢出检查） | `-left` / `-right` | i64 域 `0i64 -\| (x as i64)` + `neg_right <= 0` 守卫 |
+| `src/checker/proof.uya:713` | `-operand_val` | `0 -\| operand_val`（前面已排除 I32_MIN） |
+| `src/checker/interval.uya` ×2 | `-offset` | `((0 as u32) - (offset as u32)) as i32` |
+| `src/codegen/c99/utils.uya:2807` | `-operand_val` | I32_MIN 当错误返回，其余 `0 -\| operand_val` |
+
+### 4. 本轮验证
+
+- `make uya`：**清空 `src/.uyacache` 全量重建** rc=0（确保每条 C 都是用修好的
+  codegen 重新发射的，不是旧缓存）。
+- `./bin/uya --version` = `v0.11.0`。
+- census171：**912/912 通过，0 失败，5 跳过**，rc=0。
+- `make check`（check172）：rc=0，1197/1197。
+- 定点回归：`--vm tests/test_exec_vm_aggregates.uya`、`--vm tests/test_async_channel.uya`
+  都是 rc=0（这两条在「更宽的秩替换」版本下崩过）。
+- 整编自举（`--vm` 编 `src/main.uya` 自身）：跑到 codegen 阶段，后台继续（日志
+  `/tmp/vmfull170.log`，`UYA_PROGRESS=1` 有进度）。

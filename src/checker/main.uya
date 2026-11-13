@@ -16,6 +16,15 @@ fn checker_check_program_node(checker: &TypeChecker, node: &ASTNode) i32 {
     var var_count: i32 = 0;
     var use_count: i32 = 0;
     var other_count: i32 = 0;
+    // 进度输出（`UYA_PROGRESS=1`）：被 VM 解释执行时整编一次要几十分钟到几小时，
+    // 没有进度就只能看进程还活着，没法判断是慢还是卡住。
+    var progress_on: i32 = 0;
+    const progress_env: *byte = getenv("UYA_PROGRESS" as *byte);
+    if progress_env != null && progress_env[0] != 0 as byte {
+        progress_on = 1;
+        fprintf(libc.stderr, "[check] 声明分组完成 var=%d use=%d other=%d\n" as *byte,
+            var_count, use_count, other_count);
+    }
     var i: i32 = 0;
     while i < node.program_decl_count {
         const decl: &ASTNode = node.program_decls[i];
@@ -37,6 +46,9 @@ fn checker_check_program_node(checker: &TypeChecker, node: &ASTNode) i32 {
     while i < var_count {
         checker_check_node(checker, var_decls[i]);
         i = i + 1;
+        if progress_on != 0 && (i & 31) == 0 {
+            fprintf(libc.stderr, "[check] var %d/%d\n" as *byte, i, var_count);
+        }
     }
     i = 0;
     while i < use_count {
@@ -47,6 +59,9 @@ fn checker_check_program_node(checker: &TypeChecker, node: &ASTNode) i32 {
     while i < other_count {
         checker_check_node(checker, other_decls[i]);
         i = i + 1;
+        if progress_on != 0 && (i & 63) == 0 {
+            fprintf(libc.stderr, "[check] other %d/%d\n" as *byte, i, other_count);
+        }
     }
     return 1;
 }
