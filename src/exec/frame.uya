@@ -12,7 +12,17 @@ const EXEC_MAX_FRAME_SLOTS: i32 = 8192;
 const EXEC_MAX_FRAME_SLOT_POOL: i32 = 32768;
 
 const EXEC_ALLOC_TRACK_MAX: i32 = 8192;
-const EXEC_NATIVE_AGG_MAX: i32 = 256;
+// 原生聚合旁路表的基址条目上限。它承担的是「本机内存里的结构体 → ExecValue 槽」
+// 登记，编译器自举时 `*arena_ptr = struct` 这种写法会为每个结构体登记一个基址，
+// 256 个根本不够（实测在 `type_from_ast_cache_store` 里就耗尽了，
+// 报 `exec: 当前不支持该指针元素类型`）。条目本身很小（约 40 字节），抬到 65536
+// 也只占静态区约 2.6MB。
+// 旁路表基址条目现在是**按需增长**的堆表（见 `exec_vm_native_agg_reserve`），
+// 这个常量只是增长上限，不再是静态数组维度。之前是静态 `[T: 256]`：
+// 编译器自举时 `*arena_ptr = struct` 会为每个结构体登记基址，256 个瞬间耗尽，
+// 报 `exec: 当前不支持该指针元素类型`；而把静态维度直接开到 4096/65536 又会撑爆
+// 全局槽表示（实测 65536 让 `handles[slot].count` 解出 STRING 垃圾值）。
+const EXEC_NATIVE_AGG_MAX: i32 = 1 << 20;
 const EXEC_VM_CONT_MAX: i32 = 256;
 
 /// 一个宿主线程的 VM 执行状态（真并发时每线程一份；单线程时只有 main 一份）。

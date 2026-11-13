@@ -26434,3 +26434,91 @@ exec runtime: src/checker/type_from_ast.uya:125:1: exec: 当前不支持该指�
 
 含本轮「内存函数写聚合 + 聚合字节视图下标」的改动重跑全量普查：
 **912/912 通过，0 失败，5 跳过，rc=0**（无回归）。
+
+## 第 734 轮：原生聚合旁路表改成按需分配的堆表；补齐指针元素错误的诊断
+
+### 1. 旁路表：静态 256 条 → 堆表（`src/exec/vm.uya` + `src/exec/frame.uya`）
+
+上一轮留下的挡路点是：
+
+```
+exec: 当前不支持该指针元素类型(site=store_agg_slot kind=16 base=<arena 地址> index=0 elem_size=0
+      fn=type_from_ast_cache_store)
+```
+
+（这个详细消息是本轮新加的 —— 原来 5 处 `当前不支持该指针元素类型` 全是裸消息，
+`src/exec/vm.uya` 的 `element_ptr / load_agg_slot / load_scalar / store_agg_slot / store_scalar`
+五个分支都补上了 `site=/kind=/base=/index=/elem_size=/fn=`。）
+
+根因是静态容量：`g_exec_native_agg_{base,count,caps,storage,handles}` 原来是
+`[T: 256]` 全局数组。这张表是「本机内存里的结构体 → ExecValue 槽」的旁路登记，
+编译器自举时每个 `*arena_ptr = struct` 都要登记一条，arena 又从不释放 ⇒ 条目只增不减，
+256 条很快就耗尽，`exec_vm_native_agg_slot()` 返回 null，于是报「不支持该指针元素类型」。
+
+中途试过两条死路（记录下来避免重走）：
+
+- 直接把静态维度开到 `1 << 16`：解释器在 `g_exec_native_agg_handles[slot].count`
+  上解出 STRING 垃圾值（`exec: 无法解析成员访问字段(kind=13): count`）——
+  静态全局数组的元素要占**全局槽表示**（`EXEC_MAX_GLOBAL_SLOTS` 只有 8192），撑不住。
+- 倍增扩容（会搬移内存）：五张表是指针别名满天飞的全局状态，扩容后旧别名悬空，
+  风险太大。
+
+最终做法：**惰性一次分配、永不搬移**的堆表。
+
+- `exec_vm_native_agg_table_init()`：容量 `EXEC_NATIVE_AGG_TABLE_INITIAL = 1 << 16`
+  条，用 `exec_value_alloc_bytes` 一次分配五块（约 2.6MB，全零），之后指针恒定；
+- 每个用到表的函数开头取别名（`agg_base/agg_count/agg_caps/agg_storage/agg_handles`）
+  并做一次判空，函数体里继续用下标语法，语义与静态数组完全一致；
+- `EXEC_NATIVE_AGG_MAX`（frame.uya）不再是数组维度，只是历史名字；
+  判界统一用 `g_exec_native_agg_capacity`。
+
+### 2. `--vm` 自举链路上的两个真实结论
+
+**(a) 内层编译器必须带 `UYA_ROOT`。** 直接跑
+`./bin/uya run --vm src/main.uya -- build src/main.uya` 时环境里没有 `UYA_ROOT`，
+内层编译器的模块根就落到 `lib/`，于是 `src/main.uya` 的 `use cmd.upm.upm_lib.*`
+全部报「模块中未找到导出项」。带 `UYA_ROOT="$PWD/lib/"` 后这类假错误消失。
+（宿主构建由 `src/compile.sh` 统一 export，所以平时看不出来。）
+
+**(b) 模块导出查询在 VM 下失败（下一轮的主线）。** 最小复现（≈1 分钟，
+放在 `src/` 下才能让模块根解析到 `src/`）：
+
+```uya
+// src/.tmp_t7.uya
+use cmd.upm.upm_lib.UPMPackageBuildPlan;
+
+export fn main() i32 {
+    return 0;
+}
+```
+
+```
+$ UYA_ROOT="$PWD/lib/" ./bin/uya run --vm src/main.uya -- build src/.tmp_t7.uya -o /tmp/out_t7
+src/.tmp_t7.uya:(1:1): 错误: 模块中未找到导出项      # ← VM
+$ UYA_ROOT="$PWD/lib/" ./bin/uya build src/.tmp_t7.uya -o /tmp/out_t7h   # ← 宿主，rc=0
+```
+模块本身**找到了**（不是上一轮的「不是目录」），是它的导出名表里查不到
+`UPMPackageBuildPlan`（一个经 `cmd.upm.upm_lib` 再导出的结构体类型）。
+
+### 3. 顺带发现的真 bug：VM 的字节布局不考虑对齐填充
+
+探针 `/tmp/stat_probe.uya`（`libc.stat` 写进局部 `Stat`，再读回字段）：
+
+```
+宿主： probe ./src rc=0 type=16384 isdir=1 size=4096
+VM  ： probe ./src rc=0 type=16384 isdir=1 size=8
+```
+
+`st_mode` 是对的，`st_size` 读成 8。原因：`Stat` 里 `st_mode/st_uid/st_gid/_pad0`
+四个 i32 之后紧跟 `st_rdev: i64`，C 会插 4 字节对齐填充；而 VM 的
+`exec_vm_value_byte_width` / `exec_vm_read_value_byte` /
+`exec_vm_copy_native_bytes_into_value` 一路按「宽度直接累加」算偏移，
+少了填充 ⇒ 后续字段整体错位。修法是给聚合遍历加一个「按 kind 自然对齐」的
+偏移推进（i64/指针/f64 对齐 8，i32/f32 对齐 4，i16 对齐 2，其余 1），
+并把结构体总宽度也向上对齐到最大成员对齐。
+
+### 本轮回归
+
+- `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
+- `--vm --version` = `v0.11.0`；census32 在旁路表改堆表之后重跑：
+  **912/912 通过，0 失败，5 跳过，rc=0**（无回归）。
