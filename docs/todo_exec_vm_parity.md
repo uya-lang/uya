@@ -26893,3 +26893,12 @@ while i < names_cap { const struct_name: &byte = (struct_names + i)[0]; ... }
 
 跑真正的自举：`--vm` 编 `src/main.uya` 自身（`/tmp/vmfull139`），再补 census 与
 make check 回归。
+
+### 补记（第 739 轮修复后的回归）
+
+- census38：**912/912 通过，0 失败，5 跳过，rc=0**（`struct_names` 改 arena 之后）。
+- `./bin/uya run --vm src/main.uya -- --version` → `v0.11.0`，rc=0。
+- `--vm` 内层构建的产物 `/tmp/out_ts2` 运行 rc=0。
+- 整编自举（`--vm` 编 `src/main.uya` 自身，`/tmp/vmfull139.log`）在后台继续跑。
+- `make check` 1197/1197 的复验是在这条 codegen 改动**之前**的树上做的（本轮改动只把
+  `struct_names` 从栈上搬到 arena，语义等价），改动后的 census 已复验通过。
