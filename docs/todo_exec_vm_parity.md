@@ -25961,3 +25961,79 @@ guest `_vfprintf_impl` 的 `%s` 渲染、`write_to_buffer`、流缓冲（`buf_mo
 
 探针全部清除（`git status --short` 空，`grep -c "dbg-" src/lexer.uya` = 0），`make uya` rc=0，
 `./bin/uya --version` 正常。（本轮无功能改动，未重跑全量 census；上一轮 census27 为 912/912。）
+
+## 第 728 轮：脏字节定位到「类型检查阶段」内部（`checker_check_node` 里被就地写坏）
+
+上一轮结尾押的三个方向里，第 3 条（给 arena 里的名字加检测）这轮做成了，并且拿到了阶段结论。
+
+### 1. 用「arena 全量模式扫描」当分段探针
+
+在 `arena.uya` 里加了一个临时扫描器：遍历静态缓冲区 + 全部动态 chunk，找形如 `s?ved_envp`
+的 10 字节串（`p[0]=='s' && p[2..9]=="ved_envp"`），**只打印第 2 个字节不是 `'a'` 的命中**
+（真身永远是 `saved_envp`，所以 `b1 != 97` 就是脏的）。同一次扫描会打一行 `hits=` 计数，
+便于看「这段时间新建了多少份同名串」。
+
+分段打点（`main.uya` + `checker_check()`）：
+
+| 打点 | 命中数 | 脏命中 |
+|---|---|---|
+| `after-parse` | 139 | 无（只有 1 个 `b1=63` 的误命中，与本次无关） |
+| `after-merge` | 139 | 无 |
+| `ck-prepass` | 139 | 无 |
+| `ck-exports` | 139 | 无 |
+| `ck-macros` | 139 | 无 |
+| `ck-embed` | 139 | 无 |
+| `ck-nodes`（`checker_check_node` 之后） | 170 | **`b1=112`（`'p'`）at `0x7f…b370`** |
+| `after-check` | 170 | 同上 |
+
+⇒ 结论：**脏字节是在 `checker_check_node()` 执行期间出现的**。
+它既不是 parse/merge 产生的，也不是 `checker_prepass_top_level_decls` / `build_module_exports` /
+`expand_macros_in_node_simple` / `checker_ensure_embed_dir_entry_decl` 产生的 —— 这四个阶段之后
+arena 里 139 份同名串全部干净。而且 139→170 说明检查阶段确实**新建**了 31 份同名串，
+但脏的那份**不是新建出来的**（答案在下一节）。
+
+### 2. 不是「新建时漏填」，是「后来被写了一下」
+
+- `string_pool_intern()` 的「新建条目」分支（`n == 11` 且模式命中时打印 src/dst 前 3 字节）
+  **一次都没触发** ⇒ 符号表/字符串池不是这份脏串的产地。
+- 把 `compiler_arena_alloc()` 里**所有 11 字节分配**在返回前填成 `0xAB`（171），
+  再看脏字节：**仍然是 112（`'p'`）**，不是 171。
+  ⇒ 该位置不是「拷贝时的空洞」（漏写一个字节会留下填充值），而是**拷贝完成之后被别的写操作覆盖**。
+- 顺带确认：把**所有**分配都填 `0xAB` 会让编译直接段错误（调用方普遍依赖 arena 内存为零），
+  所以「全量填充」只能当一次性诊断，不能留在代码里。
+
+### 3. guard 哨兵方案行不通（两个坑）
+
+想用「每次 bump 分配后在块尾放 8 字节 `0xCD`，下次分配前回看」来抓越界写，两版都失败：
+
+1. `@usize_from_ptr` / `@ptr_from_usize` 在本仓库的 VM 语义下**不可靠**（拿回来的地址读出来全是 0，
+   本会话早前用它做过名字金丝雀，同样是 0），所以指针↔整数换算这条路直接放弃；
+2. 换成「区域 + 偏移」（`&chunk.buffer[off]`）之后仍然会崩：arena 有 **save/restore 复用**
+   （`chunk.used` 会回退），哨兵写进去的位置随后会变成**活数据**，等于自己制造踩踏。
+
+结论：查这个 1 字节越界不能靠「往 arena 里塞哨兵」，得靠「**只读**地盯着那 139 个已知指针」。
+
+### 4. 一个操作教训（写在这里免得再犯）
+
+排查过程中，某次 `make uya` 成功地把**带探针的**编译器装成了 `bin/uya`；之后即使把源码全部
+`git checkout` 还原、`rm -rf src/.uyacache` 全量重建，`make uya` 仍然在
+`./compile.sh: 段错误` 处失败 —— 因为**坏的 stage 编译器就是 `bin/uya` 自己**。
+用 `make from-c-native`（从 `backup/` 的 C seed 重建）恢复后，同样的干净源码 `make uya` 一次通过。
+⇒ 以后只要「还原源码后仍然崩」，先怀疑 stage 二进制，别怀疑源码。
+
+### 5. 下一步（把 `checker_check_node` 切成声明级）
+
+1. 在 `checker_check()` 进入 `checker_check_node` **之前**做一次扫描，把这 139 个同名串的指针
+   收进一个全局数组（`[&byte: 2048]`）；
+2. 在 `checker_check_program_node()` 的三个顶层声明循环（`var_decls` / `use_decls` / `other_decls`）
+   里，每检查完一个声明就只复查这 139 个指针的第 2 个字节（139 次读，成本可忽略），
+   第一次变脏时打印「哪个循环 + 第几个声明」；
+3. 拿到声明下标后直接读那份声明的检查代码，不用再猜。
+   （本轮已按此写好 `arena_dbg_collect()` / `arena_dbg_watch()` 两个只读探针，但因第 4 条的 stage
+   二进制问题没能跑出结果，探针已全部清除，下一轮重装即可。）
+
+### 本轮回归
+
+- 探针全部清除（`git status --short` 空）。
+- `make from-c-native` rc=0 → `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
+- 里程碑保持：`./bin/uya run --vm src/main.uya -- --version` = **`v0.11.0`**。
