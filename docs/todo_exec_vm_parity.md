@@ -27531,3 +27531,35 @@ const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT
 
 - census242：**912/912 通过，0 失败，5 跳过**，rc=0。
 - `make check`（check243）：**1197 通过 / 0 失败**，rc=0。
+
+### 4. 第 746 轮的复核：护栏没能挡住，但把范围收窄了
+
+加护栏后重跑整编自举（`/tmp/vmfull241.log`）：
+
+- **内存**：RSS 峰值 **34.7GB**（第 743 轮同阶段是 57GB，第 745 轮的移动/借用
+  改动后再降一档），全程没再换页抖动；gcc 也真的跑起来了。
+- **坏点只剩一处**：全部 gcc 报错都来自同一条
+  `uya_part1_types.h:2717`（14 条诊断全是这一行的列 5/7/8/12）。
+  这次的坏字节是 `PX\x08\xb8\xc8\x88P ata`（上一轮是 `Px\xf8\x18@P ata`），
+  **每次运行字节不同、位置固定** → 典型的「读到了被复用的内存」，
+  而不是简单的 1 字节写偏（护栏 16 字节够用就不会这样）。
+- 同一文件里 `struct PointerData;`（前置声明，1854 行）和
+  `struct PointerData {`（定义，3641 行）都是**正确**的，只有 `union TypeData`
+  成员那一行坏 —— 说明坏的是
+  `c99_emit_one_struct_field()` 里 `c99_type_to_c(field_type)` 返回的那一个串，
+  且只坏了一次。
+- `c99_type_to_c_uncached()` 里所有返回值都是 arena 分配（`buf/buf2..buf4/
+  enum_buf/async_buf/result/arr_ptr/copied` 逐个核对过），唯一的例外是
+  `return tp_name;` / `return safe_name;`（直接返回 AST 里的
+  `type_named_name`）—— 与第 739 轮「被写坏的是 AST 的 `type_named_name`」是
+  **同一个对象**。
+
+下一轮的下手方式（一次运行 ~40 分钟到前导发射）：
+
+1. 在 `c99_type_to_c_cache_store()` 里（`UYA_PROGRESS=1` 时）打印
+   「node 指针 + 字符串前 40 字节」，在 `c99_emit_one_struct_field()` 里打印
+   取回时的同样内容 —— 判断是**存的时候就坏了**，还是**取用之前被别人写坏**；
+2. 若存时是好的：在两者之间做二分（前导发射分若干阶段），锁定是哪个阶段写的；
+3. 顺手把「返回 AST 字符串指针」的两处 `return tp_name;` 改成
+   `c99_arena_strdup()` 副本（成本极小），如果坏点正是 AST 串被复用，
+   这一改就能直接绕过。
