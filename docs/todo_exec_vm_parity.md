@@ -25181,3 +25181,48 @@ fn sum_of(t: &T) i32 {
    但那是改编译器本体，代价大、影响面广。
 
 优先 1。
+
+## 第 714 轮：内层 `copy_type` 内部正确、返回给调用方后 `kind=0`
+
+第 713 轮的 union 影子没有改变内层结果，于是这一轮直接在 `copy_type` 里打点
+（打点已全部回退）。观测到一条非常干净的矛盾：
+
+```
+# copy_type 内部（解释执行）
+[dbg-ct]  n1 t_kind=2  r_kind=2   ← 字面量构造后 kind 是对的
+# 同一个调用在调用方 type_from_ast 里
+[dbg-hit] n1 cached_kind=2 copy_kind=0   ← 收到的 Type.kind 变成 0
+```
+
+即：**224 字节、含 union 字段的 `Type` 按值返回时，在解释执行下首字段丢失**；
+同一份代码在 C99 原生执行下完全正确（`cached_kind == copy_kind`）。
+
+### 已排除的缩小实验（都在 `--vm` 与 C99 上一致正确）
+
+| repro | 内容 | 结果 |
+| --- | --- | --- |
+| `/tmp/big_rep.uya` | 42 字段、纯 i64 字面量拷贝 | 正确 |
+| `/tmp/sz_rep.uya` | 64 / 128 / 224 字节结构体按值返回 | 正确 |
+| `/tmp/bigu_rep.uya` | 56 字节结构体（含 32 字节 union payload）拷回 | 正确 |
+| `/tmp/big224_rep.uya` | 328 字节、含 union 字段、字面量拷贝返回 | 正确 |
+
+所以要复现必须更贴近 `Type` 本身：42 个字段里既有 union、也有一大串指针/i32，
+且调用方拿到后立刻又作为返回值传出（`type_from_ast` 的返回值）。
+
+### 附带发现（既有 bug，与本目标无关但值得记）
+
+C99 后端对**含 union 字段的结构体**用空字面量 `Big{}` 初始化会生成
+`(union U){0}`，宿主工具链报：
+
+```
+error: incompatible types when assigning to type 'struct uya_tagged_U' from type 'union U'
+```
+
+所以编译器自己从不写 `Type{}`，一律显式列字段 —— 这也限制了上面「两步赋值」的验证写法。
+
+### 下一轮
+
+1. 写一个与 `Type` **完全同构**的 replica（字段顺序/类型一致，`TypeData` 用等尺寸 union），
+   `fn copy(t: &R) R { return R{ 逐字段 }; }`，调用方再原样返回；
+2. 若复现，逐字段二分（先去掉后半截字段、再换 union 变体尺寸），定位解释器的返回拷贝路径；
+3. 顺便确认 `BC_RET` 对「大聚合 + 内含 union 元素」的返回槽尺寸来源。
