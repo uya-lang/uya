@@ -25914,3 +25914,50 @@ fputs(&g_indent_spaces[256 - total] as *byte, codegen.emit_stream as *void);
 `./bin/uya run --vm` 冒烟 `test_exec_vm_printf_varargs` / `test_fmt_api` / `test_string` /
 `test_overlap_fields` / `test_exec_vm_compiler_field_pointer_index` 全部 rc=0。
 （本轮无功能改动，未重跑全量 census；上一轮 census27 为 912/912。）
+
+## 第 727 轮：脏字节是「词法之后被谁写了一下」，读文件和词法拷贝都是干净的
+
+### 1. `c99_arena_strdup` 的**源串**就已经脏了
+
+在 `c99_arena_strdup()` 里对含 `ed_envp` 的串打点（源指针 / 目标指针 / 各自前 3 字节）：
+
+```
+[dbg-sd] len=11 src=0x7f397cca0260 dst=0x7f397d764858 sb=115,97,118 db=115,97,118
+[dbg-sd] len=11 src=0x7f397ca87370 dst=0x7f397d764e58 sb=115,112,118 db=115,112,118
+[dbg-sd] len=11 src=0x7f397ca87370 dst=0x7f397d764e68 sb=115,112,118 db=115,112,118
+```
+
+⇒ `memcpy` 是干净的（src/dst 一致），脏的是**传进来的那份 AST 名字**（`src=…ca87370` 已经是 `spv…`）。
+同一程序里还有另一份干净的名字（`src=…cca0260`），说明「引用方」和「声明方」持有的是**两份不同的字符串**，
+只有声明方那份坏了一个字节。
+
+### 2. 读文件和词法拷贝都是字节精确的
+
+| 测试 | 结果 |
+|---|---|
+| `/tmp/nest25.uya`：`fopen("r")` + 4 KB 分块 `fread` 复制 `lib/std/runtime/runtime.uya` | 3380 字节 **完全一致** |
+| `/tmp/nest26.uya`：完全照抄编译器 `read_file_content()` 的形态（`fopen("rb")` + 一次 `fread` 1MB-1 进 4MB 静态数组）再落盘 | 3380 字节 **完全一致**，且 `b807=115 b806=32 b808=97` 正确 |
+| `lexer.uya` 的 `arena_copy_str()` 打点 | 所有 10 字节 `saved_envp` 拷贝 **`sb=115,97,118 db=115,97,118`** 全部干净 |
+
+⇒ 源文件读入、词法 token 拷贝都没问题；脏值是在**词法之后**被某处写进那份 arena 字符串的（1 个字节，
+值每次运行不同：`0xB0` / `'p'` / …）。
+
+### 3. 这一轮把「输出层」整个排空了
+
+累计排除：`c99_emit_indent` 的 `fwrite`、VM 模拟的 `fprintf`（`exec_format_printf_like`）、
+guest `_vfprintf_impl` 的 `%s` 渲染、`write_to_buffer`、流缓冲（`buf_mode=0` 也坏）、`fflush`/`fclose` 顺序、
+`fread`/文件读取、词法拷贝。
+
+### 下一步（方向已明确）
+
+盯「词法之后到代码生成之间」还有谁会把名字写进 arena 字符串：
+
+1. `checker` 的符号表 / 单态化会不会把 `name[1]` 这类位置就地改写过；
+2. 模块 merge（`lower/`、`src/driver/`）把模块 AST 并进主程序时对名字的再拷贝；
+3. 用「对 arena 里那块字符串加写保护/记录写入点」的方式定位到底是谁写了第 1 个字节
+   （可在 `compiler_arena_alloc` 里对 10 字节名字加 guard 字节检测越界写）。
+
+### 本轮回归
+
+探针全部清除（`git status --short` 空，`grep -c "dbg-" src/lexer.uya` = 0），`make uya` rc=0，
+`./bin/uya --version` 正常。（本轮无功能改动，未重跑全量 census；上一轮 census27 为 912/912。）
