@@ -2172,6 +2172,14 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             var elem_size_hint: i64 = 0;
             if expr.bool_value > 0 {
                 elem_size_hint = expr.bool_value as i64;
+            } else if expr.kind == HIRExprKind.HIR_EXPR_INDEX && expr.int_value > 0 {
+                // 普通 `p[i]` / `arr[i]` 的元素字节数落在 int_value（见 lower.uya 的
+                // AST_ARRAY_ACCESS 降级）；只有 FIELD 节点的 int_value 才是字段下标。
+                // 少了这条，`uniq[i][z] = v`（`uniq: &([byte: 512])`，原生内存）里
+                // 外层 ADDR_INDEX 的步长是 0，VM 拿不到原生步长就退化成
+                // 「旁路表值引用」，随后的 STORE_INDEX 在内部引用分支里找不到聚合，
+                // 直接报 `STORE_INDEX 越界`（/tmp/nest10.uya）。
+                elem_size_hint = expr.int_value;
             }
             if exec_builder_emit(ctx, BCInstr {
                 opcode: BCOpcode.BC_ADDR_INDEX,
@@ -3567,12 +3575,19 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: 当前不支持该 binary 运算符" as *byte);
             return -1;
         }
+        // imm 低 32 位是结果类型码；高 32 位是指针算术的元素字节数（`p + i`）。
+        // `base + j` 的结果类型会被推断成 i32（不是指针），所以这里不能按结果类型判断，
+        // 只看降级侧有没有写下元素字节数（INoDE 节点之外的二元节点 int_value 恒 0）。
+        var bin_imm: i64 = expr.type_ref.type.kind as i64;
+        if expr.int_value > 0 {
+            bin_imm = bin_imm | (expr.int_value << 32);
+        }
         if exec_builder_emit(ctx, BCInstr {
             opcode: opcode,
             a: dst,
             b: left,
             c: right,
-            imm: expr.type_ref.type.kind as i64,
+            imm: bin_imm,
             text: null,
             source: exec_builder_make_source(expr.ast_node),
         }) < 0 {

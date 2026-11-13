@@ -25402,3 +25402,78 @@ uniq[uniq_count][z] = fnm[z];       // ← 逐字节写
 或让「数组的数组」生成视图时元素 kind 取 ARRAY 而不是 BYTE。
 改好后 `base[i]` 步长回到 8，`uniq[uniq_count][z] = fnm[z]` 才能写对，
 接着看内层 build 还能推进到哪里。
+
+## 第 718 轮：数组元素铺平 + 指针算术步长（内层 build 推进到 c99/main.uya）
+
+接手第 717 轮的结论（`&store[0]` 生成的是按 byte 铺平的原生数组视图），
+这一轮把它彻底理清并修好，同时补上了**结构体指针算术**的步长。
+
+### 卡点 1：`uniq[uniq_count][z] = fnm[z]`（`src/codegen/c99/utils.uya:993`）
+
+秒级 repro `/tmp/nest10.uya`（**忠实**复刻：malloc 出原生内存 + `&([byte: 8])` 嵌套下标）：
+
+```uya
+const uniq: &([byte: 8]) = malloc(32 as usize) as &([byte: 8]);
+uniq[i][0] = 65 as byte;   // C99 正确，VM 报 STORE_INDEX 越界
+```
+
+打点（已移除）看清了整条链路：
+
+```
+[dbg-si] fn=main idx=1 imm=1 akind=14(POINTER) aaux=65555   ← 65536+19 = 「值引用，ref kind=ARRAY」
+```
+
+即 `uniq[i]` 被算成**旁路表值引用**（不是指向原生内存的指针），
+随后的 `STORE_INDEX` 在「内部引用」分支里找不到聚合 → 越界。
+
+修复（`src/exec/vm.uya` + `src/exec/builder.uya`）：
+
+1. `exec_vm_pointer_element_ptr` / `exec_vm_load_pointer_index`：pointee 是 **ARRAY** 时
+   不再优先查旁路表（数组值不会整块进旁路表，里面的字节是逐字节写原生内存的），
+   只要编译期给了元素字节数就往原生步长走；
+2. 同上两处：元素是 ARRAY 时，取到的结果按**铺平的数组值**表示 ——
+   pointee kind 落成 BYTE（下一层下标按字节步进，与 C99 的 `p[i][z]` 一致）；
+3. `builder` 的可寻址 `ADDR_INDEX`：`HIR_EXPR_INDEX` 节点在 `bool_value` 为 0 时
+   改用 `int_value`（普通 `p[i]` 的元素字节数存在那里，只有 FIELD 节点的 int_value 是字段下标）。
+
+### 卡点 2：`const variant: &EnumVariant = variants + i;`（`src/codegen/c99/enums.uya:463`）
+
+报 `exec: 指针算术不支持该元素类型`：`BC_ADD` 的 imm 只有结果类型码，
+VM 拿不到 `EnumVariant` 的字节数（`exec_vm_type_kind_size(STRUCT) == 0`）。
+
+修复链路（编译器把步长带进指令）：
+
+```
+lower.uya   : 二元节点的操作数 HIR 类型是 POINTER → hir.int_value = size_of(pointee)
+builder.uya : BC_ADD/BC_SUB 的 imm 高 32 位 = expr.int_value（低 32 位仍是类型码）
+vm.uya      : exec_vm_pointer_add(..., elem_size_hint)，标量尺寸为 0 时用它
+```
+
+两个坑：
+- 判据不能用**结果类型**：`base + j` 被推断成 `i32`，不是指针；
+- 也不能用 `exec_lower_resolve_exact_type(操作数)`：它对局部指针变量会自动解引用成 `T`。
+  最终用**操作数自己的 HIR `type_ref`**（checker 给的完整类型）判断。
+
+秒级 repro `/tmp/nest11.uya`（malloc 出的 `&V` + `base[i].a = i` + `base + j`）现两后端一致。
+
+### 验证
+
+| 检查 | 结果 |
+| --- | --- |
+| `/tmp/nest10.uya`、`/tmp/nest11.uya` | C99 与 exec VM **完全一致** |
+| 内层 build | `utils.uya:993`、`enums.uya:463` 均已越过 |
+| **全量 census** | **912/912（100%）** |
+
+### 新卡点（下一轮）
+
+```
+src/codegen/c99/main.uya:1673: exec: ADDR_INDEX 越界(IDXREF fn=collect_tests_from_node
+    ip=28 idx=0 kind=14 cnt=-1 isref=1 pointee=2 line=1680)
+```
+
+`collect_tests_from_node()` 里 `count = (&test_count[0])[0];`（`test_count: &i32` 形参）。
+`exec_vm_index_ref()` 对「值引用指向**标量**」的情况没有处理：它只在
+`is_index_base == 0 && index == 0` 且目标是 STRUCT/TUPLE/INTERFACE/UNION 聚合时返回本体，
+标量会一路回落到 `exec_value_as_aggregate(target) == null` → 返回 null。
+修法：`is_index_base == 0 && index_value == 0` 且目标既不是聚合也不是原生数组/slice 时，
+直接返回 target 本体（这正是 `*ref` 的语义）。

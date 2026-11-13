@@ -9547,6 +9547,24 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         hir.binary_op = expr.binary_expr_op;
         hir.left = left;
         hir.right = right;
+        // 指针算术（`variants + i` 这类）的步长：pointee 是结构体/数组时没有标量尺寸，
+        // VM 自己算不出来，这里把**元素字节数**记到 int_value，builder 再打进
+        // 指令 imm 的高 32 位（低 32 位仍是结果类型码）。
+        // 判据看**操作数自己的 HIR 类型**：结果类型不一定是指针（`base + j` 被推断成
+        // i32），而 `resolve_exact_type(局部指针变量)` 又会自动解引用成 `T`。
+        // HIR 节点的 type_ref 是 checker 给的完整类型，指针操作数在这里是 POINTER。
+        var bin_ptr_type: Type = make_void_type();
+        if left != null && left.type_ref.type.kind == TypeKind.TYPE_POINTER {
+            bin_ptr_type = copy_type(&left.type_ref.type);
+        } else if right != null && right.type_ref.type.kind == TypeKind.TYPE_POINTER {
+            bin_ptr_type = copy_type(&right.type_ref.type);
+        }
+        if bin_ptr_type.kind == TypeKind.TYPE_POINTER && bin_ptr_type.pointer_to != null {
+            hir.int_value = exec_lower_size_align_of_type(ctx, copy_type(&bin_ptr_type.pointer_to[0]),
+                1) as i64;
+        }
+        if left != null && right != null {
+        }
         return hir;
     }
     if expr.type == ASTNodeType.AST_CALL_EXPR {
@@ -10486,21 +10504,36 @@ fn exec_lower_expr_inner(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
         // 步长就退化成 0，按下标访问原生数组全部错位
         // （`test_async_task_queue_dynamic_growth` 的调度循环因此永远读不到
         // active，空转到超时）。
-        var elem_type_probe: Type = exec_lower_resolve_exact_type(ctx, expr.array_access_array);
-        if elem_type_probe.kind == TypeKind.TYPE_POINTER && elem_type_probe.pointer_to != null {
-            elem_type_probe = copy_type(&elem_type_probe.pointer_to[0]);
-        } else if elem_type_probe.kind == TypeKind.TYPE_ARRAY && elem_type_probe.element_type != null {
-            elem_type_probe = copy_type(&elem_type_probe.element_type[0]);
-        } else if elem_type_probe.kind == TypeKind.TYPE_SLICE && elem_type_probe.slice_element_type != null {
-            elem_type_probe = copy_type(&elem_type_probe.slice_element_type[0]);
-        } else {
-            elem_type_probe = make_void_type();
-        }
+        // 元素尺寸优先取 `p[i]` 自己的结果类型（`expr_type`）：对
+        // `const base: &([byte: 8])` 来说结果就是 `[byte: 8]`，尺寸 8 —— 正确；
+        // 而下面那条「从基表达式下钻一层」的探测路对**指针基**会先把
+        // `&([byte: 8])` 自动解引用成 `[byte: 8]`、再下钻成 `byte`，步长算成 1，
+        // 于是 `base[i][z] = v` 每一行都平铺到第一个元素上
+        // （/tmp/nest2.uya：C99 `65 97 / 66 98 …`，VM `65 66 / 0 0 …`）。
+        // 注意 `exec_lower_size_align_of_type` 的第 3 参是「要不要尺寸」的开关
+        // （0 = 求对齐），不是回退值，这里必须传 1。
         var index_elem_type: Type = copy_type(&expr_type);
-        if elem_type_probe.kind != TypeKind.TYPE_VOID {
-            index_elem_type = elem_type_probe;
+        var index_elem_size: i32 = exec_lower_size_align_of_type(ctx, copy_type(&index_elem_type), 1);
+        if index_elem_size <= 0 {
+            var elem_type_probe: Type = exec_lower_resolve_exact_type(ctx, expr.array_access_array);
+            if elem_type_probe.kind == TypeKind.TYPE_POINTER && elem_type_probe.pointer_to != null {
+                elem_type_probe = copy_type(&elem_type_probe.pointer_to[0]);
+            } else if elem_type_probe.kind == TypeKind.TYPE_ARRAY && elem_type_probe.element_type != null {
+                elem_type_probe = copy_type(&elem_type_probe.element_type[0]);
+            } else if elem_type_probe.kind == TypeKind.TYPE_SLICE && elem_type_probe.slice_element_type != null {
+                elem_type_probe = copy_type(&elem_type_probe.slice_element_type[0]);
+            } else {
+                elem_type_probe = make_void_type();
+            }
+            if elem_type_probe.kind != TypeKind.TYPE_VOID {
+                index_elem_type = elem_type_probe;
+            }
+            index_elem_size = exec_lower_size_align_of_type(ctx, copy_type(&index_elem_type), 1);
         }
-        hir_index.int_value = exec_lower_size_align_of_type(ctx, index_elem_type, 1) as i64;
+        if index_elem_size <= 0 {
+            index_elem_size = 1;
+        }
+        hir_index.int_value = index_elem_size as i64;
         return hir_index;
     }
     if expr.type == ASTNodeType.AST_SLICE_EXPR {
