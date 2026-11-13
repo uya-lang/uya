@@ -2553,8 +2553,16 @@ fn exec_vm_native_field_load(kind_code: i32, pointee_kind_code: i32, elem_count:
         const nf_addr_resident: i32 = exec_vm_address_is_vm_resident(addr) as i32;
         const nf_ptr_raw_ok: i32 = (nf_addr_resident == 0 &&
             pointee_kind_code == TypeKind.TYPE_POINTER as i32) as i32;
+        // 非驻留（宿主）内存上的**聚合元素**数组（`[LocalVariable: 1024]` 这类）同样要给
+        // 原生视图：元素步长由后续 LOAD_INDEX 指令的 imm 提供，这里只要「指向首元素」。
+        const nf_agg_raw_ok: i32 = (nf_addr_resident == 0 &&
+            (pointee_kind_code == TypeKind.TYPE_STRUCT as i32 ||
+             pointee_kind_code == TypeKind.TYPE_UNION as i32 ||
+             pointee_kind_code == TypeKind.TYPE_TUPLE as i32 ||
+             pointee_kind_code == TypeKind.TYPE_ARRAY as i32)) as i32;
         if pointee_kind_code > 0 && type_array_count > 0 &&
-            (exec_value_is_raw_array_element_type(pointee_kind_code) != 0 || nf_ptr_raw_ok != 0) {
+            (exec_value_is_raw_array_element_type(pointee_kind_code) != 0 || nf_ptr_raw_ok != 0 ||
+             nf_agg_raw_ok != 0) {
             return exec_value_make_raw_array_view(type_array_count, pointee_kind_code,
                 @ptr_from_usize(addr) as &byte);
         }
@@ -8448,6 +8456,17 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                     frame.ip = frame.ip + 1;
                     return 0;
                 }
+            }
+            const li_is_agg_elem: i32 = (li_elem_kind == TypeKind.TYPE_STRUCT as i32 ||
+                li_elem_kind == TypeKind.TYPE_UNION as i32 ||
+                li_elem_kind == TypeKind.TYPE_TUPLE as i32 ||
+                li_elem_kind == TypeKind.TYPE_ARRAY as i32) as i32;
+            if li_is_agg_elem != 0 && index_value >= 0 && instr.imm > 0 {
+                const li_agg_addr: usize = li_base_addr +| ((index_value as usize) *| (instr.imm as usize));
+                exec_vm_store_slot_shallow(slot_a, exec_make_pointer_with_kind(li_agg_addr,
+                    li_elem_kind));
+                frame.ip = frame.ip + 1;
+                return 0;
             }
             const raw_ptr_value3: ExecValue = exec_vm_raw_array_element_ptr(slot_b, index_value);
             if raw_ptr_value3.kind != ExecValueKind.EXEC_VALUE_POINTER {

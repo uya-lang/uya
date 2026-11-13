@@ -25289,3 +25289,57 @@ exec runtime: src/codegen/c99/global.uya:724:1: exec: LOAD_FIELD 字段越界(
 查 `c99_local_var_name_at`：`local_variables` 是 `[LocalVar: C99_MAX_LOCAL_VARS]`
 定长结构体数组字段，`LOAD_FIELD` 报 `idx=33 kind=14 count=-1` —— 疑似
 「结构体数组字段」的元素个数/步长在字段 imm 里被算成 -1（与第 708 轮的 16 位饱和同类问题）。
+
+## 第 716 轮：聚合元素数组（`[LocalVariable: 1024]`、`[[byte:512]: N]`）
+
+第 715 轮把内层诊断清零后，`--vm build` 停在：
+
+```
+src/codegen/c99/global.uya:724: exec: LOAD_FIELD 字段越界(
+    idx=33 kind=14 count=-1 pointee=16 fn=c99_local_var_name_at line=734)
+```
+
+### 根因
+
+`c99_local_var_name_at()` 读的是 `codegen.local_variables[idx].name`，其中
+
+```uya
+local_variables: [LocalVariable: C99_MAX_LOCAL_VARS],   // 1024 个 48 字节结构体
+```
+
+但 `exec_value_is_raw_array_element_type()` 对 **STRUCT/UNION/TUPLE/ARRAY** 元素一律返回 0，
+于是「原生内存里的聚合元素数组」根本拿不到数组视图，`LOAD_FIELD` 只能掉进聚合路径，
+聚合的字段数又是 -1，于是报「字段越界」。
+
+### 修复（`src/exec/vm.uya`）
+
+1. `exec_vm_native_field_load()` 的 TYPE_ARRAY 分支：**非驻留（宿主）内存**上的
+   聚合元素数组也生成原生视图（只需要「指向首元素」，步长交给后续指令）；
+2. `BC_LOAD_INDEX` 的 raw-array 分支：元素是聚合类型时按指令 `imm`（元素字节数）
+   算地址 `base + idx * imm`，返回指向该元素的指针。
+
+### 验证
+
+| 检查 | 结果 |
+| --- | --- |
+| **全量 census** | **912/912（100%）** |
+| 内层 build | `global.uya:724` 已越过 |
+
+### 新卡点
+
+```
+src/codegen/c99/utils.uya:993:8: exec: STORE_INDEX 越界
+```
+
+位置在 `c99_split_mirror_prepare()`：
+
+```uya
+const uniq: &([byte: 512]) = compiler_arena_alloc(...) as &([byte: 512]);
+…
+uniq[uniq_count][z] = fnm[z];        // ← 元素是 [byte:512]，按字节写
+```
+
+也就是**聚合元素数组的写入侧**还没跟上（读侧这一轮才补上）。
+下一轮：给 `BC_STORE_INDEX`（以及 `BC_ADDR_INDEX`）补同样的「聚合元素按 imm 步长取址」，
+并且保证元素内的字节写直接落到原生内存（这里 `uniq[u][z] = ...` 是逐字节写，
+不能用旁路影子，否则后续按字节读会看不到）。
