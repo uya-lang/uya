@@ -30,6 +30,9 @@ struct CompilerArena {
 // 内存对齐边界（字节）
 const ARENA_ALIGNMENT: usize = 8;
 
+/// 每个 arena 分配块尾部的护栏字节数（见 `compiler_arena_alloc` 里的说明）。
+const ARENA_TAIL_GUARD: usize = 16;
+
 // 默认动态 chunk 大小（1MB）
 const ARENA_CHUNK_SIZE: usize = 1024 * 1024;
 
@@ -136,7 +139,15 @@ fn compiler_arena_alloc(arena: &CompilerArena, size: usize) &byte {
         exit(1);
     }
     
-    const aligned_size: usize = align_size(size, ARENA_ALIGNMENT);
+    // 每块尾部多留 ARENA_TAIL_GUARD 字节护栏。
+    //
+    // 为什么：exec VM 解释执行时存在**1 字节写偏**（宿主 C 后端不会）——
+    // 第 739 轮是 `pthread_mutex_t` 被写成 `p\xf8hread_mutex_t`，
+    // 第 745 轮整编自举里 `struct PointerData pointer;` 被写成 `Px\xf8\x18@pata pointer;`，
+    // 两次都是某个字节缓冲区越界 1 字节写坏了**相邻**的 arena 字符串。
+    // 根因还在 VM 侧，但在块尾留 16 字节护栏后，这类写偏落在本块内，
+    // 不再破坏相邻字符串（护栏里填 0xA5，事后能一眼看出被踩）。
+    const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT);
     if compiler_arena_should_inject_failure() != 0 {
         fprintf(libc.stderr, "错误: CompilerArena 无法分配请求内存 (%zu 字节)\n" as *byte, aligned_size);
         compiler_arena_report_failure_context(aligned_size);

@@ -27495,3 +27495,39 @@ Top2 `BC_MAKE_STRUCT`（3.37M）—— 前者是「把表达式结果写进变�
 
 - census222：**912/912 通过，0 失败，5 跳过**，rc=0。
 - `make check`（check223）：**1197 通过 / 0 失败**，rc=0。
+
+## 第 746 轮：arena 分配块尾部加护栏（吸收 VM 解释执行的 1 字节写偏）
+
+### 1. 症状回顾
+
+两次「同一类」故障：
+
+| 轮次 | 正常文本 | 被写坏的文本 | 坏字节 |
+| --- | --- | --- | --- |
+| 739 | `pthread_mutex_t` | `p\xf8hread_mutex_t` | 0xF8 |
+| 745 | `struct PointerData pointer;` | `Px\xf8\x18@pata pointer;` | 0xF8 0x18 0x40 |
+
+宿主 C 后端产出的文件完全正确，只有 `--vm` 解释执行时出现 —— 是**某个字节缓冲区
+越界写到了相邻 arena 字符串**。根因（VM 侧写偏）还没定位到具体指令，
+但把「受害者的邻居」加厚就能先把它挡住。
+
+### 2. 修法：每块尾部 16 字节护栏
+
+`src/arena.uya` 的 `compiler_arena_alloc()`：
+
+```uya
+const ARENA_TAIL_GUARD: usize = 16;
+const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT);
+```
+
+- 每个分配块多要 16 字节并对齐，写偏 1~8 字节都落在本块内，不再踩相邻字符串；
+- 代价：每次分配多 16 字节（自举量级约 100 万次分配 → 十几 MB）；没有测试依赖
+  `arena.total_allocated` 的精确值（`grep -rln total_allocated tests/` 为空）。
+
+这是**缓解而不是根治**：真正的写偏还在 VM 里，后续应加「越界写检测」
+（对 raw 数组/字节视图写入做严格判界并报出字节码函数名+opcode）。
+
+### 3. 回归（当前树）
+
+- census242：**912/912 通过，0 失败，5 跳过**，rc=0。
+- `make check`（check243）：**1197 通过 / 0 失败**，rc=0。
