@@ -26429,3 +26429,8 @@ exec runtime: src/checker/type_from_ast.uya:125:1: exec: 当前不支持该指�
 - `make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
 - `--vm --version` = `v0.11.0`；`--vm` 内层 `build /tmp/t2.uya` rc=0，产物运行 rc=0，
   `uya_common.c` 干净（`saved_envp` 三处都对）。
+
+### 补记（census31）
+
+含本轮「内存函数写聚合 + 聚合字节视图下标」的改动重跑全量普查：
+**912/912 通过，0 失败，5 跳过，rc=0**（无回归）。
