@@ -26765,3 +26765,67 @@ parse/merge/prepass/exports/macros/embed 干净、`checker_check_node` 之后变
 - census36：**912/912 通过，0 失败，5 跳过，rc=0**（本轮只有文档改动，探针已撤销）。
 - `C99_MAX_STRUCT_DEFINITIONS` 与 `struct_definitions` 数组维度一致（都是 1024），
   所以「表越界写进相邻缓冲区」这条线要先看**别的**定长数组/结构体字段排布。
+
+## 第 738 轮：把窗口压到 `collect_struct_types_in_struct(pthread_barrier_t)` 内部
+
+### 1. 加密集检查点（全部在 `src/codegen/c99/structs.uya`）
+
+在上一轮的「按指针盯串」探针上继续加检查点：
+
+| tag | 位置 |
+| --- | --- |
+| `g_dbg_ck` | `gen_struct_definition` 入口 |
+| `-10` | `get_safe_c_identifier(struct_decl.struct_decl_name)` 之后 |
+| `-11` | `emit_struct_deps_for_struct` 入口 |
+| `-12` | `collect_struct_types_in_struct(...)` 之后 |
+| `-5` | 依赖循环每次迭代开头 |
+| `-9` | `c99_emit_struct_fields` 入口 |
+| `-4` | 字段发射完成后 |
+| `-6`/`-8` | `mark_struct_defined` 入口/表尾 |
+
+结果（每次跑都稳定复现，指针每次不同是因为 ASLR）：
+
+```
+[dbg-w] collected=158 cap=4096
+[dbg-w] DIRTY tag=-12 name=pthread_barrier_t k=44 ptr=0x7fdc2d02b5e8 want=116 got=248
+```
+
+即：`-11`（依赖收集入口）干净、`-12`（依赖收集返回后）已脏 →
+**脏写发生在 `collect_struct_types_in_struct(codegen, pthread_barrier_t, …)` 这一函数体内**。
+
+### 2. 该函数体里没有任何写字符串的语句
+
+`collect_struct_types_in_struct`（`structs.yuya:1184`）只做：遍历字段 → 逐字段
+`collect_value_struct_deps_from_type`；后者只 `strcmp` 比较、往 `out_names[…]` 写**指针**
+（且有 `out_count[0] < max_count` 守卫），递归走 `collect_struct_field_deps_recursive`
+（同样只读名字）。所以脏写是它**调用的某个函数**的副作用，候选只剩：
+
+- `is_primitive_type_name(name)`；
+- `find_interface_decl_c99(codegen, name)`；
+- `find_struct_decl_c99(codegen, name)` —— 这个函数正是拿**受害串本身**当参数调用的，
+  内部会用 `g_c99_struct_result_*` 全局缓存（`C99_DECL_RESULT_CACHE_SIZE = 8192`，
+  `MASK = 8191`，一致）和 `codegen.struct_decl_cache`（4096/4095，一致）；
+- `hash_string` / `strcmp` 等只读函数。
+
+顺带核对了代码生成期所有 `g_c99_*` 缓存与 `C99_*_CACHE_SIZE/MASK`、以及
+`struct_definitions` 与 `C99_MAX_STRUCT_DEFINITIONS`：**尺寸都是一致的**，所以
+「定长表越界」这条线暂时没有证据，更像是「某个只读函数在 VM 下写坏了目标串」。
+
+### 3. 为什么怀疑是 VM 侧问题
+
+- 同一份源码用宿主 C 后端编同一个程序，输出**完全正确**；
+- 受害串在 `arena_buffer` 这类**静态全局数组**里，而 VM 的全局槽表示、内部引用
+  （`exec_vm_pointer_add` 只取 `i64_value`）都有已知缺陷（见第 735 轮 `dirent_get_name`）；
+- 脏值恒为 `0xF8`（=248），像是某个指针/长度值的低字节被当成字符写了进去。
+
+### 4. 下一轮入口（未完成）
+
+1. 在 `find_struct_decl_c99` 的每个返回点插检查点，确认是否它返回前就脏；
+2. 若确认，再把 `c99_decl_result_cache_*` / `struct_decl_cache` 的读写路径逐个盯；
+3. 另一条更省事的验证：给 `find_struct_decl_c99` 传一个**临时 arena 副本**名字（而不是
+   AST 原串），若脏写消失，就说明问题在「以 AST 串为 key 的缓存路径」。
+
+### 本轮回归
+
+- 探针已撤销（`git status --porcelain` 为空），`make uya` rc=0，`./bin/uya --version` = `v0.11.0`。
+- census37 在后台跑，结果补记在下一次。
