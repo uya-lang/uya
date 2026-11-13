@@ -25860,3 +25860,57 @@ fputs(&g_indent_spaces[256 - total] as *byte, codegen.emit_stream as *void);
 `make uya` rc=0；`./bin/uya run --vm` 冒烟：`test_overlap_fields`、`test_alignof`、
 `test_string`、`test_exec_vm_printf_varargs`、`test_fmt_api` 全部 rc=0。
 （本轮无功能改动，未重跑全量 census；上一轮 census27 为 912/912。）
+
+## 第 726 轮：脏字节在**字符串进入格式化器之前**就已经脏了
+
+本轮把探针一路往上游推，逐层收口：
+
+### 1. `write_to_buffer()`（`lib/libc/stdio.uya` 里 `fputs`/`fputc`/`fwrite` 的唯一汇合点）
+
+按 payload 扫描（只扫 7..200 字节的短 payload）后，命中四条 10 字节写入：
+
+```
+[dbg-wtb] fd=6 n=31 s=115 a=97 v=118
+[dbg-wtb] fd=9 n=22 s=115 a=97 v=118
+[dbg-wtb] fd=9 n=10 s=115 a=112 v=118    <-- 'a' 已经变成 'p'(112)
+[dbg-wtb] fd=9 n=10 s=115 a=97 v=118
+```
+
+⇒ 脏字节在交给 `write_to_buffer` 的 payload 里**已经是脏的**，与流缓冲/`sys_write` 无关。
+
+### 2. `_vfprintf_impl()` 的 `%s` 分支（格式化器内部）
+
+在 `_fmt_str_to_buf_limited` 之后同时打印「源串前 3 字节」和「拷进 temp_buf 的前 3 字节」：
+
+```
+[dbg-pcts] len=10 src=115,97,118 cp=115,97,118 fmt=%s
+[dbg-pcts] len=10 src=115,97,118 cp=115,97,118 fmt=extern %s %s;
+[dbg-pcts] len=10 src=115,112,118 cp=115,112,118 fmt=%s     <-- 源串本身已经是 "spv…"
+```
+
+⇒ 格式化器**没写错**：它拿到的 `s` 指向的字符串本身就是 `s p v e d _ e n v p`。
+`src` 与 `cp` 完全一致，`strlen` 也是 10，说明这是**一份长度正确、只错 1 个字节的字符串副本**。
+
+### 结论（本轮最重要的收口）
+
+- 出问题的不是 `fprintf`/`fputs`/`fwrite`/`fclose`/缓冲/sys_write 这条输出链路，
+  而是**编译器进程里那份 `saved_envp` 标识符字符串自己**：它的第 2 个字节是脏值，
+  且每次运行取值不同（`0xB0`、`'p'`）⇒ 典型的「分配后没写满一个字节」的 stale 内存。
+- 同一标识符在同一份程序里有 3 处（`uya_common.c` 的 168/260/262 行），**只有 1 处脏**
+  ⇒ 不是「所有拷贝都错」，而是**某一次字符串复制少写 1 个字节**。
+- 该字符串来自 `lib/std/runtime.uya` 的模块 AST；下一步应该盯的是「模块合并 / 标识符
+  复制」这条路（`parser` 的标识符分配、`c99_arena_strdup`、模块 merge 时的名字拷贝），
+  而不是输出层。
+
+### 顺带排除
+
+`slot.buf_mode = 0`（把 `fopen` 改成无缓冲）后内层仍然坏同一个字符 ⇒ 流缓冲不是原因，
+验证完已还原为全缓冲（注释也恢复原样）。
+
+### 本轮回归
+
+探针全部清除（`lib/libc/stdio.uya`、`src/exec/format.uya`、`src/codegen/c99/utils.uya`
+里 `dbg-`/`stdio_dbg` 计数均为 0，`git diff` 为空），`make uya` rc=0；
+`./bin/uya run --vm` 冒烟 `test_exec_vm_printf_varargs` / `test_fmt_api` / `test_string` /
+`test_overlap_fields` / `test_exec_vm_compiler_field_pointer_index` 全部 rc=0。
+（本轮无功能改动，未重跑全量 census；上一轮 census27 为 912/912。）
