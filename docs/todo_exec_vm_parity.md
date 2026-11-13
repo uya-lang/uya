@@ -25093,3 +25093,55 @@ checker 里所有「取类型细节」的代码都是 `match t.kind { … => t.d
 
 打点已全部移除并重建（`bin/uya` 为干净版本），工作区无改动，
 仓库保持 `6cf4d472`：census 912/912、`--vm --version` 正常、`test_http_uyagin --vm` 通过。
+
+## 第 712 轮：拿到「内层类型走样」的真 repro —— 原生结构体的 union 字段
+
+第 711 轮把嫌疑指到 union 变体访问。这一轮写出了能稳定复现的最小用例
+`/tmp/uni4_rep.uya`（秒级）：
+
+```uya
+struct PData { x: i32, y: i32 }
+struct AData { n: i32, e: i32 }
+union D { pointer: PData, array: AData, raw: i64 }
+struct T { kind: i32, data: D, name: &byte, tail: i32 }
+
+fn sum_of(t: &T) i32 {
+    match t.data {                       // ← --vm 在这里报错
+        .pointer(p) => { return p.x +| p.y; },
+        .array(a)   => { return a.n +| a.e; },
+        .raw(v)     => { return v as i32; },
+    }
+    return 0;
+}
+// main: malloc 出 T，t.data = D.pointer(PData{ x: 7, y: 8 })
+```
+
+| 后端 | 结果 |
+| --- | --- |
+| C99 | `kind= 3 sum= 15 tail= 55` ✔ |
+| `--vm` | `exec: LOAD_UNION_TAG 目标不是 union(kind=14)` ✘ |
+
+### 诊断
+
+- `kind=14` 是 `EXEC_VALUE_POINTER` —— 也就是说 `t.data`（union 字段）读回来是
+  **一个指向 union 的指针**，而不是 union 值本身；
+- 源头在 `exec_vm_native_field_load()`：`TYPE_STRUCT || TYPE_UNION || TYPE_TUPLE`
+  这一支统一返回「指向字段内存的指针视图」（第 692 轮为修 `chunk.header.size` 加的），
+  对**内嵌结构体**没问题，但 Uya 的 union 是**带 tag 的**：
+  只有指针视图丢掉了 tag，`match` 自然拿不到 union 标签。
+
+这正好解释了内层编译器的「类型全走样」：`Type` 就是
+`{ kind: TypeKind, data: TypeData(union), … }`，checker 里所有取类型细节的代码
+都是 `match t.data { … }` —— 每条都会在这里失败/取错，于是诊断全错。
+
+### 下一轮修法（两条路，优先第一条）
+
+1. **给原生结构体的 union 字段建旁路影子**：写 `t.data = D.xxx(...)` 时把整个 union 值
+   （tag + payload）登记到 native-agg 旁路表（键 = 字段地址），读时先查旁路表；
+   这与数组元素的 `exec_vm_native_agg_slot/peek` 是同一套机制，语义一致。
+2. 或者让 `exec_vm_native_field_load` 对 TYPE_UNION 返回「按 union 值构造」
+   （从原生字节读 tag + payload），但这要求 VM 知道 union 的 tag 布局。
+
+### 本轮仓库状态
+
+无代码改动（纯分析 + repro），仓库保持 `e35a1e02`。
