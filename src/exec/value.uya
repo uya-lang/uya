@@ -45,6 +45,10 @@ struct ExecAggregate {
     // 取过地址的聚合**永不回收**：内部引用是指向 `.values` 元素/槽位的裸指针，
     // 现有回收路径无法逐一跟踪它们（实测 `blake3_hasher_new` 等就死在这里）。
     has_internal_ref: i32,
+    // 创建时所在的帧深度。只有「在当前帧里创建」的聚合才允许在帧出栈时回收：
+    // 内层帧创建后逃逸到外层（返回值移动、借用、常驻表）的值，出栈时只是减计数，
+    // 不回收 —— 这样即便某个逃逸路径漏了 retain，也只会泄漏而不会 UAF。
+    owner_depth: i32,
 }
 
 struct ExecSliceData {
@@ -961,6 +965,7 @@ fn exec_value_aggregate_from_parts(kind: ExecValueKind, count: i32, values: &Exe
     aggregate.ref_count = 1;
     aggregate.next_free = null;
     aggregate.has_internal_ref = 0;
+    aggregate.owner_depth = g_exec_agg_depth;
     return ExecValue {
         kind: kind,
         i64_value: count as i64,
@@ -1162,6 +1167,7 @@ var g_exec_agg_reused_blocks: i64 = 0;
 var g_exec_agg_double_releases: i64 = 0;   // rc<=0 还收到 release（说明少了一次 retain）
 var g_exec_agg_recycled: i64 = 0;
 var g_exec_agg_gc_enabled: i32 = 0 - 1;    // -1 = 还没查环境变量
+var g_exec_agg_depth: i32 = 0;             // 当前帧深度（push/pop 维护）
 
 /// 按元素个数取尺寸档（向上取 2 的幂的下标）；超过 65536 返回 -1（不回收）。
 /// 参数：`count` 元素个数。返回值：档位下标或 -1。
@@ -1360,6 +1366,10 @@ fn exec_value_release(value: &ExecValue) void {
     if agg.ref_count > 0 {
         return;
     }
+    if agg.owner_depth != g_exec_agg_depth {
+        // 不是本帧创建的：可能是逃逸值，只在计数上处理，不回收（保守）。
+        return;
+    }
     if exec_agg_gc_enabled() == 0 {
         // 只记账不回收（观测模式）：计数照常减到 0，再收到的 release 就是
         // 「少了一次 retain」的铁证 —— 会累加到 g_exec_agg_double_releases。
@@ -1371,6 +1381,11 @@ fn exec_value_release(value: &ExecValue) void {
         return;
     }
     g_exec_agg_recycled = g_exec_agg_recycled +| 1;
+    if g_exec_agg_recycled <= 200 && exec_agg_progress_enabled() != 0 {
+        fprintf(libc.stderr, "[agg-recycle] fn=%s slot=%d op=%s count=%d\n" as *byte,
+            g_exec_dbg_cur_fn as *byte, g_exec_dbg_pop_slot,
+            exec_debug_opcode_name(g_exec_dbg_cur_op as u8), agg.count);
+    }
     exec_value_release_aggregate_body(agg);
 }
 

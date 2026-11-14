@@ -27843,3 +27843,29 @@ const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT
 线索：`exec_vm_thread_redo_arg[free_slot] = thread_args[0]`（`src/exec/vm.uya:7236`）
 把聚合值存进了 **VM 常驻状态数组**却没有 retain —— 这类「存进常驻表」的点位是
 剩余失败的主要嫌疑（`thread_redo_arg`、`cont_slots`、`varargs` 等）。
+
+### 5. 第 750 轮收尾：两层安全网 + 现状数字
+
+又加了两层「宁漏勿错」的保护，目标是让回收即便漏了某个 retain 也不会 UAF：
+
+1. **内部引用钉住**（前面已述）：被 `ADDR_*` 取过地址的聚合永不回收；
+2. **帧深度守卫**：`ExecAggregate.owner_depth` 记录创建时的帧深度，
+   `exec_value_release()` 只在 `owner_depth == 当前深度`（即**本帧创建**）时才真正回收，
+   内层帧逃逸到外层的值一律只减计数 —— 漏 retain 的逃逸路径于是退化成泄漏而不是崩溃。
+
+现状（本机、同一负载）：
+
+| 配置 | census | make check |
+| --- | --- | --- |
+| **默认（回收关，`UYA_EXEC_AGG_GC` 未设）** | **912/912，rc=0** | **1197/1197，rc=0** |
+| `UYA_EXEC_AGG_GC=1`（真回收） | 786/912（126 例失败） | 未跑 |
+
+126 例失败全部是「仍有别的持有者」这一类：异步/线程常驻表（`thread_redo_*`、
+`cont_slots`、`varargs`）、以及续体恢复时的槽位搬运。它们和业务逻辑无关，
+纯粹是「谁在什么时候持有这个聚合」的记账问题，需要逐个点位补
+`exec_value_retain()` / `exec_value_release()`。
+
+**内存峰值现状：整编自举 36.5GB**（第 743 轮是 57GB，第 745 轮 34.7GB；
+本轮因为多了引用计数记账、声明数 4211→4222，与第 745 轮基本持平），
+其中 VM 值竞技场累计 28.4GB / 6970 万次分配。
+要在开回收之后才可能真正降到个位数 GB —— 那是下一轮清完 126 例之后的事。

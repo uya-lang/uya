@@ -383,6 +383,7 @@ fn exec_vm_slot_pool_push(vm: &ExecVmState, slot_count: i32) i32 {
     vm.slot_top = need;
     // 诊断：新切出的帧槽位一律清零（否则上一位使用者的残留值会被误当成活值，
     // 出栈时重复释放）。
+    g_exec_agg_depth = g_exec_agg_depth +| 1;
     var z: i32 = base;
     while z < need {
         if z >= 0 && z < vm.slot_pool_capacity {
@@ -430,6 +431,9 @@ fn exec_vm_slot_pool_pop(vm: &ExecVmState, base: i32) void {
             }
         }
         vm.slot_top = base;
+        if g_exec_agg_depth > 0 {
+            g_exec_agg_depth = g_exec_agg_depth -| 1;
+        }
     }
 }
 
