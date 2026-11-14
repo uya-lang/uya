@@ -27966,3 +27966,24 @@ varargs/线程表计数）把失败面从 126 压到 74，但异步路径里「�
 把「这个临时槽此后确实不会被读」标出来（新增一个 `BC_STORE_LOCAL_MOVE`，
 只在 builder 判定源临时已死时发射）。本轮先把数据记录在此、代码回退，
 保证默认路径 912/912 + 1197/1197 不破。
+
+#### 补记：`temp_base = fn_hir.local_count` 这个判据本身不可靠
+
+在「整档登记 / CAST 直通拷贝 / 覆盖即释放」都修好之后**重测**临时槽移动，仍然挂 7 例：
+
+```
+test_array_assignment.uya        st=4   （move 语义测试）
+test_nested_field_move.uya       st=3   （move 语义测试）
+test_json_from_json_reflect.uya  st=16
+test_ub_safety_guards.uya        st=1
+test_http_uyagin{,_recover_observe,_async_boundary}.uya  st=1 runtime
+```
+
+说明问题不在旧 bug，而出在判据：`fn_hir.local_count` 并不等于「用户局部变量个数」——
+builder 自己还会分配一些**看不见的局部槽**（defer/match 绑定、临时提升等），
+这些槽下标 ≥ local_count 却被当成「表达式临时」，移动后用户可见的 move 语义就变了
+（两个 move 测试直接因此失败）。
+
+正确判据必须由 builder 提供：**「本条指令之后，这个临时槽不会被再读」**
+（最稳的做法是加 `BC_STORE_LOCAL_MOVE` 指令，只在 builder 做完槽位活跃性判断后发射）。
+这条优化值 **-8GB 峰值（34.0 → 26.0GB）**，值得单独一轮做。
