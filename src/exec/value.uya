@@ -1315,9 +1315,10 @@ fn exec_value_release(value: &ExecValue) void {
         // 已经回收过（说明某处少了一次 retain）：记一笔并当无事发生，
         // 绝不重复回收 —— 否则会把已复用的块再挂一次空闲链，直接内存损坏。
         if g_exec_agg_double_releases < 64 {
-            fprintf(libc.stderr, "[agg-double] fn=%s slot=%d op=%d kind=%d agg=%p count=%d rc=%d\n" as *byte,
-                g_exec_dbg_cur_fn as *byte, g_exec_dbg_pop_slot, g_exec_dbg_cur_op,
-                value.kind as i32, agg as *void, agg.count, rc);
+            fprintf(libc.stderr, "[agg-double] fn=%s slot=%d op=%s(%d) kind=%d count=%d rc=%d\n" as *byte,
+                g_exec_dbg_cur_fn as *byte, g_exec_dbg_pop_slot,
+                exec_debug_opcode_name(g_exec_dbg_cur_op as u8), g_exec_dbg_cur_op,
+                value.kind as i32, agg.count, rc);
         }
         g_exec_agg_double_releases = g_exec_agg_double_releases +| 1;
         return;

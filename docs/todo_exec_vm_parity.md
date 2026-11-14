@@ -27773,3 +27773,46 @@ const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT
 这些都是「逐个点位补 retain」的活，不能靠调参。**当前默认保持回收关闭**（零回归），
 下一轮按上面三类清理 `[agg-double]`，清零后把默认打开，再复跑 census/make check
 和整编自举，量 `[mem] vm值竞技场累计` 的最终斜率。
+
+## 第 750 轮：内存峰值现状与回收的**系统性拦路点**（内部引用）
+
+### 1. 现在的峰值（同一负载：`--vm` 编 `src/main.uya` 自身）
+
+| 版本 | 类型检查 3008/4222 处竞技场累计 | 整编自举峰值 RSS |
+| --- | --- | --- |
+| 第 743 轮（只修容量） | 25.8 GB（6711 万次分配） | **57 GB**（前导阶段就 OOM） |
+| 第 745 轮（返回值/结果移动、实参借用） | 13.8 GB | **34.7 GB**（能进到 gcc） |
+| 第 749 轮（+引用计数记账/探针，声明数 4222） | **13.1 GB** | **36.5 GB** |
+
+峰值出现在「前导发射完成、gcc 开始」那一刻，此时竞技场累计 **28.4 GB / 6970 万次分配**。
+（机器 62GB 物理内存 + 62GB swap，跑到 36GB 时 `free` 只剩几百 MB，必须盯着。）
+
+### 2. 打开回收（`UYA_EXEC_AGG_GC=1`）后 84/912 用例失败，根因已定位到**内部引用**
+
+`[agg-double]` 现在带 opcode 名字，抽样（`UYA_PROGRESS=1`）：
+
+```
+[agg-double] fn=blake3_hasher_new slot=63 op=BC_ADDR_FIELD(5) kind=16 count=0 rc=0
+[agg-double] fn=thread_pool_normalize_submit_strategy slot=24 op=BC_RET(70) ...
+[agg-double] fn=wake_with_source slot=23 op=BC_AWAIT(77) ...
+```
+
+共同点：**`ADDR_FIELD` / `ADDR_LOCAL` 产出的「内部引用」指向某个聚合的 `.values` 元素**，
+而那个聚合已经因为 `ref_count` 归零被回收 → 引用悬空（`LOAD_FIELD 字段越界 count=0`）。
+
+这类引用是解释器的「指针」值（`EXEC_VALUE_POINTER` + `exec_vm_pointer_is_internal_ref`），
+现有回收路径完全不认识它们，所以**不可能只靠给槽位补 retain 修好**。
+
+### 3. 下一轮的正确做法：内部引用也要计入持有者
+
+1. 数组登记表 `exec_value_register_array(addr, count)` 旁边再存一份
+   「数组基址 → 所属 `ExecAggregate`」，聚合创建时登记；
+2. `exec_vm_make_value_ref()` 建内部引用时，按目标地址反查所属聚合，
+   `agg.ref_holders++`；
+3. `exec_value_release()` 增加一个分支：内部引用值（`value.kind == POINTER` 且
+   `exec_vm_pointer_is_internal_ref`）也要 `ref_holders--`；
+4. 回收条件改成 `ref_count == 0 && ref_holders == 0`；
+5. 再把 `[agg-double]` 清零（剩下的才是真正「少 retain」的槽位点位），
+   最后把 `UYA_EXEC_AGG_GC` 默认打开，复跑 census/make check + 整编自举。
+
+预期效果：竞技场累计应从 28 GB 降到个位数 GB，峰值 RSS 从 36.5GB 降到 10GB 量级。
