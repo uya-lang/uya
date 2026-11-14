@@ -27656,3 +27656,19 @@ const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT
 
 当前树已回到已验证状态（arena 护栏 + 移动/借用 + 哈希旁路表），
 `make from-c-native` rc=0、`make uya` rc=0、`./bin/uya --version` = v0.11.0。
+
+### 5. 本轮同时做过的静态审计（排除项，下一轮不要重复）
+
+`err_union_*` 名字构造链（`src/codegen/c99/types.uya:1300~1380`）逐个核对过，**没有**
+越界写：
+
+- `safe: [byte: SHORT_NAME_BUF_SIZE]`（64）：填充循环 `while p[0] != 0 && j < SHORT_NAME_BUF_SIZE - 1`，
+  `*`→`ptr` 的三字节展开也有 `j < SHORT_NAME_BUF_SIZE - 4` 守卫，收尾 `safe[j] = 0` 再判一次；
+- `struct_name_buf: [byte: STRUCT_NAME_BUF_SIZE]`（128）：`snprintf` 长度就是该常量；
+- `name_copy = c99_arena_strdup(...)`（copy 语义，不会与源共享）；
+- `emit_pending_err_union_struct_at()` 里的 `sbuf: [byte: STRUCT_NAME_BUF_SIZE]` +
+  `snprintf(..., STRUCT_NAME_BUF_SIZE, "struct %s", snv)` 同样有界；
+- `c99_arena_strdup()` 自身：`len = strlen+1`、`alloc(len)`、`memcpy(len)` 一致。
+
+所以写坏者不在这些「明显的缓冲区拼接」里，更像是**发射流 / 解释器侧的某个写入**
+（宿主 C 后端没有问题，因为这条路径上宿主用的是真实 C 栈/堆，恰好没撞上）。
