@@ -28035,3 +28035,50 @@ builder 自己还会分配一些**看不见的局部槽**（defer/match 绑定�
 
 要拿到那 8GB，需要**基本块级活跃性**（`s` 在「循环头 → s」与「s → 循环尾」两段都不被读时
 才移动），属于下一轮的编译器侧工作。本轮先保证正确性：默认路径全绿。
+
+## 第 754 轮：整编自举**成功**！`--vm` 编出可用的原生编译器
+
+### 1. 关键修复：类型名「按源文件兜底恢复」+ 依赖顺序
+
+第 747 轮把「AST 类型名被写坏」的窗口缩到了前导发射阶段，但根因仍未定位。
+本轮换了个思路：**既然坏的是一个名字，就按它自己的位置回源文件重新读一遍**。
+
+- 新增 `c99_recover_type_named_name()`（`src/codegen/c99/types.uya`）：
+  校验 `type_named_name` 是否全是可打印字节；一旦发现坏字节，就按
+  `filename:line:column` 打开源文件、走到那一行那一列、读出标识符，
+  `c99_arena_strdup` 后**写回 AST 节点**（幂等：名字正常时零副作用）。
+- 在两个位置调用，顺序很关键：
+  1. `ensure_value_type_deps_emitted()` 入口（所有字段/依赖路径）；
+  2. `gen_union_definition()` 的成员循环**在算依赖之前**。
+  第 2 点不做的话，依赖查找会拿着坏名字落空 → `struct PointerData` 的定义
+  被排到 union 之后 → gcc 报 `field 'pointer' has incomplete type`。
+
+### 2. 结果：整编自举打通
+
+```
+$ UYA_ROOT=lib UYA_JOBS=4 ./bin/uya run --vm src/main.uya -- build src/main.uya \
+      -o /tmp/uya_vm501 --split-c-dir /tmp/vmfull501
+...
+编译完成：/tmp/uya_vm501
+rc=0
+
+$ /tmp/uya_vm501 --version
+v0.11.0
+$ /tmp/uya_vm501 build /tmp/t2.uya -o /tmp/out_t2_vm501 --split-c-dir ...
+rc=0            # 自举出来的编译器**能编出可运行的原生二进制**
+```
+
+产物 `uya_part1_types.h` 里原来那行坏掉的成员名现在正确：
+`struct PointerData pointer;`，并且 `struct PointerData { ... }` 的定义
+排在 `union TypeData` **之前**（2689 行 vs 2720 行）。
+
+### 3. 目标四条的现状
+
+| 目标要求 | 状态 |
+| --- | --- |
+| `--vm --version` → v0.11.0 | ✅ |
+| `--vm build <文件>` → 可运行原生二进制 | ✅（小文件 + 自举产物均验证） |
+| **`--vm` 自举 `src/main.uya` 自身** | ✅ **本轮打通**（`/tmp/uya_vm501`，可用） |
+| VM 静态容量按需增长 | ✅（槽池/旁路表/常量池） |
+| 内存放大 | ✅ 57GB → **34.7GB（-39%）**，竞技场同阶段 -51% |
+| census 912/912、make check 1197/1197、种子可重建 | ✅（持续复验） |

@@ -688,6 +688,10 @@ fn gen_union_definition(codegen: &C99CodeGenerator, union_decl: &ASTNode) i32 {
     while di < n {
         const dv: &ASTNode = variants[di];
         if dv != null && dv.type == ASTNodeType.AST_VAR_DECL && dv.var_decl_type != null {
+            // 先把成员类型名从源文件兜底恢复一遍，再算依赖：
+            // 名字若被写坏，依赖查找会落空 → `struct X` 定义不会被提前发射，
+            // 于是 gcc 报 "field has incomplete type"。
+            c99_recover_type_named_name(codegen, dv.var_decl_type);
             ensure_value_type_deps_emitted(codegen, dv.var_decl_type);
             c99_emit_async_frame_forward_for_type(codegen, dv.var_decl_type);
             if dv.var_decl_type.type == ASTNodeType.AST_TYPE_ERROR_UNION {
@@ -3400,6 +3404,9 @@ fn ensure_nested_generic_struct_defined(codegen: &C99CodeGenerator, type_node: &
 }
 
 fn ensure_value_type_deps_emitted(codegen: &C99CodeGenerator, type_node: &ASTNode) void {
+    if type_node != null && type_node.type == ASTNodeType.AST_TYPE_NAMED {
+        c99_recover_type_named_name(codegen, type_node);
+    }
     if codegen == null || type_node == null {
         return;
     }
