@@ -84,6 +84,9 @@ enum BCOpcode {
     BC_ERROR_NAME,
     // `@await f`：从 Future 的 `state: Poll<T>` 里取出 Ready 载荷。
     BC_AWAIT,
+    // `局部 = 源槽` 且**源槽此后不会再被读**（builder 做活跃性判断后发射）：
+    // 所有权直接转移，不清空也是安全的 —— 但清空能立刻回收。
+    BC_STORE_LOCAL_MOVE,
 }
 
 struct BCErrorNameEntry {

@@ -28006,3 +28006,32 @@ builder 自己还会分配一些**看不见的局部槽**（defer/match 绑定�
 
 两者在同一量级（±2%），差别在「复用的块数 vs 每块浪费的字节」的权衡。
 本轮保留精确分配版本（不多占内存、账目更干净）。
+
+## 第 753 轮：`BC_STORE_LOCAL_MOVE` 上线（builder 活跃性判定），覆盖率有限
+
+### 1. 做法
+
+- 新 opcode `BC_STORE_LOCAL_MOVE`（追加在枚举尾部，语义 = 转移所有权 + 清空源槽）；
+- builder 侧新增 `exec_builder_promote_local_moves()`：在函数指令表生成完、校验之前，
+  把满足下列条件的 `BC_STORE_LOCAL` 改写为 MOVE：
+  1. 目标槽 ≠ 源槽；
+  2. **不在循环体里**（没有跳转满足 `from >= i && target <= i`）；
+  3. 源槽**没有被取过地址**（任何 `ADDR_LOCAL` 指向它 → 可能通过引用被读）；
+  4. 源槽在该指令之后的所有指令里**从未被提到**（`a/b/c` 相等或落在 `[b, b+c)` 区段）。
+- 校验器同步支持新 opcode（否则 `slot_written` 记账会漏，报「读取未初始化槽位」）。
+
+### 2. 验证
+
+- census：**912/912，rc=0**；`make check`：**1197/1197，rc=0**；
+- 定点：`test_array_assignment`（move 语义）、`test_nested_field_move`、
+  `test_json_from_json_reflect`、`test_ub_safety_guards`、`test_http_uyagin*`、
+  `test_async_fd`、`test_crypto_blake3` 全 rc=0。
+
+### 3. 内存收益：本轮**没有**降下来（仍 34.7GB / 竞技场 25.6GB）
+
+原因：判据太保守 —— 编译器热路径几乎都在循环里，且局部变量常被取地址，
+条件 2/3 基本都命中 → 真正被提升的只有冷路径。之前测到的 26.0GB 是
+**不检查循环、直接移动**的版本（那会破坏 7 个用例）。
+
+要拿到那 8GB，需要**基本块级活跃性**（`s` 在「循环头 → s」与「s → 循环尾」两段都不被读时
+才移动），属于下一轮的编译器侧工作。本轮先保证正确性：默认路径全绿。

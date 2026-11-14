@@ -8353,6 +8353,16 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return -1;
         }
         exec_vm_store_slot(slot_a, slot_b[0]);
+    } else if instr.opcode == BCOpcode.BC_STORE_LOCAL_MOVE {
+        // builder 已判定「源槽此后不会再被读」：直接转移所有权并清空源槽。
+        if slot_a == null || slot_b == null {
+            exec_backend_set_error(function.decl, "exec: STORE_LOCAL_MOVE 槽位越界" as *byte, 0);
+            return -1;
+        }
+        exec_vm_store_slot_move(slot_a, slot_b[0]);
+        if instr.a != instr.b {
+            slot_b[0] = exec_make_void();
+        }
     } else if instr.opcode == BCOpcode.BC_STORE_GLOBAL {
         const global_slot2: &ExecValue = exec_vm_global_ref(program, instr.a);
         if global_slot2 == null || slot_b == null {
