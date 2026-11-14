@@ -27607,3 +27607,52 @@ const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT
 
 探针本身不进仓库（都已在提交前撤掉），当前树回到「arena 护栏 + 移动/借用 +
 哈希旁路表」那套已验证状态。
+
+## 第 748 轮：写坏 AST 类型名的位置再收窄一格（err_union_* 发射序列）
+
+### 1. 探针改法（关键：见证要覆盖**所有**同名节点）
+
+上一轮失败的原因找到了：`PointerData` 这个名字在 AST 里有 **≥8 个** `AST_TYPE_NAMED`
+节点（union 成员、结构体声明、前向声明、err_union 载荷……），而探针只记了
+「第一次解析到的那个」。命中率因此是碰运气。本轮改成：
+
+- 解析期记录**所有** `PointerData` 节点（8 组标量全局 `g_dbg_pd_node0..7` +
+  各自一份 arena 见证副本，避开数组下标证明）；
+- 检查点：每个 struct 定义结尾（tag=结构体名）、`gen_union_definition()` 入口、
+  union 序幕后、union 每个成员前（tag=成员名）。
+
+### 2. 结果
+
+```
+[pd-watch] tag=File bad=7
+```
+
+- 被写坏的是**第 8 个**（下标 7）同名节点 —— 正是 `union TypeData` 里
+  `pointer: PointerData` 那个成员的类型节点；
+- 写坏发生在**发射 `struct File { int32_t fd; bool owns_fd; };` 的尾部检查之后、
+  `union TypeData` 入口检查之前**。这一段里唯一在跑的就是
+  `emit_pending_err_union_struct_at()` 那一串 `struct err_union_* { ... };`
+  （产物里 2653 行起连续几十行）；
+- 坏字节仍然集中在**偏移 1..7**（首字节 `P` 与尾 3 字节 `ata` 保持原样），
+  每次运行内容不同 —— 像是「某个 7/8 字节的写入」落在块内偏移 1 附近。
+
+### 3. 下一轮的直接动作
+
+1. 在 `emit_pending_err_union_struct_at()`（`src/codegen/c99/types.uya:1653`）
+   入口处加 `pd_watch_check(name, payload_node)`（tag = err_union 名），
+   在该函数 `fprintf("struct %s { %s value; }", …)` 之前再加一次 ——
+   tag 会直接告诉我们是哪个 err_union 名在这一步写坏的；
+2. 该函数内的写操作只有 `fprintf`（发射流）、`get_safe_c_identifier`、
+   `c99_type_to_c`、`c99_arena_strdup` 和 `find_struct_decl_c99`，逐个加检查即可闭环；
+3. 同时值得怀疑「发射流的缓冲区」：`emit_stream` 若是解释器侧的内存流，
+   其增长/写入路径值得单独核对（宿主 C 后端没有这个问题）。
+
+### 4. 工程注意事项（踩到的坑）
+
+- 探针版 `bin/uya` 不能直接用来重建**已撤探针**的源码：实测 `make uya` 在
+  `compile.sh:1042` 段错误，`make from-c-native` 重建种子后恢复正常；
+- 整编自举在 VM 里跑时会 fork 出多个进程（并行 parse 路径），杀掉主进程后要
+  用 `ps` 把 `bin/uya run --vm …` 的残留全部清掉，否则十几个 GB 内存会被占着。
+
+当前树已回到已验证状态（arena 护栏 + 移动/借用 + 哈希旁路表），
+`make from-c-native` rc=0、`make uya` rc=0、`./bin/uya --version` = v0.11.0。
