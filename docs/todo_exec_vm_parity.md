@@ -27888,3 +27888,19 @@ const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT
 即还有内部引用指向已被回收的聚合，属于下一批点位。
 
 默认路径（不回収）依旧全绿：census 912/912、make check 1197/1197。
+
+### 7. GC 开启后的最新数字
+
+| 配置 | census | 备注 |
+| --- | --- | --- |
+| 默认（回收关） | **912/912，rc=0** | 参考基线 |
+| `UYA_EXEC_AGG_GC=1` | **838/912（74 例失败，91.9%）** | 从 786（126 例）提升上来 |
+
+剩余 74 例几乎全是 `test_async_*` / `test_*_event_*`（异步、线程池、epoll 调度）。
+已加的保守保护（内部引用钉住、帧深度守卫、异步帧出栈不回收、slice/error-union/
+varargs/线程表计数）把失败面从 126 压到 74，但异步路径里「槽位快照 ↔ 帧槽位」
+的所有权还没理清 —— 那是下一批要做的事：
+
+1. `exec_vm_cont_snapshot()` 与 `resume_slots` 恢复路径的配对计数；
+2. 挂起帧在被调方返回时槽位归属（谁 pop、谁负责释放）；
+3. `thread_*` 全套常驻表（result/redo/arg）在 join/reap 时的释放时机。

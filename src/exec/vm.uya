@@ -419,7 +419,9 @@ fn exec_vm_slot_pool_pop(vm: &ExecVmState, base: i32) void {
     if base >= 0 && base <= vm.slot_top {
         // 归还这段槽位：先把里面还活着的聚合引用计数减掉，再清零 ——
         // 不清零的话下次切出来的帧会捡到这些旧值，出栈时再减一次（重复释放）。
-        if vm.slot_pool != null {
+        // 续体恢复过的帧（异步/await）槽位可能被快照复用，回收所有权不清晰：
+        // 这类帧出栈时不回收，只清零（保守，宁可泄漏）。
+        if vm.slot_pool != null && vm.frame_resumed == 0 {
             var i: i32 = base;
             while i < vm.slot_top {
                 if i >= 0 && i < vm.slot_pool_capacity {
