@@ -41,6 +41,10 @@ struct ExecAggregate {
     ref_count: i32,
     // 结构体自身也复用（arena 只增不减，但结构体可以串成空闲链再发出去）
     next_free: &ExecAggregate,
+    // 是否被「内部引用」取过地址（`ADDR_FIELD`/`ADDR_INDEX`/`ADDR_LOCAL`）。
+    // 取过地址的聚合**永不回收**：内部引用是指向 `.values` 元素/槽位的裸指针，
+    // 现有回收路径无法逐一跟踪它们（实测 `blake3_hasher_new` 等就死在这里）。
+    has_internal_ref: i32,
 }
 
 struct ExecSliceData {
@@ -956,6 +960,7 @@ fn exec_value_aggregate_from_parts(kind: ExecValueKind, count: i32, values: &Exe
     aggregate.values = values;
     aggregate.ref_count = 1;
     aggregate.next_free = null;
+    aggregate.has_internal_ref = 0;
     return ExecValue {
         kind: kind,
         i64_value: count as i64,
@@ -1270,6 +1275,27 @@ fn exec_agg_take_values(count: i32) &ExecValue {
     return head;
 }
 
+/// 标记某个值的聚合被「内部引用」取过地址：之后永不回收（保守但安全）。
+/// 参数：`value` 值指针。返回值：无。
+fn exec_value_mark_ref_holder(value: &ExecValue) void {
+    if value == null {
+        return;
+    }
+    const k: i32 = value.kind as i32;
+    if k != ExecValueKind.EXEC_VALUE_STRUCT as i32 &&
+        k != ExecValueKind.EXEC_VALUE_ARRAY as i32 &&
+        k != ExecValueKind.EXEC_VALUE_TUPLE as i32 {
+        return;
+    }
+    if exec_value_is_raw_array(value) != 0 {
+        return;
+    }
+    const agg: &ExecAggregate = exec_value_as_aggregate(value);
+    if agg != null {
+        agg.has_internal_ref = 1;
+    }
+}
+
 /// 增加聚合值的引用计数（浅拷贝/移动交接/参数绑定等「多一个持有者」的地方调用）。
 /// 参数：`value` 值指针。返回值：无。
 fn exec_value_retain(value: &ExecValue) void {
@@ -1308,6 +1334,13 @@ fn exec_value_release(value: &ExecValue) void {
     }
     const agg: &ExecAggregate = exec_value_as_aggregate(value);
     if agg == null {
+        return;
+    }
+    if agg.has_internal_ref != 0 {
+        // 被取过地址：只减计数，不回收（内部引用可能还活着）
+        if agg.ref_count > 0 {
+            agg.ref_count = agg.ref_count -| 1;
+        }
         return;
     }
     const rc: i32 = agg.ref_count;

@@ -8349,6 +8349,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, "exec: ADDR_LOCAL 槽位越界" as *byte, 0);
             return -1;
         }
+        exec_value_mark_ref_holder(slot_b);
         slot_a[0] = exec_vm_make_value_ref(slot_b, instr.c);
     } else if instr.opcode == BCOpcode.BC_ADDR_GLOBAL {
         const global_slot3: &ExecValue = exec_vm_global_ref(program, instr.b);
@@ -8423,6 +8424,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, &af_msg[0] as &byte, 0);
             return -1;
         }
+        exec_value_mark_ref_holder(slot_b);
         slot_a[0] = exec_vm_make_value_ref(field_ref, instr.c & 0xFF);
     } else if instr.opcode == BCOpcode.BC_ADDR_INDEX {
         if slot_a == null || slot_b == null || slot_c == null {
@@ -8549,6 +8551,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
                 exec_backend_set_error(function.decl, &_aim4[0] as &byte, 0);
                 return -1;
             }
+            exec_value_mark_ref_holder(slot_b);
             slot_a[0] = exec_vm_make_index_value_ref(index_ref, instr.imm as i32);
         }
     } else if instr.opcode == BCOpcode.BC_BOX_VALUE {
@@ -8968,6 +8971,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             // 空数组给空指针，和 C 里 `slice.ptr` 对 len==0 的行为一致。
             const slice_agg: &ExecAggregate = exec_vm_aggregate_ref_from_value(slot_b);
             if slice_agg != null && slice_agg.count > 0 && slice_agg.values != null {
+                exec_value_mark_ref_holder(slot_b);
                 slot_a[0] = exec_vm_make_index_value_ref(&slice_agg.values[0], instr.c as i32);
             } else {
                 slot_a[0] = exec_make_pointer_with_kind(0 as usize, instr.c as i32);

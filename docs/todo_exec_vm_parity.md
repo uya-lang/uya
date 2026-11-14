@@ -27816,3 +27816,30 @@ const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT
    最后把 `UYA_EXEC_AGG_GC` 默认打开，复跑 census/make check + 整编自举。
 
 预期效果：竞技场累计应从 28 GB 降到个位数 GB，峰值 RSS 从 36.5GB 降到 10GB 量级。
+
+### 4. 第 750 轮：内部引用「取址即钉住」
+
+按上一节的方案 1 落了一个**保守但安全**的版本：
+
+- `ExecAggregate` 增加 `has_internal_ref`（单向标志）；
+- `exec_value_mark_ref_holder()`：某个聚合被取址就置位；
+- 取址点全部挂上：`BC_ADDR_LOCAL`（目标槽位）、`BC_ADDR_FIELD`（基址聚合）、
+  `BC_ADDR_INDEX`（基址聚合）、`BC_LOAD_SLICE_PTR`（slice 背后的聚合）；
+- `exec_value_release()`：`has_internal_ref != 0` 时**只减计数、永不回收**。
+
+效果：`UYA_EXEC_AGG_GC=1` 下 `test_crypto_blake3` 从「`ADDR_FIELD` 崩」变成 **rc=0**，
+`test_exec_vm_aggregates` 等也保持通过。被取址的聚合会泄漏（编译器里 `&local`/`&field`
+比例不高，可接受），换来的是回收路径不再踩悬空引用。
+
+仍失败的少数用例（下一轮继续）：
+
+| 用例 | 症状 | 判断 |
+| --- | --- | --- |
+| `test_fmt_api_simplify` | `LOAD_FIELD 字段越界(... count=0)` in `parse_fn_decl_impl` | 纯槽位少 retain |
+| `test_async_compute_types` | `[agg-double] fn=thread_pool_normalize_submit_strategy slot=24 op=BC_RET` | 线程池/重派发路径 |
+| `test_async_fd` | `STORE_INDEX 越界` in `lib/std/async.uya:562` | 同上 |
+| `test_async_event_kqueue_transition` | 段错误 | 同上（异步/线程） |
+
+线索：`exec_vm_thread_redo_arg[free_slot] = thread_args[0]`（`src/exec/vm.uya:7236`）
+把聚合值存进了 **VM 常驻状态数组**却没有 retain —— 这类「存进常驻表」的点位是
+剩余失败的主要嫌疑（`thread_redo_arg`、`cont_slots`、`varargs` 等）。
