@@ -27563,3 +27563,47 @@ const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT
 3. 顺手把「返回 AST 字符串指针」的两处 `return tp_name;` 改成
    `c99_arena_strdup()` 副本（成本极小），如果坏点正是 AST 串被复用，
    这一改就能直接绕过。
+
+## 第 747 轮：把「写坏 AST 字符串」这件事定位到发射阶段的窗口
+
+### 1. 加了两层探针（都不进仓库，只在运行期开 `UYA_PROGRESS=1` 时输出）
+
+1. **parser 侧**：解析出 `type_named_name == "PointerData"` 时记下该 AST 节点，
+   并各存两份**见证副本**（独立的 arena 块）。
+2. **阶段标记**：检查前、优化后、union 发射前，各打印一次该节点的当前内容
+   + 见证副本的内容。
+3. **细粒度**：`c99_emit_indent()` 每发一行检查一次（`[pd-write]`），
+   以及 `c99_type_to_c()` 入口/出口各检查一次（`[pd-watch]`）。
+
+### 2. 实测结论（`/tmp/vmfull271.log`、`/tmp/vmfull273.log`）
+
+```
+[pd-phase] check-done-pre node=0x...44f0 now_str=PointerData copy_str=PointerData
+[pd-phase] after-opt      now_str=PointerData copy_str=PointerData
+[pd-write] after_emit_lines=695
+[pd-watch] tag=pre-union-def node=kind5  victim_now=P<garbage>`ata
+```
+
+也就是：
+
+- 类型检查**完成时**、优化**完成时**，AST 里的名字都是好的；
+- 写坏发生在**前导发射阶段**、第 ~695 个缩进行之后到 `gen_union_definition()`
+  入口之间 —— 正好是把 `struct GenericParamData` / `struct StructGenericData`
+  发射完、准备发 `union TypeData` 的位置（产物里对应
+  `uya_part1_types.h:2710~2715`）；
+- **不是**在 `c99_type_to_c()` 内部写坏的（入口/出口检查都没触发），
+  也不是 1 字节写偏（arena 尾部 16 字节护栏没能挡住）；
+- 见证副本（另一个 arena 块，内容始终正确）说明：被写的是**那一块 11 字节**，
+  不是「整片内存被回收后复用」。
+
+### 3. 下一步（下一轮继续）
+
+1. 在 `gen_struct_definition()` 结尾加 `pd_watch_check(struct_decl.struct_decl_name, null)`，
+   一次运行就能报出**是哪个 struct 的发射把名字写坏的**；
+2. 再在该 struct 的每个字段发射前后检查，得到具体字段；
+3. 到字段级后，把该字段类型走的 `c99_type_to_c` 分支（slice/指针/数组）逐段
+   加检查，就能抓到那一刻的写入方；
+4. 修好后重跑整编自举（应当能过 gcc 链接，得到 `--vm` 自举产物）。
+
+探针本身不进仓库（都已在提交前撤掉），当前树回到「arena 护栏 + 移动/借用 +
+哈希旁路表」那套已验证状态。
