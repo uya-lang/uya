@@ -1299,6 +1299,13 @@ fn exec_agg_take_values(count: i32) &ExecValue {
     const node: & & ExecValue = head as & & ExecValue;
     (heads + cls)[0] = node[0];
     (counts + cls)[0] = (counts + cls)[0] -| 1;
+    // 容量校验：登记表里这块的剩余元素数必须 ≥ 需要的个数。
+    // 这样不必「整档多占」（精确分配即可），又保证复用的块始终在登记范围内
+    //（登记表按基址有序，复用块不能重新登记）。
+    const cap: i32 = exec_value_array_element_remaining(@usize_from_ptr(head as &void));
+    if (cap as i64) < (count as i64) {
+        return null;
+    }
     g_exec_agg_reused_blocks = g_exec_agg_reused_blocks +| 1;
     return head;
 }
@@ -1511,18 +1518,17 @@ fn exec_value_make_aggregate(kind: ExecValueKind, count: i32) ExecValue {
         // 这样空闲链上任意同档块都能被后来的任意 count ≤ 档容量复用，
         // 而且复用块**不需要重新登记**（登记表按基址有序，重复登记会破坏二分查找），
         // 于是 `exec_value_address_is_array_element()` 之类查询始终正确。
-        const cls_cap: i32 = exec_agg_class_of_capacity(count);
         values = exec_agg_take_values(count);
         if values == null {
-            values = exec_value_alloc_bytes((@size_of(ExecValue) * cls_cap) as usize) as &ExecValue;
+            values = exec_value_alloc_bytes((@size_of(ExecValue) * count) as usize) as &ExecValue;
             if values == null {
                 exec_value_note_alloc_failure();
                 return exec_make_void();
             }
-            exec_value_register_array(@usize_from_ptr(values as &void), cls_cap);
+            exec_value_register_array(@usize_from_ptr(values as &void), count);
         }
-        // 复用的块里是旧数据，必须清掉（否则读到的 kind 是垃圾）
-        _ = memset(values as *void, 0, (@size_of(ExecValue) * cls_cap) as usize);
+        // 复用/新分配的块都要清零（复用块里是旧数据，读到的 kind 会是垃圾）
+        _ = memset(values as *void, 0, (@size_of(ExecValue) * count) as usize);
         if g_exec_dbg_enabled >= 0 {
             const obi: i32 = g_exec_dbg_cur_op & 255;
             g_exec_dbg_op_alloc[obi] = g_exec_dbg_op_alloc[obi] +| 1;
