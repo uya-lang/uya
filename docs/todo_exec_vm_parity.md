@@ -27748,3 +27748,28 @@ const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT
    异步帧槽位搬运、`exec_vm_store_slot_move` 的源复用）；
 3. doubles 归零后把默认切成开启，再跑 census + make check + 整编自举，
    看 `[mem] vm值竞技场累计` 的斜率降到多少（预期从 13.8GB 降到个位数 GB）。
+
+### 4. 第 749 轮的验证与遗留
+
+| 配置 | census | make check |
+| --- | --- | --- |
+| 默认（回收**关**，只计数） | **912/912，rc=0** | **1197/1197，rc=0** |
+| `UYA_EXEC_AGG_GC=1`（真回收） | **828/912（84 例失败）** | 未跑 |
+
+84 例失败模式统一：`LOAD_FIELD 字段越界(... count=0 ...)` / `ADDR_FIELD 字段越界` /
+`st=139`，即「回收后还有活引用」。抽样看 `[agg-double]` 集中在：
+
+- `fn=read slot=6 op=40`（ADDR_FIELD：**内部引用**指向聚合元素，聚合被回收后引用悬空）；
+- `fn=_assert_eq_u64_impl slot=0 op=70`、`fn=Vec_len$s8 slot=241 op=70`（同帧两个槽位共享）；
+- `fn=_heap_lock_release slot=38`、`blake3_chunk_state_output`、`fmt/simplify` 等。
+
+结论：**引用计数的骨架是对的（828 例已经能跑），但还有三类「少 retain」的点位**：
+
+1. **内部引用**（`ADDR_FIELD`/`ADDR_LOCAL` 产出的 `value_ref`）：引用指向别的聚合的元素，
+   被引用方回收后引用就悬空 —— 这类要么 retain，要么在这些引用存活期间禁止回收；
+2. **同帧两个槽位共享同一聚合**（`op=70` 那批）：找到具体指令并补 retain；
+3. **exec worker / 续体相关的槽位搬运**（`thread_args`、`frame_args`、`cont_slots`）。
+
+这些都是「逐个点位补 retain」的活，不能靠调参。**当前默认保持回收关闭**（零回归），
+下一轮按上面三类清理 `[agg-double]`，清零后把默认打开，再复跑 census/make check
+和整编自举，量 `[mem] vm值竞技场累计` 的最终斜率。

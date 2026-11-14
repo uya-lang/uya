@@ -10195,9 +10195,11 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             // 返回值直接**移动**：返回后本帧就作废了，槽位里的聚合内存不会再有
             // 第二个持有者。原来这里深拷贝一次，是自举时最大的一处聚合垃圾源
             // （BC_RET 占聚合分配次数的 43%）。
+            // 返回值**移动**（第 745 轮）：返回后本帧作废，槽位里的聚合内存
+            // 不会再有第二个持有者。注意：这与「帧出栈回收聚合」是互斥的两套
+            // 优化 —— 回收默认关（见 `exec_agg_gc_enabled`），所以这里保留移动。
             const ret_value: ExecValue = slot_a[0];
-            // 所有权移交给调用方：把本帧这个槽位清空，
-            // 否则帧出栈时会再减一次引用计数（重复回收 → use-after-free）。
+            // 所有权移交后清空源槽位，避免将来开回收时重复计数。
             slot_a[0] = exec_make_void();
             out_value[0] = exec_vm_relocate_escaped_box(program, frame.slots,
                 function.slot_count, ret_value);
