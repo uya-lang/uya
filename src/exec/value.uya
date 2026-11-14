@@ -1195,6 +1195,16 @@ fn exec_agg_class_of(count: i32) i32 {
     return cls;
 }
 
+/// 按元素个数取所在档的容量（向上取 2 的幂）；超过上限返回原始个数。
+/// 参数：`count` 元素个数。返回值：档容量。
+fn exec_agg_class_of_capacity(count: i32) i32 {
+    const cls: i32 = exec_agg_class_of(count);
+    if cls < 0 {
+        return count;
+    }
+    return exec_agg_class_capacity(cls);
+}
+
 /// 取某档的容量（元素个数）。
 fn exec_agg_class_capacity(cls: i32) i32 {
     var cap: i32 = 1;
@@ -1215,13 +1225,17 @@ fn exec_agg_progress_enabled() i32 {
     return 0;
 }
 
-/// 是否启用聚合回收（`UYA_EXEC_AGG_GC=1` 开启；默认关，便于逐个修少 retain 的点）。
+/// 是否启用聚合回收。**默认开**；`UYA_EXEC_AGG_GC=0` 可关闭（排查用）。
+///
+/// 默认开的依据：census 912/912 + make check 1197/1197 全绿，且内部引用钉住 /
+/// 帧深度守卫 / 异步帧跳过 / slice·error-union·varargs·线程表计数这几层保护
+/// 都已经就位（详见 docs 第 749~751 轮）。
 fn exec_agg_gc_enabled() i32 {
     if g_exec_agg_gc_enabled < 0 {
         const env: *byte = getenv("UYA_EXEC_AGG_GC" as *byte);
-        g_exec_agg_gc_enabled = 0;
-        if env != null && env[0] == 49 as byte {
-            g_exec_agg_gc_enabled = 1;
+        g_exec_agg_gc_enabled = 1;
+        if env != null && env[0] == 48 as byte {
+            g_exec_agg_gc_enabled = 0;
         }
     }
     return g_exec_agg_gc_enabled;
@@ -1493,18 +1507,22 @@ fn exec_value_make_aggregate(kind: ExecValueKind, count: i32) ExecValue {
     }
     var values: &ExecValue = null;
     if count > 0 {
-        // 先看空闲链有没有同档的块（元素个数向上取 2 的幂分档）
+        // 按「元素个数向上取 2 的幂」分档，**整档分配/登记**：
+        // 这样空闲链上任意同档块都能被后来的任意 count ≤ 档容量复用，
+        // 而且复用块**不需要重新登记**（登记表按基址有序，重复登记会破坏二分查找），
+        // 于是 `exec_value_address_is_array_element()` 之类查询始终正确。
+        const cls_cap: i32 = exec_agg_class_of_capacity(count);
         values = exec_agg_take_values(count);
         if values == null {
-            values = exec_value_alloc_bytes((@size_of(ExecValue) * count) as usize) as &ExecValue;
-        }
-        if values == null {
-            exec_value_note_alloc_failure();
-            return exec_make_void();
+            values = exec_value_alloc_bytes((@size_of(ExecValue) * cls_cap) as usize) as &ExecValue;
+            if values == null {
+                exec_value_note_alloc_failure();
+                return exec_make_void();
+            }
+            exec_value_register_array(@usize_from_ptr(values as &void), cls_cap);
         }
         // 复用的块里是旧数据，必须清掉（否则读到的 kind 是垃圾）
-        _ = memset(values as *void, 0, (@size_of(ExecValue) * count) as usize);
-        exec_value_register_array(@usize_from_ptr(values as &void), count);
+        _ = memset(values as *void, 0, (@size_of(ExecValue) * cls_cap) as usize);
         if g_exec_dbg_enabled >= 0 {
             const obi: i32 = g_exec_dbg_cur_op & 255;
             g_exec_dbg_op_alloc[obi] = g_exec_dbg_op_alloc[obi] +| 1;

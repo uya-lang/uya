@@ -532,8 +532,9 @@ fn exec_vm_store_slot(slot: &ExecValue, value: ExecValue) void {
     if before_kind != -1 && value.kind == ExecValueKind.EXEC_VALUE_ERROR_UNION {
         const cl_agg: &ExecAggregate = exec_value_as_aggregate(&cloned);
     }
-    // 注意：覆盖时不释放旧值 —— 聚合数组可能被浅拷贝共享（借用标记只盖住了
-    // 顶层值，元素层的共享看不出来），覆盖时释放会重复回收。统一在帧出栈时释放。
+    // 覆盖旧值前释放它的持有：槽位是「独占」的（借用会 retain、取址会钉住），
+    // 所以这里能立刻把旧聚合还回空闲链 —— 循环里反复赋值不再一路上涨。
+    exec_value_release(&slot[0]);
     slot[0] = cloned;
 }
 
@@ -555,6 +556,7 @@ fn exec_vm_store_slot_move(slot: &ExecValue, value: ExecValue) void {
         return;
     }
     // 所有权**转移**：调用方保证源之后不再使用（`call_result` 这类临时）。
+    exec_value_release(&slot[0]);
     slot[0] = value;
 }
 
@@ -563,6 +565,7 @@ fn exec_vm_store_slot_shallow(slot: &ExecValue, value: ExecValue) void {
         return;
     }
     exec_value_retain(&value);
+    exec_value_release(&slot[0]);
     slot[0] = value;
     // 标记为「借来的」聚合内存：后续若要往这个槽位写，必须另做深拷贝，
     // 不能原地覆盖（那块内存还属于别人）。
@@ -4841,7 +4844,11 @@ fn exec_vm_cast_value(value: ExecValue, target_kind: i32, target_pointee_kind: i
     if target_kind == TypeKind.TYPE_VA_LIST as i32 && value.kind == ExecValueKind.EXEC_VALUE_VA_LIST {
         return exec_value_clone(&value);
     }
-    return value;
+    // 同类型「直通」也必须拷贝：CAST 的结果会写进另一个槽位，
+    // 而槽位各持一份聚合内存是值语义与帧级回收的前提
+    // （否则 `Box{..} as Box` 这种 no-op cast 会让两个槽位共享一块，
+    //  出栈回收其中一份就把另一份也带走了 —— test_static_method_generic_struct 就是这样挂的）。
+    return exec_value_clone(&value);
 }
 
 /// 取一个可打印值的字节码（低 8 位），非整数类型返回 0。
@@ -10217,8 +10224,9 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             // 返回值**移动**（第 745 轮）：返回后本帧作废，槽位里的聚合内存
             // 不会再有第二个持有者。注意：这与「帧出栈回收聚合」是互斥的两套
             // 优化 —— 回收默认关（见 `exec_agg_gc_enabled`），所以这里保留移动。
+            // 返回值**移动**给调用方，并清空本帧槽位：所有权整体移交，
+            // 本帧出栈时不会再释放它（这样既有移动的省拷贝，又不破坏帧级回收）。
             const ret_value: ExecValue = slot_a[0];
-            // 所有权移交后清空源槽位，避免将来开回收时重复计数。
             slot_a[0] = exec_make_void();
             out_value[0] = exec_vm_relocate_escaped_box(program, frame.slots,
                 function.slot_count, ret_value);
