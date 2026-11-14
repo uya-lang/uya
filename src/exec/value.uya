@@ -36,6 +36,11 @@ enum ExecValueKind {
 struct ExecAggregate {
     count: i32,
     values: &ExecValue,
+    // 引用计数：聚合值在 VM 里是按值语义共享底层缓冲区的（浅拷贝 = 借用），
+    // 只有计数归零才能把 `.values` 数组还给空闲链复用。
+    ref_count: i32,
+    // 结构体自身也复用（arena 只增不减，但结构体可以串成空闲链再发出去）
+    next_free: &ExecAggregate,
 }
 
 struct ExecSliceData {
@@ -501,6 +506,8 @@ var g_exec_dbg_str_calls: i64 = 0;
 // 用来定位到底是哪些指令在制造 1KB 级的聚合垃圾 —— 只有定位到指令，才能判断
 // 该不该给它加「移动语义」而不是深拷贝。
 var g_exec_dbg_cur_op: i32 = 0;
+var g_exec_dbg_cur_fn: &byte = null;
+var g_exec_dbg_pop_slot: i32 = 0 - 1;
 var g_exec_dbg_op_alloc: [i64: 256] = [0:256];
 var g_exec_dbg_op_top: [i32: 5] = [0:5];
 var g_exec_dbg_bucket_bytes: [i64: 7] = [0:7];
@@ -937,13 +944,18 @@ fn exec_value_aggregate_kind(type: Type) ExecValueKind {
 }
 
 fn exec_value_aggregate_from_parts(kind: ExecValueKind, count: i32, values: &ExecValue) ExecValue {
-    const aggregate: &ExecAggregate = exec_value_alloc_bytes(@size_of(ExecAggregate)) as &ExecAggregate;
+    var aggregate: &ExecAggregate = exec_agg_take_struct();
+    if aggregate == null {
+        aggregate = exec_value_alloc_bytes(@size_of(ExecAggregate)) as &ExecAggregate;
+    }
     if aggregate == null {
         exec_value_note_alloc_failure();
         return exec_make_void();
     }
     aggregate.count = count;
     aggregate.values = values;
+    aggregate.ref_count = 1;
+    aggregate.next_free = null;
     return ExecValue {
         kind: kind,
         i64_value: count as i64,
@@ -1124,17 +1136,261 @@ fn exec_value_array_element_remaining(addr: usize) i32 {
     return 0;
 }
 
+// ===== 聚合值缓冲回收（引用计数 + 尺寸分档空闲链）=====
+//
+// 为什么要有这一套：VM 里每个聚合值（struct/array/tuple）都是一块独立的
+// `ExecValue` 数组，值语义的赋值/返回/传参都会深拷贝；而竞技场是 bump-only、
+// 永不回收。解释运行一个编译器实测产生 22.3GB / 2282 万块聚合垃圾（单次均值 ≈1KB），
+// 全部常驻 → 整编自举 RSS 峰值 57GB。
+//
+// 规则：
+// - `exec_value_retain()` 在「多了一个持有者」的地方调用（浅拷贝、移动交接、帧参数绑定）；
+// - `exec_value_release()` 在「持有者消失」的地方调用（帧出栈时整段槽位）；
+// - 计数归零后把 `.values` 按元素个数向上取 2 的幂分档挂空闲链，结构体也复用。
+// 空闲链头放在按需分配的堆数组里（`(heads + cls)[0]` 形式，避免全局大数组吃全局槽）。
+const EXEC_AGG_FREE_CLASSES: i32 = 17;  // 1,2,4,...,65536
+var g_exec_agg_free_heads: & & ExecValue = null;
+var g_exec_agg_free_counts: &i32 = null;
+var g_exec_agg_struct_free: &ExecAggregate = null;
+var g_exec_agg_struct_free_count: i32 = 0;
+var g_exec_agg_reused_blocks: i64 = 0;
+var g_exec_agg_double_releases: i64 = 0;   // rc<=0 还收到 release（说明少了一次 retain）
+var g_exec_agg_recycled: i64 = 0;
+var g_exec_agg_gc_enabled: i32 = 0 - 1;    // -1 = 还没查环境变量
+
+/// 按元素个数取尺寸档（向上取 2 的幂的下标）；超过 65536 返回 -1（不回收）。
+/// 参数：`count` 元素个数。返回值：档位下标或 -1。
+fn exec_agg_class_of(count: i32) i32 {
+    if count <= 0 {
+        return 0 - 1;
+    }
+    var cls: i32 = 0;
+    var cap: i32 = 1;
+    while cap < count {
+        cap = cap *| 2;
+        cls = cls +| 1;
+        if cls >= EXEC_AGG_FREE_CLASSES {
+            return 0 - 1;
+        }
+    }
+    return cls;
+}
+
+/// 取某档的容量（元素个数）。
+fn exec_agg_class_capacity(cls: i32) i32 {
+    var cap: i32 = 1;
+    var i: i32 = 0;
+    while i < cls {
+        cap = cap *| 2;
+        i = i +| 1;
+    }
+    return cap;
+}
+
+/// 观测/回收日志开关（`UYA_PROGRESS=1`）。
+fn exec_agg_progress_enabled() i32 {
+    const env: *byte = getenv("UYA_PROGRESS" as *byte);
+    if env != null && env[0] != 0 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+/// 是否启用聚合回收（`UYA_EXEC_AGG_GC=1` 开启；默认关，便于逐个修少 retain 的点）。
+fn exec_agg_gc_enabled() i32 {
+    if g_exec_agg_gc_enabled < 0 {
+        const env: *byte = getenv("UYA_EXEC_AGG_GC" as *byte);
+        g_exec_agg_gc_enabled = 0;
+        if env != null && env[0] == 49 as byte {
+            g_exec_agg_gc_enabled = 1;
+        }
+    }
+    return g_exec_agg_gc_enabled;
+}
+
+/// 惰性建立空闲链表头数组。返回 0 成功；-1 分配失败。
+fn exec_agg_free_lists_init() i32 {
+    if g_exec_agg_free_heads != null {
+        return 0;
+    }
+    const bytes: usize = (@size_of(&ExecValue) as usize) *| (EXEC_AGG_FREE_CLASSES as usize);
+    const heads: & & ExecValue = exec_value_alloc_bytes(bytes) as & & ExecValue;
+    const counts: &i32 = exec_value_alloc_bytes((@size_of(i32) as usize) *| (EXEC_AGG_FREE_CLASSES as usize)) as &i32;
+    if heads == null || counts == null {
+        return -1;
+    }
+    _ = memset(heads as *void, 0, bytes);
+    _ = memset(counts as *void, 0, (@size_of(i32) as usize) *| (EXEC_AGG_FREE_CLASSES as usize));
+    g_exec_agg_free_heads = heads;
+    g_exec_agg_free_counts = counts;
+    return 0;
+}
+
+/// 把一块 `.values` 数组挂回对应档位的空闲链（复用它的前 8 字节存 next）。
+/// 参数：`values` 数组；`cls` 档位。
+/// 返回值：无。
+fn exec_agg_recycle_values(values: &ExecValue, cls: i32) void {
+    if values == null || cls < 0 || cls >= EXEC_AGG_FREE_CLASSES {
+        return;
+    }
+    if exec_agg_free_lists_init() != 0 {
+        return;
+    }
+    const heads: & & ExecValue = g_exec_agg_free_heads;
+    const counts: &i32 = g_exec_agg_free_counts;
+    if heads == null || counts == null {
+        return;
+    }
+    const node: & & ExecValue = values as & & ExecValue;
+    node[0] = (heads + cls)[0];
+    (heads + cls)[0] = values;
+    (counts + cls)[0] = (counts + cls)[0] +| 1;
+}
+
+/// 从空闲链取一块至少能装 `count` 个元素的数组；没有则返回 null。
+/// 参数：`count` 需要的元素个数。返回值：数组指针或 null。
+fn exec_agg_take_values(count: i32) &ExecValue {
+    const cls: i32 = exec_agg_class_of(count);
+    if cls < 0 || cls >= EXEC_AGG_FREE_CLASSES {
+        return null;
+    }
+    const heads: & & ExecValue = g_exec_agg_free_heads;
+    const counts: &i32 = g_exec_agg_free_counts;
+    if heads == null || counts == null {
+        return null;
+    }
+    const head: &ExecValue = (heads + cls)[0];
+    if head == null {
+        return null;
+    }
+    const node: & & ExecValue = head as & & ExecValue;
+    (heads + cls)[0] = node[0];
+    (counts + cls)[0] = (counts + cls)[0] -| 1;
+    g_exec_agg_reused_blocks = g_exec_agg_reused_blocks +| 1;
+    return head;
+}
+
+/// 增加聚合值的引用计数（浅拷贝/移动交接/参数绑定等「多一个持有者」的地方调用）。
+/// 参数：`value` 值指针。返回值：无。
+fn exec_value_retain(value: &ExecValue) void {
+    if value == null {
+        return;
+    }
+    const k: i32 = value.kind as i32;
+    if k != ExecValueKind.EXEC_VALUE_STRUCT as i32 &&
+        k != ExecValueKind.EXEC_VALUE_ARRAY as i32 &&
+        k != ExecValueKind.EXEC_VALUE_TUPLE as i32 {
+        return;
+    }
+    if exec_value_is_raw_array(value) != 0 {
+        return;
+    }
+    const agg: &ExecAggregate = exec_value_as_aggregate(value);
+    if agg != null {
+        agg.ref_count = agg.ref_count +| 1;
+    }
+}
+
+/// 减少聚合值的引用计数；归零时回收 `.values` 与结构体。
+/// 参数：`value` 值指针。返回值：无。
+fn exec_value_release(value: &ExecValue) void {
+    if value == null {
+        return;
+    }
+    const k: i32 = value.kind as i32;
+    if k != ExecValueKind.EXEC_VALUE_STRUCT as i32 &&
+        k != ExecValueKind.EXEC_VALUE_ARRAY as i32 &&
+        k != ExecValueKind.EXEC_VALUE_TUPLE as i32 {
+        return;
+    }
+    if exec_value_is_raw_array(value) != 0 {
+        return;
+    }
+    const agg: &ExecAggregate = exec_value_as_aggregate(value);
+    if agg == null {
+        return;
+    }
+    const rc: i32 = agg.ref_count;
+    if rc <= 0 {
+        // 已经回收过（说明某处少了一次 retain）：记一笔并当无事发生，
+        // 绝不重复回收 —— 否则会把已复用的块再挂一次空闲链，直接内存损坏。
+        if g_exec_agg_double_releases < 64 {
+            fprintf(libc.stderr, "[agg-double] fn=%s slot=%d op=%d kind=%d agg=%p count=%d rc=%d\n" as *byte,
+                g_exec_dbg_cur_fn as *byte, g_exec_dbg_pop_slot, g_exec_dbg_cur_op,
+                value.kind as i32, agg as *void, agg.count, rc);
+        }
+        g_exec_agg_double_releases = g_exec_agg_double_releases +| 1;
+        return;
+    }
+    agg.ref_count = rc - 1;
+    if agg.ref_count > 0 {
+        return;
+    }
+    if exec_agg_gc_enabled() == 0 {
+        // 只记账不回收（观测模式）：计数照常减到 0，再收到的 release 就是
+        // 「少了一次 retain」的铁证 —— 会累加到 g_exec_agg_double_releases。
+        g_exec_agg_recycled = g_exec_agg_recycled +| 1;
+        if exec_agg_progress_enabled() != 0 && (g_exec_agg_recycled & 1048575i64) == 0i64 {
+            fprintf(libc.stderr, "[agg-gc] would_recycle=%lld double=%lld reused=%lld\n" as *byte,
+                g_exec_agg_recycled, g_exec_agg_double_releases, g_exec_agg_reused_blocks);
+        }
+        return;
+    }
+    g_exec_agg_recycled = g_exec_agg_recycled +| 1;
+    exec_value_release_aggregate_body(agg);
+}
+
+/// 释放一个聚合（计数已归零）：数组进尺寸档空闲链，结构体进结构体空闲链。
+/// 参数：`agg` 聚合结构体指针。返回值：无。
+fn exec_value_release_aggregate_body(agg: &ExecAggregate) void {
+    if agg == null {
+        return;
+    }
+    const cls: i32 = exec_agg_class_of(agg.count);
+    if agg.values != null && cls >= 0 {
+        exec_agg_recycle_values(agg.values, cls);
+    }
+    agg.values = null;
+    agg.count = 0;
+    agg.ref_count = 0;
+    agg.next_free = g_exec_agg_struct_free;
+    g_exec_agg_struct_free = agg;
+    g_exec_agg_struct_free_count = g_exec_agg_struct_free_count +| 1;
+}
+
+/// 取一个聚合结构体（优先复用空闲链）。
+/// 返回值：结构体指针或 null。
+fn exec_agg_take_struct() &ExecAggregate {
+    const head: &ExecAggregate = g_exec_agg_struct_free;
+    if head == null {
+        return null;
+    }
+    g_exec_agg_struct_free = head.next_free;
+    g_exec_agg_struct_free_count = g_exec_agg_struct_free_count -| 1;
+    head.next_free = null;
+    head.count = 0;
+    head.values = null;
+    head.ref_count = 0;
+    return head;
+}
+
 fn exec_value_make_aggregate(kind: ExecValueKind, count: i32) ExecValue {
     if count < 0 {
         return exec_make_void();
     }
     var values: &ExecValue = null;
     if count > 0 {
-        values = exec_value_alloc_bytes((@size_of(ExecValue) * count) as usize) as &ExecValue;
+        // 先看空闲链有没有同档的块（元素个数向上取 2 的幂分档）
+        values = exec_agg_take_values(count);
+        if values == null {
+            values = exec_value_alloc_bytes((@size_of(ExecValue) * count) as usize) as &ExecValue;
+        }
         if values == null {
             exec_value_note_alloc_failure();
             return exec_make_void();
         }
+        // 复用的块里是旧数据，必须清掉（否则读到的 kind 是垃圾）
+        _ = memset(values as *void, 0, (@size_of(ExecValue) * count) as usize);
         exec_value_register_array(@usize_from_ptr(values as &void), count);
         if g_exec_dbg_enabled >= 0 {
             const obi: i32 = g_exec_dbg_cur_op & 255;

@@ -381,6 +381,15 @@ fn exec_vm_slot_pool_push(vm: &ExecVmState, slot_count: i32) i32 {
         return -1;
     }
     vm.slot_top = need;
+    // 诊断：新切出的帧槽位一律清零（否则上一位使用者的残留值会被误当成活值，
+    // 出栈时重复释放）。
+    var z: i32 = base;
+    while z < need {
+        if z >= 0 && z < vm.slot_pool_capacity {
+            vm.slot_pool[z] = exec_make_void();
+        }
+        z = z +| 1;
+    }
     return base;
 }
 
@@ -407,6 +416,19 @@ fn exec_vm_slot_pool_pop(vm: &ExecVmState, base: i32) void {
         return;
     }
     if base >= 0 && base <= vm.slot_top {
+        // 归还这段槽位：先把里面还活着的聚合引用计数减掉，再清零 ——
+        // 不清零的话下次切出来的帧会捡到这些旧值，出栈时再减一次（重复释放）。
+        if vm.slot_pool != null {
+            var i: i32 = base;
+            while i < vm.slot_top {
+                if i >= 0 && i < vm.slot_pool_capacity {
+                    g_exec_dbg_pop_slot = i;
+                    exec_value_release(&vm.slot_pool[i]);
+                    vm.slot_pool[i] = exec_make_void();
+                }
+                i = i +| 1;
+            }
+        }
         vm.slot_top = base;
     }
 }
@@ -504,6 +526,8 @@ fn exec_vm_store_slot(slot: &ExecValue, value: ExecValue) void {
     if before_kind != -1 && value.kind == ExecValueKind.EXEC_VALUE_ERROR_UNION {
         const cl_agg: &ExecAggregate = exec_value_as_aggregate(&cloned);
     }
+    // 注意：覆盖时不释放旧值 —— 聚合数组可能被浅拷贝共享（借用标记只盖住了
+    // 顶层值，元素层的共享看不出来），覆盖时释放会重复回收。统一在帧出栈时释放。
     slot[0] = cloned;
 }
 
@@ -524,6 +548,7 @@ fn exec_vm_store_slot_move(slot: &ExecValue, value: ExecValue) void {
     if exec_vm_store_aggregate_in_place(&slot[0], &value) != 0 {
         return;
     }
+    // 所有权**转移**：调用方保证源之后不再使用（`call_result` 这类临时）。
     slot[0] = value;
 }
 
@@ -531,6 +556,7 @@ fn exec_vm_store_slot_shallow(slot: &ExecValue, value: ExecValue) void {
     if slot == null {
         return;
     }
+    exec_value_retain(&value);
     slot[0] = value;
     // 标记为「借来的」聚合内存：后续若要往这个槽位写，必须另做深拷贝，
     // 不能原地覆盖（那块内存还属于别人）。
@@ -5031,6 +5057,10 @@ fn exec_vm_load_const(program: &BCProgram, function: &BCFunction, const_idx: i32
         exec_backend_set_error(function.decl, "exec: LOAD_CONST 常量索引越界" as *byte, 0);
         return -1;
     }
+    // 常量池里的聚合值由常量池**长期持有**：写进槽位的是「多一个持有者」，
+    // 必须 retain，否则槽位被覆盖/出栈时会把常量池还在用的缓冲回收掉
+    // （实测 op=1 LOAD_CONST 触发 double-release → 段错误）。
+    exec_value_retain(&program.const_pool.values[const_idx]);
     out_value[0] = program.const_pool.values[const_idx];
     return 0;
 }
@@ -10166,6 +10196,9 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             // 第二个持有者。原来这里深拷贝一次，是自举时最大的一处聚合垃圾源
             // （BC_RET 占聚合分配次数的 43%）。
             const ret_value: ExecValue = slot_a[0];
+            // 所有权移交给调用方：把本帧这个槽位清空，
+            // 否则帧出栈时会再减一次引用计数（重复回收 → use-after-free）。
+            slot_a[0] = exec_make_void();
             out_value[0] = exec_vm_relocate_escaped_box(program, frame.slots,
                 function.slot_count, ret_value);
         } else {
@@ -10631,6 +10664,7 @@ fn exec_vm_run_frame(vm: &ExecVmState, program: &BCProgram, function: &BCFunctio
         vararg_count: 0,
         vm: vm,
     };
+    g_exec_dbg_cur_fn = function.name;
     exec_vm_trace_call_enter(trace_vm, function.name, arg_count);
     const saved_resumed: i32 = vm.frame_resumed;
     if resume_slots != null {
@@ -10671,6 +10705,7 @@ fn exec_vm_run_frame(vm: &ExecVmState, program: &BCProgram, function: &BCFunctio
         }
         si = 0;
         while si < arg_count && si < function.param_count {
+            exec_value_retain(&args[si]);
             frame.slots[si] = args[si];
             si = si + 1;
         }

@@ -27695,3 +27695,56 @@ const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT
    —— 那个布局正是「名字在 +1」；
 3. 顺着 `codegen.err_union_struct_names[]` / `c99_safe_ident_cache` 这些**存指针的表**，
    看是否有表项在某个时机被写成了 8 字节指针（表项数组与字符串块相邻时就会这样）。
+
+## 第 749 轮：聚合值引用计数 + 尺寸分档回收（机制落地，默认只观测）
+
+### 1. 根本原因（再确认一遍，带数字）
+
+- VM 里每个聚合值（struct/array/tuple）= 一块独立的 `ExecValue` 数组（**56 字节/元素**）；
+- 值语义的赋值/返回/传参/字段写都走 `exec_value_clone()` **深拷贝**；
+- 值内存来自 **bump-only 竞技场**（`exec_value_alloc_bytes_locked`，段从 200MB 起翻倍，
+  最多 256 段），没有 GC、没有引用计数、`free()` 也不归还。
+
+实测（第 744/745 轮）：同一进度点竞技场累计 **25.8GB / 6711 万次分配**，其中
+**聚合数组 22.3GB / 2282 万次（单次均值 ≈1KB ≈18 个元素）**，≥64KB 的大块只有 309MB；
+按 opcode 归因 `BC_RET` 43%、`BC_STORE_LOCAL` 22%、`BC_MAKE_STRUCT` 15%。
+已做止血（返回值/调用结果改移动、实参改借用）后降到 **13.8GB**，整编自举 RSS 峰值 57GB → 34.7GB。
+
+### 2. 本轮落地的机制
+
+`src/exec/value.uya`：
+
+- `struct ExecAggregate` 增加 `ref_count` 与 `next_free`；
+- `exec_value_retain()` / `exec_value_release()`：聚合值的引用计数；
+- 归零时 `.values` 按「元素个数向上取 2 的幂」**分档挂空闲链**
+  （`EXEC_AGG_FREE_CLASSES = 17`，1..65536；链头放在按需分配的堆数组里，
+  用 `(heads + cls)[0]` 形式避免全局大数组吃全局槽），结构体自身也走一条空闲链；
+- `exec_value_make_aggregate()` 优先复用同档块并清零；`exec_value_aggregate_from_parts()`
+  优先复用结构体。
+
+`src/exec/vm.uya`：
+
+- **retain**：帧参数绑定、`exec_vm_store_slot_shallow`（借用）、`exec_vm_load_const`
+  （常量池里的聚合值由常量池长期持有）；
+- **release**：只放在 `exec_vm_slot_pool_pop()`（帧出栈整段槽位），并且**先释放再清零**、
+  切帧时**先清零**（否则残留值会被当成活值，出栈时重复释放）；
+- `BC_RET` 移动返回值后**清空源槽位**（所有权移交，避免出栈再减一次）。
+
+### 3. 现在的状态：机制可用，但回收**默认关**（`UYA_EXEC_AGG_GC=1` 才真正复用）
+
+打开回收后 `tests/test_typed_pipeline_capability.uya` 仍会崩，原因是**还有共享点没 retain**：
+
+- 观测模式（默认，只计数不回收）在 `exec_value_release()` 里发现
+  `ref_count` 已为 0 还收到 release，会打 `[agg-double] fn=… slot=… op=…`；
+- 实测集中在 `fn=Vec_len$s8 slot=241 op=70(RET)` 这类「同一函数帧、同一槽位、
+  count=3 的聚合」上 —— 说明还有地方把聚合值**浅拷贝进会被释放的槽位却没 retain**
+  （续体/异步相关的槽位快照、`x[0] = y[0]` 这类直拷贝都还没审完）。
+
+所以本轮**不改默认行为**：默认只做计数（零回收、零风险），
+`UYA_EXEC_AGG_GC=1` 才启用复用。下一轮的工作就是把 `[agg-double]` 清零：
+
+1. 用 `UYA_PROGRESS=1` 跑 census，逐个用例看 `[agg-double]` 的 `fn/slot/op`；
+2. 对着这些点位补 `exec_value_retain()`（优先怀疑：续体快照、`cont_slots`、
+   异步帧槽位搬运、`exec_vm_store_slot_move` 的源复用）；
+3. doubles 归零后把默认切成开启，再跑 census + make check + 整编自举，
+   看 `[mem] vm值竞技场累计` 的斜率降到多少（预期从 13.8GB 降到个位数 GB）。
