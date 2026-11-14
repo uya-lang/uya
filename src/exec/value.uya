@@ -361,12 +361,20 @@ fn exec_make_union(tag: i32, payload: ExecValue) ExecValue {
 }
 
 fn exec_make_error_union_ok(value: ExecValue) ExecValue {
-    // 指针的元素种类、裸数组的元素类型码都在 aux_i64_value 里，
-    // 错误联合只有一个 aux 三元组，借用 error_id 位保存（ok 时 error_id 本无意义）。
+    // ok 载荷被包进 aux 三元组：等于多了一个持有者，聚合载荷要 retain
+    // （否则包出它的帧出栈回收后，解包出来的值就是悬空的）。
     var saved_aux: i32 = 0;
     if value.kind == ExecValueKind.EXEC_VALUE_POINTER || value.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
         value.kind == ExecValueKind.EXEC_VALUE_VECTOR || value.kind == ExecValueKind.EXEC_VALUE_MASK {
         saved_aux = value.aux_i64_value as i32;
+    }
+    if value.kind == ExecValueKind.EXEC_VALUE_STRUCT ||
+        value.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
+        value.kind == ExecValueKind.EXEC_VALUE_TUPLE {
+        if exec_value_is_raw_array(&value) == 0 {
+            const wagg: &ExecAggregate = exec_value_as_aggregate(&value);
+            exec_agg_retain_struct(wagg);
+        }
     }
     return ExecValue {
         kind: ExecValueKind.EXEC_VALUE_ERROR_UNION,
@@ -1302,6 +1310,43 @@ fn exec_value_mark_ref_holder(value: &ExecValue) void {
     }
 }
 
+/// 直接给聚合结构体加引用计数（slice/union 这类「只拿到结构体指针」的持有者用）。
+/// 参数：`agg` 聚合结构体。返回值：无。
+fn exec_agg_retain_struct(agg: &ExecAggregate) void {
+    if agg == null {
+        return;
+    }
+    agg.ref_count = agg.ref_count +| 1;
+}
+
+/// 直接给聚合结构体减引用计数（归零且守卫允许时回收）。
+/// 参数：`agg` 聚合结构体。返回值：无。
+fn exec_agg_release_struct(agg: &ExecAggregate) void {
+    if agg == null {
+        return;
+    }
+    if agg.has_internal_ref != 0 {
+        if agg.ref_count > 0 {
+            agg.ref_count = agg.ref_count -| 1;
+        }
+        return;
+    }
+    const rc: i32 = agg.ref_count;
+    if rc <= 0 {
+        g_exec_agg_double_releases = g_exec_agg_double_releases +| 1;
+        return;
+    }
+    agg.ref_count = rc - 1;
+    if agg.ref_count > 0 {
+        return;
+    }
+    if agg.owner_depth != g_exec_agg_depth || exec_agg_gc_enabled() == 0 {
+        return;
+    }
+    g_exec_agg_recycled = g_exec_agg_recycled +| 1;
+    exec_value_release_aggregate_body(agg);
+}
+
 /// 增加聚合值的引用计数（浅拷贝/移动交接/参数绑定等「多一个持有者」的地方调用）。
 /// 参数：`value` 值指针。返回值：无。
 fn exec_value_retain(value: &ExecValue) void {
@@ -1330,6 +1375,25 @@ fn exec_value_release(value: &ExecValue) void {
         return;
     }
     const k: i32 = value.kind as i32;
+    if k == ExecValueKind.EXEC_VALUE_SLICE as i32 {
+        const sd: &ExecSliceData = exec_value_as_slice(value);
+        if sd != null && sd.aggregate != null {
+            exec_agg_release_struct(sd.aggregate);
+        }
+        return;
+    }
+    if k == ExecValueKind.EXEC_VALUE_ERROR_UNION as i32 {
+        // ok 载荷存在 aux 三元组里：若载荷是聚合，这里要放掉它的持有
+        if value.i64_value == 0 && value.aux_ptr_value != null {
+            const ak: i32 = value.aux_kind as i32;
+            if ak == ExecValueKind.EXEC_VALUE_STRUCT as i32 ||
+                ak == ExecValueKind.EXEC_VALUE_ARRAY as i32 ||
+                ak == ExecValueKind.EXEC_VALUE_TUPLE as i32 {
+                exec_agg_release_struct(value.aux_ptr_value as &ExecAggregate);
+            }
+        }
+        return;
+    }
     if k != ExecValueKind.EXEC_VALUE_STRUCT as i32 &&
         k != ExecValueKind.EXEC_VALUE_ARRAY as i32 &&
         k != ExecValueKind.EXEC_VALUE_TUPLE as i32 {
@@ -1469,6 +1533,9 @@ fn exec_make_tuple(count: i32) ExecValue {
 }
 
 fn exec_make_slice(aggregate: &ExecAggregate, start: i32, len: i32) ExecValue {
+    // slice 只是「指向某个聚合某一段」的视图：必须持有那个聚合，
+    // 否则聚合所在帧出栈回收后，逃逸出去的 slice 就悬空了。
+    exec_agg_retain_struct(aggregate);
     const slice_data: &ExecSliceData = exec_value_alloc_bytes(@size_of(ExecSliceData)) as &ExecSliceData;
     if slice_data == null {
         return exec_make_void();

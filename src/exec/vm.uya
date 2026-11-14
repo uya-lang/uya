@@ -5994,6 +5994,7 @@ fn exec_vm_rerun_deferred_thread(vm: &ExecVmState, program: &BCProgram, slot: i3
         g_exec_last_error_message[0] = 0 as byte;
         return 0;
     }
+    exec_value_release(&exec_vm_thread_result[slot]);
     exec_vm_thread_result[slot] = ret;
     return 0;
 }
@@ -6052,6 +6053,7 @@ fn exec_vm_thread_bootstrap() void {
         const rc: i32 = exec_vm_call_function(desc.state, desc.program, desc.fn_index, &targs[0], 1, 0, &tret);
         if desc.slot >= 0 && desc.slot < EXEC_VM_THREAD_SLOTS {
             if rc == 0 {
+                exec_value_release(&exec_vm_thread_result[desc.slot]);
                 exec_vm_thread_result[desc.slot] = tret;
             }
             exec_vm_thread_used[desc.slot] = 0;
@@ -10731,6 +10733,9 @@ fn exec_vm_run_frame(vm: &ExecVmState, program: &BCProgram, function: &BCFunctio
         var vi: i32 = 0;
         while function.param_count + vi < arg_count && vi < EXEC_MAX_CALL_ARGS {
             frame.varargs[vi] = exec_vm_promote_vararg_value(args[function.param_count + vi]);
+            // varargs 存在帧结构体里（不在槽池），帧出栈时不会被逐个释放：
+            // 钉住它，避免「本帧创建 + 存进 varargs」的聚合被回收后悬空。
+            exec_value_mark_ref_holder(&frame.varargs[vi]);
             vi = vi + 1;
         }
         frame.vararg_count = vi;

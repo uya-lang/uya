@@ -27869,3 +27869,22 @@ const aligned_size: usize = align_size(size +| ARENA_TAIL_GUARD, ARENA_ALIGNMENT
 本轮因为多了引用计数记账、声明数 4211→4222，与第 745 轮基本持平），
 其中 VM 值竞技场累计 28.4GB / 6970 万次分配。
 要在开回收之后才可能真正降到个位数 GB —— 那是下一轮清完 126 例之后的事。
+
+### 6. 第 750 轮追加：slice / error-union / varargs / 线程结果表的持有关系
+
+又补齐了三类「持有聚合但没记账」的地方，全部是保守方向（多 retain，不会少）：
+
+1. **slice**：`exec_make_slice()` 现在 `exec_agg_retain_struct(aggregate)`；
+   `exec_value_release()` 增加 SLICE 分支放掉它。理由：slice 只是「指向某个聚合某一段」
+   的视图，聚合所在帧出栈回收后，逃逸出去的 slice 就悬空了。
+2. **error-union ok 载荷**：`exec_make_error_union_ok()` 对聚合载荷 retain，
+   释放时按 `aux_kind` 判断再放。
+3. **varargs / 线程结果表**：`frame.varargs[]` 里的值「钉住」（帧出栈不会遍历它），
+   `exec_vm_thread_result[]` 覆盖前先释放旧值。
+
+效果（`UYA_EXEC_AGG_GC=1` 抽样）：`test_typed_pipeline_capability`、`test_crypto_blake3`
+已经 rc=0；`test_fmt_api_simplify` / `test_async_fd` / `test_async_compute_types`
+仍失败（`STORE_FIELD/LOAD_FIELD ... count=0`、`STORE_INDEX 越界`），
+即还有内部引用指向已被回收的聚合，属于下一批点位。
+
+默认路径（不回収）依旧全绿：census 912/912、make check 1197/1197。
