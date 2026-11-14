@@ -7233,10 +7233,17 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
                         // 清掉错误状态，登记到 join 时重跑一次。
                         g_exec_last_error_message[0] = 0 as byte;
                         exec_vm_thread_redo_routine[free_slot] = routine_index;
+                        // 常驻状态表要长期持有这个值：先释放旧内容，再 retain 新值
+                        // （源槽位所属帧出栈时会各释放一次，两边各记一份才对得上）。
+                        exec_value_release(&exec_vm_thread_redo_arg[free_slot]);
+                        exec_value_retain(&thread_args[0]);
                         exec_vm_thread_redo_arg[free_slot] = thread_args[0];
                         exec_vm_thread_redo[free_slot] = 1;
                     }
                     if thread_rc2 == 0 {
+                        // `thread_ret` 是调用结果（所有权已转移），直接接管；
+                        // 旧结果先释放，避免常驻表里的聚合永不回收。
+                        exec_value_release(&exec_vm_thread_result[free_slot]);
                         exec_vm_thread_result[free_slot] = thread_ret;
                     }
                 }
