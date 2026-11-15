@@ -73,7 +73,11 @@
   - [ ] `--vm` 侧 `UYA_PROGRESS=1` 的 `[mem]` 累计与峰值（对照第 751 轮的 34.0 GB 基线）—— 未测：
     `--vm` 的内存主体是 VM 值竞技场（`ExecValue` 深拷贝），与 ASTNode 体积无关，记账要分开（见设计文档 §5）。
   - [ ] `tests/exec_vm_census_mems.txt` 的单用例内存额度是否可下调 —— 未做：同理，额度瓶颈不在 AST。
-- [ ] **C5 种子与提交**：`make b`（自举）通过后 `make clean && make backup-all`；`backup/uya.c` 及 hosted 种子随同一提交更新。
+- [x] **C5 自举与提交**：`make b` **通过** —— 「主编译器」与「自举编译器」编出的可执行文件 **`cmp` 字节相同**。
+  提交 `65fd8038`（7 个文件，+1040/−249）。
+  `backup/uya.c` **不需要**重生成：现有种子（`6647c206` 起的版本）已经认识匿名 union 重叠块语法
+  （`grep -c var_decl_overlap_block backup/uya.c` = 11），冷启动照旧可用；本轮只改了数据布局与注释，
+  没有引入种子不认识的语法。若将来把种子回退到那之前，必须走两阶段自举 + `make backup-seed`。
 - [ ] **C6 回滚预案**：改动集中在 `src/ast.uya` 一个文件，`git revert` 到扁平版成本可控。
 
 ---
