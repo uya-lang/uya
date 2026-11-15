@@ -45,8 +45,15 @@ CC_TARGET_FLAGS ?=
 # 不是缺陷，所以只对这两类告警降级；-Werror 仍然生效，其余告警依旧致命。
 # 注意 alloc-size-larger-than 是带参数的告警，`-Wno-error=alloc-size-larger-than` 在
 # gcc 12 上不认（要求 `=` 形式），因此这一条用 `-Wno-` 整条关掉。
+#
+# **这两条只对 gcc 生效**：Apple clang 不认识 -Wno-alloc-size-larger-than，配合 -Werror 会变成
+# -Wunknown-warning-option 硬错误（macos-ci 的 from-c-native 就因此红过一次）。所以先用探针
+# 问编译器认不认，认才加。
+UYA_GCC_ONLY_WARN_FLAGS := $(shell printf 'int uya_warn_probe;\n' | $(CC) -Werror \
+	-Wno-error=format-truncation -Wno-alloc-size-larger-than -x c -c - -o /dev/null \
+	>/dev/null 2>&1 && echo "-Wno-error=format-truncation -Wno-alloc-size-larger-than")
 CFLAGS ?= -std=c99 -O2 -fno-builtin -fwrapv -fno-strict-overflow -Werror \
-          -Wno-error=format-truncation -Wno-alloc-size-larger-than
+          $(UYA_GCC_ONLY_WARN_FLAGS)
 LDFLAGS ?=
 
 # 并行程序测试 worker 数（默认 CPU 核数；可覆盖：make tests UYA_TEST_JOBS=4）
