@@ -83,6 +83,13 @@ struct Packet {
 
 共同特征仍是「不报错但算错」，本轮收掉的主要有：
 
+- **macOS 上 `make uya-hosted` 编译不过**（P0，macos-ci 自 2026-10-31 起一直红）：`844fbf0b` 的
+  hosted 判空包装发射 `extern void *memmove(void *, const void *, size_t);`，而 Darwin 的
+  `<string.h>` 把 `memmove`/`memset`/`memchr` 定义成**函数式宏**（`secure/_string.h`），
+  声明被宏展开成语法垃圾，整份生成 C 编译失败；glibc 没有这层宏，所以 Linux 侧全绿。
+  现在发射这三个包装前先 `#undef`，并新增门禁 `tests/verify_macos_hosted_c_syntax.sh`
+  （生成 macOS arm64 目标的 hosted C，用 `zig cc -target aarch64-macos` 编译，挂进 `make check`），
+  让「只在 Darwin 头文件下成立」的问题在 Linux CI 上就能被抓住。
 - **C99 后端把 i64 饱和/包装链截断成 32 位**（发版前最后一条，静默错误）：饱和/包装运算选
   C 类型时，复合左操作数（cast、二元表达式）会兜底成 `int32_t`，于是
   `days *% 86400 as i64 +% 3600` 整条链按 32 位发射——期望 `2511824400`，实际 `-1783142896`。

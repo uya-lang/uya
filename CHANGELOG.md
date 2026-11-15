@@ -28,6 +28,12 @@
 
 ### 其他修复与改进
 
+- **macOS 上 `make uya-hosted` 编译不过（P0）**：`844fbf0b` 的 hosted 判空包装发射
+  `extern void *memmove(void *, const void *, size_t);`，Darwin 的 `<string.h>` 把
+  `memmove`/`memset`/`memchr` 定义成函数式宏（`secure/_string.h`），声明被宏展开成语法垃圾，
+  生成 C 编译失败（glibc 无此宏，Linux 侧一直全绿，macos-ci 自 2026-10-31 起红）。现在发射前
+  先 `#undef`；新增门禁 `tests/verify_macos_hosted_c_syntax.sh`（生成 macOS arm64 目标 hosted C，
+  用 `zig cc -target aarch64-macos` 编译，可跨平台跑），已挂进 `make check`。
 - **C99 后端 i64 饱和/包装链截断（静默错误，P1）**：饱和/包装运算选 C 类型时，复合左操作数
   （cast 表达式、二元表达式）在 `get_c_type_of_expr` 里只会兜底成 `int32_t`，于是
   `days *% 86400 as i64 +% 3600` 整条链按 32 位发射——期望 `2511824400`，实际 `-1783142896`
