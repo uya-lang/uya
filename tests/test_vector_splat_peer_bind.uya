@@ -1,0 +1,67 @@
+// @vector.splat 作内联操作数时的「同侧向量绑定」回归用例
+//
+// 背景：ASTNode 使用匿名 union 重叠组后，simd_splat_target_type（写在 AST_CALL_EXPR
+// 节点上）曾单独成组、与 call_expr 组共享块首 offset 0，写入时抹掉了同 offset 的
+// call_expr_callee，导致 simd_get_vector_builtin_method() 认不出 @vector.splat，
+// 对侧向量的类型无法回填到 splat → 报「向量比较要求左右操作数都是 @vector(T, N)」。
+// 本用例把当时的最小复现固化下来：两侧都声明成局部变量时不触发，只有 splat 内联出现在
+// 比较/算术表达式中才触发。
+type V16u8 = @vector(u8, 16);
+type V4i = @vector(i32, 4);
+type V4u = @vector(u32, 4);
+
+export fn main() i32 {
+    // 1. 比较：左侧 load 得到的向量，右侧内联 splat（原始踩字形态）
+    var buf: [u8: 16] = [0: 16];
+    buf[0] = 34;
+    buf[5] = 34;
+    const c: V16u8 = @vector.load(&buf[0]);
+    const m0: @mask(16) = c != @vector.splat(34u8);
+    var n: i32 = 0;
+    var i: usize = 0;
+    while i < 16 {
+        if buf[i] != 34 {
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    if @vector.any(m0) == false {
+        return 1;
+    }
+    if @vector.all(m0) == true {
+        return 2;
+    }
+    if n != 14 {
+        return 3;
+    }
+
+    // 2. 比较：左右互换（splat 在左侧）
+    const m1: @mask(16) = @vector.splat(34u8) == c;
+    if @vector.any(m1) == false {
+        return 4;
+    }
+    if @vector.all(m1) == true {
+        return 5;
+    }
+
+    // 3. 算术：内联 splat 与向量相加，结果要按元素生效
+    const s: V4i = @vector.splat(7);
+    const r0: V4i = s + @vector.splat(5);
+    if @vector.all(r0 == @vector.splat(12)) == false {
+        return 6;
+    }
+
+    // 4. 掩码比较：内联 splat 参与 < 比较
+    const u: V4u = @vector.splat(3 as u32);
+    const m2: @mask(4) = u < @vector.splat(9 as u32);
+    if @vector.all(m2) == false {
+        return 7;
+    }
+
+    // 5. 同一 splat 目标被多次复用（连续写 simd_splat_target_type 不串味）
+    const r1: V4i = s * @vector.splat(2) + @vector.splat(3);
+    if @vector.all(r1 == @vector.splat(17)) == false {
+        return 8;
+    }
+    return 0;
+}

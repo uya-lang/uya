@@ -28113,3 +28113,79 @@ $ ./bin/uya run --vm src/main.uya -- --version → v0.11.0   （rc=0）
 
 注：macOS 的两份 hosted 种子（`backup/uya-hosted-macos*.c`）需要在 macOS 或 zig 环境下刷新，
 本次只刷新了 linux/x86_64 与本机通用 hosted 种子。
+
+## 第 755 轮：ASTNode 换成匿名 union 重叠组（1856 B → **152 B**），第 683 轮的踩字根因查清
+
+设计文档见 `docs/astnode_overlap_design.md`，执行清单见 `docs/todo_astnode_overlap.md`。
+
+### 1. 体积
+
+`ASTNode` 从「259 字段全内联」改成「4 个公共字段 + 1 个匿名 union 块（80 组）+ 8 个公共尾字段」，
+字段集与访问点**一行没改**（3986 处 `node.field` 保持原样）。
+
+```
+$ gcc 探针（读 src/.uyacache/uya_part1_types.h）
+sizeof(ASTNode)=1856 align=8   →   sizeof(ASTNode)=152 align=8      （12.2×）
+```
+
+### 2. 两个真 bug（都在这一轮定位并修掉）
+
+**bug 1（前端，C99 + `--vm` 都中）**：`simd_splat_target_type` 单独成组，块 offset 0 与
+`call_expr_callee` 撞车；它却只写在 `AST_CALL_EXPR` 上 → 写它就把被调方指针抹成裸类型节点，
+`@vector.splat` 认不出来 → `lib/std/json/encoder.uya` 报 15 条「向量比较要求左右操作数都是 @vector」。
+修法：并进 `call_expr` 组。连带的回归用例 `tests/test_vector_splat_peer_bind.uya` 已固化
+（把字段移回独立组重建即可复现，13 条报错）。
+
+**bug 2（只在 `--vm` 上暴露）**：`test_json_from_json_slice`（rc=4）/ `test_json_struct_collections`（rc=73）
+在 `--vm` 下取值错位，C99 过、main 平坦版编译器 `--vm` 也过。
+
+- 字节码 diff：两版只差 **3 条指令**（多一次「往结构体字段写零」）；`--dump-exec-hir` 两版**完全一致**
+  → 差别在**发射字节码时读到的数据**，不在降级树上。
+- 组级二分（写脚本把 union 里指定组「摊平」回公共区，用例当 oracle）：
+  摊平全部 → 通过；二分 → 组 17 = `var_decl`；再对 51 个共享 offset 的候选组做「union 里只留 17+X」
+  → 只有 X=52 = `for_stmt` 复现。
+- 字段级收窄（`for_stmt` 组只保留前 k 个字段）：k=6 FAIL、k=5 PASS
+  → 撞车字段是 **`for_stmt_range_end`（offset 56）** ↔ **`var_decl_moved_field_src`**。
+- 代码位置：`src/exec/builder.uya:exec_builder_emit_moved_field_clear()` 读
+  `stmt.ast_node.var_decl_moved_field_src` 决定要不要补「移动源字段清零」，**没校验 kind**。
+  而 `HIR_STMT_VAR_INIT` 的 `ast_node` 在 `for x in a..b` 降级出的迭代变量初始化处，指的是那个
+  `AST_FOR_STMT` —— 平坦结构下该字段是独立存储、值为 0（跳过），重叠后读到的是
+  `for_stmt_range_end`（非空 AST 指针）→ 误判成「有被移动字段」→ 多发射一条字段清零。
+- 修法：加 `stmt.ast_node.type != ASTNodeType.AST_VAR_DECL → return 0` 守卫
+  （与相邻的 `exec_builder_stmt_drop_decl()` 已有守卫一致）。
+
+> 总结：**平坦结构会掩盖所有缺失的 kind 守卫**——读错 kind 的变体字段只会读到 0；
+> 重叠之后就是「读到邻组的真实指针」。所以变体字段的每个读取点都必须证明 kind。
+
+### 3. 门禁与收益
+
+修复后的两道全量门禁（同一个 `bin/uya`，`sizeof(ASTNode)=152`）：
+
+| 门禁 | 结果 | 失败 | 归因 |
+|---|---|---|---|
+| `make check`（C99 全量） | **1197 / 1198** | `test_tls_x509` rc=4 | 既有失败：用 main 树的平坦版编译器复现同样 rc=4 |
+| `make exec-census`（`--vm` 全量） | **909 / 913**（跳过 5，通过率 99.6%） | `test_tls_x509` rc=4；`test_https_debug` / `test_https_production` / `test_https_real_site` rc=137 | 前者同上；后三条是环境类超时/被杀 |
+
+修复前 `--vm` 是 907/913，缺的正是 `test_json_from_json_slice`（rc=4）与
+`test_json_struct_collections`（rc=73）——修完两条自动转绿。
+
+**宿主侧内存/耗时 A/B**（同一份源码、同一台机器，负载 =「编译整个编译器树」`make uya`，
+每次冷启动删 `src/build` 与 `src/.uyacache`，取两次最好值，峰值 RSS 用 `os.wait4` 的 `rusage`）：
+
+| 变体 | 耗时 | 峰值 RSS |
+|---|---|---|
+| 平坦 `ASTNode`（sizeof=1856） | 16.0 s | **2685.6 MB** |
+| 重叠组 `ASTNode`（sizeof=152） | 15.6 s | **707.3 MB** |
+
+→ **峰值 RSS 降到 26%（省 1.93 GB，3.8×）**，耗时基本持平（−2.6%，在噪声量级）。
+这一步也解释了为什么这件事值得做：编译器的 AST arena 原本是「按 1856 B/节点」线性增长，
+现在按 152 B 增长，同样的树只占 1/12 内存 —— 大工程的编译（尤其 `--vm` 自身跑编译器这种
+「编译器 + VM 值竞技场」双份内存的场景）能明显少踩 OOM。
+
+### 4. 收益口径要说清（别把两件事混在一起）
+
+`--vm` 的内存放大主体**不是** ASTNode：VM 里结构体「值」= `ExecValue` 数组（每字段 56 B）、按值深拷贝，
+而编译器自身的 arena 是原生内存，AST 节点走原生字段通道。实测 `--vm` 解释执行编译器 check 一个
+13.6 KB 源文件时，VM 值竞技场累计 768 MB，而同一份文件的 AST arena 只有 ~2 MB 量级。
+所以本轮压缩 ASTNode 的收益在 **arena 与 cache 局部性** 这条线上，与第 743–754 轮那条
+「VM 值竞技场」线互不相干，记账要分开。
