@@ -8327,6 +8327,73 @@ fn c99_scalar_type_rank(type_c: &byte) i32 {
     return 0;
 }
 
+// 饱和/包装二元运算的「有效」类型秩：c99_scalar_type_rank 之外再认 size_t
+// （`usize` 在 C 侧是 size_t，秩与 64 位整数相同）。
+fn c99_wrapping_type_rank(type_c: &byte) i32 {
+    const rank: i32 = c99_scalar_type_rank(type_c);
+    if rank != 0 {
+        return rank;
+    }
+    if type_c == null {
+        return 0;
+    }
+    if strcmp(type_c as *byte, "size_t" as *byte) == 0 {
+        return 4;
+    }
+    return 0;
+}
+
+// 包装/饱和二元运算的操作数类型：`get_c_type_of_expr` 只对标识符、成员访问这类
+// 叶子节点拿得到真类型，复合左操作数（cast 表达式、二元表达式）会落到 int32_t 兜底，
+// 于是整条链按 32 位发射：
+//
+//   const days: i64 = 29072;
+//   days *% 86400 as i64 +% 3600     // 期望 2511824400，实际 -1783142896（mod 2^32）
+//
+// VM 后端一直是正确的，所以这是 C99 后端的单边缺陷；x509 有效期计算
+// （`lib/tls/x509/cert.uya` 的 `time_components_to_unix`）就是这种形状，
+// 凡 notAfter 晚于 2038-01-19 的证书都会被算成负时间戳（= 已过期）。
+//
+// 分派规则：cast 取目标类型；二元表达式取两侧更宽的那个（饱和/包装运算的结果类型
+// 就是操作数类型）；其余交给 `get_c_type_of_expr`。
+fn c99_wrapping_operand_type_c(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
+    if codegen == null || expr == null {
+        return null;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR {
+        return c99_interp_expr_c_type(codegen, expr);
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        const left_c: &byte = c99_wrapping_operand_type_c(codegen, expr.binary_expr_left);
+        const right_c: &byte = c99_wrapping_operand_type_c(codegen, expr.binary_expr_right);
+        if c99_wrapping_type_rank(left_c) >= c99_wrapping_type_rank(right_c) {
+            return left_c;
+        }
+        return right_c;
+    }
+    return get_c_type_of_expr(codegen, expr);
+}
+
+// 兜底成 int32_t 时改用 checker 推断出的更宽整数类型：
+// 只在「已经落到 int32_t 秩」时提宽，绝不触碰 u8/u16/u32 —— 它们的秩更小，
+// 提宽会把 `u8 +| 10` 的钳位从 255 变成 int32 边界（饱和语义错）。
+fn c99_widen_wrapping_operand_type(codegen: &C99CodeGenerator, expr: &ASTNode, type_c: &byte) &byte {
+    if expr == null || type_c == null {
+        return type_c;
+    }
+    if c99_wrapping_type_rank(type_c) != 3 {
+        return type_c;
+    }
+    const inferred_c: &byte = c99_get_inferred_expr_type_c(codegen, expr);
+    if inferred_c == null {
+        return type_c;
+    }
+    if c99_wrapping_type_rank(inferred_c) > 3 {
+        return inferred_c;
+    }
+    return type_c;
+}
+
 fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         const left: &ASTNode = expr.binary_expr_left;
         const right: &ASTNode = expr.binary_expr_right;
@@ -8398,7 +8465,7 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             // 字面量解析出来是 int32_t，只看左边会把整个 i64 饱和/包装运算截断成
             // i32 域（实测 `0i64 -| (-2147483648i64)` 宿主产物 2147483647，而解释
             // 执行给出正确的 2147483648 → 两后端的 --strict-overflow 结论不一致）。
-            var type_c: &byte = get_c_type_of_expr(codegen, left);
+            var type_c: &byte = c99_wrapping_operand_type_c(codegen, left);
             // 左操作数是**字面量**时改取右操作数的类型：字面量在 `get_c_type_of_expr`
             // 里恒为 int32_t（不看 `i64` 后缀），只看左边会把整个 i64 饱和/包装运算
             // 截断成 i32 域（实测 `0i64 -| (-2147483648i64)` 宿主产物 2147483647，
@@ -8412,6 +8479,10 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     type_c = right_type_c;
                 }
             }
+            // 左操作数是复合表达式（cast、二元表达式）时，get_c_type_of_expr 只会
+            // 兜底成 int32_t；这里改用 checker 推断出的更宽整数类型，避免把整条
+            // i64 饱和/包装链截断成 32 位（详见 c99_widen_wrapping_operand_type）。
+            type_c = c99_widen_wrapping_operand_type(codegen, left, type_c);
             if type_c == null { type_c = "int64_t" as &byte; }
             if op_code == TokenType.TOKEN_PLUS_PIPE as i32 || op_code == TokenType.TOKEN_MINUS_PIPE as i32 || op_code == TokenType.TOKEN_ASTERISK_PIPE as i32 {
                 var base_type: &byte = type_c;

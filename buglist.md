@@ -1,6 +1,8 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-24（**本轮收口 1 条 P0**：macos-ci `make tests-hosted` 的 31 个失败用例
+**最后更新：** 2026-11-15（v0.12.0 发版：修掉 C99 后端 i64 饱和/包装链被截成 32 位，
+连带修好 X.509 证书 notAfter ≥ 2038 被算成「已过期」；同时登记两条新发现的静默截断欠账）。
+此前：2026-10-24（**本轮收口 1 条 P0**：macos-ci `make tests-hosted` 的 31 个失败用例
 —— `ptsname` 的 Darwin 原型撞车（15 例）、`--nostdlib` 用例越出「仅 Linux x86_64」边界（14 例）、
 x86 屏障助记符 `mfence` 在 arm64 上不被 clang 认识（1 例）、信号常量写死 Linux 编号（1 例）；
 详见"编译器 bug"首条，跟踪种子已全部刷新。此前：2026-10-23（**同日又收口 1 条 P0**：macOS hosted 自举 —— codegen 把
@@ -469,6 +471,45 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [x] **P1 / 严重：C99 后端把 i64 饱和/包装链截断成 32 位，X.509 notAfter ≥ 2038 被算成「已过期」**
+  - 状态：**已修复**（2026-11-15，v0.12.0；回归测试 `tests/test_i64_wrapping_chain.uya`）
+  - 现象：`uya test tests/test_tls_x509.uya` 在 C99 与 VM 上表现不一致；进一步最小化后
+    `const days: i64 = 29072; days *% 86400 as i64 +% 3600` 在 C99 后端得到 **-1783142896**
+    （正确值 2511824400，差值恰为 2^32），VM 后端一直正确。
+  - 根因：`gen_binary_expr` 的饱和/包装分支用 `get_c_type_of_expr(左操作数)` 选 C 类型，
+    而该函数只对标识符、成员访问这类叶子节点拿得到真类型，**复合**左操作数（cast 表达式、
+    二元表达式）一律兜底成 `int32_t` —— 于是整条链按 32 位发射（`(uint32_t)` 相加后
+    再 `(int32_t)` 回写）。此前只处理了「左操作数是字面量」这一侧，对称的一侧漏了。
+  - 影响：`lib/tls/x509/cert.uya` 的 `time_components_to_unix` 正是这种形状，
+    凡 notAfter 晚于 2038-01-19 的证书都会被算成负时间戳（= 已过期），即 X.509 侧的 2038 问题。
+  - 修复内容：
+    - `src/codegen/c99/expr.uya`：新增 `c99_wrapping_operand_type_c`（cast 取目标类型、
+      二元表达式取两侧更宽的一侧）与 `c99_wrapping_type_rank`（把 `size_t` 认作 64 位秩），
+      并在「已经兜底成 int32_t 秩」时改用 checker 推断出的更宽整数类型；
+      不触碰 u8/u16/u32（提宽会把 `u8 +| 10` 的钳位从 255 变成 int32 边界）。
+    - `tests/test_i64_wrapping_chain.uya`（新增）：覆盖 cast 左操作数、二元左操作数、
+      多级链、饱和 `+|`/`*|`，以及 `u8` 饱和边界不被提宽。
+    - `tests/test_tls_x509.uya`：两条链校验正例改用真实 RSA 测试链
+      （`tests/fixtures/x509/{root,inter,leaf}.der`，`@embed` 内嵌），不再用「只有 rsa_n/rsa_e」
+      的 mock 证书 —— 后者自 `b578a7ed`（2026-11-03 把链校验重写成逐级真验签）起必然失败，
+      使 `make check` 一直红着。
+
+- [ ] **P1：大于 INT32_MAX 的无后缀整数字面量被静默截断**
+  - 状态：**未修复**（2026-11-15 记录；C99 与 VM 行为一致，属字面量推断侧）
+  - 现象：`const c: i64 = 0 - 5023641600;` 两个后端都得到 -728674304
+    （5023641600 mod 2^32 后按有符号解释），而不是 -5023641600，且没有任何诊断。
+  - 建议：无后缀字面量按上下文/后缀定宽；超出 i32 范围时要么推断 i64，要么报错要求
+    显式 `as i64`，不要静默回绕。写测试夹具时避开这种写法（改用等价 i64 表达式）。
+
+- [ ] **P2：`parse_asn1_time` 的 GeneralizedTime 四位年份用 byte 算术计算**
+  - 状态：**未修复**（2026-11-15 记录；测试夹具已限定在 UTCTime 窗口规避）
+  - 现象：`lib/tls/x509/cert.uya` 的 `parse_asn1_time` 在 GeneralizedTime 分支里
+    `(data[0] - '0') * 1000 + ...` 先做 8 位算术再 `as i64`，年份算错；于是 notBefore/notAfter
+    ≥ 2050 的证书时间被解析成垃圾值（实测 OpenSSL 生成的 2126 年证书被判「已过期」）。
+  - 建议：先升到 i64 再乘加（`(data[0] as i64 - 48) * 1000`），并补一条 GeneralizedTime 单测。
+  - 连带：`tests/fixtures/x509/` 的测试链有效期刻意落在 2049 年之前（UTCTime），
+    该欠账修好后可以放宽。
 
 - [x] **P0 / 严重：macos-ci `make tests-hosted` 31 个用例失败 —— `ptsname` ABI 撞车、nostdlib 目标越界、x86 屏障助记符、Linux 信号常量**
   - 状态：**已修复**（2026-10-24；依据 `macos-ci-1024-log.txt`：1031 用例 / 31 失败）

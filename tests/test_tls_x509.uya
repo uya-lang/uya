@@ -6,6 +6,24 @@ use tls.x509.asn1;
 use tls.x509.cert;
 use tls.x509.verify;
 
+// 固定测试链（RSA-2048，SHA-256，有效期到 2126 年）：
+//   leaf <- inter <- root
+// 生成方式：openssl req -x509 / x509 -req，脚本化生成后把 DER 放进
+// tests/fixtures/x509/，用 @embed 在编译期嵌入，避免在源码里堆几千行字节数组。
+// 链校验现在会逐级真验签（lib/tls/x509/verify.uya），mock 出来的「只有 rsa_n/rsa_e」
+// 证书没有 TBS 与签名字节，只能验证拒绝路径，正向路径必须用真实证书。
+const LEAF_DER: &[const byte] = @embed("fixtures/x509/leaf.der");
+const INTER_DER: &[const byte] = @embed("fixtures/x509/inter.der");
+const ROOT_DER: &[const byte] = @embed("fixtures/x509/root.der");
+
+/// 从内嵌 DER 解析一张固定测试证书；解析失败返回 false。
+fn parse_fixture_cert(der: &[const byte], cert: &Cert) bool {
+    cert_parse(der.ptr, der.len, cert) catch {
+        return false;
+    };
+    return true;
+}
+
 fn test_asn1_der_sequence_integer_octetstring() i32 {
     var der: [byte: 13] = [
         0x30, 0x0A,
@@ -87,151 +105,57 @@ fn test_cert_verify_self_no_key_fails() i32 {
 }
 
 fn test_verify_chain_rsa_ok() i32 {
-    const valid_not_before: i64 = 0;
-    const valid_not_after: i64 = 4102444800;
-    // 构造一个简单的 RSA-only 链：leaf -> root，root 作为信任锚
-    var root: Cert = Cert{};
-    root.rsa_n_len = 1;
-    root.rsa_n[0] = 0xAA;
-    root.rsa_e_len = 1;
-    root.rsa_e[0] = 0x01;
-    root.has_basic_constraints = true;
-    root.is_ca = true;
-    root.has_path_len = false;
-    root.max_path_len = 0;
-    root.has_key_usage = true;
-    root.key_usage_bits = KU_KEY_CERT_SIGN;
-    root.has_validity = true;
-    root.not_before = valid_not_before;
-    root.not_after = valid_not_after;
-
+    // 真实链：leaf 由 inter 签发，inter 作为唯一信任锚
     var leaf: Cert = Cert{};
-    leaf.rsa_n_len = 1;
-    leaf.rsa_n[0] = 0xBB;
-    leaf.rsa_e_len = 1;
-    leaf.rsa_e[0] = 0x01;
-    leaf.has_basic_constraints = false;
-    leaf.is_ca = false;
-    leaf.has_path_len = false;
-    leaf.max_path_len = 0;
-    leaf.has_key_usage = true;
-    leaf.key_usage_bits = KU_DIGITAL_SIGNATURE;
-    leaf.has_validity = true;
-    leaf.not_before = valid_not_before;
-    leaf.not_after = valid_not_after;
-
-    // 链：leaf -> root，信任锚列表只包含 root；要求叶子具有数字签名用途
-    verify_chain_rsa(&leaf, &root, 1, &root, 1, KU_DIGITAL_SIGNATURE) catch {
+    var inter: Cert = Cert{};
+    if !parse_fixture_cert(LEAF_DER, &leaf) {
         return 1;
+    }
+    if !parse_fixture_cert(INTER_DER, &inter) {
+        return 2;
+    }
+    var chain: [Cert: 1] = [inter];
+    verify_chain_rsa(&leaf, &chain[0], 1, &inter, 1, KU_DIGITAL_SIGNATURE) catch {
+        return 3;
     };
     return 0;
 }
 
 fn test_verify_chain_rsa_trust_anchor_mismatch_fails() i32 {
-    const valid_not_before: i64 = 0;
-    const valid_not_after: i64 = 4102444800;
-    var root: Cert = Cert{};
-    root.rsa_n_len = 1;
-    root.rsa_n[0] = 0xAA;
-    root.rsa_e_len = 1;
-    root.rsa_e[0] = 0x01;
-    root.has_basic_constraints = true;
-    root.is_ca = true;
-    root.has_path_len = false;
-    root.max_path_len = 0;
-    root.has_key_usage = true;
-    root.key_usage_bits = KU_KEY_CERT_SIGN;
-    root.has_validity = true;
-    root.not_before = valid_not_before;
-    root.not_after = valid_not_after;
+    // 链本身可验（leaf <- inter），但信任锚给的是 leaf：锚无法给 inter 验签，
+    // 且两边公钥不同，因此必须判失败。
     var leaf: Cert = Cert{};
-    leaf.rsa_n_len = 1;
-    leaf.rsa_n[0] = 0xBB;
-    leaf.rsa_e_len = 1;
-    leaf.rsa_e[0] = 0x01;
-    leaf.has_basic_constraints = false;
-    leaf.is_ca = false;
-    leaf.has_path_len = false;
-    leaf.max_path_len = 0;
-    leaf.has_key_usage = true;
-    leaf.key_usage_bits = KU_DIGITAL_SIGNATURE;
-    leaf.has_validity = true;
-    leaf.not_before = valid_not_before;
-    leaf.not_after = valid_not_after;
-
-    // 信任锚列表为空，预期链验证失败
-    verify_chain_rsa(&leaf, &root, 1, &root, 0, KU_DIGITAL_SIGNATURE) catch {
+    var inter: Cert = Cert{};
+    if !parse_fixture_cert(LEAF_DER, &leaf) {
+        return 1;
+    }
+    if !parse_fixture_cert(INTER_DER, &inter) {
+        return 2;
+    }
+    var chain: [Cert: 1] = [inter];
+    verify_chain_rsa(&leaf, &chain[0], 1, &leaf, 1, KU_DIGITAL_SIGNATURE) catch {
         return 0;
     };
     return 3;
 }
 
 fn test_verify_chain_rsa_long_chain_ok() i32 {
-    const valid_not_before: i64 = 0;
-    const valid_not_after: i64 = 4102444800;
-    var root: Cert = Cert{};
-    root.rsa_n_len = 1;
-    root.rsa_n[0] = 0xA1;
-    root.rsa_e_len = 1;
-    root.rsa_e[0] = 0x01;
-    root.has_basic_constraints = true;
-    root.is_ca = true;
-    root.has_path_len = false;
-    root.max_path_len = 0;
-    root.has_key_usage = true;
-    root.key_usage_bits = KU_KEY_CERT_SIGN;
-    root.has_validity = true;
-    root.not_before = valid_not_before;
-    root.not_after = valid_not_after;
-
-    var inter1: Cert = Cert{};
-    inter1.rsa_n_len = 1;
-    inter1.rsa_n[0] = 0xB1;
-    inter1.rsa_e_len = 1;
-    inter1.rsa_e[0] = 0x01;
-    inter1.has_basic_constraints = true;
-    inter1.is_ca = true;
-    inter1.has_path_len = true;
-    inter1.max_path_len = 2;
-    inter1.has_key_usage = true;
-    inter1.key_usage_bits = KU_KEY_CERT_SIGN;
-    inter1.has_validity = true;
-    inter1.not_before = valid_not_before;
-    inter1.not_after = valid_not_after;
-
-    var inter2: Cert = Cert{};
-    inter2.rsa_n_len = 1;
-    inter2.rsa_n[0] = 0xC1;
-    inter2.rsa_e_len = 1;
-    inter2.rsa_e[0] = 0x01;
-    inter2.has_basic_constraints = true;
-    inter2.is_ca = true;
-    inter2.has_path_len = true;
-    inter2.max_path_len = 1;
-    inter2.has_key_usage = true;
-    inter2.key_usage_bits = KU_KEY_CERT_SIGN;
-    inter2.has_validity = true;
-    inter2.not_before = valid_not_before;
-    inter2.not_after = valid_not_after;
-
+    // 真实多级链：leaf <- inter <- root，root 作为信任锚，两级签名都要验过
     var leaf: Cert = Cert{};
-    leaf.rsa_n_len = 1;
-    leaf.rsa_n[0] = 0xD1;
-    leaf.rsa_e_len = 1;
-    leaf.rsa_e[0] = 0x01;
-    leaf.has_basic_constraints = false;
-    leaf.is_ca = false;
-    leaf.has_path_len = false;
-    leaf.max_path_len = 0;
-    leaf.has_key_usage = true;
-    leaf.key_usage_bits = KU_DIGITAL_SIGNATURE;
-    leaf.has_validity = true;
-    leaf.not_before = valid_not_before;
-    leaf.not_after = valid_not_after;
-
-    var chain: [Cert: 3] = [inter1, inter2, root];
-    verify_chain_rsa(&leaf, &chain[0], 3, &root, 1, KU_DIGITAL_SIGNATURE) catch {
+    var inter: Cert = Cert{};
+    var root: Cert = Cert{};
+    if !parse_fixture_cert(LEAF_DER, &leaf) {
         return 1;
+    }
+    if !parse_fixture_cert(INTER_DER, &inter) {
+        return 2;
+    }
+    if !parse_fixture_cert(ROOT_DER, &root) {
+        return 3;
+    }
+    var chain: [Cert: 2] = [inter, root];
+    verify_chain_rsa(&leaf, &chain[0], 2, &root, 1, KU_DIGITAL_SIGNATURE) catch {
+        return 4;
     };
     return 0;
 }
@@ -338,34 +262,25 @@ fn test_cert_check_validity_accepts_current_window() i32 {
 }
 
 fn test_verify_chain_rsa_rejects_expired_leaf() i32 {
-    var root: Cert = Cert{};
-    root.rsa_n_len = 1;
-    root.rsa_n[0] = 0xAA;
-    root.rsa_e_len = 1;
-    root.rsa_e[0] = 0x01;
-    root.has_basic_constraints = true;
-    root.is_ca = true;
-    root.has_key_usage = true;
-    root.key_usage_bits = KU_KEY_CERT_SIGN;
-    root.has_validity = true;
-    root.not_before = 0;
-    root.not_after = 4102444800;
-
+    // 链本身可验，但把叶子的 notAfter 压到过去，必须因有效期失败
     var leaf: Cert = Cert{};
-    leaf.rsa_n_len = 1;
-    leaf.rsa_n[0] = 0xBB;
-    leaf.rsa_e_len = 1;
-    leaf.rsa_e[0] = 0x01;
-    leaf.has_key_usage = true;
-    leaf.key_usage_bits = KU_DIGITAL_SIGNATURE;
-    leaf.has_validity = true;
-    leaf.not_before = 0;
-    leaf.not_after = 1;
+    var inter: Cert = Cert{};
+    if !parse_fixture_cert(LEAF_DER, &leaf) {
+        return 1;
+    }
+    if !parse_fixture_cert(INTER_DER, &inter) {
+        return 2;
+    }
+    cert_parse_validity(&leaf) catch {
+        return 3;
+    };
+    leaf.not_after = 1; // 1970 年，早已过期
 
-    verify_chain_rsa(&leaf, &root, 1, &root, 1, KU_DIGITAL_SIGNATURE) catch {
+    var chain: [Cert: 1] = [inter];
+    verify_chain_rsa(&leaf, &chain[0], 1, &inter, 1, KU_DIGITAL_SIGNATURE) catch {
         return 0;
     };
-    return 1;
+    return 4;
 }
 
 export fn main() i32 {
