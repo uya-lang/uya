@@ -385,6 +385,23 @@ fn c99_checked_arith_c_type(codegen: &C99CodeGenerator, kind: i32) &byte {
     return bare;
 }
 
+/// C 类型串是否为整型算术（浮点/布尔不算）。
+fn c99_c_type_is_integer_arith(type_c: &byte) i32 {
+    if type_c == null {
+        return 0;
+    }
+    if strstr(type_c as *byte, "float" as *byte) != null {
+        return 0;
+    }
+    if strstr(type_c as *byte, "double" as *byte) != null {
+        return 0;
+    }
+    if strstr(type_c as *byte, "bool" as *byte) != null {
+        return 0;
+    }
+    return 1;
+}
+
 // C 类型串是否为无符号整数（无符号不做 MIN/-1 与负溢出判断）
 fn c99_c_type_is_unsigned(type_c: &byte) i32 {
     if type_c == null {
@@ -3415,6 +3432,19 @@ fn c99_emit_static_method_call(codegen: &C99CodeGenerator, expr: &ASTNode,
     return 1;
 }
 
+/// hosted 下 mem 族调用的判空包装名；不是这几个函数返回 null。
+fn c99_hosted_mem_null_guard_name(name: &byte) &byte {
+    if name == null {
+        return null;
+    }
+    if strcmp(name as *byte, "memcpy" as *byte) == 0 { return "__uya_checked_memcpy" as &byte; }
+    if strcmp(name as *byte, "memmove" as *byte) == 0 { return "__uya_checked_memmove" as &byte; }
+    if strcmp(name as *byte, "memset" as *byte) == 0 { return "__uya_checked_memset" as &byte; }
+    if strcmp(name as *byte, "memchr" as *byte) == 0 { return "__uya_checked_memchr" as &byte; }
+    if strcmp(name as *byte, "memcmp" as *byte) == 0 { return "__uya_checked_memcmp" as &byte; }
+    return null;
+}
+
 fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         const callee: &ASTNode = expr.call_expr_callee;
         const args: & & ASTNode = expr.call_expr_args;
@@ -4195,6 +4225,11 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     const gen_decl: &ASTNode = find_generic_fn_decl_for_mono_call(codegen, func_name, expr.call_expr_type_arg_count);
                     const mono_name: &byte = get_mono_function_name(codegen, func_name, expr.call_expr_type_args, expr.call_expr_type_arg_count, gen_decl);
                     safe_name = get_safe_c_identifier(codegen, mono_name);
+                }
+                // hosted 把 mem 族调用点换成带判空的包装（Uya 语义：空指针/n==0 返回入参）。
+                if (codegen.is_nostdlib == 0 && func_name != null) {
+                    const guarded: &byte = c99_hosted_mem_null_guard_name(func_name);
+                    if (guarded != null) { safe_name = guarded; }
                 }
                 const libc_ret_c: &byte = get_extern_libc_return_c_type(codegen, fn_decl);
                 if libc_ret_c != null {
@@ -8266,6 +8301,32 @@ fn c99_gen_simd_unary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
     return 1;
 }
 
+/// C 整数类型的宽度秩（用于在左右操作数类型不一致时挑更宽的那个）。
+/// 参数：`type_c` C 类型名（可为 null，可带 `const ` 前缀）。
+/// 返回值：0 = 未知/非整数；1..4 = int8/16/32/64 系列。
+fn c99_scalar_type_rank(type_c: &byte) i32 {
+    if type_c == null {
+        return 0;
+    }
+    var name: &byte = type_c;
+    if strncmp(name as *byte, "const " as *byte, 6) == 0 {
+        name = (name as *byte + 6) as &byte;
+    }
+    if strcmp(name as *byte, "int64_t" as *byte) == 0 || strcmp(name as *byte, "uint64_t" as *byte) == 0 {
+        return 4;
+    }
+    if strcmp(name as *byte, "int32_t" as *byte) == 0 || strcmp(name as *byte, "uint32_t" as *byte) == 0 {
+        return 3;
+    }
+    if strcmp(name as *byte, "int16_t" as *byte) == 0 || strcmp(name as *byte, "uint16_t" as *byte) == 0 {
+        return 2;
+    }
+    if strcmp(name as *byte, "int8_t" as *byte) == 0 || strcmp(name as *byte, "uint8_t" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         const left: &ASTNode = expr.binary_expr_left;
         const right: &ASTNode = expr.binary_expr_right;
@@ -8328,12 +8389,34 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         } else if op_code == TokenType.TOKEN_PLUS_PIPE as i32 || op_code == TokenType.TOKEN_MINUS_PIPE as i32 || op_code == TokenType.TOKEN_ASTERISK_PIPE as i32 ||
             op_code == TokenType.TOKEN_PLUS_PERCENT as i32 || op_code == TokenType.TOKEN_MINUS_PERCENT as i32 || op_code == TokenType.TOKEN_ASTERISK_PERCENT as i32 {
             // 饱和运算 +| -| *| 或包装运算 +% -% *%
+            // 类型未知时**不要**退成 int32_t：`0i64 -| x` 这种左操作数是字面量的写法
+            // 拿不到类型，退成 i32 会把整个 i64 饱和/包装运算截断成 i32 域
+            // （实测 `0i64 -| (-2147483648i64)` 宿主产物 2147483647，解释执行 2147483648），
+            // 进而让两后端的 --strict-overflow 证明结论不一致。退成 int64_t 只会
+            // 把值算宽，不会丢信息。
+            // 类型取左右操作数中**更宽**的那个：`0i64 -| x` 这种左边是字面量的写法，
+            // 字面量解析出来是 int32_t，只看左边会把整个 i64 饱和/包装运算截断成
+            // i32 域（实测 `0i64 -| (-2147483648i64)` 宿主产物 2147483647，而解释
+            // 执行给出正确的 2147483648 → 两后端的 --strict-overflow 结论不一致）。
             var type_c: &byte = get_c_type_of_expr(codegen, left);
-            if type_c == null { type_c = "int32_t" as &byte; }
+            // 左操作数是**字面量**时改取右操作数的类型：字面量在 `get_c_type_of_expr`
+            // 里恒为 int32_t（不看 `i64` 后缀），只看左边会把整个 i64 饱和/包装运算
+            // 截断成 i32 域（实测 `0i64 -| (-2147483648i64)` 宿主产物 2147483647，
+            // 解释执行给出正确的 2147483648 → 两后端 --strict-overflow 结论不一致）。
+            // 只在「左边是字面量 + 右边类型秩已知（整数）」时替换：绝不拿秩未知的
+            // size_t/指针类型反过来覆盖（那会把 `size_t +| 1` 降级成 int32_t，
+            // 指针被截断，VM 直接崩）；也不能把 `u8 +| 1` 升级成 int32（饱和边界错）。
+            if left != null && left.type == ASTNodeType.AST_NUMBER {
+                const right_type_c: &byte = get_c_type_of_expr(codegen, right);
+                if c99_scalar_type_rank(right_type_c) > 0 {
+                    type_c = right_type_c;
+                }
+            }
+            if type_c == null { type_c = "int64_t" as &byte; }
             if op_code == TokenType.TOKEN_PLUS_PIPE as i32 || op_code == TokenType.TOKEN_MINUS_PIPE as i32 || op_code == TokenType.TOKEN_ASTERISK_PIPE as i32 {
                 var base_type: &byte = type_c;
                 if type_c != null && strncmp(type_c as *byte, "const " as *byte, 6) == 0 { base_type = (type_c as *byte + 6) as &byte; }
-                if base_type == null { base_type = "int32_t" as &byte; }
+                if base_type == null { base_type = "int64_t" as &byte; }
                 fputs("({ " as *byte, codegen.emit_stream as *void);
                 fprintf(codegen.emit_stream as *void, "%s _l = (" as *byte, base_type as *byte);
                 gen_expr(codegen, left);
@@ -8391,6 +8474,27 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 gen_expr(codegen, right);
                 fputs(")))" as *byte, codegen.emit_stream as *void);
             }
+        } else if ((op == TokenType.TOKEN_SLASH || op == TokenType.TOKEN_PERCENT) &&
+            codegen.current_function_decl != null && codegen.in_global_init == 0 &&
+            c99_c_type_is_integer_arith(get_c_type_of_expr(codegen, expr)) != 0) {
+            // 整型 `/` `%` 先判除数为 0：Uya 语义是运行时错误（exec VM 直接
+            // `exec: 除零` 并退出 1），C 里却是 UB（-O2 下会被折成任意值，
+            // 表现为「程序照常跑完」）。这里按同样语义把进程以 1 退出。
+            // 只在函数体内发射：静态初始化器位置不允许语句表达式。
+            fputs("({ __typeof__(" as *byte, codegen.emit_stream as *void);
+            gen_expr(codegen, left);
+            fputs(") _uya_dv_l = (" as *byte, codegen.emit_stream as *void);
+            gen_expr(codegen, left);
+            fputs("); __typeof__(" as *byte, codegen.emit_stream as *void);
+            gen_expr(codegen, right);
+            fputs(") _uya_dv_r = (" as *byte, codegen.emit_stream as *void);
+            gen_expr(codegen, right);
+            // 除数为 0：与 exec VM 一样终止进程（exit_group=60，状态 1）。
+            // 用生成的 C 里到处都在用的 uya_syscall1，避免在 split-C 的每个 TU
+            // 里都要额外声明一个 helper。
+            fputs("); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l " as *byte, codegen.emit_stream as *void);
+            c99_emit_binary_operator(codegen, op_code_for_emit(op));
+            fputs(" _uya_dv_r; })" as *byte, codegen.emit_stream as *void);
         } else {
             // 普通二元表达式
             fputc(40, codegen.emit_stream as *void);  // '('
@@ -10174,13 +10278,18 @@ fn gen_cast_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 fprintf(codegen.emit_stream as *void, "; %s _uya_asbang; " as *byte, union_c as *byte);
                 fputs("if (_uya_asbang_src.error_id != 0) { " as *byte, codegen.emit_stream as *void);
                 fputs("_uya_asbang.error_id = _uya_asbang_src.error_id; " as *byte, codegen.emit_stream as *void);
-                fprintf(codegen.emit_stream as *void, "_uya_asbang.value = (%s){0}; " as *byte, value_field_c as *byte);
+                // 载荷类型一律取临时变量自己的 `.value` 字段类型（`__typeof__`）：
+                // 目标类型来自 AST，泛型单态展开时 `as! T` 的 `T` 还没换成具体类型，
+                // `value_field_c` 会算成本身是错误联合的名字（`struct err_union_int32_t`），
+                // 于是生成 `int32_t = (struct err_union_int32_t){0}`，宿主 cc 直接报
+                // 类型不兼容（typed route 回归就是这么挂的）。取字段类型则永远自洽。
+                fprintf(codegen.emit_stream as *void, "_uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; " as *byte);
                 fputs("} else { _uya_asbang.error_id = 0; " as *byte, codegen.emit_stream as *void);
                 // 成功分支：同载荷 C 类型或数值互转可用强转；!i32 as! !Http1AsyncResponse 等须写 {0}，禁止 (struct T)(int32_t)。
                 if allow_val_cast != 0 {
-                    fprintf(codegen.emit_stream as *void, "_uya_asbang.value = (%s)(_uya_asbang_src.value); " as *byte, value_field_c as *byte);
+                    fprintf(codegen.emit_stream as *void, "_uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); " as *byte);
                 } else {
-                    fprintf(codegen.emit_stream as *void, "_uya_asbang.value = (%s){0}; " as *byte, value_field_c as *byte);
+                    fprintf(codegen.emit_stream as *void, "_uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; " as *byte);
                 }
                 fputs("} _uya_asbang; })" as *byte, codegen.emit_stream as *void);
             } else if src_is_err_union != 0 && is_void != 0 {
@@ -10188,6 +10297,27 @@ fn gen_cast_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 gen_expr(codegen, src_expr);
                 fprintf(codegen.emit_stream as *void, "; %s _uya_asbang; " as *byte, union_c as *byte);
                 fputs("_uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang; })" as *byte, codegen.emit_stream as *void);
+            } else if src_expr != null && src_expr.type == ASTNodeType.AST_ERROR_VALUE {
+                // `error.Foo as! T`：源是**裸错误值**，不是错误联合。
+                // `AST_ERROR_VALUE` 的裸值路径只发一个整数 id（`%dU`），
+                // 而这条 `as!` 要的产物是 `!T`。若不特判，会掉进下面按
+                // 「普通表达式 → 错误联合」处理的 else 分支，生成
+                //   (int32_t)((struct err_union_int32_t){ .error_id = ... })
+                // —— 把结构体强转成整数，宿主 cc 报
+                // `aggregate value used where an integer was expected`
+                // （`lib/std/http/websocket_json.uya` 的
+                //  `error.BufferTooSmall as! usize` 就是这么挂的）。
+                // 正确语义：错误 id 原样保留，载荷为零值。
+                var bare_err_id: i32 = c99_get_or_add_error_id(codegen, src_expr.error_value_name);
+                if bare_err_id == 0 {
+                    bare_err_id = 1;
+                }
+                fprintf(codegen.emit_stream as *void, "({ %s _uya_asbang; " as *byte, union_c as *byte);
+                fprintf(codegen.emit_stream as *void, "_uya_asbang.error_id = %uU; " as *byte, bare_err_id as u32);
+                if is_void == 0 {
+                    fputs("_uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; " as *byte, codegen.emit_stream as *void);
+                }
+                fputs("_uya_asbang; })" as *byte, codegen.emit_stream as *void);
             } else {
                 fprintf(codegen.emit_stream as *void, "({ %s _uya_asbang = { .error_id = 0" as *byte, union_c as *byte);
                 if is_void == 0 {

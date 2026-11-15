@@ -63,18 +63,18 @@ fn ssl_server_identity_const_ptr(ctx: &const SslContext, slot: usize) &const Ssl
     if ctx == null || slot >= SSL_SERVER_ID_MAX || slot >= @len(ctx.server_identities) {
         return null;
     }
-    const base: &const SslServerIdentity = &ctx.server_identities[0];
-    const off: usize = slot * @size_of(SslServerIdentity);
-    return @ptr_from_usize(@usize_from_ptr(base as &void) + off) as &const SslServerIdentity;
+    // 用下标取地址，不要用 `base + slot*@size_of(T)`：结构体数组在 VM 里
+    // 每个元素是一个 ExecValue（56 字节），而 `@size_of` 给的是 C 布局
+    // 大小，裸指针算术会落到 ExecValue 中间，随后 `ADDR_FIELD 字段越界`
+    // （test_tls_handshake 就是这么挂的）。C99 侧两者等价。
+    return &ctx.server_identities[slot];
 }
 
 fn ssl_server_identity_ptr(ctx: &SslContext, slot: usize) &SslServerIdentity {
     if ctx == null || slot >= SSL_SERVER_ID_MAX || slot >= @len(ctx.server_identities) {
         return null;
     }
-    const base: &SslServerIdentity = &ctx.server_identities[0];
-    const off: usize = slot * @size_of(SslServerIdentity);
-    return @ptr_from_usize(@usize_from_ptr(base as &void) + off) as &SslServerIdentity;
+    return &ctx.server_identities[slot];
 }
 
 fn ssl_copy_name(dst: &byte, src: &const byte, src_len: usize) usize {

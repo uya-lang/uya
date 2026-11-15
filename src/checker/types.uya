@@ -254,6 +254,9 @@ struct ModuleInfo {
     filename: &byte,
     exports: &ExportedItem,
     export_count: i32,
+    // `exports` 的已分配容量。每加一条导出就把整块重分配并复制是 O(n²)：
+    // callgrind 里 `memcpy'append_module_export` 单独占 5.7% 的指令数。
+    export_capacity: i32,
     dependencies: &ModuleDependency,
     dependency_count: i32,
 }
@@ -333,6 +336,11 @@ struct TypeChecker {
     uya_root_dir: &byte,
     current_type_params: &TypeParam,
     current_type_param_count: i32,
+    // 单态化 lowering 用的临时类型替换：把类型参数名（如 T）替换成具体类型。
+    // 只有 subst_active != 0 时生效，lowering 结束会清掉。
+    subst_active: i32,
+    subst_name: &byte,
+    subst_type: Type,
     mono_instances: &MonoInstance,
     mono_instance_count: i32,
     mono_instance_capacity: i32,

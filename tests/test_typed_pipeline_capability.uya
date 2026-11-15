@@ -1,3 +1,4 @@
+use std;
 use std.process;
 use std.testing.assert_eq_u64;
 use libc.strcmp;
@@ -305,6 +306,11 @@ test "pipeline_child_clears_inherited_broker_state_before_ready" {
     try pipeline_child_signal_setup_self_test();
 }
 
+// 这三个用例验的是「终端前台进程组」语义：posix_openpt 开 pty、fork 出子进程、
+// tcsetpgrp 把前台组交给子进程，再断言父进程能把前台组读回来/恢复回去。
+// exec VM 明确不支持创建进程（`exec: 解释器不支持创建线程/进程(clone/fork)`），
+// 没有真实的子进程和前台组可观察，故按后端门控（与 kernel_sim 的原生用例一致）。
+std.cfg(std.backend == .be_native, {
 test "pipeline_terminal_inherit_reads_and_restores_foreground_group" {
     try pipeline_terminal_inherit_self_test();
 }
@@ -316,6 +322,7 @@ test "pipeline_background_executor_does_not_steal_foreground_terminal" {
 test "pipeline_stopped_terminal_child_is_cancelled_and_restores_foreground" {
     try pipeline_terminal_stopped_self_test();
 }
+}, {})
 
 test "pipeline_stream_reader_writer_define_blocking_and_eof_semantics" {
     try pipeline_stream_self_test();

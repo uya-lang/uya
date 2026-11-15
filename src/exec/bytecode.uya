@@ -21,6 +21,13 @@ enum BCOpcode {
     BC_MUL_SAT,
     BC_DIV,
     BC_REM,
+    // 溢出受检算术：结果写入错误联合槽位，正常时携带运算结果，
+    // 溢出/除零时携带错误 id（供 `(a + b) catch` 就地处理）。
+    BC_ADD_CHECK,
+    BC_SUB_CHECK,
+    BC_MUL_CHECK,
+    BC_DIV_CHECK,
+    BC_REM_CHECK,
     BC_BIT_AND,
     BC_BIT_OR,
     BC_BIT_XOR,
@@ -43,6 +50,9 @@ enum BCOpcode {
     BC_STORE_INDEX,
     BC_LOAD_UNION_TAG,
     BC_LOAD_UNION_PAYLOAD,
+    // 错误联合 match 分发：标签（ok=0，err=error_id）与成功分支载荷
+    BC_LOAD_ERROR_TAG,
+    BC_LOAD_ERROR_PAYLOAD,
     BC_CMP_EQ,
     BC_CMP_NE,
     BC_CMP_LT,
@@ -68,8 +78,15 @@ enum BCOpcode {
     BC_RET,
     BC_PRINT,
     BC_PRINTLN,
+    BC_STRING_INTERP,
+    BC_VECTOR_OP,
     BC_ERROR_ID,
     BC_ERROR_NAME,
+    // `@await f`：从 Future 的 `state: Poll<T>` 里取出 Ready 载荷。
+    BC_AWAIT,
+    // `局部 = 源槽` 且**源槽此后不会再被读**（builder 做活跃性判断后发射）：
+    // 所有权直接转移，不清空也是安全的 —— 但清空能立刻回收。
+    BC_STORE_LOCAL_MOVE,
 }
 
 struct BCErrorNameEntry {
@@ -134,4 +151,13 @@ struct BCProgram {
     has_user_main: i32,
     // std.testing 的 _test_passed 全局槽位；未导入时为 -1
     test_passed_global_index: i32,
+    // std.runtime 的 saved_argc 全局槽位；未导入时为 -1（VM 没有 C 运行时的 argc 注入）
+    saved_argc_global_index: i32,
+    saved_envp_global_index: i32,
+    saved_argv_global_index: i32,
+    // 宿主（编译器进程）传给被解释程序的 argv。解释器没有 C 运行时的
+    // `uya_rt_init(argc, argv)`，只能由宿主显式注入（见 `vm_run_program`）。
+    // host_argc <= 0 表示「只有程序名」，此时 saved_argc 退化为 1。
+    host_argc: i32,
+    host_argv: & &byte,
 }

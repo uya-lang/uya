@@ -801,6 +801,11 @@ fn checker_record_reachable_call(checker: &TypeChecker, callee: &ASTNode) void {
         return;
     }
     const reachable_callee: &ASTNode = resolve_reachable_callee_fn_decl(checker, callee);
+    if reachable_callee != null && checker.current_function_decl == null {
+        // 全局变量初始化器里的调用（`var dep: i32 = init_dep();`）不属于任何函数体：
+        // 不登记的话 callee 会被可达性裁剪掉，C99 后端生成的初始化函数就引用不到它。
+        _ = checker_add_function_root_decl(checker, reachable_callee);
+    }
     if reachable_callee != null && checker.current_function_decl != null {
         if checker.current_function_decl.type == ASTNodeType.AST_TEST_STMT {
             _ = checker_add_function_root_decl(checker, reachable_callee);

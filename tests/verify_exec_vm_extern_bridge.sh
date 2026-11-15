@@ -9,7 +9,8 @@ export UYA_ROOT="${REPO_ROOT}/lib/"
 
 TMP_STDOUT="$(mktemp)"
 TMP_STDERR="$(mktemp)"
-trap 'rm -f "$TMP_STDOUT" "$TMP_STDERR"' EXIT
+TMP_VARARGS="$(mktemp --suffix=.uya)"
+trap 'rm -f "$TMP_STDOUT" "$TMP_STDERR" "$TMP_VARARGS"' EXIT
 
 echo "验证 extern/libc bridge 正向路径..."
 "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_extern_bridge.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
@@ -40,7 +41,19 @@ fi
 echo "  run --exec --verbose extern mkdir/rmdir bridge ✓"
 
 echo "验证仅有 extern 声明的 varargs 继续稳定拒绝..."
-if "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_extern_decl_varargs_unsupported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
+# fcntl 已经有宿主桥；负例改用仍未登记的 C varargs 入口（ioctl）。
+cat > "$TMP_VARARGS" <<'UYAEOF'
+extern "libc" fn ioctl(fd: i32, request: i64, ...) i32;
+
+export fn main() i32 {
+    const rc: i32 = ioctl(9999999, 0);
+    if rc < 0 {
+        return 0;
+    }
+    return 0;
+}
+UYAEOF
+if "$COMPILER" run --vm "$TMP_VARARGS" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
     echo "✗ extern-decl-only varargs should remain unsupported under --vm"
     cat "$TMP_STDERR"
     exit 1

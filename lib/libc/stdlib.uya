@@ -1010,10 +1010,118 @@ fn env_lookup_value(entry: &byte, name: &const byte) &byte {
     return @ptr_from_usize(@usize_from_ptr(entry as &void) + i + 1) as &byte;
 }
 
+// ============================================================
+// 运行期环境变量覆盖表
+//
+// 为什么需要：`setenv`/`unsetenv` 以前是「简化实现，总是返回 0」的空壳，
+// 而 C99 后端给 `extern "libc"` 函数发的是宿主声明，链接到的是 libc 的真实现
+// —— 于是「setenv 之后 getenv 能读到」在 C99 下成立、在解释器里不成立
+// （`test_http1_async_client` 的 `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 就是这条）。
+//
+// 解释器里没有可写的 `environ`（`saved_envp` 是只读快照），所以这里用一张
+// 定长覆盖表承接 setenv/unsetenv：`getenv` 先查覆盖表，再回落到 `saved_envp`。
+// 表容量刻意做小：它只服务「进程内改几个开关」这类用法，不是通用环境管理。
+// ============================================================
+
+/// 覆盖表槽位数。
+const ENV_OVERRIDE_SLOTS: i32 = 16;
+/// 覆盖表里变量名的最大字节数（含结尾 0）。
+const ENV_OVERRIDE_NAME_BYTES: usize = 64usize;
+/// 覆盖表里变量值的最大字节数（含结尾 0）。
+const ENV_OVERRIDE_VALUE_BYTES: usize = 256usize;
+/// 槽位状态：0 = 空闲、1 = 有覆盖值、2 = 已被 unsetenv 屏蔽。
+var _env_override_state: [i32: ENV_OVERRIDE_SLOTS] = [];
+var _env_override_names: [byte: (ENV_OVERRIDE_NAME_BYTES * 16usize)] = [];
+var _env_override_values: [byte: (ENV_OVERRIDE_VALUE_BYTES * 16usize)] = [];
+
+/// 把 `src`（以 0 结尾）拷进 `dst`，超出 `cap` 时截断并保证结尾 0。
+/// 参数说明：`dst`/`cap` 目标缓冲区与容量；`src` 源字符串。
+/// 返回值说明：无。
+fn env_copy_cstr(dst: &byte, cap: usize, src: &const byte) void {
+    if dst == null || cap == 0usize { return; }
+    var i: usize = 0;
+    while src != null && src[i] != 0 as byte && i +| 1usize < cap {
+        dst[i] = src[i];
+        i = i + 1usize;
+    }
+    dst[i] = 0 as byte;
+}
+
+/// 两个以 0 结尾的字符串是否完全相同。
+/// 参数说明：`a`/`b` 待比较字符串。
+/// 返回值说明：1 相同；0 不同。
+fn env_cstr_equals(a: &const byte, b: &const byte) i32 {
+    if a == null || b == null { return 0; }
+    var i: usize = 0;
+    while true {
+        if a[i] != b[i] { return 0; }
+        if a[i] == 0 as byte { return 1; }
+        i = i + 1usize;
+    }
+}
+
+/// 在覆盖表里按名字找槽位。
+/// 参数说明：`name` 以 0 结尾的变量名。
+/// 返回值说明：命中返回槽位下标；未命中返回 -1。
+fn env_override_find(name: &const byte) i32 {
+    if name == null { return 0 - 1; }
+    var i: i32 = 0;
+    while i < ENV_OVERRIDE_SLOTS {
+        if _env_override_state[i] != 0 {
+            const slot_name: &byte = &_env_override_names[0] as &byte;
+            if env_cstr_equals(@ptr_from_usize(@usize_from_ptr(slot_name as &void) +
+                    (ENV_OVERRIDE_NAME_BYTES * (i as usize))) as &const byte, name) != 0 {
+                return i;
+            }
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+/// 找一个空闲槽位。
+/// 参数说明：无。
+/// 返回值说明：空闲槽位下标；没有空闲返回 -1。
+fn env_override_free_slot() i32 {
+    var i: i32 = 0;
+    while i < ENV_OVERRIDE_SLOTS {
+        if _env_override_state[i] == 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+/// 取槽位里的变量名 / 变量值缓冲区指针。
+/// 参数说明：`slot` 槽位下标。
+/// 返回值说明：对应缓冲区指针；下标非法返回 null。
+fn env_override_name_ptr(slot: i32) &byte {
+    if slot < 0 || slot >= ENV_OVERRIDE_SLOTS { return null; }
+    const base: &byte = &_env_override_names[0] as &byte;
+    return @ptr_from_usize(@usize_from_ptr(base as &void) +
+        (ENV_OVERRIDE_NAME_BYTES * (slot as usize))) as &byte;
+}
+
+fn env_override_value_ptr(slot: i32) &byte {
+    if slot < 0 || slot >= ENV_OVERRIDE_SLOTS { return null; }
+    const base: &byte = &_env_override_values[0] as &byte;
+    return @ptr_from_usize(@usize_from_ptr(base as &void) +
+        (ENV_OVERRIDE_VALUE_BYTES * (slot as usize))) as &byte;
+}
+
 // getenv - 获取环境变量
 // 返回：环境变量值的指针，未找到返回 null
 export extern "libc" fn getenv(name: &const byte) &byte {
     if name == null || name[0] == 0 { return null; }
+
+    // 先看覆盖表：被 unsetenv 屏蔽的名字直接返回 null，不要回落到快照。
+    const override_slot: i32 = env_override_find(name);
+    if override_slot >= 0 && override_slot < ENV_OVERRIDE_SLOTS {
+        if _env_override_state[override_slot] == 2 { return null; }
+        return env_override_value_ptr(override_slot);
+    }
+
     if saved_envp == null { return null; }
 
     var i: usize = 0;
@@ -1040,16 +1148,46 @@ export extern "libc" fn putenv(string: &const byte) i32 {
 // 参数：name - 变量名，value - 变量值，overwrite - 是否覆盖已存在的变量
 // 返回：0 成功，-1 失败
 export extern "libc" fn setenv(name: &const byte, value: &const byte, overwrite: i32) i32 {
-    if name == null || value == null { return -1; }
-    // 简化实现：总是返回 0
+    if name == null || value == null || name[0] == 0 { return -1; }
+    var name_i: usize = 0;
+    while name[name_i] != 0 as byte {
+        if name[name_i] == 61 as byte { return -1; }  // 变量名里不能有 '='
+        name_i = name_i + 1usize;
+    }
+
+    const existing: i32 = env_override_find(name);
+    if existing >= 0 && existing < ENV_OVERRIDE_SLOTS {
+        // 已被 unsetenv 屏蔽过、且不允许覆盖：保持被屏蔽状态。
+        if _env_override_state[existing] == 2 && overwrite == 0 { return 0; }
+        if overwrite == 0 && _env_override_state[existing] == 1 { return 0; }
+        env_copy_cstr(env_override_value_ptr(existing), ENV_OVERRIDE_VALUE_BYTES, value);
+        _env_override_state[existing] = 1;
+        return 0;
+    }
+
+    const slot: i32 = env_override_free_slot();
+    if slot < 0 || slot >= ENV_OVERRIDE_SLOTS { return -1; }
+    env_copy_cstr(env_override_name_ptr(slot), ENV_OVERRIDE_NAME_BYTES, name);
+    env_copy_cstr(env_override_value_ptr(slot), ENV_OVERRIDE_VALUE_BYTES, value);
+    _env_override_state[slot] = 1;
     return 0;
 }
 
 // unsetenv - 删除环境变量
 // 返回：0 成功，-1 失败
 export extern "libc" fn unsetenv(name: &const byte) i32 {
-    if name == null { return -1; }
-    // 简化实现：总是返回 0
+    if name == null || name[0] == 0 { return -1; }
+
+    const existing: i32 = env_override_find(name);
+    if existing >= 0 && existing < ENV_OVERRIDE_SLOTS {
+        _env_override_state[existing] = 2;
+        return 0;
+    }
+    // 快照里存在过的名字要留一个「屏蔽」槽位，否则 getenv 还会回落到快照。
+    const slot: i32 = env_override_free_slot();
+    if slot < 0 || slot >= ENV_OVERRIDE_SLOTS { return -1; }
+    env_copy_cstr(env_override_name_ptr(slot), ENV_OVERRIDE_NAME_BYTES, name);
+    _env_override_state[slot] = 2;
     return 0;
 }
 

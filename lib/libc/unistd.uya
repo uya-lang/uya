@@ -197,6 +197,93 @@ export extern "libc" fn waitpid(pid: i32, status: &i32, options: i32) i32 {
     })
 }
 
+// ============================================================
+// 进程组族（自举编译器用 -nostdlib 链接，glibc 不参与，必须走系统调用）
+// ============================================================
+
+// 系统调用号按架构取：x86_64 / arm EABI / asm-generic(arm64, riscv64)。
+fn procgroup_nr_setpgid() i64 {
+    var nr: i64 = 109;
+    std.cfg(std.target_arch == .ta_arm, { nr = 57; }, {})
+    std.cfg(std.target_arch == .ta_arm64, { nr = 154; }, {})
+    std.cfg(std.target_arch == .ta_riscv64, { nr = 154; }, {})
+    return nr;
+}
+
+fn procgroup_nr_getpgid() i64 {
+    var nr: i64 = 121;
+    std.cfg(std.target_arch == .ta_arm, { nr = 132; }, {})
+    std.cfg(std.target_arch == .ta_arm64, { nr = 155; }, {})
+    std.cfg(std.target_arch == .ta_riscv64, { nr = 155; }, {})
+    return nr;
+}
+
+fn procgroup_nr_setsid() i64 {
+    var nr: i64 = 112;
+    std.cfg(std.target_arch == .ta_arm, { nr = 66; }, {})
+    std.cfg(std.target_arch == .ta_arm64, { nr = 157; }, {})
+    std.cfg(std.target_arch == .ta_riscv64, { nr = 157; }, {})
+    return nr;
+}
+
+/// 设置进程组。返回 0 表示成功，-1 表示失败（errno 由调用方按需读取）。
+export fn sys_setpgid(pid: i32, pgid: i32) i32 {
+    std.cfg(std.target_os == .tos_macos, {
+        return uya_macos_setpgid(pid, pgid);
+    }, {})
+    const result: !i64 = @syscall(procgroup_nr_setpgid(), pid as i64, pgid as i64);
+    const ret: i64 = result catch {
+        errno = EINVAL;
+        return 0 - 1;
+    };
+    if ret < 0 {
+        errno = EINVAL;
+        return 0 - 1;
+    }
+    return 0;
+}
+
+/// 取进程组 id。失败返回 -1。
+export fn sys_getpgid(pid: i32) i32 {
+    std.cfg(std.target_os == .tos_macos, {
+        return uya_macos_getpgid(pid);
+    }, {})
+    const result: !i64 = @syscall(procgroup_nr_getpgid(), pid as i64);
+    const ret: i64 = result catch {
+        errno = EINVAL;
+        return 0 - 1;
+    };
+    return ret as i32;
+}
+
+/// 取调用进程的进程组 id。asm-generic 目标没有 getpgrp 系统调用，用 getpgid(0)。
+export fn sys_getpgrp() i32 {
+    std.cfg(std.target_os == .tos_macos, {
+        return uya_macos_getpgrp();
+    }, {})
+    return sys_getpgid(0);
+}
+
+/// 新建会话。返回会话 id，失败返回 -1。
+export fn sys_setsid() i32 {
+    std.cfg(std.target_os == .tos_macos, {
+        return uya_macos_setsid();
+    }, {})
+    const result: !i64 = @syscall(procgroup_nr_setsid());
+    const ret: i64 = result catch {
+        errno = EINVAL;
+        return 0 - 1;
+    };
+    return ret as i32;
+}
+
+std.cfg(std.target_os == .tos_macos, {
+    extern "libc" fn uya_macos_setpgid(pid: i32, pgid: i32) i32;
+    extern "libc" fn uya_macos_getpgid(pid: i32) i32;
+    extern "libc" fn uya_macos_getpgrp() i32;
+    extern "libc" fn uya_macos_setsid() i32;
+})
+
 // system - 执行 shell 命令（0 依赖实现）
 std.cfg(std.target_os == .tos_macos, {
 export extern "libc" fn system(cmd: &const byte) i32 {

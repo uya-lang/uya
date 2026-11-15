@@ -1,0 +1,41 @@
+use std.testing.assert_eq_i32;
+
+struct Inner { a: i32, b: i32 }
+struct Outer { items: [Inner: 4], n: i32 }
+
+fn via_index(o: &Outer, i: i32) &Inner {
+    if i < 0 || i >= 4 {
+        return &o.items[0];
+    }
+    return &o.items[i];
+}
+
+fn via_ptradd(o: &Outer, i: i32) &Inner {
+    const base: &Inner = &o.items[0];
+    const off: usize = (i as usize) * @size_of(Inner);
+    return @ptr_from_usize(@usize_from_ptr(base as &void) + off) as &Inner;
+}
+
+// 回归：结构体数组的 C 式裸地址算术在 exec VM 下拿不到元素。
+//
+// `&arr[0]` + `i * @size_of(T)` 这种写法在 C99 后端里是合法的连续内存运算，
+// 但 exec VM 里 `[T: N]` 是「聚合」，每个元素是独立的 ExecValue，
+// 没有 C 那样的紧凑数组布局。按字节偏移算出来的地址不指向任何 ExecValue，
+// 读字段会得到垃圾值（这里实际读到 -1689661808）。
+//
+// 正确写法是直接下标取址 `&arr[i]`。
+test "index vs ptradd" {
+    var o: Outer = Outer{ items: [], n: 4 };
+    var i: i32 = 0;
+    while i < 4 {
+        o.items[i].a = 10 + i;
+        o.items[i].b = 20 + i;
+        i = i + 1;
+    }
+    const p1: &Inner = via_index(&o, 2);
+    const p2: &Inner = via_ptradd(&o, 2);
+    try assert_eq_i32(p1.a, 12);
+    try assert_eq_i32(p2.a, 12);
+    try assert_eq_i32(p1.b, 22);
+    try assert_eq_i32(p2.b, 22);
+}

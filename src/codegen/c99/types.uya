@@ -718,6 +718,92 @@ fn c99_slice_element_name_token(codegen: &C99CodeGenerator, element_c: &byte) &b
     return c99_arena_strdup(codegen.arena, &out[0]);
 }
 
+/// 类型名的「源文件兜底恢复」。
+///
+/// 背景：exec VM 解释执行时实测存在「AST 字符串被就地写坏」的现象
+/// （docs 第 739/745/747 轮：`PointerData` 被写成一堆不可打印字节），
+/// 而宿主 C 后端不会。整编自举会因此在 `uya_part1_types.h` 里发射出一行非法 C。
+///
+/// 这里在发射前校验 `type_named_name`：只要出现不可打印字符，就按
+/// `filename:line:column` 回到**源文件**重新读一遍标识符并写回 AST 节点，
+/// 保证后续所有发射看到的是正确名字（名字正常时零副作用返回）。
+///
+/// 参数：`codegen` 代码生成器；`type_node` 类型节点（必须是 AST_TYPE_NAMED）。
+/// 返回值：无。
+fn c99_recover_type_named_name(codegen: &C99CodeGenerator, type_node: &ASTNode) void {
+    if codegen == null || type_node == null || type_node.type != ASTNodeType.AST_TYPE_NAMED {
+        return;
+    }
+    const name: &byte = type_node.type_named_name;
+    if name != null {
+        var bad: i32 = 0;
+        var i: i32 = 0;
+        while name[i] != 0 as byte {
+            const c: i32 = name[i] as i32;
+            if c < 32 || c > 126 {
+                bad = 1;
+            }
+            i = i +| 1;
+            if i > 512 {
+                bad = 1;
+                i = 512;
+            }
+        }
+        if bad == 0 && i > 0 {
+            return;
+        }
+    }
+    if type_node.filename == null || type_node.line <= 0 || type_node.column <= 0 {
+        return;
+    }
+    const buf_size: i32 = 1 << 20;
+    const buf: &byte = compiler_arena_alloc(codegen.arena, buf_size as usize) as &byte;
+    if buf == null {
+        return;
+    }
+    if read_file_content(type_node.filename, buf, buf_size as usize) <= 0 {
+        return;
+    }
+    var idx: i32 = 0;
+    var ln: i32 = 1;
+    while buf[idx] != 0 as byte && ln < type_node.line {
+        if buf[idx] == 10 as byte {
+            ln = ln +| 1;
+        }
+        idx = idx +| 1;
+    }
+    var col: i32 = 1;
+    while buf[idx] != 0 as byte && col < type_node.column && buf[idx] != 10 as byte {
+        idx = idx +| 1;
+        col = col +| 1;
+    }
+    var out: [byte: 256] = [];
+    const out_base: &byte = &out[0];
+    var n: i32 = 0;
+    var stop: i32 = 0;
+    while buf[idx] != 0 as byte && n < 200 && stop == 0 {
+        const c: i32 = buf[idx] as i32;
+        const is_ident: i32 = ((c >= 48 && c <= 57) || (c >= 65 && c <= 90) ||
+            (c >= 97 && c <= 122) || c == 95 || c == 64) as i32;
+        if is_ident == 0 {
+            stop = 1;
+        } else {
+            (out_base + n)[0] = buf[idx];
+            n = n + 1;
+        }
+        idx = idx +| 1;
+    }
+    if n <= 0 || n >= 200 {
+        return;
+    }
+    (out_base + n)[0] = 0;
+    const dup: &byte = c99_arena_strdup(codegen.arena, &out[0] as &byte);
+    if dup == null {
+        return;
+    }
+    type_node.type_named_name = dup;
+}
+
 fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
     if type_node == null {
         return ("void" as *byte) as &byte;
@@ -729,6 +815,7 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
     // 在单态化上下文中，先进行类型参数替换
     // 二级查找：先结构体/联合体单态形参，再泛型函数形参（Poll<T>.Ready 的 T 不得被外层 block_on<T> 等同名形参抢占）
     if type_node.type == ASTNodeType.AST_TYPE_NAMED && type_node.type_named_name != null {
+        c99_recover_type_named_name(codegen, type_node);
         const tp_name: &byte = type_node.type_named_name;
         
         // 第一级：查找结构体/联合体的类型参数（单态定义体、嵌套泛型字段）

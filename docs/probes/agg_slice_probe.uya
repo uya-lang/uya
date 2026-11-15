@@ -1,0 +1,21 @@
+use libc.unistd;
+
+struct S {
+    a: i32,
+    b: i32,
+}
+
+fn fill(p: &[S]) void {
+    p[1] = S{ a: 5, b: 6 };
+}
+
+fn main() !i32 {
+    var arr: [S: 3] = [];
+    fill(&arr[0:3]);
+    if arr[1].b != 6 {
+        _ = write(2, "BAD agg\n" as *byte, 8);
+        return 1;
+    }
+    _ = write(2, "OK agg\n" as *byte, 7);
+    return 0;
+}

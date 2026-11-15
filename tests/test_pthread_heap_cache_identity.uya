@@ -1,3 +1,4 @@
+use std;
 use std.runtime.entry;
 use libc.pthread;
 use libc.malloc;
@@ -106,6 +107,14 @@ fn run_case(thread_count: i32) i32 {
 }
 
 export fn main() i32 {
+    // 这条用例验的是原生 pthread 的 **per-thread 堆缓存身份**（每个线程拿到
+    // 自己的 `pthread_heap_cache_t`，地址互不相同）。exec VM 的线程是宿主线程，
+    // 没有登记进 pthread 线程表（见 `lib/libc/pthread.uya` 里
+    // `pthread_current_heap_cache` 的解释器分支：非主线程不给 tcache），
+    // 所以"每个线程各有独立缓存"这个前提在解释执行下不成立，直接跳过。
+    std.cfg(std.backend == .be_exec_vm, {
+        return 0;
+    }, { })
     var i: usize = 0usize;
     while i < CASE_COUNT {
         const rc: i32 = run_case(THREAD_COUNTS[i]);

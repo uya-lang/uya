@@ -13,6 +13,7 @@ fn exec_debug_opcode_name(opcode: BCOpcode) &byte {
     if opcode == BCOpcode.BC_BOX_VALUE { return "BC_BOX_VALUE" as &byte; }
     if opcode == BCOpcode.BC_LOAD_GLOBAL { return "BC_LOAD_GLOBAL" as &byte; }
     if opcode == BCOpcode.BC_STORE_LOCAL { return "BC_STORE_LOCAL" as &byte; }
+    if opcode == BCOpcode.BC_STORE_LOCAL_MOVE { return "BC_STORE_LOCAL_MOVE" as &byte; }
     if opcode == BCOpcode.BC_STORE_GLOBAL { return "BC_STORE_GLOBAL" as &byte; }
     if opcode == BCOpcode.BC_ADD { return "BC_ADD" as &byte; }
     if opcode == BCOpcode.BC_ADD_SAT { return "BC_ADD_SAT" as &byte; }
@@ -22,6 +23,11 @@ fn exec_debug_opcode_name(opcode: BCOpcode) &byte {
     if opcode == BCOpcode.BC_MUL { return "BC_MUL" as &byte; }
     if opcode == BCOpcode.BC_DIV { return "BC_DIV" as &byte; }
     if opcode == BCOpcode.BC_REM { return "BC_REM" as &byte; }
+    if opcode == BCOpcode.BC_ADD_CHECK { return "BC_ADD_CHECK" as &byte; }
+    if opcode == BCOpcode.BC_SUB_CHECK { return "BC_SUB_CHECK" as &byte; }
+    if opcode == BCOpcode.BC_MUL_CHECK { return "BC_MUL_CHECK" as &byte; }
+    if opcode == BCOpcode.BC_DIV_CHECK { return "BC_DIV_CHECK" as &byte; }
+    if opcode == BCOpcode.BC_REM_CHECK { return "BC_REM_CHECK" as &byte; }
     if opcode == BCOpcode.BC_BIT_AND { return "BC_BIT_AND" as &byte; }
     if opcode == BCOpcode.BC_BIT_OR { return "BC_BIT_OR" as &byte; }
     if opcode == BCOpcode.BC_BIT_XOR { return "BC_BIT_XOR" as &byte; }
@@ -44,6 +50,8 @@ fn exec_debug_opcode_name(opcode: BCOpcode) &byte {
     if opcode == BCOpcode.BC_STORE_INDEX { return "BC_STORE_INDEX" as &byte; }
     if opcode == BCOpcode.BC_LOAD_UNION_TAG { return "BC_LOAD_UNION_TAG" as &byte; }
     if opcode == BCOpcode.BC_LOAD_UNION_PAYLOAD { return "BC_LOAD_UNION_PAYLOAD" as &byte; }
+    if opcode == BCOpcode.BC_LOAD_ERROR_TAG { return "BC_LOAD_ERROR_TAG" as &byte; }
+    if opcode == BCOpcode.BC_LOAD_ERROR_PAYLOAD { return "BC_LOAD_ERROR_PAYLOAD" as &byte; }
     if opcode == BCOpcode.BC_CMP_EQ { return "BC_CMP_EQ" as &byte; }
     if opcode == BCOpcode.BC_CMP_NE { return "BC_CMP_NE" as &byte; }
     if opcode == BCOpcode.BC_CMP_LT { return "BC_CMP_LT" as &byte; }
@@ -51,6 +59,7 @@ fn exec_debug_opcode_name(opcode: BCOpcode) &byte {
     if opcode == BCOpcode.BC_CMP_GT { return "BC_CMP_GT" as &byte; }
     if opcode == BCOpcode.BC_CMP_GE { return "BC_CMP_GE" as &byte; }
     if opcode == BCOpcode.BC_MAKE_OK { return "BC_MAKE_OK" as &byte; }
+    if opcode == BCOpcode.BC_AWAIT { return "BC_AWAIT" as &byte; }
     if opcode == BCOpcode.BC_MAKE_ERR { return "BC_MAKE_ERR" as &byte; }
     if opcode == BCOpcode.BC_IS_ERR { return "BC_IS_ERR" as &byte; }
     if opcode == BCOpcode.BC_UNWRAP_OK { return "BC_UNWRAP_OK" as &byte; }
@@ -69,6 +78,8 @@ fn exec_debug_opcode_name(opcode: BCOpcode) &byte {
     if opcode == BCOpcode.BC_RET { return "BC_RET" as &byte; }
     if opcode == BCOpcode.BC_PRINT { return "BC_PRINT" as &byte; }
     if opcode == BCOpcode.BC_PRINTLN { return "BC_PRINTLN" as &byte; }
+    if opcode == BCOpcode.BC_STRING_INTERP { return "BC_STRING_INTERP" as &byte; }
+    if opcode == BCOpcode.BC_VECTOR_OP { return "BC_VECTOR_OP" as &byte; }
     if opcode == BCOpcode.BC_ERROR_ID { return "BC_ERROR_ID" as &byte; }
     if opcode == BCOpcode.BC_ERROR_NAME { return "BC_ERROR_NAME" as &byte; }
     return "BC_UNKNOWN" as &byte;
@@ -178,6 +189,14 @@ fn exec_debug_dump_expr(expr: &HIRExpr) void {
     }
     if expr.kind == HIRExprKind.HIR_EXPR_TRY {
         fprintf(libc.stderr, "try(...)" as *byte);
+        return;
+    }
+    if expr.kind == HIRExprKind.HIR_EXPR_ERROR_PAYLOAD {
+        fprintf(libc.stderr, "err_payload(...)" as *byte);
+        return;
+    }
+    if expr.kind == HIRExprKind.HIR_EXPR_FORCE_CAST_KEEP_ERR {
+        fprintf(libc.stderr, "asbang_keep_err(...)" as *byte);
         return;
     }
     if expr.kind == HIRExprKind.HIR_EXPR_CATCH {

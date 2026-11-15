@@ -2852,6 +2852,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         }
         if is_bootstrap == 0 && codegen.freestanding == 0 {
             fputs("extern void _exit(int);\n" as *byte, codegen.emit_stream as *void);
+
         }
         c99_emit_newline(codegen);
         // C99 兼容的 alignof 宏（使用 offsetof 技巧）
@@ -2868,6 +2869,17 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("    const unsigned char *a = (const unsigned char *)s1, *b = (const unsigned char *)s2;\n" as *byte, codegen.emit_stream as *void);
         fputs("    for (size_t i = 0; i < n; i++) { if (a[i] != b[i]) return a[i] - b[i]; } return 0;\n" as *byte, codegen.emit_stream as *void);
         fputs("}\n\n" as *byte, codegen.emit_stream as *void);
+        if codegen.is_nostdlib == 0 {
+            // Uya 的 mem 族把「空指针 / n == 0」定义为返回入参本身；宿主 glibc 的
+            // `memcpy(NULL, …)` 直接段错误。hosted 直接把调用点换成下面这些带判空的
+            // 包装，保持与 Uya 语义一致（内部批量拷贝仍走 __uya_memcpy 字节循环）。
+            fputs("static inline void *__uya_checked_memcpy(void *d, const void *s, size_t n) { if (d == NULL || s == NULL || n == 0) { return d; } return __uya_memcpy(d, s, n); }\n" as *byte, codegen.emit_stream as *void);
+            fputs("static inline void *__uya_checked_memmove(void *d, const void *s, size_t n) { extern void *memmove(void *, const void *, size_t); if (d == NULL || s == NULL || n == 0) { return d; } return memmove(d, s, n); }\n" as *byte, codegen.emit_stream as *void);
+            fputs("static inline void *__uya_checked_memset(void *d, int c, size_t n) { extern void *memset(void *, int, size_t); if (d == NULL || n == 0) { return d; } return memset(d, c, n); }\n" as *byte, codegen.emit_stream as *void);
+            fputs("static inline void *__uya_checked_memchr(const void *s, int c, size_t n) { extern void *memchr(const void *, int, size_t); if (s == NULL || n == 0) { return NULL; } return memchr(s, c, n); }\n" as *byte, codegen.emit_stream as *void);
+            fputs("static inline int __uya_checked_memcmp(const void *a, const void *b, size_t n) { if (a == NULL || b == NULL || n == 0) { return 0; } return __uya_memcmp(a, b, n); }\n" as *byte, codegen.emit_stream as *void);
+        }
+
         if codegen.container_mode != 0 && codegen.microapp_softvm_mode != 0 {
             emit_microapp_mmu_helpers(codegen);
         }
@@ -3564,6 +3576,31 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    if (real_getppid == (uya_macos_pid_fn)0) real_getppid = (uya_macos_pid_fn)dlsym((void *)-1, \"getppid\");\n" as *byte, codegen.emit_stream as *void);
     fputs("    if (real_getppid == (uya_macos_pid_fn)0) return 0;\n" as *byte, codegen.emit_stream as *void);
     fputs("    return (int32_t)real_getppid();\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    // 进程组族：Darwin 没有 Linux 的 setpgid/getpgid/setsid 号，直接调 libSystem 同名入口。
+    fputs("static int32_t uya_macos_setpgid(int32_t pid, int32_t pgid) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_sig_ii_fn real_setpgid = (uya_macos_sig_ii_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_setpgid == (uya_macos_sig_ii_fn)0) real_setpgid = (uya_macos_sig_ii_fn)dlsym((void *)-1, \"setpgid\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_setpgid == (uya_macos_sig_ii_fn)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (int32_t)real_setpgid((int)pid, (int)pgid);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static int32_t uya_macos_getpgid(int32_t pid) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_sig_i_fn real_getpgid = (uya_macos_sig_i_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_getpgid == (uya_macos_sig_i_fn)0) real_getpgid = (uya_macos_sig_i_fn)dlsym((void *)-1, \"getpgid\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_getpgid == (uya_macos_sig_i_fn)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (int32_t)real_getpgid((int)pid);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static int32_t uya_macos_getpgrp(void) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_pid_fn real_getpgrp = (uya_macos_pid_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_getpgrp == (uya_macos_pid_fn)0) real_getpgrp = (uya_macos_pid_fn)dlsym((void *)-1, \"getpgrp\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_getpgrp == (uya_macos_pid_fn)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (int32_t)real_getpgrp();\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static int32_t uya_macos_setsid(void) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_pid_fn real_setsid = (uya_macos_pid_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_setsid == (uya_macos_pid_fn)0) real_setsid = (uya_macos_pid_fn)dlsym((void *)-1, \"setsid\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_setsid == (uya_macos_pid_fn)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (int32_t)real_setsid();\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n" as *byte, codegen.emit_stream as *void);
     fputs("static void uya_macos_exit(int32_t status) {\n" as *byte, codegen.emit_stream as *void);
     fputs("    uya_host_exit((int)status);\n" as *byte, codegen.emit_stream as *void);
@@ -6690,7 +6727,16 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                     }
                     fputs(") {\n" as *byte, codegen.emit_stream as *void);
                 } else {
+                    if is_app_main != 0 {
+                        // `export fn main` 直接发射成 C 入口 main_main：先补前置声明，
+                        // 函数体开头调用一次；定义在所有函数之后发射（见下面的收尾处），
+                        // 否则初始化表达式里引用的函数还没有声明。
+                        c99_emit_dynamic_global_init_prototype(codegen);
+                    }
                     fprintf(codegen.emit_stream as *void, "%s %s(void) {\n" as *byte, return_c as *byte, main_c_name as *byte);
+                    if is_app_main != 0 && c99_dynamic_global_init_count() > 0 {
+                        fputs("    __uya_rt_init_globals();\n" as *byte, codegen.emit_stream as *void);
+                    }
                 }
 
                 // 保存并设置当前函数的返回类型
@@ -6726,7 +6772,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         // 入口 main 返回错误联合：用户函数已发射为 uya_main_result()，
         // 这里生成 int32_t main_main(void)：解包成功值作为退出码，出错打印错误名并返回 1。
         c99_mirror_emit_common(codegen);
+        c99_emit_dynamic_global_init_prototype(codegen);
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
+        if c99_dynamic_global_init_count() > 0 {
+            fputs("    __uya_rt_init_globals();\n" as *byte, codegen.emit_stream as *void);
+        }
         fprintf(codegen.emit_stream as *void, "    %s _uya_main_r = uya_main_result();\n" as *byte,
             codegen.entry_main_err_union_c as *byte);
         fputs("    if (_uya_main_r.error_id != 0) {\n" as *byte, codegen.emit_stream as *void);
@@ -6742,7 +6792,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         c99_emit_close_brace_newline(codegen);
     } else if cg_emit_now != 0 && has_plain_user_main != 0 && c99_parallel_is_common_owner(codegen) != 0 {
         c99_mirror_emit_common(codegen);
+        c99_emit_dynamic_global_init_prototype(codegen);
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
+        if c99_dynamic_global_init_count() > 0 {
+            fputs("    __uya_rt_init_globals();\n" as *byte, codegen.emit_stream as *void);
+        }
         fputs("    return uya_main();\n" as *byte, codegen.emit_stream as *void);
         c99_emit_close_brace_newline(codegen);
     }
@@ -6751,8 +6805,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     // std.runtime.entry 的 main 会调用 main_main()
     if cg_emit_now != 0 && has_user_main == 0 && test_count > 0 && c99_parallel_is_common_owner(codegen) != 0 {
         c99_mirror_emit_common(codegen);
+        c99_emit_dynamic_global_init_prototype(codegen);
         // 测试计数变量已在第八步 c 中定义
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
+        if c99_dynamic_global_init_count() > 0 {
+            fputs("    __uya_rt_init_globals();\n" as *byte, codegen.emit_stream as *void);
+        }
         // 测试汇总同样以文本发射 printf，须与调用点使用同一权威名（见 c99_printf_c_name）。
         const summary_printf: &byte = c99_printf_c_name(codegen);
         fprintf(codegen.emit_stream as *void, "    %s(\"\\n=== Running %d tests ===\\n\");\n" as *byte, summary_printf as *byte, test_count);
@@ -6795,6 +6853,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
             fprintf(libc.stderr, "错误: 并行 codegen 回填临时分片失败（split 目录不可写？）\n" as *byte);
             return 0 - 1;
         }
+    }
+
+    // 运行期全局初始化的定义放在所有函数之后：初始化表达式可能引用后面才定义的
+    // 函数（`export fn main` 直接就是 C 入口，调用点更早）。
+    if cg_emit_now != 0 && c99_parallel_is_common_owner(codegen) != 0 {
+        c99_emit_dynamic_global_inits(codegen);
     }
 
     // 输出宏展开等阶段才加入的字符串常量（如 encode_to_to_json 中的 "id"/"name"）

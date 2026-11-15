@@ -66,12 +66,12 @@ fn type_get_enum_name(t: &Type) &byte {
     if t == null || t.kind != TypeKind.TYPE_ENUM {
         return null as &byte;
     }
+    if t.enum_name != null {
+        return t.enum_name;
+    }
     match t.data {
         .named(name) => { return name; },
         else => {
-            if t.enum_name != null {
-                return t.enum_name;
-            }
             return null as &byte;
         },
     }
@@ -82,13 +82,15 @@ fn type_get_struct_name(t: &Type) &byte {
     if t == null || t.kind != TypeKind.TYPE_STRUCT {
         return null as &byte;
     }
+    // 优先显式字段：某些路径（如单态化替换后的类型副本）只设置了 struct_name，
+    // tag union 载荷可能为空，直接取 payload 会误判成“无结构体名”。
+    if t.struct_name != null {
+        return t.struct_name;
+    }
     match t.data {
         .named(name) => { return name; },
         .struct_generic(sg) => { return sg.name; },
         else => {
-            if t.struct_name != null {
-                return t.struct_name;
-            }
             return null as &byte;
         },
     }
@@ -99,12 +101,12 @@ fn type_get_union_name(t: &Type) &byte {
     if t == null || t.kind != TypeKind.TYPE_UNION {
         return null as &byte;
     }
+    if t.union_name != null {
+        return t.union_name;
+    }
     match t.data {
         .named(name) => { return name; },
         else => {
-            if t.union_name != null {
-                return t.union_name;
-            }
             return null as &byte;
         },
     }

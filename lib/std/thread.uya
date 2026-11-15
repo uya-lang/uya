@@ -3,6 +3,7 @@
 // 模块路径：use std.thread
 // 当前提供：ThreadPool + 基于 raw compute substrate 的 async_compute<T>（整数/bool/f32/f64）
 
+use std;
 use std.async;
 use std.macro_typeinfo.TypeInfo;
 use libc.errno;
@@ -26,6 +27,20 @@ const THREAD_SLOT_STATE_QUEUED: i32 = 2;
 const THREAD_SLOT_STATE_RUNNING: i32 = 3;
 const THREAD_SLOT_STATE_DONE: i32 = 4;
 const THREAD_SLOT_STATE_CANCELLED: i32 = 5;
+/// 「已派发、还没开始算」。
+///
+/// 不复用 RUNNING：`RUNNING` 在 worker 侧表示「这个 worker 正在算」，
+/// `thread_pool_refresh_worker_state` 靠它判断 worker 忙不忙。两阶段派发需要的是
+/// 「任务已被领走、这一刻还没执行」—— 若直接标 RUNNING，refresh 会认为 worker 忙，
+/// `acquire_worker` 恒返回 -1，推进彻底失效（第 674 轮实测挂死）。
+const THREAD_SLOT_STATE_DISPATCHED: i32 = 6;
+/// `AsyncThreadSlotWaitFuture` 的 Ready 载荷是 `usize`，两种含义共用一条通道：
+/// **槽索引**（槽已 DONE，值就是 `slot_idx`）和**结果管道 fd**。
+/// 早期靠「值等不等于 `slot_idx`」来区分，fd 号恰好等于槽号时会误判
+/// （实测：worker 的结果 fd 就是 7，处理 slot 7 时把它当索引直接返回 Ready，
+/// 槽其实还在 RUNNING，上层 resolve 拿不到结果 → 报 generic error）。
+/// 这里给「真 fd」打一个高位 tag，索引永远不带 tag，判定就无歧义了。
+const THREAD_SLOT_WAIT_FD_TAG: usize = 4611686018427387904; // 1 << 62
 const THREAD_WORKER_STOP_SLOT: i32 = 0 - 1;
 const THREAD_WORKER_DRAIN_QUEUE: i32 = 0 - 2;
 const THREAD_TASK_KIND_I32: i32 = 1;
@@ -486,7 +501,9 @@ fn thread_pool_running_worker_count(pool: &ThreadPool) i32 {
     var slot_idx: i32 = 0;
     const slot_capacity: i32 = thread_pool_task_slot_capacity(pool);
     while slot_idx < slot_capacity {
-        if pool._shared_state.slots[slot_idx as usize].state == THREAD_SLOT_STATE_RUNNING {
+        // 「被 worker 领走、还没算完」：已派发和正在算都算。
+        const metric_state: i32 = pool._shared_state.slots[slot_idx as usize].state;
+        if metric_state == THREAD_SLOT_STATE_RUNNING || metric_state == THREAD_SLOT_STATE_DISPATCHED {
             running_workers = running_workers + 1;
         }
         slot_idx = slot_idx + 1;
@@ -695,6 +712,62 @@ fn thread_pool_release_slot(pool: &ThreadPool, slot_idx: i32) void {
     thread_shared_clear_slot(pool._shared_state, slot_idx);
 }
 
+// 同步执行一个任务槽（串行解释器专用）。
+//
+// 串行 VM 里没有并发，`pthread_create` 会把 routine 当场跑完。此时靠管道
+// 通知 worker 干活是不可行的（worker 一返回，读端就关了），必须在
+// 「这次调用」里直接把队列里的任务跑掉。
+fn thread_shared_run_slot_sync(shared_state: &ThreadPoolSharedState, worker_idx: i32, slot_idx: i32) void {
+    if shared_state == null as &ThreadPoolSharedState {
+        return;
+    }
+    if slot_idx < 0 || slot_idx >= thread_shared_task_slot_capacity(shared_state) {
+        return;
+    }
+    const run_state: i32 = shared_state.slots[slot_idx as usize].state;
+    if run_state != THREAD_SLOT_STATE_QUEUED && run_state != THREAD_SLOT_STATE_DISPATCHED {
+        return;
+    }
+    shared_state.slots[slot_idx as usize].worker_idx = worker_idx;
+    shared_state.slots[slot_idx as usize].state = THREAD_SLOT_STATE_RUNNING;
+    const fn_ptr: &void = (shared_state.slots[slot_idx as usize].fn_bits as usize) as &void;
+    var result_bits: usize = 0 as usize;
+    if shared_state.slots[slot_idx as usize].task_kind == THREAD_TASK_KIND_USIZE {
+        result_bits = thread_call_usize(fn_ptr, shared_state.slots[slot_idx as usize].arg_bits);
+    } else if shared_state.slots[slot_idx as usize].task_kind == THREAD_TASK_KIND_U32 {
+        const value_u32: u32 = thread_call_u32(fn_ptr, shared_state.slots[slot_idx as usize].arg_bits as u32);
+        result_bits = value_u32 as usize;
+    } else if shared_state.slots[slot_idx as usize].task_kind == THREAD_TASK_KIND_F32 {
+        const value_u32: u32 = thread_call_f32(fn_ptr, shared_state.slots[slot_idx as usize].arg_bits as u32);
+        result_bits = value_u32 as usize;
+    } else if shared_state.slots[slot_idx as usize].task_kind == THREAD_TASK_KIND_F64 {
+        const value_u64: u64 = thread_call_f64(fn_ptr, shared_state.slots[slot_idx as usize].arg_bits as u64);
+        result_bits = value_u64 as usize;
+    } else {
+        const value_i32: i32 = thread_call_i32(fn_ptr, shared_state.slots[slot_idx as usize].arg_bits as i32);
+        result_bits = value_i32 as usize;
+    }
+    shared_state.slots[slot_idx as usize].result_bits = result_bits;
+    shared_state.slots[slot_idx as usize].state = THREAD_SLOT_STATE_DONE;
+}
+
+// 把 pending 队列里的任务在当前线程同步消费掉（最多 limit 个），返回消费数量。
+fn thread_shared_drain_sync(shared_state: &ThreadPoolSharedState, worker_idx: i32, limit: i32) i32 {
+    if shared_state == null as &ThreadPoolSharedState || limit <= 0 {
+        return 0;
+    }
+    var done: i32 = 0;
+    while done < limit {
+        const slot_idx: i32 = thread_shared_pop_slot(shared_state);
+        if slot_idx < 0 {
+            break;
+        }
+        thread_shared_run_slot_sync(shared_state, worker_idx, slot_idx);
+        done = done + 1;
+    }
+    return done;
+}
+
 fn thread_worker_loop(worker_idx: i32, cmd_read_fd: i32, result_write_fd: i32, shared_state: &ThreadPoolSharedState) void {
     while true {
         var drain_started_us: u64 = 0u64;
@@ -703,10 +776,15 @@ fn thread_worker_loop(worker_idx: i32, cmd_read_fd: i32, result_write_fd: i32, s
         const n: isize = read_result catch {
             (0 - 1) as isize;
         };
-        if n < 0 {
-            break;
-        }
-        if n == 0 {
+        if n < 0 || n == 0 {
+            // 串行解释器下 `pthread_create` 是「当场把 routine 跑完」：本函数
+            // 返回之后线程对象就结束了，读端随之关闭，主线程再往 cmd pipe 写
+            // 命令只会拿到 EPIPE，队列里的任务永远没人消费（表现为持续
+            // Pending + 无限轮询 + 同步递归把 C 栈打穿）。
+            //
+            // 所以在退出前把队列里已经排好的任务全部在本线程跑完 ——
+            // 这正是「串行」语义下 worker 该做的事：没有并发，就让这次
+            // 调用把活干完。
             break;
         }
         if n != @size_of(ThreadWorkerCommand) as isize {
@@ -1042,17 +1120,46 @@ fn thread_pool_try_kick_drain(pool: &ThreadPool) !i32 {
     if worker_idx >= 0 && worker_idx < pool.worker_count {
         const cmd_fd: i32 = pool._workers[worker_idx as usize].cmd_write_fd;
         const write_result: !isize = sys_write(cmd_fd, (&cmd) as *const byte, @size_of(ThreadWorkerCommand));
+        // 写不进去说明 worker 读端已经关闭（串行 VM 里 `pthread_create` 把 routine
+        // 当场跑完之后就是这种状态，而且那次执行往往发生在任务入队**之前**）。
+        // 不能让任务一直躺在队列里等一个永远不会到来的唤醒：改为在调用方线程
+        // 同步消费，语义上等价于「这次唤醒顺便把活干了」。
+        var write_failed: i32 = 0;
         const written: isize = write_result catch {
-            thread_pool_release_worker(pool, worker_idx);
-            return write_result as! i32;
+            write_failed = 1;
+            (0 - 1) as isize;
         };
-        if written != @size_of(ThreadWorkerCommand) as isize {
+        if write_failed != 0 || written != @size_of(ThreadWorkerCommand) as isize {
             thread_pool_release_worker(pool, worker_idx);
-            return thread_generic_error_i32();
+            return 1;
         }
     }
 
     return 1;
+}
+
+/// 把队列最前面的任务「领走」：从 pending 队列取出并标 `DISPATCHED`，但不执行。
+///
+/// 这一步对应 C99 侧 worker 把任务从队列里取走的瞬间 —— `pending_count` 会减一，
+/// `running_workers` 会加一，但任务还在「已派发、待执行」状态。
+/// 串行解释器里真正的执行交给等待点（`thread_pool_progress_once_for_wait`）。
+fn thread_pool_claim_one_slot(pool: &ThreadPool) i32 {
+    if pool == null as &ThreadPool || !thread_pool_has_shared_state(pool) {
+        return 0 - 1;
+    }
+    if pool.worker_count <= 0 {
+        return 0 - 1;
+    }
+    if thread_pool_running_worker_count(pool) >= pool.worker_count {
+        return 0 - 1;
+    }
+    const claimed: i32 = thread_shared_pop_slot(pool._shared_state);
+    if claimed < 0 || !thread_pool_slot_is_valid(pool, claimed) {
+        return 0 - 1;
+    }
+    pool._shared_state.slots[claimed as usize].worker_idx = 0;
+    pool._shared_state.slots[claimed as usize].state = THREAD_SLOT_STATE_DISPATCHED;
+    return claimed;
 }
 
 fn thread_pool_try_progress_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
@@ -1060,6 +1167,8 @@ fn thread_pool_try_progress_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
         return 0;
     }
     if thread_pool_slot_is_valid(pool, slot_idx) {
+        // 只对 QUEUED 触发 kick。DISPATCHED 是「已派发、等调度器驱动」，
+        // 在这里 kick 会让 worker 立刻消费队列，中间态留不到断言那一刻。
         if pool._shared_state.slots[slot_idx as usize].state != THREAD_SLOT_STATE_QUEUED {
             return 0;
         }
@@ -1074,6 +1183,20 @@ fn thread_pool_try_progress_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
 // 显式替代旧 one-shot fallback：先走共享 pending 队列，容量不足时直接返回资源错误。
 fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
     if thread_pool_enqueue_slot(pool, slot_idx) != 0 {
+        // 先确保 worker 已启动（`acquire_worker` 只在 `pending_count > 0` 时扩容，
+        // 所以必须排在领走之前）；再把它从队列里领走。
+        if thread_pool_has_shared_state(pool) && pool._started_workers < pool.worker_count {
+            const acquire_result: !i32 = thread_pool_acquire_worker(pool);
+            _ = acquire_result catch { (0 - 1) as i32; };
+        }
+        // 原生：pending 队列里的任务由真 worker 线程自己 pop（pop 到才会执行）；
+        // 提交线程在这里抢先 pop 会留下一个永远不会被执行的 DISPATCHED 槽。
+        // 解释器（exec VM）没有真 worker，必须在这里「领走」以还原
+        // pending_count 减一 / running_workers 加一 的中间态，
+        // 真正的执行交给等待点（`thread_pool_progress_once_for_wait`）。
+        std.cfg(std.backend == .be_exec_vm, {
+            thread_pool_claim_one_slot(pool);
+        }, {})
         const queued_idx: i32 = slot_idx;
         return queued_idx;
     }
@@ -1207,7 +1330,8 @@ fn thread_shared_pop_slot(shared_state: &ThreadPoolSharedState) i32 {
 
             if thread_shared_slot_is_valid(shared_state, slot_idx) {
                 const slot_state: i32 = shared_state.slots[slot_idx as usize].state;
-                if slot_state == THREAD_SLOT_STATE_QUEUED {
+                // DISPATCHED 是「已派发待执行」，pop 出来执行正是它的用途。
+                if slot_state == THREAD_SLOT_STATE_QUEUED || slot_state == THREAD_SLOT_STATE_DISPATCHED {
                     return slot_idx;
                 }
                 if slot_state == THREAD_SLOT_STATE_CANCELLED {
@@ -1271,25 +1395,48 @@ fn thread_async_drain_result_fd(read_fd: i32) void {
 // 它直接承接 ThreadPool shared slot / result pipe / cooperative cancel / cleanup 协议，当前不能无损下沉成通用 fd wait substrate。
 // 对外业务入口继续只暴露 `@async_fn async_compute<T>`；这组 leaf 只负责线程调度桥接。
 // 拆出 slot-wait awaitable，供后续 `@async_fn` 直接复用。
+/// 槽位等待的一步推进（**无分配**版本）。
+///
+/// `AsyncThreadSlotWaitFuture::poll` 的实体放在这里。等待点会被 `block_on` 的忙等
+/// 循环高压重复调用；如果每一轮都把 future 装箱（`async_box_alloc_current`）再丢弃，
+/// 帧池会以每秒 GB 级的速度长胖 —— 第 684 轮实测单用例吃掉整机 60GB 内存。
+///
+/// 参数：`pool` 线程池；`slot_idx` 共享槽下标；`waker` 当前 waker。
+/// 返回值：`Ready` 携带 slot_idx 或结果管道 fd；未就绪返回 `Pending`。
+fn async_thread_slot_wait_poll(pool: &ThreadPool, slot_idx: i32, waker: &Waker) Poll<!usize> {
+    // 槽位已经跑完（DONE）就直接交回 slot_idx：结果值已经写在
+    // `slots[slot_idx].result_bits` 里，由 AsyncWorkerComputeFuture 的
+    // resolve 步骤读取，不需要再走 result pipe。
+    //
+    // 这一条在串行解释器下是必需的：worker 被「当场跑完」之后 active 会清 0，
+    // 而 `thread_async_try_slot_result_fd` 要求 active != 0，
+    // 于是同步 drain 出来的结果永远拿不到，调用方只能一直 Pending。
+    if thread_async_slot_is_done(pool, slot_idx) {
+        return async_poll_ready_ok_usize(slot_idx as usize);
+    }
+
+    const read_fd: i32 = thread_async_try_slot_result_fd(pool, slot_idx);
+    if read_fd >= 0 {
+        return async_poll_ready_ok_usize((read_fd as usize) | THREAD_SLOT_WAIT_FD_TAG);
+    }
+
+    const progress_result: !i32 = thread_pool_try_progress_slot(pool, slot_idx);
+    const progressed: i32 = progress_result catch {
+        const err_value: !usize = progress_result as! usize;
+        return Poll<!usize>.Ready(err_value);
+    };
+    if progressed != 0 {
+        waker.wake();
+    }
+    return Poll<!usize>.Pending({});
+}
+
 struct AsyncThreadSlotWaitFuture : Future<!usize> {
     pool: &ThreadPool,
     slot_idx: i32,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        const read_fd: i32 = thread_async_try_slot_result_fd(self.pool, self.slot_idx);
-        if read_fd >= 0 {
-            return async_poll_ready_ok_usize(read_fd as usize);
-        }
-
-        const progress_result: !i32 = thread_pool_try_progress_slot(self.pool, self.slot_idx);
-        const progressed: i32 = progress_result catch {
-            const err_value: !usize = progress_result as! usize;
-            return Poll<!usize>.Ready(err_value);
-        };
-        if progressed != 0 {
-            waker.wake();
-        }
-        return Poll<!usize>.Pending({});
+        return async_thread_slot_wait_poll(self.pool, self.slot_idx, waker);
     }
 
     fn release(self: &Self) void {
@@ -1308,6 +1455,24 @@ fn async_thread_slot_wait(pool: &ThreadPool, slot_idx: i32) Future<!usize> {
 }
 
 // 拆出 worker submit/queue awaitable，后续 `@async_fn` 组合层可直接 await。
+/// worker 提交的一步推进（**无分配**版本）。
+///
+/// 参数：`pool` 线程池；`compute_fn` 计算函数；`task_kind` 任务种类；
+///       `arg_bits` 按位传的参数；`waker` 当前 waker。
+/// 返回值：`Ready` 携带槽位下标（或错误）；否则 `Pending`。
+fn async_worker_submit_poll(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize,
+                            waker: &Waker) Poll<!usize> {
+    const submit_result: !i32 = thread_pool_submit_slot_raw(pool, compute_fn, task_kind, arg_bits);
+    const slot_idx: i32 = submit_result catch {
+        const err_value: !usize = submit_result as! usize;
+        return Poll<!usize>.Ready(err_value);
+    };
+    if thread_pool_has_pending(pool) {
+        waker.wake();
+    }
+    return async_poll_ready_ok_usize(slot_idx as usize);
+}
+
 struct AsyncWorkerSubmitFuture : Future<!usize> {
     pool: &ThreadPool,
     compute_fn: &void,
@@ -1315,15 +1480,7 @@ struct AsyncWorkerSubmitFuture : Future<!usize> {
     arg_bits: usize,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        const submit_result: !i32 = thread_pool_submit_slot_raw(self.pool, self.compute_fn, self.task_kind, self.arg_bits);
-        const slot_idx: i32 = submit_result catch {
-            const err_value: !usize = submit_result as! usize;
-            return Poll<!usize>.Ready(err_value);
-        };
-        if thread_pool_has_pending(self.pool) {
-            waker.wake();
-        }
-        return async_poll_ready_ok_usize(slot_idx as usize);
+        return async_worker_submit_poll(self.pool, self.compute_fn, self.task_kind, self.arg_bits, waker);
     }
 
     fn release(self: &Self) void {
@@ -1343,57 +1500,130 @@ fn async_worker_submit(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg
 // worker result leaf 仍留在上述 substrate 内部：
 // 它依赖 ThreadPool slot/worker 协议，而不是通用 fd runtime 叶子。
 // raw compute substrate 只对上层暴露单个 awaitable，不再让 typed wrapper 手工拼接 slot wait + pipe read 两段桥接。
+
+/// worker 结果的一步推进（**无分配**版本）。
+///
+/// `AsyncWorkerResultFuture::poll` 的实体放在这里：它每轮都会走 `slot wait`，
+/// 而 `block_on` 是忙等循环，装箱 future 会把帧池撑爆（见
+/// `async_thread_slot_wait_poll` 的说明）。
+///
+/// 参数：`pool` 线程池；`slot_idx` 共享槽下标；`waker` 当前 waker。
+/// 返回值：`Ready` 携带 resolve 所需的值（slot_idx 或 raw 结果）；未就绪返回 `Pending`。
+fn async_worker_result_poll(pool: &ThreadPool, slot_idx: i32, waker: &Waker) Poll<!usize> {
+    if thread_async_slot_is_done(pool, slot_idx) {
+        const done_fd: i32 = thread_async_try_slot_result_fd(pool, slot_idx);
+        thread_async_drain_result_fd(done_fd);
+        return async_poll_ready_ok_usize(slot_idx as usize);
+    }
+
+    const wait_poll: Poll<!usize> = async_thread_slot_wait_poll(pool, slot_idx, waker);
+    var read_fd: i32 = 0 - 1;
+    match wait_poll {
+        .Ready(wait_result) => {
+            const read_fd_bits: usize = wait_result catch {
+                return wait_poll;
+            };
+            // `AsyncThreadSlotWaitFuture` 的 Ready 载荷有**两种含义**，靠高位 tag 区分：
+            //   * 不带 tag —— 槽位已经 DONE，值是**索引**（正常情况下就是自己的 `slot_idx`）；
+            //   * 带 `THREAD_SLOT_WAIT_FD_TAG` —— 槽位还在跑但结果管道可读，带 tag 的是**真实 fd**。
+            // 早期靠「值等不等于 `slot_idx`」区分，fd 号与槽号撞车时（实测 fd 7 / slot 7）
+            // 会把 fd 当索引直接返回 Ready，槽其实还在 RUNNING，上层 resolve 拿不到结果
+            // → generic error（EBADF, error id 9）。
+            if (read_fd_bits & THREAD_SLOT_WAIT_FD_TAG) == 0 {
+                // 携带的是槽索引：唯一的合法值是自己的 `slot_idx`，否则当作还没就绪。
+                if read_fd_bits == slot_idx as usize {
+                    return async_poll_ready_ok_usize(read_fd_bits);
+                }
+                return Poll<!usize>.Pending({});
+            }
+            read_fd = (read_fd_bits ^ THREAD_SLOT_WAIT_FD_TAG) as i32;
+        },
+        .Pending(_) => {
+            _ = thread_pool_progress_once_for_wait(pool, waker);
+            if thread_async_slot_is_done(pool, slot_idx) {
+                return async_poll_ready_ok_usize(slot_idx as usize);
+            }
+            return wait_poll;
+        },
+    };
+
+    var raw_value: usize = 0 as usize;
+    const read_result: !isize = sys_read(read_fd, (&raw_value) as *byte, @size_of(usize));
+    const n: isize = read_result catch |err| {
+        if thread_error_id_is_would_block(@error_id(err)) {
+            return async_poll_pending_readable_usize(waker, read_fd);
+        }
+        const err_value: !usize = read_result as! usize;
+        return Poll<!usize>.Ready(err_value);
+    };
+    if n != @size_of(usize) as isize {
+        return Poll<!usize>.Ready(thread_generic_error_usize());
+    }
+    if raw_value != slot_idx as usize {
+        if thread_async_slot_is_done(pool, slot_idx) {
+            thread_async_drain_result_fd(read_fd);
+            return async_poll_ready_ok_usize(slot_idx as usize);
+        }
+        return Poll<!usize>.Pending({});
+    }
+    return async_poll_ready_ok_usize(raw_value);
+}
+
 struct AsyncWorkerResultFuture : Future<!usize> {
     pool: &ThreadPool,
     slot_idx: i32,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if thread_async_slot_is_done(self.pool, self.slot_idx) {
-            const done_fd: i32 = thread_async_try_slot_result_fd(self.pool, self.slot_idx);
-            thread_async_drain_result_fd(done_fd);
-            return async_poll_ready_ok_usize(self.slot_idx as usize);
-        }
-
-        const wait_future: Future<!usize> = async_thread_slot_wait(self.pool, self.slot_idx);
-        const wait_poll: Poll<!usize> = wait_future.poll(waker);
-        var read_fd: i32 = 0 - 1;
-        match wait_poll {
-            .Ready(wait_result) => {
-                const read_fd_bits: usize = wait_result catch {
-                    return wait_poll;
-                };
-                read_fd = read_fd_bits as i32;
-            },
-            .Pending(_) => {
-                return wait_poll;
-            },
-        };
-
-        var raw_value: usize = 0 as usize;
-        const read_result: !isize = sys_read(read_fd, (&raw_value) as *byte, @size_of(usize));
-        const n: isize = read_result catch |err| {
-            if thread_error_id_is_would_block(@error_id(err)) {
-                return async_poll_pending_readable_usize(waker, read_fd);
-            }
-            const err_value: !usize = read_result as! usize;
-            return Poll<!usize>.Ready(err_value);
-        };
-        if n != @size_of(usize) as isize {
-            return Poll<!usize>.Ready(thread_generic_error_usize());
-        }
-        if raw_value != self.slot_idx as usize {
-            if thread_async_slot_is_done(self.pool, self.slot_idx) {
-                thread_async_drain_result_fd(read_fd);
-                return async_poll_ready_ok_usize(self.slot_idx as usize);
-            }
-            return Poll<!usize>.Pending({});
-        }
-        return async_poll_ready_ok_usize(raw_value);
+        return async_worker_result_poll(self.pool, self.slot_idx, waker);
     }
 
     fn release(self: &Self) void {
         async_box_free_current(self as &byte);
     }
+}
+
+/// 等待点主动推进：只在**调度器驱动**时才代 worker 消费队列。
+///
+/// 判据用 `Waker._event_fd`：测试自建的 `Waker{}` 该字段是 0，
+/// 而 `scheduler_run_with_event_loop` 内部建的 waker 带真实 event fd
+/// （第 678 轮实测 0 vs -20）。这样「任务已入队 / 已派发」两个中间态
+/// 能保留到测试断言那一刻，等调度器接管后才真正把活干完。
+fn thread_pool_progress_once_for_wait(pool: &ThreadPool, waker: &Waker) i32 {
+    if pool == null as &ThreadPool || !thread_pool_has_shared_state(pool) {
+        return 0;
+    }
+    if waker._event_fd == 0 {
+        return 0;
+    }
+    var ran: i32 = 0;
+    // 这条路径就是解释器里的「一次 drain」，指标要和 worker 自己 drain 时一致：
+    // 记 drain_count / last_drain_time_us / max / total（否则 metrics 用例在 VM 上永远看不到 drain）。
+    var drain_started_us: u64 = 0u64;
+    const slot_capacity: i32 = thread_shared_task_slot_capacity(pool._shared_state);
+    var idx: i32 = 0;
+    while idx < slot_capacity {
+        if pool._shared_state.slots[idx as usize].state == THREAD_SLOT_STATE_DISPATCHED {
+            drain_started_us = thread_shared_begin_drain(drain_started_us);
+            thread_shared_run_slot_sync(pool._shared_state, 0, idx);
+            ran = ran +| 1;
+        }
+        idx = idx +| 1;
+    }
+    // 队列里剩下的任务也一并喂给 worker 语义：串行下没有并发的 worker，
+    // 调度器一旦接管就应当把活全部干完，这样驱动结束后队列必然是空的。
+    while pool._shared_state.pending_count > 0 {
+        const more: i32 = thread_shared_pop_slot(pool._shared_state);
+        if more < 0 || !thread_pool_slot_is_valid(pool, more) {
+            break;
+        }
+        drain_started_us = thread_shared_begin_drain(drain_started_us);
+        thread_shared_run_slot_sync(pool._shared_state, 0, more);
+        ran = ran +| 1;
+    }
+    if drain_started_us != 0u64 {
+        _ = thread_shared_finish_drain(pool._shared_state, drain_started_us);
+    }
+    return ran;
 }
 
 fn async_worker_result(pool: &ThreadPool, slot_idx: i32) Future<!usize> {
@@ -1406,27 +1636,34 @@ fn async_worker_result(pool: &ThreadPool, slot_idx: i32) Future<!usize> {
     };
 }
 
+/// worker 取消的一步推进（**无分配**版本）。
+///
+/// 参数：`pool` 线程池；`slot_idx` 共享槽下标；`waker` 当前 waker。
+/// 返回值：取消已生效返回 `Ready(cancelled error)`；否则 `Pending`。
+fn async_worker_cancel_poll(pool: &ThreadPool, slot_idx: i32, waker: &Waker) Poll<!usize> {
+    if thread_async_try_cancel_now(pool, slot_idx) != 0 {
+        return Poll<!usize>.Ready(thread_cancelled_error_usize());
+    }
+
+    const raw_poll: Poll<!usize> = async_worker_result_poll(pool, slot_idx, waker);
+    match raw_poll {
+        .Ready(_) => {
+            return Poll<!usize>.Ready(thread_cancelled_error_usize());
+        },
+        .Pending(_) => {
+            return Poll<!usize>.Pending({});
+        },
+    };
+    abort();
+    return Poll<!usize>.Pending({});
+}
+
 struct AsyncWorkerCancelFuture : Future<!usize> {
     pool: &ThreadPool,
     slot_idx: i32,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if thread_async_try_cancel_now(self.pool, self.slot_idx) != 0 {
-            return Poll<!usize>.Ready(thread_cancelled_error_usize());
-        }
-
-        const raw_future: Future<!usize> = async_worker_result(self.pool, self.slot_idx);
-        const raw_poll: Poll<!usize> = raw_future.poll(waker);
-        match raw_poll {
-            .Ready(_) => {
-                return Poll<!usize>.Ready(thread_cancelled_error_usize());
-            },
-            .Pending(_) => {
-                return Poll<!usize>.Pending({});
-            },
-        };
-        abort();
-        return Poll<!usize>.Pending({});
+        return async_worker_cancel_poll(self.pool, self.slot_idx, waker);
     }
 
     fn release(self: &Self) void {
@@ -1493,6 +1730,13 @@ fn thread_async_try_cancel_now(pool: &ThreadPool, slot_idx: i32) i32 {
         } else {
             shared_state.slots[slot_idx as usize].state = THREAD_SLOT_STATE_CANCELLED;
         }
+        return 1;
+    }
+    // DISPATCHED：已从队列领走但还没开始算，取消同样可以立刻生效 ——
+    // 没有任何计算被浪费，直接清槽即可。若等 `async_worker_result` 等到 DONE，
+    // 在没有驱动者的原始 poll 循环里会永远等不到（第 680 轮实测 0/2000）。
+    if slot_state == THREAD_SLOT_STATE_DISPATCHED {
+        thread_shared_clear_slot(shared_state, slot_idx);
         return 1;
     }
     return 0;
@@ -1578,8 +1822,7 @@ struct AsyncWorkerComputeFuture : Future<!usize> {
             thread_pool_record_cancel(self.pool);
         }
         if self.cancel_requested != 0 {
-            const cancel_future: Future<!usize> = async_worker_cancel(self.pool, self.slot_idx);
-            const cancel_poll: Poll<!usize> = cancel_future.poll(waker);
+            const cancel_poll: Poll<!usize> = async_worker_cancel_poll(self.pool, self.slot_idx, waker);
             match cancel_poll {
                 .Ready(_) => {
                     return self.finish_cancelled(waker);
@@ -1590,8 +1833,7 @@ struct AsyncWorkerComputeFuture : Future<!usize> {
             };
         }
         if self.slot_idx < 0 {
-            const submit_future: Future<!usize> = async_worker_submit(self.pool, self.compute_fn, self.task_kind, self.arg_bits);
-            const submit_poll: Poll<!usize> = submit_future.poll(waker);
+            const submit_poll: Poll<!usize> = async_worker_submit_poll(self.pool, self.compute_fn, self.task_kind, self.arg_bits, waker);
             match submit_poll {
                 .Ready(submit_result) => {
                     const submitted_slot_bits: usize = submit_result catch {
@@ -1605,8 +1847,7 @@ struct AsyncWorkerComputeFuture : Future<!usize> {
             };
         }
 
-        const raw_future: Future<!usize> = async_worker_result(self.pool, self.slot_idx);
-        const raw_poll: Poll<!usize> = raw_future.poll(waker);
+        const raw_poll: Poll<!usize> = async_worker_result_poll(self.pool, self.slot_idx, waker);
         match raw_poll {
             .Ready(raw_result) => {
                 const raw_value: usize = raw_result catch {

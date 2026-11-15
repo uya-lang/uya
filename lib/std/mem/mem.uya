@@ -3,6 +3,8 @@
 // 说明：纯 Uya 实现的内存操作函数，零外部依赖
 // 模块路径：lib/std/mem/mem.uya → use std.mem.mem;
 
+use libc.mem;
+
 // ============================================================
 // 内存操作函数
 // ============================================================
@@ -14,13 +16,11 @@ export fn mem_copy(dst: &byte, src: &const byte, n: usize) usize {
     if dst == null || src == null || n == 0 {
         return 0;
     }
-    
-    var i: usize = 0;
-    while i < n {
-        dst[i] = src[i];
-        i = i + 1;
-    }
-    
+    // 交给 libc 的 `memcpy`（`lib/libc/mem.uya` 里那份带纯 Uya 回退体）。
+    // 手写字节循环在 exec VM 里会绕过「原生聚合旁路表迁移」——
+    // 结构体数组一旦用 `mem_copy` 搬到新地址，元素的真实内容仍留在旧基址下，
+    // 扩容后读新基址全是 VOID（`Vec`/`HashMap` 扩容即丢元素）。
+    _ = memcpy(dst as *byte, src as *const byte, n);
     return n;
 }
 
@@ -30,13 +30,7 @@ export fn mem_set(dst: &byte, value: byte, n: usize) usize {
     if dst == null || n == 0 {
         return 0;
     }
-    
-    var i: usize = 0;
-    while i < n {
-        dst[i] = value;
-        i = i + 1;
-    }
-    
+    _ = memset(dst as *byte, value as i32, n);
     return n;
 }
 
@@ -47,27 +41,9 @@ export fn mem_move(dst: &byte, src: &const byte, n: usize) usize {
         return 0;
     }
     
-    // 如果 dst 和 src 不重叠，或者 dst < src，可以直接复制
-    // 如果 dst > src，需要从后往前复制以避免覆盖
-    const dst_addr: usize = @usize_from_ptr(dst as &void);
-    const src_addr: usize = @usize_from_ptr(src as &void);
-    
-    if dst_addr <= src_addr || dst_addr >= src_addr + n {
-        // 不重叠或 dst 在 src 之前，从前往后复制
-        var i: usize = 0;
-        while i < n {
-            dst[i] = src[i];
-            i = i + 1;
-        }
-    } else {
-        // dst 在 src 之后且重叠，从后往前复制
-        var i: usize = n;
-        while i > 0 {
-            i = i - 1;
-            dst[i] = src[i];
-        }
-    }
-    
+    // 交给 libc 的 `memmove`（含纯 Uya 回退体）：重叠语义由它保证，
+    // VM 侧同时带「原生聚合旁路表迁移」。
+    _ = memmove(dst as *byte, src as *const byte, n);
     return n;
 }
 

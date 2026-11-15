@@ -3,10 +3,78 @@
 // 编译器本体 staged smoke 当前已越过 4096 个临时/局部槽位。
 const EXEC_MAX_FRAME_SLOTS: i32 = 8192;
 
+/// 共享槽位栈的总容量（所有活跃调用帧的槽位数之和）。
+///
+/// 它必须**大于** `EXEC_MAX_FRAME_SLOTS`：后者是单个函数的槽位上限，而池要
+/// 同时容纳整条调用链。原来两者共用同一个常量，于是调用链稍深就报
+/// 「VM frame slot 超限」（`test_std_sql` 实测 `top=8186 need=10`，差 4 个槽
+/// 就撞墙，报错点落在一个只占 10 个槽的 `sql_bytes_view_from_ptr` 上）。
+const EXEC_MAX_FRAME_SLOT_POOL: i32 = 32768;
+
+const EXEC_ALLOC_TRACK_MAX: i32 = 8192;
+// 原生聚合旁路表的基址条目上限。它承担的是「本机内存里的结构体 → ExecValue 槽」
+// 登记，编译器自举时 `*arena_ptr = struct` 这种写法会为每个结构体登记一个基址，
+// 256 个根本不够（实测在 `type_from_ast_cache_store` 里就耗尽了，
+// 报 `exec: 当前不支持该指针元素类型`）。条目本身很小（约 40 字节），抬到 65536
+// 也只占静态区约 2.6MB。
+// 旁路表基址条目现在是**按需增长**的堆表（见 `exec_vm_native_agg_reserve`），
+// 这个常量只是增长上限，不再是静态数组维度。之前是静态 `[T: 256]`：
+// 编译器自举时 `*arena_ptr = struct` 会为每个结构体登记基址，256 个瞬间耗尽，
+// 报 `exec: 当前不支持该指针元素类型`；而把静态维度直接开到 4096/65536 又会撑爆
+// 全局槽表示（实测 65536 让 `handles[slot].count` 解出 STRING 垃圾值）。
+// 原生聚合旁路表的基址条目上限。
+//
+// 整编自举（VM 里跑编译器编自己）实测：光类型检查阶段就要登记约 100 万个
+// 不同基址（arena 不释放，条目只增不减），1<<20 会正好在检查收尾时耗尽。
+// 后续 codegen 还会继续涨，所以留到 1<<22（每个条目约 60 字节指针表 +
+// 一点元素存储，4M 条封顶约 1GB）。
+const EXEC_NATIVE_AGG_MAX: i32 = 1 << 22;
+const EXEC_VM_CONT_MAX: i32 = 256;
+
+/// 一个宿主线程的 VM 执行状态（真并发时每线程一份；单线程时只有 main 一份）。
+struct ExecVmState {
+    slot_pool: &ExecValue,
+    slot_pool_capacity: i32,
+    slot_top: i32,
+    // 续体槽（异步/挂起用）
+    cont_fn: [i32: EXEC_VM_CONT_MAX],
+    cont_ip: [i32: EXEC_VM_CONT_MAX],
+    cont_dest: [i32: EXEC_VM_CONT_MAX],
+    cont_slot_count: [i32: EXEC_VM_CONT_MAX],
+    cont_slots: [&ExecValue: EXEC_VM_CONT_MAX],
+    cont_used: [i32: EXEC_VM_CONT_MAX],
+    // 续体**已完成**后缓存的最终载荷。
+    //
+    // `exec_vm_cont_poll` 在恢复执行到 `BC_RET` 时会 `cont_release(handle)`，
+    // 之后如果调用方再次 poll（这是接口允许的：poll 幂等），
+    // 原来的 `cont_used[handle] == 0` 分支会返回 Pending —— 于是
+    // 「future 明明已经 Ready 过，再 poll 却永远 Pending」。
+    // 这里把完成态和结果一起留下，让 poll 可以重复返回同一个 Ready。
+    cont_done: [i32: EXEC_VM_CONT_MAX],
+    cont_result: [ExecValue: EXEC_VM_CONT_MAX],
+    // 帧/唤醒/取消
+    frame_resumed: i32,
+    await_waker_addr: usize,
+    await_waker_kind: i32,
+    cancel_state: i32,
+    cancel_type: i32,
+    // 真宿主线程：1 表示这是由 VM 起的宿主线程（可被 pthread_cancel 打断）
+    is_host_thread: i32,
+    cancel_pending: i32,
+    // 堆分配记账 + 装箱重入保护
+    alloc_keys: [usize: EXEC_ALLOC_TRACK_MAX],
+    alloc_sizes: [usize: EXEC_ALLOC_TRACK_MAX],
+    alloc_used: i32,
+    box_alloc_active: i32,
+    // 原生聚合旁路表不在这里：堆是进程级共享的，旁路表也必须是进程级全局
+    // （见 vm.uya 的 g_exec_native_agg_*）。
+}
+
 struct ExecFrame {
     function: &BCFunction,
     ip: i32,
-    slots: [ExecValue: EXEC_MAX_FRAME_SLOTS],
+    slots: &ExecValue,  // 指向 vm.uya 的槽位栈（按 function.slot_count 切片）
     varargs: [ExecValue: EXEC_MAX_CALL_ARGS],
     vararg_count: i32,
+    vm: &ExecVmState,  // 本帧归属的执行状态（真并发时区分线程）
 }

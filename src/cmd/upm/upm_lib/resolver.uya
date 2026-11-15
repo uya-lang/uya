@@ -118,9 +118,31 @@ export fn upm_resolved_graph_record(plan: &UPMPackageBuildPlan, manifest: &UPMMa
     upm_resolved_graph_record_with_hash(plan, manifest, dep, resolved_commit, null);
 }
 
+/// `upm_find_manifest_upwards` 的结果缓存。
+///
+/// 逐级向上 `stat` 到 `/` 的代价不低（实测一个 `uya check` 里光 `stat` 就
+/// 99,554 次、其中 4,718 次失败，全是同一个目录树重复找 `uya.toml`）。
+/// 同一次进程里同样的起点结果不会变，缓存一份即可。
+const UPM_MANIFEST_CACHE_MAX: i32 = 8;
+var g_upm_manifest_cache_keys: [&byte: UPM_MANIFEST_CACHE_MAX] = [];
+var g_upm_manifest_cache_vals: [&byte: UPM_MANIFEST_CACHE_MAX] = [];
+var g_upm_manifest_cache_hits: [i32: UPM_MANIFEST_CACHE_MAX] = [];
+var g_upm_manifest_cache_count: i32 = 0;
+
 export fn upm_find_manifest_upwards(start_path: &byte, out_manifest_path: &byte) i32 {
     if start_path == null || out_manifest_path == null {
         return 1;
+    }
+    var ci: i32 = 0;
+    while ci < g_upm_manifest_cache_count && ci < UPM_MANIFEST_CACHE_MAX {
+        if strcmp(g_upm_manifest_cache_keys[ci] as *byte, start_path as *byte) == 0 {
+            if g_upm_manifest_cache_hits[ci] == 0 {
+                _ = strcpy(out_manifest_path as *byte, g_upm_manifest_cache_vals[ci] as *byte);
+                return 0;
+            }
+            return 1;
+        }
+        ci = ci + 1;
     }
     var current: [byte: UPM_PATH_MAX] = [];
     if upm_make_absolute_path(start_path, &current[0] as &byte, UPM_PATH_MAX) != 0 {
@@ -139,7 +161,19 @@ export fn upm_find_manifest_upwards(start_path: &byte, out_manifest_path: &byte)
             return 1;
         }
         if upm_is_file(&candidate[0] as &byte) != 0 {
-            return upm_realpath_or_copy(&candidate[0] as &byte, out_manifest_path, UPM_PATH_MAX);
+            const rc_found: i32 = upm_realpath_or_copy(&candidate[0] as &byte, out_manifest_path, UPM_PATH_MAX);
+            if rc_found == 0 && g_upm_manifest_cache_count >= 0 &&
+                g_upm_manifest_cache_count < UPM_MANIFEST_CACHE_MAX {
+                const key_copy: &byte = strdup(start_path) as &byte;
+                const val_copy: &byte = strdup(out_manifest_path) as &byte;
+                if key_copy != null && val_copy != null {
+                    g_upm_manifest_cache_keys[g_upm_manifest_cache_count] = key_copy;
+                    g_upm_manifest_cache_vals[g_upm_manifest_cache_count] = val_copy;
+                    g_upm_manifest_cache_hits[g_upm_manifest_cache_count] = 0;
+                    g_upm_manifest_cache_count = g_upm_manifest_cache_count + 1;
+                }
+            }
+            return rc_found;
         }
         if strcmp(&current[0] as *byte, "/" as *byte) == 0 {
             break;

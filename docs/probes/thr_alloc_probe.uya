@@ -1,0 +1,41 @@
+use libc.unistd;
+use libc.pthread_t;
+use libc.pthread_create;
+use libc.pthread_join;
+use libc.malloc;
+use libc.free;
+
+fn worker(arg: &void) &void {
+    var i: i32 = 0;
+    while i < 2000 {
+        const p: &byte = malloc(64) as &byte;
+        if p != null {
+            p[0] = 65 as byte;
+            free(p as &void);
+        }
+        i = i +| 1;
+    }
+    _ = write(2, "W done\n" as *byte, 7);
+    return arg;
+}
+
+fn main() !i32 {
+    var t: pthread_t = pthread_t{ tid: 0, stack: null, stack_size: 0, detached: 0, exited: 0, result: null, start_routine: null, arg: null };
+    const rc: i32 = pthread_create(&t, null, &worker as &void, null);
+    if rc != 0 {
+        return 1;
+    }
+    var i: i32 = 0;
+    while i < 2000 {
+        const p: &byte = malloc(64) as &byte;
+        if p != null {
+            p[0] = 66 as byte;
+            free(p as &void);
+        }
+        i = i +| 1;
+    }
+    var rv: &void = null;
+    _ = pthread_join(&t, &rv);
+    _ = write(2, "OK alloc thr\n" as *byte, 13);
+    return 0;
+}

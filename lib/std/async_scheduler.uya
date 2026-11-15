@@ -895,7 +895,40 @@ export fn async_runtime_metrics_linux_epoll_with_thread_pool(self: &Scheduler, l
 /// 同步运行 Future<!T> 直到 Ready，返回 !T。
 /// 忙等待轮询（与 std.async.block_on<T> 同逻辑）；此处内联实现，避免单态 `scheduler_run_*` 依赖未单独发射的 `std_block_on_*` 符号。
 /// 运行期间将 scheduler 的 frame pool 注入线程本地 allocator，返回前恢复。
+/// 判定当前目标是否让 scheduler 用平台事件循环推进 IO readiness。
+///
+/// 单独抽成**非泛型**函数，避免 `std.cfg` 进入单态函数体。
+///
+/// 参数：无。
+/// 返回值：Linux/macOS 返回 1，其余目标返回 0。
+fn scheduler_uses_platform_event_loop() i32 {
+    std.cfg(std.target_os == .tos_macos, {
+        return 1;
+    }, {
+        std.cfg(std.target_os == .tos_linux, {
+            return 1;
+        }, {
+            return 0;
+        })
+    })
+}
+
 export fn scheduler_run<T>(self: &Scheduler, f: Future<!T>) !T {
+    if scheduler_uses_platform_event_loop() == 0 {
+        return scheduler_run_inline_poll<T>(self, f);
+    }
+    var epoll_impl: LinuxEpoll = try linux_epoll_create(0);
+    const loop: EventLoop = epoll_impl;
+    const driven: !T = scheduler_run_with_event_loop<T>(self, loop, f, 10);
+    linux_epoll_close(&epoll_impl);
+    return driven;
+}
+
+/// 纯轮询版 scheduler_run：非 Linux/macOS 目标与事件循环创建失败时的回退。
+///
+/// 参数：`self` 调度器；`f` 待推进的 Future。
+/// 返回值：Future 完成时的 `!T`。
+fn scheduler_run_inline_poll<T>(self: &Scheduler, f: Future<!T>) !T {
     const alloc: IAllocator = scheduler_pool_to_allocator(self._frame_pool);
     const old_alloc: &IAllocator = get_async_frame_allocator();
     set_async_frame_allocator(&alloc);
@@ -971,29 +1004,36 @@ export fn scheduler_run_with_event_loop<T>(self: &Scheduler, loop: EventLoop, f:
                 inline_repoll_count = 0;
                 if !w.has_io_interest() && !w.has_event_fd() {
                     const prepare_result: !i32 = scheduler_prepare_waker(&w);
-                    _ = prepare_result catch {
+                    if prepare_result.error_id != 0 {
                         return prepare_result as! T;
-                    };
+                    }
                 }
+                // 不用 `x catch { return x as! T; }` 这一形态：C99 后端在单态展开里
+                // 会把 catch 块里的 return 表达式当成 catch 表达式自身的值，
+                // 生成 `int32_t = <err union>` 而宿主 cc 报类型不兼容
+                // （见 tests/verify_c99_struct_array_and_typed_route_regressions.sh）。
                 const sync_result: !i32 = scheduler_sync_waker_registrations(loop, &w, &io_registered_fd, &event_registered_fd);
-                const registered: i32 = sync_result catch {
+                if sync_result.error_id != 0 {
                     return sync_result as! T;
-                };
+                }
+                const registered: i32 = try sync_result;
                 if registered != 0 {
                     const poll_result: !i32 = loop.poll(timeout_ms);
-                    const poll_count: i32 = poll_result catch {
+                    if poll_result.error_id != 0 {
                         return poll_result as! T;
-                    };
+                    }
+                    const poll_count: i32 = try poll_result;
                     if poll_count == 0 {
                         scheduler_record_wait_timeout(self);
                     }
                     continue;
                 }
-                const poll_result: !i32 = loop.poll(1);
-                const poll_count: i32 = poll_result catch {
-                    return poll_result as! T;
-                };
-                if poll_count == 0 {
+                const poll_result2: !i32 = loop.poll(1);
+                if poll_result2.error_id != 0 {
+                    return poll_result2 as! T;
+                }
+                const poll_count2: i32 = try poll_result2;
+                if poll_count2 == 0 {
                     scheduler_record_wait_timeout(self);
                 }
             },

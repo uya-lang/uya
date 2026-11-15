@@ -637,24 +637,194 @@ export extern "libc" fn fgetc(stream: &FILE) i32 {
         return 0 - 1;  // EOF
     }
     
-    var ch: byte = 0 as byte;
-    const result: !isize = sys_read(fd as i32, &ch, 1);
+    // 经原生临时缓冲区读：解释器里 `&ch` 指向的是 VM 槽位（ExecValue），
+    // 让内核直接往里写会覆盖掉 wrapper 头字节，`ch` 读回来就是垃圾。
+    const ch_buf: &byte = malloc(1 as usize) as &byte;
+    if ch_buf == null {
+        return 0 - 1;  // EOF
+    }
+    const result: !isize = sys_read(fd as i32, ch_buf, 1);
     const bytes_read: isize = result catch {
+        free(ch_buf as &void);
         return 0 - 1;  // EOF
     };
-    
+    var ch: i32 = 0 - 1;
     if bytes_read == 1 as isize {
-        return ch as i32;
+        ch = ch_buf[0] as i32;
     }
-    
-    return 0 - 1;  // EOF
+    free(ch_buf as &void);
+    return ch;
 }
 
 // _fmt_f64_to_buf - 将 f64 格式化为字符串追加到 buf，返回新的 buf_pos
 // 支持：普通数值、NaN、Infinity、科学计数法（大数/小数）
 // g_format: 非0 时按 %g/%G 的有效数字精度解释 precision
 // force_scientific: 非0 时强制科学计数法；scientific_uppercase: 非0 时指数用 'E'；uppercase_inf_nan: 非0 时输出 INF/NAN（C99 %F/%G）
-fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precision: i32, g_format: i32, force_scientific: i32, scientific_uppercase: i32, uppercase_inf_nan: i32) usize {
+// ============================================================
+// f64 -> 十进制有效数字（精确转换）
+// 逐位乘 10 在 17 位有效数字（DBL_MAX 这类）会差最后一位，与 glibc 不一致；
+// 这里用「尾数 × 2^e / 5^k」的整数大数运算得到**精确**的前若干位十进制数字，
+// 再按 glibc 的「就近舍入、半偶」规则取位。
+// ============================================================
+
+const FMT_DIGIT_CHARS: &const byte = "0123456789";
+const FMT_LIMB_BASE: u64 = 1000000000u64;
+const FMT_POW10_TABLE: [u64: 9] = [1u64, 10u64, 100u64, 1000u64, 10000u64,
+    100000u64, 1000000u64, 10000000u64, 100000000u64];
+const FMT_MAX_LIMBS: i32 = 96;
+
+fn _fmt_bignum_mul_small(limbs: &u64, count: &i32, factor: u64) void {
+    if limbs == null || count == null {
+        return;
+    }
+    var carry: u64 = 0u64;
+    var i: i32 = 0;
+    while i < count[0] {
+        const v: u64 = limbs[i] * factor + carry;
+        limbs[i] = v % FMT_LIMB_BASE;
+        carry = v / FMT_LIMB_BASE;
+        i = i + 1;
+    }
+    if carry != 0u64 && count[0] < FMT_MAX_LIMBS {
+        limbs[count[0]] = carry;
+        count[0] = count[0] +| 1;
+    }
+}
+
+fn _fmt_f64_to_bits(value: f64) u64 {
+    var bits: u64 = 0u64;
+    _ = memcpy((&bits) as *byte, (&value) as *const byte, 8 as usize);
+    return bits;
+}
+
+/// 取大整数第 `p` 位十进制数字（0 = 最高位）。
+fn _fmt_decimal_digit(limbs: &u64, total: i32, p: i32) u64 {
+    const place: i32 = total -| 1 -| p;
+    if place < 0 {
+        return 0u64;
+    }
+    const limb: i32 = place / 9;
+    if limb < 0 || limb >= FMT_MAX_LIMBS {
+        return 0u64;
+    }
+    var off: i32 = place -| limb *| 9;
+    if off < 0 || off >= 9 {
+        off = 0;
+    }
+    if off < 0 || off >= 9 {
+        return 0u64;
+    }
+    return (limbs[limb] / FMT_POW10_TABLE[off as usize]) % 10u64;
+}
+
+/// 精确提取 f64 的前 `want` 位有效数字（ASCII，不补 0 结尾）。
+/// 参数：`value` 正有限值；`want` 1..19；`out_digits` 输出缓冲；`out_exp` 十进制指数。
+/// 返回值：1 成功；0 表示不支持（调用方回退到逐位乘 10）。
+fn _fmt_exact_digits(value: f64, want: i32, out_digits: &byte, out_exp: &i32) i32 {
+    if out_digits == null || out_exp == null {
+        return 0;
+    }
+    if !(value > 0.0) || want <= 0 || want > 19 {
+        return 0;
+    }
+    const bits: u64 = _fmt_f64_to_bits(value);
+    const exp_bits: u64 = (bits >> (52 as i32)) & 2047u64;
+    const exp_field: i32 = exp_bits as i32;
+    var mant: u64 = bits & (0xFFFFFFFFFFFFF as u64);
+    var e2: i32 = 0;
+    if exp_field == 0 {
+        // 次正规数：没有隐含的最高位。
+        e2 = 0 - 1074;
+    } else {
+        mant = mant | (1u64 << (52 as i32));
+        e2 = exp_field -| 1075;
+    }
+    var limbs: [u64: FMT_MAX_LIMBS] = [];
+    // 10^9 进制：尾数 <= 2^53 < 10^17，最多三节。
+    limbs[0] = mant % FMT_LIMB_BASE;
+    limbs[1] = (mant / FMT_LIMB_BASE) % FMT_LIMB_BASE;
+    limbs[2] = mant / 1000000000000000000u64;
+    var count: i32 = 3;
+    while count > 1 && limbs[count - 1] == 0u64 {
+        count = count - 1;
+    }
+    // value = mant * 2^e2；e2 >= 0 时就是整数 mant*2^e2，
+    // e2 < 0 时 value = (mant * 5^k) / 10^k（k = -e2）。
+    var k: i32 = 0;
+    if e2 >= 0 {
+        var t: i32 = 0;
+        while t < e2 {
+            _fmt_bignum_mul_small(&limbs[0], &count, 2u64);
+            t = t + 1;
+        }
+    } else {
+        var t2: i32 = 0;
+        while t2 < 0 - e2 {
+            _fmt_bignum_mul_small(&limbs[0], &count, 5u64);
+            t2 = t2 + 1;
+        }
+        k = 0 - e2;
+    }
+    var top_digits: i32 = 1;
+    var probe: u64 = limbs[count - 1];
+    while probe >= 10u64 {
+        probe = probe / 10u64;
+        top_digits = top_digits +| 1;
+    }
+    const total: i32 = (count -| 1) *| 9 +| top_digits;
+    var d: i32 = 0;
+    while d < want {
+        out_digits[d] = FMT_DIGIT_CHARS[_fmt_decimal_digit(&limbs[0], total, d) as usize];
+        d = d + 1;
+    }
+    // 四舍五入：看下一位 + 后面是否还有非零（半偶规则，与 glibc 一致）。
+    const next_digit: u64 = _fmt_decimal_digit(&limbs[0], total, want);
+    var sticky: i32 = 0;
+    var p: i32 = want +| 1;
+    while p < total {
+        if _fmt_decimal_digit(&limbs[0], total, p) != 0u64 {
+            sticky = 1;
+            break;
+        }
+        p = p + 1;
+    }
+    var round_up: i32 = 0;
+    if next_digit > 5u64 {
+        round_up = 1;
+    } else if next_digit == 5u64 {
+        if sticky != 0 {
+            round_up = 1;
+        } else if (_fmt_decimal_digit(&limbs[0], total, want - 1) % 2u64) == 1u64 {
+            round_up = 1;
+        }
+    }
+    var pos: i32 = want -| 1;
+    while round_up != 0 && pos >= 0 {
+        const cur: u64 = _fmt_decimal_digit(&limbs[0], total, pos) + 1u64;
+        if cur > 9u64 {
+            out_digits[pos] = FMT_DIGIT_CHARS[0];
+            pos = pos -| 1;
+        } else {
+            out_digits[pos] = FMT_DIGIT_CHARS[cur as usize];
+            round_up = 0;
+        }
+    }
+    if round_up != 0 {
+        // 全是 9：进位后变成 1 后面跟零，指数 +1。
+        var z: i32 = 0;
+        while z < want {
+            out_digits[z] = FMT_DIGIT_CHARS[0];
+            z = z + 1;
+        }
+        out_digits[0] = FMT_DIGIT_CHARS[1];
+        out_exp[0] = total -| k;
+        return 1;
+    }
+    out_exp[0] = total -| 1 -| k;
+    return 1;
+}
+
+fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precision: i32, g_format: i32, force_scientific: i32, scientific_uppercase: i32, uppercase_inf_nan: i32, alt_form: i32) usize {
     var pos: usize = buf_pos;
     if pos >= buf_max { return pos; }
     var x: f64 = val;
@@ -702,8 +872,9 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
         buf[pos] = 48;
         pos = pos + 1;
         var zero_prec: i32 = prec;
-        if g_format != 0 && zero_prec > 0 {
-            zero_prec = zero_prec - 1;
+        if g_format != 0 && alt_form == 0 {
+            // %g 的零不打小数尾零：0 而不是 0.00000（`#` 旗标保留尾零）
+            zero_prec = 0;
         }
         if zero_prec > 0 && pos < buf_max {
             buf[pos] = 46;
@@ -718,6 +889,32 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
         return pos;
     }
 
+    // %g 按有效位数四舍五入：逐位乘 10 取小数位会把 3.14159 打成 3.14158
+    //（0.589999… 被截断），先在有效位上四舍五入。
+    if g_format != 0 && alt_form == 0 && x > 0.0 && x < 1.0e15 {
+        var round_exp: i32 = 0;
+        var probe: f64 = x;
+        while probe >= 10.0 {
+            probe = probe / 10.0;
+            round_exp = round_exp + 1;
+        }
+        while probe < 1.0 && probe > 0.0 {
+            probe = probe * 10.0;
+            round_exp = round_exp - 1;
+        }
+        const round_digits: i32 = prec -| 1 -| round_exp;
+        if round_digits >= 0 && round_digits <= 15 {
+            var round_factor: f64 = 1.0;
+            var rf: i32 = 0;
+            while rf < round_digits {
+                round_factor = round_factor * 10.0;
+                rf = rf + 1;
+            }
+            const scaled_value: f64 = x * round_factor;
+            const rounded_int: i64 = (scaled_value + 0.5) as i64;
+            x = (rounded_int as f64) / round_factor;
+        }
+    }
     // 计算指数：科学计数法需要将数值归一化到 [1, 10)
     var exp: i32 = 0;
     var normalized: f64 = x;
@@ -756,24 +953,56 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
             frac_prec = frac_prec - 1;
         }
 
+        // 精确的二进制->十进制取位（逐位乘 10 在 17 位有效数字上与 glibc
+        // 差最后一位，`%#.17g` 的 DBL_MAX 就是典型）。
+        var exact_digits: [byte: 24] = [];
+        var exact_exp: i32 = 0;
+        var use_exact: i32 = 0;
+        if frac_prec >= 0 && frac_prec +| 1 <= 19 {
+            use_exact = _fmt_exact_digits(x, frac_prec +| 1, &exact_digits[0], &exact_exp);
+        }
         // 输出整数部分
-        const int_digit: i32 = normalized as i32;
+        var int_digit: i32 = normalized as i32;
+        if use_exact != 0 {
+            int_digit = (exact_digits[0] as i32) -| 48;
+            exp = exact_exp;
+        }
         buf[pos] = (48 +| int_digit) as byte;
         pos = pos + 1;
 
         // 输出小数部分
+        const sci_frac_start: usize = pos;
         if frac_prec > 0 && pos < buf_max {
             buf[pos] = 46;
             pos = pos + 1;
-            var frac: f64 = normalized - (int_digit as f64);
+            var frac: f64 = 0.0;
+            if use_exact == 0 {
+                frac = normalized - (int_digit as f64);
+            }
             var k: i32 = 0;
             while k < frac_prec && pos < buf_max {
-                frac = frac * 10.0;
-                const d: i32 = frac as i32;
-                buf[pos] = (48 +| d) as byte;
-                pos = pos + 1;
-                frac = frac - (d as f64);
+                if use_exact != 0 {
+                    if k +| 1 < 24 {
+                        buf[pos] = exact_digits[k +| 1];
+                        pos = pos + 1;
+                    }
+                } else {
+                    frac = frac * 10.0;
+                    const d: i32 = frac as i32;
+                    buf[pos] = (48 +| d) as byte;
+                    pos = pos + 1;
+                    frac = frac - (d as f64);
+                }
                 k = k + 1;
+            }
+        }
+        if g_format != 0 && alt_form == 0 {
+            // %g 去掉小数尾零（必要时连小数点一起去掉）：1.50000e+10 -> 1.5e+10
+            while pos > sci_frac_start && buf[pos - 1] == 48 {
+                pos = pos -| 1;
+            }
+            if pos > sci_frac_start && buf[pos - 1] == 46 {
+                pos = pos -| 1;
             }
         }
 
@@ -796,27 +1025,57 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
                 pos = pos + 1;
             }
         }
-        // 输出指数值（至少两位）
-        if exp >= 100 {
-            buf[pos] = (48 + exp / 100) as byte;
-            pos = pos + 1;
-            exp = exp % 100;
+        // 输出指数值：至少两位，最多四位（`%a` 的十六进制指数能到 1023，
+        // 逐级 `exp / 100` 的写法会把 1023 打成 ':' + "23"）。
+        var exp_digits: [byte: 4] = [];
+        var exp_n: i32 = 0;
+        var exp_tmp: i32 = exp;
+        while exp_tmp > 0 && exp_n < 4 {
+            if exp_n >= 0 && exp_n < 4 {
+                exp_digits[exp_n] = (48 +| (exp_tmp % 10)) as byte;
+            }
+            exp_tmp = exp_tmp / 10;
+            exp_n = exp_n + 1;
         }
-        if exp >= 10 {
-            buf[pos] = (48 + exp / 10) as byte;
-            pos = pos + 1;
-            exp = exp % 10;
-        } else if pos > buf_pos + 1 {
-            // 补零：e+05 而非 e+5
-            buf[pos] = 48;
-            pos = pos + 1;
+        if exp_n < 2 {
+            if exp_n >= 0 && exp_n < 4 {
+                exp_digits[exp_n] = 48;
+            }
+            exp_n = exp_n + 1;
         }
-        buf[pos] = (48 +| exp) as byte;
-        pos = pos + 1;
+        var exp_w: i32 = exp_n - 1;
+        while exp_w >= 0 {
+            if exp_w >= 0 && exp_w < 4 {
+                buf[pos] = exp_digits[exp_w];
+            }
+            pos = pos + 1;
+            exp_w = exp_w - 1;
+        }
     } else {
         // 普通格式输出：固定小数位
         var int_part: i64 = x as i64;
         var frac: f64 = x - (int_part as f64);
+        var frac_prec: i32 = prec;
+        if g_format != 0 {
+            frac_prec = prec -| (exp +| 1);
+            if frac_prec < 0 { frac_prec = 0; }
+        }
+        var frac_scale: i64 = 1;
+        var frac_scaled: i64 = 0;
+        var frac_exact: i32 = 0;
+        if frac_prec > 0 && frac_prec <= 18 && int_part >= 0 && int_part < 1000000000 {
+            frac_exact = 1;
+            var sf: i32 = 0;
+            while sf < frac_prec {
+                frac_scale = frac_scale * 10;
+                sf = sf + 1;
+            }
+            frac_scaled = (frac * (frac_scale as f64) + 0.5) as i64;
+            if frac_scaled >= frac_scale {
+                int_part = int_part + 1;
+                frac_scaled = frac_scaled -% frac_scale;
+            }
+        }
         var digits: [byte: 24] = [];
         var di: usize = 0;
         if int_part == 0 {
@@ -836,22 +1095,47 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
             pos = pos + 1;
             i = i + 1;
         }
-        var frac_prec: i32 = prec;
-        if g_format != 0 {
-            frac_prec = prec -| (exp +| 1);
-            if frac_prec < 0 { frac_prec = 0; }
-        }
+        const fixed_frac_start: usize = pos;
         if frac_prec > 0 && pos < buf_max {
             buf[pos] = 46;
             pos = pos + 1;
-            i = 0;
-            while i < frac_prec && pos < buf_max {
-                frac = frac * 10.0;
-                const d: i32 = frac as i32;
-                buf[pos] = (48 +| d) as byte;
-                pos = pos + 1;
-                frac = frac - (d as f64);
-                i = i + 1;
+            if frac_exact != 0 {
+                var div: i64 = 1;
+                var dj: i32 = 0;
+                while dj < frac_prec - 1 {
+                    div = div * 10;
+                    dj = dj + 1;
+                }
+                i = 0;
+                while i < frac_prec as usize && pos < buf_max {
+                    const d: i32 = ((frac_scaled / div) % (10 as i64)) as i32;
+                    buf[pos] = (48 +| d) as byte;
+                    pos = pos + 1;
+                    if div > 1 {
+                        div = div / 10;
+                    }
+                    i = i + 1;
+                }
+            } else {
+                // 超长精度/大整数部分退回逐位算法（不四舍五入，但不会丢位）。
+                i = 0;
+                while i < frac_prec as usize && pos < buf_max {
+                    frac = frac * 10.0;
+                    const d: i32 = frac as i32;
+                    buf[pos] = (48 +| d) as byte;
+                    pos = pos + 1;
+                    frac = frac - (d as f64);
+                    i = i + 1;
+                }
+            }
+        }
+        if g_format != 0 && alt_form == 0 {
+            // %g 去掉小数尾零（必要时连小数点一起去掉）：3.50000 -> 3.5
+            while pos > fixed_frac_start && buf[pos - 1] == 48 {
+                pos = pos -| 1;
+            }
+            if pos > fixed_frac_start && buf[pos - 1] == 46 {
+                pos = pos -| 1;
             }
         }
     }
@@ -968,7 +1252,7 @@ fn _fmt_f64_hex_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, pre
     if default_precision {
         while pos > frac_start_pos {
             if buf[pos - 1] != 48 { break; }
-            pos = pos - 1;
+            pos = pos -| 1;
         }
         if pos == frac_start_pos {
             pos = frac_dot_pos;
@@ -985,15 +1269,34 @@ fn _fmt_f64_hex_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, pre
     } else {
         if pos < buf_max { buf[pos] = 43; pos = pos + 1; }
     }
-    if exp >= 100 {
-        if pos < buf_max { buf[pos] = (48 + exp / 100) as byte; pos = pos + 1; }
-        exp = exp % 100;
+    // 同 `_fmt_f64_to_buf`：指数至少两位、最多四位，逐级取模的写法会把
+    // 1023 打成 ':' + "23"。
+    var exp_digits2: [byte: 4] = [];
+    var exp_n2: i32 = 0;
+    var exp_tmp2: i32 = exp;
+    while exp_tmp2 > 0 && exp_n2 < 4 {
+        if exp_n2 >= 0 && exp_n2 < 4 {
+            exp_digits2[exp_n2] = (48 +| (exp_tmp2 % 10)) as byte;
+        }
+        exp_tmp2 = exp_tmp2 / 10;
+        exp_n2 = exp_n2 + 1;
     }
-    if exp >= 10 {
-        if pos < buf_max { buf[pos] = (48 + exp / 10) as byte; pos = pos + 1; }
-        exp = exp % 10;
+    if exp_n2 < 2 {
+        if exp_n2 >= 0 && exp_n2 < 4 {
+            exp_digits2[exp_n2] = 48;
+        }
+        exp_n2 = exp_n2 + 1;
     }
-    if pos < buf_max { buf[pos] = (48 +| exp) as byte; pos = pos + 1; }
+    var exp_w2: i32 = exp_n2 - 1;
+    while exp_w2 >= 0 {
+        if pos < buf_max {
+            if exp_w2 >= 0 && exp_w2 < 4 {
+                buf[pos] = exp_digits2[exp_w2];
+            }
+            pos = pos + 1;
+        }
+        exp_w2 = exp_w2 - 1;
+    }
     return pos;
 }
 // 支持 %s、%d、%ld、%u、%x、%X、%p、%c、%zu、%g、%%、%*s、%.Ng
@@ -1171,6 +1474,72 @@ fn _fmt_i32_to_buf_full(ctx: &_FmtContext, value: i32, flags: i32, precision: i3
         }
     }
     // 3. 数字
+    ctx.total_len = ctx.total_len + digit_idx;
+    var i: usize = 0;
+    while i < digit_idx && ctx.buf_pos < ctx.buf_max {
+        ctx.buf[ctx.buf_pos] = digits[digit_idx - 1 - i];
+        ctx.buf_pos = ctx.buf_pos + 1;
+        i = i + 1;
+    }
+}
+
+// _fmt_i64_to_buf_full - 将 i64 按 flags/precision 格式化（%lld/%ld/%jd/%td）
+fn _fmt_i64_to_buf_full(ctx: &_FmtContext, value: i64, flags: i32, precision: i32) void {
+    var is_neg: i32 = 0;
+    var magnitude: u64 = 0 as u64;
+    if value < 0 {
+        is_neg = 1;
+        magnitude = (0 as u64) - (value as u64);
+    } else {
+        magnitude = value as u64;
+    }
+    var digits: [byte: 32] = [];
+    var digit_idx: usize = 0;
+    if magnitude == 0 as u64 {
+        digits[0] = 48;
+        digit_idx = 1;
+    } else {
+        var temp: u64 = magnitude;
+        while temp > 0 && digit_idx < 32 {
+            const ten: u64 = 10 as u64;
+            const digit: u64 = temp % ten;
+            const zero: u64 = 48 as u64;
+            digits[digit_idx] = (zero + digit) as byte;
+            digit_idx = digit_idx + 1;
+            temp = temp / ten;
+        }
+    }
+    if is_neg > 0 {
+        ctx.total_len = ctx.total_len + 1;
+        if ctx.buf_pos < ctx.buf_max {
+            ctx.buf[ctx.buf_pos] = 45;
+            ctx.buf_pos = ctx.buf_pos + 1;
+        }
+    } else if (flags & _FMT_PLUS) != 0 {
+        ctx.total_len = ctx.total_len + 1;
+        if ctx.buf_pos < ctx.buf_max {
+            ctx.buf[ctx.buf_pos] = 43;
+            ctx.buf_pos = ctx.buf_pos + 1;
+        }
+    } else if (flags & _FMT_SPACE) != 0 {
+        ctx.total_len = ctx.total_len + 1;
+        if ctx.buf_pos < ctx.buf_max {
+            ctx.buf[ctx.buf_pos] = 32;
+            ctx.buf_pos = ctx.buf_pos + 1;
+        }
+    }
+    var min_digits: i32 = precision;
+    if min_digits < 0 { min_digits = 0; }
+    if (min_digits as usize) > digit_idx {
+        var pad: usize = (min_digits as usize) - digit_idx;
+        ctx.total_len = ctx.total_len + pad;
+        var pi: usize = 0;
+        while pi < pad && ctx.buf_pos < ctx.buf_max {
+            ctx.buf[ctx.buf_pos] = 48;
+            ctx.buf_pos = ctx.buf_pos + 1;
+            pi = pi + 1;
+        }
+    }
     ctx.total_len = ctx.total_len + digit_idx;
     var i: usize = 0;
     while i < digit_idx && ctx.buf_pos < ctx.buf_max {
@@ -1439,24 +1808,10 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_ctx: _FmtContext = _FmtContext{ buf: &temp_buf[0], buf_pos: 0, buf_max: 255, stream: null, total_len: 0 };
                     if length == 4 || length == 5 || length == 7 {
                         const lld: i64 = @va_arg(ap, i64);
-                        if lld < 0 {
-                            temp_ctx.buf[temp_ctx.buf_pos] = 45;
-                            temp_ctx.buf_pos = temp_ctx.buf_pos + 1;
-                            temp_ctx.total_len = temp_ctx.total_len + 1;
-                            _fmt_u64_to_buf(&temp_ctx, (0 - lld) as u64);
-                        } else {
-                            _fmt_i32_to_buf_full(&temp_ctx, lld as i32, flags, precision);
-                        }
+                        _fmt_i64_to_buf_full(&temp_ctx, lld, flags, precision);
                     } else if length == 3 {
                         const ld: i64 = @va_arg(ap, i64);
-                        if ld < 0 {
-                            temp_ctx.buf[temp_ctx.buf_pos] = 45;
-                            temp_ctx.buf_pos = temp_ctx.buf_pos + 1;
-                            temp_ctx.total_len = temp_ctx.total_len + 1;
-                            _fmt_u64_to_buf(&temp_ctx, (0 - ld) as u64);
-                        } else {
-                            _fmt_i32_to_buf_full(&temp_ctx, ld as i32, flags, precision);
-                        }
+                        _fmt_i64_to_buf_full(&temp_ctx, ld, flags, precision);
                     } else if length == 1 || length == 2 {
                         var hv: i32 = @va_arg(ap, i32);
                         if length == 2 { hv = (hv << 24) >> 24; } else { hv = (hv << 16) >> 16; }
@@ -1510,14 +1865,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     const ld: i64 = @va_arg(ap, i64);
                     var temp_buf: [byte: 256] = [];
                     var temp_ctx: _FmtContext = _FmtContext{ buf: &temp_buf[0], buf_pos: 0, buf_max: 255, stream: null, total_len: 0 };
-                    if ld < 0 {
-                        temp_ctx.buf[temp_ctx.buf_pos] = 45;
-                        temp_ctx.buf_pos = temp_ctx.buf_pos + 1;
-                        temp_ctx.total_len = temp_ctx.total_len + 1;
-                        _fmt_u64_to_buf(&temp_ctx, (0 - ld) as u64);
-                    } else {
-                        _fmt_i32_to_buf_full(&temp_ctx, ld as i32, flags, precision);
-                    }
+                    _fmt_i64_to_buf_full(&temp_ctx, ld, flags, precision);
                     _fmt_apply_padding(&ctx, &temp_buf[0], temp_ctx.buf_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %u - 无符号（支持 width；%lu length==3 用 u64；%hu/%hhu 用 mask）
                 } else if spec == 117 && length != 4 && length != 6 {
@@ -1709,7 +2057,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_buf: [byte: 256] = [];
                     var prec: i32 = precision;
                     if prec < 0 { prec = 6; }
-                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 1, 0, 0, 0);
+                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 1, 0, 0, 0, flags & _FMT_HASH);
                     _fmt_apply_padding(&ctx, &temp_buf[0], end_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %G - 浮点数（自动格式，指数大写 INF/NAN）（C99）
                 } else if spec == 71 {
@@ -1717,7 +2065,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_buf: [byte: 256] = [];
                     var prec: i32 = precision;
                     if prec < 0 { prec = 6; }
-                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 1, 0, 1, 1);
+                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 1, 0, 1, 1, flags & _FMT_HASH);
                     _fmt_apply_padding(&ctx, &temp_buf[0], end_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %e - 科学计数法小写
                 } else if spec == 101 {
@@ -1725,7 +2073,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_buf: [byte: 256] = [];
                     var prec: i32 = precision;
                     if prec < 0 { prec = 6; }
-                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 1, 0, 0);
+                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 1, 0, 0, flags & _FMT_HASH);
                     _fmt_apply_padding(&ctx, &temp_buf[0], end_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %E - 科学计数法大写
                 } else if spec == 69 {
@@ -1733,7 +2081,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_buf: [byte: 256] = [];
                     var prec: i32 = precision;
                     if prec < 0 { prec = 6; }
-                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 1, 1, 0);
+                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 1, 1, 0, flags & _FMT_HASH);
                     _fmt_apply_padding(&ctx, &temp_buf[0], end_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %f - 固定小数位浮点数
                 } else if spec == 102 {
@@ -1741,7 +2089,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_buf: [byte: 256] = [];
                     var prec: i32 = precision;
                     if prec < 0 { prec = 6; }
-                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 0, 0, 0);
+                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 0, 0, 0, flags & _FMT_HASH);
                     _fmt_apply_padding(&ctx, &temp_buf[0], end_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %F - 固定小数位，INF/NAN 大写（C99）
                 } else if spec == 70 {
@@ -1749,7 +2097,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_buf: [byte: 256] = [];
                     var prec: i32 = precision;
                     if prec < 0 { prec = 6; }
-                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 0, 0, 1);
+                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 0, 0, 1, flags & _FMT_HASH);
                     _fmt_apply_padding(&ctx, &temp_buf[0], end_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %a - 十六进制浮点小写（C99）
                 } else if spec == 97 {

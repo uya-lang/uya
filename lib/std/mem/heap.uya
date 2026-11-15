@@ -7,6 +7,7 @@ use libc.MAP_ANONYMOUS;
 use libc.MAP_PRIVATE;
 use libc.PROT_READ;
 use libc.PROT_WRITE;
+use libc.mem;
 use mem.mem_copy;
 use std.mem.allocator.IAllocator;
 
@@ -66,7 +67,10 @@ export struct HeapAllocator : IAllocator {
             return ptr;
         }
         const q: &byte = try self.alloc(new_size);
-        mem_copy(q, ptr as &const byte, old_user);
+        // 用 libc 的 `memcpy` 而不是纯 Uya 的 `mem_copy` 字节循环：
+        // exec VM 里宿主 memcpy 分支带「原生聚合旁路表迁移」，手写循环会把
+        // 结构体元素的真实内容留在旧基址下（`Vec`/`HashMap` 扩容即丢元素）。
+        _ = memcpy(q as *byte, ptr as *const byte, old_user);
         self.dealloc(ptr);
         return q;
     }

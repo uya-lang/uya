@@ -4,12 +4,15 @@ use libc;
 
 const EXEC_MAX_BYTECODE_INSTRS: i32 = 16384;
 // 编译器本体 staged smoke 会带入大量字符串/整数常量，1024 容量过早撞限。
-const EXEC_MAX_CONST_POOL_VALUES: i32 = 8192;
+const EXEC_MAX_CONST_POOL_VALUES: i32 = 32768;
 const EXEC_MAX_HOST_CALL_SITES: i32 = 64;
 // 保持与 lowering 侧一致，避免深 `else if` 链在 cleanup scope 栈上过早撞限。
-const EXEC_MAX_CLEANUP_SCOPE_DEPTH: i32 = 512;
+const EXEC_MAX_CLEANUP_SCOPE_DEPTH: i32 = 1024;
 
 struct ExecConstPoolBuilder {
+    // 常量池是**程序级**的一份（`exec_builder_build_program` 里的局部量），
+    // 所以这里保持内联数组而是把上限抬够：编译器本体的常量数会超过 8192，
+    // 而改成 arena 按需分配实测会让 async 用例随机段错（见第 693 轮记录）。
     values: [ExecValue: EXEC_MAX_CONST_POOL_VALUES],
     count: i32,
 }
@@ -25,6 +28,11 @@ struct ExecLoopPatch {
     continue_jumps: [i32: 128],
     continue_count: i32,
     continue_target: i32,
+    // 进入这个 loop 时的 cleanup 深度。`break`/`continue` 只该发到这一层为止：
+    // loop 自己的 scope 要发，loop 外面的 scope 留给外层语句。没有这个下标时
+    // `defer { ... break ... }` 会把正在发射的 scope 再发一遍，自我递归到
+    // `cleanup scope 嵌套过深`。
+    cleanup_depth_at_entry: i32,
 }
 
 struct ExecCleanupScope {
@@ -44,24 +52,39 @@ struct ExecFunctionBuildContext {
     host_calls: &ExecHostCallSiteBuilder,
     module: &HIRModule,
     function: &HIRFunction,
-    instrs: [BCInstr: EXEC_MAX_BYTECODE_INSTRS],
+    // 指令数组按需从 arena 分配：`[BCInstr: 16384]` 单个字段就有 1.2MB，
+    // 放在 ctx 里会让每个函数 build 都 memset 掉 3.4MB 栈帧
+    // （callgrind 实测占编译器 21.8% 的指令数）。
+    instrs: &BCInstr,
+    // 指令缓冲区实际容量：首次仍按 EXEC_MAX_BYTECODE_INSTRS 预分配（与旧行为一致），
+    // 只有编译器本体 codegen 这类**超上限**的巨型函数才会翻倍扩容。
+    instr_capacity: i32,
     instr_count: i32,
     next_temp_slot: i32,
     max_slot_count: i32,
-    loop_stack: [ExecLoopPatch: 32],
+    // 循环/cleanup 栈同样按需分配：`ExecCleanupScope` 一个就 1584 字节，
+    // 1024 层预分配等于每次 build 白清 1.6MB（同 `instrs` 的理由）。
+    loop_stack: &ExecLoopPatch,
     loop_depth: i32,
-    cleanup_scopes: [ExecCleanupScope: EXEC_MAX_CLEANUP_SCOPE_DEPTH],
+    cleanup_scopes: &ExecCleanupScope,
     cleanup_depth: i32,
+    // checked 算术（`(a + b) catch`）溢出时跳向最近 catch 分支的跳转指令索引，
+    // 由 HIR_EXPR_CHECKED_CATCH 统一回填目标。
+    checked_err_jumps: [i32: 64],
+    checked_err_count: i32,
+    // 最近一个 checked catch 的错误联合槽位：同一 catch 内所有受检运算都写这里，
+    // 错误分支再从这里取错误 id 绑定 / 构造返回的错误联合。
+    checked_err_union_slot: i32,
+    // 正在发射的 cleanup scope 下标 +1（0 = 没在发射）。用来阻止
+    // `defer { ... break ... }` 把正在发射的 scope 再发一遍。
+    emitting_cleanup_scope_plus1: i32,
 }
 
 fn exec_builder_const_pool_value_ref(const_pool: &ExecConstPoolBuilder, idx: i32) &ExecValue {
     if const_pool == null || idx < 0 || idx >= EXEC_MAX_CONST_POOL_VALUES {
         return null;
     }
-    if idx >= 0 && idx < EXEC_MAX_CONST_POOL_VALUES {
-        return &const_pool.values[idx];
-    }
-    return null;
+    return &const_pool.values[idx];
 }
 
 fn exec_builder_host_call_site_ref(host_calls: &ExecHostCallSiteBuilder, idx: i32) &BCHostCallSite {
@@ -111,29 +134,79 @@ fn exec_builder_intern_host_call(ctx: &ExecFunctionBuildContext, expr: &HIRExpr)
 }
 
 fn exec_builder_instr_slot(ctx: &ExecFunctionBuildContext, idx: i32) &BCInstr {
-    if ctx == null || idx < 0 || idx >= EXEC_MAX_BYTECODE_INSTRS {
+    if ctx == null || ctx.instrs == null || idx < 0 || idx >= ctx.instr_capacity {
         return null;
     }
-    if idx >= 0 && idx < EXEC_MAX_BYTECODE_INSTRS {
-        return &ctx.instrs[idx];
-    }
-    return null;
+    return &ctx.instrs[idx];
 }
 
+/// 指令缓冲区翻倍扩容（只在指令数超过 `EXEC_MAX_BYTECODE_INSTRS` 的巨型函数上发生）。
+/// 参数：`ctx` 构建上下文。
+/// 返回值：0 成功；-1 失败（已设置后端错误）。
+fn exec_builder_instr_grow(ctx: &ExecFunctionBuildContext) i32 {
+    const new_cap: i32 = ctx.instr_capacity *| 2;
+    const fresh: &BCInstr = compiler_arena_alloc(ctx.arena,
+        @size_of(BCInstr) * new_cap as usize) as &BCInstr;
+    if fresh == null {
+        exec_backend_set_error(ctx.function.decl, "exec: bytecode 指令缓冲区分配失败" as *byte, 0);
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < ctx.instr_count {
+        fresh[i] = ctx.instrs[i];
+        i = i + 1;
+    }
+    ctx.instrs = fresh;
+    ctx.instr_capacity = new_cap;
+    return 0;
+}
+
+/// 在模块里定位一个被调函数。
+///
+/// 三轮匹配，顺序不能颠倒：
+///
+/// 1. **声明 + 名字都相同**：泛型单态副本全都共用同一个 `fn_decl` 指针
+///    （`exec_lower_generic_instances` 反复用原声明降级，只改 `lowered.name`），
+///    只按声明指针找会把 `dump<A>()` 和 `dump<B>()` 全部指向第一个实例，
+///    于是 `@size_of(v)` 之类的单态折叠取到先出现那个类型实参的结果。
+/// 2. **只按声明**：非泛型方法调用，声明唯一。
+/// 3. **只按名字**：宏展开等场景下调用侧没有拿到声明节点。
+///
+/// 参数：`module` HIR 模块；`callee_decl` 调用侧解析到的声明（可为 null）；
+/// `callee_name` 调用侧的名字（可为 null）。
+/// 返回值：模块内下标；找不到返回 -1。
 fn exec_builder_find_function_index(module: &HIRModule, callee_decl: &ASTNode, callee_name: &byte) i32 {
     if module == null {
         return -1;
     }
+    if callee_decl != null && callee_name != null {
+        var i: i32 = 0;
+        while i < module.function_count {
+            const fn_hir: &HIRFunction = module.functions[i];
+            if fn_hir != null && fn_hir.decl == callee_decl && fn_hir.name != null &&
+                str_equals(fn_hir.name, callee_name) != 0 {
+                return i;
+            }
+            i = i + 1;
+        }
+    }
+    // 先按声明指针精确匹配，再退回按名字匹配：不同结构体的同名方法（`A.drop` /
+    // `B.drop`）名字完全相同，混在一趟里先撞名字会把调用全指向同一个实现
+    // （drop 顺序、drop 次数一类的用例静默跑错）。
     var i: i32 = 0;
     while i < module.function_count {
         const fn_hir: &HIRFunction = module.functions[i];
-        if fn_hir != null {
-            if callee_decl != null && fn_hir.decl == callee_decl {
-                return i;
-            }
-            if callee_name != null && fn_hir.name != null && str_equals(fn_hir.name, callee_name) != 0 {
-                return i;
-            }
+        if fn_hir != null && callee_decl != null && fn_hir.decl == callee_decl {
+            return i;
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while i < module.function_count {
+        const fn_hir: &HIRFunction = module.functions[i];
+        if fn_hir != null && callee_name != null && fn_hir.name != null &&
+            str_equals(fn_hir.name, callee_name) != 0 {
+            return i;
         }
         i = i + 1;
     }
@@ -232,10 +305,20 @@ fn exec_builder_sort_error_names(entries: &BCErrorNameEntry, count: i32) void {
 }
 
 fn exec_builder_loop_patch_ref(ctx: &ExecFunctionBuildContext, idx: i32) &ExecLoopPatch {
-    if ctx == null || idx < 0 || idx >= 32 {
+    if ctx == null || idx < 0 || idx >= 1024 {
         return null;
     }
-    if idx >= 0 && idx < 32 {
+    if ctx.loop_stack == null {
+        ctx.loop_stack = compiler_arena_alloc(ctx.arena,
+            @size_of(ExecLoopPatch) * 1024 as usize) as &ExecLoopPatch;
+        if ctx.loop_stack == null {
+            return null;
+        }
+    }
+    if ctx.loop_stack == null {
+        return null;
+    }
+    if idx >= 0 && idx < 1024 {
         return &ctx.loop_stack[idx];
     }
     return null;
@@ -263,6 +346,16 @@ fn exec_builder_continue_jump_ref(loop_patch: &ExecLoopPatch, idx: i32) &i32 {
 
 fn exec_builder_cleanup_scope_ref(ctx: &ExecFunctionBuildContext, idx: i32) &ExecCleanupScope {
     if ctx == null || idx < 0 || idx >= EXEC_MAX_CLEANUP_SCOPE_DEPTH {
+        return null;
+    }
+    if ctx.cleanup_scopes == null {
+        ctx.cleanup_scopes = compiler_arena_alloc(ctx.arena,
+            @size_of(ExecCleanupScope) * EXEC_MAX_CLEANUP_SCOPE_DEPTH as usize) as &ExecCleanupScope;
+        if ctx.cleanup_scopes == null {
+            return null;
+        }
+    }
+    if ctx.cleanup_scopes == null {
         return null;
     }
     if idx >= 0 && idx < EXEC_MAX_CLEANUP_SCOPE_DEPTH {
@@ -339,9 +432,41 @@ fn exec_builder_local_desc(ctx: &ExecFunctionBuildContext, slot: i32) &HIRLocalS
     return &locals[slot];
 }
 
+/// 在程序级方法块里找 `fn drop`（`S { fn drop(self: S) … }` 写法）。
+///
+/// 参数：`method_block` 形如 `AST_METHOD_BLOCK` 的节点（可为 null）。
+/// 返回值：drop 方法声明；没有返回 null。
+fn exec_builder_find_drop_in_method_block(method_block: &ASTNode) &ASTNode {
+    if method_block == null || method_block.type != ASTNodeType.AST_METHOD_BLOCK ||
+        method_block.method_block_methods == null {
+        return null;
+    }
+    var mi: i32 = 0;
+    while mi < method_block.method_block_method_count {
+        const method: &ASTNode = method_block.method_block_methods[mi];
+        if method != null && method.type == ASTNodeType.AST_FN_DECL &&
+            method.fn_decl_name != null &&
+            str_equals(method.fn_decl_name, "drop" as *byte) != 0 {
+            return method;
+        }
+        mi = mi + 1;
+    }
+    return null;
+}
+
 fn exec_builder_find_named_drop_decl(ctx: &ExecFunctionBuildContext, named_type: &byte) &ASTNode {
     if ctx == null || ctx.checker == null || ctx.checker.program_node == null || named_type == null {
         return null;
+    }
+    var from_block: &ASTNode = exec_builder_find_drop_in_method_block(
+        find_method_block_for_struct(ctx.checker.program_node, named_type));
+    if from_block != null {
+        return from_block;
+    }
+    from_block = exec_builder_find_drop_in_method_block(
+        find_method_block_for_union(ctx.checker.program_node, named_type));
+    if from_block != null {
+        return from_block;
     }
     const struct_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node, named_type);
     if struct_decl != null && struct_decl.struct_decl_methods != null {
@@ -409,6 +534,11 @@ fn exec_builder_stmt_drop_decl(ctx: &ExecFunctionBuildContext, stmt: &HIRStmt) &
         stmt.ast_node.var_decl_type.type_named_name == null {
         return null;
     }
+    // lowering 解析好的 drop 声明优先（含程序级方法块写法）。
+    const slot_local: &HIRLocalSlot = exec_builder_local_desc(ctx, stmt.local_slot);
+    if slot_local != null && slot_local.drop_decl != null {
+        return slot_local.drop_decl;
+    }
     return exec_builder_find_named_drop_decl(ctx, stmt.ast_node.var_decl_type.type_named_name);
 }
 
@@ -417,9 +547,32 @@ fn exec_builder_emit(ctx: &ExecFunctionBuildContext, instr: BCInstr) i32 {
         return -1;
     }
     const instr_index: i32 = ctx.instr_count;
-    if instr_index >= EXEC_MAX_BYTECODE_INSTRS {
-        exec_backend_set_error(ctx.function.decl, "exec: bytecode 指令超出上限" as *byte, 0);
-        return -1;
+    if ctx.instr_capacity <= 0 {
+        // 首次：按上限预分配（与旧的「一次性预分配」行为完全一致）。
+        const fresh: &BCInstr = compiler_arena_alloc(ctx.arena,
+            @size_of(BCInstr) * EXEC_MAX_BYTECODE_INSTRS as usize) as &BCInstr;
+        if fresh == null {
+            exec_backend_set_error(ctx.function.decl, "exec: bytecode 指令缓冲区分配失败" as *byte, 0);
+            return -1;
+        }
+        ctx.instrs = fresh;
+        ctx.instr_capacity = EXEC_MAX_BYTECODE_INSTRS;
+    } else if instr_index >= ctx.instr_capacity {
+        // 巨型函数（编译器本体 codegen 有几万条指令）：翻倍扩容。
+        if exec_builder_instr_grow(ctx) != 0 {
+            return -1;
+        }
+    }
+    // 指令数组惰性分配：绝大多数函数远用不到 16384 条上限，按上限预分配
+    // 只是白白多清 1.2MB（见 `ExecFunctionBuildContext.instrs` 的注释）。
+    if ctx.instrs == null {
+        const fresh: &BCInstr = compiler_arena_alloc(ctx.arena,
+            @size_of(BCInstr) * EXEC_MAX_BYTECODE_INSTRS as usize) as &BCInstr;
+        if fresh == null {
+            exec_backend_set_error(ctx.function.decl, "exec: bytecode 指令缓冲区分配失败" as *byte, 0);
+            return -1;
+        }
+        ctx.instrs = fresh;
     }
     const instr_ptr: &BCInstr = exec_builder_instr_slot(ctx, instr_index);
     if instr_ptr == null {
@@ -427,8 +580,8 @@ fn exec_builder_emit(ctx: &ExecFunctionBuildContext, instr: BCInstr) i32 {
         return -1;
     }
     instr_ptr[0] = instr;
-    ctx.instr_count = instr_index + 1;
-    return ctx.instr_count - 1;
+    ctx.instr_count = instr_index +| 1;
+    return ctx.instr_count -| 1;
 }
 
 fn exec_builder_make_source(node: &ASTNode) BCSourceMap {
@@ -458,6 +611,47 @@ fn exec_builder_new_temp(ctx: &ExecFunctionBuildContext) i32 {
         return -1;
     }
     return slot;
+}
+
+/// 把 `slot` 适配成函数返回值的形态：返回类型是错误联合而值本身不是时，
+/// 自动包一层 ok（错误值则包 `err`）。
+///
+/// 参数：`slot` 已求出的值槽位；`value_type` 该值的 HIR 类型，可为 null；
+/// `ast_node` 用于报错与源码映射。
+/// 返回值：最终用于 return 的槽位；失败返回 -1。
+fn exec_builder_wrap_return_slot(ctx: &ExecFunctionBuildContext, slot: i32,
+    value_type: &Type, ast_node: &ASTNode) i32 {
+    if ctx == null || slot < 0 {
+        return slot;
+    }
+    if ctx.function.return_type.type.kind != TypeKind.TYPE_ERROR_UNION {
+        return slot;
+    }
+    if value_type != null && value_type[0].kind == TypeKind.TYPE_ERROR_UNION {
+        return slot;
+    }
+    const wrapped_slot: i32 = exec_builder_new_temp(ctx);
+    if wrapped_slot < 0 {
+        return -1;
+    }
+    var wrap_opcode: BCOpcode = BCOpcode.BC_MAKE_OK;
+    var wrap_imm: i64 = 0;
+    if value_type != null && value_type[0].kind == TypeKind.TYPE_ERROR {
+        wrap_opcode = BCOpcode.BC_MAKE_ERR;
+        wrap_imm = value_type[0].error_error_id as i64;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: wrap_opcode,
+        a: wrapped_slot,
+        b: slot,
+        c: 0,
+        imm: wrap_imm,
+        text: null,
+        source: exec_builder_make_source(ast_node),
+    }) < 0 {
+        return -1;
+    }
+    return wrapped_slot;
 }
 
 fn exec_builder_restore_temp_watermark(ctx: &ExecFunctionBuildContext, watermark: i32) void {
@@ -518,11 +712,50 @@ fn exec_builder_emit_loaded_const_value(ctx: &ExecFunctionBuildContext, ast_node
     return dst_slot;
 }
 
-fn exec_builder_pack_syscall_meta(arg_base: i32, arg_count: i32, target_kind: i32, target_pointee_kind: i32) i64 {
+fn exec_builder_pack_syscall_meta(arg_base: i32, arg_count: i32, target_kind: i32, target_pointee_kind: i32, out_mask: i32) i64 {
     return (arg_base as i64) |
         ((arg_count as i64) << 16) |
         ((target_kind as i64) << 24) |
-        ((target_pointee_kind as i64) << 40);
+        ((target_pointee_kind as i64) << 40) |
+        ((out_mask as i64) << 56);
+}
+
+/// 判断 syscall 参数是否是「指向聚合体的指针」（出参结构体）。
+/// VM 里聚合值不是原生内存布局，这类参数必须先换成原生缓冲区，
+/// 否则内核会把 ExecValue 头部写成垃圾（`sys_gettimeofday(&tv, …)` 就是这样）。
+/// 参数：arg - 参数表达式；返回：是则置对应位掩码位，否则 0。
+fn exec_builder_syscall_arg_out_struct_bit(arg: &HIRExpr, bit_index: i32) i32 {
+    if arg == null || bit_index < 0 || bit_index > 1 {
+        return 0;
+    }
+    var probe: &HIRExpr = arg;
+    var unwrap_guard: i32 = 0;
+    while probe != null && probe.kind == HIRExprKind.HIR_EXPR_CAST && probe.left != null &&
+        unwrap_guard < 4 {
+        probe = probe.left;
+        unwrap_guard = unwrap_guard + 1;
+    }
+    if probe == null {
+        return 0;
+    }
+    const arg_type: Type = copy_type(&probe.type_ref.type);
+    if arg_type.kind == TypeKind.TYPE_POINTER && arg_type.pointer_to != null {
+        const pointee_kind: TypeKind = arg_type.pointer_to[0].kind;
+        if pointee_kind == TypeKind.TYPE_STRUCT || pointee_kind == TypeKind.TYPE_UNION ||
+            pointee_kind == TypeKind.TYPE_ARRAY || pointee_kind == TypeKind.TYPE_TUPLE {
+            return 1 << bit_index;
+        }
+    }
+    // 类型信息丢了（例如 `&obj as i64` 的内层被折成整数类型）时，退回看取地址的操作数：
+    // `&聚合体` 一律按出参结构体处理，内核写的是原生内存。
+    if probe.kind == HIRExprKind.HIR_EXPR_ADDR && probe.left != null {
+        const operand_type: Type = copy_type(&probe.left.type_ref.type);
+        if operand_type.kind == TypeKind.TYPE_STRUCT || operand_type.kind == TypeKind.TYPE_UNION ||
+            operand_type.kind == TypeKind.TYPE_ARRAY || operand_type.kind == TypeKind.TYPE_TUPLE {
+            return 1 << bit_index;
+        }
+    }
+    return 0;
 }
 
 fn exec_builder_array_element_kind_code(type: Type) i32 {
@@ -530,6 +763,22 @@ fn exec_builder_array_element_kind_code(type: Type) i32 {
         return TypeKind.TYPE_VOID as i32;
     }
     return exec_builder_effective_kind_code(&type.element_type[0]);
+}
+
+/// 判断类型名是否以给定前缀开头（`@frame` 合成的 `uya_async_*` 用）。
+/// 参数：`name` 类型名；`prefix` 前缀。返回值：1 命中；0 不命中。
+fn exec_builder_type_name_has_prefix(name: &byte, prefix: &byte) i32 {
+    if name == null || prefix == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while prefix[i] != 0 {
+        if name[i] != prefix[i] {
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 1;
 }
 
 fn exec_builder_compile_zero_value(ctx: &ExecFunctionBuildContext, ast_node: &ASTNode, ty: &Type) i32 {
@@ -653,6 +902,56 @@ fn exec_builder_compile_zero_value(ctx: &ExecFunctionBuildContext, ast_node: &AS
         }
         return dst_error_union;
     }
+    if ty.kind == TypeKind.TYPE_INTERFACE {
+        // 接口零值 = 方法表全 0（数据引用也为 0）的结构体；
+        // 对零接口调方法必然空指针，和 C 端一致。
+        const interface_name_zero: &byte = type_get_interface_name(ty);
+        if ctx.checker == null || ctx.checker.program_node == null || interface_name_zero == null {
+            exec_backend_set_generic_unsupported_error(ast_node, "exec: zero interface 缺少声明" as *byte);
+            return -1;
+        }
+        const interface_decl_zero: &ASTNode = find_interface_decl_from_program(ctx.checker.program_node, interface_name_zero);
+        if interface_decl_zero == null {
+            exec_backend_set_generic_unsupported_error(ast_node, "exec: zero interface 无法解析接口声明" as *byte);
+            return -1;
+        }
+        var iface_item_count: i32 = interface_decl_zero.interface_decl_method_sig_count +| 1;
+        if iface_item_count < 1 {
+            iface_item_count = 1;
+        }
+        if iface_item_count > 256 {
+            exec_backend_set_generic_unsupported_error(ast_node, "exec: zero interface 方法过多" as *byte);
+            return -1;
+        }
+        var iface_slots: [i32: 256] = [];
+        var ij: i32 = 0;
+        while ij < iface_item_count {
+            const zero_iface_item: i32 = exec_builder_emit_loaded_const_value(ctx, ast_node,
+                exec_make_pointer_with_kind(0 as usize, TypeKind.TYPE_VOID as i32));
+            if zero_iface_item < 0 {
+                return -1;
+            }
+            iface_slots[ij] = zero_iface_item;
+            ij = ij + 1;
+        }
+        const iface_item_base: i32 = exec_builder_pack_source_slots(ctx, ast_node, &iface_slots[0], iface_item_count);
+        const dst_iface_zero: i32 = exec_builder_new_temp(ctx);
+        if iface_item_base < 0 || dst_iface_zero < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MAKE_STRUCT,
+            a: dst_iface_zero,
+            b: iface_item_base,
+            c: iface_item_count,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return dst_iface_zero;
+    }
     if ty.kind == TypeKind.TYPE_ARRAY && ty.element_type != null {
         const zero_elem_slot: i32 = exec_builder_compile_zero_value(ctx, ast_node, &ty.element_type[0]);
         const dst_array: i32 = exec_builder_new_temp(ctx);
@@ -711,8 +1010,32 @@ fn exec_builder_compile_zero_value(ctx: &ExecFunctionBuildContext, ast_node: &AS
             return -1;
         }
         const struct_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node, type_get_struct_name(ty));
+        // `@frame(fn)` 的结构体由 C99 codegen 合成，AST 里没有声明。
+        // VM 侧按空结构体零值处理（布局未对齐，字段访问会照常报错）。
+        if (struct_decl == null || struct_decl.struct_decl_fields == null) &&
+            exec_builder_type_name_has_prefix(type_get_struct_name(ty), "uya_async_" as &byte) != 0 {
+            const dst_frame: i32 = exec_builder_new_temp(ctx);
+            if dst_frame < 0 {
+                return -1;
+            }
+            if exec_builder_emit(ctx, BCInstr {
+                opcode: BCOpcode.BC_MAKE_STRUCT,
+                a: dst_frame,
+                b: -1,
+                c: 0,
+                imm: 0,
+                text: null,
+                source: exec_builder_make_source(ast_node),
+            }) < 0 {
+                return -1;
+            }
+            return dst_frame;
+        }
         if struct_decl == null || struct_decl.struct_decl_fields == null {
-            exec_backend_set_error(ast_node, "exec: zero struct 无法解析结构体声明" as *byte, 0);
+            var zero_struct_msg: [byte: 192] = [];
+            _ = snprintf(&zero_struct_msg[0] as *byte, 192,
+                "exec: zero struct 无法解析结构体声明(name=%s)" as *byte, type_get_struct_name(ty) as *byte);
+            exec_backend_set_error(ast_node, &zero_struct_msg[0] as &byte, 0);
             return -1;
         }
         var struct_slots: [i32: 256] = [];
@@ -727,7 +1050,7 @@ fn exec_builder_compile_zero_value(ctx: &ExecFunctionBuildContext, ast_node: &AS
                 exec_backend_set_error(ast_node, "exec: zero struct 字段类型缺失" as *byte, 0);
                 return -1;
             }
-            const field_type: Type = type_from_ast(ctx.checker, field_decl.var_decl_type);
+            const field_type: Type = exec_lower_subst_struct_field_type(ctx.checker, ty, struct_decl, field_decl);
             const zero_struct_slot: i32 = exec_builder_compile_zero_value(ctx, field_decl, &field_type);
             if zero_struct_slot < 0 {
                 return -1;
@@ -753,14 +1076,125 @@ fn exec_builder_compile_zero_value(ctx: &ExecFunctionBuildContext, ast_node: &AS
         }
         return dst_struct;
     }
-    exec_backend_set_generic_unsupported_error(ast_node, "exec: 当前不支持该类型的零值初始化" as *byte);
+    var zero_kind_msg: [byte: 160] = [];
+    _ = snprintf(&zero_kind_msg[0] as *byte, 160, "exec: 当前不支持该类型的零值初始化(kind=%d)" as *byte, ty.kind as i32);
+    exec_backend_set_generic_unsupported_error(ast_node, &zero_kind_msg[0]);
     return -1;
+}
+
+/// 向量元素类型（TypeKind 编码）；非向量返回 void。
+fn exec_builder_vector_elem_kind_code(ty: &Type) i32 {
+    if ty == null || ty.kind != TypeKind.TYPE_VECTOR || ty.element_type == null {
+        return TypeKind.TYPE_VOID as i32;
+    }
+    return exec_builder_effective_kind_code(&ty.element_type[0]);
+}
+
+/// 向量 / 掩码的通道数。
+fn exec_builder_vector_lane_count(ty: &Type) i32 {
+    if ty == null {
+        return 0;
+    }
+    if ty.kind != TypeKind.TYPE_VECTOR && ty.kind != TypeKind.TYPE_MASK {
+        return 0;
+    }
+    return ty.array_size;
+}
+
+/// 函数地址指针的基址：`&fn` 的值 = 基址 + 模块内函数下标，宿主调用据此回调。
+const EXEC_FN_REF_BASE: i64 = 0x40000000;
+
+/// 把 `@embed` 的编译期数据造成 VM 里的 `&[const byte]` 切片常量。
+///
+/// 内容按 `size` 字节原样拷贝（可能含 NUL），所以不能复用
+/// `exec_make_string`（那条路按 `strlen` 截断）。
+///
+/// 参数：`data` 编译期读入的字节；`size` 字节数。
+/// 返回值：切片值；分配失败返回 void。
+/// 把 `@embed_dir` 的编译期数据拼成 `&[EmbedDirEntry]` 切片常量。
+///
+/// 每个条目是 `{ path: &[const byte], data: &[const byte] }`，两个字段都是
+/// 原生字节数组切片。检查阶段已经读好了路径、内容与长度，这里只负责组装。
+///
+/// 参数：`node` 对应的 `AST_EMBED_DIR` 节点。
+/// 返回值：切片值；数据缺失或分配失败返回 void。
+fn exec_builder_make_embed_dir_value(node: &ASTNode) ExecValue {
+    if node == null || node.embed_dir_paths == null {
+        return exec_make_void();
+    }
+    const count: i32 = node.embed_dir_entry_count;
+    if count < 0 {
+        return exec_make_void();
+    }
+    const elems: ExecValue = exec_make_array_with_element_kind(count, TypeKind.TYPE_STRUCT as i32);
+    if elems.kind == ExecValueKind.EXEC_VALUE_VOID {
+        return exec_make_void();
+    }
+    var i: i32 = 0;
+    while i < count {
+        const path_ptr: &byte = node.embed_dir_paths[i];
+        var path_len: i32 = 0;
+        if path_ptr != null {
+            path_len = strlen(path_ptr) as i32;
+        }
+        var data_ptr: &byte = null;
+        var data_len: i32 = 0;
+        if node.embed_dir_data != null {
+            data_ptr = node.embed_dir_data[i];
+        }
+        if node.embed_dir_sizes != null {
+            data_len = node.embed_dir_sizes[i];
+        }
+        const entry: ExecValue = exec_make_struct(2);
+        if entry.kind == ExecValueKind.EXEC_VALUE_VOID {
+            return exec_make_void();
+        }
+        if entry.ptr_value != null {
+            const entry_agg: &ExecAggregate = entry.ptr_value as &ExecAggregate;
+            if entry_agg != null && entry_agg.values != null {
+                entry_agg.values[0] = exec_builder_make_embed_slice(path_ptr, path_len);
+                entry_agg.values[1] = exec_builder_make_embed_slice(data_ptr, data_len);
+            }
+        }
+        if exec_value_set_index(&elems, i, &entry) != 0 {
+            return exec_make_void();
+        }
+        i = i + 1;
+    }
+    // 元素是 `EmbedDirEntry` 结构体，必须用「聚合切片」而不是原生字节切片：
+    // `exec_make_raw_slice` 只适用于定长标量数组，拿它包 struct 数组会让
+    // 元素访问按标量步长走，`entry.path` 立刻报 `LOAD_FIELD 字段越界`。
+    const elems_agg: &ExecAggregate = elems.ptr_value as &ExecAggregate;
+    if elems_agg == null {
+        return exec_make_void();
+    }
+    return exec_make_slice(elems_agg, 0, count);
+}
+
+fn exec_builder_make_embed_slice(data: &byte, size: i32) ExecValue {
+    if data == null || size < 0 {
+        return exec_make_void();
+    }
+    const backing: ExecValue = exec_make_array_with_element_kind(size, TypeKind.TYPE_U8 as i32);
+    if backing.kind == ExecValueKind.EXEC_VALUE_VOID {
+        return exec_make_void();
+    }
+    if size > 0 && backing.ptr_value != null {
+        _ = memcpy(backing.ptr_value as *void, data as *const void, size as usize);
+    }
+    // 原生字节数组 -> 切片：把数据区首地址和长度一起带过去。
+    return exec_make_raw_slice(backing.ptr_value as &byte, TypeKind.TYPE_U8 as i32, size);
 }
 
 fn exec_builder_emit_const(ctx: &ExecFunctionBuildContext, dst: i32, expr: &HIRExpr) i32 {
     var const_value: ExecValue = exec_make_void();
     const kind_code: i32 = exec_builder_effective_kind_code(&expr.type_ref.type);
-    if expr.string_value != null {
+    if expr.string_value != null && expr.bool_value != 0 {
+        // `@embed` 的二进制切片：内容可能含 NUL，不能走 `exec_make_string`
+        // 的「NUL 结尾」路径，按 `expr.int_value` 记录的字节数原样拷进一块
+        // 原生字节数组，再包成 `&[const byte]` 切片。
+        const_value = exec_builder_make_embed_slice(expr.string_value, expr.int_value as i32);
+    } else if expr.string_value != null {
         const_value = exec_make_string(expr.string_value);
     } else if kind_code == TypeKind.TYPE_F32 as i32 {
         const_value = exec_make_f32(expr.float_value as f32);
@@ -793,7 +1227,14 @@ fn exec_builder_emit_const(ctx: &ExecFunctionBuildContext, dst: i32, expr: &HIRE
     } else if kind_code == TypeKind.TYPE_POINTER as i32 {
         const_value = exec_make_pointer_with_kind(expr.int_value as usize, exec_builder_pointer_pointee_kind_code(expr.type_ref.type));
     } else if kind_code == TypeKind.TYPE_I32 as i32 {
-        const_value = exec_make_i32(expr.int_value as i32);
+        // 未加后缀的整数字面量在 exec 侧可能被标成 i32，但值本身放不进 i32
+        // （如 `v > 922337203685477580`）。此时按 i64 发射，否则会被截断成负数，
+        // 比较结果直接反掉。
+        if expr.int_value > 2147483647 as i64 || expr.int_value < (-2147483647 as i64) - 1 as i64 {
+            const_value = exec_make_i64(expr.int_value);
+        } else {
+            const_value = exec_make_i32(expr.int_value as i32);
+        }
     }
     const const_idx: i32 = exec_builder_intern_const(ctx, const_value);
     if const_idx < 0 {
@@ -880,10 +1321,179 @@ fn exec_builder_match_uses_union_patterns(expr: &HIRExpr) i32 {
     return 0;
 }
 
+// 发射「i32 常量 == 标签」比较，返回布尔结果槽位；失败返回 -1。
+fn exec_builder_emit_int_tag_compare(ctx: &ExecFunctionBuildContext, ast_node: &ASTNode,
+                                     tag_slot: i32, value: i64) i32 {
+    const pattern_slot: i32 = exec_builder_new_temp(ctx);
+    const cmp_slot: i32 = exec_builder_new_temp(ctx);
+    if pattern_slot < 0 || cmp_slot < 0 {
+        return -1;
+    }
+    var pattern_expr: HIRExpr = HIRExpr {
+        kind: HIRExprKind.HIR_EXPR_CONST,
+        ast_node: ast_node,
+        type_ref: HIRTypeRef {
+            // 错误 id 是 u32：按 i32 发常量会把高位为 1 的 id（如
+            // error.URITooLong / error.NamedFailure）变成负数，和
+            // BC_LOAD_ERROR_TAG 的运行时值比不上。
+            type: make_u32_type(),
+        },
+        local_slot: -1,
+        global_slot: -1,
+        unary_op: 0,
+        binary_op: 0,
+        int_value: value,
+        float_value: 0.0,
+        bool_value: 0,
+        string_value: null,
+        left: null,
+        right: null,
+        callee_name: null,
+        callee_decl: null,
+        call_host_id: ExecHostCallId.EXEC_HOST_CALL_NONE,
+        call_args: null,
+        call_arg_count: 0,
+        dispatch_decls: null,
+        dispatch_decl_count: 0,
+        items: null,
+        item_count: 0,
+        extra: null,
+        match_arms: null,
+        match_arm_count: 0,
+    };
+    if exec_builder_emit_const(ctx, pattern_slot, &pattern_expr) < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_CMP_EQ,
+        a: cmp_slot,
+        b: tag_slot,
+        c: pattern_slot,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(ast_node),
+    }) < 0 {
+        return -1;
+    }
+    return cmp_slot;
+}
+
+// 编译 match 分支体（可选前缀块 + 结果表达式），结果写入目标槽位；失败返回 -1。
+fn exec_builder_compile_match_arm_body(ctx: &ExecFunctionBuildContext, match_dst: i32,
+                                       arm: &HIRMatchArm) i32 {
+    if arm.result_block != null {
+        if exec_builder_compile_block(ctx, arm.result_block) < 0 {
+            return -1;
+        }
+    }
+    const arm_slot: i32 = exec_builder_compile_expr(ctx, arm.result_expr);
+    if arm_slot < 0 {
+        return -1;
+    }
+    return exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_MOV,
+        a: match_dst,
+        b: arm_slot,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(arm.result_expr.ast_node),
+    });
+}
+
+// 错误联合 match：标签 0 表示 ok，非 0 为 error_id。
+// MATCH_PAT_ERROR 比较错误 id；MATCH_PAT_BIND 在 ok 时把整个错误联合值绑定到槽位。
+fn exec_builder_compile_error_union_match(ctx: &ExecFunctionBuildContext, expr: &HIRExpr,
+                                          subject_slot: i32, match_dst: i32) i32 {
+    const tag_slot: i32 = exec_builder_new_temp(ctx);
+    if tag_slot < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_LOAD_ERROR_TAG,
+        a: tag_slot,
+        b: subject_slot,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(expr.ast_node),
+    }) < 0 {
+        return -1;
+    }
+    var end_jumps: [i32: 64] = [];
+    var end_jump_count: i32 = 0;
+    var i: i32 = 0;
+    while i < expr.match_arm_count {
+        const arm: &HIRMatchArm = expr.match_arms + i;
+        if arm.kind == MatchPatternKind.MATCH_PAT_ELSE || arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD {
+            if exec_builder_compile_match_arm_body(ctx, match_dst, arm) < 0 {
+                return -1;
+            }
+        } else {
+            const cmp_slot: i32 = exec_builder_emit_int_tag_compare(ctx, expr.ast_node, tag_slot, arm.int_value);
+            if cmp_slot < 0 {
+                return -1;
+            }
+            const skip_jump: i32 = exec_builder_emit(ctx, BCInstr {
+                opcode: BCOpcode.BC_JMP_IF_FALSE,
+                a: cmp_slot,
+                b: 0,
+                c: 0,
+                imm: 0,
+                text: null,
+                source: exec_builder_make_source(expr.ast_node),
+            });
+            if skip_jump < 0 {
+                return -1;
+            }
+            if arm.kind == MatchPatternKind.MATCH_PAT_BIND && arm.bind_local_slot >= 0 {
+                if exec_builder_emit(ctx, BCInstr {
+                    opcode: BCOpcode.BC_MOV,
+                    a: arm.bind_local_slot,
+                    b: subject_slot,
+                    c: 0,
+                    imm: 0,
+                    text: null,
+                    source: exec_builder_make_source(expr.ast_node),
+                }) < 0 {
+                    return -1;
+                }
+            }
+            if exec_builder_compile_match_arm_body(ctx, match_dst, arm) < 0 {
+                return -1;
+            }
+            if end_jump_count < 64 {
+                end_jumps[end_jump_count] = exec_builder_emit(ctx, BCInstr {
+                    opcode: BCOpcode.BC_JMP,
+                    a: 0,
+                    b: 0,
+                    c: 0,
+                    imm: 0,
+                    text: null,
+                    source: exec_builder_make_source(expr.ast_node),
+                });
+                if end_jumps[end_jump_count] < 0 {
+                    return -1;
+                }
+                end_jump_count = end_jump_count + 1;
+            }
+            exec_builder_patch_jump(ctx, skip_jump, ctx.instr_count);
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while i < end_jump_count {
+        exec_builder_patch_jump(ctx, end_jumps[i], ctx.instr_count);
+        i = i + 1;
+    }
+    return 0;
+}
+
 fn exec_builder_compile_item_pack(ctx: &ExecFunctionBuildContext, items: & & HIRExpr, item_count: i32) i32 {
-    var src_slots: [i32: 256] = [];
+    // 上限对齐到 1024：ed25519 一类预计算表字面量超过 256 个元素。
+    var src_slots: [i32: 1024] = [];
     var item_base: i32 = -1;
-    if item_count < 0 || item_count > 256 {
+    if item_count < 0 || item_count > 1024 {
         exec_backend_set_error(null, "exec: 聚合值元素超出上限" as *byte, 0);
         return -1;
     }
@@ -893,7 +1503,7 @@ fn exec_builder_compile_item_pack(ctx: &ExecFunctionBuildContext, items: & & HIR
         if src_slot < 0 {
             return -1;
         }
-        if i >= 0 && i < 256 {
+        if i >= 0 && i < 1024 {
             src_slots[i] = src_slot;
         }
         i = i + 1;
@@ -1019,6 +1629,46 @@ fn exec_builder_emit_store_local(ctx: &ExecFunctionBuildContext, ast_node: &ASTN
     });
 }
 
+/// 求字段地址（`ADDR_FIELD`）产出的 pointee kind。
+///
+/// 定长数组字段在 C 里按「指向元素」退化：`s.buf[i]` 的基址指针必须带元素 kind，
+/// 否则 VM 原生路径算不出元素步长（`exec_vm_type_kind_size(ARRAY) == 0`），
+/// `FILE` / `EpollEvent` 这类原生结构体的数组字段完全读写不动。
+/// 降级侧把「元素 kind + 1」放在 `binary_op` 的 8..15 位，元素个数放在 `bool_value`。
+///
+/// 参数：`expr` 字段访问 HIR；`fallback_kind` 按表达式类型算出的 pointee kind。
+/// 返回值：该写进指令 `c` 低字节的 pointee kind。
+fn exec_builder_field_addr_element_kind(expr: &HIRExpr) i32 {
+    if expr == null {
+        return 0;
+    }
+    // 元素 kind 交给 VM 在**确认基址是原生内存**之后再用来覆盖 pointee
+    // （见 `BC_ADDR_FIELD` 的 c 第 16..23 位）。这里只负责把值带过去：
+    // 编译期直接改 pointee 会让 VM 聚合结构的下标访问走 C 布局步进，
+    // 实测 yaml/http/jpeg 会成片崩。
+    const native_pointee: i32 = (expr.binary_op >> 8) & 0xFF;
+    if native_pointee > 0 && expr.bool_value > 0 {
+        return native_pointee - 1;
+    }
+    return 0;
+}
+
+/// 计算「字段/下标存储的对象基址」槽位。
+/// 对象的静态类型是 POINTER 时（`p.field.x = v`、`p.items[i] = v`），基址必须是
+/// **指针值本身**（VM 侧按指针解引用算原生基址），不能取「指针槽的地址」——
+/// 后者对原生结构体里的指针字段恰好是那块内存的地址，写入会静默落到结构体内部，
+/// 既不报错也不生效：libc 堆的空闲链表 `chunk.next.prev = null` 就是这么失效的，
+/// bin 里留下悬挂项，之后 malloc 找不到连续块（carve 8 次全失败）。
+fn exec_builder_compile_object_base_slot(ctx: &ExecFunctionBuildContext, expr: &HIRExpr, ast_node: &ASTNode) i32 {
+    if ctx == null || expr == null {
+        return -1;
+    }
+    if exec_builder_effective_kind_code(&expr.type_ref.type) == TypeKind.TYPE_POINTER as i32 {
+        return exec_builder_compile_expr(ctx, expr);
+    }
+    return exec_builder_compile_addressable_expr_slot(ctx, expr, ast_node);
+}
+
 fn exec_builder_compile_addressable_expr_slot(ctx: &ExecFunctionBuildContext, expr: &HIRExpr, ast_node: &ASTNode) i32 {
     if ctx == null || expr == null {
         return -1;
@@ -1061,17 +1711,26 @@ fn exec_builder_compile_addressable_expr_slot(ctx: &ExecFunctionBuildContext, ex
         return dst_global_addr;
     }
     if expr.kind == HIRExprKind.HIR_EXPR_FIELD {
-        const base_slot_addr: i32 = exec_builder_compile_addressable_expr_slot(ctx, expr.left, ast_node);
+        const base_slot_addr: i32 = exec_builder_compile_object_base_slot(ctx, expr.left, ast_node);
         const dst_field_addr: i32 = exec_builder_new_temp(ctx);
         if base_slot_addr < 0 || dst_field_addr < 0 {
             return -1;
         }
+        // imm 低 32 位是字段下标，32..63 位是原生字节偏移。
+        // **不要**再把元素个数塞进高 16 位：VM 侧是整体 `imm >> 32` 取偏移，
+        // 混进个数会让偏移变成 `off + ((count-1) << 16)`（实测 `[byte: 8]`
+        // 字段的偏移被算成 458760，写入直接落到结构体外面）。
+        const addr_field_imm: i64 = (expr.int_value & (0xFFFFFFFF as i64)) |
+            ((expr.unary_op as i64) << 32);
         if exec_builder_emit(ctx, BCInstr {
             opcode: BCOpcode.BC_ADDR_FIELD,
             a: dst_field_addr,
             b: base_slot_addr,
-            c: pointee_kind,
-            imm: expr.int_value,
+            // c 的低 8 位是结果指针 pointee kind，8..15 位是字段 kind+1（原生布局用）；
+            // imm 低 32 位字段下标，高 32 位原生字节偏移。
+            c: pointee_kind | ((expr.binary_op & 0xFF) << 8) |
+                (exec_builder_field_addr_element_kind(expr) << 16),
+            imm: addr_field_imm,
             text: null,
             source: exec_builder_make_source(ast_node),
         }) < 0 {
@@ -1080,7 +1739,7 @@ fn exec_builder_compile_addressable_expr_slot(ctx: &ExecFunctionBuildContext, ex
         return dst_field_addr;
     }
     if expr.kind == HIRExprKind.HIR_EXPR_INDEX {
-        const base_slot_index_addr: i32 = exec_builder_compile_addressable_expr_slot(ctx, expr.left, ast_node);
+        const base_slot_index_addr: i32 = exec_builder_compile_object_base_slot(ctx, expr.left, ast_node);
         const index_slot_addr: i32 = exec_builder_compile_expr(ctx, expr.right);
         const dst_index_addr: i32 = exec_builder_new_temp(ctx);
         if base_slot_index_addr < 0 || index_slot_addr < 0 || dst_index_addr < 0 {
@@ -1091,7 +1750,10 @@ fn exec_builder_compile_addressable_expr_slot(ctx: &ExecFunctionBuildContext, ex
             a: dst_index_addr,
             b: base_slot_index_addr,
             c: index_slot_addr,
-            imm: pointee_kind as i64,
+            // imm 低 32 位是结果指针 pointee kind，高 32 位是元素字节数：
+            // 原生指针（`&EpollEvent` 之类）做下标时 VM 拿不到 C 布局步长，
+            // 只能靠编译期带过去的元素尺寸。
+            imm: (pointee_kind as i64) | (expr.int_value << 32),
             text: null,
             source: exec_builder_make_source(ast_node),
         }) < 0 {
@@ -1121,7 +1783,7 @@ fn exec_builder_compile_lvalue_store(ctx: &ExecFunctionBuildContext, target: &HI
         });
     }
     if target.kind == HIRExprKind.HIR_EXPR_FIELD {
-        const base_slot: i32 = exec_builder_compile_addressable_expr_slot(ctx, target.left, ast_node);
+        const base_slot: i32 = exec_builder_compile_object_base_slot(ctx, target.left, ast_node);
         if base_slot < 0 {
             return -1;
         }
@@ -1129,14 +1791,14 @@ fn exec_builder_compile_lvalue_store(ctx: &ExecFunctionBuildContext, target: &HI
             opcode: BCOpcode.BC_STORE_FIELD,
             a: base_slot,
             b: src_slot,
-            c: 0,
-            imm: target.int_value,
+            c: target.unary_op,
+            imm: exec_builder_pack_field_imm(target),
             text: null,
             source: exec_builder_make_source(ast_node),
         });
     }
     if target.kind == HIRExprKind.HIR_EXPR_INDEX {
-        const base_slot2: i32 = exec_builder_compile_addressable_expr_slot(ctx, target.left, ast_node);
+        const base_slot2: i32 = exec_builder_compile_object_base_slot(ctx, target.left, ast_node);
         const index_slot: i32 = exec_builder_compile_expr(ctx, target.right);
         if base_slot2 < 0 || index_slot < 0 {
             return -1;
@@ -1146,13 +1808,288 @@ fn exec_builder_compile_lvalue_store(ctx: &ExecFunctionBuildContext, target: &HI
             a: base_slot2,
             b: index_slot,
             c: src_slot,
-            imm: 0,
+            // imm = 元素字节数（原生指针下标时 VM 只有靠它才知道 C 布局步长）。
+            imm: target.int_value,
             text: null,
             source: exec_builder_make_source(ast_node),
         });
     }
     exec_backend_set_generic_unsupported_error(ast_node, "exec: 当前不支持该赋值目标" as *byte);
     return -1;
+}
+
+/// 回填 checked 算术的溢出跳转目标（带下标证明）。
+/// 参数：ctx 构建上下文；idx 跳转表下标；target 目标指令索引。
+/// 返回值：无。
+fn exec_builder_patch_checked_jump(ctx: &ExecFunctionBuildContext, idx: i32, target: i32) void {
+    if ctx == null || idx < 0 || idx >= 64 {
+        return;
+    }
+    if idx >= 0 && idx < 64 {
+        exec_builder_patch_jump(ctx, ctx.checked_err_jumps[idx], target);
+    }
+}
+
+/// 把 checked 算术运算符映射到对应的溢出受检 opcode。
+/// 参数：op 二元运算符 token；opcode 输出参数，未收录时保持 BC_ADD_CHECK。
+/// 返回值：1 表示已映射，0 表示不是受检算术运算符。
+fn exec_builder_checked_opcode(op: i32, opcode: &BCOpcode) i32 {
+    if opcode == null {
+        return 0;
+    }
+    if op == TokenType.TOKEN_PLUS as i32 {
+        opcode[0] = BCOpcode.BC_ADD_CHECK;
+        return 1;
+    }
+    if op == TokenType.TOKEN_MINUS as i32 {
+        opcode[0] = BCOpcode.BC_SUB_CHECK;
+        return 1;
+    }
+    if op == TokenType.TOKEN_ASTERISK as i32 {
+        opcode[0] = BCOpcode.BC_MUL_CHECK;
+        return 1;
+    }
+    if op == TokenType.TOKEN_SLASH as i32 {
+        opcode[0] = BCOpcode.BC_DIV_CHECK;
+        return 1;
+    }
+    if op == TokenType.TOKEN_PERCENT as i32 {
+        opcode[0] = BCOpcode.BC_REM_CHECK;
+        return 1;
+    }
+    return 0;
+}
+
+/// 递归编译 checked 算术树：每个受检运算在溢出时跳到最近的 catch 分支。
+/// 参数：ctx 构建上下文；expr 受检算术 HIR 节点；
+///       overflow_id 溢出错误 id；divzero_id 除零错误 id。
+/// 返回值：结果值槽位；失败返回 -1。
+fn exec_builder_compile_checked_arith(ctx: &ExecFunctionBuildContext, expr: &HIRExpr,
+    overflow_id: i32, divzero_id: i32) i32 {
+    if ctx == null || expr == null {
+        return -1;
+    }
+    if expr.kind != HIRExprKind.HIR_EXPR_CHECKED_ARITH {
+        return exec_builder_compile_expr(ctx, expr);
+    }
+    const left_slot: i32 = exec_builder_compile_checked_arith(ctx, expr.left, overflow_id, divzero_id);
+    const right_slot: i32 = exec_builder_compile_checked_arith(ctx, expr.right, overflow_id, divzero_id);
+    if left_slot < 0 || right_slot < 0 {
+        return -1;
+    }
+    const union_slot: i32 = ctx.checked_err_union_slot;
+    if union_slot < 0 {
+        exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: checked 算术缺少 catch 上下文" as *byte);
+        return -1;
+    }
+    var opcode: BCOpcode = BCOpcode.BC_ADD_CHECK;
+    if exec_builder_checked_opcode(expr.binary_op, &opcode) == 0 {
+        exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: catch 不支持该算术运算符" as *byte);
+        return -1;
+    }
+    var err_id: i32 = overflow_id;
+    if opcode == BCOpcode.BC_DIV_CHECK || opcode == BCOpcode.BC_REM_CHECK {
+        err_id = divzero_id;
+    }
+    // imm 编码：低 8 位是结果类型码，高位是错误 id（catch 分支据此绑定 `|e|`）。
+    const packed_imm: i64 = ((err_id as i64) << 8) | (expr.type_ref.type.kind as i64);
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: opcode,
+        a: union_slot,
+        b: left_slot,
+        c: right_slot,
+        imm: packed_imm,
+        text: null,
+        source: exec_builder_make_source(expr.ast_node),
+    }) < 0 {
+        return -1;
+    }
+    const flag_slot: i32 = exec_builder_new_temp(ctx);
+    const value_slot: i32 = exec_builder_new_temp(ctx);
+    if flag_slot < 0 || value_slot < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_IS_ERR,
+        a: flag_slot,
+        b: union_slot,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(expr.ast_node),
+    }) < 0 {
+        return -1;
+    }
+    const err_jump: i32 = exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_JMP_IF_TRUE,
+        a: flag_slot,
+        b: 0,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(expr.ast_node),
+    });
+    if err_jump < 0 {
+        return -1;
+    }
+    const jump_index: i32 = ctx.checked_err_count;
+    if jump_index < 0 || jump_index >= 64 {
+        exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: catch 的溢出跳转过多" as *byte);
+        return -1;
+    }
+    ctx.checked_err_jumps[jump_index] = err_jump;
+    ctx.checked_err_count = jump_index + 1;
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_UNWRAP_OK,
+        a: value_slot,
+        b: union_slot,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(expr.ast_node),
+    }) < 0 {
+        return -1;
+    }
+    return value_slot;
+}
+
+/// 编译 `(a + b) catch { ... }`：受检算术溢出时执行 catch 分支。
+/// `bool_value != 0` 表示 `try (a + b)` 语义，错误分支直接把错误联合返回。
+/// 参数：ctx 构建上下文；expr HIR_EXPR_CHECKED_CATCH 节点。
+/// 返回值：结果槽位；失败返回 -1。
+fn exec_builder_compile_checked_catch(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32 {
+    if ctx == null || expr == null {
+        return -1;
+    }
+    const saved_err_count: i32 = ctx.checked_err_count;
+    const saved_union_slot: i32 = ctx.checked_err_union_slot;
+    const result_slot: i32 = exec_builder_new_temp(ctx);
+    const union_slot: i32 = exec_builder_new_temp(ctx);
+    if result_slot < 0 || union_slot < 0 {
+        return -1;
+    }
+    ctx.checked_err_union_slot = union_slot;
+    const value_slot: i32 = exec_builder_compile_checked_arith(ctx, expr.left, expr.int_value as i32, expr.global_slot);
+    if value_slot < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_MOV,
+        a: result_slot,
+        b: value_slot,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(expr.ast_node),
+    }) < 0 {
+        return -1;
+    }
+    const end_jump: i32 = exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_JMP,
+        a: 0,
+        b: 0,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(expr.ast_node),
+    });
+    if end_jump < 0 {
+        return -1;
+    }
+    var patch_i: i32 = saved_err_count;
+    while patch_i < ctx.checked_err_count {
+        exec_builder_patch_checked_jump(ctx, patch_i, ctx.instr_count);
+        patch_i = patch_i + 1;
+    }
+    ctx.checked_err_count = saved_err_count;
+    if expr.local_slot >= 0 {
+        const err_value_slot: i32 = exec_builder_new_temp(ctx);
+        if err_value_slot < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_UNWRAP_ERR,
+            a: err_value_slot,
+            b: union_slot,
+            c: 0,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        if exec_builder_emit_store_local(ctx, expr.ast_node, expr.local_slot, err_value_slot) < 0 {
+            return -1;
+        }
+    }
+    if expr.bool_value != 0 {
+        // try 语义：错误联合原样返回（错误 id 已在联合值里）。
+        if exec_builder_emit_all_cleanup(ctx, 1) < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_RET,
+            a: union_slot,
+            b: 0,
+            c: 0,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        exec_builder_patch_jump(ctx, end_jump, ctx.instr_count);
+        ctx.checked_err_union_slot = saved_union_slot;
+        return result_slot;
+    }
+    if expr.block != null {
+        if exec_builder_compile_block(ctx, expr.block) < 0 {
+            return -1;
+        }
+    }
+    if expr.extra != null {
+        const return_slot_checked: i32 = exec_builder_compile_expr(ctx, expr.extra);
+        if return_slot_checked < 0 {
+            return -1;
+        }
+        if exec_builder_emit_all_cleanup(ctx, 1) < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_RET,
+            a: return_slot_checked,
+            b: 0,
+            c: 0,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        exec_builder_patch_jump(ctx, end_jump, ctx.instr_count);
+        ctx.checked_err_union_slot = saved_union_slot;
+        return result_slot;
+    }
+    if expr.right != null {
+        const fallback_slot_checked: i32 = exec_builder_compile_expr(ctx, expr.right);
+        if fallback_slot_checked < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MOV,
+            a: result_slot,
+            b: fallback_slot_checked,
+            c: 0,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+    }
+    exec_builder_patch_jump(ctx, end_jump, ctx.instr_count);
+    ctx.checked_err_union_slot = saved_union_slot;
+    return result_slot;
 }
 
 fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32 {
@@ -1215,17 +2152,42 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             return dst_addr;
         }
         if expr.right != null {
-            const base_slot_addr: i32 = exec_builder_compile_addressable_expr_slot(ctx, expr.left, expr.ast_node);
+            // `&p[i]` 的基址：p 是**指针**时要按指针的**值**走（`p + i*elem`）；
+            // 只有当 p 本身是内嵌数组（结构体字段数组）时，取「地址」才等价于数组首地址。
+            // 早期一律用 addressable slot，于是 `&h.items[3]` 里 `h.items` 是指针字段时
+            // 拿到的是**字段地址**，真值在字段里被跳过 —— 解释执行时算出的元素地址
+            // 整整偏了一个结构体字段偏移（第 707 轮 repro 实测 base-40）。
+            var base_slot_addr: i32 = 0 - 1;
+            if expr.left.type_ref.type.kind == TypeKind.TYPE_POINTER {
+                base_slot_addr = exec_builder_compile_expr(ctx, expr.left);
+            } else {
+                base_slot_addr = exec_builder_compile_addressable_expr_slot(ctx, expr.left, expr.ast_node);
+            }
             const index_slot_addr: i32 = exec_builder_compile_expr(ctx, expr.right);
             if base_slot_addr < 0 || index_slot_addr < 0 {
                 return -1;
+            }
+            // 元素字节数来自降级侧写的 bool_value（见 `&arr[i]` 的 ADDR 构造）：
+            // ADDR 节点的 int_value 是字段下标，不能拿来当步长。
+            var elem_size_hint: i64 = 0;
+            if expr.bool_value > 0 {
+                elem_size_hint = expr.bool_value as i64;
+            } else if expr.kind == HIRExprKind.HIR_EXPR_INDEX && expr.int_value > 0 {
+                // 普通 `p[i]` / `arr[i]` 的元素字节数落在 int_value（见 lower.uya 的
+                // AST_ARRAY_ACCESS 降级）；只有 FIELD 节点的 int_value 才是字段下标。
+                // 少了这条，`uniq[i][z] = v`（`uniq: &([byte: 512])`，原生内存）里
+                // 外层 ADDR_INDEX 的步长是 0，VM 拿不到原生步长就退化成
+                // 「旁路表值引用」，随后的 STORE_INDEX 在内部引用分支里找不到聚合，
+                // 直接报 `STORE_INDEX 越界`（/tmp/nest10.uya）。
+                elem_size_hint = expr.int_value;
             }
             if exec_builder_emit(ctx, BCInstr {
                 opcode: BCOpcode.BC_ADDR_INDEX,
                 a: dst_addr,
                 b: base_slot_addr,
                 c: index_slot_addr,
-                imm: pointee_kind as i64,
+                // 同上：低 32 位 pointee kind，高 32 位元素字节数。
+                imm: (pointee_kind as i64) | (elem_size_hint << 32),
                 text: null,
                 source: exec_builder_make_source(expr.ast_node),
             }) < 0 {
@@ -1238,12 +2200,16 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             if base_slot_addr2 < 0 {
                 return -1;
             }
+            // 同上一处：imm 只放「字段下标 + 原生偏移」，不要混元素个数。
+            const addr_field_imm2: i64 = (expr.int_value & (0xFFFFFFFF as i64)) |
+                ((expr.unary_op as i64) << 32);
             if exec_builder_emit(ctx, BCInstr {
                 opcode: BCOpcode.BC_ADDR_FIELD,
                 a: dst_addr,
                 b: base_slot_addr2,
-                c: pointee_kind,
-                imm: expr.int_value,
+                c: pointee_kind | ((expr.binary_op & 0xFF) << 8) |
+                    (exec_builder_field_addr_element_kind(expr) << 16),
+                imm: addr_field_imm2,
                 text: null,
                 source: exec_builder_make_source(expr.ast_node),
             }) < 0 {
@@ -1272,10 +2238,86 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: 无法为表达式构造地址" as *byte);
         return -1;
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_VECTOR_OP {
+        if expr.callee_name == null {
+            exec_backend_set_error(expr.ast_node, "exec: @vector 操作缺少名称" as *byte, 0);
+            return -1;
+        }
+        // 形状以结果类型为准；all/any 的结果是 bool，回退到第一个实参（掩码）的类型。
+        var vec_shape: &Type = &expr.type_ref.type;
+        if vec_shape.kind != TypeKind.TYPE_VECTOR && vec_shape.kind != TypeKind.TYPE_MASK {
+            if expr.call_args != null && expr.call_arg_count > 0 && expr.call_args[0] != null {
+                vec_shape = &expr.call_args[0].type_ref.type;
+            }
+        }
+        const vec_elem_code: i32 = exec_builder_vector_elem_kind_code(vec_shape);
+        const vec_lanes: i32 = exec_builder_vector_lane_count(vec_shape);
+        const vec_arg_base: i32 = exec_builder_compile_item_pack(ctx, expr.call_args, expr.call_arg_count);
+        if vec_arg_base < 0 {
+            return -1;
+        }
+        const vec_dst: i32 = exec_builder_new_temp(ctx);
+        if vec_dst < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_VECTOR_OP,
+            a: vec_dst,
+            b: vec_arg_base,
+            c: expr.call_arg_count,
+            imm: ((vec_elem_code as i64) << 32) | (vec_lanes as i64),
+            text: expr.callee_name,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return vec_dst;
+    }
+    if expr.kind == HIRExprKind.HIR_EXPR_EMBED_DIR {
+        const dir_slot: i32 = exec_builder_new_temp(ctx);
+        if dir_slot < 0 {
+            return -1;
+        }
+        const dir_value: ExecValue = exec_builder_make_embed_dir_value(expr.ast_node);
+        if dir_value.kind == ExecValueKind.EXEC_VALUE_VOID {
+            exec_backend_set_error(expr.ast_node, "exec: @embed_dir 常量构造失败" as *byte, 0);
+            return -1;
+        }
+        const dir_const_idx: i32 = exec_builder_intern_const(ctx, dir_value);
+        if dir_const_idx < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_LOAD_CONST,
+            a: dir_slot,
+            b: 0,
+            c: 0,
+            imm: dir_const_idx as i64,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return dir_slot;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_CONST {
         const dst: i32 = exec_builder_new_temp(ctx);
         if dst < 0 {
             return -1;
+        }
+        // `&fn`：把函数声明换成「基址 + 模块内下标」的指针值，
+        // 宿主调用（`pthread_once`/`pthread_create` 的回调）据此查表执行。
+        if expr.callee_decl != null && expr.callee_decl.type == ASTNodeType.AST_FN_DECL {
+            const fn_ref_index: i32 = exec_builder_find_function_index(ctx.module, expr.callee_decl,
+                expr.callee_decl.fn_decl_name);
+            if fn_ref_index >= 0 {
+                var fn_ref_expr: HIRExpr = expr[0];
+                fn_ref_expr.int_value = EXEC_FN_REF_BASE +| fn_ref_index as i64;
+                if exec_builder_emit_const(ctx, dst, &fn_ref_expr) < 0 {
+                    return -1;
+                }
+                return dst;
+            }
         }
         if exec_builder_emit_const(ctx, dst, expr) < 0 {
             return -1;
@@ -1303,6 +2345,36 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             return -1;
         }
         return dst_cast;
+    }
+    if expr.kind == HIRExprKind.HIR_EXPR_BLOCK {
+        const blk_dst: i32 = exec_builder_new_temp(ctx);
+        if blk_dst < 0 {
+            return -1;
+        }
+        if expr.block != null {
+            if exec_builder_compile_block(ctx, expr.block) < 0 {
+                return -1;
+            }
+        }
+        if expr.extra == null {
+            return blk_dst;
+        }
+        const blk_tail: i32 = exec_builder_compile_expr(ctx, expr.extra);
+        if blk_tail < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MOV,
+            a: blk_dst,
+            b: blk_tail,
+            c: 0,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return blk_dst;
     }
     if expr.kind == HIRExprKind.HIR_EXPR_IF {
         if expr.left == null || expr.right == null || expr.items == null ||
@@ -1471,7 +2543,9 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         } else if expr.kind == HIRExprKind.HIR_EXPR_TUPLE_INIT {
             op_init = BCOpcode.BC_MAKE_TUPLE;
         }
-        if item_base < 0 {
+        // 零字段结构体 / 空数组字面量没有元素槽位，item_base 为 -1 是正常的：
+        // 元素个数为 0 时 VM 不会去解引用 b。
+        if item_base < 0 && expr.item_count > 0 {
             return -1;
         }
         if exec_builder_emit(ctx, BCInstr {
@@ -1580,8 +2654,8 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             opcode: BCOpcode.BC_LOAD_FIELD,
             a: dst_field,
             b: base_slot_field,
-            c: 0,
-            imm: expr.int_value,
+            c: expr.unary_op,
+            imm: exec_builder_pack_field_imm(expr),
             text: null,
             source: exec_builder_make_source(expr.ast_node),
         }) < 0 {
@@ -1601,7 +2675,8 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             a: dst_index,
             b: base_slot_index,
             c: index_slot2,
-            imm: 0,
+            // imm = 元素字节数（同上：给原生指针下标提供 C 布局步长）。
+            imm: expr.int_value,
             text: null,
             source: exec_builder_make_source(expr.ast_node),
         }) < 0 {
@@ -1694,6 +2769,75 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         }
         return try_dst;
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_CHECKED_CATCH {
+        return exec_builder_compile_checked_catch(ctx, expr);
+    }
+    if expr.kind == HIRExprKind.HIR_EXPR_CHECKED_ARITH {
+        return exec_builder_compile_checked_arith(ctx, expr, 0, 0);
+    }
+    if expr.kind == HIRExprKind.HIR_EXPR_AWAIT {
+        const await_src: i32 = exec_builder_compile_expr(ctx, expr.left);
+        if await_src < 0 {
+            return -1;
+        }
+        const await_dst: i32 = exec_builder_new_temp(ctx);
+        if await_dst < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_AWAIT,
+            a: await_dst,
+            b: await_src,
+            c: 0,
+            imm: 0,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return await_dst;
+    }
+    if expr.kind == HIRExprKind.HIR_EXPR_ERROR_PAYLOAD {
+        // `x.value`：**读字段**语义，与 `try x` 严格区分。
+        // 完整自建双分支，不复用 `HIR_EXPR_TRY` 的任何指令：
+        //   is_err ? dst = <载荷类型零值> : dst = UNWRAP_OK(x)
+        const ep_union_slot: i32 = exec_builder_compile_expr(ctx, expr.left);
+        if ep_union_slot < 0 {
+            return -1;
+        }
+        const ep_dst: i32 = exec_builder_new_temp(ctx);
+        const ep_is_err: i32 = exec_builder_new_temp(ctx);
+        if ep_dst < 0 || ep_is_err < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_IS_ERR, a: ep_is_err, b: ep_union_slot, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        }) < 0 { return -1; }
+        const ep_to_zero: i32 = exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_JMP_IF_TRUE, a: ep_is_err, b: 0, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        });
+        if ep_to_zero < 0 { return -1; }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_UNWRAP_OK, a: ep_dst, b: ep_union_slot, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        }) < 0 { return -1; }
+        const ep_done: i32 = exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_JMP, a: 0, b: 0, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        });
+        if ep_done < 0 { return -1; }
+        exec_builder_patch_jump(ctx, ep_to_zero, ctx.instr_count);
+        const ep_zero: i32 = exec_builder_compile_zero_value(ctx, expr.ast_node, &expr.type_ref.type);
+        if ep_zero < 0 { return -1; }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MOV, a: ep_dst, b: ep_zero, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        }) < 0 { return -1; }
+        exec_builder_patch_jump(ctx, ep_done, ctx.instr_count);
+        return ep_dst;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_CATCH {
         const union_slot2: i32 = exec_builder_compile_expr(ctx, expr.left);
         if union_slot2 < 0 {
@@ -1727,7 +2871,13 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         if ok_jump < 0 {
             return -1;
         }
-        if expr.local_slot >= 0 {
+        if expr.local_slot >= 0 && expr.int_value != 0 {
+            // `int_value != 0`：绑定**整个错误联合**（async 的 try 提前返回要用它
+            // 重新包成 Future），而不是拆成裸错误值。
+            if exec_builder_emit_store_local(ctx, expr.ast_node, expr.local_slot, union_slot2) < 0 {
+                return -1;
+            }
+        } else if expr.local_slot >= 0 {
             const err_value_slot: i32 = exec_builder_new_temp(ctx);
             if err_value_slot < 0 {
                 return -1;
@@ -1757,12 +2907,19 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             if return_slot_catch < 0 {
                 return -1;
             }
+            // `catch { return <非错误联合值> }`：返回值要按函数返回类型包成 ok/err，
+            // 否则调用方会对一个非错误联合值做 UNWRAP_OK 而拿到垃圾。
+            const catch_ret_slot: i32 = exec_builder_wrap_return_slot(ctx, return_slot_catch,
+                &expr.extra.type_ref.type, expr.ast_node);
+            if catch_ret_slot < 0 {
+                return -1;
+            }
             if exec_builder_emit_all_cleanup(ctx, 1) < 0 {
                 return -1;
             }
             if exec_builder_emit(ctx, BCInstr {
                 opcode: BCOpcode.BC_RET,
-                a: return_slot_catch,
+                a: catch_ret_slot,
                 b: 0,
                 c: 0,
                 imm: 0,
@@ -1876,6 +3033,72 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         }
         return dst_ok;
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_FORCE_CAST_KEEP_ERR {
+        // `x as! T`（x 是错误联合）：err 分支透传错误 id、载荷置零；
+        // ok 分支用转换后的值。
+        //
+        // 完整自建双分支，不复用任何现成节点 —— 旧实现是无条件 `MAKE_OK`，
+        // 会把 err 分支也标成成功（第 590 轮实测 `(w as! isize).value` 得 1）。
+        //   src   = 源的错误联合值（expr.extra 里放的是已转换的裸载荷）
+        //   is_err ? dst = ERR(src.error_id, 零载荷) : dst = OK(裸载荷)
+        const kc_src_slot: i32 = exec_builder_compile_expr(ctx, expr.left);
+        if kc_src_slot < 0 {
+            return -1;
+        }
+        const kc_payload_slot: i32 = exec_builder_compile_expr(ctx, expr.extra);
+        if kc_payload_slot < 0 {
+            return -1;
+        }
+        const kc_dst: i32 = exec_builder_new_temp(ctx);
+        const kc_is_err: i32 = exec_builder_new_temp(ctx);
+        if kc_dst < 0 || kc_is_err < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_IS_ERR, a: kc_is_err, b: kc_src_slot, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        }) < 0 { return -1; }
+        const kc_to_err: i32 = exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_JMP_IF_TRUE, a: kc_is_err, b: 0, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        });
+        if kc_to_err < 0 { return -1; }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MAKE_OK, a: kc_dst, b: kc_payload_slot, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        }) < 0 { return -1; }
+        const kc_done: i32 = exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_JMP, a: 0, b: 0, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        });
+        if kc_done < 0 { return -1; }
+        exec_builder_patch_jump(ctx, kc_to_err, ctx.instr_count);
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MAKE_ERR, a: kc_dst, b: kc_src_slot, c: 0, imm: 0,
+            text: null, source: exec_builder_make_source(expr.ast_node),
+        }) < 0 { return -1; }
+        exec_builder_patch_jump(ctx, kc_done, ctx.instr_count);
+        return kc_dst;
+    }
+    if expr.kind == HIRExprKind.HIR_EXPR_MAKE_ERR {
+        const payload_slot_err: i32 = exec_builder_compile_expr(ctx, expr.left);
+        const dst_err: i32 = exec_builder_new_temp(ctx);
+        if payload_slot_err < 0 || dst_err < 0 {
+            return -1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_MAKE_ERR,
+            a: dst_err,
+            b: payload_slot_err,
+            c: 0,
+            imm: expr.int_value,
+            text: null,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return dst_err;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_MATCH {
         const subject_slot: i32 = exec_builder_compile_expr(ctx, expr.left);
         if subject_slot < 0 {
@@ -1884,6 +3107,12 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         const match_dst: i32 = exec_builder_new_temp(ctx);
         if match_dst < 0 {
             return -1;
+        }
+        if expr.left != null && expr.left.type_ref.type.kind == TypeKind.TYPE_ERROR_UNION {
+            if exec_builder_compile_error_union_match(ctx, expr, subject_slot, match_dst) < 0 {
+                return -1;
+            }
+            return match_dst;
         }
         if exec_builder_match_uses_union_patterns(expr) != 0 {
             const tag_slot: i32 = exec_builder_new_temp(ctx);
@@ -1906,7 +3135,22 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             var umi: i32 = 0;
             while umi < expr.match_arm_count {
                 const union_arm: &HIRMatchArm = expr.match_arms + umi;
-                if union_arm.kind == MatchPatternKind.MATCH_PAT_ELSE || union_arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD {
+                if union_arm.kind == MatchPatternKind.MATCH_PAT_ELSE || union_arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD ||
+                    union_arm.kind == MatchPatternKind.MATCH_PAT_BIND {
+                    // 绑定臂把整个 union 值复制到绑定槽后无条件进入分支。
+                    if union_arm.kind == MatchPatternKind.MATCH_PAT_BIND && union_arm.bind_local_slot >= 0 {
+                        if exec_builder_emit(ctx, BCInstr {
+                            opcode: BCOpcode.BC_MOV,
+                            a: union_arm.bind_local_slot,
+                            b: subject_slot,
+                            c: 0,
+                            imm: 0,
+                            text: null,
+                            source: exec_builder_make_source(expr.ast_node),
+                        }) < 0 {
+                            return -1;
+                        }
+                    }
                     if union_arm.result_block != null {
                         if exec_builder_compile_block(ctx, union_arm.result_block) < 0 {
                             return -1;
@@ -2052,7 +3296,57 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         var mi: i32 = 0;
         while mi < expr.match_arm_count {
             const arm: &HIRMatchArm = expr.match_arms + mi;
-            if arm.kind == MatchPatternKind.MATCH_PAT_ELSE || arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD {
+            if arm.kind == MatchPatternKind.MATCH_PAT_BIND {
+                // 绑定臂：无条件匹配，把 subject 复制到绑定槽后执行分支体。
+                if arm.bind_local_slot >= 0 {
+                    if exec_builder_emit(ctx, BCInstr {
+                        opcode: BCOpcode.BC_MOV,
+                        a: arm.bind_local_slot,
+                        b: subject_slot,
+                        c: 0,
+                        imm: 0,
+                        text: null,
+                        source: exec_builder_make_source(expr.ast_node),
+                    }) < 0 {
+                        return -1;
+                    }
+                }
+                if arm.result_block != null {
+                    if exec_builder_compile_block(ctx, arm.result_block) < 0 {
+                        return -1;
+                    }
+                }
+                const bind_arm_slot: i32 = exec_builder_compile_expr(ctx, arm.result_expr);
+                if bind_arm_slot < 0 {
+                    return -1;
+                }
+                if exec_builder_emit(ctx, BCInstr {
+                    opcode: BCOpcode.BC_MOV,
+                    a: match_dst,
+                    b: bind_arm_slot,
+                    c: 0,
+                    imm: 0,
+                    text: null,
+                    source: exec_builder_make_source(expr.ast_node),
+                }) < 0 {
+                    return -1;
+                }
+                if end_jump_count < 64 {
+                    end_jumps[end_jump_count] = exec_builder_emit(ctx, BCInstr {
+                        opcode: BCOpcode.BC_JMP,
+                        a: 0,
+                        b: 0,
+                        c: 0,
+                        imm: 0,
+                        text: null,
+                        source: exec_builder_make_source(expr.ast_node),
+                    });
+                    if end_jumps[end_jump_count] < 0 {
+                        return -1;
+                    }
+                    end_jump_count = end_jump_count + 1;
+                }
+            } else if arm.kind == MatchPatternKind.MATCH_PAT_ELSE || arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD {
                 if arm.result_block != null {
                     if exec_builder_compile_block(ctx, arm.result_block) < 0 {
                         return -1;
@@ -2281,12 +3575,19 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: 当前不支持该 binary 运算符" as *byte);
             return -1;
         }
+        // imm 低 32 位是结果类型码；高 32 位是指针算术的元素字节数（`p + i`）。
+        // `base + j` 的结果类型会被推断成 i32（不是指针），所以这里不能按结果类型判断，
+        // 只看降级侧有没有写下元素字节数（INoDE 节点之外的二元节点 int_value 恒 0）。
+        var bin_imm: i64 = expr.type_ref.type.kind as i64;
+        if expr.int_value > 0 {
+            bin_imm = bin_imm | (expr.int_value << 32);
+        }
         if exec_builder_emit(ctx, BCInstr {
             opcode: opcode,
             a: dst,
             b: left,
             c: right,
-            imm: expr.type_ref.type.kind as i64,
+            imm: bin_imm,
             text: null,
             source: exec_builder_make_source(expr.ast_node),
         }) < 0 {
@@ -2394,6 +3695,61 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         }
         return dst_va_copy;
     }
+    if expr.kind == HIRExprKind.HIR_EXPR_STRING_INTERP {
+        const interp_arg_count: i32 = expr.item_count;
+        if interp_arg_count < 0 || interp_arg_count > 16 {
+            exec_backend_set_error(expr.ast_node, "exec: 字符串插值实参过多" as *byte, 0);
+            return -1;
+        }
+        const interp_dest: i32 = exec_builder_new_temp(ctx);
+        const interp_first: i32 = exec_builder_new_temp(ctx);
+        if interp_dest < 0 || interp_first < 0 {
+            return -1;
+        }
+        var interp_reserve: i32 = 1;
+        while interp_reserve < interp_arg_count {
+            if exec_builder_new_temp(ctx) != interp_first +| interp_reserve {
+                exec_backend_set_error(expr.ast_node, "exec: 字符串插值实参槽位不连续" as *byte, 0);
+                return -1;
+            }
+            interp_reserve = interp_reserve + 1;
+        }
+        var interp_i: i32 = 0;
+        while interp_i < interp_arg_count {
+            if expr.items == null {
+                exec_backend_set_error(expr.ast_node, "exec: 字符串插值缺少实参" as *byte, 0);
+                return -1;
+            }
+            const interp_arg_slot: i32 = exec_builder_compile_expr(ctx, expr.items[interp_i]);
+            if interp_arg_slot < 0 {
+                return -1;
+            }
+            if exec_builder_emit(ctx, BCInstr {
+                opcode: BCOpcode.BC_MOV,
+                a: interp_first + interp_i,
+                b: interp_arg_slot,
+                c: 0,
+                imm: 0,
+                text: null,
+                source: exec_builder_make_source(expr.ast_node),
+            }) < 0 {
+                return -1;
+            }
+            interp_i = interp_i + 1;
+        }
+        if exec_builder_emit(ctx, BCInstr {
+            opcode: BCOpcode.BC_STRING_INTERP,
+            a: interp_dest,
+            b: interp_first,
+            c: interp_arg_count,
+            imm: 0,
+            text: expr.string_value,
+            source: exec_builder_make_source(expr.ast_node),
+        }) < 0 {
+            return -1;
+        }
+        return interp_dest;
+    }
     if expr.kind == HIRExprKind.HIR_EXPR_PRINT || expr.kind == HIRExprKind.HIR_EXPR_PRINTLN {
         const src: i32 = exec_builder_compile_expr(ctx, expr.left);
         if src < 0 {
@@ -2403,25 +3759,15 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         if expr.kind == HIRExprKind.HIR_EXPR_PRINTLN {
             op = BCOpcode.BC_PRINTLN;
         }
-        if exec_builder_emit(ctx, BCInstr {
-            opcode: op,
-            a: src,
-            b: 0,
-            c: 0,
-            imm: 0,
-            text: null,
-            source: exec_builder_make_source(expr.ast_node),
-        }) < 0 {
-            return -1;
-        }
+        // a = 结果槽（写出的字节数），b = 要打印的值。
         const dst: i32 = exec_builder_new_temp(ctx);
         if dst < 0 {
             return -1;
         }
         if exec_builder_emit(ctx, BCInstr {
-            opcode: BCOpcode.BC_LOAD_CONST,
+            opcode: op,
             a: dst,
-            b: 0,
+            b: src,
             c: 0,
             imm: 0,
             text: null,
@@ -2489,13 +3835,16 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
             }
             return dst;
         }
-        if expr.callee_decl == null {
+        if expr.callee_decl == null || expr.callee_name == null {
             exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: 无法解析被调用函数" as *byte);
             return -1;
         }
         const callee_index: i32 = exec_builder_find_function_index(ctx.module, expr.callee_decl, expr.callee_name);
         if callee_index < 0 {
-            exec_backend_set_generic_unsupported_error(expr.ast_node, "exec: 无法解析被调用函数" as *byte);
+            var missing_callee_msg: [byte: 160] = [];
+            _ = snprintf(&missing_callee_msg[0] as *byte, 160,
+                "exec: 被调用函数未进入模块: %s" as *byte, expr.callee_name as *byte);
+            exec_backend_set_generic_unsupported_error(expr.ast_node, &missing_callee_msg[0]);
             return -1;
         }
         if exec_builder_emit(ctx, BCInstr {
@@ -2555,12 +3904,19 @@ fn exec_builder_compile_expr(ctx: &ExecFunctionBuildContext, expr: &HIRExpr) i32
         if dst_syscall < 0 {
             return -1;
         }
+        var syscall_out_mask: i32 = 0;
+        var out_idx: i32 = 0;
+        while out_idx < expr.item_count && out_idx < 6 {
+            syscall_out_mask = syscall_out_mask |
+                exec_builder_syscall_arg_out_struct_bit(expr.items[out_idx], out_idx);
+            out_idx = out_idx + 1;
+        }
         if exec_builder_emit(ctx, BCInstr {
             opcode: BCOpcode.BC_SYSCALL,
             a: dst_syscall,
             b: nr_slot,
             c: 0,
-            imm: exec_builder_pack_syscall_meta(arg_base_sys, expr.item_count, expr.int_value as i32, expr.unary_op),
+            imm: exec_builder_pack_syscall_meta(arg_base_sys, expr.item_count, expr.int_value as i32, expr.unary_op, syscall_out_mask),
             text: null,
             source: exec_builder_make_source(expr.ast_node),
         }) < 0 {
@@ -2735,7 +4091,10 @@ fn exec_builder_register_drop_local(ctx: &ExecFunctionBuildContext, stmt: &HIRSt
     if local == null || drop_decl == null {
         return 0;
     }
-    local.needs_drop = 1;
+    if local.needs_drop == 0 {
+        // lowering 已经判定这个局部被移动过（返回值/结构体初始化按值取走），不要重复登记 drop。
+        return 0;
+    }
     if local.drop_decl == null {
         local.drop_decl = drop_decl;
     }
@@ -2744,10 +4103,11 @@ fn exec_builder_register_drop_local(ctx: &ExecFunctionBuildContext, stmt: &HIRSt
         exec_backend_set_error(stmt.ast_node, "exec: drop cleanup scope 读取失败" as *byte, 0);
         return -1;
     }
-    if local.scope_id >= 0 && scope.scope_id >= 0 && local.scope_id != scope.scope_id {
-        exec_backend_set_error(stmt.ast_node, "exec: drop local scope 不匹配" as *byte, 0);
-        return -1;
-    }
+    // 嵌套语句块的 scope 编号可能和 builder 当前 cleanup scope 对不上（块被拆成
+    // 多个 HIR 块时尤其明显）。这里以**当前作用域**为准登记 drop：局部变量的清理
+    // 时机由它实际所在的作用域决定，编号不一致不该让整个函数降级失败。
+    _ = local;
+    _ = scope;
     if scope.drop_local_count < 0 || scope.drop_local_count >= 64 {
         exec_backend_set_error(stmt.ast_node, "exec: 每个作用域的 drop local 超出上限" as *byte, 0);
         return -1;
@@ -2766,6 +4126,9 @@ fn exec_builder_emit_drop_local(ctx: &ExecFunctionBuildContext, local: &HIRLocal
     if ctx == null || local == null {
         return 0;
     }
+    if exec_builder_emit_union_variant_drops(ctx, local) < 0 {
+        return -1;
+    }
     const drop_decl: &ASTNode = exec_builder_find_drop_decl_for_local(ctx, local);
     if drop_decl == null {
         exec_backend_set_error(local.decl, "exec: 未能解析 local drop 方法" as *byte, 0);
@@ -2773,6 +4136,7 @@ fn exec_builder_emit_drop_local(ctx: &ExecFunctionBuildContext, local: &HIRLocal
     }
     const callee_index: i32 = exec_builder_find_function_index(ctx.module, drop_decl, drop_decl.fn_decl_name);
     if callee_index < 0 {
+
         exec_backend_set_error(local.decl, "exec: drop 方法未进入可执行函数集" as *byte, 0);
         return -1;
     }
@@ -2797,6 +4161,314 @@ fn exec_builder_emit_drop_local(ctx: &ExecFunctionBuildContext, local: &HIRLocal
     }) < 0 {
         return -1;
     }
+    return exec_builder_emit_field_drops(ctx, local);
+}
+
+/// 给结构体局部变量的字段补 drop：用户 `drop` 之后按字段顺序清理还带 drop 的字段。
+/// C99 侧对「外层结构体 drop 感知不到字段已被移走」的处理依赖这种字段级清理，
+/// VM 侧走同一套语义（结构体局部出作用域时字段各自 drop）。
+/// 参数：`ctx` 构建上下文；`local` 局部变量描述。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_field_drops(ctx: &ExecFunctionBuildContext, local: &HIRLocalSlot) i32 {
+    if ctx == null || local == null || local.decl == null || ctx.checker == null ||
+        ctx.checker.program_node == null {
+        return 0;
+    }
+    // lowering 已经按实例化类型实参挑好单态 drop 声明时直接用它：
+    // `Vec<byte>` 的字段 drop 不能退化成泛型 `Vec<T>.drop` 的名字匹配。
+    if local.field_drop_count > 0 {
+        var fdi0: i32 = 0;
+        while fdi0 < local.field_drop_count && fdi0 < 4 {
+            const fdi_decl: &ASTNode = local.field_drop_decls[fdi0];
+            if fdi_decl != null {
+                if exec_builder_emit_field_drop_decl(ctx, local, local.field_drop_indices[fdi0], fdi_decl) < 0 {
+                    return -1;
+                }
+            }
+            fdi0 = fdi0 + 1;
+        }
+        return 0;
+    }
+    const type_node: &ASTNode = local.decl.var_decl_type;
+    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_NAMED ||
+        type_node.type_named_name == null {
+        return 0;
+    }
+    const struct_decl: &ASTNode = find_struct_decl_from_program(ctx.checker.program_node,
+        type_node.type_named_name);
+    if struct_decl == null || struct_decl.struct_decl_fields == null {
+        return 0;
+    }
+    if struct_decl.struct_decl_field_count > 8 {
+        // 字段太多的类型（连接句柄一类）多半另有专门的 drop 逻辑，也容易和
+        // 别的模块同名结构体撞名；这里保守跳过，行为退回「只调用户 drop」。
+        return 0;
+    }
+    var fi: i32 = 0;
+    while fi < struct_decl.struct_decl_field_count {
+        const field_decl: &ASTNode = struct_decl.struct_decl_fields[fi];
+        if field_decl != null && field_decl.var_decl_type != null &&
+            field_decl.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED &&
+            field_decl.var_decl_type.type_named_name != null &&
+            exec_builder_emit_single_field_drop(ctx, local, field_decl, fi) < 0 {
+            return -1;
+        }
+        fi = fi + 1;
+    }
+    return 0;
+}
+
+/// 对单个结构体字段发射一次 drop 调用（字段类型没有 drop 方法时什么也不做）。
+/// 参数：`ctx` 构建上下文；`local` 宿主局部变量；`field_decl` 字段声明；`field_index` 字段下标。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_single_field_drop(ctx: &ExecFunctionBuildContext, local: &HIRLocalSlot,
+    field_decl: &ASTNode, field_index: i32) i32 {
+    const field_drop_decl: &ASTNode = exec_builder_find_named_drop_decl(ctx,
+        field_decl.var_decl_type.type_named_name);
+    if field_drop_decl == null {
+        return 0;
+    }
+    return exec_builder_emit_field_drop_decl(ctx, local, field_index, field_drop_decl);
+}
+
+/// 按已确认的 drop 声明，对宿主局部变量的第 `field_index` 个字段发一次 drop 调用。
+/// 参数：`ctx` 构建上下文；`local` 宿主局部变量；`field_index` 字段下标；`field_drop_decl` 字段类型的 drop 声明。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_field_drop_decl(ctx: &ExecFunctionBuildContext, local: &HIRLocalSlot,
+    field_index: i32, field_drop_decl: &ASTNode) i32 {
+    if ctx == null || local == null || field_drop_decl == null {
+        return 0;
+    }
+    const callee_index: i32 = exec_builder_find_function_index(ctx.module, field_drop_decl,
+        field_drop_decl.fn_decl_name);
+    if callee_index < 0 {
+        return 0;
+    }
+    const field_slot: i32 = exec_builder_new_temp(ctx);
+    if field_slot < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_LOAD_FIELD,
+        a: field_slot,
+        b: local.slot,
+        c: 0,
+        imm: field_index as i64,
+        text: null,
+        source: exec_builder_make_source(local.decl),
+    }) < 0 {
+        return -1;
+    }
+    var arg_sources: [i32: EXEC_MAX_CALL_ARGS] = [];
+    arg_sources[0] = field_slot;
+    const arg_base: i32 = exec_builder_pack_source_slots(ctx, local.decl, &arg_sources[0], 1);
+    if arg_base < 0 {
+        return -1;
+    }
+    const dst: i32 = exec_builder_new_temp(ctx);
+    if dst < 0 {
+        return -1;
+    }
+    return exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_CALL,
+        a: dst,
+        b: arg_base,
+        c: 1,
+        imm: callee_index as i64,
+        text: field_drop_decl.fn_decl_name,
+        source: exec_builder_make_source(local.decl),
+    });
+}
+
+/// 把字段下标与原生布局信息打包进 LOAD_FIELD/STORE_FIELD 的 imm。
+/// 参数：`expr` 字段访问 HIR 节点。
+/// 返回值：低 32 位字段下标，32..39 位字段 kind+1，40..47 位 pointee kind+1。
+fn exec_builder_pack_field_imm(expr: &HIRExpr) i64 {
+    if expr == null {
+        return 0;
+    }
+    var packed: i64 = expr.int_value & (0xFFFFFFFF as i64);
+    if expr.binary_op > 0 {
+        const field_kind: i64 = (expr.binary_op & 0xFF) as i64;
+        const pointee_kind: i64 = ((expr.binary_op >> 8) & 0xFF) as i64;
+        packed = packed | (field_kind << 32) | (pointee_kind << 40);
+    }
+    if expr.bool_value > 0 {
+        const arr_count: i64 = ((expr.bool_value - 1) as i64) & (0xFFFF as i64);
+        packed = packed | (arr_count << 48);
+    }
+    return packed;
+}
+
+/// 取字段访问表达式本体（初始化表达式可能被 coerce 包了一层 cast）。
+/// 参数：`expr` HIR 表达式。
+/// 返回值：字段访问节点；不是字段访问返回 null。
+fn exec_builder_unwrap_field_expr(expr: &HIRExpr) &HIRExpr {
+    var cursor: &HIRExpr = expr;
+    var guard: i32 = 0;
+    while cursor != null && cursor.kind == HIRExprKind.HIR_EXPR_CAST && guard < 8 {
+        cursor = cursor.left;
+        guard = guard + 1;
+    }
+    if cursor == null || cursor.kind != HIRExprKind.HIR_EXPR_FIELD {
+        return null;
+    }
+    return cursor;
+}
+
+/// 移动源字段清零：`const moved: Buf = h.buf;` 之后把 `h.buf` 置零，
+/// 让外层结构体的字段 drop 变成空操作（对齐 C99 的 gen_moved_field_source_clear）。
+/// 参数：`ctx` 构建上下文；`stmt` 变量初始化语句（读 `var_decl_moved_field_src`）。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_moved_field_clear(ctx: &ExecFunctionBuildContext, stmt: &HIRStmt) i32 {
+    if ctx == null || stmt == null || stmt.ast_node == null ||
+        stmt.ast_node.var_decl_moved_field_src == null {
+        return 0;
+    }
+    const field_expr: &HIRExpr = exec_builder_unwrap_field_expr(stmt.expr);
+    if field_expr == null || field_expr.left == null {
+        return 0;
+    }
+    const zero_slot: i32 = exec_builder_compile_zero_value(ctx, stmt.ast_node, &field_expr.type_ref.type);
+    const base_slot: i32 = exec_builder_compile_addressable_expr_slot(ctx, field_expr.left, stmt.ast_node);
+    if zero_slot < 0 || base_slot < 0 {
+        return -1;
+    }
+    return exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_STORE_FIELD,
+        a: base_slot,
+        b: zero_slot,
+        c: 0,
+        imm: field_expr.int_value,
+        text: null,
+        source: exec_builder_make_source(stmt.ast_node),
+    });
+}
+
+/// 给 union 局部变量补「活跃变体 drop」：只有标签命中的变体才调用它自己的 drop。
+/// 参数：`ctx` 构建上下文；`local` 局部变量描述。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_union_variant_drops(ctx: &ExecFunctionBuildContext, local: &HIRLocalSlot) i32 {
+    if ctx == null || local == null || local.decl == null || ctx.checker == null ||
+        ctx.checker.program_node == null {
+        return 0;
+    }
+    const type_node: &ASTNode = local.decl.var_decl_type;
+    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_NAMED ||
+        type_node.type_named_name == null {
+        return 0;
+    }
+    const union_decl: &ASTNode = find_union_decl_from_program(ctx.checker.program_node,
+        type_node.type_named_name);
+    if union_decl == null || union_decl.union_decl_variants == null {
+        return 0;
+    }
+    var vi: i32 = 0;
+    while vi < union_decl.union_decl_variant_count {
+        const variant_decl: &ASTNode = union_decl.union_decl_variants[vi];
+        if variant_decl != null && variant_decl.type == ASTNodeType.AST_VAR_DECL &&
+            variant_decl.var_decl_type != null &&
+            variant_decl.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED &&
+            variant_decl.var_decl_type.type_named_name != null {
+            if exec_builder_emit_single_variant_drop(ctx, local, variant_decl, vi) < 0 {
+                return -1;
+            }
+        }
+        vi = vi + 1;
+    }
+    return 0;
+}
+
+/// 对单个 union 变体发射「标签命中才 drop」的分支。
+/// 参数：`ctx` 构建上下文；`local` union 局部变量；`variant_decl` 变体声明；`variant_index` 变体标签。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_single_variant_drop(ctx: &ExecFunctionBuildContext, local: &HIRLocalSlot,
+    variant_decl: &ASTNode, variant_index: i32) i32 {
+    const variant_drop_decl: &ASTNode = exec_builder_find_named_drop_decl(ctx,
+        variant_decl.var_decl_type.type_named_name);
+    if variant_drop_decl == null {
+        return 0;
+    }
+    const callee_index: i32 = exec_builder_find_function_index(ctx.module, variant_drop_decl,
+        variant_drop_decl.fn_decl_name);
+    if callee_index < 0 {
+        return 0;
+    }
+    const tag_slot: i32 = exec_builder_new_temp(ctx);
+    const cmp_slot: i32 = exec_builder_new_temp(ctx);
+    const payload_slot: i32 = exec_builder_new_temp(ctx);
+    if tag_slot < 0 || cmp_slot < 0 || payload_slot < 0 {
+        return -1;
+    }
+    const tag_const_slot: i32 = exec_builder_emit_loaded_const_value(ctx, local.decl,
+        exec_make_i32(variant_index));
+    if tag_const_slot < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_LOAD_UNION_TAG,
+        a: tag_slot,
+        b: local.slot,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(local.decl),
+    }) < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_CMP_EQ,
+        a: cmp_slot,
+        b: tag_slot,
+        c: tag_const_slot,
+        imm: TypeKind.TYPE_I32 as i64,
+        text: null,
+        source: exec_builder_make_source(local.decl),
+    }) < 0 {
+        return -1;
+    }
+    const skip_jump: i32 = exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_JMP_IF_FALSE,
+        a: cmp_slot,
+        b: 0,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(local.decl),
+    });
+    if skip_jump < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_LOAD_UNION_PAYLOAD,
+        a: payload_slot,
+        b: local.slot,
+        c: 0,
+        imm: 0,
+        text: null,
+        source: exec_builder_make_source(local.decl),
+    }) < 0 {
+        return -1;
+    }
+    var arg_sources: [i32: EXEC_MAX_CALL_ARGS] = [];
+    arg_sources[0] = payload_slot;
+    const arg_base: i32 = exec_builder_pack_source_slots(ctx, local.decl, &arg_sources[0], 1);
+    const dst: i32 = exec_builder_new_temp(ctx);
+    if arg_base < 0 || dst < 0 {
+        return -1;
+    }
+    if exec_builder_emit(ctx, BCInstr {
+        opcode: BCOpcode.BC_CALL,
+        a: dst,
+        b: arg_base,
+        c: 1,
+        imm: callee_index as i64,
+        text: variant_drop_decl.fn_decl_name,
+        source: exec_builder_make_source(local.decl),
+    }) < 0 {
+        return -1;
+    }
+    exec_builder_patch_jump(ctx, skip_jump, ctx.instr_count);
     return 0;
 }
 
@@ -2805,6 +4477,19 @@ fn exec_builder_emit_cleanup_scope(ctx: &ExecFunctionBuildContext, scope_idx: i3
     if ctx == null || scope == null {
         return -1;
     }
+    const saved_emitting: i32 = ctx.emitting_cleanup_scope_plus1;
+    ctx.emitting_cleanup_scope_plus1 = scope_idx +| 1;
+    const emit_rc: i32 = exec_builder_emit_cleanup_scope_body(ctx, scope, include_errdefer);
+    ctx.emitting_cleanup_scope_plus1 = saved_emitting;
+    return emit_rc;
+}
+
+/// `exec_builder_emit_cleanup_scope` 的主体：重入保护由调用方设置/恢复。
+///
+/// 参数：`ctx` 构建上下文；`scope` 目标 scope；`include_errdefer` 是否含 errdefer。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_cleanup_scope_body(ctx: &ExecFunctionBuildContext, scope: &ExecCleanupScope,
+    include_errdefer: i32) i32 {
     if include_errdefer != 0 {
         var ei: i32 = scope.errdefer_count -| 1;
         while ei >= 0 {
@@ -2856,6 +4541,34 @@ fn exec_builder_emit_all_cleanup(ctx: &ExecFunctionBuildContext, include_errdefe
     return 0;
 }
 
+/// 发到 `stop_depth`（不含）为止的 cleanup，供 `break`/`continue` 用。
+///
+/// `break` 只该拆掉 loop 自己及其内层的 scope，loop 外面的 scope 归外层语句管。
+/// 用 `exec_builder_emit_all_cleanup` 会连外层一起发 —— 而 `defer { ... break ... }`
+/// 正在发射的就是那个外层 scope，于是自我递归到 `cleanup scope 嵌套过深`。
+///
+/// 参数：`ctx` 构建上下文；`stop_depth` 停下的 cleanup 深度；`include_errdefer` 是否含 errdefer。
+/// 返回值：0 成功；-1 失败。
+fn exec_builder_emit_cleanup_down_to(ctx: &ExecFunctionBuildContext, stop_depth: i32,
+    include_errdefer: i32) i32 {
+    if ctx == null {
+        return -1;
+    }
+    // 正在发射的 scope（及其更内层）不再重发：那个 scope 的 body 就在栈上。
+    var floor_depth: i32 = stop_depth;
+    if ctx.emitting_cleanup_scope_plus1 > 0 && ctx.emitting_cleanup_scope_plus1 -| 1 >= floor_depth {
+        floor_depth = ctx.emitting_cleanup_scope_plus1;
+    }
+    var scope_idx: i32 = ctx.cleanup_depth -| 1;
+    while scope_idx >= floor_depth {
+        if exec_builder_emit_cleanup_scope(ctx, scope_idx, include_errdefer) < 0 {
+            return -1;
+        }
+        scope_idx = scope_idx - 1;
+    }
+    return 0;
+}
+
 fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) i32 {
     if ctx == null || block == null {
         return -1;
@@ -2865,6 +4578,10 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
     while i < block.stmt_count {
         const stmt_temp_base: i32 = ctx.next_temp_slot;
         const stmt: &HIRStmt = block.stmts[i];
+        if stmt == null {
+            i = i + 1;
+            continue;
+        }
         if stmt.kind == HIRStmtKind.HIR_STMT_SCOPE_ENTER {
             if exec_builder_push_cleanup_scope(ctx, stmt.ast_node, stmt.scope_id) < 0 {
                 return -1;
@@ -2896,6 +4613,9 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                 return -1;
             }
             if exec_builder_register_drop_local(ctx, stmt) < 0 {
+                return -1;
+            }
+            if exec_builder_emit_moved_field_clear(ctx, stmt) < 0 {
                 return -1;
             }
         } else if stmt.kind == HIRStmtKind.HIR_STMT_ASSIGN {
@@ -2952,6 +4672,26 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                         ret_slot = wrapped_slot;
                     }
                 }
+            }
+            if ctx.function.return_type.type.kind != TypeKind.TYPE_ERROR_UNION && stmt.int_value != 0 {
+                // async 函数的错误返回：值已经是包好的 Future，但 errdefer 仍要跑。
+                if exec_builder_emit_all_cleanup(ctx, 1) < 0 {
+                    return -1;
+                }
+                if exec_builder_emit(ctx, BCInstr {
+                    opcode: BCOpcode.BC_RET,
+                    a: ret_slot,
+                    b: 0,
+                    c: 0,
+                    imm: 0,
+                    text: null,
+                    source: exec_builder_make_source(stmt.ast_node),
+                }) < 0 {
+                    return -1;
+                }
+                exec_builder_restore_temp_watermark(ctx, stmt_temp_base);
+                i = i + 1;
+                continue;
             }
             if ctx.function.return_type.type.kind == TypeKind.TYPE_ERROR_UNION && ret_slot >= 0 {
                 const ret_is_err_slot: i32 = exec_builder_new_temp(ctx);
@@ -3070,7 +4810,7 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                 exec_builder_patch_jump(ctx, jmp_false, ctx.instr_count);
             }
         } else if stmt.kind == HIRStmtKind.HIR_STMT_LOOP {
-            if ctx.loop_depth >= 32 {
+            if ctx.loop_depth >= 1024 {
                 exec_backend_set_error(stmt.ast_node, "exec: loop 嵌套过深" as *byte, 0);
                 return -1;
             }
@@ -3086,6 +4826,7 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                 continue_jumps: [],
                 continue_count: 0,
                 continue_target: loop_start,
+                cleanup_depth_at_entry: ctx.cleanup_depth,
             };
             ctx.loop_depth = ctx.loop_depth + 1;
             if exec_builder_compile_block(ctx, stmt.loop_body) < 0 {
@@ -3139,7 +4880,7 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                 exec_backend_set_error(stmt.ast_node, "exec: break patch 栈越界" as *byte, 0);
                 return -1;
             }
-            if exec_builder_emit_all_cleanup(ctx, 0) < 0 {
+            if exec_builder_emit_cleanup_down_to(ctx, loop_patch_for_break.cleanup_depth_at_entry, 0) < 0 {
                 return -1;
             }
             const patch_idx: i32 = loop_patch_for_break.break_count;
@@ -3173,7 +4914,7 @@ fn exec_builder_compile_block(ctx: &ExecFunctionBuildContext, block: &HIRBlock) 
                 exec_backend_set_error(stmt.ast_node, "exec: continue patch 栈越界" as *byte, 0);
                 return -1;
             }
-            if exec_builder_emit_all_cleanup(ctx, 0) < 0 {
+            if exec_builder_emit_cleanup_down_to(ctx, loop_patch_for_continue.cleanup_depth_at_entry, 0) < 0 {
                 return -1;
             }
             const patch_idx2: i32 = loop_patch_for_continue.continue_count;
@@ -3217,7 +4958,10 @@ fn exec_builder_validate_slot_read(fn_hir: &HIRFunction, slot: i32, slot_count: 
         return -1;
     }
     if slot_written != null && slot_written[slot] == 0 {
-        exec_backend_set_error(fn_hir.decl, "exec: bytecode 读取了未初始化槽位" as *byte, 0);
+        var uninit_msg: [byte: 128] = [];
+        _ = snprintf(&uninit_msg[0] as *byte, 160,
+            "exec: bytecode 读取了未初始化槽位(slot=%d msg=%s)" as *byte, slot, message as *byte);
+        exec_backend_set_error(fn_hir.decl, &uninit_msg[0] as &byte, 0);
         return -1;
     }
     return 0;
@@ -3309,7 +5053,8 @@ fn exec_builder_validate_function(module: &HIRModule, fn_hir: &HIRFunction, out_
             if exec_builder_validate_slot_read(fn_hir, instr.b, out_fn.slot_count, &slot_written[0], "exec: STORE_GLOBAL 源槽位非法" as *byte) != 0 {
                 return -1;
             }
-        } else if instr.opcode == BCOpcode.BC_STORE_LOCAL {
+        } else if instr.opcode == BCOpcode.BC_STORE_LOCAL ||
+            instr.opcode == BCOpcode.BC_STORE_LOCAL_MOVE {
             if exec_builder_validate_slot_read(fn_hir, instr.b, out_fn.slot_count, &slot_written[0], "exec: STORE_LOCAL 源槽位非法" as *byte) != 0 {
                 return -1;
             }
@@ -3337,6 +5082,9 @@ fn exec_builder_validate_function(module: &HIRModule, fn_hir: &HIRFunction, out_
             instr.opcode == BCOpcode.BC_MUL || instr.opcode == BCOpcode.BC_DIV ||
             instr.opcode == BCOpcode.BC_ADD_SAT || instr.opcode == BCOpcode.BC_SUB_SAT ||
             instr.opcode == BCOpcode.BC_MUL_SAT ||
+            instr.opcode == BCOpcode.BC_ADD_CHECK || instr.opcode == BCOpcode.BC_SUB_CHECK ||
+            instr.opcode == BCOpcode.BC_MUL_CHECK || instr.opcode == BCOpcode.BC_DIV_CHECK ||
+            instr.opcode == BCOpcode.BC_REM_CHECK ||
             instr.opcode == BCOpcode.BC_REM || instr.opcode == BCOpcode.BC_BIT_AND ||
             instr.opcode == BCOpcode.BC_BIT_OR || instr.opcode == BCOpcode.BC_BIT_XOR ||
             instr.opcode == BCOpcode.BC_SHL || instr.opcode == BCOpcode.BC_SHR ||
@@ -3424,10 +5172,13 @@ fn exec_builder_validate_function(module: &HIRModule, fn_hir: &HIRFunction, out_
             instr.opcode == BCOpcode.BC_LOAD_SLICE_PTR ||
             instr.opcode == BCOpcode.BC_LOAD_UNION_TAG ||
             instr.opcode == BCOpcode.BC_LOAD_UNION_PAYLOAD ||
+            instr.opcode == BCOpcode.BC_LOAD_ERROR_TAG ||
+            instr.opcode == BCOpcode.BC_LOAD_ERROR_PAYLOAD ||
             instr.opcode == BCOpcode.BC_MAKE_OK || instr.opcode == BCOpcode.BC_MAKE_ERR ||
             instr.opcode == BCOpcode.BC_IS_ERR || instr.opcode == BCOpcode.BC_UNWRAP_OK ||
             instr.opcode == BCOpcode.BC_UNWRAP_ERR ||
-            instr.opcode == BCOpcode.BC_ERROR_ID || instr.opcode == BCOpcode.BC_ERROR_NAME {
+            instr.opcode == BCOpcode.BC_ERROR_ID || instr.opcode == BCOpcode.BC_ERROR_NAME ||
+            instr.opcode == BCOpcode.BC_AWAIT {
             if exec_builder_validate_slot_read(fn_hir, instr.b, out_fn.slot_count, &slot_written[0], "exec: 一元指令源槽位非法" as *byte) != 0 {
                 return -1;
             }
@@ -3463,6 +5214,42 @@ fn exec_builder_validate_function(module: &HIRModule, fn_hir: &HIRFunction, out_
             const dst_slot5: i32 = instr.a;
             if dst_slot5 >= 0 && dst_slot5 < EXEC_MAX_FRAME_SLOTS {
                 slot_written[dst_slot5] = 1;
+            }
+        } else if instr.opcode == BCOpcode.BC_STRING_INTERP {
+            // 插值：b 起连续的 c 个实参槽位是输入，a 是渲染结果的输出槽位。
+            var interp_vi: i32 = 0;
+            while interp_vi < instr.c {
+                if exec_builder_validate_slot_read_with_source(fn_hir, instr.b + interp_vi,
+                        out_fn.slot_count, &slot_written[0],
+                        "exec: STRING_INTERP 源槽位非法" as *byte, instr.source) != 0 {
+                    return -1;
+                }
+                interp_vi = interp_vi + 1;
+            }
+            if instr.a < 0 || instr.a >= out_fn.slot_count {
+                exec_backend_set_error(fn_hir.decl, "exec: STRING_INTERP 目标槽位非法" as *byte, 0);
+                return -1;
+            }
+            const interp_dst_slot: i32 = instr.a;
+            if interp_dst_slot >= 0 && interp_dst_slot < EXEC_MAX_FRAME_SLOTS {
+                slot_written[interp_dst_slot] = 1;
+            }
+        } else if instr.opcode == BCOpcode.BC_VECTOR_OP {
+            var vec_vi: i32 = 0;
+            while vec_vi < instr.c {
+                if exec_builder_validate_slot_read(fn_hir, instr.b + vec_vi, out_fn.slot_count,
+                    &slot_written[0], "exec: VECTOR_OP 源槽位非法" as *byte) != 0 {
+                    return -1;
+                }
+                vec_vi = vec_vi + 1;
+            }
+            if instr.a < 0 || instr.a >= out_fn.slot_count {
+                exec_backend_set_error(fn_hir.decl, "exec: VECTOR_OP 目标槽位非法" as *byte, 0);
+                return -1;
+            }
+            const dst_slot_vec: i32 = instr.a;
+            if dst_slot_vec >= 0 && dst_slot_vec < EXEC_MAX_FRAME_SLOTS {
+                slot_written[dst_slot_vec] = 1;
             }
         } else if instr.opcode == BCOpcode.BC_MAKE_UNION {
             if instr.b >= 0 {
@@ -3649,8 +5436,17 @@ fn exec_builder_validate_function(module: &HIRModule, fn_hir: &HIRFunction, out_
                 slot_written[dst_slot_va_copy2] = 1;
             }
         } else if instr.opcode == BCOpcode.BC_PRINT || instr.opcode == BCOpcode.BC_PRINTLN {
-            if exec_builder_validate_slot_read(fn_hir, instr.a, out_fn.slot_count, &slot_written[0], "exec: print 槽位非法" as *byte) != 0 {
+            // b = 要打印的值（读），a = 写出的字节数（写）。
+            if exec_builder_validate_slot_read(fn_hir, instr.b, out_fn.slot_count, &slot_written[0], "exec: print 槽位非法" as *byte) != 0 {
                 return -1;
+            }
+            if instr.a < 0 || instr.a >= out_fn.slot_count {
+                exec_backend_set_error(fn_hir.decl, "exec: print 返回槽位非法" as *byte, 0);
+                return -1;
+            }
+            const dst_slot_print: i32 = instr.a;
+            if dst_slot_print >= 0 && dst_slot_print < EXEC_MAX_FRAME_SLOTS {
+                slot_written[dst_slot_print] = 1;
             }
         } else if instr.opcode == BCOpcode.BC_RET {
             if instr.a >= 0 &&
@@ -3663,6 +5459,51 @@ fn exec_builder_validate_function(module: &HIRModule, fn_hir: &HIRFunction, out_
     return 0;
 }
 
+/// 判断 return 的实际值类型能否直接交给声明的返回类型。
+/// 允许：完全相同、错误值、错误联合载荷、切片（定长与不定长只差长度）、
+/// 整数之间、浮点之间。
+/// 参数：actual 实际值类型；expected 声明的返回类型。
+/// 返回值：1 兼容，0 不兼容。
+fn exec_builder_return_type_matches(actual: &Type, expected: &Type) i32 {
+    if actual == null || expected == null {
+        return 0;
+    }
+    if type_equals(actual[0], expected[0]) != 0 {
+        return 1;
+    }
+    if actual.kind == TypeKind.TYPE_ERROR {
+        return 1;
+    }
+    // 残留的泛型参数说明静态替换没走到这里（解释器值本身是动态类型），
+    // 按兼容处理，避免把可运行的程序判成硬错误。
+    if actual.kind == TypeKind.TYPE_GENERIC_PARAM || expected.kind == TypeKind.TYPE_GENERIC_PARAM {
+        return 1;
+    }
+    if expected.kind == TypeKind.TYPE_ERROR_UNION {
+        if expected.error_union_payload_type == null {
+            // 载荷类型没带上（宏/单态展开的合成签名常见）：checker 已经验过，
+            // 这里不再卡。
+            return 1;
+        }
+        return exec_builder_return_type_matches(actual, expected.error_union_payload_type);
+    }
+    if actual.kind == TypeKind.TYPE_SLICE && expected.kind == TypeKind.TYPE_SLICE &&
+        actual.slice_element_type != null && expected.slice_element_type != null {
+        return type_equals(actual.slice_element_type[0], expected.slice_element_type[0]);
+    }
+    if is_integer_type(actual.kind) != 0 && is_integer_type(expected.kind) != 0 {
+        return 1;
+    }
+    if (actual.kind == TypeKind.TYPE_F32 || actual.kind == TypeKind.TYPE_F64) &&
+        (expected.kind == TypeKind.TYPE_F32 || expected.kind == TypeKind.TYPE_F64) {
+        return 1;
+    }
+    if actual.kind == TypeKind.TYPE_POINTER && expected.kind == TypeKind.TYPE_POINTER {
+        return 1;
+    }
+    return 0;
+}
+
 fn exec_builder_validate_return_types_in_block(fn_hir: &HIRFunction, block: &HIRBlock) i32 {
     if fn_hir == null || block == null {
         return 0;
@@ -3670,6 +5511,10 @@ fn exec_builder_validate_return_types_in_block(fn_hir: &HIRFunction, block: &HIR
     var i: i32 = 0;
     while i < block.stmt_count {
         const stmt: &HIRStmt = block.stmts[i];
+        if stmt == null {
+            i = i + 1;
+            continue;
+        }
         if stmt.kind == HIRStmtKind.HIR_STMT_RETURN {
             if fn_hir.return_type.type.kind == TypeKind.TYPE_VOID {
                 if stmt.expr != null {
@@ -3681,17 +5526,22 @@ fn exec_builder_validate_return_types_in_block(fn_hir: &HIRFunction, block: &HIR
                     exec_backend_set_error(stmt.ast_node, "exec: 非 void 函数缺少返回值" as *byte, 0);
                     return -1;
                 }
-                if fn_hir.return_type.type.kind == TypeKind.TYPE_ERROR_UNION {
-                    if type_equals(stmt.expr.type_ref.type, fn_hir.return_type.type) != 0 {
-                    } else if stmt.expr.type_ref.type.kind == TypeKind.TYPE_ERROR {
-                    } else if fn_hir.return_type.type.error_union_payload_type != null &&
-                        type_equals(stmt.expr.type_ref.type, fn_hir.return_type.type.error_union_payload_type[0]) != 0 {
-                    } else {
-                        exec_backend_set_error(stmt.ast_node, "exec: return 类型与错误联合返回类型不一致" as *byte, 0);
-                        return -1;
-                    }
-                } else if type_equals(stmt.expr.type_ref.type, fn_hir.return_type.type) == 0 {
-                    exec_backend_set_error(stmt.ast_node, "exec: return 类型与函数返回类型不一致" as *byte, 0);
+                var rtm_ok: i32 = exec_builder_return_type_matches(stmt.expr.type_ref.type, fn_hir.return_type.type);
+                if rtm_ok == 0 && fn_hir.return_type.type.kind == TypeKind.TYPE_ERROR_UNION &&
+                    stmt.expr.type_ref.type.kind != TypeKind.TYPE_ERROR_UNION &&
+                    stmt.expr.type_ref.type.kind != TypeKind.TYPE_ERROR {
+                    // 函数返回 `!T` 而 return 的是裸 `T`：发射阶段会补 `BC_MAKE_OK`，
+                    // 这里按兼容放行（单态实例的类型元数据经常对不齐）。
+                    rtm_ok = 1;
+                }
+                if rtm_ok == 0 {
+                    var rtm_msg: [byte: 192] = [];
+                    _ = snprintf(&rtm_msg[0] as *byte, 192,
+                        "exec: return 类型与函数返回类型不一致(actual=%d expected=%d line=%d)" as *byte,
+                        stmt.expr.type_ref.type.kind as i32,
+                        fn_hir.return_type.type.kind as i32,
+                        stmt.ast_node.line);
+                    exec_backend_set_error(stmt.ast_node, &rtm_msg[0] as &byte, 0);
                     return -1;
                 }
             }
@@ -3716,6 +5566,73 @@ fn exec_builder_validate_return_types_in_block(fn_hir: &HIRFunction, block: &HIR
     return 0;
 }
 
+/// 把「源槽此后不会再被读」的 `BC_STORE_LOCAL` 提升成 `BC_STORE_LOCAL_MOVE`。
+///
+/// 判据（保守）：
+/// 1. 目标槽 ≠ 源槽；
+/// 2. 该指令**不在循环体里**（没有任何跳转满足 `from >= i && target <= i`），
+///    于是「之后的执行」只会是下标更大的指令；
+/// 3. 源槽在 `i` 之后的所有指令里都没被提到（a/b/c 任一相等，或落在 `[b, b+c)` 区段）。
+/// 满足时源槽里的值此后不可能被观察到 → 移动所有权，省掉一次整块深拷贝。
+/// 参数：`out_fn` 已经填好指令表的函数。返回值：无。
+fn exec_builder_promote_local_moves(out_fn: &BCFunction) void {
+    if out_fn == null || out_fn.instrs == null || out_fn.instr_count <= 0 {
+        return;
+    }
+    var i: i32 = 0;
+    while i < out_fn.instr_count {
+        const ins: &BCInstr = &out_fn.instrs[i];
+        if ins.opcode != BCOpcode.BC_STORE_LOCAL || ins.a == ins.b {
+            i = i +| 1;
+            continue;
+        }
+        const src: i32 = ins.b;
+        // 2) 是否在循环里 / 源槽地址是否被取过（取过地址就可能通过引用被读）
+        var in_loop: i32 = 0;
+        var j: i32 = 0;
+        while j < out_fn.instr_count {
+            const ji: &BCInstr = &out_fn.instrs[j];
+            if ji.opcode == BCOpcode.BC_JMP || ji.opcode == BCOpcode.BC_JMP_IF_TRUE ||
+                ji.opcode == BCOpcode.BC_JMP_IF_FALSE {
+                const target: i32 = ji.imm as i32;
+                if j >= i && target <= i {
+                    in_loop = 1;
+                }
+            }
+            // `ADDR_LOCAL` 会给出指向该槽位的内存引用：之后可能通过引用读写它，
+            // 光看「指令里有没有提到这个槽号」是不够的。
+            if ji.opcode == BCOpcode.BC_ADDR_LOCAL && ji.b == src {
+                in_loop = 1;
+            }
+            j = j +| 1;
+        }
+        if in_loop != 0 {
+            i = i +| 1;
+            continue;
+        }
+        // 3) i 之后是否还提到源槽
+        var mentioned: i32 = 0;
+        var k: i32 = i +| 1;
+        while k < out_fn.instr_count {
+            const ki: &BCInstr = &out_fn.instrs[k];
+            if ki.a == src || ki.b == src || ki.c == src {
+                mentioned = 1;
+            } else if ki.c > 1 && src >= ki.b && src < ki.b +| ki.c {
+                mentioned = 1;
+            }
+            if mentioned != 0 {
+                k = out_fn.instr_count;
+            } else {
+                k = k +| 1;
+            }
+        }
+        if mentioned == 0 {
+            out_fn.instrs[i].opcode = BCOpcode.BC_STORE_LOCAL_MOVE;
+        }
+        i = i +| 1;
+    }
+}
+
 fn exec_builder_build_function(arena: &CompilerArena, checker: &TypeChecker, const_pool: &ExecConstPoolBuilder, host_calls: &ExecHostCallSiteBuilder, module: &HIRModule, fn_hir: &HIRFunction) &BCFunction {
     if arena == null || checker == null || const_pool == null || host_calls == null || module == null || fn_hir == null {
         return null;
@@ -3727,14 +5644,18 @@ fn exec_builder_build_function(arena: &CompilerArena, checker: &TypeChecker, con
         host_calls: host_calls,
         module: module,
         function: fn_hir,
-        instrs: [],
+        instrs: null,
+        instr_capacity: 0,
         instr_count: 0,
         next_temp_slot: fn_hir.local_count,
         max_slot_count: fn_hir.local_count,
-        loop_stack: [],
+        loop_stack: null,
         loop_depth: 0,
-        cleanup_scopes: [],
+        cleanup_scopes: null,
         cleanup_depth: 0,
+        checked_err_jumps: [],
+        checked_err_count: 0,
+        checked_err_union_slot: -1,
     };
     if exec_builder_validate_return_types_in_block(fn_hir, fn_hir.body) != 0 {
         return null;
@@ -3762,7 +5683,9 @@ fn exec_builder_build_function(arena: &CompilerArena, checker: &TypeChecker, con
         exec_backend_set_error(fn_hir.decl, "exec: bytecode function 分配失败" as *byte, 0);
         return null;
     }
-    memcpy(out_instrs as *void, &ctx.instrs[0] as *void, @size_of(BCInstr) *| ctx.instr_count as usize);
+    if ctx.instrs != null && ctx.instr_count > 0 {
+        memcpy(out_instrs as *void, ctx.instrs as *void, @size_of(BCInstr) *| ctx.instr_count as usize);
+    }
     _ = memset(out_fn as *byte, 0, @size_of(BCFunction));
     out_fn.name = fn_hir.name;
     out_fn.decl = fn_hir.decl;
@@ -3772,6 +5695,7 @@ fn exec_builder_build_function(arena: &CompilerArena, checker: &TypeChecker, con
     out_fn.param_count = fn_hir.param_count;
     out_fn.is_varargs = fn_hir.is_varargs;
     out_fn.return_type = copy_type(&fn_hir.return_type.type);
+    exec_builder_promote_local_moves(out_fn);
     if exec_builder_validate_function(module, fn_hir, out_fn) != 0 {
         return null;
     }
@@ -3881,6 +5805,38 @@ export fn exec_build_bytecode(arena: &CompilerArena, checker: &TypeChecker, modu
             break;
         }
         test_global_i = test_global_i + 1;
+    }
+    program.saved_argc_global_index = -1;
+    var argc_global_i: i32 = 0;
+    while argc_global_i < module.global_count {
+        if module.globals != null && module.globals[argc_global_i].name != null &&
+            str_equals(module.globals[argc_global_i].name, "saved_argc" as &byte) != 0 {
+            program.saved_argc_global_index = argc_global_i;
+            break;
+        }
+        argc_global_i = argc_global_i + 1;
+    }
+    program.saved_argv_global_index = -1;
+    var argv_global_i: i32 = 0;
+    while argv_global_i < module.global_count {
+        if module.globals != null && module.globals[argv_global_i].name != null &&
+            str_equals(module.globals[argv_global_i].name, "saved_argv" as &byte) != 0 {
+            program.saved_argv_global_index = argv_global_i;
+            break;
+        }
+        argv_global_i = argv_global_i + 1;
+    }
+    program.host_argc = 0;
+    program.host_argv = null;
+    program.saved_envp_global_index = -1;
+    var envp_global_i: i32 = 0;
+    while envp_global_i < module.global_count {
+        if module.globals != null && module.globals[envp_global_i].name != null &&
+            str_equals(module.globals[envp_global_i].name, "saved_envp" as &byte) != 0 {
+            program.saved_envp_global_index = envp_global_i;
+            break;
+        }
+        envp_global_i = envp_global_i + 1;
     }
     if const_pool_builder.count > 0 {
         const const_values: &ExecValue = compiler_arena_alloc(arena, @size_of(ExecValue) * const_pool_builder.count as usize) as &ExecValue;

@@ -1,5 +1,34 @@
 use libc;
 
+/// `std.cfg(std.backend == .be_native | .be_exec_vm, …)` 用到的当前后端。
+///
+/// 前端（parser 的 std.cfg 处理、checker、两个后端的 `std.backend` 值解析）跑在
+/// 同一个编译器进程里，能不能解释执行只取决于命令行是否请求了 exec 后端，
+/// 所以这个标志在参数解析阶段由 `std_cfg_set_exec_vm_backend` 置位。
+export var g_compiling_for_exec_vm: i32 = 0;
+
+/// 标记「本次编译的代码将由 exec VM 解释执行」。
+/// 参数说明：enable 非 0 表示 exec 后端（`--exec`/`--vm`）。
+/// 返回值说明：无。
+export fn std_cfg_set_exec_vm_backend(enable: i32) void {
+    if enable != 0 {
+        g_compiling_for_exec_vm = 1;
+        return;
+    }
+    g_compiling_for_exec_vm = 0;
+}
+
+/// 判据：选择器是否为后端（`backend`）。
+fn std_cfg_is_backend_selector(selector: &byte) i32 {
+    if selector == null {
+        return 0;
+    }
+    if strcmp(selector as *byte, "backend" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn std_cfg_host_os_name() &byte {
     const platform_tmp: !i32 = @asm_target() as! i32;
     const platform: i32 = platform_tmp.value;
@@ -169,6 +198,11 @@ fn std_cfg_is_valid_variant(selector: &byte, variant: &byte) i32 {
         if strcmp(variant as *byte, "tos_unknown" as *byte) == 0 { return 1; }
         return 0;
     }
+    if std_cfg_is_backend_selector(selector) != 0 {
+        if strcmp(variant as *byte, "be_native" as *byte) == 0 { return 1; }
+        if strcmp(variant as *byte, "be_exec_vm" as *byte) == 0 { return 1; }
+        return 0;
+    }
     if std_cfg_is_arch_selector(selector) != 0 {
         if strcmp(selector as *byte, "host_arch" as *byte) == 0 {
             if strcmp(variant as *byte, "ha_x86_64" as *byte) == 0 { return 1; }
@@ -203,6 +237,12 @@ fn std_cfg_current_value(selector: &byte) &byte {
     if strcmp(selector as *byte, "target_arch" as *byte) == 0 {
         return std_cfg_target_arch_name();
     }
+    if std_cfg_is_backend_selector(selector) != 0 {
+        if g_compiling_for_exec_vm != 0 {
+            return ("be_exec_vm" as *byte) as &byte;
+        }
+        return ("be_native" as *byte) as &byte;
+    }
     return null;
 }
 
@@ -235,6 +275,9 @@ fn std_cfg_selector_enum_name(selector: &byte) &byte {
     }
     if strcmp(selector as *byte, "target_arch" as *byte) == 0 {
         return ("TargetArch" as *byte) as &byte;
+    }
+    if std_cfg_is_backend_selector(selector) != 0 {
+        return ("Backend" as *byte) as &byte;
     }
     return null;
 }

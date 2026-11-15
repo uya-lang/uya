@@ -1,0 +1,15 @@
+// 裸错误值 `as!` 成错误联合：`error.Foo as! T` 必须保留错误 id，
+// 而不是被当成「成功值」把 id 丢掉（继而生成非法的聚合强转让 C99 编不过）。
+use std.testing.assert_eq_i32;
+
+test "asbang from bare error" {
+    const a: !usize = error.BufferTooSmall as! usize;
+    const b: !i32 = error.OutOfMemory as! i32;
+    @print("a eid nonzero="); @print((a.error_id != 0u32) as i32); @print("\n");
+    @print("b eid nonzero="); @print((b.error_id != 0u32) as i32); @print("\n");
+    try assert_eq_i32((a.error_id != 0u32) as i32, 1);
+    try assert_eq_i32((b.error_id != 0u32) as i32, 1);
+    // 与 `@error_id` 取到的常量一致，确保两个后端用的是同一套 id。
+    try assert_eq_i32(a.error_id as i32, @error_id(error.BufferTooSmall) as i32);
+    try assert_eq_i32(b.error_id as i32, @error_id(error.OutOfMemory) as i32);
+}

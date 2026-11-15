@@ -1,0 +1,25 @@
+// err 分支上读 `.value`：C99 读到错误联合 value 字段的零值并继续执行。
+// VM 早先把 `.value` 复用成 `try x`（err 就提前返回），导致整条失败。
+use std.testing.assert_eq_i32;
+
+fn bad_usize() !usize { return error.BufferTooSmall; }
+fn bad_i32() !i32 { return error.OutOfMemory; }
+fn good_usize() !usize { return 7usize; }
+
+test "ok branch value read" {
+    const r: !usize = good_usize();
+    try assert_eq_i32(r.error_id as i32, 0);
+    try assert_eq_i32(r.value as i32, 7);
+}
+
+test "err branch value read yields zero" {
+    const r: !usize = bad_usize();
+    try assert_eq_i32((r.error_id != 0u32) as i32, 1);
+    try assert_eq_i32(r.value as i32, 0);
+}
+
+test "err branch i32 value read yields zero" {
+    const r: !i32 = bad_i32();
+    try assert_eq_i32((r.error_id != 0u32) as i32, 1);
+    try assert_eq_i32(r.value, 0);
+}

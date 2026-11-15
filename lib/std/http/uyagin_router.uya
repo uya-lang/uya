@@ -145,21 +145,29 @@ fn uyagin_request_segment_ptr(base: &UyaginRequestSegment, idx: i32) &UyaginRequ
     if base == null || idx < 0 || idx >= UYAGIN_ROUTER_MAX_REQ_SEGMENTS {
         return null;
     }
-    return @ptr_from_usize(@usize_from_ptr(base as &void) + (idx as usize) * @size_of(UyaginRequestSegment)) as &UyaginRequestSegment;
+    return &base[idx as usize];
 }
 
 fn uyagin_router_route_meta_ptr(base: &UyaginRouteMeta, idx: i32) &UyaginRouteMeta {
     if base == null || idx < 0 || idx >= UYAGIN_ROUTER_MAX_ROUTES {
         return null;
     }
-    return @ptr_from_usize(@usize_from_ptr(base as &void) + (idx as usize) * @size_of(UyaginRouteMeta)) as &UyaginRouteMeta;
+    return &base[idx as usize];
 }
 
 fn uyagin_router_node_ptr(router: &UyaginRouter, idx: i32) &UyaginRouterNode {
     if router == null || idx < 0 || idx >= UYAGIN_ROUTER_MAX_NODES {
         return null;
     }
-    return @ptr_from_usize(@usize_from_ptr(&router.nodes[0] as &void) + (idx as usize) * @size_of(UyaginRouterNode)) as &UyaginRouterNode;
+    // 用下标取地址，不要用 `@ptr_from_usize(base + idx*@size_of(T))`：
+    // 结构体数组在 VM 里每个元素是一个 ExecValue（56 字节），而 `@size_of`
+    // 给的是 C 布局大小，裸指针算术会落到 ExecValue 中间，
+    // 随后 `node.field` 直接报「LOAD_FIELD 字段越界」。
+    const ui: usize = (idx as! usize).value;
+    if ui >= (UYAGIN_ROUTER_MAX_NODES as usize) {
+        return null;
+    }
+    return &router.nodes[ui];
 }
 
 fn uyagin_router_root_ptr(router: &UyaginRouter, idx: i32) &i32 {

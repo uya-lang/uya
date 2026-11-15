@@ -1,0 +1,20 @@
+// error_overlap_struct_literal.uya - 预期编译失败
+// 预期：编译失败（含匿名 union 重叠字段的结构体不能用结构体字面量初始化）
+use std.runtime.entry;
+
+struct Bad {
+    tag: i32,
+    union {
+        struct {
+            a: i32,
+        }
+        struct {
+            b: i64,
+        }
+    }
+}
+
+export fn main() i32 {
+    const v: Bad = Bad{ tag: 1, a: 2, b: 3 };
+    return v.tag;
+}

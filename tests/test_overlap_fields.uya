@@ -1,0 +1,151 @@
+// 匿名 union 重叠字段（overlap groups）测试
+//
+// struct 体里的 `union { struct { ... } struct { ... } }` 让不同组的字段共享
+// 同一段存储：结构体大小 = 公共字段 + max(组大小)，字段名仍可直接访问。
+// 同一组内的字段顺序排布、互不重叠；不同组从 union 块首开始重叠。
+//
+// 重叠布局是 C99 原生布局语义：这里用 malloc 拿原生内存来验证字段偏移与别名。
+use std.runtime.entry;
+use std.testing.expect;
+use std.testing.assert_eq_i32;
+use std.testing.test_suite_begin;
+use std.testing.test_suite_end;
+use std.testing.run_test;
+use libc.malloc;
+use libc.free;
+
+// 公共前缀 8 字节（tag + small），union 块对齐 8 → 总大小 8 + 8 = 16。
+struct OverlapBasic {
+    tag: i32,
+    small: i32,
+    union {
+        struct {
+            a: i32,
+            b: i32,
+        }
+        struct {
+            c: i64,
+        }
+    }
+}
+
+// union 块在中间、后面还有普通字段：块 8 字节 + tail 4 字节 → 12，对齐 8 → 16。
+struct OverlapTail {
+    union {
+        struct {
+            x: i32,
+            y: i32,
+        }
+        struct {
+            z: i64,
+        }
+    }
+    tail: i32,
+}
+
+// 三个组，最大组 8 字节；前面的普通字段决定 union 块偏移（1 → 对齐 8 → 8）。
+struct OverlapThree {
+    tag: byte,
+    union {
+        struct {
+            p: i32,
+        }
+        struct {
+            q: i32,
+            r: i32,
+        }
+        struct {
+            s: i64,
+        }
+    }
+}
+
+fn alloc_basic() !&OverlapBasic {
+    const raw: &void = malloc(@size_of(OverlapBasic) as usize);
+    try expect(raw != null);
+    return raw as &OverlapBasic;
+}
+
+fn alloc_tail() !&OverlapTail {
+    const raw: &void = malloc(@size_of(OverlapTail) as usize);
+    try expect(raw != null);
+    return raw as &OverlapTail;
+}
+
+fn alloc_three() !&OverlapThree {
+    const raw: &void = malloc(@size_of(OverlapThree) as usize);
+    try expect(raw != null);
+    return raw as &OverlapThree;
+}
+
+fn test_size_align() !void {
+    try assert_eq_i32(@size_of(OverlapBasic), 16);
+    try assert_eq_i32(@align_of(OverlapBasic), 8);
+    try assert_eq_i32(@size_of(OverlapTail), 16);
+    try assert_eq_i32(@align_of(OverlapTail), 8);
+    try assert_eq_i32(@size_of(OverlapThree), 16);
+    try assert_eq_i32(@align_of(OverlapThree), 8);
+}
+
+fn test_same_group_coexist() !void {
+    const v: &OverlapBasic = try alloc_basic();
+    v.tag = 1;
+    v.small = 2;
+    v.a = 11;
+    v.b = 22;
+    try assert_eq_i32(v.a, 11);
+    try assert_eq_i32(v.b, 22);
+    try assert_eq_i32(v.tag, 1);
+    try assert_eq_i32(v.small, 2);
+    free(v as &void);
+}
+
+fn test_group_alias() !void {
+    const v: &OverlapBasic = try alloc_basic();
+    v.c = 0 as i64;
+    v.a = 5;
+    // 不同组共享存储：写 a 会改变 c（无论字节序，c 都不再是 0）。
+    try expect(v.c != 0 as i64);
+    v.c = 0 as i64;
+    try assert_eq_i32(v.a, 0);
+    free(v as &void);
+}
+
+fn test_tail_field_after_union() !void {
+    const v: &OverlapTail = try alloc_tail();
+    v.x = 3;
+    v.y = 4;
+    v.tail = 9;
+    v.z = 0 as i64;
+    // z 与 x/y 重叠，但 tail 在 union 块之后，不受影响。
+    try assert_eq_i32(v.tail, 9);
+    v.x = 5;
+    try assert_eq_i32(v.tail, 9);
+    free(v as &void);
+}
+
+fn test_three_groups() !void {
+    const v: &OverlapThree = try alloc_three();
+    v.tag = 7 as byte;
+    v.q = 1;
+    v.r = 2;
+    try assert_eq_i32(v.q, 1);
+    try assert_eq_i32(v.r, 2);
+    v.s = 0 as i64;
+    v.p = 3;
+    try expect(v.s != 0 as i64);
+    try assert_eq_i32(v.tag as i32, 7);
+    free(v as &void);
+}
+
+export fn main() i32 {
+    test_suite_begin("Overlap Fields Tests");
+
+    run_test("size_align", test_size_align);
+    run_test("same_group_coexist", test_same_group_coexist);
+    run_test("group_alias", test_group_alias);
+    run_test("tail_field_after_union", test_tail_field_after_union);
+    run_test("three_groups", test_three_groups);
+
+    return test_suite_end();
+}

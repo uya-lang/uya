@@ -229,102 +229,318 @@ fn fe384_bit_of_p_minus_2(bit_index: i32) u64 {
     return 0;
 }
 
-fn fe384_add(r: &Fe384, a: &const Fe384, b: &const Fe384) void {
-    var am: Mpi = Mpi{};
-    var bm: Mpi = Mpi{};
-    var pm: Mpi = Mpi{};
-    var tm: Mpi = Mpi{};
-    var rm: Mpi = Mpi{};
-    fe384_load_mpi(&am, a);
-    fe384_load_mpi(&bm, b);
-    mpi_init(&pm);
-    mpi_init(&tm);
-    mpi_init(&rm);
-    pm.limbs[0] = P384_P_LE[0];
-    pm.limbs[1] = P384_P_LE[1];
-    pm.limbs[2] = P384_P_LE[2];
-    pm.limbs[3] = P384_P_LE[3];
-    pm.limbs[4] = P384_P_LE[4];
-    pm.limbs[5] = P384_P_LE[5];
-    pm.n = FE384_LIMBS;
-    pm.sign = 1;
-    mpi_add(&tm, &am, &bm) catch {
-        fe384_zero(r);
-        return;
-    };
-    mpi_mod(&rm, &tm, &pm) catch {
-        fe384_zero(r);
-        return;
-    };
-    fe384_store_mpi(r, &rm);
+/// 借位/进位减法：r = a - b，返回借位（0 或 1）。全程模 2^64。
+fn fe384_sub_limbs(r: &Fe384, a: &const Fe384, b: &const Fe384) u64 {
+    var borrow: u64 = 0;
+    var i: usize = 0;
+    while i < FE384_LIMBS {
+        const av: u64 = a.l[i];
+        const bv: u64 = b.l[i];
+        const t: u64 = av -% bv;
+        const s: u64 = t -% borrow;
+        // 借位发生当且仅当 av < bv + borrow（用一次减法后的比较来判）
+        var br: u64 = 0;
+        if av < bv { br = 1; }
+        if t < borrow { br = 1; }
+        r.l[i] = s;
+        borrow = br;
+        i = i + 1;
+    }
+    return borrow;
 }
 
+/// r = (a >= p)
+fn fe384_ge_p(a: &const Fe384) bool {
+    var i: usize = FE384_LIMBS;
+    while i > 0 {
+        i = i - 1;
+        const av: u64 = a.l[i];
+        const pv: u64 = P384_P_LE[i];
+        if av > pv { return true; }
+        if av < pv { return false; }
+    }
+    return true;
+}
+
+/// r -= p（调用方保证 r >= p）
+fn fe384_sub_p(r: &Fe384) void {
+    var pv: Fe384 = Fe384{ l: [0:6] };
+    fe384_zero(&pv);
+    var i: usize = 0;
+    while i < FE384_LIMBS {
+        pv.l[i] = P384_P_LE[i];
+        i = i + 1;
+    }
+    const _ignored: u64 = fe384_sub_limbs(r, r, &pv);
+}
+
+/// 域加：r = a + b mod p。
+///
+/// 原来走 `mpi_add` + `mpi_mod`（通用大整数的完整除法归约），p256 的同名函数
+/// 是手写定长循环。解释执行下这个差别被 `fe384_inv`（383 次平方 + 约 192 次乘）
+/// 放大得很厉害：p384 单独跑 >40 分钟，p256 只要 85 秒（第 648 轮实测）。
+fn fe384_add(r: &Fe384, a: &const Fe384, b: &const Fe384) void {
+    var out: Fe384 = Fe384{ l: [0:6] };
+    fe384_zero(&out);
+    var carry: u64 = 0;
+    var i: usize = 0;
+    while i < FE384_LIMBS {
+        const av: u64 = a.l[i];
+        const bv: u64 = b.l[i];
+        const t: u64 = av +% bv;
+        const s: u64 = t +% carry;
+        // a+b 的进位 = (t 溢出) + (t + carry 再溢出)
+        var c: u64 = 0;
+        if av +% bv < av { c = 1; }
+        if t +% carry < t { c = 1; }
+        out.l[i] = s;
+        carry = c;
+        i = i + 1;
+    }
+    // a+b 可能 >= 2^384（那一位在 carry 里）。此时必须**无条件**减一次 p：
+    // 只用 6 个 limb 做「>= p」判断会把超出的那一位漏掉，结果差一个 p。
+    if carry != 0 {
+        fe384_sub_p(&out);
+    } else {
+        if fe384_ge_p(&out) {
+            fe384_sub_p(&out);
+        }
+    }
+    fe384_cpy(r, &out);
+}
+
+/// r += p（忽略溢出进位）
+fn fe384_add_p(r: &Fe384) void {
+    var pv: Fe384 = Fe384{ l: [0:6] };
+    fe384_zero(&pv);
+    var i: usize = 0;
+    while i < FE384_LIMBS {
+        pv.l[i] = P384_P_LE[i];
+        i = i + 1;
+    }
+    var carry: u64 = 0;
+    var j: usize = 0;
+    while j < FE384_LIMBS {
+        const av: u64 = r.l[j];
+        const t: u64 = av +% pv.l[j];
+        const s: u64 = t +% carry;
+        var c: u64 = 0;
+        if av +% pv.l[j] < av { c = 1; }
+        if t +% carry < t { c = 1; }
+        r.l[j] = s;
+        carry = c;
+        j = j + 1;
+    }
+}
+
+/// 域减：r = a - b mod p。
+///
+/// 全程用定长 6-limb 环绕减，借位由 `fe384_sub_limbs` 显式返回。
+/// `a < b` 时结果是 `a - b + 2^384`，再加上 p 就得到 `a - b + p`（正确且在 [0, p)）。
 fn fe384_sub(r: &Fe384, a: &const Fe384, b: &const Fe384) void {
-    var am: Mpi = Mpi{};
-    var bm: Mpi = Mpi{};
-    var pm: Mpi = Mpi{};
-    var tm: Mpi = Mpi{};
-    var rm: Mpi = Mpi{};
-    fe384_load_mpi(&am, a);
-    fe384_load_mpi(&bm, b);
-    mpi_init(&pm);
-    mpi_init(&tm);
-    mpi_init(&rm);
-    pm.limbs[0] = P384_P_LE[0];
-    pm.limbs[1] = P384_P_LE[1];
-    pm.limbs[2] = P384_P_LE[2];
-    pm.limbs[3] = P384_P_LE[3];
-    pm.limbs[4] = P384_P_LE[4];
-    pm.limbs[5] = P384_P_LE[5];
-    pm.n = FE384_LIMBS;
-    pm.sign = 1;
-    if mpi_compare(&am, &bm) >= 0 {
-        mpi_sub(&rm, &am, &bm) catch {
-            fe384_zero(r);
-            return;
-        };
-        fe384_store_mpi(r, &rm);
+    var out: Fe384 = Fe384{ l: [0:6] };
+    fe384_zero(&out);
+    const borrow: u64 = fe384_sub_limbs(&out, a, b);
+    if borrow != 0 {
+        fe384_add_p(&out);
+    }
+    fe384_cpy(r, &out);
+}
+
+// ---- 定长 6-limb 乘法 + 伪梅森快速归约 ----
+
+// 13 limbs 小端：6x6 学校簿乘法的宽乘积。
+struct Fe384Wide {
+    l: [u64: 13],
+}
+
+/// 64x64 -> 128 位乘积（16 位分块，同 `ec_p256.uya:102 mul64_hi_lo`）。
+fn fe384_mul64_hi_lo(a: u64, b: u64, lo: &u64, hi: &u64) void {
+    const m16: u64 = 0xFFFF as u64;
+    const a0: u64 = a & m16;
+    const a1: u64 = (a >> 16) & m16;
+    const a2: u64 = (a >> 32) & m16;
+    const a3: u64 = (a >> 48) & m16;
+    const b0: u64 = b & m16;
+    const b1: u64 = (b >> 16) & m16;
+    const b2: u64 = (b >> 32) & m16;
+    const b3: u64 = (b >> 48) & m16;
+    var t: u64 = a0 * b0;
+    const r0: u64 = t & m16;
+    var c: u64 = t >> 16;
+    t = a0 * b1 + a1 * b0 + c;
+    const r1: u64 = t & m16;
+    c = t >> 16;
+    t = a0 * b2 + a1 * b1 + a2 * b0 + c;
+    const r2: u64 = t & m16;
+    c = t >> 16;
+    t = a0 * b3 + a1 * b2 + a2 * b1 + a3 * b0 + c;
+    const r3: u64 = t & m16;
+    c = t >> 16;
+    t = a1 * b3 + a2 * b2 + a3 * b1 + c;
+    const r4: u64 = t & m16;
+    c = t >> 16;
+    t = a2 * b3 + a3 * b2 + c;
+    const r5: u64 = t & m16;
+    c = t >> 16;
+    t = a3 * b3 + c;
+    const r6: u64 = t & m16;
+    const r7: u64 = t >> 16;
+    lo[0] = r0 | (r1 << 16) | (r2 << 32) | (r3 << 48);
+    hi[0] = r4 | (r5 << 16) | (r6 << 32) | (r7 << 48);
+}
+
+/// t += v 到位置 idx 起的 limb，进位一路向高位传播。
+fn fe384_add_at(t: &Fe384Wide, idx: usize, v: u64) void {
+    var k: usize = idx;
+    var c: u64 = v;
+    while c != 0 && k < 13 {
+        const tk: u64 = t.l[k];
+        const s: u64 = tk +% c;
+        var ov: u64 = 0;
+        if s < tk { ov = 1; }
+        t.l[k] = s;
+        c = ov;
+        k = k + 1;
+    }
+}
+
+/// 6x6 学校簿乘法，结果 13 limb。
+///
+/// **关键点**：每个部分积是 128 位的，直接把它「低半加到 t[idx]、高半留给
+/// carry」会踩两个坑 ——
+/// 1. `phi + c1 + c2` 可能超过 2^64-1（`phi` 最大 2^64-2），进位被吃掉；
+/// 2. 一行乘完的 carry 还要继续向高位传，不能只写进 `t[i+6]` 就完事。
+/// 这里改成：低半 `plo` 累加进 `t[idx]`，高半 `phi` 连同低位溢出的进位
+/// 一起用 `fe384_add_at` 加到 `idx+1` 起的位置，全程不丢进位。
+fn fe384_mul_wide(t: &Fe384Wide, a: &const Fe384, b: &const Fe384) void {
+    var i: usize = 0;
+    while i < 13 {
+        t.l[i] = 0;
+        i = i + 1;
+    }
+    var ii: usize = 0;
+    while ii < FE384_LIMBS {
+        const av: u64 = a.l[ii];
+        var jj: usize = 0;
+        while jj < FE384_LIMBS {
+            const bv: u64 = b.l[jj];
+            var plo: u64 = 0;
+            var phi: u64 = 0;
+            fe384_mul64_hi_lo(av, bv, &plo, &phi);
+            const idx: usize = ii + jj;
+            // 低半加进 t[idx]，进位先记下
+            const t0: u64 = t.l[idx];
+            const s1: u64 = t0 +% plo;
+            var c1: u64 = 0;
+            if s1 < t0 { c1 = 1; }
+            t.l[idx] = s1;
+            // 高半 + 进位，整体加到 idx+1 起
+            fe384_add_at(t, idx + 1, phi);
+            if c1 != 0 {
+                fe384_add_at(t, idx + 1, 1);
+            }
+            jj = jj + 1;
+        }
+        ii = ii + 1;
+    }
+}
+
+// 伪梅森常量：c = 2^384 mod p = 2^128 + 2^96 - 2^32 + 1，
+// 6 limb 小端里只有 limb 0/1/2 非零。
+const FE384_C0: u64 = 0xFFFFFFFF00000001;
+const FE384_C1: u64 = 0x00000000FFFFFFFF;
+const FE384_C2: u64 = 0x0000000000000001;
+
+/// t[6..13] 是否全零
+fn fe384_t_hi_is_zero(t: &const Fe384Wide) bool {
+    var i: usize = 6;
+    while i < 13 {
+        if t.l[i] != 0 {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+/// 单轮伪梅森折叠：t = (t mod 2^384) + floor(t / 2^384) * c
+fn fe384_fold(t: &Fe384Wide) void {
+    var hi: [u64: 7] = [0:7];
+    var i: usize = 0;
+    while i < 7 {
+        hi[i] = t.l[6 + i];
+        i = i + 1;
+    }
+    var all_zero: bool = true;
+    var k: usize = 0;
+    while k < 7 {
+        if hi[k] != 0 { all_zero = false; }
+        k = k + 1;
+    }
+    if all_zero {
         return;
     }
-    mpi_add(&tm, &am, &pm) catch {
-        fe384_zero(r);
-        return;
-    };
-    mpi_sub(&rm, &tm, &bm) catch {
-        fe384_zero(r);
-        return;
-    };
-    fe384_store_mpi(r, &rm);
+    // 清掉高位
+    var j: usize = 6;
+    while j < 13 {
+        t.l[j] = 0;
+        j = j + 1;
+    }
+    // 把 hi * c 加回低位（c 只有 3 个非零 limb）
+    var m: usize = 0;
+    while m < 7 {
+        const hv: u64 = hi[m];
+        if hv != 0 {
+            var plo: u64 = 0;
+            var phi: u64 = 0;
+            fe384_mul64_hi_lo(hv, FE384_C0, &plo, &phi);
+            fe384_add_at(t, m, plo);
+            fe384_add_at(t, m + 1, phi);
+            fe384_mul64_hi_lo(hv, FE384_C1, &plo, &phi);
+            fe384_add_at(t, m + 1, plo);
+            fe384_add_at(t, m + 2, phi);
+            fe384_mul64_hi_lo(hv, FE384_C2, &plo, &phi);
+            fe384_add_at(t, m + 2, plo);
+            fe384_add_at(t, m + 3, phi);
+        }
+        m = m + 1;
+    }
 }
 
+/// 域乘：r = a * b mod p。
+///
+/// 定长实现：6x6 学校簿乘法得到 13 limb，再用伪梅森恒等式
+/// `2^384 ≡ 2^128 + 2^96 − 2^32 + 1 (mod p)` 折叠高位，最后条件减 p。
+/// 原来这里是 `mpi_mul` + `mpi_mod`（**完整除法归约**），
+/// 而 `fe384_inv` 要跑 383 次平方 + 约 192 次乘 —— 每次乘都做一遍除法，
+/// 这才是 p384 比 p256 慢 28 倍的真正原因（第 648 轮实测）。
 fn fe384_mul(r: &Fe384, a: &const Fe384, b: &const Fe384) void {
-    var am: Mpi = Mpi{};
-    var bm: Mpi = Mpi{};
-    var pm: Mpi = Mpi{};
-    var tm: Mpi = Mpi{};
-    var rm: Mpi = Mpi{};
-    fe384_load_mpi(&am, a);
-    fe384_load_mpi(&bm, b);
-    mpi_init(&pm);
-    mpi_init(&tm);
-    mpi_init(&rm);
-    pm.limbs[0] = P384_P_LE[0];
-    pm.limbs[1] = P384_P_LE[1];
-    pm.limbs[2] = P384_P_LE[2];
-    pm.limbs[3] = P384_P_LE[3];
-    pm.limbs[4] = P384_P_LE[4];
-    pm.limbs[5] = P384_P_LE[5];
-    pm.n = FE384_LIMBS;
-    pm.sign = 1;
-    mpi_mul(&tm, &am, &bm) catch {
-        fe384_zero(r);
-        return;
-    };
-    mpi_mod(&rm, &tm, &pm) catch {
-        fe384_zero(r);
-        return;
-    };
-    fe384_store_mpi(r, &rm);
+    var t: Fe384Wide = Fe384Wide{ l: [0:13] };
+    fe384_mul_wide(&t, a, b);
+    var round: usize = 0;
+    while round < 3 {
+        if fe384_t_hi_is_zero(&t) {
+            break;
+        }
+        fe384_fold(&t);
+        round = round + 1;
+    }
+    var out: Fe384 = Fe384{ l: [0:6] };
+    fe384_zero(&out);
+    var i2: usize = 0;
+    while i2 < FE384_LIMBS {
+        out.l[i2] = t.l[i2];
+        i2 = i2 + 1;
+    }
+    // 折叠后可能仍 >= p（至多两次）
+    if fe384_ge_p(&out) {
+        fe384_sub_p(&out);
+    }
+    if fe384_ge_p(&out) {
+        fe384_sub_p(&out);
+    }
+    fe384_cpy(r, &out);
 }
 
 fn fe384_sqr(r: &Fe384, a: &const Fe384) void {
@@ -867,6 +1083,54 @@ fn p384_affine_scalar_mul(r: &P384Affine, k: &const Sc384, base: &const P384Affi
     }
     p384_jac_to_affine(&r.x, &r.y, &out_jac);
     r.inf = false;
+}
+
+// ---- 域运算自测入口（只给测试用）----
+//
+// 把 6-limb 小端的域元素按 48 字节大端进出，让 `tests/test_ec_p384_field.uya`
+// 能用 Python 大整数对拍。没有这几个人口时，域运算改写只能靠 `test_tls_ecdsa`
+// 端到端 45 分钟的返回来判对错，迭代一次成本高得离谱（第 648/649 轮就卡在这）。
+
+/// 域加：out = a + b mod p（均为 48 字节大端）。
+export fn ec_p384_field_add(out: &byte, a: &const byte, b: &const byte) void {
+    var fa: Fe384 = Fe384{ l: [0:6] };
+    var fb: Fe384 = Fe384{ l: [0:6] };
+    var fr: Fe384 = Fe384{ l: [0:6] };
+    fe384_from_bytes_be(&fa, a);
+    fe384_from_bytes_be(&fb, b);
+    fe384_add(&fr, &fa, &fb);
+    fe384_to_bytes_be(&fr, out);
+}
+
+/// 域减：out = a - b mod p。
+export fn ec_p384_field_sub(out: &byte, a: &const byte, b: &const byte) void {
+    var fa: Fe384 = Fe384{ l: [0:6] };
+    var fb: Fe384 = Fe384{ l: [0:6] };
+    var fr: Fe384 = Fe384{ l: [0:6] };
+    fe384_from_bytes_be(&fa, a);
+    fe384_from_bytes_be(&fb, b);
+    fe384_sub(&fr, &fa, &fb);
+    fe384_to_bytes_be(&fr, out);
+}
+
+/// 域乘：out = a * b mod p。
+export fn ec_p384_field_mul(out: &byte, a: &const byte, b: &const byte) void {
+    var fa: Fe384 = Fe384{ l: [0:6] };
+    var fb: Fe384 = Fe384{ l: [0:6] };
+    var fr: Fe384 = Fe384{ l: [0:6] };
+    fe384_from_bytes_be(&fa, a);
+    fe384_from_bytes_be(&fb, b);
+    fe384_mul(&fr, &fa, &fb);
+    fe384_to_bytes_be(&fr, out);
+}
+
+/// 域求逆：out = a^(p-2) mod p。
+export fn ec_p384_field_inv(out: &byte, a: &const byte) void {
+    var fa: Fe384 = Fe384{ l: [0:6] };
+    var fr: Fe384 = Fe384{ l: [0:6] };
+    fe384_from_bytes_be(&fa, a);
+    fe384_inv(&fr, &fa);
+    fe384_to_bytes_be(&fr, out);
 }
 
 export fn ec_p384_public_from_private(pub_out: &byte, priv_key: &const byte) i32 {

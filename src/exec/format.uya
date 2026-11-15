@@ -373,6 +373,27 @@ fn exec_format_render(fmt: &const byte, args: &ExecValue, arg_count: i32, out: &
         if arg_index >= arg_count {
             return 0;
         }
+        // `%n`：不输出任何字符，而是把**已写出的字节数**写回对应实参指向的位置。
+        // 那个实参是一个 VM 指针（`&n`），所以直接改它所指的 ExecValue 即可。
+        if conv == 110 as byte {  // 'n'
+            const n_arg: &ExecValue = &args[arg_index];
+            var n_target: &ExecValue = null;
+            if n_arg.kind == ExecValueKind.EXEC_VALUE_POINTER {
+                n_target = exec_vm_ref_target_value(n_arg);
+            }
+            if n_target == null {
+                return 0;
+            }
+            n_target[0].i64_value = out.len as i64;
+            if n_target[0].kind == ExecValueKind.EXEC_VALUE_VOID {
+                n_target[0].kind = ExecValueKind.EXEC_VALUE_I32;
+            }
+            arg_index = arg_index + 1;
+            k = k + 1 as usize;
+            i = k;
+            literal_start = k;
+            continue;
+        }
         if exec_format_append_value(out, &spec[0] as &const byte, &args[arg_index], conv) == 0 {
             return 0;
         }

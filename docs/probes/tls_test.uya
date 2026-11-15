@@ -1,0 +1,21 @@
+use libc.unistd;
+
+@thread_local var g_counter: i32 = 0;
+var g_plain: i32 = 0;
+
+fn bump() void {
+    g_counter = g_counter +| 1;
+    g_plain = g_plain +| 2;
+}
+
+fn main() !i32 {
+    bump();
+    if g_counter != 1 {
+        return 1;
+    }
+    if g_plain != 2 {
+        return 2;
+    }
+    _ = write(2, "OK tls\n" as *byte, 7);
+    return 0;
+}

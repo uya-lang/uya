@@ -1,0 +1,50 @@
+use std;
+use std.async;
+use std.async_scheduler;
+use std.testing.assert_eq_i32;
+use libc.syscall;
+
+const ASYNC_SCHEDULER_TEST_O_NONBLOCK: i32 = 0x800;
+
+fn async_scheduler_test_pipe2(fds: &i32) !i32 {
+    return @syscall(SYS_pipe2, fds as i64, ASYNC_SCHEDULER_TEST_O_NONBLOCK as i64) as! i32;
+}
+
+@async_fn
+fn async_scheduler_wait_readable(fd: i32) Future<!usize> {
+    return try @await async_wait_readable(fd, 0u64);
+}
+
+test "scheduler_run waits for real epoll readiness" {
+    std.cfg(std.target_os == .tos_linux, {
+    var fds: [i32: 2] = [0 - 1: 2];
+    _ = try async_scheduler_test_pipe2(&fds[0]);
+
+    const child_result: !i64 = sys_fork();
+    const child_pid: i64 = try child_result;
+    if child_pid == 0 {
+        const delay: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 100 * 1000 * 1000 };
+        var remain: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+        _ = sys_nanosleep(&delay, &remain) catch {};
+        var value: [byte: 1] = [73];
+        _ = sys_write(fds[1], &value[0] as *const byte, 1) catch {};
+        sys_exit(0);
+    }
+
+    var scheduler: Scheduler = scheduler_new();
+    const ready: usize = try scheduler_run<usize>(&scheduler, async_scheduler_wait_readable(fds[0]));
+    try assert_eq_i32(ready as i32, 0);
+    const metrics: SchedulerMetrics = scheduler_metrics(&scheduler);
+    try assert_eq_i32(metrics.wake_event_loop_count > 0u64, true);
+
+    var value: [byte: 1] = [0];
+    const count: isize = try sys_read(fds[0], &value[0] as *byte, 1);
+    try assert_eq_i32(count as i32, 1);
+    try assert_eq_i32(value[0] as i32, 73);
+
+    var status: i32 = 0;
+    _ = sys_waitpid(child_pid as i32, &status, 0) catch {};
+    _ = sys_close(fds[0]) catch {};
+    _ = sys_close(fds[1]) catch {};
+    }, {})
+}

@@ -17,6 +17,10 @@ var g_type_from_ast_cache_nodes: [&ASTNode: TYPE_FROM_AST_CACHE_SIZE] = [];
 var g_type_from_ast_cache_type_params: [&TypeParam: TYPE_FROM_AST_CACHE_SIZE] = [];
 var g_type_from_ast_cache_type_param_counts: [i32: TYPE_FROM_AST_CACHE_SIZE] = [];
 var g_type_from_ast_cache_values: [&Type: TYPE_FROM_AST_CACHE_SIZE] = [];
+// `Self` 的解析结果依赖 current_self_type_name / current_self_is_union；
+// 缓存键必须带上这两项，否则方法块里的 `&Self` 会命中其它上下文写入的旧结果。
+var g_type_from_ast_cache_self_names: [&byte: TYPE_FROM_AST_CACHE_SIZE] = [];
+var g_type_from_ast_cache_self_is_union: [i32: TYPE_FROM_AST_CACHE_SIZE] = [];
 
 fn simd_is_valid_lane_count(lanes: i32) i32 {
     if lanes == 2 || lanes == 4 || lanes == 8 || lanes == 16 || lanes == 32 || lanes == 64 {
@@ -43,6 +47,8 @@ fn type_from_ast_reset_cache() void {
         g_type_from_ast_cache_type_params[i] = null;
         g_type_from_ast_cache_type_param_counts[i] = 0;
         g_type_from_ast_cache_values[i] = null;
+        g_type_from_ast_cache_self_names[i] = null;
+        g_type_from_ast_cache_self_is_union[i] = 0;
         i = i + 1;
     }
     g_type_from_ast_cached_checker = null;
@@ -76,6 +82,12 @@ fn type_from_ast_cache_slot(checker: &TypeChecker, type_node: &ASTNode) i32 {
     if checker != null {
         h = h + ((checker.current_type_param_count as usize) * 17 as usize);
     }
+    if checker != null && checker.current_self_type_name != null {
+        h = h + (@usize_from_ptr(checker.current_self_type_name as &void) * 7 as usize);
+    }
+    if checker != null && checker.current_self_is_union != 0 {
+        h = h + 3 as usize;
+    }
     return (h as i32) & TYPE_FROM_AST_CACHE_MASK;
 }
 
@@ -100,7 +112,9 @@ fn type_from_ast_cache_lookup(checker: &TypeChecker, type_node: &ASTNode) &Type 
         }
         if g_type_from_ast_cache_nodes[idx] == type_node &&
             g_type_from_ast_cache_type_params[idx] == checker.current_type_params &&
-            g_type_from_ast_cache_type_param_counts[idx] == checker.current_type_param_count {
+            g_type_from_ast_cache_type_param_counts[idx] == checker.current_type_param_count &&
+            g_type_from_ast_cache_self_names[idx] == checker.current_self_type_name &&
+            g_type_from_ast_cache_self_is_union[idx] == checker.current_self_is_union {
             return cached;
         }
         probe = probe + 1;
@@ -128,7 +142,9 @@ fn type_from_ast_cache_store(checker: &TypeChecker, type_node: &ASTNode, result:
         if cached == null ||
             (g_type_from_ast_cache_nodes[idx] == type_node &&
                 g_type_from_ast_cache_type_params[idx] == checker.current_type_params &&
-                g_type_from_ast_cache_type_param_counts[idx] == checker.current_type_param_count) {
+                g_type_from_ast_cache_type_param_counts[idx] == checker.current_type_param_count &&
+                g_type_from_ast_cache_self_names[idx] == checker.current_self_type_name &&
+                g_type_from_ast_cache_self_is_union[idx] == checker.current_self_is_union) {
             target_idx = idx;
             break;
         }
@@ -151,14 +167,24 @@ fn type_from_ast_cache_store(checker: &TypeChecker, type_node: &ASTNode, result:
     g_type_from_ast_cache_nodes[target_idx] = type_node;
     g_type_from_ast_cache_type_params[target_idx] = checker.current_type_params;
     g_type_from_ast_cache_type_param_counts[target_idx] = checker.current_type_param_count;
+    g_type_from_ast_cache_self_names[target_idx] = checker.current_self_type_name;
+    g_type_from_ast_cache_self_is_union[target_idx] = checker.current_self_is_union;
     g_type_from_ast_cache_values[target_idx] = stored;
 }
 
 // 从AST类型节点创建Type结构
 fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
+    // 单态化替换期间（subst_active）结果依赖当前替换目标，不能命中按节点缓存：
+    // 类型形参 `T` 在检查阶段已缓存成 TYPE_GENERIC_PARAM，直接复用会让替换失效。
+    if checker != null && checker.subst_active != 0 {
+        return type_from_ast_uncached(checker, type_node);
+    }
     const cached: &Type = type_from_ast_cache_lookup(checker, type_node);
     if cached != null {
-        return copy_type(cached);
+        // 直接按值取出缓存项：`copy_type(cached)` 会多一层「大结构体按值返回」的调用边界，
+        // 解释执行下那条路径会丢掉 Type 的首字段（第 714 轮打点：copy_type 内部 kind 正确、
+        // 调用方收到 0）。这里语义完全等价，只是省掉一次跨调用边界的结构体返回。
+        return cached[0];
     }
     const result: Type = type_from_ast_uncached(checker, type_node);
     type_from_ast_cache_store(checker, type_node, &result);
@@ -248,6 +274,23 @@ fn type_from_ast_uncached(checker: &TypeChecker, type_node: &ASTNode) Type {
             array_size = type_node.type_array_size_expr.number_value;
         } else if type_node.type_array_size_expr != null {
             array_size = checker_eval_const_expr(checker, type_node.type_array_size_expr);
+            // 把求值结果**固化回 AST**：尺寸表达式不是字面量（例如局部
+            // `const LOCAL_N: usize = 2;` 之后写 `[byte: LOCAL_N]`）时，
+            // C99 codegen 的 `eval_const_expr` 只能看到 `AST_IDENTIFIER`，
+            // 而它（以及 `symbol_table`）在 codegen 阶段都拿不到局部 const ——
+            // 第 601 轮已用探针证明，那时 `current_function_decl.fn_decl_body`
+            // 还是 null。于是数组尺寸被当成「求值失败」退回占位符 1，
+            // 生成 `uint8_t arr[1]`（不只是 `@len` 错，越界写会踩坏相邻局部）。
+            //
+            // checker 这时**能**通过 `symbol_table` 拿到局部 const
+            //（`checker_eval_const_expr` 已支持，见 proof.uya 的标识符分支）。
+            // 因此在这里把节点直接改写成 `AST_NUMBER`，codegen 只读不算。
+            // 夹具：tests/repros/c99_local_const_array_size.uya。
+            if array_size > 0 && type_node.type_array_size_expr.type == ASTNodeType.AST_IDENTIFIER {
+                type_node.type_array_size_expr.type = ASTNodeType.AST_NUMBER;
+                type_node.type_array_size_expr.number_value = array_size;
+                type_node.type_array_size_expr.number_value_i64 = array_size as i64;
+            }
         } else {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -563,6 +606,11 @@ fn type_from_ast_uncached(checker: &TypeChecker, type_node: &ASTNode) Type {
             while i < checker.current_type_param_count {
                 if checker.current_type_params[i].name != null &&
                     str_equals(checker.current_type_params[i].name, type_name) != 0 {
+                    // 单态化 lowering 期间：直接把类型参数替换成具体类型。
+                    if checker.subst_active != 0 && checker.subst_name != null &&
+                        str_equals(checker.subst_name, type_name) != 0 {
+                        return copy_type(&checker.subst_type);
+                    }
                     result.kind = TypeKind.TYPE_GENERIC_PARAM;
                     result.generic_param_name = type_name;
                     type_set_generic_param(&result, type_name);

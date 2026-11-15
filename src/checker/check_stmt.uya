@@ -104,6 +104,13 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         }
     }
     
+    // 声明类型是向量时，先把目标向量类型下推给初始化表达式，
+    // 让 `const v: V4 = @vector.splat(1) + @vector.splat(2)` 里两侧的
+    // splat 都能拿到通道数/元素类型（return 语句已有同样处理）。
+    if node.var_decl_init != null && var_type.kind == TypeKind.TYPE_VECTOR {
+        checker_simd_prep_expr_with_expected_vector(checker, node.var_decl_init, copy_type(&var_type));
+    }
+
     // 检查初始化表达式类型
     if node.var_decl_init != null {
         checker_walk_reachability_expr(checker, node.var_decl_init);
@@ -726,7 +733,9 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     const prev_function_decl: &ASTNode = checker.current_function_decl;
     
     // 设置当前函数的返回类型
-    checker.current_return_type = copy_type(&return_type);
+    // 直接赋值，不经 `copy_type()`：解释执行下「大结构体按值返回」那条路径会丢 Type 首字段
+    // （第 714/715 轮观测：copy_type 内部 kind 正确、调用方收到 0），这里本来就是冗余复制。
+    checker.current_return_type = return_type;
     checker.in_function = 1;
     checker.current_function_decl = node;
     
@@ -1102,6 +1111,29 @@ fn checker_check_struct_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         return 1;
     }
     
+    // 字段名必须唯一：同名成员在 C 里会冲突；匿名 union 重叠块里的不同组
+    // 也共享同一个成员命名空间（即使它们不共存）。
+    var di: i32 = 0;
+    while di < node.struct_decl_field_count {
+        const df: &ASTNode = node.struct_decl_fields[di];
+        if df != null && df.type == ASTNodeType.AST_VAR_DECL && df.var_decl_name != null {
+            var dj: i32 = di + 1;
+            while dj < node.struct_decl_field_count {
+                const df2: &ASTNode = node.struct_decl_fields[dj];
+                if df2 != null && df2.type == ASTNodeType.AST_VAR_DECL && df2.var_decl_name != null &&
+                    str_equals(df.var_decl_name, df2.var_decl_name) != 0 {
+                    checker_report_error_with_note(checker, node,
+                        "结构体字段名重复" as &byte, df2,
+                        "字段名在结构体（含匿名 union 重叠块）内必须唯一" as &byte,
+                        CheckerNoteKind.NOTE_SUGGESTION);
+                    return 0;
+                }
+                dj = dj + 1;
+            }
+        }
+        di = di + 1;
+    }
+
     // 检查字段
     var i: i32 = 0;
     while i < node.struct_decl_field_count {

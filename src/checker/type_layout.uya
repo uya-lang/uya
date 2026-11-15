@@ -61,6 +61,11 @@ fn compute_union_align_v2(checker: &TypeChecker, decl: &ASTNode, program_node: &
     return max_align;
 }
 
+// 计算结构体大小（C 兼容布局）。
+//
+// 普通字段顺序排布；`union { struct { ... } ... }` 匿名重叠块里，每个 struct 组
+// 都从块首开始排布，块大小 = 各组大小的最大值，块对齐 = 各组对齐的最大值。
+// 这与 C99 后端发射的匿名 union/struct 布局一致。
 fn compute_struct_size_v2(checker: &TypeChecker, decl: &ASTNode, program_node: &ASTNode) i32 {
     if decl == null || decl.struct_decl_field_count <= 0 || decl.struct_decl_fields == null {
         return 0;
@@ -74,21 +79,90 @@ fn compute_struct_size_v2(checker: &TypeChecker, decl: &ASTNode, program_node: &
             i = i + 1;
             continue;
         }
-        const ft: Type = type_from_ast(checker, field.var_decl_type);
-        const fs: i32 = get_type_size_bytes_v2(checker, &ft, program_node);
-        const fa: i32 = get_type_align_bytes_v2(checker, &ft, program_node);
-        if fs < 0 || fa < 0 {
+        const block: i32 = field.var_decl_overlap_block;
+        if block == 0 {
+            const ft: Type = type_from_ast(checker, field.var_decl_type);
+            const fs: i32 = get_type_size_bytes_v2(checker, &ft, program_node);
+            const fa: i32 = get_type_align_bytes_v2(checker, &ft, program_node);
+            if fs < 0 || fa < 0 {
+                return -1;
+            }
+            offset = layout_align_up_i32(offset, fa);
+            if offset < 0 || offset > 0x7FFFFFFF - fs {
+                return -1;
+            }
+            offset = offset +| fs;
+            if fa > max_align {
+                max_align = fa;
+            }
+            i = i + 1;
+            continue;
+        }
+        // 匿名 union 重叠块：[i, block_end) 是同一块的字段，按 group 分段。
+        var block_end: i32 = i;
+        while block_end < decl.struct_decl_field_count {
+            const be_field: &ASTNode = decl.struct_decl_fields[block_end];
+            if be_field == null || be_field.type != ASTNodeType.AST_VAR_DECL ||
+                be_field.var_decl_overlap_block != block {
+                break;
+            }
+            block_end = block_end + 1;
+        }
+        var block_size: i32 = 0;
+        var block_align: i32 = 1;
+        var gi: i32 = i;
+        while gi < block_end {
+            const gfield: &ASTNode = decl.struct_decl_fields[gi];
+            const group: i32 = gfield.var_decl_overlap_group;
+            var group_offset: i32 = 0;
+            var group_align: i32 = 1;
+            var gj: i32 = gi;
+            while gj < block_end {
+                const gf: &ASTNode = decl.struct_decl_fields[gj];
+                if gf == null || gf.type != ASTNodeType.AST_VAR_DECL || gf.var_decl_type == null ||
+                    gf.var_decl_overlap_group != group {
+                    break;
+                }
+                const gft: Type = type_from_ast(checker, gf.var_decl_type);
+                const gfs: i32 = get_type_size_bytes_v2(checker, &gft, program_node);
+                const gfa: i32 = get_type_align_bytes_v2(checker, &gft, program_node);
+                if gfs < 0 || gfa < 0 {
+                    return -1;
+                }
+                group_offset = layout_align_up_i32(group_offset, gfa);
+                if group_offset < 0 || group_offset > 0x7FFFFFFF - gfs {
+                    return -1;
+                }
+                group_offset = group_offset +| gfs;
+                if gfa > group_align {
+                    group_align = gfa;
+                }
+                gj = gj + 1;
+            }
+            const group_size: i32 = layout_align_up_i32(group_offset, group_align);
+            if group_size < 0 {
+                return -1;
+            }
+            if group_size > block_size {
+                block_size = group_size;
+            }
+            if group_align > block_align {
+                block_align = group_align;
+            }
+            if gj <= gi {
+                gj = gi + 1;
+            }
+            gi = gj;
+        }
+        offset = layout_align_up_i32(offset, block_align);
+        if offset < 0 || offset > 0x7FFFFFFF - block_size {
             return -1;
         }
-        offset = layout_align_up_i32(offset, fa);
-        if offset < 0 || offset > 0x7FFFFFFF - fs {
-            return -1;
+        offset = offset +| block_size;
+        if block_align > max_align {
+            max_align = block_align;
         }
-        offset = offset +| fs;
-        if fa > max_align {
-            max_align = fa;
-        }
-        i = i + 1;
+        i = block_end;
     }
     return layout_align_up_i32(offset, max_align);
 }
@@ -157,6 +231,13 @@ fn get_type_align_bytes_v2(checker: &TypeChecker, t: &Type, program_node: &ASTNo
     }
     if t.kind == TypeKind.TYPE_ARRAY && t.element_type != null {
         return get_type_align_bytes_v2(checker, t.element_type, program_node);
+    }
+    // SIMD：向量对齐取元素对齐；掩码是 i64 位集。
+    if t.kind == TypeKind.TYPE_VECTOR && t.element_type != null {
+        return get_type_align_bytes_v2(checker, t.element_type, program_node);
+    }
+    if t.kind == TypeKind.TYPE_MASK {
+        return 8;
     }
     if t.kind == TypeKind.TYPE_SLICE || t.kind == TypeKind.TYPE_INTERFACE {
         return 8;
@@ -243,6 +324,17 @@ fn get_type_size_bytes_v2(checker: &TypeChecker, t: &Type, program_node: &ASTNod
         }
         return -1;
     }
+    // SIMD：向量按「元素尺寸 × 通道数」紧排；掩码在 VM/C99 里都是 i64 位集。
+    if t.kind == TypeKind.TYPE_VECTOR {
+        const v_elem_sz: i32 = get_type_size_bytes_v2(checker, t.element_type, program_node);
+        if v_elem_sz > 0 && t.array_size > 0 {
+            return v_elem_sz *| t.array_size;
+        }
+        return -1;
+    }
+    if t.kind == TypeKind.TYPE_MASK {
+        return 8;
+    }
     if t.kind == TypeKind.TYPE_SLICE {
         return 16;
     }
@@ -293,6 +385,10 @@ fn get_type_size_bytes_v2(checker: &TypeChecker, t: &Type, program_node: &ASTNod
         const decl: &ASTNode = find_struct_decl_from_program(program_node, t.struct_name as *byte);
         if decl != null && decl.struct_decl_fields != null && decl.struct_decl_field_count > 0 {
             return compute_struct_size_v2(checker, decl, program_node);
+        }
+        // 零字段结构体按 C 兼容布局是 1 字节（对齐也是 1），而不是「无法确定」。
+        if decl != null {
+            return 1;
         }
         return -1;
     }

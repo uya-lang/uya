@@ -1,6 +1,6 @@
 # Uya 语法速查手册（Quick Reference）
 
-> **版本**：与 [uya.md](./uya.md) 0.49.56 同步（2026-10-23）
+> **版本**：与 [uya.md](./uya.md) 0.49.57 同步（2026-11-07）
 
 本文档是 Uya 语言的快速参考手册，包含精简语法定义、常用代码模式和速查表。
 
@@ -347,6 +347,23 @@ const c: Container<i32> = Container<i32>{ value: 42 };
 const v: i64 = c.as_type<i64>();  // 显式指定类型参数
 const same: i32 = Container<i32>{ value: 7 }.as_type<i32>();
 // 若返回值本身仍支持后缀操作，则可继续写成 obj.method<T>().next()
+
+// 匿名 union 重叠块（0.49.57 新增）：块内每个 struct 是一组互斥字段，共享同一段存储，
+// 字段仍按 value.field 访问；结构体大小 = 普通字段 + 最大组大小（不累加各组）。
+struct Variant {
+    tag: i32,
+    union {
+        struct {
+            as_i32: i32,
+            extra: i32,
+        }
+        struct {
+            as_i64: i64,
+        }
+    }
+}
+// @size_of(Variant) == 16（tag 4 字节 + 对齐 8 的 8 字节重叠块 + 收尾对齐）
+// 含重叠块的结构体不能用结构体字面量初始化；用 var v: Variant; 后逐字段赋值。
 ```
 
 ### 联合体定义模板

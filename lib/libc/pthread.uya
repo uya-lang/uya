@@ -564,6 +564,85 @@ fn _pthread_desc_self() &pthread_desc {
 /// 功能说明：返回当前线程绑定的 malloc thread cache 槽位。
 /// 参数说明：无。
 /// 返回值说明：成功时返回当前线程的缓存结构；若当前线程描述符不可用则返回 `null`。
+/// 让「非 Uya pthread_create 创建」的宿主线程（exec VM 直接起的）也登记进线程表。
+///
+/// 不登记的话这些线程会：①拿到主线程的 heap_cache（无锁共用 tcache，写坏堆）
+/// ②`pthread_self/equal` 认不出自己 ③`pthread_cancel` 找不到线程。
+/// 线程入口第一件事调用它即可。
+///
+/// 返回值：登记成功返回本线程的 desc；失败返回 null。
+/// 关掉 `pthread_current_heap_cache` 的 TLS 快路径（`%gs:8`）。
+///
+/// 该快路径依赖宿主 TLS；exec VM 所在的编译器二进制是 nostdlib 自建入口，
+/// TLS 寄存器根本没建立（`fs_base = 0`），一旦 `_pthread_fast_heap_cache_ready`
+/// 被置 1，取快路径就会踩空段错误。VM 起真线程前调用它，强制走线程表路径。
+export fn pthread_disable_fast_heap_cache() void {
+    _pthread_fast_heap_cache_ready = 0;
+}
+
+export fn pthread_register_external_thread(stack_base: &void, stack_size: usize) &pthread_desc {
+    const self_tid: i64 = sys_gettid() catch {
+        return null as &pthread_desc;
+    };
+    _pthread_init_main_thread_if_needed();
+    if self_tid == _pthread_main_desc.tid {
+        return &_pthread_main_desc;
+    }
+    const desc_mem: !*void = sys_mmap(null as *void, PTHREAD_DESC_MAP_SIZE,
+                                      PROT_READ | PROT_WRITE,
+                                      MAP_PRIVATE | MAP_ANONYMOUS, 0 - 1, 0);
+    const desc: &pthread_desc = (desc_mem catch {
+        return null as &pthread_desc;
+    }) as &pthread_desc;
+    if desc == null {
+        return null as &pthread_desc;
+    }
+    desc.tid = self_tid;
+    desc.self = desc;
+    desc.fast_heap_cache = &desc.heap_cache;
+    desc.stack = stack_base;
+    desc.stack_size = stack_size;
+    desc.detached = 1;
+    desc.exited = 0;
+    desc.resources_released = 0;
+    desc.started = 1;
+    desc.result = null;
+    desc.pub_handle = null;
+    desc.start_routine = null;
+    desc.arg = null;
+    desc.joinstate = PTHREAD_JOINSTATE_DETACHED;
+    desc.cancel_state = PTHREAD_CANCEL_ENABLE;
+    desc.cancel_type = PTHREAD_CANCEL_DEFERRED;
+    desc.cancel_pending = 0;
+    desc.tsd_values = null;
+    desc.alloc_base = desc as &void;
+    desc.alloc_size = PTHREAD_DESC_MAP_SIZE;
+    desc.tid_clear = 0;
+    desc.heap_cache = pthread_heap_cache_t{
+        heads: [],
+        counts: [],
+        last_region_start: 0usize,
+        last_region_end: 0usize,
+        last_find_start_bin: 0usize,
+        last_find_steps: 0usize,
+        last_split_remainder_bin: 0 - 1,
+        alloc_hit_count: 0u64,
+        alloc_miss_count: 0u64,
+        debug_lookup_hint_count: 0u64,
+        debug_lookup_stack_count: 0u64,
+        debug_lookup_tid_count: 0u64,
+        debug_free_fast_count: 0u64,
+        debug_free_locked_count: 0u64,
+        debug_free_global_count: 0u64,
+    };
+    _pthread_registry_insert(self_tid, desc);
+    // 发布栈区间提示，让 _pthread_desc_self() 能按栈地址找回这个 desc
+    // （否则 tcache/self/equal 都认不出这个线程）。
+    _pthread_stack_hint_remember(_pthread_stack_marker_addr(), desc);
+    _pthread_has_created_thread = 1;
+    return desc;
+}
+
 export fn pthread_current_heap_cache() &pthread_heap_cache_t {
     if _pthread_fast_heap_cache_ready != 0 {
         const fast_cache: &pthread_heap_cache_t = _pthread_fast_heap_cache();
@@ -573,10 +652,31 @@ export fn pthread_current_heap_cache() &pthread_heap_cache_t {
     }
     if _pthread_has_created_thread == 0 {
         _pthread_init_main_thread_if_needed();
+        // 解释器（exec VM）会绕过 Uya 的 pthread_create 直接起宿主线程，
+        // 那些线程**没有登记**进这张表。如果让它们也拿到主线程的 tcache，
+        // 多个线程会无锁共用同一份 tcache 链，直接把堆写坏（实测段错误/超时）。
+        // 这里用 gettid 对比主线程：不是主线程就不给 tcache，退回加锁的全局堆路径。
+        const self_tid: i64 = sys_gettid() catch {
+            return &_pthread_main_desc.heap_cache;
+        };
+        if self_tid != _pthread_main_desc.tid {
+            return null as &pthread_heap_cache_t;
+        }
         return &_pthread_main_desc.heap_cache;
     }
     const desc: &pthread_desc = _pthread_desc_self();
     if desc == null {
+        return null as &pthread_heap_cache_t;
+    }
+    // 关键：`_pthread_desc_self()` 命中「栈地址 hint」时只按栈区间匹配，
+    // 一个已退出/已 join 的线程留下的 hint 仍可能把**别的**线程指到它的 desc。
+    // 那样就拿到了别人的 tcache 链（无锁共用 → 堆写坏），
+    // 或者一个已经回收的 desc（悬垂指针 → `exec_vm_native_field_store` 段错误）。
+    // 这里用 gettid 做最后一道强校验：tid 不符一律不给 tcache，退回加锁的全局堆。
+    const self_tid2: i64 = sys_gettid() catch {
+        return null as &pthread_heap_cache_t;
+    };
+    if desc.tid != self_tid2 {
         return null as &pthread_heap_cache_t;
     }
     return &desc.heap_cache;
@@ -2198,7 +2298,7 @@ export extern "libc" fn pthread_key_delete(key: &pthread_key_t) i32 {
     while idx < PTHREAD_KEYS_MAX as i32 {
         var k: &pthread_key_t = (_pthread_keys as usize + idx as usize * @size_of(pthread_key_t)) as &pthread_key_t;
         if k.seq == key.seq && k.seq != 0 {
-            k.seq = -k.seq;
+            k.seq = 0 -| k.seq;  // 饱和取负：seq 只会是小的正数，`-` 在检查器里证不出不溢出
             k.destructor = null;
             _pthread_key_count = _pthread_key_count -| 1;
             _ = pthread_mutex_unlock(&_pthread_key_mutex);

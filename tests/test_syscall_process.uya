@@ -36,8 +36,10 @@ test "sys_kill_zero_signal" {
 test "sys_waitpid_nochild" {
     // waitpid WNOHANG 且没有子进程
     var status: i32 = 0;
-    const WNOHANG: i32 = 1;  // Linux 中 WNOHANG = 1
-    _ = sys_waitpid(-1, &status, WNOHANG) catch {
+    // 不能把这个局部量命名为 WNOHANG：C99 后端生成的 C 里会与 <sys/wait.h> 的
+    // 同名宏撞车（宏展开成 `const int32_t 1 = 1;`），链接期报语法错误。
+    const wait_option: i32 = 1;  // Linux 中 WNOHANG = 1
+    _ = sys_waitpid(-1, &status, wait_option) catch {
         try expect(true);
         return;
     };

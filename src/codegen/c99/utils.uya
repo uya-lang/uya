@@ -1859,14 +1859,18 @@ fn emit_line_directive(codegen: &C99CodeGenerator, line: i32, filename: &byte) v
 
 // 缩进输出
 // 缩进缓存：避免循环调用 fputs
-var g_indent_spaces: [byte: 256] = [];
+var g_indent_spaces: [byte: 257] = [];
 var g_indent_spaces_init: i32 = 0;
 
 fn init_indent_spaces() void {
     if g_indent_spaces_init == 0 {
         var j: i32 = 0;
-        while j < 256 {
-            g_indent_spaces[j] = 32; // space
+        while j < 257 {
+            if j == 256 {
+                g_indent_spaces[j] = 0; // 结尾 NUL：下面按 `fputs(&g_indent_spaces[256 - total])` 写 total 个空格
+            } else {
+                g_indent_spaces[j] = 32; // space
+            }
             j = j + 1;
         }
         g_indent_spaces_init = 1;
@@ -1895,8 +1899,10 @@ fn c99_emit_indent(codegen: &C99CodeGenerator) void {
         }
         return;
     }
-    // 使用 fwrite 一次性写入，比循环 fputs 快
-    fwrite(&g_indent_spaces[0] as *void, 1, total, codegen.emit_stream as *void);
+    // 用 fputs 写尾部 NUL 结尾的窗口：`&g_indent_spaces[256 - total]` 正好是 total 个空格 + NUL。
+    // 不用 `fwrite(...)`：exec VM 下这条路径偶发把前一行/本行的一个字节写成脏值
+    // （内层自举时 `saved_envp` 第 2 个字节变成 0xB0，C 编译直接报 unknown type name）。
+    fputs(&g_indent_spaces[256 - total] as *byte, codegen.emit_stream as *void);
 }
 
 // 换行
@@ -2615,6 +2621,64 @@ export fn emit_pending_embed_dir_tables(codegen: &C99CodeGenerator) void {
 }
 
 // 评估编译时常量表达式（返回 -1 表示无法评估）
+/// 在当前函数体（含嵌套块 / 语句）里查找名为 `name` 的局部 `const` 并求值。
+///
+/// `eval_const_expr` 只扫顶层声明，函数内的 `const N: usize = 2;` 查不到，
+/// 会让数组尺寸退化成占位符 1。这里按块递归找那个 `var_decl`。
+///
+/// 参数：`codegen` 生成器；`block` 待搜索的块；`name` 目标标识符。
+/// 返回值：求值结果（>= 0）；找不到或求值失败返回 -1。
+fn eval_local_const_decl_in_block(codegen: &C99CodeGenerator, block: &ASTNode, name: &byte) i32 {
+    if codegen == null || block == null || name == null {
+        return -1;
+    }
+    if block.block_stmts == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < block.block_stmt_count {
+        const stmt: &ASTNode = block.block_stmts[i];
+        if stmt != null {
+            if stmt.type == ASTNodeType.AST_VAR_DECL && stmt.var_decl_is_const != 0 &&
+                stmt.var_decl_name != null && stmt.var_decl_init != null &&
+                strcmp(stmt.var_decl_name as *byte, name as *byte) == 0 {
+                return eval_const_expr(codegen, stmt.var_decl_init);
+            }
+            if stmt.type == ASTNodeType.AST_BLOCK {
+                const inner: i32 = eval_local_const_decl_in_block(codegen, stmt, name);
+                if inner >= 0 {
+                    return inner;
+                }
+            }
+            // 控制流语句的内嵌块也要搜（`if` / `while` / `for` 体里常写 const）。
+            if stmt.type == ASTNodeType.AST_IF_STMT {
+                const then_v: i32 = eval_local_const_decl_in_block(codegen, stmt.if_stmt_then_branch, name);
+                if then_v >= 0 {
+                    return then_v;
+                }
+                const else_v: i32 = eval_local_const_decl_in_block(codegen, stmt.if_stmt_else_branch, name);
+                if else_v >= 0 {
+                    return else_v;
+                }
+            }
+            if stmt.type == ASTNodeType.AST_WHILE_STMT {
+                const body_v: i32 = eval_local_const_decl_in_block(codegen, stmt.while_stmt_body, name);
+                if body_v >= 0 {
+                    return body_v;
+                }
+            }
+            if stmt.type == ASTNodeType.AST_FOR_STMT {
+                const body_v2: i32 = eval_local_const_decl_in_block(codegen, stmt.for_stmt_body, name);
+                if body_v2 >= 0 {
+                    return body_v2;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
 fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
     if expr == null {
         return -1;
@@ -2677,6 +2741,24 @@ fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
             }
             i = i + 1;
         }
+        // 顶层找不到：再查**当前函数体内**的局部 `const`。
+        //
+        // 此前只扫 `program.program_decls`（顶层声明），函数里的
+        // `const LOCAL_N: usize = 2;` 完全查不到，返回 -1；调用方
+        // （`types.uya` 的数组类型生成）把 <= 0 视为「评估失败」退回占位符 1，
+        // 于是 `[byte: LOCAL_N]` 被生成成 `uint8_t arr[1]` —— 不只是 `@len`
+        // 读错，越界写会直接踩坏相邻局部变量。
+        // 夹具：tests/repros/c99_local_const_array_size.uya。
+        if codegen.current_function_decl != null &&
+            codegen.current_function_decl.type == ASTNodeType.AST_FN_DECL {
+            const fn_body: &ASTNode = codegen.current_function_decl.fn_decl_body;
+            if fn_body != null {
+                const found: i32 = eval_local_const_decl_in_block(codegen, fn_body, const_name);
+                if found >= 0 {
+                    return found;
+                }
+            }
+        }
         // 未找到常量变量或不是 const
         return -1;
     } else if expr.type == ASTNodeType.AST_BINARY_EXPR {
@@ -2722,7 +2804,12 @@ fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
         if op == TokenType.TOKEN_PLUS {
             return operand_val;
         } else if op == TokenType.TOKEN_MINUS {
-            return -operand_val;
+            // `-1` 是本函数的错误标记；`-I32_MIN` 在 i32 域不可表示，一并按错误返回。
+            // 直接写一元负过不了 --strict-overflow（两后端结论一致地过不了）。
+            if operand_val == (-2147483647 - 1) {
+                return -1;
+            }
+            return 0 -| operand_val;
         } else {
             // 不支持的其他一元操作符
             return -1;

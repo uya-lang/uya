@@ -1,0 +1,41 @@
+// `(x as! T).value` —— 曾是一处 VM / C99 差异，**第 591 轮已修复**。
+//
+// C99 语义：`as!` 的产物是 `struct err_union_*`，`.value` 读它的 value 字段。
+// 错误分支下该字段被 `_uya_asbang.value = (__typeof__(...)){0}` 填成零值。
+//
+// 修复前的 VM：`as!` 的输出被无条件包成 `MAKE_OK`（`--dump-bytecode` 里
+// `CAST` 后紧跟一条 `MAKE_OK`），`IS_ERR` 恒为假，`.value` 于是拿到 T 本身
+// （实测得 1 而非 0）。
+//
+// 修复方式见 `src/exec/lower.uya` 的 `HIR_EXPR_FORCE_CAST_KEEP_ERR`：
+// `as!` 对错误联合源保留错误分支（err 透传 error_id、载荷为零；
+// ok 才用转换后的载荷）。现在两个后端都通过。
+//
+// 本文件放在 tests/repros/ 下，不参与 `make check`。
+use std.testing.assert_eq_i32;
+
+fn asbang_value(w: !isize) isize {
+    const n: isize = (w as! isize).value;
+    return n;
+}
+
+fn asbang_value_i32(w: !i32) i32 {
+    const n: i32 = (w as! i32).value;
+    return n;
+}
+
+fn make_err() !isize { return error.BufferTooSmall; }
+fn make_err_i32() !i32 { return error.OutOfMemory; }
+
+test "asbang then value on err branch yields zero" {
+    const bad: !isize = make_err();
+    try assert_eq_i32((bad.error_id != 0u32) as i32, 1);
+    const n: isize = asbang_value(bad);
+    try assert_eq_i32(n as i32, 0);
+}
+
+test "asbang then value on err branch i32 yields zero" {
+    const bad: !i32 = make_err_i32();
+    const n: i32 = asbang_value_i32(bad);
+    try assert_eq_i32(n, 0);
+}

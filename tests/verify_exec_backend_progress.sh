@@ -10,7 +10,8 @@ export UYA_ROOT="${REPO_ROOT}/lib/"
 TMP_STDOUT="$(mktemp)"
 TMP_STDERR="$(mktemp)"
 TMP_DUMP="$(mktemp)"
-trap 'rm -f "$TMP_STDOUT" "$TMP_STDERR" "$TMP_DUMP"' EXIT
+TMP_VARARGS="$(mktemp --suffix=.uya)"
+trap 'rm -f "$TMP_STDOUT" "$TMP_STDERR" "$TMP_DUMP" "$TMP_VARARGS"' EXIT
 
 echo "验证 test --vm 基本链路..."
 "$COMPILER" test --vm "$SCRIPT_DIR/test_exec_vm_if_else.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
@@ -101,26 +102,42 @@ echo "  local drop exec path ✓"
 bash "$SCRIPT_DIR/verify_exec_vm_hir_scope.sh"
 echo "  exec HIR scope markers ✓"
 
-echo "验证 @c_import unsupported 原因..."
-if "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_c_import_unsupported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
-    echo "✗ @c_import unsupported case should fail under --vm"
+echo "验证 @c_import 正向路径（VM 已支持）..."
+if ! "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_c_import_supported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
+    echo "✗ @c_import case should now succeed under --vm"
     cat "$TMP_STDERR"
     exit 1
 fi
-grep -q 'exec: 当前不支持 @c_import' "$TMP_STDERR"
-echo "  @c_import unsupported reason ✓"
+if grep -q '当前不支持 @c_import' "$TMP_STDERR"; then
+    echo "✗ @c_import 仍然报告不支持"
+    cat "$TMP_STDERR"
+    exit 1
+fi
+echo "  @c_import supported ✓"
 
-echo "验证 SIMD unsupported 原因..."
-if "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_simd_unsupported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
-    echo "✗ SIMD unsupported case should fail under --vm"
+echo "验证 SIMD 正向路径（VM 已支持 @vector.splat / 掩码比较）..."
+if ! "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_simd_unsupported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
+    echo "✗ SIMD case should now succeed under --vm"
     cat "$TMP_STDERR"
     exit 1
 fi
-grep -q 'exec: 当前不支持 SIMD' "$TMP_STDERR"
-echo "  SIMD unsupported reason ✓"
+echo "  SIMD supported ✓"
 
 echo "验证 extern ABI unsupported 原因与 fallback..."
-if "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_extern_decl_varargs_unsupported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
+# fcntl 已经有宿主桥（见 test_exec_vm_extern_decl_varargs_supported.uya）。
+# 负例用一个仍未登记的 C varargs 入口（ioctl），保证 extern_abi 拒绝路径还在。
+cat > "$TMP_VARARGS" <<'UYAEOF'
+extern "libc" fn ioctl(fd: i32, request: i64, ...) i32;
+
+export fn main() i32 {
+    const rc: i32 = ioctl(9999999, 0);
+    if rc < 0 {
+        return 0;
+    }
+    return 0;
+}
+UYAEOF
+if "$COMPILER" run --vm "$TMP_VARARGS" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
     echo "✗ extern unsupported case should fail under --vm"
     cat "$TMP_STDERR"
     exit 1
@@ -177,7 +194,7 @@ fi
 echo "  stdio varargs body-first ✓"
 
 echo "验证 test --vm/test --exec --verbose 的 extern fallback 行为..."
-if "$COMPILER" test --vm "$SCRIPT_DIR/test_exec_vm_extern_decl_varargs_unsupported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
+if "$COMPILER" test --vm "$TMP_VARARGS" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
     echo "✗ extern unsupported test should fail under test --vm"
     cat "$TMP_STDERR"
     exit 1
@@ -185,7 +202,7 @@ fi
 grep -q 'exec unsupported 原因码: extern_abi' "$TMP_STDERR"
 grep -q 'exec: 当前不支持 extern ABI' "$TMP_STDERR"
 echo "验证 test --exec --verbose 的 extern unsupported 路径会自动回退到 C99 并保持测试通过..."
-"$COMPILER" test --exec --verbose "$SCRIPT_DIR/test_exec_vm_extern_decl_varargs_unsupported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
+"$COMPILER" test --exec --verbose "$TMP_VARARGS" >"$TMP_STDOUT" 2>"$TMP_STDERR"
 grep -q '信息: exec backend 不支持，回退 C99 (原因码: extern_abi)' "$TMP_STDERR"
 grep -q '总计: 1 个测试' "$TMP_STDERR"
 grep -q '通过: 1' "$TMP_STDERR"

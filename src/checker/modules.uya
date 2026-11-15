@@ -661,14 +661,24 @@ fn append_module_export(
     }
 
     const new_count: i32 = module.export_count +| 1;
-    const new_exports: &ExportedItem = compiler_arena_alloc(checker.arena, @size_of(ExportedItem) * new_count) as &ExportedItem;
-    if new_exports == null {
-        return 0;
+    // 容量不够时按 8 起、每次翻倍。原来每加一条就重分配 + 复制整块，
+    // 一个模块有 n 条导出就是 n²/2 次 `memcpy`（callgrind 实测 5.7%）。
+    if module.exports == null || module.export_count >= module.export_capacity {
+        var new_cap: i32 = module.export_capacity *| 2;
+        if new_cap < 8 {
+            new_cap = 8;
+        }
+        const new_exports: &ExportedItem = compiler_arena_alloc(checker.arena, @size_of(ExportedItem) * new_cap) as &ExportedItem;
+        if new_exports == null {
+            return 0;
+        }
+        if module.exports != null && module.export_count > 0 {
+            memcpy(new_exports as *void, module.exports as *void, (@size_of(ExportedItem) as usize) *| (module.export_count as usize));
+        }
+        module.exports = new_exports;
+        module.export_capacity = new_cap;
     }
-
-    if module.exports != null && module.export_count > 0 {
-        memcpy(new_exports as *void, module.exports as *void, (@size_of(ExportedItem) as usize) *| (module.export_count as usize));
-    }
+    const new_exports: &ExportedItem = module.exports;
 
     const last_idx: i32 = module.export_count;
     new_exports[last_idx].name = item_name;
@@ -676,7 +686,6 @@ fn append_module_export(
     new_exports[last_idx].module_name = module_name;
     new_exports[last_idx].item_type = item_type;
 
-    module.exports = new_exports;
     module.export_count = new_count;
     return 1;
 }

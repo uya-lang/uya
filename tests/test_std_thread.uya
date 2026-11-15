@@ -838,7 +838,11 @@ test "async_compute_thread_bridge_is_unified_behind_helpers" {
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn async_thread_slot_wait(pool: &ThreadPool, slot_idx: i32) Future<!usize> {\0" as &const byte) as i32, 1);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn async_worker_result(pool: &ThreadPool, slot_idx: i32) Future<!usize> {\0" as &const byte) as i32, 1);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn async_worker_compute(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize) Future<!usize> {\0" as &const byte) as i32, 1);
-    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const raw_future: Future<!usize> = async_worker_result(self.pool, self.slot_idx);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const raw_poll: Poll<!usize> = async_worker_result_poll(self.pool, self.slot_idx, waker);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn async_worker_result_poll(pool: &ThreadPool, slot_idx: i32, waker: &Waker) Poll<!usize> {\0" as &const byte) as i32, 1);
+    // poll 路径不再每轮新建可装箱的中间 future：`block_on` 是忙等循环，
+    // 每轮装箱又不释放会让帧池无限增长（内存爆炸根因）。
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const raw_future: Future<!usize> = async_worker_result(self.pool, self.slot_idx);\0" as &const byte) as i32, 0);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn wait_current_slot(self: &Self, waker: &Waker) Poll<!usize> {\0" as &const byte) as i32, 0);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn poll_worker_result(self: &Self, waker: &Waker) Poll<!usize> {\0" as &const byte) as i32, 0);
 }
@@ -848,7 +852,10 @@ test "async_compute_thread_submission_is_unified_behind_helper" {
     const len: usize = try read_thread_source(&src[0], THREAD_SOURCE_MAX);
 
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn async_worker_submit(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize) Future<!usize> {\0" as &const byte) as i32, 1);
-    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const submit_future: Future<!usize> = async_worker_submit(self.pool, self.compute_fn, self.task_kind, self.arg_bits);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const submit_poll: Poll<!usize> = async_worker_submit_poll(self.pool, self.compute_fn, self.task_kind, self.arg_bits, waker);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn async_worker_submit_poll(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize,\0" as &const byte) as i32, 1);
+    // 提交路径同样必须走无分配的 free poll，旧装箱写法不得再出现。
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const submit_future: Future<!usize> = async_worker_submit(self.pool, self.compute_fn, self.task_kind, self.arg_bits);\0" as &const byte) as i32, 0);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn start_execution(self: &Self) !i32 {\0" as &const byte) as i32, 0);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const start_result: !i32 = self.core.start_execution();\0" as &const byte) as i32, 0);
 }
@@ -884,7 +891,10 @@ test "async_compute_cancel_cleanup_is_unified_behind_helpers" {
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn thread_async_cleanup_slot(pool: &ThreadPool, slot_idx: i32) i32 {\0" as &const byte) as i32, 1);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn async_worker_cancel(pool: &ThreadPool, slot_idx: i32) Future<!usize> {\0" as &const byte) as i32, 1);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "self.slot_idx = thread_async_cleanup_slot(self.pool, self.slot_idx);\0" as &const byte) as i32, 1);
-    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const cancel_future: Future<!usize> = async_worker_cancel(self.pool, self.slot_idx);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const cancel_poll: Poll<!usize> = async_worker_cancel_poll(self.pool, self.slot_idx, waker);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn async_worker_cancel_poll(pool: &ThreadPool, slot_idx: i32, waker: &Waker) Poll<!usize> {\0" as &const byte) as i32, 1);
+    // 取消轮询也必须无分配：旧装箱写法同样会让忙等循环的帧池无限增长。
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const cancel_future: Future<!usize> = async_worker_cancel(self.pool, self.slot_idx);\0" as &const byte) as i32, 0);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn finish_cleanup(self: &Self) void {\0" as &const byte) as i32, 0);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn try_cancel_now(self: &Self) i32 {\0" as &const byte) as i32, 0);
 }

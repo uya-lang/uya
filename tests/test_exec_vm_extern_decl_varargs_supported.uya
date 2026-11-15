@@ -1,0 +1,14 @@
+// extern varargs 正向用例：`fcntl` 是 C varargs，exec VM 现在按 fcntl 系统调用
+// 实现（宿主桥 EXEC_HOST_CALL_FCNTL），C99 后端照常链接宿主 libc。
+// 注意这里用裸 `extern fn`（不是 `extern "libc"`）：hosted C99 对 `extern "libc"`
+// 的符号不发原型，而生成的 C 又不会 include <fcntl.h>，-Werror 下会报
+// implicit declaration。
+extern fn fcntl(fd: i32, cmd: i32, ...) i32;
+
+export fn main() i32 {
+    const flags: i32 = fcntl(1, 3);
+    if flags < 0 {
+        return 1;
+    }
+    return 0;
+}

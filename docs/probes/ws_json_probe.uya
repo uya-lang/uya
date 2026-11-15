@@ -1,0 +1,89 @@
+use std.async;
+use std.http.server;
+use std.http.websocket_async;
+use std.http.websocket_json;
+use std.http.websocket_types;
+use std.json.value.JsonStrView;
+use std.mem.arena.Arena;
+use std.mem.arena.arena_init;
+use std.mem.arena.arena_alloc;
+
+struct JsonUser {
+    id: i64,
+    name: JsonStrView,
+}
+
+fn note(tag: i32) void {
+    if tag == 1 { _ = write(2, "E1 listen\n" as *byte, 10); }
+    if tag == 2 { _ = write(2, "E2 connect\n" as *byte, 11); }
+    if tag == 3 { _ = write(2, "E3 accept\n" as *byte, 10); }
+    if tag == 4 { _ = write(2, "step4 ok\n" as *byte, 9); }
+    if tag == 5 { _ = write(2, "E5 write json\n" as *byte, 14); }
+    if tag == 9 { _ = write(2, "E9 arena null\n" as *byte, 14); }
+}
+
+fn bits8(v: u32) void {
+    var m: u32 = 128;
+    while m > 0u32 {
+        if (v & m) != 0u32 {
+            _ = write(2, "." as *byte, 1);
+        } else {
+            _ = write(2, "_" as *byte, 1);
+        }
+        m = m / 2u32;
+    }
+    _ = write(2, "\n" as *byte, 1);
+}
+
+fn main() !i32 {
+    const cfg: ServerConfig = ServerConfig{
+        mode: ServerMode.Blocking,
+        max_connections: 128,
+        port: 0,
+        host: [],
+    };
+    var srv: HttpServer = http_server_listen(&cfg) catch {
+        note(1);
+        return 1;
+    };
+    const client_fd: i32 = http_tcp_connect_loopback(srv.port) catch {
+        note(2);
+        return 2;
+    };
+    var accepted: Conn = http_server_accept(&srv) catch {
+        note(3);
+        return 3;
+    };
+    http_server_close(&srv);
+    const server_fd: i32 = accepted.fd;
+    accepted.fd = 0 - 1;
+    var client_io: WebSocketFdTransport = websocket_fd_transport_owned(client_fd);
+    var server_io: WebSocketFdTransport = websocket_fd_transport_owned(server_fd);
+    const opts: WebSocketAcceptOptions = websocket_accept_options_default();
+    var client: WebSocketConn = websocket_conn_new(&client_io, WebSocketRole.Client, &opts);
+    var server: WebSocketConn = websocket_conn_new(&server_io, WebSocketRole.Server, &opts);
+    note(4);
+
+    var arena_buf: [byte: 262144] = [];
+    var arena: Arena = Arena{ buffer: null, size: 0, used: 0 };
+    arena_init(&arena, &arena_buf[0], 262144);
+    const probe_alloc: &byte = arena_alloc(&arena, 65536);
+    if probe_alloc == null {
+        note(9);
+        return 9;
+    }
+    var name_buf: [byte: 3] = [97, 98, 99];
+    const user: JsonUser = JsonUser{
+        id: 42,
+        name: JsonStrView{ ptr: &name_buf[0], len: 3 },
+    };
+    var tx: [byte: 256] = [];
+    const wr: !usize = block_on<usize>(websocket_conn_write_json<JsonUser>(&client, &arena, user, &tx[0], 256));
+    if wr.error_id != 0u32 {
+        note(5);
+        bits8(wr.error_id);
+        return 5;
+    }
+    _ = write(2, "OK write_json\n" as *byte, 14);
+    return 0;
+}

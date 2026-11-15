@@ -2041,7 +2041,9 @@ fn verify_linear_expr_bounds(checker: &TypeChecker, linear_expr: &LinearExpr, ar
     var has_upper_bound: i32 = 0;
 
     // 计算需要的下界和上界
-    const need_lower: i32 = -offset;  // i >= -offset
+    // `-offset` 在 offset == I32_MIN 时自身溢出：改用 u32 回绕求负（与下面
+    // need_upper 同一套写法），位模式与原式完全一致，静态闸门也能自证。
+    const need_lower: i32 = ((0 as u32) - (offset as u32)) as i32;  // i >= -offset
     // array_size - offset 与 -offset 均以 u32 回绕消除溢出 UB。
     const need_upper: i32 = ((array_size as u32) - (offset as u32)) as i32;  // i < size - offset
 
@@ -2136,7 +2138,9 @@ fn verify_linear_expr_bounds_ex(checker: &TypeChecker, linear_expr: &LinearExpr,
     }
 
     // 计算需要的下界和上界
-    const need_lower: i32 = -offset;  // i >= -offset
+    // `-offset` 在 offset == I32_MIN 时自身溢出：改用 u32 回绕求负（与下面
+    // need_upper 同一套写法），位模式与原式完全一致，静态闸门也能自证。
+    const need_lower: i32 = ((0 as u32) - (offset as u32)) as i32;  // i >= -offset
     // array_size - offset 与 -offset 均以 u32 回绕消除溢出 UB。
     const need_upper: i32 = ((array_size as u32) - (offset as u32)) as i32;  // i < size - offset
 

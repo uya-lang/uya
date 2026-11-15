@@ -1,0 +1,22 @@
+use libc.unistd;
+use libc.pthread_t;
+use libc.pthread_create;
+use libc.pthread_join;
+
+fn worker(arg: &void) &void {
+    _ = write(2, "W\n" as *byte, 2);
+    return arg;
+}
+
+fn main() !i32 {
+    var t: pthread_t = pthread_t{ tid: 0, stack: null, stack_size: 0, detached: 0, exited: 0, result: null, start_routine: null, arg: null };
+    const rc: i32 = pthread_create(&t, null, &worker as &void, null);
+    if rc != 0 {
+        _ = write(2, "create failed\n" as *byte, 14);
+        return 1;
+    }
+    var rv: &void = null;
+    _ = pthread_join(&t, &rv);
+    _ = write(2, "OK thr\n" as *byte, 7);
+    return 0;
+}

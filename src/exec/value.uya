@@ -29,11 +29,26 @@ enum ExecValueKind {
     EXEC_VALUE_ERROR_UNION,
     EXEC_VALUE_I8,
     EXEC_VALUE_I16,
+    EXEC_VALUE_VECTOR,
+    EXEC_VALUE_MASK,
 }
 
 struct ExecAggregate {
     count: i32,
     values: &ExecValue,
+    // 引用计数：聚合值在 VM 里是按值语义共享底层缓冲区的（浅拷贝 = 借用），
+    // 只有计数归零才能把 `.values` 数组还给空闲链复用。
+    ref_count: i32,
+    // 结构体自身也复用（arena 只增不减，但结构体可以串成空闲链再发出去）
+    next_free: &ExecAggregate,
+    // 是否被「内部引用」取过地址（`ADDR_FIELD`/`ADDR_INDEX`/`ADDR_LOCAL`）。
+    // 取过地址的聚合**永不回收**：内部引用是指向 `.values` 元素/槽位的裸指针，
+    // 现有回收路径无法逐一跟踪它们（实测 `blake3_hasher_new` 等就死在这里）。
+    has_internal_ref: i32,
+    // 创建时所在的帧深度。只有「在当前帧里创建」的聚合才允许在帧出栈时回收：
+    // 内层帧创建后逃逸到外层（返回值移动、借用、常驻表）的值，出栈时只是减计数，
+    // 不回收 —— 这样即便某个逃逸路径漏了 retain，也只会泄漏而不会 UAF。
+    owner_depth: i32,
 }
 
 struct ExecSliceData {
@@ -259,10 +274,14 @@ fn exec_make_bool(value: i32) ExecValue {
     };
 }
 
+/// 构造 byte 值。byte 是 C 的 `unsigned char`：`256 as byte` 必须截成 0，
+/// 这里按 8 位截断（其它 make_* 的入参本来就是窄类型，由 C 自己截断）。
+/// 参数：`value` 原始整数。
+/// 返回值：byte 值。
 fn exec_make_byte(value: i32) ExecValue {
     return ExecValue {
         kind: ExecValueKind.EXEC_VALUE_BYTE,
-        i64_value: value as i64,
+        i64_value: ((value as i64) & (0xFF as i64)),
         ptr_value: null,
         aux_kind: ExecValueKind.EXEC_VALUE_VOID,
         aux_i64_value: 0,
@@ -342,6 +361,21 @@ fn exec_make_union(tag: i32, payload: ExecValue) ExecValue {
 }
 
 fn exec_make_error_union_ok(value: ExecValue) ExecValue {
+    // ok 载荷被包进 aux 三元组：等于多了一个持有者，聚合载荷要 retain
+    // （否则包出它的帧出栈回收后，解包出来的值就是悬空的）。
+    var saved_aux: i32 = 0;
+    if value.kind == ExecValueKind.EXEC_VALUE_POINTER || value.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
+        value.kind == ExecValueKind.EXEC_VALUE_VECTOR || value.kind == ExecValueKind.EXEC_VALUE_MASK {
+        saved_aux = value.aux_i64_value as i32;
+    }
+    if value.kind == ExecValueKind.EXEC_VALUE_STRUCT ||
+        value.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
+        value.kind == ExecValueKind.EXEC_VALUE_TUPLE {
+        if exec_value_is_raw_array(&value) == 0 {
+            const wagg: &ExecAggregate = exec_value_as_aggregate(&value);
+            exec_agg_retain_struct(wagg);
+        }
+    }
     return ExecValue {
         kind: ExecValueKind.EXEC_VALUE_ERROR_UNION,
         i64_value: 0,
@@ -349,7 +383,7 @@ fn exec_make_error_union_ok(value: ExecValue) ExecValue {
         aux_kind: value.kind,
         aux_i64_value: value.i64_value,
         aux_ptr_value: value.ptr_value,
-        error_id: 0,
+        error_id: saved_aux,
     };
 }
 
@@ -369,11 +403,16 @@ fn exec_value_is_error_union_err(value: ExecValue) i32 {
     if value.kind == ExecValueKind.EXEC_VALUE_ERROR_UNION && value.i64_value != 0 {
         return 1;
     }
+    // 裸错误值（`error.Foo`、宏展开体里 `if overflow { error.Foo } else { value }`）
+    // 也必须被当成错误分支，否则 try/catch 会把错误吞成 void。
+    if value.kind == ExecValueKind.EXEC_VALUE_ERROR {
+        return 1;
+    }
     return 0;
 }
 
 fn exec_value_unwrap_ok(value: ExecValue) ExecValue {
-    return ExecValue {
+    var restored: ExecValue = ExecValue {
         kind: value.aux_kind,
         i64_value: value.aux_i64_value,
         ptr_value: value.aux_ptr_value,
@@ -382,19 +421,383 @@ fn exec_value_unwrap_ok(value: ExecValue) ExecValue {
         aux_ptr_value: null,
         error_id: 0,
     };
+    if restored.kind == ExecValueKind.EXEC_VALUE_POINTER {
+        restored.aux_i64_value = value.error_id as i64;
+    } else if restored.kind == ExecValueKind.EXEC_VALUE_ARRAY && value.error_id != 0 {
+        restored.aux_kind = exec_value_scalar_kind_from_type_kind(value.error_id);
+        restored.aux_i64_value = value.error_id as i64;
+    } else if restored.kind == ExecValueKind.EXEC_VALUE_VECTOR ||
+        restored.kind == ExecValueKind.EXEC_VALUE_MASK {
+        // 向量/掩码的通道数也借位存在 error_id 里，拆包时还原。
+        restored.aux_i64_value = value.error_id as i64;
+    }
+    return restored;
 }
 
 fn exec_value_unwrap_err(value: ExecValue) ExecValue {
     return exec_make_error(value.error_id);
 }
 
-fn exec_value_alloc_bytes(size: usize) &byte {
-    const mem: &byte = malloc(size) as &byte;
+// VM 值竞技场：所有 VM 值（ExecValue / 聚合 / 字节缓冲）都从这里分配。
+// 有了固定地址区间，就能 O(1) 判断「某个地址是不是 VM 值」，这是原生结构体
+// 字段访问（`hdr.size` 一类）唯一可靠的判据。
+var g_exec_value_arena_base: &byte = null;
+var g_exec_value_arena_used: usize = 0;
+const EXEC_VALUE_ARENA_BYTES: usize = 209715200;   // 每段 200 MB
+
+// 竞技场允许**分段串联**：当前段用满后追加一段新的（更大的）内存继续 bump，
+// 而**不搬移**已有块 —— 这一点是硬约束：`exec_vm_address_is_value` 靠
+// 「地址落在已用区间内」判定，任何搬移都会让已经交出去的内部引用全部失效。
+//
+// 为什么需要分段：只有一段 200MB 时，循环里建临时聚合会把段落用满，
+// 之后每次分配都落到普通 `malloc`，而这些块**永不释放**，
+// 36 万轮后分配器被拖垮（实测 48591ms；把段落放大到 3GB 只需 1073ms，
+// 第 613 轮定量）。分段串联把「用满就退化」换成「用满就长大」。
+const EXEC_VALUE_ARENA_MAX_SEGMENTS: i32 = 256;
+/// 每段的 [起始地址, 结束地址)；结束地址为 0 表示该槽未用。
+var g_exec_value_arena_seg_lo: [usize: 256] = [0:256];
+var g_exec_value_arena_seg_hi: [usize: 256] = [0:256];
+var g_exec_value_arena_segment_count: i32 = 0;
+
+/// 「聚合分配失败」计数。
+///
+/// `exec_value_make_aggregate` / `exec_value_aggregate_from_parts` 分配不出来时
+/// 只能返回 `exec_make_void()` —— 它们的签名没有地方回传错误。问题在于**调用方
+/// 拿到的 VOID 是合法的 `ExecValue`**，后续 `&arr[0]`、`&obj.field` 会在这个
+/// 零点上取地址，报出来的错误是 `ADDR_INDEX 越界(IDXREF …)`，把「内存不够」
+/// 伪装成「下标越界 + 类型不对」，排查时会被带向错误方向（第 625 轮就这样
+/// 被误导过两次）。
+///
+/// 这里记一笔「发生过聚合分配失败」。`ADDR_INDEX` / `ADDR_FIELD` 报错时若看到
+/// 它非零，就直接把真正原因写进错误消息。
+var g_exec_value_alloc_failure_count: i64 = 0;
+fn exec_value_note_alloc_failure() void {
+    g_exec_value_alloc_failure_count = g_exec_value_alloc_failure_count +| 1;
+}
+fn exec_value_alloc_failure_count() i64 {
+    return g_exec_value_alloc_failure_count;
+}
+
+// fallback（普通 `malloc` 出来的块）的**独立**地址区间表。
+//
+// 为什么不并进 `g_exec_value_arena_seg_*`：段表只有 256 项，而 fallback 块
+// 往往很小（实测 32 / 576 字节这种），把名额花在它们身上会让竞技场**开不出新段**。
+// 实测 `ulimit -v 5GB` 下段表被 250 个小 fallback 块撑满，之后每次扩容都
+// `[ARENA] grow FAIL … count=255`，进而整条分配链失败。
+//
+// 两张表一起参与「这个地址是不是 VM 值内存」的判定，互不争抢名额。
+const EXEC_VALUE_FALLBACK_MAX: i32 = 4096;
+/// 超过这个字节数的程序 raw array，其承载内存改从**宿主堆**分配（而不是值 arena）。
+/// 目的是让「程序里的大缓冲区」（编译器把根 arena 建在 `[byte: ARENA_BUFFER_SIZE]` 上）
+/// 落在值 arena 之外，从而按原生内存语义被字段访问。
+const EXEC_VALUE_RAW_ARRAY_NATIVE_MIN: usize = 1048576;
+var g_exec_value_fallback_lo: [usize: 4096] = [0:4096];
+var g_exec_value_fallback_hi: [usize: 4096] = [0:4096];
+var g_exec_value_fallback_count: i32 = 0;
+// 当前段的**真实容量**（复查用）。分段长度是递增的，若仍拿固定的
+// `EXEC_VALUE_ARENA_BYTES` 当上限，每段就只会用到前 200MB，
+// 后面 400MB/800MB/1.6GB 全被浪费，长跑程序会白白吃光内存。
+var g_exec_value_arena_capacity: usize = 0;
+
+// ===== 内存放大诊断（`UYA_PROGRESS=1` 时每 256MB 打一行）=====
+//
+// 解释器一次整编自举能涨到 57GB（宿主编同一份源码只要 1~2GB），必须先看清
+// 是「VM 值竞技场」还是「guest malloc」占大头，再决定优化方向。
+var g_exec_dbg_alloc_bytes: i64 = 0;    // VM 值竞技场累计分配字节
+var g_exec_dbg_alloc_calls: i64 = 0;    // VM 值竞技场累计分配次数
+var g_exec_dbg_clone_calls: i64 = 0;    // exec_value_clone 调用次数
+var g_exec_dbg_printed_chunk: i64 = 0;  // 上次打印到第几个 256MB
+var g_exec_dbg_enabled: i32 = 0 - 1;    // -1 = 还没查过环境变量
+var g_exec_dbg_big_bytes: i64 = 0;      // ≥64KB 的大块累计字节（怀疑是放大主因）
+var g_exec_dbg_big_calls: i64 = 0;
+var g_exec_dbg_max_size: i64 = 0;
+// 按「是不是 sizeof(ExecValue)=48 的整数倍」分桶：聚合元素数组必然是整数倍，
+// 字符串/切片数据一般不是。用来区分放大到底来自「结构体值拷贝」还是「字符串」。
+var g_exec_dbg_agg_bytes: i64 = 0;
+var g_exec_dbg_agg_calls: i64 = 0;
+var g_exec_dbg_str_bytes: i64 = 0;
+var g_exec_dbg_str_calls: i64 = 0;
+// 尺寸直方图：7 档（≤64/128/256/512/1K/4K/>4K）的字节与次数。
+// 按「当前正在执行的字节码指令」归因的聚合分配次数（下标 = opcode & 255）。
+// 用来定位到底是哪些指令在制造 1KB 级的聚合垃圾 —— 只有定位到指令，才能判断
+// 该不该给它加「移动语义」而不是深拷贝。
+var g_exec_dbg_cur_op: i32 = 0;
+var g_exec_dbg_cur_fn: &byte = null;
+var g_exec_dbg_pop_slot: i32 = 0 - 1;
+var g_exec_dbg_op_alloc: [i64: 256] = [0:256];
+var g_exec_dbg_op_top: [i32: 5] = [0:5];
+var g_exec_dbg_bucket_bytes: [i64: 7] = [0:7];
+var g_exec_dbg_bucket_calls: [i64: 7] = [0:7];
+
+// 竞技场是**进程级共享**的 bump 分配器：真宿主线程（`UYA_EXEC_REAL_THREADS=1`）
+// 下每个线程的 VM 都从这里切块，`g_exec_value_arena_used` 的读-改-写必须串行化，
+// 否则两个线程会拿到同一段地址、互相覆盖对方的聚合值。
+// 登记表（`g_exec_value_array_*`）的追加与翻倍扩容同样要在同一把锁下完成。
+extern "libc" fn __atomic_compare_exchange_n(ptr: &i32, expected: &i32, desired: i32, weak: i32, success_mem: i32, failure_mem: i32) i32;
+const EXEC_VALUE_ARENA_SEQ_CST: i32 = 5;
+var g_exec_value_arena_lock: atomic i32 = 0;
+
+/// 获取竞技场锁：读-改-写竞技场与登记表前必须持有。
+/// 参数：无。返回值：无。
+fn exec_value_arena_lock_acquire() void {
+    var expected: i32 = 0;
+    while __atomic_compare_exchange_n((&g_exec_value_arena_lock) as &i32, &expected, 1, 0,
+        EXEC_VALUE_ARENA_SEQ_CST, EXEC_VALUE_ARENA_SEQ_CST) == 0 {
+        expected = 0;
+    }
+}
+
+/// 释放竞技场锁。
+/// 参数：无。返回值：无。
+fn exec_value_arena_lock_release() void {
+    g_exec_value_arena_lock = 0;
+}
+
+/// 追加一段竞技场内存并从其中切出 `need` 字节（**调用方必须已持有竞技场锁**）。
+///
+/// 新段长度取「上一段长度的 2 倍」，且至少能装下 `need`，上限 2GB ——
+/// 这样 36 万轮那种持续增长只会触发很少几次扩容。
+/// **绝不搬移**已有块：所有已交出去的内部引用都还指着旧段。
+///
+/// 参数：`need` 本次需要的字节数（含对齐余量）。
+/// 返回值：新段内的起始块；段表满或分配失败返回 null。
+fn exec_value_arena_grow_locked(need: usize) &byte {
+    if g_exec_value_arena_segment_count >= EXEC_VALUE_ARENA_MAX_SEGMENTS {
+        return null;
+    }
+    var seg_bytes: usize = EXEC_VALUE_ARENA_BYTES;
+    // 新段至少是上一段的两倍，且必须装得下 need。
+    if g_exec_value_arena_segment_count > 0 {
+        const pi: i32 = g_exec_value_arena_segment_count - 1;
+        if pi < 0 { return null; }
+        const prev: usize = g_exec_value_arena_seg_hi[pi] -| g_exec_value_arena_seg_lo[pi];
+        if prev > 0 as usize {
+            const doubled: usize = prev +| prev;
+            if doubled > prev {
+                seg_bytes = doubled;
+            }
+        }
+    }
+    if seg_bytes < need {
+        var want: usize = EXEC_VALUE_ARENA_BYTES;
+        while want < need {
+            const grown2: usize = want +| want;
+            if grown2 <= want {
+                break;
+            }
+            want = grown2;
+        }
+        seg_bytes = want;
+    }
+    const mem: &byte = malloc(seg_bytes) as &byte;
     if mem == null {
         return null;
     }
-    _ = memset(mem as *byte, 0, size);
+    const lo: usize = @usize_from_ptr(mem as &void);
+    const idx: i32 = g_exec_value_arena_segment_count;
+    if idx < 0 || idx >= EXEC_VALUE_ARENA_MAX_SEGMENTS {
+        return null;
+    }
+    g_exec_value_arena_seg_lo[idx] = lo;
+    g_exec_value_arena_seg_hi[idx] = lo +| seg_bytes;
+    g_exec_value_arena_segment_count = idx + 1;
+    g_exec_value_arena_base = mem;
+    g_exec_value_arena_used = need;
+    g_exec_value_arena_capacity = seg_bytes;
     return mem;
+}
+
+/// 诊断开关：只在 `UYA_PROGRESS=1` 时打开（结果缓存，避免每次分配都 getenv）。
+fn exec_vm_dbg_enabled() i32 {
+    if g_exec_dbg_enabled < 0 {
+        const env: *byte = getenv("UYA_PROGRESS" as *byte);
+        g_exec_dbg_enabled = 0;
+        if env != null && env[0] != 0 as byte {
+            g_exec_dbg_enabled = 1;
+        }
+    }
+    return g_exec_dbg_enabled;
+}
+
+/// 记一笔 VM 值分配；每累计 256MB 打一行，方便和进程 RSS 对照。
+/// 参数：`size` 本次分配字节数。返回值：无。
+fn exec_vm_dbg_count_alloc(size: usize) void {
+    g_exec_dbg_alloc_bytes = g_exec_dbg_alloc_bytes +| (size as i64);
+    g_exec_dbg_alloc_calls = g_exec_dbg_alloc_calls +| 1;
+    if (size as i64) >= 65536i64 {
+        g_exec_dbg_big_bytes = g_exec_dbg_big_bytes +| (size as i64);
+        g_exec_dbg_big_calls = g_exec_dbg_big_calls +| 1;
+    }
+    if (size as i64) > g_exec_dbg_max_size {
+        g_exec_dbg_max_size = size as i64;
+    }
+    const ev_size: usize = @size_of(ExecValue) as usize;
+    if ev_size > 0 as usize && size >= ev_size && (size % ev_size) == 0 as usize {
+        g_exec_dbg_agg_bytes = g_exec_dbg_agg_bytes +| (size as i64);
+        g_exec_dbg_agg_calls = g_exec_dbg_agg_calls +| 1;
+    } else {
+        g_exec_dbg_str_bytes = g_exec_dbg_str_bytes +| (size as i64);
+        g_exec_dbg_str_calls = g_exec_dbg_str_calls +| 1;
+    }
+    var bi: i32 = 6;
+    if size <= 64 as usize { bi = 0; }
+    else if size <= 128 as usize { bi = 1; }
+    else if size <= 256 as usize { bi = 2; }
+    else if size <= 512 as usize { bi = 3; }
+    else if size <= 1024 as usize { bi = 4; }
+    else if size <= 4096 as usize { bi = 5; }
+    g_exec_dbg_bucket_bytes[bi] = g_exec_dbg_bucket_bytes[bi] +| (size as i64);
+    g_exec_dbg_bucket_calls[bi] = g_exec_dbg_bucket_calls[bi] +| 1;
+    if exec_vm_dbg_enabled() == 0 {
+        return;
+    }
+    const chunk: i64 = g_exec_dbg_alloc_bytes / 268435456;
+    if chunk > g_exec_dbg_printed_chunk {
+        g_exec_dbg_printed_chunk = chunk;
+        fprintf(libc.stderr, "[mem] vm值竞技场累计=%lldMB 次数=%lld clone=%lld 段数=%d 大块=%lldMB/%lld次 最大=%lldKB\n" as *byte,
+            g_exec_dbg_alloc_bytes / 1048576, g_exec_dbg_alloc_calls, g_exec_dbg_clone_calls,
+            g_exec_value_arena_segment_count, g_exec_dbg_big_bytes / 1048576, g_exec_dbg_big_calls,
+            g_exec_dbg_max_size / 1024i64);
+        fprintf(libc.stderr, "[mem2] EvSize=%d 聚合类=%lldMB/%lld次 非聚合类=%lldMB/%lld次 直方图MB/calls:\n" as *byte,
+            @size_of(ExecValue), g_exec_dbg_agg_bytes / 1048576, g_exec_dbg_agg_calls,
+            g_exec_dbg_str_bytes / 1048576, g_exec_dbg_str_calls);
+        // Top5：哪几条指令在造聚合垃圾
+        var top_i: i32 = 0;
+        while top_i < 5 {
+            var best: i32 = 0 - 1;
+            var best_v: i64 = 0;
+            var qi: i32 = 0;
+            while qi < 256 {
+                const v: i64 = g_exec_dbg_op_alloc[qi];
+                var already: i32 = 0;
+                var tj: i32 = 0;
+                while tj < top_i {
+                    if g_exec_dbg_op_top[tj] == qi { already = 1; }
+                    tj = tj +| 1;
+                }
+                if already == 0 && v > best_v {
+                    best_v = v;
+                    best = qi;
+                }
+                qi = qi + 1;
+            }
+            if best >= 0 && best_v > 0 {
+                g_exec_dbg_op_top[top_i] = best;
+                fprintf(libc.stderr, "  top%d op=%d(%s) 分配=%lld\n" as *byte,
+                    top_i + 1, best, exec_debug_opcode_name(best as u8) as *byte, best_v);
+            }
+            top_i = top_i + 1;
+        }
+        fprintf(libc.stderr, "  <=64:%lld/%lld <=128:%lld/%lld <=256:%lld/%lld <=512:%lld/%lld <=1K:%lld/%lld <=4K:%lld/%lld >4K:%lld/%lld\n" as *byte,
+            g_exec_dbg_bucket_bytes[0] / 1048576, g_exec_dbg_bucket_calls[0],
+            g_exec_dbg_bucket_bytes[1] / 1048576, g_exec_dbg_bucket_calls[1],
+            g_exec_dbg_bucket_bytes[2] / 1048576, g_exec_dbg_bucket_calls[2],
+            g_exec_dbg_bucket_bytes[3] / 1048576, g_exec_dbg_bucket_calls[3],
+            g_exec_dbg_bucket_bytes[4] / 1048576, g_exec_dbg_bucket_calls[4],
+            g_exec_dbg_bucket_bytes[5] / 1048576, g_exec_dbg_bucket_calls[5],
+            g_exec_dbg_bucket_bytes[6] / 1048576, g_exec_dbg_bucket_calls[6]);
+    }
+}
+
+/// 竞技场 bump 分配（**调用方必须已持有竞技场锁**）。
+/// 参数：`size` 需要的字节数。
+/// 返回值：按 16 字节对齐的新块；分配失败返回 null。
+fn exec_value_alloc_bytes_locked(size: usize) &byte {
+    if size == 0 as usize {
+        return null;
+    }
+    if g_exec_value_arena_base == null {
+        const first: &byte = malloc(EXEC_VALUE_ARENA_BYTES) as &byte;
+        g_exec_value_arena_base = first;
+        g_exec_value_arena_used = 0 as usize;
+        g_exec_value_arena_capacity = EXEC_VALUE_ARENA_BYTES;
+        if (first as *void) != null && g_exec_value_arena_segment_count == 0 {
+            const lo0: usize = @usize_from_ptr(first as &void);
+            g_exec_value_arena_seg_lo[0] = lo0;
+            g_exec_value_arena_seg_hi[0] = lo0 +| EXEC_VALUE_ARENA_BYTES;
+            g_exec_value_arena_segment_count = 1;
+        }
+    }
+    // 每个块按 16 字节对齐；多留 16 字节给对齐与尾部余量。
+    var total: usize = size +| 16 as usize;
+    const slack: usize = total % 16 as usize;
+    if slack != 0 as usize {
+        total = total +| (16 as usize - slack);
+    }
+    if g_exec_value_arena_base == null || g_exec_value_arena_capacity == 0 as usize ||
+        g_exec_value_arena_used +| total > g_exec_value_arena_capacity {
+        // 当前段用满：追加一段新内存继续 bump（不搬移旧块）。
+        const grown: &byte = exec_value_arena_grow_locked(total);
+        if (grown as *void) != null {
+            _ = memset(grown as *byte, 0, size);
+            return grown;
+        }
+        // 段表也满了（实际到不了）：回落到普通 malloc，至少还能继续跑。
+        const fallback: &byte = malloc(size) as &byte;
+        if fallback == null {
+            return null;
+        }
+        exec_vm_dbg_count_alloc(size);
+        // **必须登记进段表**。`exec_vm_address_is_value`（本文件 `:580`）靠段表
+        // 判断「某地址是不是 VM 值内存」，`exec_vm_address_is_vm_resident`
+        // 再靠它区分「VM 内部引用」与「宿主指针」。漏登记会让这批块的地址被
+        // 判成宿主指针，字段访问/下标就改走原生通道，读到的是垃圾 kind
+        // （实测 `ulimit -v 4GB` 下 `test_http_uyagin` 必现
+        //  `ADDR_INDEX 越界(IDXREF … kind=14 cnt=-1 isref=1 pointee=19)`，
+        //  其中 target->kind 是 1821864748 这种非法值）。
+        //
+        // 用**独立表**登记（`g_exec_value_fallback_*`）而不是并进竞技场段表：
+        // 这批块来自普通 malloc，和竞技场段不连续，混进同一段会让 `[lo, hi)`
+        // 覆盖到无关内存；更要紧的是段表只有 256 项，被小 fallback 块占满后
+        // 竞技场就再也开不出新段（实测 `ulimit -v 5GB` 下 `count` 一路涨到 255）。
+        const fb_idx: i32 = g_exec_value_fallback_count;
+        if fb_idx >= 0 && fb_idx < EXEC_VALUE_FALLBACK_MAX {
+            const fb_lo: usize = @usize_from_ptr(fallback as &void);
+            g_exec_value_fallback_lo[fb_idx] = fb_lo;
+            g_exec_value_fallback_hi[fb_idx] = fb_lo +| (size +| 16 as usize);
+            g_exec_value_fallback_count = fb_idx + 1;
+        }
+        _ = memset(fallback as *byte, 0, size);
+        return fallback;
+    }
+    const mem: &byte = g_exec_value_arena_base + g_exec_value_arena_used;
+    g_exec_value_arena_used = g_exec_value_arena_used +| total;
+    _ = memset(mem as *byte, 0, size);
+    exec_vm_dbg_count_alloc(size);
+    return mem;
+}
+
+fn exec_value_alloc_bytes(size: usize) &byte {
+    exec_value_arena_lock_acquire();
+    const mem: &byte = exec_value_alloc_bytes_locked(size);
+    exec_value_arena_lock_release();
+    return mem;
+}
+
+/// 判断一个地址是否落在 VM 值竞技场里（VM 值引用一定在内，宿主指针一定在外）。
+/// 参数：`addr` 绝对地址。
+/// 返回值：true 表示这是 VM 值内存。
+fn exec_vm_address_is_value(addr: usize) bool {
+    if addr == 0 as usize {
+        return false;
+    }
+    // 段数很少（正常只有 1 段），线性扫即可，比维护有序结构更简单可靠。
+    var i: i32 = 0;
+    while i < g_exec_value_arena_segment_count {
+        if addr >= g_exec_value_arena_seg_lo[i] && addr < g_exec_value_arena_seg_hi[i] {
+            return true;
+        }
+        i = i + 1;
+    }
+    // fallback 块单独一张表（见 `g_exec_value_fallback_lo` 处的说明）。
+    i = 0;
+    while i < g_exec_value_fallback_count {
+        if addr >= g_exec_value_fallback_lo[i] && addr < g_exec_value_fallback_hi[i] {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
 }
 
 fn exec_value_scalar_kind_from_type_kind(type_kind: i32) ExecValueKind {
@@ -410,17 +813,58 @@ fn exec_value_scalar_kind_from_type_kind(type_kind: i32) ExecValueKind {
     if type_kind == TypeKind.TYPE_BYTE as i32 {
         return ExecValueKind.EXEC_VALUE_BYTE;
     }
+    if type_kind == TypeKind.TYPE_I16 as i32 {
+        return ExecValueKind.EXEC_VALUE_I16;
+    }
+    if type_kind == TypeKind.TYPE_U16 as i32 {
+        return ExecValueKind.EXEC_VALUE_U16;
+    }
+    if type_kind == TypeKind.TYPE_I32 as i32 || type_kind == TypeKind.TYPE_ENUM as i32 {
+        return ExecValueKind.EXEC_VALUE_I32;
+    }
+    if type_kind == TypeKind.TYPE_U32 as i32 {
+        return ExecValueKind.EXEC_VALUE_U32;
+    }
+    if type_kind == TypeKind.TYPE_I64 as i32 {
+        return ExecValueKind.EXEC_VALUE_I64;
+    }
+    if type_kind == TypeKind.TYPE_U64 as i32 {
+        return ExecValueKind.EXEC_VALUE_U64;
+    }
+    if type_kind == TypeKind.TYPE_USIZE as i32 {
+        return ExecValueKind.EXEC_VALUE_USIZE;
+    }
+    if type_kind == TypeKind.TYPE_F32 as i32 {
+        return ExecValueKind.EXEC_VALUE_F32;
+    }
+    if type_kind == TypeKind.TYPE_F64 as i32 {
+        return ExecValueKind.EXEC_VALUE_F64;
+    }
     return ExecValueKind.EXEC_VALUE_VOID;
 }
 
+/// 判断元素类型能否存进原生内存（定长数组用连续字节表示）。
+/// 只要不是需要附带 aux 编码/聚合语义的类型（指针、切片、字符串、结构体…），
+/// 标量一律走原生连续内存，这样 `&arr[0]` 的指针算术和字节 punning 才和 C99 一致。
+/// 参数：`type_kind` 元素 TypeKind。
+/// 返回值：1 表示可以作为原生数组元素；0 表示必须用 VM 聚合表示。
 fn exec_value_is_raw_array_element_type(type_kind: i32) i32 {
-    if type_kind == TypeKind.TYPE_BOOL as i32 ||
-        type_kind == TypeKind.TYPE_I8 as i32 ||
-        type_kind == TypeKind.TYPE_U8 as i32 ||
-        type_kind == TypeKind.TYPE_BYTE as i32 {
-        return 1;
+    if type_kind == TypeKind.TYPE_POINTER as i32 ||
+        type_kind == TypeKind.TYPE_SLICE as i32 ||
+        type_kind == TypeKind.TYPE_VOID as i32 ||
+        type_kind == TypeKind.TYPE_STRUCT as i32 ||
+        type_kind == TypeKind.TYPE_UNION as i32 ||
+        type_kind == TypeKind.TYPE_TUPLE as i32 ||
+        type_kind == TypeKind.TYPE_ARRAY as i32 ||
+        type_kind == TypeKind.TYPE_INTERFACE as i32 ||
+        type_kind == TypeKind.TYPE_ERROR_UNION as i32 ||
+        type_kind == TypeKind.TYPE_ERROR as i32 {
+        return 0;
     }
-    return 0;
+    if exec_vm_type_kind_size(type_kind) == 0 as usize {
+        return 0;
+    }
+    return 1;
 }
 
 fn exec_value_is_raw_array(value: &ExecValue) i32 {
@@ -454,7 +898,19 @@ fn exec_value_make_raw_array(count: i32, elem_kind_code: i32) ExecValue {
     }
     var data: &byte = null;
     if count > 0 {
-        data = exec_value_alloc_bytes(elem_size * (count as usize));
+        const raw_bytes: usize = elem_size * (count as usize);
+        if raw_bytes >= EXEC_VALUE_RAW_ARRAY_NATIVE_MIN {
+            // 超大数组的承载内存改用**宿主堆**：程序里这种量级的数组（编译器根 arena 就是
+            // `[byte: ARENA_BUFFER_SIZE]`）在 C99 侧本来就在堆/BSS 上，解释执行时也从
+            // 宿主堆拿，它的地址天然落在值 arena 之外 —— 于是结构体字段访问直接走现成的
+            // 原生通道，不需要任何「这块内存像不像结构体」的判定启发式。
+            data = malloc(raw_bytes) as &byte;
+            if data != null {
+                _ = memset(data as *void, 0, raw_bytes);
+            }
+        } else {
+            data = exec_value_alloc_bytes(raw_bytes);
+        }
         if data == null {
             return exec_make_void();
         }
@@ -464,6 +920,26 @@ fn exec_value_make_raw_array(count: i32, elem_kind_code: i32) ExecValue {
         i64_value: count as i64,
         ptr_value: data,
         aux_kind: exec_value_scalar_kind_from_type_kind(elem_kind_code),
+        aux_i64_value: elem_kind_code as i64,
+        aux_ptr_value: null,
+        error_id: 0,
+    };
+}
+
+/// 用已有的原生内存构造「原生数组视图」（不拷贝数据）。
+/// 参数：`count` 元素个数；`elem_kind_code` 元素 TypeKind；`data` 数据区地址。
+/// 返回值：指向该数据区的数组值。
+fn exec_value_make_raw_array_view(count: i32, elem_kind_code: i32, data: &byte) ExecValue {
+    // aux_kind 兼作「原生数组」标志位，必须是非 VOID。
+    var view_aux_kind: ExecValueKind = exec_value_scalar_kind_from_type_kind(elem_kind_code);
+    if view_aux_kind == ExecValueKind.EXEC_VALUE_VOID {
+        view_aux_kind = ExecValueKind.EXEC_VALUE_POINTER;
+    }
+    return ExecValue {
+        kind: ExecValueKind.EXEC_VALUE_ARRAY,
+        i64_value: count as i64,
+        ptr_value: data,
+        aux_kind: view_aux_kind,
         aux_i64_value: elem_kind_code as i64,
         aux_ptr_value: null,
         error_id: 0,
@@ -484,12 +960,20 @@ fn exec_value_aggregate_kind(type: Type) ExecValueKind {
 }
 
 fn exec_value_aggregate_from_parts(kind: ExecValueKind, count: i32, values: &ExecValue) ExecValue {
-    const aggregate: &ExecAggregate = exec_value_alloc_bytes(@size_of(ExecAggregate)) as &ExecAggregate;
+    var aggregate: &ExecAggregate = exec_agg_take_struct();
     if aggregate == null {
+        aggregate = exec_value_alloc_bytes(@size_of(ExecAggregate)) as &ExecAggregate;
+    }
+    if aggregate == null {
+        exec_value_note_alloc_failure();
         return exec_make_void();
     }
     aggregate.count = count;
     aggregate.values = values;
+    aggregate.ref_count = 1;
+    aggregate.next_free = null;
+    aggregate.has_internal_ref = 0;
+    aggregate.owner_depth = g_exec_agg_depth;
     return ExecValue {
         kind: kind,
         i64_value: count as i64,
@@ -501,15 +985,553 @@ fn exec_value_aggregate_from_parts(kind: ExecValueKind, count: i32, values: &Exe
     };
 }
 
+// VM 聚合 values 数组登记表。
+//
+// 竞技场里既有 ExecValue 数组，也有裸字节缓冲（源码文本、捕获缓冲等），
+// 单看「地址落在竞技场」无法判断某地址处是不是真正的 ExecValue。裸指针
+// 还原成 ExecValue 本体（`@ptr_from_usize(&arr[i])` 之后 `*p`）必须先证明
+// 目标确实是聚合的元素槽，否则会把缓冲字节误读成 kind/count。
+//
+// 竞技场是 bump 分配，基址单调递增，所以按下标追加即天然有序，可用二分查找。
+// 表按需增长：固定 65536 条时，fmt 一类大量分配数组的用例会把它涨满，
+// 之后新数组不再登记，依赖「地址是否是聚合元素」的严格判定就会全线失效
+// （第 359 轮那次原生字段写入的尝试就是被这个拖垮的）。
+var g_exec_value_array_bases: &usize = null;
+var g_exec_value_array_spans: &usize = null;
+var g_exec_value_array_count: i32 = 0;
+var g_exec_value_array_capacity: i32 = 0;
+const EXEC_VALUE_ARRAY_REGISTRY_INITIAL: i32 = 1024;
+// 上限只防失控，实际不会用到（每条约 16 字节）。
+const EXEC_VALUE_ARRAY_REGISTRY_MAX: i32 = 1 << 22;
+
+/// 确保登记表至少能再放 `want` 条，不够就翻倍扩容。
+/// **调用方必须已持有竞技场锁**（扩容自己也在分配竞技场内存，不能重入）。
+/// 参数：`want` 必需条数。返回值：0 成功；-1 分配失败或超上限。
+fn exec_value_array_registry_reserve_locked(want: i32) i32 {
+    if want <= 0 {
+        return 0;
+    }
+    if want > EXEC_VALUE_ARRAY_REGISTRY_MAX {
+        return -1;
+    }
+    if g_exec_value_array_bases != null && want <= g_exec_value_array_capacity {
+        return 0;
+    }
+    var next: i32 = g_exec_value_array_capacity;
+    if next < EXEC_VALUE_ARRAY_REGISTRY_INITIAL {
+        next = EXEC_VALUE_ARRAY_REGISTRY_INITIAL;
+    }
+    while next < want && next < EXEC_VALUE_ARRAY_REGISTRY_MAX {
+        next = next *| 2;
+    }
+    if next < want {
+        next = want;
+    }
+    const bytes: usize = (@size_of(usize) as usize) * (next as usize);
+    const fresh_bases: &usize = exec_value_alloc_bytes_locked(bytes) as &usize;
+    const fresh_spans: &usize = exec_value_alloc_bytes_locked(bytes) as &usize;
+    if fresh_bases == null || fresh_spans == null {
+        return -1;
+    }
+    if g_exec_value_array_count > 0 && g_exec_value_array_bases != null && g_exec_value_array_spans != null {
+        const copy_bytes: usize = (@size_of(usize) as usize) * (g_exec_value_array_count as usize);
+        _ = memcpy(fresh_bases as *void, g_exec_value_array_bases as *const void, copy_bytes);
+        _ = memcpy(fresh_spans as *void, g_exec_value_array_spans as *const void, copy_bytes);
+    }
+    g_exec_value_array_bases = fresh_bases;
+    g_exec_value_array_spans = fresh_spans;
+    g_exec_value_array_capacity = next;
+    return 0;
+}
+
+/// 登记一段 VM 聚合元素数组。
+/// 参数：`base` 元素数组首地址；`count` 元素个数。
+/// 返回值：无。
+fn exec_value_register_array(base: usize, count: i32) void {
+    if base == 0 as usize || count <= 0 {
+        return;
+    }
+    exec_value_arena_lock_acquire();
+    if g_exec_value_array_count >= 0 &&
+        exec_value_array_registry_reserve_locked(g_exec_value_array_count +| 1) == 0 {
+        const idx: i32 = g_exec_value_array_count;
+        if idx >= 0 && idx < g_exec_value_array_capacity &&
+            g_exec_value_array_bases != null && g_exec_value_array_spans != null {
+            g_exec_value_array_bases[idx] = base;
+            g_exec_value_array_spans[idx] = (@size_of(ExecValue) as usize) * (count as usize);
+            g_exec_value_array_count = idx + 1;
+        }
+    }
+    exec_value_arena_lock_release();
+}
+
+/// 登记一个「独立装箱的单个 ExecValue」地址（`exec_vm_box_value_ref` 用）。
+/// 参数：`base` ExecValue 地址。
+/// 返回值：无。表满时放弃登记（该装箱值退回保守路径）。
+fn exec_value_register_boxed(base: usize) void {
+    exec_value_register_array(base, 1);
+}
+
+/// 判断地址是否是登记过的独立装箱 ExecValue。
+/// 参数：`addr` 绝对地址。
+/// 返回值：true 表示该地址处确实是一个 ExecValue。
+fn exec_value_address_is_boxed(addr: usize) bool {
+    return exec_value_address_is_array_element(addr);
+}
+
+/// 判断地址是否落在某个已登记的 VM 聚合元素数组内。
+/// 参数：`addr` 绝对地址。
+/// 返回值：true 表示该地址处确实是一个 ExecValue 元素槽。
+fn exec_value_address_is_array_element(addr: usize) bool {
+    if addr == 0 as usize || g_exec_value_array_count <= 0 {
+        return false;
+    }
+    if g_exec_value_array_bases == null || g_exec_value_array_spans == null {
+        return false;
+    }
+    var lo: i32 = 0;
+    var hi: i32 = g_exec_value_array_count;
+    while lo < hi {
+        const mid: i32 = (lo + hi) / 2;
+        if mid < 0 || mid >= g_exec_value_array_capacity {
+            return false;
+        }
+        const base: usize = g_exec_value_array_bases[mid];
+        const span: usize = g_exec_value_array_spans[mid];
+        if addr < base {
+            hi = mid;
+        } else if addr >= base +| span {
+            lo = mid + 1;
+        } else {
+            return (addr -| base) % (@size_of(ExecValue) as usize) == 0 as usize;
+        }
+    }
+    return false;
+}
+
+/// 查询地址落在某个已登记 ExecValue 数组内时，从该地址起还剩多少个元素。
+/// 参数：`addr` 绝对地址。
+/// 返回值：剩余元素个数；不是数组元素地址时返回 0。
+/// 宿主按 8 字节步长读数组，而 ExecValue 是 56 字节：把 `&argv[0]` 交给
+/// `execve` 之前必须先物化，物化长度就靠这个函数算。
+fn exec_value_array_element_remaining(addr: usize) i32 {
+    if addr == 0 as usize || g_exec_value_array_count <= 0 {
+        return 0;
+    }
+    if g_exec_value_array_bases == null || g_exec_value_array_spans == null {
+        return 0;
+    }
+    const stride: usize = @size_of(ExecValue) as usize;
+    if stride == 0 as usize {
+        return 0;
+    }
+    var lo: i32 = 0;
+    var hi: i32 = g_exec_value_array_count;
+    while lo < hi {
+        const mid: i32 = (lo + hi) / 2;
+        if mid < 0 || mid >= g_exec_value_array_capacity {
+            return 0;
+        }
+        const base: usize = g_exec_value_array_bases[mid];
+        const span: usize = g_exec_value_array_spans[mid];
+        if addr < base {
+            hi = mid;
+        } else if addr >= base +| span {
+            lo = mid + 1;
+        } else {
+            const off: usize = addr -| base;
+            if off % stride != 0 as usize {
+                return 0;
+            }
+            const total: usize = span / stride;
+            const idx: usize = off / stride;
+            if idx >= total {
+                return 0;
+            }
+            return (total - idx) as i32;
+        }
+    }
+    return 0;
+}
+
+// ===== 聚合值缓冲回收（引用计数 + 尺寸分档空闲链）=====
+//
+// 为什么要有这一套：VM 里每个聚合值（struct/array/tuple）都是一块独立的
+// `ExecValue` 数组，值语义的赋值/返回/传参都会深拷贝；而竞技场是 bump-only、
+// 永不回收。解释运行一个编译器实测产生 22.3GB / 2282 万块聚合垃圾（单次均值 ≈1KB），
+// 全部常驻 → 整编自举 RSS 峰值 57GB。
+//
+// 规则：
+// - `exec_value_retain()` 在「多了一个持有者」的地方调用（浅拷贝、移动交接、帧参数绑定）；
+// - `exec_value_release()` 在「持有者消失」的地方调用（帧出栈时整段槽位）；
+// - 计数归零后把 `.values` 按元素个数向上取 2 的幂分档挂空闲链，结构体也复用。
+// 空闲链头放在按需分配的堆数组里（`(heads + cls)[0]` 形式，避免全局大数组吃全局槽）。
+const EXEC_AGG_FREE_CLASSES: i32 = 17;  // 1,2,4,...,65536
+var g_exec_agg_free_heads: & & ExecValue = null;
+var g_exec_agg_free_counts: &i32 = null;
+var g_exec_agg_struct_free: &ExecAggregate = null;
+var g_exec_agg_struct_free_count: i32 = 0;
+var g_exec_agg_reused_blocks: i64 = 0;
+var g_exec_agg_double_releases: i64 = 0;   // rc<=0 还收到 release（说明少了一次 retain）
+var g_exec_agg_recycled: i64 = 0;
+var g_exec_agg_gc_enabled: i32 = 0 - 1;    // -1 = 还没查环境变量
+var g_exec_agg_depth: i32 = 0;             // 当前帧深度（push/pop 维护）
+
+/// 按元素个数取尺寸档（向上取 2 的幂的下标）；超过 65536 返回 -1（不回收）。
+/// 参数：`count` 元素个数。返回值：档位下标或 -1。
+fn exec_agg_class_of(count: i32) i32 {
+    if count <= 0 {
+        return 0 - 1;
+    }
+    var cls: i32 = 0;
+    var cap: i32 = 1;
+    while cap < count {
+        cap = cap *| 2;
+        cls = cls +| 1;
+        if cls >= EXEC_AGG_FREE_CLASSES {
+            return 0 - 1;
+        }
+    }
+    return cls;
+}
+
+/// 按元素个数取所在档的容量（向上取 2 的幂）；超过上限返回原始个数。
+/// 参数：`count` 元素个数。返回值：档容量。
+fn exec_agg_class_of_capacity(count: i32) i32 {
+    const cls: i32 = exec_agg_class_of(count);
+    if cls < 0 {
+        return count;
+    }
+    return exec_agg_class_capacity(cls);
+}
+
+/// 取某档的容量（元素个数）。
+fn exec_agg_class_capacity(cls: i32) i32 {
+    var cap: i32 = 1;
+    var i: i32 = 0;
+    while i < cls {
+        cap = cap *| 2;
+        i = i +| 1;
+    }
+    return cap;
+}
+
+/// 观测/回收日志开关（`UYA_PROGRESS=1`）。
+fn exec_agg_progress_enabled() i32 {
+    const env: *byte = getenv("UYA_PROGRESS" as *byte);
+    if env != null && env[0] != 0 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+/// 是否启用聚合回收。**默认开**；`UYA_EXEC_AGG_GC=0` 可关闭（排查用）。
+///
+/// 默认开的依据：census 912/912 + make check 1197/1197 全绿，且内部引用钉住 /
+/// 帧深度守卫 / 异步帧跳过 / slice·error-union·varargs·线程表计数这几层保护
+/// 都已经就位（详见 docs 第 749~751 轮）。
+fn exec_agg_gc_enabled() i32 {
+    if g_exec_agg_gc_enabled < 0 {
+        const env: *byte = getenv("UYA_EXEC_AGG_GC" as *byte);
+        g_exec_agg_gc_enabled = 1;
+        if env != null && env[0] == 48 as byte {
+            g_exec_agg_gc_enabled = 0;
+        }
+    }
+    return g_exec_agg_gc_enabled;
+}
+
+/// 惰性建立空闲链表头数组。返回 0 成功；-1 分配失败。
+fn exec_agg_free_lists_init() i32 {
+    if g_exec_agg_free_heads != null {
+        return 0;
+    }
+    const bytes: usize = (@size_of(&ExecValue) as usize) *| (EXEC_AGG_FREE_CLASSES as usize);
+    const heads: & & ExecValue = exec_value_alloc_bytes(bytes) as & & ExecValue;
+    const counts: &i32 = exec_value_alloc_bytes((@size_of(i32) as usize) *| (EXEC_AGG_FREE_CLASSES as usize)) as &i32;
+    if heads == null || counts == null {
+        return -1;
+    }
+    _ = memset(heads as *void, 0, bytes);
+    _ = memset(counts as *void, 0, (@size_of(i32) as usize) *| (EXEC_AGG_FREE_CLASSES as usize));
+    g_exec_agg_free_heads = heads;
+    g_exec_agg_free_counts = counts;
+    return 0;
+}
+
+/// 把一块 `.values` 数组挂回对应档位的空闲链（复用它的前 8 字节存 next）。
+/// 参数：`values` 数组；`cls` 档位。
+/// 返回值：无。
+fn exec_agg_recycle_values(values: &ExecValue, cls: i32) void {
+    if values == null || cls < 0 || cls >= EXEC_AGG_FREE_CLASSES {
+        return;
+    }
+    if exec_agg_free_lists_init() != 0 {
+        return;
+    }
+    const heads: & & ExecValue = g_exec_agg_free_heads;
+    const counts: &i32 = g_exec_agg_free_counts;
+    if heads == null || counts == null {
+        return;
+    }
+    const node: & & ExecValue = values as & & ExecValue;
+    node[0] = (heads + cls)[0];
+    (heads + cls)[0] = values;
+    (counts + cls)[0] = (counts + cls)[0] +| 1;
+}
+
+/// 从空闲链取一块至少能装 `count` 个元素的数组；没有则返回 null。
+/// 参数：`count` 需要的元素个数。返回值：数组指针或 null。
+fn exec_agg_take_values(count: i32) &ExecValue {
+    const cls: i32 = exec_agg_class_of(count);
+    if cls < 0 || cls >= EXEC_AGG_FREE_CLASSES {
+        return null;
+    }
+    const heads: & & ExecValue = g_exec_agg_free_heads;
+    const counts: &i32 = g_exec_agg_free_counts;
+    if heads == null || counts == null {
+        return null;
+    }
+    const head: &ExecValue = (heads + cls)[0];
+    if head == null {
+        return null;
+    }
+    const node: & & ExecValue = head as & & ExecValue;
+    (heads + cls)[0] = node[0];
+    (counts + cls)[0] = (counts + cls)[0] -| 1;
+    // 容量校验：登记表里这块的剩余元素数必须 ≥ 需要的个数。
+    // 这样不必「整档多占」（精确分配即可），又保证复用的块始终在登记范围内
+    //（登记表按基址有序，复用块不能重新登记）。
+    const cap: i32 = exec_value_array_element_remaining(@usize_from_ptr(head as &void));
+    if (cap as i64) < (count as i64) {
+        return null;
+    }
+    g_exec_agg_reused_blocks = g_exec_agg_reused_blocks +| 1;
+    return head;
+}
+
+/// 标记某个值的聚合被「内部引用」取过地址：之后永不回收（保守但安全）。
+/// 参数：`value` 值指针。返回值：无。
+fn exec_value_mark_ref_holder(value: &ExecValue) void {
+    if value == null {
+        return;
+    }
+    const k: i32 = value.kind as i32;
+    if k != ExecValueKind.EXEC_VALUE_STRUCT as i32 &&
+        k != ExecValueKind.EXEC_VALUE_ARRAY as i32 &&
+        k != ExecValueKind.EXEC_VALUE_TUPLE as i32 {
+        return;
+    }
+    if exec_value_is_raw_array(value) != 0 {
+        return;
+    }
+    const agg: &ExecAggregate = exec_value_as_aggregate(value);
+    if agg != null {
+        agg.has_internal_ref = 1;
+    }
+}
+
+/// 直接给聚合结构体加引用计数（slice/union 这类「只拿到结构体指针」的持有者用）。
+/// 参数：`agg` 聚合结构体。返回值：无。
+fn exec_agg_retain_struct(agg: &ExecAggregate) void {
+    if agg == null {
+        return;
+    }
+    agg.ref_count = agg.ref_count +| 1;
+}
+
+/// 直接给聚合结构体减引用计数（归零且守卫允许时回收）。
+/// 参数：`agg` 聚合结构体。返回值：无。
+fn exec_agg_release_struct(agg: &ExecAggregate) void {
+    if agg == null {
+        return;
+    }
+    if agg.has_internal_ref != 0 {
+        if agg.ref_count > 0 {
+            agg.ref_count = agg.ref_count -| 1;
+        }
+        return;
+    }
+    const rc: i32 = agg.ref_count;
+    if rc <= 0 {
+        g_exec_agg_double_releases = g_exec_agg_double_releases +| 1;
+        return;
+    }
+    agg.ref_count = rc - 1;
+    if agg.ref_count > 0 {
+        return;
+    }
+    if agg.owner_depth != g_exec_agg_depth || exec_agg_gc_enabled() == 0 {
+        return;
+    }
+    g_exec_agg_recycled = g_exec_agg_recycled +| 1;
+    exec_value_release_aggregate_body(agg);
+}
+
+/// 增加聚合值的引用计数（浅拷贝/移动交接/参数绑定等「多一个持有者」的地方调用）。
+/// 参数：`value` 值指针。返回值：无。
+fn exec_value_retain(value: &ExecValue) void {
+    if value == null {
+        return;
+    }
+    const k: i32 = value.kind as i32;
+    if k != ExecValueKind.EXEC_VALUE_STRUCT as i32 &&
+        k != ExecValueKind.EXEC_VALUE_ARRAY as i32 &&
+        k != ExecValueKind.EXEC_VALUE_TUPLE as i32 {
+        return;
+    }
+    if exec_value_is_raw_array(value) != 0 {
+        return;
+    }
+    const agg: &ExecAggregate = exec_value_as_aggregate(value);
+    if agg != null {
+        agg.ref_count = agg.ref_count +| 1;
+    }
+}
+
+/// 减少聚合值的引用计数；归零时回收 `.values` 与结构体。
+/// 参数：`value` 值指针。返回值：无。
+fn exec_value_release(value: &ExecValue) void {
+    if value == null {
+        return;
+    }
+    const k: i32 = value.kind as i32;
+    if k == ExecValueKind.EXEC_VALUE_SLICE as i32 {
+        const sd: &ExecSliceData = exec_value_as_slice(value);
+        if sd != null && sd.aggregate != null {
+            exec_agg_release_struct(sd.aggregate);
+        }
+        return;
+    }
+    if k == ExecValueKind.EXEC_VALUE_ERROR_UNION as i32 {
+        // ok 载荷存在 aux 三元组里：若载荷是聚合，这里要放掉它的持有
+        if value.i64_value == 0 && value.aux_ptr_value != null {
+            const ak: i32 = value.aux_kind as i32;
+            if ak == ExecValueKind.EXEC_VALUE_STRUCT as i32 ||
+                ak == ExecValueKind.EXEC_VALUE_ARRAY as i32 ||
+                ak == ExecValueKind.EXEC_VALUE_TUPLE as i32 {
+                exec_agg_release_struct(value.aux_ptr_value as &ExecAggregate);
+            }
+        }
+        return;
+    }
+    if k != ExecValueKind.EXEC_VALUE_STRUCT as i32 &&
+        k != ExecValueKind.EXEC_VALUE_ARRAY as i32 &&
+        k != ExecValueKind.EXEC_VALUE_TUPLE as i32 {
+        return;
+    }
+    if exec_value_is_raw_array(value) != 0 {
+        return;
+    }
+    const agg: &ExecAggregate = exec_value_as_aggregate(value);
+    if agg == null {
+        return;
+    }
+    if agg.has_internal_ref != 0 {
+        // 被取过地址：只减计数，不回收（内部引用可能还活着）
+        if agg.ref_count > 0 {
+            agg.ref_count = agg.ref_count -| 1;
+        }
+        return;
+    }
+    const rc: i32 = agg.ref_count;
+    if rc <= 0 {
+        // 已经回收过（说明某处少了一次 retain）：记一笔并当无事发生，
+        // 绝不重复回收 —— 否则会把已复用的块再挂一次空闲链，直接内存损坏。
+        if g_exec_agg_double_releases < 64 {
+            fprintf(libc.stderr, "[agg-double] fn=%s slot=%d op=%s(%d) kind=%d count=%d rc=%d\n" as *byte,
+                g_exec_dbg_cur_fn as *byte, g_exec_dbg_pop_slot,
+                exec_debug_opcode_name(g_exec_dbg_cur_op as u8), g_exec_dbg_cur_op,
+                value.kind as i32, agg.count, rc);
+        }
+        g_exec_agg_double_releases = g_exec_agg_double_releases +| 1;
+        return;
+    }
+    agg.ref_count = rc - 1;
+    if agg.ref_count > 0 {
+        return;
+    }
+    if agg.owner_depth != g_exec_agg_depth {
+        // 不是本帧创建的：可能是逃逸值，只在计数上处理，不回收（保守）。
+        return;
+    }
+    if exec_agg_gc_enabled() == 0 {
+        // 只记账不回收（观测模式）：计数照常减到 0，再收到的 release 就是
+        // 「少了一次 retain」的铁证 —— 会累加到 g_exec_agg_double_releases。
+        g_exec_agg_recycled = g_exec_agg_recycled +| 1;
+        if exec_agg_progress_enabled() != 0 && (g_exec_agg_recycled & 1048575i64) == 0i64 {
+            fprintf(libc.stderr, "[agg-gc] would_recycle=%lld double=%lld reused=%lld\n" as *byte,
+                g_exec_agg_recycled, g_exec_agg_double_releases, g_exec_agg_reused_blocks);
+        }
+        return;
+    }
+    g_exec_agg_recycled = g_exec_agg_recycled +| 1;
+    if g_exec_agg_recycled <= 200 && exec_agg_progress_enabled() != 0 {
+        fprintf(libc.stderr, "[agg-recycle] fn=%s slot=%d op=%s count=%d\n" as *byte,
+            g_exec_dbg_cur_fn as *byte, g_exec_dbg_pop_slot,
+            exec_debug_opcode_name(g_exec_dbg_cur_op as u8), agg.count);
+    }
+    exec_value_release_aggregate_body(agg);
+}
+
+/// 释放一个聚合（计数已归零）：数组进尺寸档空闲链，结构体进结构体空闲链。
+/// 参数：`agg` 聚合结构体指针。返回值：无。
+fn exec_value_release_aggregate_body(agg: &ExecAggregate) void {
+    if agg == null {
+        return;
+    }
+    const cls: i32 = exec_agg_class_of(agg.count);
+    if agg.values != null && cls >= 0 {
+        exec_agg_recycle_values(agg.values, cls);
+    }
+    agg.values = null;
+    agg.count = 0;
+    agg.ref_count = 0;
+    agg.next_free = g_exec_agg_struct_free;
+    g_exec_agg_struct_free = agg;
+    g_exec_agg_struct_free_count = g_exec_agg_struct_free_count +| 1;
+}
+
+/// 取一个聚合结构体（优先复用空闲链）。
+/// 返回值：结构体指针或 null。
+fn exec_agg_take_struct() &ExecAggregate {
+    const head: &ExecAggregate = g_exec_agg_struct_free;
+    if head == null {
+        return null;
+    }
+    g_exec_agg_struct_free = head.next_free;
+    g_exec_agg_struct_free_count = g_exec_agg_struct_free_count -| 1;
+    head.next_free = null;
+    head.count = 0;
+    head.values = null;
+    head.ref_count = 0;
+    return head;
+}
+
 fn exec_value_make_aggregate(kind: ExecValueKind, count: i32) ExecValue {
     if count < 0 {
         return exec_make_void();
     }
     var values: &ExecValue = null;
     if count > 0 {
-        values = exec_value_alloc_bytes((@size_of(ExecValue) * count) as usize) as &ExecValue;
+        // 按「元素个数向上取 2 的幂」分档，**整档分配/登记**：
+        // 这样空闲链上任意同档块都能被后来的任意 count ≤ 档容量复用，
+        // 而且复用块**不需要重新登记**（登记表按基址有序，重复登记会破坏二分查找），
+        // 于是 `exec_value_address_is_array_element()` 之类查询始终正确。
+        values = exec_agg_take_values(count);
         if values == null {
-            return exec_make_void();
+            values = exec_value_alloc_bytes((@size_of(ExecValue) * count) as usize) as &ExecValue;
+            if values == null {
+                exec_value_note_alloc_failure();
+                return exec_make_void();
+            }
+            exec_value_register_array(@usize_from_ptr(values as &void), count);
+        }
+        // 复用/新分配的块都要清零（复用块里是旧数据，读到的 kind 会是垃圾）
+        _ = memset(values as *void, 0, (@size_of(ExecValue) * count) as usize);
+        if g_exec_dbg_enabled >= 0 {
+            const obi: i32 = g_exec_dbg_cur_op & 255;
+            g_exec_dbg_op_alloc[obi] = g_exec_dbg_op_alloc[obi] +| 1;
         }
     }
     return exec_value_aggregate_from_parts(kind, count, values);
@@ -535,6 +1557,9 @@ fn exec_make_tuple(count: i32) ExecValue {
 }
 
 fn exec_make_slice(aggregate: &ExecAggregate, start: i32, len: i32) ExecValue {
+    // slice 只是「指向某个聚合某一段」的视图：必须持有那个聚合，
+    // 否则聚合所在帧出栈回收后，逃逸出去的 slice 就悬空了。
+    exec_agg_retain_struct(aggregate);
     const slice_data: &ExecSliceData = exec_value_alloc_bytes(@size_of(ExecSliceData)) as &ExecSliceData;
     if slice_data == null {
         return exec_make_void();
@@ -627,9 +1652,39 @@ fn exec_value_as_union(value: &ExecValue) &ExecUnionData {
     return value.ptr_value as &ExecUnionData;
 }
 
+/// 浅拷贝一个值，并把聚合内存标成「借来的」（`error_id = 1`）。
+///
+/// 调用参数就是这种语义：被调函数拿到的是调用方那块聚合内存的借用副本，
+/// 不重新分配（`BC_CALL` 曾对每个聚合实参深拷贝一次，是自举时的主要垃圾源之一），
+/// 同时 `exec_vm_value_owns_buffer()` 会因此拒绝在借用值上原地写 ——
+/// 被调函数里任何赋值仍走深拷贝，值语义不变。
+fn exec_value_borrow_copy(value: &ExecValue) ExecValue {
+    var out: ExecValue = value[0];
+    if out.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
+        out.kind == ExecValueKind.EXEC_VALUE_STRUCT ||
+        out.kind == ExecValueKind.EXEC_VALUE_TUPLE {
+        out.error_id = 1;
+    }
+    return out;
+}
+
 fn exec_value_clone(value: &ExecValue) ExecValue {
+    g_exec_dbg_clone_calls = g_exec_dbg_clone_calls +| 1;
     if value == null {
         return exec_make_void();
+    }
+    // 快速出口：标量（数值/布尔/指针/字符串/错误）没有任何需要深拷贝的堆内存，
+    // 按值复制就是完整语义。热路径上绝大多数 clone 调用的都是这类值，
+    // 先走这一条就不用依次穿过下面五个聚合分支。
+    const k: i32 = value.kind as i32;
+    if k != ExecValueKind.EXEC_VALUE_STRUCT as i32 &&
+        k != ExecValueKind.EXEC_VALUE_ARRAY as i32 &&
+        k != ExecValueKind.EXEC_VALUE_TUPLE as i32 &&
+        k != ExecValueKind.EXEC_VALUE_SLICE as i32 &&
+        k != ExecValueKind.EXEC_VALUE_UNION as i32 &&
+        k != ExecValueKind.EXEC_VALUE_ERROR_UNION as i32 &&
+        exec_value_is_raw_array(value) == 0 {
+        return value[0];
     }
     if exec_value_is_raw_array(value) != 0 {
         const count: i32 = value.i64_value as i32;
@@ -716,6 +1771,111 @@ fn exec_value_count(value: &ExecValue) i32 {
     return 0;
 }
 
+/// 按 TypeKind 从原生内存读出一个标量值（定长数组元素用）。
+/// 参数：`type_kind` 元素 TypeKind；`addr` 元素起始地址。
+/// 返回值：元素值；不支持的类型返回 VOID。
+fn exec_value_load_native_scalar(type_kind: i32, addr: &byte) ExecValue {
+    if addr == null {
+        return exec_make_void();
+    }
+    if type_kind == TypeKind.TYPE_BOOL as i32 {
+        return exec_make_bool((addr[0] != 0) as i32);
+    }
+    if type_kind == TypeKind.TYPE_BYTE as i32 {
+        return exec_make_byte(addr[0] as i32);
+    }
+    if type_kind == TypeKind.TYPE_U8 as i32 {
+        return exec_make_u8(addr[0]);
+    }
+    if type_kind == TypeKind.TYPE_I8 as i32 {
+        const p: *i8 = addr as *i8;
+        return exec_make_i8(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_I16 as i32 {
+        const p: *i16 = addr as *i16;
+        return exec_make_i16(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_U16 as i32 {
+        const p: *u16 = addr as *u16;
+        return exec_make_u16(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_I32 as i32 || type_kind == TypeKind.TYPE_ENUM as i32 {
+        const p: *i32 = addr as *i32;
+        return exec_make_i32(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_U32 as i32 {
+        const p: *u32 = addr as *u32;
+        return exec_make_u32(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_F32 as i32 {
+        const p: *u32 = addr as *u32;
+        return exec_make_f32_bits(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_I64 as i32 {
+        const p: *i64 = addr as *i64;
+        return exec_make_i64(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_U64 as i32 {
+        const p: *u64 = addr as *u64;
+        return exec_make_u64(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_USIZE as i32 {
+        const p: *usize = addr as *usize;
+        return exec_make_usize(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_F64 as i32 {
+        const p: *u64 = addr as *u64;
+        return exec_make_f64_bits(p[0]);
+    }
+    if type_kind == TypeKind.TYPE_POINTER as i32 {
+        // 原生内存里的指针元素：取回地址，pointee 未知时按 void 处理。
+        const p: *usize = addr as *usize;
+        return exec_make_pointer_with_kind(p[0], TypeKind.TYPE_VOID as i32);
+    }
+    return exec_make_void();
+}
+
+/// 按 TypeKind 把一个标量值写进原生内存（定长数组元素用）。
+/// 参数：`type_kind` 元素 TypeKind；`addr` 元素起始地址；`value` 待写入的值。
+/// 返回值：0 写入成功；-1 表示类型不支持。
+fn exec_value_store_native_scalar(type_kind: i32, addr: &byte, value: &ExecValue) i32 {
+    if addr == null || value == null {
+        return -1;
+    }
+    if type_kind == TypeKind.TYPE_BOOL as i32 {
+        addr[0] = (value.i64_value != 0) as byte;
+        return 0;
+    }
+    if type_kind == TypeKind.TYPE_BYTE as i32 || type_kind == TypeKind.TYPE_U8 as i32 {
+        addr[0] = value.i64_value as byte;
+        return 0;
+    }
+    if type_kind == TypeKind.TYPE_I8 as i32 {
+        const p: *i8 = addr as *i8;
+        p[0] = value.i64_value as i8;
+        return 0;
+    }
+    if type_kind == TypeKind.TYPE_I16 as i32 || type_kind == TypeKind.TYPE_U16 as i32 {
+        const p: *u16 = addr as *u16;
+        p[0] = value.i64_value as u16;
+        return 0;
+    }
+    if type_kind == TypeKind.TYPE_I32 as i32 || type_kind == TypeKind.TYPE_U32 as i32 ||
+        type_kind == TypeKind.TYPE_ENUM as i32 || type_kind == TypeKind.TYPE_F32 as i32 {
+        const p: *u32 = addr as *u32;
+        p[0] = value.i64_value as u32;
+        return 0;
+    }
+    if type_kind == TypeKind.TYPE_I64 as i32 || type_kind == TypeKind.TYPE_U64 as i32 ||
+        type_kind == TypeKind.TYPE_USIZE as i32 || type_kind == TypeKind.TYPE_F64 as i32 ||
+        type_kind == TypeKind.TYPE_POINTER as i32 {
+        const p: *u64 = addr as *u64;
+        p[0] = value.i64_value as u64;
+        return 0;
+    }
+    return -1;
+}
+
 fn exec_value_get_index(value: &ExecValue, idx: i32) ExecValue {
     if value == null {
         return exec_make_void();
@@ -726,21 +1886,12 @@ fn exec_value_get_index(value: &ExecValue, idx: i32) ExecValue {
             return exec_make_void();
         }
         const raw_kind: i32 = exec_value_raw_array_element_kind(value);
-        const raw_ptr: &byte = value.ptr_value + idx;
-        if raw_kind == TypeKind.TYPE_BOOL as i32 {
-            return exec_make_bool((raw_ptr[0] != 0) as i32);
+        const raw_elem_size: usize = exec_vm_type_kind_size(raw_kind);
+        if raw_elem_size == 0 as usize {
+            return exec_make_void();
         }
-        if raw_kind == TypeKind.TYPE_I8 as i32 {
-            const raw_i8: &i8 = raw_ptr as &i8;
-            return exec_make_i8(raw_i8[0]);
-        }
-        if raw_kind == TypeKind.TYPE_U8 as i32 {
-            return exec_make_u8(raw_ptr[0]);
-        }
-        if raw_kind == TypeKind.TYPE_BYTE as i32 {
-            return exec_make_byte(raw_ptr[0] as i32);
-        }
-        return exec_make_void();
+        const raw_addr: usize = @usize_from_ptr(value.ptr_value as &void) + raw_elem_size * (idx as usize);
+        return exec_value_load_native_scalar(raw_kind, @ptr_from_usize(raw_addr) as &byte);
     }
     if value.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
         value.kind == ExecValueKind.EXEC_VALUE_TUPLE ||
@@ -760,20 +1911,14 @@ fn exec_value_get_index(value: &ExecValue, idx: i32) ExecValue {
             if slice_data.raw_ptr == null {
                 return exec_make_void();
             }
-            if slice_data.elem_kind_code == TypeKind.TYPE_BOOL as i32 {
-                return exec_make_bool((slice_data.raw_ptr[idx] != 0) as i32);
+            const raw_slice_kind: i32 = slice_data.elem_kind_code;
+            const raw_slice_size: usize = exec_vm_type_kind_size(raw_slice_kind);
+            if raw_slice_size == 0 as usize {
+                return exec_make_void();
             }
-            if slice_data.elem_kind_code == TypeKind.TYPE_I8 as i32 {
-                const raw_i8: &i8 = (slice_data.raw_ptr + idx) as &i8;
-                return exec_make_i8(raw_i8[0]);
-            }
-            if slice_data.elem_kind_code == TypeKind.TYPE_U8 as i32 {
-                return exec_make_u8(slice_data.raw_ptr[idx]);
-            }
-            if slice_data.elem_kind_code == TypeKind.TYPE_BYTE as i32 {
-                return exec_make_byte(slice_data.raw_ptr[idx] as i32);
-            }
-            return exec_make_void();
+            const raw_slice_addr: usize = @usize_from_ptr(slice_data.raw_ptr as &void) +
+                raw_slice_size * (idx as usize);
+            return exec_value_load_native_scalar(raw_slice_kind, @ptr_from_usize(raw_slice_addr) as &byte);
         }
         return slice_data.aggregate.values[slice_data.start +| idx];
     }
@@ -790,18 +1935,12 @@ fn exec_value_set_index(dst: &ExecValue, idx: i32, value: &ExecValue) i32 {
             return -1;
         }
         const raw_kind: i32 = exec_value_raw_array_element_kind(dst);
-        const raw_ptr: &byte = dst.ptr_value + idx;
-        if raw_kind == TypeKind.TYPE_BOOL as i32 {
-            raw_ptr[0] = (value.i64_value != 0) as byte;
-            return 0;
+        const raw_elem_size: usize = exec_vm_type_kind_size(raw_kind);
+        if raw_elem_size == 0 as usize {
+            return -1;
         }
-        if raw_kind == TypeKind.TYPE_I8 as i32 {
-            const raw_i8: &i8 = raw_ptr as &i8;
-            raw_i8[0] = value.i64_value as i8;
-            return 0;
-        }
-        raw_ptr[0] = value.i64_value as byte;
-        return 0;
+        const raw_addr: usize = @usize_from_ptr(dst.ptr_value as &void) + raw_elem_size * (idx as usize);
+        return exec_value_store_native_scalar(raw_kind, @ptr_from_usize(raw_addr) as &byte, value);
     }
     if dst.kind == ExecValueKind.EXEC_VALUE_ARRAY ||
         dst.kind == ExecValueKind.EXEC_VALUE_TUPLE ||
@@ -822,17 +1961,14 @@ fn exec_value_set_index(dst: &ExecValue, idx: i32, value: &ExecValue) i32 {
             if slice_data.raw_ptr == null {
                 return -1;
             }
-            if slice_data.elem_kind_code == TypeKind.TYPE_BOOL as i32 {
-                slice_data.raw_ptr[idx] = (value.i64_value != 0) as byte;
-                return 0;
+            const raw_slice_kind2: i32 = slice_data.elem_kind_code;
+            const raw_slice_size2: usize = exec_vm_type_kind_size(raw_slice_kind2);
+            if raw_slice_size2 == 0 as usize {
+                return -1;
             }
-            if slice_data.elem_kind_code == TypeKind.TYPE_I8 as i32 {
-                const raw_i8: &i8 = (slice_data.raw_ptr + idx) as &i8;
-                raw_i8[0] = value.i64_value as i8;
-                return 0;
-            }
-            slice_data.raw_ptr[idx] = value.i64_value as byte;
-            return 0;
+            const raw_slice_addr2: usize = @usize_from_ptr(slice_data.raw_ptr as &void) +
+                raw_slice_size2 * (idx as usize);
+            return exec_value_store_native_scalar(raw_slice_kind2, @ptr_from_usize(raw_slice_addr2) as &byte, value);
         }
         slice_data.aggregate.values[slice_data.start +| idx] = exec_value_clone(value);
         return 0;
@@ -939,11 +2075,23 @@ fn exec_value_truthy(value: ExecValue) i32 {
     return 0;
 }
 
+/// 取错误值/错误联合携带的错误 id。
+///
+/// 错误联合的 `error_id` 字段在 **ok** 状态下被借去保存载荷的 aux 位
+/// （指针的 pointee kind、裸数组的元素类型码、向量通道数），不能当成
+/// 错误 id 返回：`const r: !&byte = ...; r.error_id` 否则会读到 10
+/// （BYTE 的 TypeKind），把成功值误判成 `error.Bad`。
+///
+/// 参数：`value` 错误值或错误联合值。
+/// 返回值：错误 id；ok 状态与非错误值一律返回 0。
 fn exec_value_error_id(value: ExecValue) i32 {
     if value.kind == ExecValueKind.EXEC_VALUE_ERROR {
         return value.error_id;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_ERROR_UNION {
+        if value.i64_value == 0 {
+            return 0;
+        }
         return value.error_id;
     }
     return 0;
@@ -956,12 +2104,25 @@ fn exec_value_is_pointer_like(value: ExecValue) i32 {
     return 0;
 }
 
+/// 指针元素的 TypeKind 编码。
+///
+/// 解释器把「内部引用」编码进 aux（`65536 + 真实 kind`、`131072 + 真实 kind`），
+/// 这里还原成真实 kind，否则按元素尺寸做指针算术/下标一律算成 0。
+/// 参数：`value` 指针值。
+/// 返回值：元素类型的 TypeKind 编码。
 fn exec_value_pointer_pointee_kind(value: &ExecValue) i32 {
     if value == null {
         return TypeKind.TYPE_VOID as i32;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_POINTER {
-        return value.aux_i64_value as i32;
+        const raw_kind: i32 = value.aux_i64_value as i32;
+        if raw_kind >= 131072 {
+            return raw_kind - 131072;
+        }
+        if raw_kind >= 65536 {
+            return raw_kind - 65536;
+        }
+        return raw_kind;
     }
     if value.kind == ExecValueKind.EXEC_VALUE_STRING {
         return TypeKind.TYPE_BYTE as i32;

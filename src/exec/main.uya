@@ -30,6 +30,10 @@ var g_exec_bc_program: &BCProgram = null;
 var g_exec_last_lower_time_ms: i64 = 0;
 var g_exec_last_bytecode_build_time_ms: i64 = 0;
 var g_exec_last_vm_run_time_ms: i64 = 0;
+// `run`/`test` 的 `--` 之后那段参数（被解释程序的 argv）。解释器没有 C 运行时的
+// `uya_rt_init(argc, argv)`，所以由编译器入口显式注入。
+var g_exec_program_argc: i32 = 0;
+var g_exec_program_argv: & &byte = null;
 
 fn exec_write_error_prefix(node: &ASTNode) i32 {
     if node != null && node.filename != null {
@@ -222,6 +226,10 @@ export fn exec_build_program(checker: &TypeChecker, program: &ASTNode, module_na
         return 1;
     }
     g_exec_bc_program = bytecode;
+    // @c_import：把导入的 C 源编成「按符号名调用」的桥程序（解释器进程内没有 dlopen）。
+    if exec_c_import_prepare_bridge(program) != 0 {
+        return 1;
+    }
     if g_exec_dump_bytecode_enabled != 0 {
         exec_debug_dump_bytecode(bytecode);
     }
@@ -229,6 +237,229 @@ export fn exec_build_program(checker: &TypeChecker, program: &ASTNode, module_na
         fprintf(libc.stderr, "exec backend 已构建: %s\n" as *byte, module_name as *byte);
     }
     return 0;
+}
+
+// ============================================================
+// @c_import：把导入的 C 源编译成一个「按符号名调用」的桥程序
+// ============================================================
+// 编译器自身是 -nostdlib 静态链接（没有 dlopen），解释器不能进程内加载 .so。
+// 折中做法：把 @c_import 的源和一个生成的 main() 一起编成独立可执行文件，
+// 每次调用通过 `system("<bridge> <name> <args...> > <out>")` 走一遍子进程，
+// 读回结果。调用次数少（测试/胶水代码），开销可接受。
+var g_exec_c_import_bridge_path: [byte: 512] = [];
+
+fn exec_c_import_is_candidate_extern(decl: &ASTNode) i32 {
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL {
+        return 0;
+    }
+    if decl.fn_decl_body != null || decl.fn_decl_name == null {
+        return 0;
+    }
+    // 名字里带非标识符字符的跳过（`__atomic_*` 之类由宿主桥负责）。
+    const name: &byte = decl.fn_decl_name;
+    if name[0] == 95 as byte && name[1] == 95 as byte {
+        return 0;
+    }
+    return 1;
+}
+
+fn exec_c_import_append(buf: &byte, cap: usize, text: &byte) i32 {
+    if buf == null || text == null {
+        return 0;
+    }
+    const used: usize = strlen(buf as &const byte);
+    const need: usize = strlen(text as &const byte);
+    if used +| need +| 2usize >= cap {
+        return 0;
+    }
+    _ = strcat(buf as *byte, text as *byte);
+    _ = strcat(buf as *byte, " " as *byte);
+    return 1;
+}
+
+/// 生成并编译 @c_import 的桥程序。返回 0 表示成功或无需桥。
+fn exec_c_import_prepare_bridge(program: &ASTNode) i32 {
+    g_exec_c_import_bridge_path[0] = 0 as byte;
+    if g_exec_c_import_present == 0 || program == null {
+        return 0;
+    }
+    var sources: [byte: 2048] = [];
+    var cflags: [byte: 1024] = [];
+    var extern_names: [&byte: 128] = [];
+    var extern_argc: [i32: 128] = [];
+    var extern_count: i32 = 0;
+    // 只有「与 @c_import 同一个源文件里声明的裸 extern」才是导入 C 的符号；
+    // 运行库里那些 bodyless extern（printf/_exit 等）由宿主桥或 libc 负责，
+    // 混进桥程序会编不过（原型冲突 / 未声明）。
+    var host_files: [&byte: 32] = [];
+    var host_file_count: i32 = 0;
+    var fi: i32 = 0;
+    while fi < program.program_decl_count {
+        const fd: &ASTNode = program.program_decls[fi];
+        if fd != null && fd.type == ASTNodeType.AST_C_IMPORT_DECL && fd.filename != null &&
+            host_file_count < 32 {
+            var seen: i32 = 0;
+            var fj: i32 = 0;
+            while fj < host_file_count {
+                if host_files[fj] != null && strcmp(host_files[fj] as *byte, fd.filename as *byte) == 0 {
+                    seen = 1;
+                }
+                fj = fj +| 1;
+            }
+            if seen == 0 {
+                host_files[host_file_count] = fd.filename;
+                host_file_count = host_file_count +| 1;
+            }
+        }
+        fi = fi +| 1;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_C_IMPORT_DECL {
+            var pj: i32 = 0;
+            while pj < decl.c_import_expanded_count {
+                const src: &byte = decl.c_import_expanded_paths[pj];
+                if src != null {
+                    _ = exec_c_import_append(&sources[0], 2048usize, src);
+                }
+                pj = pj +| 1;
+            }
+            if decl.c_import_cflags_normalized != null && decl.c_import_cflags_normalized[0] != 0 as byte {
+                _ = exec_c_import_append(&cflags[0], 1024usize, decl.c_import_cflags_normalized);
+            }
+        } else if exec_c_import_is_candidate_extern(decl) != 0 && extern_count < 128 {
+            var in_host_file: i32 = 0;
+            var hf: i32 = 0;
+            while hf < host_file_count {
+                if host_files[hf] != null && decl.filename != null &&
+                    strcmp(host_files[hf] as *byte, decl.filename as *byte) == 0 {
+                    in_host_file = 1;
+                }
+                hf = hf +| 1;
+            }
+            if in_host_file != 0 {
+                extern_names[extern_count] = decl.fn_decl_name;
+                extern_argc[extern_count] = decl.fn_decl_param_count;
+                extern_count = extern_count +| 1;
+            }
+        }
+        i = i + 1;
+    }
+    if sources[0] == 0 as byte || extern_count == 0 {
+        return 0;
+    }
+    var gen: [byte: 32768] = [];
+    _ = snprintf(&gen[0], 32768usize,
+        "#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n" as *byte);
+    // 逐条 #include 源文件（避免空格切分问题，sources 里逐条拼过）
+    var si: i32 = 0;
+    while si < program.program_decl_count {
+        const d2: &ASTNode = program.program_decls[si];
+        if d2 != null && d2.type == ASTNodeType.AST_C_IMPORT_DECL {
+            var pj2: i32 = 0;
+            while pj2 < d2.c_import_expanded_count {
+                const s2: &byte = d2.c_import_expanded_paths[pj2];
+                // 去重：目录导入会展开出与显式导入相同的文件，重复 #include 会
+                // 变成 C 侧的 redefinition。
+                var dup: i32 = 0;
+                if s2 != null {
+                    var dj: i32 = 0;
+                    while dj < pj2 {
+                        const prev: &byte = d2.c_import_expanded_paths[dj];
+                        if prev != null && strcmp(prev as *byte, s2 as *byte) == 0 {
+                            dup = 1;
+                        }
+                        dj = dj +| 1;
+                    }
+                    // 跨 decl 去重
+                    var dk: i32 = 0;
+                    while dk < si {
+                        const pd: &ASTNode = program.program_decls[dk];
+                        if pd != null && pd.type == ASTNodeType.AST_C_IMPORT_DECL {
+                            var pk: i32 = 0;
+                            while pk < pd.c_import_expanded_count {
+                                const pv: &byte = pd.c_import_expanded_paths[pk];
+                                if pv != null && strcmp(pv as *byte, s2 as *byte) == 0 {
+                                    dup = 1;
+                                }
+                                pk = pk +| 1;
+                            }
+                        }
+                        dk = dk +| 1;
+                    }
+                }
+                if s2 != null && dup == 0 {
+                    _ = strcat(&gen[0] as *byte, "#include \"" as *byte);
+                    _ = strcat(&gen[0] as *byte, s2 as *byte);
+                    _ = strcat(&gen[0] as *byte, "\"\n" as *byte);
+                }
+                pj2 = pj2 +| 1;
+            }
+        }
+        si = si +| 1;
+    }
+    _ = strcat(&gen[0] as *byte, "int main(int argc, char **argv) {\n" as *byte);
+    _ = strcat(&gen[0] as *byte, "    long long a0=0,a1=0,a2=0,a3=0,a4=0,a5=0;\n" as *byte);
+    _ = strcat(&gen[0] as *byte, "    if (argc > 2) a0 = atoll(argv[2]);\n" as *byte);
+    _ = strcat(&gen[0] as *byte, "    if (argc > 3) a1 = atoll(argv[3]);\n" as *byte);
+    _ = strcat(&gen[0] as *byte, "    if (argc > 4) a2 = atoll(argv[4]);\n" as *byte);
+    _ = strcat(&gen[0] as *byte, "    if (argc > 5) a3 = atoll(argv[5]);\n" as *byte);
+    _ = strcat(&gen[0] as *byte, "    if (argc > 6) a4 = atoll(argv[6]);\n" as *byte);
+    _ = strcat(&gen[0] as *byte, "    if (argc > 7) a5 = atoll(argv[7]);\n" as *byte);
+    _ = strcat(&gen[0] as *byte, "    long long r = 0; int handled = 0;\n" as *byte);
+    var ei: i32 = 0;
+    while ei < extern_count {
+        const nm: &byte = extern_names[ei];
+        _ = strcat(&gen[0] as *byte, "    if (strcmp(argv[1], \"" as *byte);
+        _ = strcat(&gen[0] as *byte, nm as *byte);
+        _ = strcat(&gen[0] as *byte, "\") == 0) { r = ((long long (*)())(void *)&" as *byte);
+        _ = strcat(&gen[0] as *byte, nm as *byte);
+        _ = strcat(&gen[0] as *byte, ")(" as *byte);
+        var ai: i32 = 0;
+        while ai < extern_argc[ei] && ai < 6 {
+            if ai > 0 { _ = strcat(&gen[0] as *byte, "," as *byte); }
+            _ = strcat(&gen[0] as *byte, "a" as *byte);
+            var digit: [byte: 4] = [];
+            _ = snprintf(&digit[0], 4usize, "%d" as *byte, ai);
+            _ = strcat(&gen[0] as *byte, &digit[0] as *byte);
+            ai = ai +| 1;
+        }
+        _ = strcat(&gen[0] as *byte, "); handled = 1; }\n" as *byte);
+        ei = ei +| 1;
+    }
+    _ = strcat(&gen[0] as *byte, "    if (!handled) { return 3; }\n    printf(\"%lld\\n\", r);\n    return 0;\n}\n" as *byte);
+
+    const pid: i32 = getpid();
+    var c_path: [byte: 256] = [];
+    var bin_path: [byte: 256] = [];
+    _ = snprintf(&c_path[0], 256usize, "/tmp/uya_cimport_%d.c" as *byte, pid);
+    _ = snprintf(&bin_path[0], 256usize, "/tmp/uya_cimport_%d.bin" as *byte, pid);
+    const cf: &FILE = fopen(&c_path[0] as &const byte, "w" as &const byte);
+    if cf == null { return 1; }
+    _ = fputs(&gen[0] as &const byte, cf as *void);
+    _ = fclose(cf as *void);
+    var cmd: [byte: 4096] = [];
+    _ = snprintf(&cmd[0], 4096usize, "cc -O0 -w -o %s %s %s" as *byte, &bin_path[0] as *byte,
+        &c_path[0] as *byte, &cflags[0] as *byte);
+    const rc: i32 = system(&cmd[0] as &const byte);
+    if rc != 0 {
+        fprintf(libc.stderr, "exec: @c_import 桥编译失败: %s\n" as *byte, &cmd[0] as *byte);
+        return 1;
+    }
+    var k: i32 = 0;
+    while k < 256 && bin_path[k] != 0 as byte { g_exec_c_import_bridge_path[k] = bin_path[k]; k = k + 1; }
+    g_exec_c_import_bridge_path[k] = 0 as byte;
+    return 0;
+}
+
+/// 登记被解释程序的命令行参数（`run`/`test` 的 `--` 之后那一段）。
+/// 参数：`argc` 参数个数（含程序名）；`argv` 参数表（`argv[0]` 是程序名）。
+/// 返回值：无。下一次 `exec_run_program()` 会把它们注入
+/// `std.runtime.saved_argc` / `saved_argv`。
+export fn exec_set_program_args(argc: i32, argv: & &byte) void {
+    g_exec_program_argc = argc;
+    g_exec_program_argv = argv;
 }
 
 /// 运行最近一次由 exec backend 构建完成的程序。
@@ -239,6 +470,8 @@ export fn exec_run_program() i32 {
         exec_backend_set_error(null, "exec: 尚无可运行的 bytecode 程序" as *byte, 0);
         return 1;
     }
+    g_exec_bc_program.host_argc = g_exec_program_argc;
+    g_exec_bc_program.host_argv = g_exec_program_argv;
     const run_start_time: i64 = clock();
     const exit_code: i32 = vm_run_program(g_exec_bc_program, g_exec_trace_vm_enabled);
     // VM 在编译器进程内运行，Uya stdio 带行/块缓冲：返回前显式 flush，

@@ -329,6 +329,13 @@ fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode, init_ctx_typ
     if expr == null {
         return;
     }
+    const saved_in_global_init: i32 = codegen.in_global_init;
+    codegen.in_global_init = 1;
+    gen_global_init_expr_inner(codegen, expr, init_ctx_type);
+    codegen.in_global_init = saved_in_global_init;
+}
+
+fn gen_global_init_expr_inner(codegen: &C99CodeGenerator, expr: &ASTNode, init_ctx_type: &ASTNode) void {
 
     if init_ctx_type != null && c99_emit_interface_box_global_init(codegen, init_ctx_type, expr) != 0 {
         return;
@@ -483,6 +490,82 @@ fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode, init_ctx_typ
 }
 
 // 生成全局变量定义
+// ============================================================
+// 运行期全局初始化（`var g: i32 = init_fn();`）
+// ============================================================
+// C 的静态初始化器必须是常量表达式，而 Uya 允许全局变量用函数调用初始化
+// （exec VM 就是照 Uya 语义逐条执行）。这类声明改成「先留空定义，再把赋值
+// 收集到 __uya_rt_init_globals()，由 main_main 开头调用一次」。
+const C99_MAX_DYNAMIC_GLOBALS: i32 = 256;
+
+var g_c99_dyn_global_names: [&byte: 256] = [];
+var g_c99_dyn_global_exprs: [&ASTNode: 256] = [];
+var g_c99_dyn_global_types: [&ASTNode: 256] = [];
+var g_c99_dyn_global_count: i32 = 0;
+var g_c99_dyn_global_emitted: i32 = 0;
+var g_c99_dyn_global_declared: i32 = 0;
+
+fn c99_global_init_contains_call(expr: &ASTNode) i32 {
+    if expr == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_CALL_EXPR {
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return 0;
+    }
+    return 0;
+}
+
+fn c99_register_dynamic_global_init(name: &byte, expr: &ASTNode, init_type: &ASTNode) void {
+    if name == null || expr == null {
+        return;
+    }
+    if g_c99_dyn_global_count < 0 || g_c99_dyn_global_count >= C99_MAX_DYNAMIC_GLOBALS {
+        return;
+    }
+    const idx: i32 = g_c99_dyn_global_count;
+    g_c99_dyn_global_names[idx] = name;
+    g_c99_dyn_global_exprs[idx] = expr;
+    g_c99_dyn_global_types[idx] = init_type;
+    g_c99_dyn_global_count = idx + 1;
+}
+
+fn c99_dynamic_global_init_count() i32 {
+    return g_c99_dyn_global_count;
+}
+
+/// 前置声明：`export fn main` 就是 C 入口，调用点可能早于定义。
+fn c99_emit_dynamic_global_init_prototype(codegen: &C99CodeGenerator) void {
+    if codegen == null || g_c99_dyn_global_count <= 0 || g_c99_dyn_global_declared != 0 {
+        return;
+    }
+    g_c99_dyn_global_declared = 1;
+    fputs("static void __uya_rt_init_globals(void);\n" as *byte, codegen.emit_stream as *void);
+}
+
+fn c99_emit_dynamic_global_inits(codegen: &C99CodeGenerator) void {
+    if codegen == null || g_c99_dyn_global_count <= 0 || g_c99_dyn_global_emitted != 0 {
+        return;
+    }
+    g_c99_dyn_global_emitted = 1;
+    fputs("static void __uya_rt_init_globals(void) {\n" as *byte, codegen.emit_stream as *void);
+    var i: i32 = 0;
+    while i < g_c99_dyn_global_count {
+        const gname: &byte = g_c99_dyn_global_names[i];
+        const gexpr: &ASTNode = g_c99_dyn_global_exprs[i];
+        const gtype: &ASTNode = g_c99_dyn_global_types[i];
+        if gname != null && gexpr != null {
+            fprintf(codegen.emit_stream as *void, "    %s = " as *byte, gname as *byte);
+            gen_global_init_expr(codegen, gexpr, gtype);
+            fputs(";\n" as *byte, codegen.emit_stream as *void);
+        }
+        i = i + 1;
+    }
+    fputs("}\n\n" as *byte, codegen.emit_stream as *void);
+}
+
 fn gen_global_var(codegen: &C99CodeGenerator, var_decl: &ASTNode) void {
     if var_decl == null || var_decl.type != ASTNodeType.AST_VAR_DECL {
         return;
@@ -507,6 +590,9 @@ fn gen_global_var(codegen: &C99CodeGenerator, var_decl: &ASTNode) void {
     c99_emit_global_macro_undef_guard(codegen, var_name);
 
     fputs("__attribute__((used)) " as *byte, codegen.emit_stream as *void);
+    if var_decl.var_decl_is_thread_local != 0 {
+        fputs("_Thread_local " as *byte, codegen.emit_stream as *void);
+    }
     
     var type_c: &byte = null;
     
@@ -582,8 +668,14 @@ fn gen_global_var(codegen: &C99CodeGenerator, var_decl: &ASTNode) void {
     
     // 初始化表达式（使用全局作用域兼容的生成方式）
     if init_expr != null {
-        fputs(" = " as *byte, codegen.emit_stream as *void);
-        gen_global_init_expr(codegen, init_expr, var_type);
+        if c99_global_init_contains_call(init_expr) != 0 && codegen.split_dir == null {
+            // 非常量初始化器：C 静态初始化不合法，改由 __uya_rt_init_globals 运行期赋值。
+            // split-C（多文件并行）下初始化器可能落在与 main_main 不同的 TU，暂不接管。
+            c99_register_dynamic_global_init(var_name, init_expr, var_type);
+        } else {
+            fputs(" = " as *byte, codegen.emit_stream as *void);
+            gen_global_init_expr(codegen, init_expr, var_type);
+        }
     }
     
     c99_emit_semi_newline(codegen);
@@ -1054,8 +1146,13 @@ fn gen_extern_var_decl(codegen: &C99CodeGenerator, node: &ASTNode) void {
         }
 
         if init_expr != null {
-            fputs(" = " as *byte, codegen.emit_stream as *void);
-            gen_global_init_expr(codegen, init_expr, var_type);
+            if c99_global_init_contains_call(init_expr) != 0 && codegen.split_dir == null {
+                // 同 gen_global_var：非常量初始化器留空，由 __uya_rt_init_globals 赋值。
+                c99_register_dynamic_global_init(var_name, init_expr, var_type);
+            } else {
+                fputs(" = " as *byte, codegen.emit_stream as *void);
+                gen_global_init_expr(codegen, init_expr, var_type);
+            }
         }
 
         c99_emit_semi_newline(codegen);
@@ -1073,8 +1170,34 @@ fn gen_extern_var_decl(codegen: &C99CodeGenerator, node: &ASTNode) void {
 }
 
 // 镜像分 TU：c99_type_to_c 对数组得到 "uint8_t[4096]"，C 的 extern 须写为 "extern uint8_t name[4096];"
-fn c99_mirror_emit_extern_global_line(codegen: &C99CodeGenerator, tc: &byte, cname: &byte, is_const: i32) void {
+fn c99_mirror_emit_extern_global_line(codegen: &C99CodeGenerator, tc: &byte, cname: &byte, is_const: i32, is_tls: i32) void {
     if codegen == null || tc == null || cname == null {
+        return;
+    }
+    // @thread_local 全局：镜像头里的前向声明必须同为 _Thread_local，
+    // 否则 C 编译器会报「thread-local declaration follows non-thread-local declaration」。
+    if is_tls != 0 {
+        c99_emit_global_macro_undef_guard(codegen, cname);
+        const tfb: *byte = strchr(tc as *byte, 91);
+        if tfb != null {
+            const tblen: i32 = ptr_diff(tfb, tc as *byte);
+            const tbt: &u8 = compiler_arena_alloc(codegen.arena, tblen + 1) as &u8;
+            if tbt != null {
+                memcpy(tbt as *void, tc as *void, tblen);
+                tbt[tblen] = 0;
+                if is_const != 0 && c99_c_type_str_leading_const(tbt) == 0 {
+                    fprintf(codegen.emit_stream as *void, "extern _Thread_local const %s %s%s;\n" as *byte, tbt as *byte, cname as *byte, tfb);
+                } else {
+                    fprintf(codegen.emit_stream as *void, "extern _Thread_local %s %s%s;\n" as *byte, tbt as *byte, cname as *byte, tfb);
+                }
+                return;
+            }
+        }
+        if is_const != 0 && c99_c_type_str_leading_const(tc) == 0 {
+            fprintf(codegen.emit_stream as *void, "extern _Thread_local const %s %s;\n" as *byte, tc as *byte, cname as *byte);
+        } else {
+            fprintf(codegen.emit_stream as *void, "extern _Thread_local %s %s;\n" as *byte, tc as *byte, cname as *byte);
+        }
         return;
     }
     // 镜像头在每个 TU 里紧随系统头被包含，同名宏同样会吞掉这条 extern，先撤销宏。
@@ -1154,7 +1277,7 @@ export fn c99_mirror_emit_extern_const_fwd(codegen: &C99CodeGenerator, program: 
                     di = di + 1;
                     continue;
                 }
-                c99_mirror_emit_extern_global_line(codegen, tc, cname, decl.var_decl_is_const);
+                c99_mirror_emit_extern_global_line(codegen, tc, cname, decl.var_decl_is_const, decl.var_decl_is_thread_local);
             }
         } else if decl != null && decl.type == ASTNodeType.AST_EXTERN_VAR_DECL && decl.extern_var_decl_name != null &&
             decl.extern_var_decl_var_type != null {
@@ -1204,7 +1327,7 @@ export fn c99_mirror_emit_extern_const_fwd(codegen: &C99CodeGenerator, program: 
                 di = di + 1;
                 continue;
             }
-            c99_mirror_emit_extern_global_line(codegen, tc, cname, decl.extern_var_decl_is_const);
+            c99_mirror_emit_extern_global_line(codegen, tc, cname, decl.extern_var_decl_is_const, 0);
         }
         di = di + 1;
     }

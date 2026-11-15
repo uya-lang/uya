@@ -1,6 +1,6 @@
 # Uya 语言正式语法规范（Formal BNF）
 
-> **版本**：与 [uya.md](./uya.md) 0.49.56 同步（2026-10-23）
+> **版本**：与 [uya.md](./uya.md) 0.49.57 同步（2026-11-07）
 
 本文档包含 Uya 语言的完整、无歧义的 BNF 语法定义，用于：
 - 编译器/解析器实现
@@ -81,7 +81,10 @@ constraint_list = ID { '+' ID }
 ```
 struct_decl    = [ 'opaque' ] 'struct' ID [ '<' type_param_list '>' ] [ ':' interface_list ] '{' struct_body '}'
 interface_list = ID { ',' ID }
-struct_body    = ( field_list | method_list | field_list method_list )
+struct_body    = { struct_item }
+struct_item    = field | method_decl | overlap_block
+overlap_block  = 'union' '{' overlap_group { ','? overlap_group } '}'
+overlap_group  = 'struct' '{' field_list '}'
 field_list     = field { ',' field }
 field          = ID ':' type
 method_list    = method_decl { method_decl }
@@ -90,6 +93,18 @@ method_decl    = [ async_fn_attr ] 'fn' ID [ '<' type_param_list '>' ] '(' [ par
 **补充规则**：
 - `drop` 只能在结构体 / 联合体内部或对应方法块中声明为 `fn drop(self: T) void { ... }`。
 - `drop` 不是用户可显式调用的普通函数；`drop(x)`、`T.drop(x)`、`x.drop()` 都是编译错误。
+- **匿名 union 重叠块**（`overlap_block`，0.49.57 新增）：块内每个 `struct { ... }` 是一组
+  **互斥使用**的字段，不同组共享同一段存储；字段仍按 `value.field` 访问，不需要 `match`。
+  - 布局按 C99 原生布局计算：普通字段顺序排布；重叠块从「按块内最大对齐向上取整」的偏移开始，
+    块大小取各组大小的最大值（各组从块首偏移 0 起算），结构体总大小再按结构体最大对齐收尾。
+  - 同一结构体内（含不同组之间）字段名必须唯一：生成的 C 是匿名 union 的匿名 struct 成员，
+    同名成员在 C 里冲突。
+  - 含重叠块的结构体**不能用结构体字面量初始化**（`T{ ... }`）：字面量按名字逐字段赋值会同时写
+    多个组、互相覆盖。用 `var x: T;` 后逐字段赋值，或 `memset` 清零。
+  - 生成的 C 形如 `__extension__ union { __extension__ struct { ... }; ... };`，`-std=c99`
+    下仍是合法扩展（`__extension__` 同时压掉 `-pedantic` 诊断）。
+  - VM 后端对重叠组只按原生内存（C 布局）访问；VM 侧的结构体聚合值不体现重叠，
+    因此重叠结构体的指针必须指向原生内存（C 侧对象、`malloc`、arena 等）。
 
 # 结构体外部方法定义（方式2）
 struct_method_block = ID '{' method_list '}'

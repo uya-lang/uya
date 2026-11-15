@@ -90,9 +90,32 @@ export fn get_async_frame_allocator() &IAllocator {
     return _uya_get_default_async_frame_allocator();
 }
 
+/// exec VM 专用：`@async_fn` 入口的帧分配探测。
+///
+/// C99 后端给每个 `@async_fn` 生成一个 per-function 帧分配器：只要显式设了
+/// `set_async_frame_allocator`，它就一律委托给那个分配器，分配失败让调用方
+/// 返回 `error.AsyncFramePoolFull`。VM 后端把 async 函数当同步函数跑、不需要
+/// 真帧，但为了让这条语义在 VM 上也能被观察到，入口处仍探一次「这个大小分配
+/// 得出来吗」，成功立刻归还（不占内存），失败由调用方返回 `AsyncFramePoolFull`。
+/// 参数说明：size 为帧字节数（含分配头，与 C99 生成的分配请求一致）。
+/// 返回值说明：true 表示当前分配器拒绝了这次分配。
+export fn _uya_async_frame_probe(size: usize) bool {
+    const alloc_ptr: &IAllocator = get_async_frame_allocator();
+    if alloc_ptr == null {
+        return false;
+    }
+    const alloc: IAllocator = *alloc_ptr;
+    const frame_res: !&byte = alloc.alloc(size);
+    const frame_ptr: &byte = frame_res catch {
+        return true;
+    };
+    alloc.dealloc(frame_ptr);
+    return false;
+}
+
 /// 供接口 box / async helper 复用的分配入口：优先当前线程的 async frame allocator。
 export fn async_box_alloc_current(size: usize) &byte {
-    const header_size: usize = @size_of(usize) *| 2;
+    const header_size: usize = (@size_of(usize) as usize) *| 2;
     const total_size: usize = header_size + size;
     const alloc_ptr: &IAllocator = get_async_frame_allocator();
     var raw_ptr: &byte = null;
@@ -119,7 +142,7 @@ export fn async_box_free_current(ptr: &byte) void {
     if ptr == null {
         return;
     }
-    const header_size: usize = @size_of(usize) *| 2;
+    const header_size: usize = (@size_of(usize) as usize) *| 2;
     const raw_ptr: &byte = (ptr as usize - header_size) as &byte;
     const header: &usize = raw_ptr as &usize;
     const alloc_ptr: usize = *header;
@@ -176,6 +199,16 @@ fn waker_eventfd_drain(fd: i32) void {
         }
     }
 }
+
+/// `block_on` 在 exec VM 下给 waker 打的「我在真的阻塞等」哨兵。
+///
+/// 说明：解释器是串行的，没有别的线程会推进任务；线程池的等待点
+/// （`thread_pool_progress_once_for_wait`）用 `Waker._event_fd` 区分
+/// 「测试自建的空 waker（要保住入队/已派发的中间态）」和「调度器驱动」。
+/// `block_on` 是真正等结果的语义，等同于调度器驱动，所以打一个非 0 哨兵。
+/// C99 侧任务由真 worker 线程执行，**不能**打哨兵：等待点会同步 drain 队列，
+/// 和真 worker 抢同一批任务造成重复执行。
+const WAKER_DRIVEN_BY_BLOCK_ON: i32 = 0 - 2;
 
 const WAKER_WAKE_SOURCE_NONE: i32 = 0;
 const WAKER_WAKE_SOURCE_EXPLICIT: i32 = 1;
@@ -504,16 +537,68 @@ export fn task_ready_ok<T>(value: T) Task<!T> {
     return Task<!T>{ state: poll_ready_ok<T>(value) };
 }
 
+/// 把 waker 的 interest 编码翻成 `poll(2)` 的 events 位。
+/// 1(READABLE)→POLLIN(1)、2(WRITABLE)→POLLOUT(4)、3(RDWR)→5。
+fn block_on_poll_events(interest: i32) i16 {
+    var ev: i32 = 0;
+    if interest == WAKER_INTEREST_READABLE || interest == 3 {
+        ev = ev | 1;
+    }
+    if interest == WAKER_INTEREST_WRITABLE || interest == 3 {
+        ev = ev | 4;
+    }
+    return ev as i16;
+}
+
+/// `block_on` 拿到 `Pending` 后真正等一次 I/O。
+///
+/// 纯自旋的 `block_on` 在原实现里会「立刻重新 poll」，可 I/O 还没就绪，
+/// 于是空转到天荒地老（VM 里没有别的线程推进 socket）。
+/// 这里把 waker 上登记的 fd 交 `poll(2)` 等一小段，事件到了再回主循环重 poll。
+/// 没有登记任何 fd（纯计算 future）时立即返回，行为与原来一致。
+///
+/// 参数说明：`w` 刚从 `poll` 拿回来的 waker。
+/// 返回值说明：无。超时也会返回，由上层的 `while true` 继续重试。
+fn block_on_wait_io(w: &Waker) void {
+    const n: i32 = w.io_slot_count();
+    if n <= 0 {
+        return;
+    }
+    var fds: [PollFd: WAKER_IO_SLOT_MAX] = [];
+    var used: i32 = 0;
+    var i: i32 = 0;
+    while i < n && i < WAKER_IO_SLOT_MAX {
+        const fd: i32 = w.io_slot_fd(i);
+        const interest: i32 = w.io_slot_interest(i);
+        if fd >= 0 && interest != WAKER_INTEREST_NONE {
+            fds[used as usize] = PollFd{
+                fd: fd,
+                events: block_on_poll_events(interest),
+                revents: 0 as i16,
+            };
+            used = used + 1;
+        }
+        i = i + 1;
+    }
+    if used <= 0 {
+        return;
+    }
+    _ = sys_poll(&fds[0], used as usize, 20);
+}
+
 /// 同步运行 Future<!T> 直到 Ready，返回 !T。Pending 时轮询直到就绪（忙等待，测试用）。
 export fn block_on<T>(f: Future<!T>) !T {
     var w: Waker = Waker{};
+    std.cfg(std.backend == .be_exec_vm, {
+        w._event_fd = WAKER_DRIVEN_BY_BLOCK_ON;
+    }, { })
     while true {
         w.reset();
         w.clear_io_interest();
         const p: Poll<!T> = f.poll(&w);
         match p {
             .Ready(ok_val) => { return ok_val; },
-            .Pending(_) => { },
+            .Pending(_) => { block_on_wait_io(&w); },
         };
     }
 }
@@ -521,13 +606,16 @@ export fn block_on<T>(f: Future<!T>) !T {
 /// 同步运行 Future<T>（无 `!`）直到 Ready，直接返回 T。
 export fn block_on_plain<T>(f: Future<T>) T {
     var w: Waker = Waker{};
+    std.cfg(std.backend == .be_exec_vm, {
+        w._event_fd = WAKER_DRIVEN_BY_BLOCK_ON;
+    }, { })
     while true {
         w.reset();
         w.clear_io_interest();
         const p: Poll<T> = f.poll(&w);
         match p {
             .Ready(n) => { return n; },
-            .Pending(_) => { },
+            .Pending(_) => { block_on_wait_io(&w); },
         };
     }
 }
