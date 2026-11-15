@@ -472,6 +472,24 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
 
 ## 编译器 bug
 
+- [ ] **P1：macOS hosted 测试仍有 5 例红（单文件 C 里同名函数重复定义 + 1 例运行失败）**
+  - 状态：**未修复**（2026-11-15 记录；发布闸门里 `macos-ci` 暂时降为「仅参考」，收口后升回阻断项）
+  - 现象（`macos-ci` 的 `Run hosted test profile`，macOS 15 arm64、`TEST_PROFILE=hosted`）：
+    - `test_std_io_file` / `test_std_io_buffering` / `test_multilevel_module`：
+      `redefinition of 'std_io_file_write'` / `'std_io_file_read'`（同一份单文件 C 里出现两处定义，
+      clang 报错并给出上一处定义的行号）；
+    - `test_tflm_interpreter`：`redefinition of 'interpreter_make'`，同一形态；
+    - `test_typed_pipeline_executor_single`：运行期失败（退出码 1），失败断言的详情还没解析出来。
+  - 已知边界：Linux 侧完全复现不出来 —— 用 `bin/uya build <test> --c99` 生成单文件 C，
+    再配合 `HOST_OS=macos` / `TARGET_OS=macos` / `UYA_BOOTSTRAP_PROFILE=darwin-hosted` 各种组合，
+    `std_io_file_write` 的定义数都是 1；说明触发条件在 `bin/uya-hosted` + macOS hosted 测试运行器
+    这条链路上（`UYA_COMPILER=$PWD/bin/uya-hosted`、`RUNTIME_MODE=hosted`、单文件 C），
+    需要在 macOS 上（或拿到该 run 的 `compiler_work/*.c`）才能定位。
+  - 下一步建议：在 macOS 上跑
+    `TEST_PROFILE=hosted ./tests/run_programs_parallel.sh --uya --c99 test_std_io_file`
+    拿到 `tests/build/.../compiler_work/*.c`，对比两处定义所在的模块边界，判断是模块被加载了两次
+    （不同模块标识）、还是 hosted 桥接副本被重复发射。
+
 - [x] **P0 / 严重：macOS 上 `make uya-hosted` 编译不过（Darwin `<string.h>` 函数式宏 vs 生成的 extern 声明）**
   - 状态：**已修复**（2026-11-15；门禁 `tests/verify_macos_hosted_c_syntax.sh`，已挂进 `make check`）
   - 现象：macos-ci 自 2026-10-31 起在 `Build hosted compiler` 步骤红（exit 2），一路红到
