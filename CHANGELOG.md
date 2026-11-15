@@ -1,5 +1,67 @@
 # Uya 变更日志
 
+## v0.12.0 - exec 后端打通自举、内存放大收口与匿名 union 重叠块
+
+> 发布日期：2026-11-15
+
+### 概要
+
+**v0.12.0** 是 v0.11.0 之后的一次**里程碑发行**（minor），两条主线加一批语义修复：
+
+1. **exec 后端（`uya run --vm` / `uya test --vm`）打通自举**：`--vm` 解释执行
+   `src/main.uya` 能编出可用的原生编译器，自举产物能再编出可运行二进制。判据与门禁
+   （`tests/verify_exec_vm_census.sh` / `verify_exec_vm_parity.sh`、`make exec-census` /
+   `make exec-parity`）先行，普查从起点 **119 / 910（13.1%）** 推到 **912 / 912**。
+   支撑它的是原生聚合内存视图（native-agg 影子、`ADDR_INDEX` 步长取址、聚合字节视图、
+   超大 raw 数组走宿主堆）、静态容量按需增长（全局表堆化、槽位池与旁路表倍增、常量池 retain）
+   与一批宿主桥（`uya_call0_i32`、`uya_thread_call_<T>`、pthread 家族、`sigaction` oldact 回填）。
+2. **解释器内存放大收口**：编译编译器本体时的峰值 RSS 从 **57 GB 降到 34.7 GB（-39%）**。
+   手段是聚合值引用计数回收默认开启、聚合缓冲精确分配、值竞技场分段串联（循环内临时聚合
+   提速 45~100 倍）、删掉每帧 varargs 全量清零、`trace` 条件前移，外加竞技场每块 16 字节护栏把
+   1 字节写偏从「读到垃圾」变成明确诊断。
+3. **新语言特性：struct 匿名 union 重叠块**（规范 **0.49.57**）。块内每个 `struct { … }`
+   是一组互斥字段，共享同一段存储，字段仍按 `v.field` 直接访问；自举编译器 `ASTNode` 借此从
+   **1848 B 压到 152 B（12.2×）**，字段访问代码零改动。
+
+**兼容性提示**：无破坏性语法变更，`--strict-overflow` 默认开启的口径与 v0.11.0 相同；
+`--vm` 仍是可选后端（默认 C99）。含重叠块的结构体不能用结构体字面量初始化。
+
+### 其他修复与改进
+
+- **C99 后端 i64 饱和/包装链截断（静默错误，P1）**：饱和/包装运算选 C 类型时，复合左操作数
+  （cast 表达式、二元表达式）在 `get_c_type_of_expr` 里只会兜底成 `int32_t`，于是
+  `days *% 86400 as i64 +% 3600` 整条链按 32 位发射——期望 `2511824400`，实际 `-1783142896`
+  （差值恰为 2^32），VM 后端一直正确。连带后果是 X.509 侧的 2038 问题：
+  `lib/tls/x509/cert.uya` 的 `time_components_to_unix` 正是这种形状，凡 notAfter 晚于
+  2038-01-19 的证书都被算成负时间戳（= 已过期）。现在按「cast 取目标类型、二元表达式取两侧
+  更宽秩」选类型，且只在兜底成 `int32_t` 时提宽（不触碰 `u8 +| 10` 的钳位语义）；
+  新增回归 `tests/test_i64_wrapping_chain.uya`，`tests/test_tls_x509.uya` 的两条链校验正例
+  改用真实 RSA 测试链（`tests/fixtures/x509/`，`@embed` 内嵌）。
+- **checker / codegen**：数组尺寸表达式求值后固化回 AST（局部 `const` 作尺寸被压成 1）；
+  `eval_const_expr` 补当前函数体内局部 `const` 查找；左操作数为字面量时按右操作数类型发射
+  饱和/包装运算（修 i64 被截成 i32）；结构体依赖先恢复后计算（`--vm` 整编自举的关键一环）。
+- **std.thread / async**：fd 与槽号撞车、`AsyncWorkerResultFuture` 把 `slot_idx` 当 fd 用
+  （EBADF）、忙等循环每轮 poll 装箱导致内存爆炸、`thread_shared_pop_slot` 只认 `QUEUED`。
+- **UyaGin / DNS**：路由指针改下标取址；连接状态提到全局绕开续体快照的帧内聚合深拷贝；
+  A/AAAA 与 TCP 长度前缀缓冲改堆分配（跨 `@await` 地址稳定，DNS 不再 nxdomain）。
+- **编译期设施**：新增 `@thread_local` 全局属性（C99 发射 `_Thread_local`）；新增
+  `std.backend` 按后端门控用例；`uya` 自动清理临时 `.c` 与可执行文件。
+- **性能**：P-384 域乘改 6×6 学校簿 + 伪梅森归约（VM 下 39m29s → 2m36s）；
+  P-256 域乘全标量展开（标量乘 298s → 7s）；`paths_equal` 先比文件名再 `stat`（-93%）。
+- **测试与 CI**：CPU/内存两张普查跳过表与对应门禁；超时改按进程组 `SIGKILL`、看门狗独立会话；
+  普查并行度按物理内存预算自动压低；macOS CI（pty 握手、`WCONTINUED`、errno 链接、arm64 屏障、
+  管道 worker exec、失败注解）恢复可验收。
+
+### 验证
+
+- `make check`：**1198 / 1198**，失败 0；`make exec-census`：**912 / 912**（发版前最后一轮
+  全量普查；本版新增的 `test_i64_wrapping_chain` 与改用真实证书链的 `test_tls_x509`
+  已在 `--vm` 下单独验证通过）。
+- `make b` 自举一致，`--vm` 自举产物可再编出可运行原生二进制。
+- `tests/verify_version_sources.sh` 通过，`bin/uya --version` 报 `v0.12.0`。
+
+---
+
 ## v0.11.0 - 溢出证明默认开启、静默错误收口与 macOS 交叉链修复
 
 > 发布日期：2026-10-23

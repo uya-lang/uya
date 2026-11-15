@@ -243,6 +243,11 @@ static inline int __uya_memcmp(const void *s1, const void *s2, size_t n) {
     for (size_t i = 0; i < n; i++) { if (a[i] != b[i]) return a[i] - b[i]; } return 0;
 }
 
+static inline void *__uya_checked_memcpy(void *d, const void *s, size_t n) { if (d == NULL || s == NULL || n == 0) { return d; } return __uya_memcpy(d, s, n); }
+static inline void *__uya_checked_memmove(void *d, const void *s, size_t n) { extern void *memmove(void *, const void *, size_t); if (d == NULL || s == NULL || n == 0) { return d; } return memmove(d, s, n); }
+static inline void *__uya_checked_memset(void *d, int c, size_t n) { extern void *memset(void *, int, size_t); if (d == NULL || n == 0) { return d; } return memset(d, c, n); }
+static inline void *__uya_checked_memchr(const void *s, int c, size_t n) { extern void *memchr(const void *, int, size_t); if (s == NULL || n == 0) { return NULL; } return memchr(s, c, n); }
+static inline int __uya_checked_memcmp(const void *a, const void *b, size_t n) { if (a == NULL || b == NULL || n == 0) { return 0; } return __uya_memcmp(a, b, n); }
 // 错误联合类型（用于 !i64 等）
 struct err_union_int64_t { uint32_t error_id; int64_t value; };
 struct err_union_int32_t { uint32_t error_id; int32_t value; };
@@ -360,7 +365,6 @@ extern void *dlsym(void *, const char *);
 typedef int (*uya_macos_stat_fn)(const char *, struct uya_macos_native_stat_call *);
 typedef intptr_t (*uya_macos_readlink_fn)(const char *, char *, size_t);
 typedef int (*uya_macos_pid_fn)(void);
-typedef void (*uya_macos_exit_fn)(int);
 typedef int (*uya_macos_access_fn)(const char *, int);
 typedef int (*uya_macos_path_i_fn)(const char *);
 typedef char *(*uya_macos_getcwd_fn)(char *, size_t);
@@ -439,6 +443,7 @@ extern int uya_host_getsockname(int, void *, uint32_t *) __asm__("getsockname");
 extern int uya_host_getpeername(int, void *, uint32_t *) __asm__("getpeername");
 extern int uya_host_poll(void *, uint32_t, int) __asm__("poll");
 extern int uya_host_fork(void) __asm__("fork");
+extern void uya_host_exit(int) __asm__("_exit");
 extern int uya_host_waitpid(int, int *, int) __asm__("waitpid");
 extern void *uya_host_dlsym(void *, const char *) __asm__("dlsym");
 typedef void *(*uya_host_opendir_fn)(const char *);
@@ -809,10 +814,32 @@ static int32_t uya_macos_getppid(void) {
     if (real_getppid == (uya_macos_pid_fn)0) return 0;
     return (int32_t)real_getppid();
 }
+static int32_t uya_macos_setpgid(int32_t pid, int32_t pgid) {
+    static uya_macos_sig_ii_fn real_setpgid = (uya_macos_sig_ii_fn)0;
+    if (real_setpgid == (uya_macos_sig_ii_fn)0) real_setpgid = (uya_macos_sig_ii_fn)dlsym((void *)-1, "setpgid");
+    if (real_setpgid == (uya_macos_sig_ii_fn)0) return -1;
+    return (int32_t)real_setpgid((int)pid, (int)pgid);
+}
+static int32_t uya_macos_getpgid(int32_t pid) {
+    static uya_macos_sig_i_fn real_getpgid = (uya_macos_sig_i_fn)0;
+    if (real_getpgid == (uya_macos_sig_i_fn)0) real_getpgid = (uya_macos_sig_i_fn)dlsym((void *)-1, "getpgid");
+    if (real_getpgid == (uya_macos_sig_i_fn)0) return -1;
+    return (int32_t)real_getpgid((int)pid);
+}
+static int32_t uya_macos_getpgrp(void) {
+    static uya_macos_pid_fn real_getpgrp = (uya_macos_pid_fn)0;
+    if (real_getpgrp == (uya_macos_pid_fn)0) real_getpgrp = (uya_macos_pid_fn)dlsym((void *)-1, "getpgrp");
+    if (real_getpgrp == (uya_macos_pid_fn)0) return -1;
+    return (int32_t)real_getpgrp();
+}
+static int32_t uya_macos_setsid(void) {
+    static uya_macos_pid_fn real_setsid = (uya_macos_pid_fn)0;
+    if (real_setsid == (uya_macos_pid_fn)0) real_setsid = (uya_macos_pid_fn)dlsym((void *)-1, "setsid");
+    if (real_setsid == (uya_macos_pid_fn)0) return -1;
+    return (int32_t)real_setsid();
+}
 static void uya_macos_exit(int32_t status) {
-    static uya_macos_exit_fn real_exit = (uya_macos_exit_fn)0;
-    if (real_exit == (uya_macos_exit_fn)0) real_exit = (uya_macos_exit_fn)dlsym((void *)-1, "_exit");
-    if (real_exit != (uya_macos_exit_fn)0) real_exit((int)status);
+    uya_host_exit((int)status);
     __builtin_trap();
 }
 static void *uya_macos_signal(int32_t signum, void *handler) {
@@ -11727,6 +11754,9 @@ static __attribute__((used)) int32_t c99_gen_simd_builtin_call(struct C99CodeGen
 static __attribute__((used)) int32_t c99_gen_simd_binary_expr(struct C99CodeGenerator * codegen, struct ASTNode * expr);
 static __attribute__((used)) int32_t c99_gen_simd_unary_expr(struct C99CodeGenerator * codegen, struct ASTNode * expr);
 static __attribute__((used)) int32_t c99_scalar_type_rank(uint8_t * type_c);
+static __attribute__((used)) int32_t c99_wrapping_type_rank(uint8_t * type_c);
+static __attribute__((used)) uint8_t * c99_wrapping_operand_type_c(struct C99CodeGenerator * codegen, struct ASTNode * expr);
+static __attribute__((used)) uint8_t * c99_widen_wrapping_operand_type(struct C99CodeGenerator * codegen, struct ASTNode * expr, uint8_t * type_c);
 static __attribute__((used)) void gen_binary_expr(struct C99CodeGenerator * codegen, struct ASTNode * expr);
 static __attribute__((used)) void gen_member_access(struct C99CodeGenerator * codegen, struct ASTNode * expr);
 static __attribute__((used)) void gen_sizeof_expr(struct C99CodeGenerator * codegen, struct ASTNode * expr);
@@ -12462,7 +12492,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_185883484_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -12499,7 +12529,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_466384096_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -13092,7 +13122,7 @@ __attribute__((used)) const size_t PARALLEL_PARSE_SLICE_MIN_BYTES = /* optimized
 __attribute__((used)) const size_t PARALLEL_PARSE_ARENA_PER_SOURCE_BYTE = (size_t)320;
 
 int32_t g_compiling_for_exec_vm = 0;
-const uint8_t * UYA_VERSION = (uint8_t *)(uint8_t *)"0.11.0";
+const uint8_t * UYA_VERSION = (uint8_t *)(uint8_t *)"0.12.0";
 #ifdef libc_EPERM
 #undef libc_EPERM
 #endif
@@ -13440,7 +13470,7 @@ __attribute__((used)) const size_t NUM_TCACHE_BINS = 7;
 #ifdef libc_E
 #undef libc_E
 #endif
-const double libc_E = 2.7182818284590450;
+const double libc_E = 2.7182818284590452;
 #ifdef libc_PI
 #undef libc_PI
 #endif
@@ -13448,27 +13478,27 @@ const double libc_PI = 3.1415926535897931;
 #ifdef libc_PI_2
 #undef libc_PI_2
 #endif
-const double libc_PI_2 = 1.5707963267948965;
+const double libc_PI_2 = 1.5707963267948966;
 #ifdef libc_PI_4
 #undef libc_PI_4
 #endif
-const double libc_PI_4 = 0.78539816339744827;
+const double libc_PI_4 = 0.78539816339744816;
 #ifdef libc_TWO_PI
 #undef libc_TWO_PI
 #endif
-const double libc_TWO_PI = 6.2831853071795862;
+const double libc_TWO_PI = 6.2831853071795863;
 #ifdef libc_SQRT2
 #undef libc_SQRT2
 #endif
-const double libc_SQRT2 = 1.4142135623730951;
+const double libc_SQRT2 = 1.4142135623730952;
 #ifdef libc_SQRT1_2
 #undef libc_SQRT1_2
 #endif
-const double libc_SQRT1_2 = 0.70710678118654755;
+const double libc_SQRT1_2 = 0.70710678118654736;
 #ifdef libc_LN2
 #undef libc_LN2
 #endif
-const double libc_LN2 = 0.69314718055994530;
+const double libc_LN2 = 0.69314718055994520;
 #ifdef libc_LN10
 #undef libc_LN10
 #endif
@@ -13480,7 +13510,7 @@ const double libc_INFINITY = 1.7976931348623157e+308;
 #ifdef libc_NAN
 #undef libc_NAN
 #endif
-const double libc_NAN = 0.0000000000000000;
+const double libc_NAN = 0.00000000000000000;
 #ifdef libc_HUGE_VAL
 #undef libc_HUGE_VAL
 #endif
@@ -16122,7 +16152,7 @@ const size_t UPM_MAX_NAME_LEN = 128;
 #undef UPM_MAX_VERSION_LEN
 #endif
 const size_t UPM_MAX_VERSION_LEN = 64;
-const uint8_t * UYA_UPM_RUNTIME_VERSION = (uint8_t *)(uint8_t *)"0.11.0";
+const uint8_t * UYA_UPM_RUNTIME_VERSION = (uint8_t *)(uint8_t *)"0.12.0";
 #ifdef UPM_MAX_META_LEN
 #undef UPM_MAX_META_LEN
 #endif
@@ -18045,7 +18075,7 @@ static __attribute__((used)) int32_t get_compiler_dir(uint8_t * argv0, uint8_t *
     if (argv_slash != NULL) {
         const size_t dir_len = std_runtime_ptr_diff(argv_slash, (uint8_t *)argv0);
         if ((dir_len + 1) < buffer_size) {
-            (void)((uint8_t *)memcpy((char *)(void *)buffer, (const char *)(void *)argv0, dir_len)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)buffer, (const char *)(void *)argv0, dir_len)            );
             buffer[dir_len] = (uint8_t)47;
             buffer[(dir_len + 1)] = (uint8_t)0;
                         {
@@ -18062,7 +18092,7 @@ static __attribute__((used)) int32_t get_compiler_dir(uint8_t * argv0, uint8_t *
         if (last_slash != NULL) {
             const size_t dir_len = std_runtime_ptr_diff(last_slash, (uint8_t *)(&resolved_path[0]));
             if ((dir_len + 1) < buffer_size) {
-                (void)((uint8_t *)memcpy((char *)(void *)buffer, (const char *)(void *)(&resolved_path[0]), dir_len)                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)buffer, (const char *)(void *)(&resolved_path[0]), dir_len)                );
                 buffer[dir_len] = (uint8_t)47;
                 buffer[(dir_len + 1)] = (uint8_t)0;
                                 {
@@ -18105,7 +18135,7 @@ static __attribute__((used)) int32_t path_get_parent_dir(uint8_t * src, uint8_t 
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)(&work[0]), (const char *)(void *)src, (sl + (size_t)1))    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&work[0]), (const char *)(void *)src, (sl + (size_t)1))    );
     size_t len = sl;
     while (((len > 0) && (work[(len - 1)] == (uint8_t)47))) {
         len = (len - 1);
@@ -18147,7 +18177,7 @@ static __attribute__((used)) int32_t path_get_parent_dir(uint8_t * src, uint8_t 
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)dst, (const char *)(void *)(&work[0]), plen)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)dst, (const char *)(void *)(&work[0]), plen)    );
     dst[plen] = (uint8_t)47;
     dst[(plen + 1)] = (uint8_t)0;
         {
@@ -18737,8 +18767,8 @@ static __attribute__((used)) int32_t host_append_temp_path_i32(uint8_t * buf, si
         n = 1;
     } else {
         while (((v > 0) && (n < 16))) {
-            digits[n] = (uint8_t)(48 + (v % 10));
-            v = (v / 10);
+            digits[n] = (uint8_t)(48 + ({ __typeof__(v) _uya_dv_l = (v); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
+            v = ({ __typeof__(v) _uya_dv_l = (v); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
             n = (n + 1);
         }
     }
@@ -19800,7 +19830,7 @@ static __attribute__((used)) int32_t compile_files(const struct IntList * input_
                         if (input_last_slash != NULL) {
                             const size_t dir_len = ({ int32_t _l = (std_runtime_ptr_diff(input_last_slash, input)); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                             if (dir_len < PATH_MAX) {
-                                (void)((uint8_t *)memcpy((char *)(&module_root_buffer[0]), (const char *)input_path, dir_len)                                );
+                                (void)((uint8_t *)__uya_checked_memcpy((char *)(&module_root_buffer[0]), (const char *)input_path, dir_len)                                );
                                 module_root_buffer[dir_len] = (uint8_t)0;
                                 module_root = (uint8_t *)(&module_root_buffer[0]);
                             } else {
@@ -20150,7 +20180,7 @@ static __attribute__((used)) int32_t compile_files(const struct IntList * input_
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)checker, 0, HOST_SIZE_TYPECHECKER_BYTES)    );
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)checker, 0, HOST_SIZE_TYPECHECKER_BYTES)    );
     uint8_t * default_filename = (uint8_t *)(uint8_t *)str228;
     if (all_file_count > 0) {
         default_filename = (uint8_t *)all_files.items[0];
@@ -20177,7 +20207,7 @@ static __attribute__((used)) int32_t compile_files(const struct IntList * input_
             const size_t alloc_len = ((pr_len + (size_t)need_slash) + (size_t)1);
             uint8_t * const pr_copy = (uint8_t *)compiler_arena_alloc((&arena), alloc_len);
             if (pr_copy != NULL) {
-                (void)((uint8_t *)memcpy((char *)(void *)pr_copy, (const char *)(void *)module_root, pr_len)                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)pr_copy, (const char *)(void *)module_root, pr_len)                );
                 if (need_slash != 0) {
                     pr_copy[pr_len] = (uint8_t)47;
                     pr_copy[(pr_len + 1)] = (uint8_t)0;
@@ -20308,11 +20338,11 @@ static __attribute__((used)) int32_t compile_files(const struct IntList * input_
         (void)(exec_backend_set_options(g_exec_dump_hir_enabled, g_exec_dump_bytecode_enabled, g_exec_trace_vm_enabled)        );
         const int32_t exec_result = exec_main_exec_build_program(checker, merged_ast, (uint8_t *)module_name);
         codegen_end_time = clock();
-        stats.parse_time_ms = (({ int32_t _l = (({ int64_t _l = (parse_end_time); int64_t _r = (start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
-        stats.merge_time_ms = (({ int32_t _l = (({ int64_t _l = (merge_end_time); int64_t _r = (parse_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
-        stats.check_time_ms = (({ int32_t _l = (({ int64_t _l = (check_end_time); int64_t _r = (merge_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
-        stats.codegen_time_ms = (({ int32_t _l = (({ int64_t _l = (codegen_end_time); int64_t _r = (opt_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
-        stats.total_time_ms = (({ int32_t _l = (({ int64_t _l = (codegen_end_time); int64_t _r = (start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
+        stats.parse_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (parse_end_time); int64_t _r = (start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (parse_end_time); int64_t _r = (start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+        stats.merge_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (merge_end_time); int64_t _r = (parse_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (merge_end_time); int64_t _r = (parse_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+        stats.check_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (check_end_time); int64_t _r = (merge_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (check_end_time); int64_t _r = (merge_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+        stats.codegen_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (codegen_end_time); int64_t _r = (opt_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (codegen_end_time); int64_t _r = (opt_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+        stats.total_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (codegen_end_time); int64_t _r = (start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (codegen_end_time); int64_t _r = (start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         if (g_verbose_output != 0) {
             (void)(libc_fprintf(libc_stderr, (const char *)str266)            );
             (void)(libc_fprintf(libc_stderr, (const char *)str267, stats.file_count)            );
@@ -20320,7 +20350,7 @@ static __attribute__((used)) int32_t compile_files(const struct IntList * input_
             (void)(libc_fprintf(libc_stderr, (const char *)str269, stats.merge_time_ms)            );
             (void)(libc_fprintf(libc_stderr, (const char *)str270, stats.check_time_ms)            );
             if (opt_level > 0) {
-                const int64_t opt_time_ms_exec = (({ int32_t _l = (({ int64_t _l = (opt_end_time); int64_t _r = (check_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
+                const int64_t opt_time_ms_exec = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (opt_end_time); int64_t _r = (check_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (opt_end_time); int64_t _r = (check_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
                 (void)(libc_fprintf(libc_stderr, (const char *)str271, opt_time_ms_exec)                );
             }
             (void)(libc_fprintf(libc_stderr, (const char *)str272, exec_backend_get_last_lower_time_ms())            );
@@ -20387,7 +20417,7 @@ static __attribute__((used)) int32_t compile_files(const struct IntList * input_
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)c99_codegen, 0, HOST_SIZE_C99_CODEGENERATOR_BYTES)    );
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)c99_codegen, 0, HOST_SIZE_C99_CODEGENERATOR_BYTES)    );
     int32_t split_mirror_flag = 0;
     if (((split_c_dir != NULL) && (split_c_dir[0] != (uint8_t)0))) {
         split_mirror_flag = 1;
@@ -20460,11 +20490,11 @@ static __attribute__((used)) int32_t compile_files(const struct IntList * input_
         }
     }
     codegen_end_time = clock();
-    stats.parse_time_ms = (({ int32_t _l = (({ int64_t _l = (parse_end_time); int64_t _r = (start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
-    stats.merge_time_ms = (({ int32_t _l = (({ int64_t _l = (merge_end_time); int64_t _r = (parse_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
-    stats.check_time_ms = (({ int32_t _l = (({ int64_t _l = (check_end_time); int64_t _r = (merge_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
-    stats.codegen_time_ms = (({ int32_t _l = (({ int64_t _l = (codegen_end_time); int64_t _r = (opt_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
-    stats.total_time_ms = (({ int32_t _l = (({ int64_t _l = (codegen_end_time); int64_t _r = (start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
+    stats.parse_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (parse_end_time); int64_t _r = (start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (parse_end_time); int64_t _r = (start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    stats.merge_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (merge_end_time); int64_t _r = (parse_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (merge_end_time); int64_t _r = (parse_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    stats.check_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (check_end_time); int64_t _r = (merge_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (check_end_time); int64_t _r = (merge_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    stats.codegen_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (codegen_end_time); int64_t _r = (opt_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (codegen_end_time); int64_t _r = (opt_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    stats.total_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (codegen_end_time); int64_t _r = (start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (codegen_end_time); int64_t _r = (start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     if (g_verbose_output != 0) {
         (void)(libc_fprintf(libc_stderr, (const char *)str266)        );
         (void)(libc_fprintf(libc_stderr, (const char *)str267, stats.file_count)        );
@@ -20472,7 +20502,7 @@ static __attribute__((used)) int32_t compile_files(const struct IntList * input_
         (void)(libc_fprintf(libc_stderr, (const char *)str269, stats.merge_time_ms)        );
         (void)(libc_fprintf(libc_stderr, (const char *)str270, stats.check_time_ms)        );
         if (opt_level > 0) {
-            const int64_t opt_time_ms = (({ int32_t _l = (({ int64_t _l = (opt_end_time); int64_t _r = (check_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
+            const int64_t opt_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (opt_end_time); int64_t _r = (check_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (opt_end_time); int64_t _r = (check_end_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
             (void)(libc_fprintf(libc_stderr, (const char *)str271, opt_time_ms)            );
         }
         (void)(libc_fprintf(libc_stderr, (const char *)str289, stats.codegen_time_ms)        );
@@ -20821,7 +20851,7 @@ static __attribute__((used)) size_t align_size(size_t size, size_t align) {
     (void)size;
     (void)align;
         {
-        size_t _uya_ret = ((((size + align) - 1) / align) * align);
+        size_t _uya_ret = (({ __typeof__(((size + align) - 1)) _uya_dv_l = (((size + align) - 1)); __typeof__(align) _uya_dv_r = (align); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }) * align);
         return _uya_ret;
         }
 }
@@ -21035,7 +21065,7 @@ struct ASTNode * ast_ast_new_node(enum main_ASTNodeType type, int32_t line, int3
     }
     size_t * const words = (size_t *)node;
     const size_t word_bytes = /* optimized */ 8;
-    const size_t word_count = ((size_t)(int32_t)sizeof(struct ASTNode) / word_bytes);
+    const size_t word_count = ({ __typeof__((size_t)(int32_t)sizeof(struct ASTNode)) _uya_dv_l = ((size_t)(int32_t)sizeof(struct ASTNode)); __typeof__(word_bytes) _uya_dv_r = (word_bytes); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     size_t wi = (size_t)0;
     while (wi < word_count) {
         words[wi] = (size_t)0;
@@ -23567,7 +23597,7 @@ static __attribute__((used)) int32_t read_hex_pair_lexer(struct Lexer * lexer) {
     }
     (void)(advance_char(lexer)    );
         {
-        int32_t _uya_ret = ((int32_t)((uint32_t)(((const int32_t)((uint32_t)(h1) * (uint32_t)(16)))) + (uint32_t)(h2)));
+        int32_t _uya_ret = ((const int32_t)((uint32_t)(((const int32_t)((uint32_t)(h1) * (uint32_t)(16)))) + (uint32_t)(h2)));
         return _uya_ret;
         }
 }
@@ -23631,7 +23661,7 @@ static __attribute__((used)) int32_t read_hex_quad_lexer(struct Lexer * lexer) {
     }
     (void)(advance_char(lexer)    );
         {
-        int32_t _uya_ret = ((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((const int32_t)((uint32_t)(a) * (uint32_t)(16)))) + (uint32_t)(b)))) * (uint32_t)(16)))) + (uint32_t)(c2)))) * (uint32_t)(16)))) + (uint32_t)(d)));
+        int32_t _uya_ret = ((const int32_t)((uint32_t)(((const int32_t)((uint32_t)(((const int32_t)((uint32_t)(((const int32_t)((uint32_t)(((const int32_t)((uint32_t)(((const int32_t)((uint32_t)(a) * (uint32_t)(16)))) + (uint32_t)(b)))) * (uint32_t)(16)))) + (uint32_t)(c2)))) * (uint32_t)(16)))) + (uint32_t)(d)));
         return _uya_ret;
         }
 }
@@ -27747,7 +27777,7 @@ static __attribute__((used)) struct ChunkHeader * morecore(size_t needed) {
         alloc_size = HEAP_PAGE_SIZE;
     }
     const size_t hdr_pad = ({ size_t _l = ((size_t)(int32_t)sizeof(struct HeapRegion)); size_t _r = (MALLOC_ALIGN); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
-    const size_t region_size_aligned = ({ int32_t _l = ((({ size_t _l = (hdr_pad); size_t _r = ((size_t)1); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; }) / MALLOC_ALIGN)); int32_t _r = (MALLOC_ALIGN); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+    const size_t region_size_aligned = ({ size_t _l = (({ __typeof__(({ size_t _l = (hdr_pad); size_t _r = ((size_t)1); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; })) _uya_dv_l = (({ size_t _l = (hdr_pad); size_t _r = ((size_t)1); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; })); __typeof__(MALLOC_ALIGN) _uya_dv_r = (MALLOC_ALIGN); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); size_t _r = (MALLOC_ALIGN); size_t _s; size_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((size_t)-1); else _res = _s; _res; });
     const size_t map_size = (alloc_size + region_size_aligned);
     struct err_union_voidptr result = sys_mmap((void *)NULL, map_size, (libc_PROT_READ | libc_PROT_WRITE), (libc_MAP_PRIVATE | libc_MAP_ANONYMOUS), (0 - 1), 0);
     void * const mapped = ({ struct err_union_voidptr _uya_catch_tmp = result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
@@ -28177,7 +28207,7 @@ static __attribute__((used)) void * _realloc_impl(void * ptr, size_t size) {
         if (large_region->user_size < copy_len) {
             copy_len = large_region->user_size;
         }
-        (void)((uint8_t *)memcpy((char *)(uint8_t *)new_ptr_large, (const char *)(const uint8_t *)ptr, copy_len));
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(uint8_t *)new_ptr_large, (const char *)(const uint8_t *)ptr, copy_len));
         (void)(_free_impl(ptr)        );
                 {
             void * _uya_ret = new_ptr_large;
@@ -28218,7 +28248,7 @@ static __attribute__((used)) void * _realloc_impl(void * ptr, size_t size) {
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(uint8_t *)new_ptr, (const char *)(const uint8_t *)ptr, old_sz));
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(uint8_t *)new_ptr, (const char *)(const uint8_t *)ptr, old_sz));
     (void)(_free_impl(ptr)    );
         {
         void * _uya_ret = new_ptr;
@@ -28244,9 +28274,9 @@ __attribute__((used)) void * realloc(void * ptr, size_t size) {
 
 __attribute__((used)) double fabs(double x) {
     (void)x;
-    if (x < 0.0000000000000000) {
+    if (x < 0.00000000000000000) {
                 {
-            double _uya_ret = (0.0000000000000000 - x);
+            double _uya_ret = (0.00000000000000000 - x);
             return _uya_ret;
                 }
     }
@@ -28280,14 +28310,14 @@ __attribute__((used)) int32_t isnan(double x) {
 
 __attribute__((used)) int32_t isinf(double x) {
     (void)x;
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
             int32_t _uya_ret = 0;
             return _uya_ret;
                 }
     }
     if ((x * 2.0000000000000000) == x) {
-        if (x > 0.0000000000000000) {
+        if (x > 0.00000000000000000) {
                         {
                 int32_t _uya_ret = 1;
                 return _uya_ret;
@@ -28316,8 +28346,8 @@ __attribute__((used)) double copysign(double x, double y) {
     (void)x;
     (void)y;
     double result = fabs(x);
-    if (y < 0.0000000000000000) {
-        result = (0.0000000000000000 - result);
+    if (y < 0.00000000000000000) {
+        result = (0.00000000000000000 - result);
     }
         {
         double _uya_ret = result;
@@ -28328,7 +28358,7 @@ __attribute__((used)) double copysign(double x, double y) {
 __attribute__((used)) double fmod(double x, double y) {
     (void)x;
     (void)y;
-    if (y == 0.0000000000000000) {
+    if (y == 0.00000000000000000) {
                 {
             double _uya_ret = libc_NAN;
             return _uya_ret;
@@ -28346,7 +28376,7 @@ __attribute__((used)) double fmod(double x, double y) {
             return _uya_ret;
                 }
     }
-    const double quotient = (x / y);
+    const double quotient = ({ __typeof__(x) _uya_dv_l = (x); __typeof__(y) _uya_dv_r = (y); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     const int64_t quotient_trunc = (int64_t)quotient;
         {
         double _uya_ret = (x - ((double)quotient_trunc * y));
@@ -28372,16 +28402,16 @@ __attribute__((used)) double sin(double x) {
     if (xx > libc_PI) {
         xx = (xx - libc_TWO_PI);
     }
-    if (xx < (0.0000000000000000 - libc_PI)) {
+    if (xx < (0.00000000000000000 - libc_PI)) {
         xx = (xx + libc_TWO_PI);
     }
-    double result = 0.0000000000000000;
+    double result = 0.00000000000000000;
     double term = xx;
     double x2 = (xx * xx);
     int32_t n = 1;
     while (n < 30) {
         result = (result + term);
-        term = (0.0000000000000000 - ((term * x2) / ((double)(n + 1) * (double)(n + 2))));
+        term = (0.00000000000000000 - ({ __typeof__((term * x2)) _uya_dv_l = ((term * x2)); __typeof__(((double)(n + 1) * (double)(n + 2))) _uya_dv_r = (((double)(n + 1) * (double)(n + 2))); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
         n = (n + 2);
     }
         {
@@ -28408,16 +28438,16 @@ __attribute__((used)) double cos(double x) {
     if (xx > libc_PI) {
         xx = (xx - libc_TWO_PI);
     }
-    if (xx < (0.0000000000000000 - libc_PI)) {
+    if (xx < (0.00000000000000000 - libc_PI)) {
         xx = (xx + libc_TWO_PI);
     }
-    double result = 0.0000000000000000;
+    double result = 0.00000000000000000;
     double term = 1.0000000000000000;
     double x2 = (xx * xx);
     int32_t n = 0;
     while (n < 30) {
         result = (result + term);
-        term = (0.0000000000000000 - ((term * x2) / ((double)(n + 1) * (double)(n + 2))));
+        term = (0.00000000000000000 - ({ __typeof__((term * x2)) _uya_dv_l = ((term * x2)); __typeof__(((double)(n + 1) * (double)(n + 2))) _uya_dv_r = (((double)(n + 1) * (double)(n + 2))); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
         n = (n + 2);
     }
         {
@@ -28429,20 +28459,20 @@ __attribute__((used)) double cos(double x) {
 __attribute__((used)) double tan(double x) {
     (void)x;
     double c = cos(x);
-    if (c == 0.0000000000000000) {
-        if (x > 0.0000000000000000) {
+    if (c == 0.00000000000000000) {
+        if (x > 0.00000000000000000) {
                         {
                 double _uya_ret = libc_INFINITY;
                 return _uya_ret;
                         }
         }
                 {
-            double _uya_ret = (0.0000000000000000 - libc_INFINITY);
+            double _uya_ret = (0.00000000000000000 - libc_INFINITY);
             return _uya_ret;
                 }
     }
         {
-        double _uya_ret = (sin(x) / c);
+        double _uya_ret = ({ __typeof__(sin(x)) _uya_dv_l = (sin(x)); __typeof__(c) _uya_dv_r = (c); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         return _uya_ret;
         }
 }
@@ -28457,7 +28487,7 @@ __attribute__((used)) double asin(double x) {
     }
     if (x == (-1.0000000000000000)) {
                 {
-            double _uya_ret = (0.0000000000000000 - libc_PI_2);
+            double _uya_ret = (0.00000000000000000 - libc_PI_2);
             return _uya_ret;
                 }
     }
@@ -28467,9 +28497,9 @@ __attribute__((used)) double asin(double x) {
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
@@ -28496,11 +28526,11 @@ __attribute__((used)) double acos(double x) {
     }
     if (x == 1.0000000000000000) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
-    if (x == (0.0000000000000000 - 1.0000000000000000)) {
+    if (x == (0.00000000000000000 - 1.0000000000000000)) {
                 {
             double _uya_ret = libc_PI;
             return _uya_ret;
@@ -28516,42 +28546,42 @@ __attribute__((used)) double acos(double x) {
 __attribute__((used)) double atan(double x) {
     (void)x;
     if (isinf(x) != 0) {
-        if (x > 0.0000000000000000) {
+        if (x > 0.00000000000000000) {
                         {
                 double _uya_ret = libc_PI_2;
                 return _uya_ret;
                         }
         }
                 {
-            double _uya_ret = (0.0000000000000000 - libc_PI_2);
+            double _uya_ret = (0.00000000000000000 - libc_PI_2);
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
     double sign = 1.0000000000000000;
     double xx = x;
-    if (x < 0.0000000000000000) {
-        sign = (0.0000000000000000 - 1.0000000000000000);
-        xx = (0.0000000000000000 - x);
+    if (x < 0.00000000000000000) {
+        sign = (0.00000000000000000 - 1.0000000000000000);
+        xx = (0.00000000000000000 - x);
     }
     if (xx > 1.0000000000000000) {
                 {
-            double _uya_ret = (sign * (libc_PI_2 - atan((1.0000000000000000 / xx))));
+            double _uya_ret = (sign * (libc_PI_2 - atan(({ __typeof__(1.0000000000000000) _uya_dv_l = (1.0000000000000000); __typeof__(xx) _uya_dv_r = (xx); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }))));
             return _uya_ret;
                 }
     }
     double x2 = (xx * xx);
-    double result = 0.0000000000000000;
+    double result = 0.00000000000000000;
     double term = xx;
     int32_t n = 1;
     while (n < 100) {
-        result = (result + (term / (double)n));
-        term = (0.0000000000000000 - (term * x2));
+        result = (result + ({ __typeof__(term) _uya_dv_l = (term); __typeof__((double)n) _uya_dv_r = ((double)n); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
+        term = (0.00000000000000000 - (term * x2));
         n = (n + 2);
     }
         {
@@ -28569,34 +28599,34 @@ __attribute__((used)) double atan2(double y, double x) {
             return _uya_ret;
                 }
     }
-    if (x > 0.0000000000000000) {
+    if (x > 0.00000000000000000) {
                 {
-            double _uya_ret = atan((y / x));
+            double _uya_ret = atan(({ __typeof__(y) _uya_dv_l = (y); __typeof__(x) _uya_dv_r = (x); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
             return _uya_ret;
                 }
     } else {
-        if (x < 0.0000000000000000) {
-            if (y >= 0.0000000000000000) {
+        if (x < 0.00000000000000000) {
+            if (y >= 0.00000000000000000) {
                                 {
-                    double _uya_ret = (atan((y / x)) + libc_PI);
+                    double _uya_ret = (atan(({ __typeof__(y) _uya_dv_l = (y); __typeof__(x) _uya_dv_r = (x); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) + libc_PI);
                     return _uya_ret;
                                 }
             } else {
                                 {
-                    double _uya_ret = (atan((y / x)) - libc_PI);
+                    double _uya_ret = (atan(({ __typeof__(y) _uya_dv_l = (y); __typeof__(x) _uya_dv_r = (x); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) - libc_PI);
                     return _uya_ret;
                                 }
             }
         } else {
-            if (y > 0.0000000000000000) {
+            if (y > 0.00000000000000000) {
                                 {
                     double _uya_ret = libc_PI_2;
                     return _uya_ret;
                                 }
             }
-            if (y < 0.0000000000000000) {
+            if (y < 0.00000000000000000) {
                                 {
-                    double _uya_ret = (0.0000000000000000 - libc_PI_2);
+                    double _uya_ret = (0.00000000000000000 - libc_PI_2);
                     return _uya_ret;
                                 }
             }
@@ -28617,16 +28647,16 @@ __attribute__((used)) double sinh(double x) {
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
     double exp_x = exp(x);
-    double exp_neg_x = exp((0.0000000000000000 - x));
+    double exp_neg_x = exp((0.00000000000000000 - x));
         {
-        double _uya_ret = ((exp_x - exp_neg_x) / 2.0000000000000000);
+        double _uya_ret = ({ __typeof__((exp_x - exp_neg_x)) _uya_dv_l = ((exp_x - exp_neg_x)); __typeof__(2.0000000000000000) _uya_dv_r = (2.0000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         return _uya_ret;
         }
 }
@@ -28639,16 +28669,16 @@ __attribute__((used)) double cosh(double x) {
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
             double _uya_ret = 1.0000000000000000;
             return _uya_ret;
                 }
     }
     double exp_x = exp(x);
-    double exp_neg_x = exp((0.0000000000000000 - x));
+    double exp_neg_x = exp((0.00000000000000000 - x));
         {
-        double _uya_ret = ((exp_x + exp_neg_x) / 2.0000000000000000);
+        double _uya_ret = ({ __typeof__((exp_x + exp_neg_x)) _uya_dv_l = ((exp_x + exp_neg_x)); __typeof__(2.0000000000000000) _uya_dv_r = (2.0000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         return _uya_ret;
         }
 }
@@ -28656,26 +28686,26 @@ __attribute__((used)) double cosh(double x) {
 __attribute__((used)) double tanh(double x) {
     (void)x;
     if (isinf(x) != 0) {
-        if (x > 0.0000000000000000) {
+        if (x > 0.00000000000000000) {
                         {
                 double _uya_ret = 1.0000000000000000;
                 return _uya_ret;
                         }
         }
                 {
-            double _uya_ret = (0.0000000000000000 - 1.0000000000000000);
+            double _uya_ret = (0.00000000000000000 - 1.0000000000000000);
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
     double exp_2x = exp((2.0000000000000000 * x));
         {
-        double _uya_ret = ((exp_2x - 1.0000000000000000) / (exp_2x + 1.0000000000000000));
+        double _uya_ret = ({ __typeof__((exp_2x - 1.0000000000000000)) _uya_dv_l = ((exp_2x - 1.0000000000000000)); __typeof__((exp_2x + 1.0000000000000000)) _uya_dv_r = ((exp_2x + 1.0000000000000000)); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         return _uya_ret;
         }
 }
@@ -28688,9 +28718,9 @@ __attribute__((used)) double asinh(double x) {
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
@@ -28710,7 +28740,7 @@ __attribute__((used)) double acosh(double x) {
     }
     if (x == 1.0000000000000000) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
@@ -28730,7 +28760,7 @@ __attribute__((used)) double atanh(double x) {
     }
     if (x == (-1.0000000000000000)) {
                 {
-            double _uya_ret = (0.0000000000000000 - libc_INFINITY);
+            double _uya_ret = (0.00000000000000000 - libc_INFINITY);
             return _uya_ret;
                 }
     }
@@ -28740,35 +28770,35 @@ __attribute__((used)) double atanh(double x) {
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
         {
-        double _uya_ret = (0.50000000000000000 * ln(((1.0000000000000000 + x) / (1.0000000000000000 - x))));
+        double _uya_ret = (0.50000000000000000 * ln(({ __typeof__((1.0000000000000000 + x)) _uya_dv_l = ((1.0000000000000000 + x)); __typeof__((1.0000000000000000 - x)) _uya_dv_r = ((1.0000000000000000 - x)); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })));
         return _uya_ret;
         }
 }
 
 __attribute__((used)) double exp(double x) {
     (void)x;
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
             double _uya_ret = 1.0000000000000000;
             return _uya_ret;
                 }
     }
     if (isinf(x) != 0) {
-        if (x > 0.0000000000000000) {
+        if (x > 0.00000000000000000) {
                         {
                 double _uya_ret = libc_INFINITY;
                 return _uya_ret;
                         }
         }
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
@@ -28780,17 +28810,17 @@ __attribute__((used)) double exp(double x) {
     }
     if (x < (-745.00000000000000)) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
-    int64_t n = (int64_t)((x / libc_LN2) + 0.50000000000000000);
+    int64_t n = (int64_t)(({ __typeof__(x) _uya_dv_l = (x); __typeof__(libc_LN2) _uya_dv_r = (libc_LN2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }) + 0.50000000000000000);
     double r = (x - ((double)n * libc_LN2));
     double result = 1.0000000000000000;
     double term = 1.0000000000000000;
     int32_t i = 1;
     while (i < 60) {
-        term = ((term * r) / (double)i);
+        term = ({ __typeof__((term * r)) _uya_dv_l = ((term * r)); __typeof__((double)i) _uya_dv_r = ((double)i); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         result = (result + term);
         i = (i + 1);
     }
@@ -28809,7 +28839,7 @@ __attribute__((used)) double exp(double x) {
         exp_val = (exp_val >> 1);
     }
     if (n < 0) {
-        result = (result / pow2);
+        result = ({ __typeof__(result) _uya_dv_l = (result); __typeof__(pow2) _uya_dv_r = (pow2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     } else {
         result = (result * pow2);
     }
@@ -28821,15 +28851,15 @@ __attribute__((used)) double exp(double x) {
 
 __attribute__((used)) double log(double x) {
     (void)x;
-    if (x < 0.0000000000000000) {
+    if (x < 0.00000000000000000) {
                 {
             double _uya_ret = libc_NAN;
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
-            double _uya_ret = (0.0000000000000000 - libc_INFINITY);
+            double _uya_ret = (0.00000000000000000 - libc_INFINITY);
             return _uya_ret;
                 }
     }
@@ -28841,14 +28871,14 @@ __attribute__((used)) double log(double x) {
     }
     if (x == 1.0000000000000000) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
     int64_t e = 0;
     double m = x;
     while (m >= 2.0000000000000000) {
-        m = (m / 2.0000000000000000);
+        m = ({ __typeof__(m) _uya_dv_l = (m); __typeof__(2.0000000000000000) _uya_dv_r = (2.0000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         e = (e + 1);
     }
     while (m < 1.0000000000000000) {
@@ -28856,12 +28886,12 @@ __attribute__((used)) double log(double x) {
         e = (e - 1);
     }
     double t = (m - 1.0000000000000000);
-    double result = 0.0000000000000000;
+    double result = 0.00000000000000000;
     double term = t;
     int32_t i = 1;
     while (i < 100) {
-        result = (result + (term / (double)i));
-        term = (0.0000000000000000 - (term * t));
+        result = (result + ({ __typeof__(term) _uya_dv_l = (term); __typeof__((double)i) _uya_dv_r = ((double)i); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
+        term = (0.00000000000000000 - (term * t));
         i = (i + 1);
     }
         {
@@ -28880,15 +28910,15 @@ __attribute__((used)) double ln(double x) {
 
 __attribute__((used)) double log10(double x) {
     (void)x;
-    if (x < 0.0000000000000000) {
+    if (x < 0.00000000000000000) {
                 {
             double _uya_ret = libc_NAN;
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
-            double _uya_ret = (0.0000000000000000 - libc_INFINITY);
+            double _uya_ret = (0.00000000000000000 - libc_INFINITY);
             return _uya_ret;
                 }
     }
@@ -28899,22 +28929,22 @@ __attribute__((used)) double log10(double x) {
                 }
     }
         {
-        double _uya_ret = (log(x) / libc_LN10);
+        double _uya_ret = ({ __typeof__(log(x)) _uya_dv_l = (log(x)); __typeof__(libc_LN10) _uya_dv_r = (libc_LN10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         return _uya_ret;
         }
 }
 
 __attribute__((used)) double log2(double x) {
     (void)x;
-    if (x < 0.0000000000000000) {
+    if (x < 0.00000000000000000) {
                 {
             double _uya_ret = libc_NAN;
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
-            double _uya_ret = (0.0000000000000000 - libc_INFINITY);
+            double _uya_ret = (0.00000000000000000 - libc_INFINITY);
             return _uya_ret;
                 }
     }
@@ -28925,28 +28955,28 @@ __attribute__((used)) double log2(double x) {
                 }
     }
         {
-        double _uya_ret = (log(x) / libc_LN2);
+        double _uya_ret = ({ __typeof__(log(x)) _uya_dv_l = (log(x)); __typeof__(libc_LN2) _uya_dv_r = (libc_LN2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         return _uya_ret;
         }
 }
 
 __attribute__((used)) double exp2(double x) {
     (void)x;
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
             double _uya_ret = 1.0000000000000000;
             return _uya_ret;
                 }
     }
     if (isinf(x) != 0) {
-        if (x > 0.0000000000000000) {
+        if (x > 0.00000000000000000) {
                         {
                 double _uya_ret = libc_INFINITY;
                 return _uya_ret;
                         }
         }
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
@@ -28958,7 +28988,7 @@ __attribute__((used)) double exp2(double x) {
     }
     if (x < (-1024.0000000000000)) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
@@ -28969,7 +28999,7 @@ __attribute__((used)) double exp2(double x) {
     double term = 1.0000000000000000;
     int32_t i = 1;
     while (i < 60) {
-        term = ((term * r_ln2) / (double)i);
+        term = ({ __typeof__((term * r_ln2)) _uya_dv_l = ((term * r_ln2)); __typeof__((double)i) _uya_dv_r = ((double)i); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         result = (result + term);
         i = (i + 1);
     }
@@ -28988,7 +29018,7 @@ __attribute__((used)) double exp2(double x) {
         exp_val = (exp_val >> 1);
     }
     if (n < 0) {
-        result = (result / pow2);
+        result = ({ __typeof__(result) _uya_dv_l = (result); __typeof__(pow2) _uya_dv_r = (pow2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     } else {
         result = (result * pow2);
     }
@@ -29000,15 +29030,15 @@ __attribute__((used)) double exp2(double x) {
 
 __attribute__((used)) float log2f(float x) {
     (void)x;
-    if (x < 0.0000000000000000) {
+    if (x < 0.00000000000000000) {
                 {
             float _uya_ret = (float)libc_NAN;
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
                 {
-            float _uya_ret = (float)(0.0000000000000000 - libc_INFINITY);
+            float _uya_ret = (float)(0.00000000000000000 - libc_INFINITY);
             return _uya_ret;
                 }
     }
@@ -29019,7 +29049,7 @@ __attribute__((used)) float log2f(float x) {
                 }
     }
         {
-        float _uya_ret = (float)(log((double)x) / libc_LN2);
+        float _uya_ret = (float)({ __typeof__(log((double)x)) _uya_dv_l = (log((double)x)); __typeof__(libc_LN2) _uya_dv_r = (libc_LN2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         return _uya_ret;
         }
 }
@@ -29027,16 +29057,16 @@ __attribute__((used)) float log2f(float x) {
 __attribute__((used)) double pow(double x, double y) {
     (void)x;
     (void)y;
-    if (y == 0.0000000000000000) {
+    if (y == 0.00000000000000000) {
                 {
             double _uya_ret = 1.0000000000000000;
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
-        if (y > 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
+        if (y > 0.00000000000000000) {
                         {
-                double _uya_ret = 0.0000000000000000;
+                double _uya_ret = 0.00000000000000000;
                 return _uya_ret;
                         }
         }
@@ -29046,14 +29076,14 @@ __attribute__((used)) double pow(double x, double y) {
                 }
     }
     if (isinf(x) != 0) {
-        if (y > 0.0000000000000000) {
+        if (y > 0.00000000000000000) {
                         {
                 double _uya_ret = libc_INFINITY;
                 return _uya_ret;
                         }
         }
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
@@ -29065,9 +29095,9 @@ __attribute__((used)) double pow(double x, double y) {
                         }
         }
         if (fabs(x) < 1.0000000000000000) {
-            if (y > 0.0000000000000000) {
+            if (y > 0.00000000000000000) {
                                 {
-                    double _uya_ret = 0.0000000000000000;
+                    double _uya_ret = 0.00000000000000000;
                     return _uya_ret;
                                 }
             }
@@ -29076,18 +29106,18 @@ __attribute__((used)) double pow(double x, double y) {
                 return _uya_ret;
                         }
         }
-        if (y > 0.0000000000000000) {
+        if (y > 0.00000000000000000) {
                         {
                 double _uya_ret = libc_INFINITY;
                 return _uya_ret;
                         }
         }
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
-    if (x < 0.0000000000000000) {
+    if (x < 0.00000000000000000) {
         int64_t y_int = (int64_t)y;
         if ((double)y_int != y) {
                         {
@@ -29097,7 +29127,7 @@ __attribute__((used)) double pow(double x, double y) {
         }
         double result = exp((y * log(fabs(x))));
         if ((y_int & (int64_t)1) != 0) {
-            result = (0.0000000000000000 - result);
+            result = (0.00000000000000000 - result);
         }
                 {
             double _uya_ret = result;
@@ -29112,13 +29142,13 @@ __attribute__((used)) double pow(double x, double y) {
 
 __attribute__((used)) double sqrt(double x) {
     (void)x;
-    if (x < 0.0000000000000000) {
+    if (x < 0.00000000000000000) {
                 {
             double _uya_ret = libc_NAN;
             return _uya_ret;
                 }
     }
-    if (((x == 0.0000000000000000) || (isinf(x) != 0))) {
+    if (((x == 0.00000000000000000) || (isinf(x) != 0))) {
                 {
             double _uya_ret = x;
             return _uya_ret;
@@ -29130,13 +29160,13 @@ __attribute__((used)) double sqrt(double x) {
             return _uya_ret;
                 }
     }
-    double guess = (x / 2.0000000000000000);
-    if (guess == 0.0000000000000000) {
+    double guess = ({ __typeof__(x) _uya_dv_l = (x); __typeof__(2.0000000000000000) _uya_dv_r = (2.0000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    if (guess == 0.00000000000000000) {
         guess = 1.0000000000000000;
     }
     int32_t i = 0;
     while (i < 100) {
-        double new_guess = ((guess + (x / guess)) / 2.0000000000000000);
+        double new_guess = ({ __typeof__((guess + ({ __typeof__(x) _uya_dv_l = (x); __typeof__(guess) _uya_dv_r = (guess); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }))) _uya_dv_l = ((guess + ({ __typeof__(x) _uya_dv_l = (x); __typeof__(guess) _uya_dv_r = (guess); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }))); __typeof__(2.0000000000000000) _uya_dv_r = (2.0000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         if (new_guess == guess) {
             break;
         }
@@ -29151,7 +29181,7 @@ __attribute__((used)) double sqrt(double x) {
 
 __attribute__((used)) double cbrt(double x) {
     (void)x;
-    if (((x == 0.0000000000000000) || (isinf(x) != 0))) {
+    if (((x == 0.00000000000000000) || (isinf(x) != 0))) {
                 {
             double _uya_ret = x;
             return _uya_ret;
@@ -29159,17 +29189,17 @@ __attribute__((used)) double cbrt(double x) {
     }
     double sign = 1.0000000000000000;
     double abs_x = x;
-    if (x < 0.0000000000000000) {
-        sign = (0.0000000000000000 - 1.0000000000000000);
-        abs_x = (0.0000000000000000 - x);
+    if (x < 0.00000000000000000) {
+        sign = (0.00000000000000000 - 1.0000000000000000);
+        abs_x = (0.00000000000000000 - x);
     }
-    double guess = (abs_x / 3.0000000000000000);
-    if (guess == 0.0000000000000000) {
+    double guess = ({ __typeof__(abs_x) _uya_dv_l = (abs_x); __typeof__(3.0000000000000000) _uya_dv_r = (3.0000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    if (guess == 0.00000000000000000) {
         guess = 1.0000000000000000;
     }
     int32_t i = 0;
     while (i < 100) {
-        double new_guess = (((2.0000000000000000 * guess) + (abs_x / (guess * guess))) / 3.0000000000000000);
+        double new_guess = ({ __typeof__(((2.0000000000000000 * guess) + ({ __typeof__(abs_x) _uya_dv_l = (abs_x); __typeof__((guess * guess)) _uya_dv_r = ((guess * guess)); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }))) _uya_dv_l = (((2.0000000000000000 * guess) + ({ __typeof__(abs_x) _uya_dv_l = (abs_x); __typeof__((guess * guess)) _uya_dv_r = ((guess * guess)); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }))); __typeof__(3.0000000000000000) _uya_dv_r = (3.0000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         if (new_guess == guess) {
             break;
         }
@@ -29203,7 +29233,7 @@ __attribute__((used)) double ceil(double x) {
             return _uya_ret;
                 }
     }
-    if (x > 0.0000000000000000) {
+    if (x > 0.00000000000000000) {
                 {
             double _uya_ret = (double)(i + 1);
             return _uya_ret;
@@ -29236,7 +29266,7 @@ __attribute__((used)) double floor(double x) {
             return _uya_ret;
                 }
     }
-    if (x < 0.0000000000000000) {
+    if (x < 0.00000000000000000) {
                 {
             double _uya_ret = (double)(i - 1);
             return _uya_ret;
@@ -29282,7 +29312,7 @@ __attribute__((used)) double round(double x) {
             return _uya_ret;
                 }
     }
-    if (x >= 0.0000000000000000) {
+    if (x >= 0.00000000000000000) {
                 {
             double _uya_ret = floor((x + 0.50000000000000000));
             return _uya_ret;
@@ -29380,7 +29410,7 @@ __attribute__((used)) double fdim(double x, double y) {
                 }
     }
         {
-        double _uya_ret = 0.0000000000000000;
+        double _uya_ret = 0.00000000000000000;
         return _uya_ret;
         }
 }
@@ -29449,13 +29479,13 @@ __attribute__((used)) double hypot(double x, double y) {
         xx = yy;
         yy = tmp;
     }
-    if (xx == 0.0000000000000000) {
+    if (xx == 0.00000000000000000) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
-    double ratio = (yy / xx);
+    double ratio = ({ __typeof__(yy) _uya_dv_l = (yy); __typeof__(xx) _uya_dv_r = (xx); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         {
         double _uya_ret = (xx * sqrt((1.0000000000000000 + (ratio * ratio))));
         return _uya_ret;
@@ -29465,13 +29495,13 @@ __attribute__((used)) double hypot(double x, double y) {
 __attribute__((used)) double remainder(double x, double y) {
     (void)x;
     (void)y;
-    if (y == 0.0000000000000000) {
+    if (y == 0.00000000000000000) {
                 {
             double _uya_ret = libc_NAN;
             return _uya_ret;
                 }
     }
-    double q = round((x / y));
+    double q = round(({ __typeof__(x) _uya_dv_l = (x); __typeof__(y) _uya_dv_r = (y); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
         {
         double _uya_ret = (x - (y * q));
         return _uya_ret;
@@ -29482,7 +29512,7 @@ __attribute__((used)) double remquo(double x, double y, int32_t * quo) {
     (void)x;
     (void)y;
     (void)quo;
-    if (y == 0.0000000000000000) {
+    if (y == 0.00000000000000000) {
         if (quo != NULL) {
             quo[0] = 0;
         }
@@ -29491,7 +29521,7 @@ __attribute__((used)) double remquo(double x, double y, int32_t * quo) {
             return _uya_ret;
                 }
     }
-    double q = round((x / y));
+    double q = round(({ __typeof__(x) _uya_dv_l = (x); __typeof__(y) _uya_dv_r = (y); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
     double result = (x - (y * q));
     if (quo != NULL) {
         quo[0] = (int32_t)q;
@@ -29533,7 +29563,7 @@ __attribute__((used)) int32_t ilogb(double x) {
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
         int32_t ret = /* optimized */ -2147483647;
                 {
             int32_t _uya_ret = (ret - 1);
@@ -29549,7 +29579,7 @@ __attribute__((used)) int32_t ilogb(double x) {
     double abs_x = fabs(x);
     int32_t exp_val = 0;
     while (abs_x >= 2.0000000000000000) {
-        abs_x = (abs_x / 2.0000000000000000);
+        abs_x = ({ __typeof__(abs_x) _uya_dv_l = (abs_x); __typeof__(2.0000000000000000) _uya_dv_r = (2.0000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         exp_val = (exp_val + 1);
     }
     while (abs_x < 1.0000000000000000) {
@@ -29574,12 +29604,12 @@ __attribute__((used)) double ldexp(double x, int32_t n) {
 __attribute__((used)) double frexp(double x, int32_t * exp) {
     (void)x;
     (void)exp;
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
         if (exp != NULL) {
             exp[0] = 0;
         }
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
@@ -29595,7 +29625,7 @@ __attribute__((used)) double frexp(double x, int32_t * exp) {
     double abs_x = fabs(x);
     int32_t e = 0;
     while (abs_x >= 1.0000000000000000) {
-        abs_x = (abs_x / 2.0000000000000000);
+        abs_x = ({ __typeof__(abs_x) _uya_dv_l = (abs_x); __typeof__(2.0000000000000000) _uya_dv_r = (2.0000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         e = (e + 1);
     }
     while (abs_x < 0.50000000000000000) {
@@ -29605,9 +29635,9 @@ __attribute__((used)) double frexp(double x, int32_t * exp) {
     if (exp != NULL) {
         exp[0] = e;
     }
-    if (x < 0.0000000000000000) {
+    if (x < 0.00000000000000000) {
                 {
-            double _uya_ret = (0.0000000000000000 - abs_x);
+            double _uya_ret = (0.00000000000000000 - abs_x);
             return _uya_ret;
                 }
     }
@@ -29619,14 +29649,14 @@ __attribute__((used)) double frexp(double x, int32_t * exp) {
 
 __attribute__((used)) int32_t signbit(double x) {
     (void)x;
-    if (x < 0.0000000000000000) {
+    if (x < 0.00000000000000000) {
                 {
             int32_t _uya_ret = 1;
             return _uya_ret;
                 }
     }
-    if (x == 0.0000000000000000) {
-        if ((1.0000000000000000 / x) < 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
+        if (({ __typeof__(1.0000000000000000) _uya_dv_l = (1.0000000000000000); __typeof__(x) _uya_dv_r = (x); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }) < 0.00000000000000000) {
                         {
                 int32_t _uya_ret = 1;
                 return _uya_ret;
@@ -29663,16 +29693,16 @@ __attribute__((used)) double nextafter(double x, double y) {
             return _uya_ret;
                 }
     }
-    const double epsilon = 2.2204460492503130e-16;
-    if (x == 0.0000000000000000) {
-        if (y > 0.0000000000000000) {
+    const double epsilon = 2.2204460492503131e-16;
+    if (x == 0.00000000000000000) {
+        if (y > 0.00000000000000000) {
                         {
                 double _uya_ret = epsilon;
                 return _uya_ret;
                         }
         }
                 {
-            double _uya_ret = (0.0000000000000000 - epsilon);
+            double _uya_ret = (0.00000000000000000 - epsilon);
             return _uya_ret;
                 }
     }
@@ -29762,9 +29792,9 @@ __attribute__((used)) int32_t iclamp(int32_t x, int32_t min_val, int32_t max_val
 
 __attribute__((used)) float fabsf(float x) {
     (void)x;
-    if (x < (float)0.0000000000000000) {
+    if (x < (float)0.00000000000000000) {
                 {
-            float _uya_ret = ((float)0.0000000000000000 - x);
+            float _uya_ret = ((float)0.00000000000000000 - x);
             return _uya_ret;
                 }
     }
@@ -29944,13 +29974,13 @@ __attribute__((used)) uint64_t isqrt(uint64_t n) {
             return _uya_ret;
                 }
     }
-    uint64_t guess = (n / 2);
+    uint64_t guess = ({ __typeof__(n) _uya_dv_l = (n); __typeof__(2) _uya_dv_r = (2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     if (guess == 0) {
         guess = 1;
     }
     int32_t i = 0;
     while (i < 100) {
-        uint64_t new_guess = ((guess + (n / guess)) / 2);
+        uint64_t new_guess = ({ __typeof__((guess + ({ __typeof__(n) _uya_dv_l = (n); __typeof__(guess) _uya_dv_r = (guess); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }))) _uya_dv_l = ((guess + ({ __typeof__(n) _uya_dv_l = (n); __typeof__(guess) _uya_dv_r = (guess); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }))); __typeof__(2) _uya_dv_r = (2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         if (new_guess >= guess) {
             break;
         }
@@ -30013,7 +30043,7 @@ __attribute__((used)) int64_t math_gcd(int64_t a, int64_t b) {
     }
     while (y != 0) {
         int64_t tmp = y;
-        y = (x % y);
+        y = ({ __typeof__(x) _uya_dv_l = (x); __typeof__(y) _uya_dv_r = (y); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         x = tmp;
     }
         {
@@ -30032,7 +30062,7 @@ __attribute__((used)) int64_t math_lcm(int64_t a, int64_t b) {
                 }
     }
         {
-        int64_t _uya_ret = ({ int32_t _l = ((a / math_gcd(a, b))); int32_t _r = (b); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+        int64_t _uya_ret = ({ int64_t _l = (({ __typeof__(a) _uya_dv_l = (a); __typeof__(math_gcd(a, b)) _uya_dv_r = (math_gcd(a, b)); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); int64_t _r = (b); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; });
         return _uya_ret;
         }
 }
@@ -30079,7 +30109,7 @@ __attribute__((used)) uint64_t binomial(uint64_t n, uint64_t k) {
     uint64_t result = 1;
     uint64_t i = 0;
     while (i < kk) {
-        result = ((result * (n - i)) / (i + 1));
+        result = ({ __typeof__((result * (n - i))) _uya_dv_l = ((result * (n - i))); __typeof__((i + 1)) _uya_dv_r = ((i + 1)); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         i = (i + 1);
     }
         {
@@ -32393,7 +32423,7 @@ static __attribute__((used)) void * * _pthread_key_value_ptr(int32_t key_seq) {
             i = (i + 1);
         }
     }
-    const int64_t key_idx_i64 = ((int64_t)key_seq % (int64_t)PTHREAD_KEYS_MAX);
+    const int64_t key_idx_i64 = ({ __typeof__((int64_t)key_seq) _uya_dv_l = ((int64_t)key_seq); __typeof__((int64_t)PTHREAD_KEYS_MAX) _uya_dv_r = ((int64_t)PTHREAD_KEYS_MAX); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     const size_t key_idx = (size_t)key_idx_i64;
         {
         void * * _uya_ret = (void * *)((size_t)desc->tsd_values + (key_idx * (int32_t)sizeof(void *)));
@@ -32474,8 +32504,8 @@ __attribute__((used)) void libc_CPU_SET(int32_t cpu, struct cpu_set_t * set) {
     if ((((set == NULL) || (cpu < 0)) || (cpu >= 1024))) {
         return;
     }
-    const size_t idx = ((size_t)cpu / (size_t)64);
-    const uint64_t bit = ((uint64_t)1 << (int32_t)((size_t)cpu % (size_t)64));
+    const size_t idx = ({ __typeof__((size_t)cpu) _uya_dv_l = ((size_t)cpu); __typeof__((size_t)64) _uya_dv_r = ((size_t)64); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    const uint64_t bit = ((uint64_t)1 << (int32_t)({ __typeof__((size_t)cpu) _uya_dv_l = ((size_t)cpu); __typeof__((size_t)64) _uya_dv_r = ((size_t)64); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
     if (idx == 0) {
         set->bits0 = (set->bits0 | bit);
     } else {
@@ -32547,8 +32577,8 @@ __attribute__((used)) void libc_CPU_CLR(int32_t cpu, struct cpu_set_t * set) {
     if ((((set == NULL) || (cpu < 0)) || (cpu >= 1024))) {
         return;
     }
-    const size_t idx = ((size_t)cpu / (size_t)64);
-    const uint64_t bit = ((uint64_t)1 << (int32_t)((size_t)cpu % (size_t)64));
+    const size_t idx = ({ __typeof__((size_t)cpu) _uya_dv_l = ((size_t)cpu); __typeof__((size_t)64) _uya_dv_r = ((size_t)64); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    const uint64_t bit = ((uint64_t)1 << (int32_t)({ __typeof__((size_t)cpu) _uya_dv_l = ((size_t)cpu); __typeof__((size_t)64) _uya_dv_r = ((size_t)64); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
     if (idx == 0) {
         set->bits0 = (set->bits0 & (~bit));
     } else {
@@ -32623,8 +32653,8 @@ __attribute__((used)) int32_t libc_CPU_ISSET(int32_t cpu, struct cpu_set_t * set
             return _uya_ret;
                 }
     }
-    const size_t idx = ((size_t)cpu / (size_t)64);
-    const uint64_t bit = ((uint64_t)1 << (int32_t)((size_t)cpu % (size_t)64));
+    const size_t idx = ({ __typeof__((size_t)cpu) _uya_dv_l = ((size_t)cpu); __typeof__((size_t)64) _uya_dv_r = ((size_t)64); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    const uint64_t bit = ((uint64_t)1 << (int32_t)({ __typeof__((size_t)cpu) _uya_dv_l = ((size_t)cpu); __typeof__((size_t)64) _uya_dv_r = ((size_t)64); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
     uint64_t bits = 0;
     if (idx == 0) {
         bits = set->bits0;
@@ -33565,8 +33595,8 @@ __attribute__((used)) size_t libc_i32_to_str(int32_t value, char * buf) {
                 }
     }
     while (v > 0) {
-        buf[len] = (uint8_t)((v % (int32_t)10) + (int32_t)48);
-        v = (v / (int32_t)10);
+        buf[len] = (uint8_t)(({ __typeof__(v) _uya_dv_l = (v); __typeof__((int32_t)10) _uya_dv_r = ((int32_t)10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) + (int32_t)48);
+        v = ({ __typeof__(v) _uya_dv_l = (v); __typeof__((int32_t)10) _uya_dv_r = ((int32_t)10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         len = (len + 1);
     }
     if (is_neg) {
@@ -33606,8 +33636,8 @@ __attribute__((used)) size_t libc_i64_to_str(int64_t value, char * buf) {
                 }
     }
     while (v > 0) {
-        buf[len] = (uint8_t)((v % (int64_t)10) + (int64_t)48);
-        v = (v / (int64_t)10);
+        buf[len] = (uint8_t)(({ __typeof__(v) _uya_dv_l = (v); __typeof__((int64_t)10) _uya_dv_r = ((int64_t)10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) + (int64_t)48);
+        v = ({ __typeof__(v) _uya_dv_l = (v); __typeof__((int64_t)10) _uya_dv_r = ((int64_t)10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         len = (len + 1);
     }
     if (is_neg) {
@@ -33894,7 +33924,7 @@ __attribute__((used)) size_t libc_fread(char * ptr, size_t size, size_t nmemb, s
                 }
     }
         {
-        size_t _uya_ret = ((size_t)bytes_read / size);
+        size_t _uya_ret = ({ __typeof__((size_t)bytes_read) _uya_dv_l = ((size_t)bytes_read); __typeof__(size) _uya_dv_r = (size); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         return _uya_ret;
         }
 }
@@ -33951,8 +33981,8 @@ static __attribute__((used)) void _fmt_bignum_mul_small(uint64_t * limbs, int32_
     int32_t i = 0;
     while (i < count[0]) {
         const uint64_t v = ((limbs[i] * factor) + carry);
-        limbs[i] = (v % FMT_LIMB_BASE);
-        carry = (v / FMT_LIMB_BASE);
+        limbs[i] = ({ __typeof__(v) _uya_dv_l = (v); __typeof__(FMT_LIMB_BASE) _uya_dv_r = (FMT_LIMB_BASE); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
+        carry = ({ __typeof__(v) _uya_dv_l = (v); __typeof__(FMT_LIMB_BASE) _uya_dv_r = (FMT_LIMB_BASE); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         i = (i + 1);
     }
     if (((carry != 0ULL) && (count[0] < FMT_MAX_LIMBS))) {
@@ -33964,7 +33994,7 @@ static __attribute__((used)) void _fmt_bignum_mul_small(uint64_t * limbs, int32_
 static __attribute__((used)) uint64_t _fmt_f64_to_bits(double value) {
     (void)value;
     uint64_t bits = 0ULL;
-    (void)((uint8_t *)memcpy((char *)(uint8_t *)(&bits), (const char *)(const uint8_t *)(&value), (size_t)8));
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(uint8_t *)(&bits), (const char *)(const uint8_t *)(&value), (size_t)8));
         {
         uint64_t _uya_ret = bits;
         return _uya_ret;
@@ -33982,7 +34012,7 @@ static __attribute__((used)) uint64_t _fmt_decimal_digit(uint64_t * limbs, int32
             return _uya_ret;
                 }
     }
-    const int32_t limb = (place / 9);
+    const int32_t limb = ({ __typeof__(place) _uya_dv_l = (place); __typeof__(9) _uya_dv_r = (9); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     if (((limb < 0) || (limb >= FMT_MAX_LIMBS))) {
                 {
             uint64_t _uya_ret = 0ULL;
@@ -34000,7 +34030,7 @@ static __attribute__((used)) uint64_t _fmt_decimal_digit(uint64_t * limbs, int32
                 }
     }
         {
-        uint64_t _uya_ret = ((limbs[limb] / FMT_POW10_TABLE[(size_t)off]) % 10ULL);
+        uint64_t _uya_ret = ({ __typeof__(({ __typeof__(limbs[limb]) _uya_dv_l = (limbs[limb]); __typeof__(FMT_POW10_TABLE[(size_t)off]) _uya_dv_r = (FMT_POW10_TABLE[(size_t)off]); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) _uya_dv_l = (({ __typeof__(limbs[limb]) _uya_dv_l = (limbs[limb]); __typeof__(FMT_POW10_TABLE[(size_t)off]) _uya_dv_r = (FMT_POW10_TABLE[(size_t)off]); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); __typeof__(10ULL) _uya_dv_r = (10ULL); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         return _uya_ret;
         }
 }
@@ -34016,7 +34046,7 @@ static __attribute__((used)) int32_t _fmt_exact_digits(double value, int32_t wan
             return _uya_ret;
                 }
     }
-    if ((((!(value > 0.0000000000000000)) || (want <= 0)) || (want > 19))) {
+    if ((((!(value > 0.00000000000000000)) || (want <= 0)) || (want > 19))) {
                 {
             int32_t _uya_ret = 0;
             return _uya_ret;
@@ -34034,9 +34064,9 @@ static __attribute__((used)) int32_t _fmt_exact_digits(double value, int32_t wan
         e2 = ({ int32_t _l = (exp_field); int32_t _r = (1075); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     }
     uint64_t limbs[96] = {0};
-    limbs[0] = (mant % FMT_LIMB_BASE);
-    limbs[1] = ((mant / FMT_LIMB_BASE) % FMT_LIMB_BASE);
-    limbs[2] = (mant / ((uint64_t)(uint32_t)0xA7640000ULL + ((uint64_t)(uint32_t)0xDE0B6B3ULL << 32)));
+    limbs[0] = ({ __typeof__(mant) _uya_dv_l = (mant); __typeof__(FMT_LIMB_BASE) _uya_dv_r = (FMT_LIMB_BASE); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
+    limbs[1] = ({ __typeof__(({ __typeof__(mant) _uya_dv_l = (mant); __typeof__(FMT_LIMB_BASE) _uya_dv_r = (FMT_LIMB_BASE); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) _uya_dv_l = (({ __typeof__(mant) _uya_dv_l = (mant); __typeof__(FMT_LIMB_BASE) _uya_dv_r = (FMT_LIMB_BASE); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); __typeof__(FMT_LIMB_BASE) _uya_dv_r = (FMT_LIMB_BASE); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
+    limbs[2] = ({ __typeof__(mant) _uya_dv_l = (mant); __typeof__(((uint64_t)(uint32_t)0xA7640000ULL + ((uint64_t)(uint32_t)0xDE0B6B3ULL << 32))) _uya_dv_r = (((uint64_t)(uint32_t)0xA7640000ULL + ((uint64_t)(uint32_t)0xDE0B6B3ULL << 32))); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     int32_t count = 3;
     while (((count > 1) && (limbs[(count - 1)] == 0ULL))) {
         count = (count - 1);
@@ -34059,7 +34089,7 @@ static __attribute__((used)) int32_t _fmt_exact_digits(double value, int32_t wan
     int32_t top_digits = 1;
     uint64_t probe = limbs[(count - 1)];
     while (probe >= 10ULL) {
-        probe = (probe / 10ULL);
+        probe = ({ __typeof__(probe) _uya_dv_l = (probe); __typeof__(10ULL) _uya_dv_r = (10ULL); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         top_digits = ({ int32_t _l = (top_digits); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     }
     const int32_t total = ({ int32_t _l = (({ int32_t _l = (({ int32_t _l = (count); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (9); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; })); int32_t _r = (top_digits); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
@@ -34086,7 +34116,7 @@ static __attribute__((used)) int32_t _fmt_exact_digits(double value, int32_t wan
             if (sticky != 0) {
                 round_up = 1;
             } else {
-                if ((_fmt_decimal_digit((&limbs[0]), total, (want - 1)) % 2ULL) == 1ULL) {
+                if (({ __typeof__(_fmt_decimal_digit((&limbs[0]), total, (want - 1))) _uya_dv_l = (_fmt_decimal_digit((&limbs[0]), total, (want - 1))); __typeof__(2ULL) _uya_dv_r = (2ULL); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) == 1ULL) {
                     round_up = 1;
                 }
             }
@@ -34182,8 +34212,8 @@ static __attribute__((used)) size_t _fmt_f64_to_buf(uint8_t * buf, size_t buf_po
             return _uya_ret;
                 }
     }
-    if (((x != 0.0000000000000000) && ((x * 2.0000000000000000) == x))) {
-        if (x < 0.0000000000000000) {
+    if (((x != 0.00000000000000000) && ((x * 2.0000000000000000) == x))) {
+        if (x < 0.00000000000000000) {
             buf[pos] = 45;
             pos = (pos + 1);
             if (pos >= buf_max) {
@@ -34225,12 +34255,12 @@ static __attribute__((used)) size_t _fmt_f64_to_buf(uint8_t * buf, size_t buf_po
             return _uya_ret;
                 }
     }
-    if (x < 0.0000000000000000) {
+    if (x < 0.00000000000000000) {
         buf[pos] = 45;
         pos = (pos + 1);
-        x = (0.0000000000000000 - x);
+        x = (0.00000000000000000 - x);
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
         buf[pos] = 48;
         pos = (pos + 1);
         int32_t zero_prec = prec;
@@ -34252,14 +34282,14 @@ static __attribute__((used)) size_t _fmt_f64_to_buf(uint8_t * buf, size_t buf_po
             return _uya_ret;
                 }
     }
-    if (((((g_format != 0) && (alt_form == 0)) && (x > 0.0000000000000000)) && (x < 1000000000000000.0))) {
+    if (((((g_format != 0) && (alt_form == 0)) && (x > 0.00000000000000000)) && (x < 1000000000000000.0))) {
         int32_t round_exp = 0;
         double probe = x;
         while (probe >= 10.000000000000000) {
-            probe = (probe / 10.000000000000000);
+            probe = ({ __typeof__(probe) _uya_dv_l = (probe); __typeof__(10.000000000000000) _uya_dv_r = (10.000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
             round_exp = (round_exp + 1);
         }
-        while (((probe < 1.0000000000000000) && (probe > 0.0000000000000000))) {
+        while (((probe < 1.0000000000000000) && (probe > 0.00000000000000000))) {
             probe = (probe * 10.000000000000000);
             round_exp = (round_exp - 1);
         }
@@ -34273,26 +34303,26 @@ static __attribute__((used)) size_t _fmt_f64_to_buf(uint8_t * buf, size_t buf_po
             }
             const double scaled_value = (x * round_factor);
             const int64_t rounded_int = (int64_t)(scaled_value + 0.50000000000000000);
-            x = ((double)rounded_int / round_factor);
+            x = ({ __typeof__((double)rounded_int) _uya_dv_l = ((double)rounded_int); __typeof__(round_factor) _uya_dv_r = (round_factor); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         }
     }
     int32_t exp = 0;
     double normalized = x;
-    if (normalized >= 1.0000000000000006e+308) {
-        normalized = (normalized / 1.0000000000000006e+308);
+    if (normalized >= 9.9999999999999981e+307) {
+        normalized = ({ __typeof__(normalized) _uya_dv_l = (normalized); __typeof__(9.9999999999999981e+307) _uya_dv_r = (9.9999999999999981e+307); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         exp = 308;
     } else {
         while (normalized >= 10.000000000000000) {
-            normalized = (normalized / 10.000000000000000);
+            normalized = ({ __typeof__(normalized) _uya_dv_l = (normalized); __typeof__(10.000000000000000) _uya_dv_r = (10.000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
             exp = (exp + 1);
         }
     }
-    while (((normalized < 1.0000000000000000) && (normalized > 0.0000000000000000))) {
+    while (((normalized < 1.0000000000000000) && (normalized > 0.00000000000000000))) {
         normalized = (normalized * 10.000000000000000);
         exp = (exp - 1);
     }
     while (normalized >= 10.000000000000000) {
-        normalized = (normalized / 10.000000000000000);
+        normalized = ({ __typeof__(normalized) _uya_dv_l = (normalized); __typeof__(10.000000000000000) _uya_dv_r = (10.000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         exp = (exp + 1);
     }
     bool use_scientific = false;
@@ -34329,7 +34359,7 @@ static __attribute__((used)) size_t _fmt_f64_to_buf(uint8_t * buf, size_t buf_po
         if (((frac_prec > 0) && (pos < buf_max))) {
             buf[pos] = 46;
             pos = (pos + 1);
-            double frac = 0.0000000000000000;
+            double frac = 0.00000000000000000;
             if (use_exact == 0) {
                 frac = (normalized - (double)int_digit);
             }
@@ -34383,9 +34413,9 @@ static __attribute__((used)) size_t _fmt_f64_to_buf(uint8_t * buf, size_t buf_po
         int32_t exp_tmp = exp;
         while (((exp_tmp > 0) && (exp_n < 4))) {
             if (((exp_n >= 0) && (exp_n < 4))) {
-                exp_digits[exp_n] = (uint8_t)({ int32_t _l = (48); int32_t _r = ((exp_tmp % 10)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                exp_digits[exp_n] = (uint8_t)({ int32_t _l = (48); int32_t _r = (({ __typeof__(exp_tmp) _uya_dv_l = (exp_tmp); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; })); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
             }
-            exp_tmp = (exp_tmp / 10);
+            exp_tmp = ({ __typeof__(exp_tmp) _uya_dv_l = (exp_tmp); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
             exp_n = (exp_n + 1);
         }
         if (exp_n < 2) {
@@ -34436,9 +34466,9 @@ static __attribute__((used)) size_t _fmt_f64_to_buf(uint8_t * buf, size_t buf_po
         } else {
             int64_t t = int_part;
             while (((t > 0) && (di < 24))) {
-                digits[di] = (uint8_t)(48 + (int32_t)(t % 10));
+                digits[di] = (uint8_t)(48 + (int32_t)({ __typeof__(t) _uya_dv_l = (t); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
                 di = (di + 1);
-                t = (t / 10);
+                t = ({ __typeof__(t) _uya_dv_l = (t); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
             }
         }
         size_t i = 0;
@@ -34460,11 +34490,11 @@ static __attribute__((used)) size_t _fmt_f64_to_buf(uint8_t * buf, size_t buf_po
                 }
                 i = 0;
                 while (((i < (size_t)frac_prec) && (pos < buf_max))) {
-                    const int32_t d = (int32_t)((frac_scaled / div) % (int64_t)10);
+                    const int32_t d = (int32_t)({ __typeof__(({ __typeof__(frac_scaled) _uya_dv_l = (frac_scaled); __typeof__(div) _uya_dv_r = (div); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) _uya_dv_l = (({ __typeof__(frac_scaled) _uya_dv_l = (frac_scaled); __typeof__(div) _uya_dv_r = (div); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); __typeof__((int64_t)10) _uya_dv_r = ((int64_t)10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                     buf[pos] = (uint8_t)({ int32_t _l = (48); int32_t _r = (d); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                     pos = (pos + 1);
                     if (div > 1) {
-                        div = (div / 10);
+                        div = ({ __typeof__(div) _uya_dv_l = (div); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
                     }
                     i = (i + 1);
                 }
@@ -34538,8 +34568,8 @@ static __attribute__((used)) size_t _fmt_f64_hex_to_buf(uint8_t * buf, size_t bu
             return _uya_ret;
                 }
     }
-    if (((x != 0.0000000000000000) && ((x * 2.0000000000000000) == x))) {
-        if (x < 0.0000000000000000) {
+    if (((x != 0.00000000000000000) && ((x * 2.0000000000000000) == x))) {
+        if (x < 0.00000000000000000) {
             if (pos < buf_max) {
                 buf[pos] = 45;
                 pos = (pos + 1);
@@ -34577,14 +34607,14 @@ static __attribute__((used)) size_t _fmt_f64_hex_to_buf(uint8_t * buf, size_t bu
             return _uya_ret;
                 }
     }
-    if (x < 0.0000000000000000) {
+    if (x < 0.00000000000000000) {
         if (pos < buf_max) {
             buf[pos] = 45;
             pos = (pos + 1);
         }
-        x = (0.0000000000000000 - x);
+        x = (0.00000000000000000 - x);
     }
-    if (x == 0.0000000000000000) {
+    if (x == 0.00000000000000000) {
         if (uppercase != 0) {
             if (pos < buf_max) {
                 buf[pos] = 48;
@@ -34650,7 +34680,7 @@ static __attribute__((used)) size_t _fmt_f64_hex_to_buf(uint8_t * buf, size_t bu
     }
     int32_t exp = 0;
     while (x >= 1.0000000000000000) {
-        x = (x / 2.0000000000000000);
+        x = ({ __typeof__(x) _uya_dv_l = (x); __typeof__(2.0000000000000000) _uya_dv_r = (2.0000000000000000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         exp = (exp + 1);
     }
     while (x < 0.50000000000000000) {
@@ -34758,9 +34788,9 @@ static __attribute__((used)) size_t _fmt_f64_hex_to_buf(uint8_t * buf, size_t bu
     int32_t exp_tmp2 = exp;
     while (((exp_tmp2 > 0) && (exp_n2 < 4))) {
         if (((exp_n2 >= 0) && (exp_n2 < 4))) {
-            exp_digits2[exp_n2] = (uint8_t)({ int32_t _l = (48); int32_t _r = ((exp_tmp2 % 10)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+            exp_digits2[exp_n2] = (uint8_t)({ int32_t _l = (48); int32_t _r = (({ __typeof__(exp_tmp2) _uya_dv_l = (exp_tmp2); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; })); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
         }
-        exp_tmp2 = (exp_tmp2 / 10);
+        exp_tmp2 = ({ __typeof__(exp_tmp2) _uya_dv_l = (exp_tmp2); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         exp_n2 = (exp_n2 + 1);
     }
     if (exp_n2 < 2) {
@@ -34905,11 +34935,11 @@ static __attribute__((used)) void _fmt_i32_to_buf_full(struct _FmtContext * ctx,
         uint32_t temp = magnitude;
         while (((temp > 0) && (digit_idx < 16))) {
             const uint32_t ten = (uint32_t)10;
-            const uint32_t digit = (temp % ten);
+            const uint32_t digit = ({ __typeof__(temp) _uya_dv_l = (temp); __typeof__(ten) _uya_dv_r = (ten); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             const uint32_t zero = (uint32_t)48;
             digits[digit_idx] = (uint8_t)(zero + digit);
             digit_idx = (digit_idx + 1);
-            temp = (temp / ten);
+            temp = ({ __typeof__(temp) _uya_dv_l = (temp); __typeof__(ten) _uya_dv_r = (ten); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         }
     }
     if (is_neg > 0) {
@@ -34980,11 +35010,11 @@ static __attribute__((used)) void _fmt_i64_to_buf_full(struct _FmtContext * ctx,
         uint64_t temp = magnitude;
         while (((temp > 0) && (digit_idx < 32))) {
             const uint64_t ten = (uint64_t)10;
-            const uint64_t digit = (temp % ten);
+            const uint64_t digit = ({ __typeof__(temp) _uya_dv_l = (temp); __typeof__(ten) _uya_dv_r = (ten); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             const uint64_t zero = (uint64_t)48;
             digits[digit_idx] = (uint8_t)(zero + digit);
             digit_idx = (digit_idx + 1);
-            temp = (temp / ten);
+            temp = ({ __typeof__(temp) _uya_dv_l = (temp); __typeof__(ten) _uya_dv_r = (ten); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         }
     }
     if (is_neg > 0) {
@@ -35064,7 +35094,7 @@ static __attribute__((used)) void _fmt_u32_hex_to_buf_prefix(struct _FmtContext 
         hidx = 1;
     } else {
         while (((num > 0) && (hidx < 8))) {
-            const size_t idx = (size_t)(num % sixteen);
+            const size_t idx = (size_t)({ __typeof__(num) _uya_dv_l = (num); __typeof__(sixteen) _uya_dv_r = (sixteen); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             if (((idx >= 0) && (idx < 16))) {
                 if (uppercase > 0) {
                     hdigits[hidx] = hex_upper[idx];
@@ -35073,7 +35103,7 @@ static __attribute__((used)) void _fmt_u32_hex_to_buf_prefix(struct _FmtContext 
                 }
             }
             hidx = (hidx + 1);
-            num = (num / sixteen);
+            num = ({ __typeof__(num) _uya_dv_l = (num); __typeof__(sixteen) _uya_dv_r = (sixteen); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         }
     }
     ctx->total_len = (ctx->total_len + hidx);
@@ -35097,10 +35127,10 @@ static __attribute__((used)) void _fmt_u32_octal_to_buf(struct _FmtContext * ctx
         oidx = 1;
     } else {
         while (((num > 0) && (oidx < 12))) {
-            const size_t idx = (size_t)(num % eight);
+            const size_t idx = (size_t)({ __typeof__(num) _uya_dv_l = (num); __typeof__(eight) _uya_dv_r = (eight); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             odigits[oidx] = (uint8_t)(48 + idx);
             oidx = (oidx + 1);
-            num = (num / eight);
+            num = ({ __typeof__(num) _uya_dv_l = (num); __typeof__(eight) _uya_dv_r = (eight); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         }
     }
     ctx->total_len = (ctx->total_len + oidx);
@@ -35127,7 +35157,7 @@ static __attribute__((used)) void _fmt_u64_hex_to_buf(struct _FmtContext * ctx, 
         hidx = 1;
     } else {
         while (((num > 0) && (hidx < 16))) {
-            const size_t idx = (size_t)(num % sixteen);
+            const size_t idx = (size_t)({ __typeof__(num) _uya_dv_l = (num); __typeof__(sixteen) _uya_dv_r = (sixteen); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             if (idx < 16) {
                 if (uppercase > 0) {
                     hdigits[hidx] = hex_upper[idx];
@@ -35136,7 +35166,7 @@ static __attribute__((used)) void _fmt_u64_hex_to_buf(struct _FmtContext * ctx, 
                 }
             }
             hidx = (hidx + 1);
-            num = (num / sixteen);
+            num = ({ __typeof__(num) _uya_dv_l = (num); __typeof__(sixteen) _uya_dv_r = (sixteen); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         }
     }
     ctx->total_len = (ctx->total_len + hidx);
@@ -35160,10 +35190,10 @@ static __attribute__((used)) void _fmt_u64_octal_to_buf(struct _FmtContext * ctx
         oidx = 1;
     } else {
         while (((num > 0) && (oidx < 22))) {
-            const size_t idx = (size_t)(num % eight);
+            const size_t idx = (size_t)({ __typeof__(num) _uya_dv_l = (num); __typeof__(eight) _uya_dv_r = (eight); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             odigits[oidx] = (uint8_t)(48 + idx);
             oidx = (oidx + 1);
-            num = (num / eight);
+            num = ({ __typeof__(num) _uya_dv_l = (num); __typeof__(eight) _uya_dv_r = (eight); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         }
     }
     ctx->total_len = (ctx->total_len + oidx);
@@ -35829,10 +35859,10 @@ static __attribute__((used)) void _fmt_u32_to_buf(struct _FmtContext * ctx, uint
     } else {
         const uint32_t ten = 10;
         while (((num > 0) && (digit_idx < 16))) {
-            const int32_t digit = (int32_t)(num % ten);
+            const int32_t digit = (int32_t)({ __typeof__(num) _uya_dv_l = (num); __typeof__(ten) _uya_dv_r = (ten); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             digits[digit_idx] = (uint8_t)(48 + digit);
             digit_idx = (digit_idx + 1);
-            num = (num / ten);
+            num = ({ __typeof__(num) _uya_dv_l = (num); __typeof__(ten) _uya_dv_r = (ten); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         }
     }
     ctx->total_len = (ctx->total_len + digit_idx);
@@ -35856,10 +35886,10 @@ static __attribute__((used)) void _fmt_u64_to_buf(struct _FmtContext * ctx, uint
     } else {
         const uint64_t ten = 10;
         while (((num > 0) && (digit_idx < 24))) {
-            const int32_t digit = (int32_t)(num % ten);
+            const int32_t digit = (int32_t)({ __typeof__(num) _uya_dv_l = (num); __typeof__(ten) _uya_dv_r = (ten); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             digits[digit_idx] = (uint8_t)(48 + digit);
             digit_idx = (digit_idx + 1);
-            num = (num / ten);
+            num = ({ __typeof__(num) _uya_dv_l = (num); __typeof__(ten) _uya_dv_r = (ten); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         }
     }
     ctx->total_len = (ctx->total_len + digit_idx);
@@ -35925,7 +35955,7 @@ __attribute__((used)) size_t libc_fwrite(const char * ptr, size_t size, size_t n
                 }
     }
         {
-        size_t _uya_ret = ((size_t)result / size);
+        size_t _uya_ret = ({ __typeof__((size_t)result) _uya_dv_l = ((size_t)result); __typeof__(size) _uya_dv_r = (size); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         return _uya_ret;
         }
 }
@@ -36280,8 +36310,8 @@ __attribute__((used)) struct FILE * libc_tmpfile() {
         uint8_t digits[10] = {0};
         size_t d = 0;
         while (((tmpfile_counter > 0) && (d < 10))) {
-            digits[d] = (uint8_t)(48 + (tmpfile_counter % 10));
-            tmpfile_counter = (tmpfile_counter / 10);
+            digits[d] = (uint8_t)(48 + ({ __typeof__(tmpfile_counter) _uya_dv_l = (tmpfile_counter); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
+            tmpfile_counter = ({ __typeof__(tmpfile_counter) _uya_dv_l = (tmpfile_counter); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
             d = (d + 1);
         }
         size_t i = 0;
@@ -36387,8 +36417,8 @@ __attribute__((used)) char * libc_tmpnam(char * s) {
         uint8_t digits[10] = {0};
         size_t d = 0;
         while (((tmpnam_counter > 0) && (d < 10))) {
-            digits[d] = (uint8_t)(48 + (tmpnam_counter % 10));
-            tmpnam_counter = (tmpnam_counter / 10);
+            digits[d] = (uint8_t)(48 + ({ __typeof__(tmpnam_counter) _uya_dv_l = (tmpnam_counter); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
+            tmpnam_counter = ({ __typeof__(tmpnam_counter) _uya_dv_l = (tmpnam_counter); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
             d = (d + 1);
         }
         size_t i = 0;
@@ -36514,7 +36544,7 @@ __attribute__((used)) void * calloc(size_t nmemb, size_t size) {
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)ptr, 0, total));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)ptr, 0, total));
         {
         void * _uya_ret = ptr;
         return _uya_ret;
@@ -36611,14 +36641,14 @@ __attribute__((used)) char * lltoa(int64_t value, char * buf, int32_t radix) {
         i = 1;
     } else {
         while (num > 0) {
-            int64_t digit = (num % (int64_t)radix);
+            int64_t digit = ({ __typeof__(num) _uya_dv_l = (num); __typeof__((int64_t)radix) _uya_dv_r = ((int64_t)radix); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             if (digit < 10) {
                 digits[i] = (uint8_t)({ int64_t _l = ((int64_t)48); int64_t _r = (digit); int64_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
             } else {
                 digits[i] = (uint8_t)({ int64_t _l = ((int64_t)87); int64_t _r = (digit); int64_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
             }
             i = (i + 1);
-            num = (num / (int64_t)radix);
+            num = ({ __typeof__(num) _uya_dv_l = (num); __typeof__((int64_t)radix) _uya_dv_r = ((int64_t)radix); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         }
     }
     if (neg) {
@@ -36698,7 +36728,7 @@ static __attribute__((used)) void qsort_rec(uint8_t * arr, size_t left, size_t r
     if (left >= right) {
         return;
     }
-    size_t pivot = (left + ((right - left) / 2));
+    size_t pivot = (left + ({ __typeof__((right - left)) _uya_dv_l = ((right - left)); __typeof__(2) _uya_dv_r = (2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
     size_t i = left;
     size_t j = right;
     while (i <= j) {
@@ -36962,7 +36992,7 @@ __attribute__((used)) struct err_union_intptr_t sys_write(int32_t fd, const char
     (void)buf;
     (void)count;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_write, (int64_t)fd, (int64_t)buf, (int64_t)count); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_write, (int64_t)fd, (int64_t)buf, (int64_t)count); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -36973,7 +37003,7 @@ __attribute__((used)) struct err_union_intptr_t sys_read(int32_t fd, char * buf,
     (void)buf;
     (void)count;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_read, (int64_t)fd, (int64_t)buf, (int64_t)count); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_read, (int64_t)fd, (int64_t)buf, (int64_t)count); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -36984,7 +37014,7 @@ __attribute__((used)) struct err_union_intptr_t sys_writev(int32_t fd, const str
     (void)iov;
     (void)iovcnt;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_writev, (int64_t)fd, (int64_t)iov, (int64_t)iovcnt); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_writev, (int64_t)fd, (int64_t)iov, (int64_t)iovcnt); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -36994,7 +37024,7 @@ __attribute__((used)) struct err_union_int32_t sys_open(const char * pathname, i
     (void)flags;
     (void)mode;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_open, (int64_t)pathname, (int64_t)flags, (int64_t)mode); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_open, (int64_t)pathname, (int64_t)flags, (int64_t)mode); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37003,7 +37033,7 @@ __attribute__((used)) struct err_union_int32_t sys_open(const char * pathname, i
 __attribute__((used)) struct err_union_int32_t sys_close(int32_t fd) {
     (void)fd;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_close, (int64_t)fd); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_close, (int64_t)fd); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37045,7 +37075,7 @@ __attribute__((used)) struct err_union_int32_t sys_access(const char * pathname,
     (void)pathname;
     (void)mode;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_access, (int64_t)pathname, (int64_t)mode); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_access, (int64_t)pathname, (int64_t)mode); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37054,7 +37084,7 @@ __attribute__((used)) struct err_union_int32_t sys_access(const char * pathname,
 __attribute__((used)) struct err_union_int32_t sys_unlink(const char * pathname) {
     (void)pathname;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_unlink, (int64_t)pathname); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_unlink, (int64_t)pathname); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37064,7 +37094,7 @@ __attribute__((used)) struct err_union_int32_t sys_mkdir(const char * pathname, 
     (void)pathname;
     (void)mode;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_mkdir, (int64_t)pathname, (int64_t)mode); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_mkdir, (int64_t)pathname, (int64_t)mode); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37073,7 +37103,7 @@ __attribute__((used)) struct err_union_int32_t sys_mkdir(const char * pathname, 
 __attribute__((used)) struct err_union_int32_t sys_rmdir(const char * pathname) {
     (void)pathname;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_rmdir, (int64_t)pathname); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_rmdir, (int64_t)pathname); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37082,7 +37112,7 @@ __attribute__((used)) struct err_union_int32_t sys_rmdir(const char * pathname) 
 __attribute__((used)) struct err_union_int32_t sys_chdir(const char * path) {
     (void)path;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_chdir, (int64_t)path); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_chdir, (int64_t)path); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37092,7 +37122,7 @@ __attribute__((used)) struct err_union_intptr_t sys_getcwd(char * buf, size_t si
     (void)buf;
     (void)size;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_getcwd, (int64_t)buf, (int64_t)size); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_getcwd, (int64_t)buf, (int64_t)size); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -37106,7 +37136,7 @@ __attribute__((used)) struct err_union_voidptr sys_mmap(void * addr, size_t leng
     (void)fd;
     (void)offset;
         {
-        struct err_union_voidptr _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_mmap, (int64_t)addr, (int64_t)length, (int64_t)prot, (int64_t)flags, (int64_t)fd, (int64_t)offset); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_voidptr _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (void *){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (void *)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_voidptr _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_mmap, (int64_t)addr, (int64_t)length, (int64_t)prot, (int64_t)flags, (int64_t)fd, (int64_t)offset); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_voidptr _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_voidptr){0};
@@ -37116,7 +37146,7 @@ __attribute__((used)) struct err_union_int32_t sys_munmap(void * addr, size_t le
     (void)addr;
     (void)length;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_munmap, (int64_t)addr, (int64_t)length); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_munmap, (int64_t)addr, (int64_t)length); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37127,7 +37157,7 @@ __attribute__((used)) struct err_union_int32_t sys_mprotect(void * addr, size_t 
     (void)length;
     (void)prot;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_mprotect, (int64_t)addr, (int64_t)length, (int64_t)prot); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_mprotect, (int64_t)addr, (int64_t)length, (int64_t)prot); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37137,7 +37167,7 @@ __attribute__((used)) struct err_union_int32_t sys_stat(const char * pathname, s
     (void)pathname;
     (void)statbuf;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_stat, (int64_t)pathname, (int64_t)statbuf); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_stat, (int64_t)pathname, (int64_t)statbuf); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37147,7 +37177,7 @@ __attribute__((used)) struct err_union_int32_t sys_kill(int64_t pid, int32_t sig
     (void)pid;
     (void)sig;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_kill, pid, (int64_t)sig); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_kill, pid, (int64_t)sig); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37158,7 +37188,7 @@ __attribute__((used)) struct err_union_int32_t sys_tgkill(int32_t tgid, int32_t 
     (void)tid;
     (void)sig;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(SYS_tgkill, (int64_t)tgid, (int64_t)tid, (int64_t)sig); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(SYS_tgkill, (int64_t)tgid, (int64_t)tid, (int64_t)sig); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -37166,7 +37196,7 @@ __attribute__((used)) struct err_union_int32_t sys_tgkill(int32_t tgid, int32_t 
 __attribute__((used)) struct err_union_int32_t sys_set_tid_address(int32_t * tidptr) {
     (void)tidptr;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_set_tid_address, (int64_t)tidptr); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_set_tid_address, (int64_t)tidptr); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -37176,7 +37206,7 @@ __attribute__((used)) struct err_union_int32_t sys_waitpid(int32_t pid, int32_t 
     (void)status;
     (void)options;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(libc_SYS_waitpid, (int64_t)pid, (int64_t)status, (int64_t)options, (int64_t)0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(libc_SYS_waitpid, (int64_t)pid, (int64_t)status, (int64_t)options, (int64_t)0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37205,7 +37235,7 @@ __attribute__((used)) struct err_union_intptr_t sys_readlink(const char * pathna
     (void)buf;
     (void)bufsiz;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_readlink, (int64_t)pathname, (int64_t)buf, (int64_t)bufsiz); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_readlink, (int64_t)pathname, (int64_t)buf, (int64_t)bufsiz); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -37215,7 +37245,7 @@ __attribute__((used)) struct err_union_int32_t sys_setrlimit(int32_t resource, c
     (void)resource;
     (void)rlim;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_setrlimit, (int64_t)resource, (int64_t)rlim); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_setrlimit, (int64_t)resource, (int64_t)rlim); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -37224,7 +37254,7 @@ __attribute__((used)) struct err_union_int32_t sys_getrlimit(int32_t resource, s
     (void)resource;
     (void)rlim;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_getrlimit, (int64_t)resource, (int64_t)rlim); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_getrlimit, (int64_t)resource, (int64_t)rlim); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -37236,7 +37266,7 @@ __attribute__((used)) struct err_union_intptr_t sys_getdirentries64(int32_t fd, 
     (void)basep;
     (void)(basep);
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_getdents64, (int64_t)fd, (int64_t)dirp, (int64_t)count); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_getdents64, (int64_t)fd, (int64_t)dirp, (int64_t)count); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -37247,7 +37277,7 @@ __attribute__((used)) struct err_union_intptr_t sys_getdents64(int32_t fd, void 
     (void)dirp;
     (void)count;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_getdents64, (int64_t)fd, (int64_t)dirp, (int64_t)count); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_getdents64, (int64_t)fd, (int64_t)dirp, (int64_t)count); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -37307,7 +37337,7 @@ __attribute__((used)) int64_t sys_brk(int64_t addr) {
 __attribute__((used)) struct err_union_int32_t sys_dup(int32_t fd) {
     (void)fd;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_dup, (int64_t)fd); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_dup, (int64_t)fd); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37317,7 +37347,7 @@ __attribute__((used)) struct err_union_int32_t sys_dup2(int32_t oldfd, int32_t n
     (void)oldfd;
     (void)newfd;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_dup2, (int64_t)oldfd, (int64_t)newfd); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_dup2, (int64_t)oldfd, (int64_t)newfd); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37327,7 +37357,7 @@ __attribute__((used)) struct err_union_int32_t sys_rename(const char * oldpath, 
     (void)oldpath;
     (void)newpath;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_rename, (int64_t)oldpath, (int64_t)newpath); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_rename, (int64_t)oldpath, (int64_t)newpath); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37337,7 +37367,7 @@ __attribute__((used)) struct err_union_int32_t sys_fstat(int32_t fd, struct Stat
     (void)fd;
     (void)statbuf;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_fstat, (int64_t)fd, (int64_t)statbuf); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_fstat, (int64_t)fd, (int64_t)statbuf); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37347,7 +37377,7 @@ __attribute__((used)) struct err_union_int32_t sys_lstat(const char * path, stru
     (void)path;
     (void)statbuf;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_lstat, (int64_t)path, (int64_t)statbuf); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_lstat, (int64_t)path, (int64_t)statbuf); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37366,7 +37396,7 @@ __attribute__((used)) struct err_union_int32_t sys_execve(const char * path, con
     (void)argv;
     (void)envp;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_execve, (int64_t)path, (int64_t)argv, (int64_t)envp); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_execve, (int64_t)path, (int64_t)argv, (int64_t)envp); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -37377,7 +37407,7 @@ struct err_union_int32_t libc_sys_nanosleep(const struct TimeSpec * req, struct 
     (void)req;
     (void)rem;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_nanosleep, (int64_t)req, (int64_t)rem); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_nanosleep, (int64_t)req, (int64_t)rem); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37387,7 +37417,7 @@ struct err_union_int32_t libc_sys_gettimeofday(struct TimeVal * tv, void * tz) {
     (void)tv;
     (void)tz;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_gettimeofday, (int64_t)tv, (int64_t)tz); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_gettimeofday, (int64_t)tv, (int64_t)tz); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37397,7 +37427,7 @@ struct err_union_int32_t libc_sys_clock_gettime(int32_t clock_id, struct TimeSpe
     (void)clock_id;
     (void)tp;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_clock_gettime, (int64_t)clock_id, (int64_t)tp); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_clock_gettime, (int64_t)clock_id, (int64_t)tp); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37408,7 +37438,7 @@ struct err_union_int32_t libc_sys_ioctl(int32_t fd, int64_t request, int64_t arg
     (void)request;
     (void)arg;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_ioctl, (int64_t)fd, request, arg); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_ioctl, (int64_t)fd, request, arg); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -37418,7 +37448,7 @@ struct err_union_int32_t libc_sys_fcntl(int32_t fd, int32_t cmd, int32_t arg) {
     (void)cmd;
     (void)arg;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_fcntl, (int64_t)fd, (int64_t)cmd, (int64_t)arg); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_fcntl, (int64_t)fd, (int64_t)cmd, (int64_t)arg); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37428,7 +37458,7 @@ struct err_union_int32_t libc_sys_pipe2(int32_t * pipefd, int32_t flags) {
     (void)pipefd;
     (void)flags;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_pipe2, (int64_t)pipefd, (int64_t)flags); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_pipe2, (int64_t)pipefd, (int64_t)flags); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37452,14 +37482,14 @@ static __attribute__((used)) struct err_union_int32_t sys_poll_linux(struct Poll
     const size_t entry_bytes = 8ULL;
     if (((nfds == 0ULL) || (fds == NULL))) {
                 {
-            struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_poll, (int64_t)fds, (int64_t)nfds, (int64_t)timeout_ms); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+            struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_poll, (int64_t)fds, (int64_t)nfds, (int64_t)timeout_ms); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
             return _uya_ret;
                 }
     }
     void * const native_raw = malloc((nfds * entry_bytes));
     if (native_raw == NULL) {
                 {
-            struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_poll, (int64_t)fds, (int64_t)nfds, (int64_t)timeout_ms); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+            struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_poll, (int64_t)fds, (int64_t)nfds, (int64_t)timeout_ms); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
             return _uya_ret;
                 }
     }
@@ -37531,7 +37561,7 @@ struct err_union_int32_t libc_sys_eventfd(uint32_t initval, int32_t flags) {
     (void)initval;
     (void)flags;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_eventfd, (int64_t)initval, (int64_t)flags); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_eventfd, (int64_t)initval, (int64_t)flags); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -37556,7 +37586,7 @@ int32_t libc_epoll_event_fd(struct EpollEvent * event) {
 struct err_union_int32_t libc_sys_epoll_create1(int32_t flags) {
     (void)flags;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_epoll_create1, (int64_t)flags); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_epoll_create1, (int64_t)flags); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -37567,7 +37597,7 @@ struct err_union_int32_t libc_sys_epoll_ctl(int32_t epfd, int32_t op, int32_t fd
     (void)fd;
     (void)event;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(libc_SYS_epoll_ctl, (int64_t)epfd, (int64_t)op, (int64_t)fd, (int64_t)event); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(libc_SYS_epoll_ctl, (int64_t)epfd, (int64_t)op, (int64_t)fd, (int64_t)event); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -37577,7 +37607,7 @@ struct err_union_int32_t libc_sys_epoll_ctl_del(int32_t epfd, int32_t fd) {
     (void)fd;
     struct EpollEvent dummy = libc_epoll_event_with_fd((uint32_t)0, 0);
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(libc_SYS_epoll_ctl, (int64_t)epfd, (int64_t)libc_EPOLL_CTL_DEL, (int64_t)fd, (int64_t)(&dummy)); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(libc_SYS_epoll_ctl, (int64_t)epfd, (int64_t)libc_EPOLL_CTL_DEL, (int64_t)fd, (int64_t)(&dummy)); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -37588,7 +37618,7 @@ struct err_union_int32_t libc_sys_epoll_wait(int32_t epfd, struct EpollEvent * e
     (void)maxevents;
     (void)timeout_ms;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(libc_SYS_epoll_wait, (int64_t)epfd, (int64_t)events, (int64_t)maxevents, (int64_t)timeout_ms); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(libc_SYS_epoll_wait, (int64_t)epfd, (int64_t)events, (int64_t)maxevents, (int64_t)timeout_ms); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37596,14 +37626,14 @@ struct err_union_int32_t libc_sys_epoll_wait(int32_t epfd, struct EpollEvent * e
 
 struct err_union_int32_t libc_sys_getuid() {
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_getuid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_getuid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
 
 struct err_union_int32_t libc_sys_getgid() {
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_getgid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_getgid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -37611,7 +37641,7 @@ struct err_union_int32_t libc_sys_getgid() {
 struct err_union_int32_t libc_sys_setuid(int32_t uid) {
     (void)uid;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_setuid, (int64_t)uid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_setuid, (int64_t)uid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -37619,28 +37649,28 @@ struct err_union_int32_t libc_sys_setuid(int32_t uid) {
 struct err_union_int32_t libc_sys_setgid(int32_t gid) {
     (void)gid;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_setgid, (int64_t)gid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_setgid, (int64_t)gid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
 
 struct err_union_int32_t libc_sys_geteuid() {
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_geteuid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_geteuid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
 
 struct err_union_int32_t libc_sys_getegid() {
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_getegid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_getegid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
 
 struct err_union_int32_t libc_sys_gettid() {
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_gettid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_gettid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37664,7 +37694,7 @@ __attribute__((used)) struct err_union_int32_t sys_socket(int32_t domain, int32_
     (void)type;
     (void)protocol;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_socket, (int64_t)domain, (int64_t)type, (int64_t)protocol); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_socket, (int64_t)domain, (int64_t)type, (int64_t)protocol); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37675,7 +37705,7 @@ __attribute__((used)) struct err_union_int32_t sys_bind(int32_t sockfd, void * a
     (void)addr;
     (void)addrlen;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_bind, (int64_t)sockfd, (int64_t)addr, (int64_t)addrlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_bind, (int64_t)sockfd, (int64_t)addr, (int64_t)addrlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37685,7 +37715,7 @@ __attribute__((used)) struct err_union_int32_t sys_listen(int32_t sockfd, int32_
     (void)sockfd;
     (void)backlog;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_listen, (int64_t)sockfd, (int64_t)backlog); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_listen, (int64_t)sockfd, (int64_t)backlog); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37696,7 +37726,7 @@ __attribute__((used)) struct err_union_int32_t sys_accept(int32_t sockfd, void *
     (void)addr;
     (void)addrlen;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_accept, (int64_t)sockfd, (int64_t)addr, (int64_t)addrlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_accept, (int64_t)sockfd, (int64_t)addr, (int64_t)addrlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37707,7 +37737,7 @@ __attribute__((used)) struct err_union_int32_t sys_connect(int32_t sockfd, void 
     (void)addr;
     (void)addrlen;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_connect, (int64_t)sockfd, (int64_t)addr, (int64_t)addrlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_connect, (int64_t)sockfd, (int64_t)addr, (int64_t)addrlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37719,7 +37749,7 @@ __attribute__((used)) struct err_union_intptr_t sys_send(int32_t sockfd, const c
     (void)len;
     (void)flags;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_sendto, (int64_t)sockfd, (int64_t)buf, (int64_t)len, (int64_t)flags, (int64_t)0, (int64_t)0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_sendto, (int64_t)sockfd, (int64_t)buf, (int64_t)len, (int64_t)flags, (int64_t)0, (int64_t)0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -37731,7 +37761,7 @@ __attribute__((used)) struct err_union_intptr_t sys_recv(int32_t sockfd, char * 
     (void)len;
     (void)flags;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_recvfrom, (int64_t)sockfd, (int64_t)buf, (int64_t)len, (int64_t)flags, (int64_t)0, (int64_t)0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_recvfrom, (int64_t)sockfd, (int64_t)buf, (int64_t)len, (int64_t)flags, (int64_t)0, (int64_t)0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -37745,7 +37775,7 @@ __attribute__((used)) struct err_union_intptr_t sys_sendto(int32_t sockfd, const
     (void)dest;
     (void)destlen;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_sendto, (int64_t)sockfd, (int64_t)buf, (int64_t)len, (int64_t)flags, (int64_t)dest, (int64_t)destlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_sendto, (int64_t)sockfd, (int64_t)buf, (int64_t)len, (int64_t)flags, (int64_t)dest, (int64_t)destlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -37759,7 +37789,7 @@ __attribute__((used)) struct err_union_intptr_t sys_recvfrom(int32_t sockfd, cha
     (void)src;
     (void)srclen;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_recvfrom, (int64_t)sockfd, (int64_t)buf, (int64_t)len, (int64_t)flags, (int64_t)src, (int64_t)srclen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_recvfrom, (int64_t)sockfd, (int64_t)buf, (int64_t)len, (int64_t)flags, (int64_t)src, (int64_t)srclen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -37769,7 +37799,7 @@ __attribute__((used)) struct err_union_int32_t sys_shutdown(int32_t sockfd, int3
     (void)sockfd;
     (void)how;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_shutdown, (int64_t)sockfd, (int64_t)how); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_shutdown, (int64_t)sockfd, (int64_t)how); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37782,7 +37812,7 @@ __attribute__((used)) struct err_union_int32_t sys_setsockopt(int32_t sockfd, in
     (void)optval;
     (void)optlen;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall5(libc_SYS_setsockopt, (int64_t)sockfd, (int64_t)level, (int64_t)optname, (int64_t)optval, (int64_t)optlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall5(libc_SYS_setsockopt, (int64_t)sockfd, (int64_t)level, (int64_t)optname, (int64_t)optval, (int64_t)optlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37795,7 +37825,7 @@ __attribute__((used)) struct err_union_int32_t sys_getsockopt(int32_t sockfd, in
     (void)optval;
     (void)optlen;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall5(libc_SYS_getsockopt, (int64_t)sockfd, (int64_t)level, (int64_t)optname, (int64_t)optval, (int64_t)optlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall5(libc_SYS_getsockopt, (int64_t)sockfd, (int64_t)level, (int64_t)optname, (int64_t)optval, (int64_t)optlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37806,7 +37836,7 @@ __attribute__((used)) struct err_union_int32_t sys_getsockname(int32_t sockfd, v
     (void)addr;
     (void)addrlen;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_getsockname, (int64_t)sockfd, (int64_t)addr, (int64_t)addrlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_getsockname, (int64_t)sockfd, (int64_t)addr, (int64_t)addrlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37817,7 +37847,7 @@ __attribute__((used)) struct err_union_int32_t sys_getpeername(int32_t sockfd, v
     (void)addr;
     (void)addrlen;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_getpeername, (int64_t)sockfd, (int64_t)addr, (int64_t)addrlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_getpeername, (int64_t)sockfd, (int64_t)addr, (int64_t)addrlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -37872,7 +37902,7 @@ __attribute__((used)) clock_t clock() {
 static __attribute__((used)) bool is_leap_year(int32_t year) {
     (void)year;
         {
-        bool _uya_ret = (bool)((((year % 4) == 0) && ((year % 100) != 0)) || ((year % 400) == 0));
+        bool _uya_ret = (bool)(((({ __typeof__(year) _uya_dv_l = (year); __typeof__(4) _uya_dv_r = (4); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) == 0) && (({ __typeof__(year) _uya_dv_l = (year); __typeof__(100) _uya_dv_r = (100); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) != 0)) || (({ __typeof__(year) _uya_dv_l = (year); __typeof__(400) _uya_dv_r = (400); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) == 0));
         return _uya_ret;
         }
 }
@@ -37910,13 +37940,13 @@ __attribute__((used)) struct tm * gmtime(const time_t * timer) {
             return _uya_ret;
                 }
     }
-    int64_t days = (t / 86400);
+    int64_t days = ({ __typeof__(t) _uya_dv_l = (t); __typeof__(86400) _uya_dv_r = (86400); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     int64_t remaining = (t - (days * 86400));
-    _gmtime_result.tm_hour = (int32_t)(remaining / 3600);
+    _gmtime_result.tm_hour = (int32_t)({ __typeof__(remaining) _uya_dv_l = (remaining); __typeof__(3600) _uya_dv_r = (3600); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     remaining = ({ int64_t _l = (remaining); int64_t _r = (((int64_t)_gmtime_result.tm_hour * 3600)); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
-    _gmtime_result.tm_min = (int32_t)(remaining / 60);
+    _gmtime_result.tm_min = (int32_t)({ __typeof__(remaining) _uya_dv_l = (remaining); __typeof__(60) _uya_dv_r = (60); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     _gmtime_result.tm_sec = (int32_t)({ int64_t _l = (remaining); int64_t _r = (({ int64_t _l = ((int64_t)_gmtime_result.tm_min); int64_t _r = ((int64_t)60); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
-    _gmtime_result.tm_wday = (int32_t)((days + (int64_t)4) % (int64_t)7);
+    _gmtime_result.tm_wday = (int32_t)({ __typeof__((days + (int64_t)4)) _uya_dv_l = ((days + (int64_t)4)); __typeof__((int64_t)7) _uya_dv_r = ((int64_t)7); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (_gmtime_result.tm_wday < 0) {
         _gmtime_result.tm_wday = ({ int32_t _l = (_gmtime_result.tm_wday); int32_t _r = (7); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     }
@@ -38023,9 +38053,9 @@ __attribute__((used)) char * asctime(const struct tm * timeptr) {
         i = (i + 1);
         _asctime_buf[i] = (48 + (uint8_t)timeptr->tm_mday);
     } else {
-        _asctime_buf[i] = (48 + (uint8_t)(timeptr->tm_mday / 10));
+        _asctime_buf[i] = (48 + (uint8_t)({ __typeof__(timeptr->tm_mday) _uya_dv_l = (timeptr->tm_mday); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
         i = (i + 1);
-        _asctime_buf[i] = (48 + (uint8_t)(timeptr->tm_mday % 10));
+        _asctime_buf[i] = (48 + (uint8_t)({ __typeof__(timeptr->tm_mday) _uya_dv_l = (timeptr->tm_mday); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
     }
     i = (i + 1);
     _asctime_buf[i] = 32;
@@ -38037,9 +38067,9 @@ __attribute__((used)) char * asctime(const struct tm * timeptr) {
     if (hour > 23) {
         hour = 23;
     }
-    _asctime_buf[i] = (48 + (uint8_t)(hour / 10));
+    _asctime_buf[i] = (48 + (uint8_t)({ __typeof__(hour) _uya_dv_l = (hour); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
     i = (i + 1);
-    _asctime_buf[i] = (48 + (uint8_t)(hour % 10));
+    _asctime_buf[i] = (48 + (uint8_t)({ __typeof__(hour) _uya_dv_l = (hour); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
     i = (i + 1);
     _asctime_buf[i] = 58;
     i = (i + 1);
@@ -38050,9 +38080,9 @@ __attribute__((used)) char * asctime(const struct tm * timeptr) {
     if (min > 59) {
         min = 59;
     }
-    _asctime_buf[i] = (48 + (uint8_t)(min / 10));
+    _asctime_buf[i] = (48 + (uint8_t)({ __typeof__(min) _uya_dv_l = (min); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
     i = (i + 1);
-    _asctime_buf[i] = (48 + (uint8_t)(min % 10));
+    _asctime_buf[i] = (48 + (uint8_t)({ __typeof__(min) _uya_dv_l = (min); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
     i = (i + 1);
     _asctime_buf[i] = 58;
     i = (i + 1);
@@ -38063,20 +38093,20 @@ __attribute__((used)) char * asctime(const struct tm * timeptr) {
     if (sec > 60) {
         sec = 60;
     }
-    _asctime_buf[i] = (48 + (uint8_t)(sec / 10));
+    _asctime_buf[i] = (48 + (uint8_t)({ __typeof__(sec) _uya_dv_l = (sec); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
     i = (i + 1);
-    _asctime_buf[i] = (48 + (uint8_t)(sec % 10));
+    _asctime_buf[i] = (48 + (uint8_t)({ __typeof__(sec) _uya_dv_l = (sec); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
     i = (i + 1);
     _asctime_buf[i] = 32;
     i = (i + 1);
     int32_t year = ({ int32_t _l = (timeptr->tm_year); int32_t _r = (1900); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
-    _asctime_buf[i] = (48 + (uint8_t)((year / 1000) % 10));
+    _asctime_buf[i] = (48 + (uint8_t)({ __typeof__(({ __typeof__(year) _uya_dv_l = (year); __typeof__(1000) _uya_dv_r = (1000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) _uya_dv_l = (({ __typeof__(year) _uya_dv_l = (year); __typeof__(1000) _uya_dv_r = (1000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
     i = (i + 1);
-    _asctime_buf[i] = (48 + (uint8_t)((year / 100) % 10));
+    _asctime_buf[i] = (48 + (uint8_t)({ __typeof__(({ __typeof__(year) _uya_dv_l = (year); __typeof__(100) _uya_dv_r = (100); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) _uya_dv_l = (({ __typeof__(year) _uya_dv_l = (year); __typeof__(100) _uya_dv_r = (100); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
     i = (i + 1);
-    _asctime_buf[i] = (48 + (uint8_t)((year / 10) % 10));
+    _asctime_buf[i] = (48 + (uint8_t)({ __typeof__(({ __typeof__(year) _uya_dv_l = (year); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) _uya_dv_l = (({ __typeof__(year) _uya_dv_l = (year); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
     i = (i + 1);
-    _asctime_buf[i] = (48 + (uint8_t)(year % 10));
+    _asctime_buf[i] = (48 + (uint8_t)({ __typeof__(year) _uya_dv_l = (year); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
     i = (i + 1);
     _asctime_buf[i] = 10;
     i = (i + 1);
@@ -38279,9 +38309,9 @@ static __attribute__((used)) void _strftime_write_2d(uint8_t * buf, size_t maxsi
     (void)pos;
     (void)val;
     if ((pos[0] + 1) < maxsize) {
-        buf[pos[0]] = (uint8_t)(48 + ((val / 10) % 10));
+        buf[pos[0]] = (uint8_t)(48 + ({ __typeof__(({ __typeof__(val) _uya_dv_l = (val); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) _uya_dv_l = (({ __typeof__(val) _uya_dv_l = (val); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
         pos[0] = (pos[0] + 1);
-        buf[pos[0]] = (uint8_t)(48 + (val % 10));
+        buf[pos[0]] = (uint8_t)(48 + ({ __typeof__(val) _uya_dv_l = (val); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
         pos[0] = (pos[0] + 1);
     }
 }
@@ -38293,13 +38323,13 @@ static __attribute__((used)) void _strftime_write_4d(uint8_t * buf, size_t maxsi
     (void)val;
     if ((pos[0] + 3) < maxsize) {
         int32_t v = val;
-        buf[pos[0]] = (uint8_t)(48 + ((v / 1000) % 10));
+        buf[pos[0]] = (uint8_t)(48 + ({ __typeof__(({ __typeof__(v) _uya_dv_l = (v); __typeof__(1000) _uya_dv_r = (1000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) _uya_dv_l = (({ __typeof__(v) _uya_dv_l = (v); __typeof__(1000) _uya_dv_r = (1000); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
         pos[0] = (pos[0] + 1);
-        buf[pos[0]] = (uint8_t)(48 + ((v / 100) % 10));
+        buf[pos[0]] = (uint8_t)(48 + ({ __typeof__(({ __typeof__(v) _uya_dv_l = (v); __typeof__(100) _uya_dv_r = (100); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) _uya_dv_l = (({ __typeof__(v) _uya_dv_l = (v); __typeof__(100) _uya_dv_r = (100); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
         pos[0] = (pos[0] + 1);
-        buf[pos[0]] = (uint8_t)(48 + ((v / 10) % 10));
+        buf[pos[0]] = (uint8_t)(48 + ({ __typeof__(({ __typeof__(v) _uya_dv_l = (v); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) _uya_dv_l = (({ __typeof__(v) _uya_dv_l = (v); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
         pos[0] = (pos[0] + 1);
-        buf[pos[0]] = (uint8_t)(48 + (v % 10));
+        buf[pos[0]] = (uint8_t)(48 + ({ __typeof__(v) _uya_dv_l = (v); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
         pos[0] = (pos[0] + 1);
     }
 }
@@ -38339,7 +38369,7 @@ __attribute__((used)) size_t strftime(char * s, size_t maxsize, const char * for
                     (void)(_strftime_write_4d((uint8_t *)s, maxsize, (&pos), ({ int32_t _l = (timeptr->tm_year); int32_t _r = (1900); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }))                    );
                 } else {
                     if (spec == 121) {
-                        (void)(_strftime_write_2d((uint8_t *)s, maxsize, (&pos), (({ int32_t _l = (timeptr->tm_year); int32_t _r = (1900); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) % 100))                        );
+                        (void)(_strftime_write_2d((uint8_t *)s, maxsize, (&pos), ({ __typeof__(({ int32_t _l = (timeptr->tm_year); int32_t _r = (1900); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })) _uya_dv_l = (({ int32_t _l = (timeptr->tm_year); int32_t _r = (1900); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); __typeof__(100) _uya_dv_r = (100); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }))                        );
                     } else {
                         if (spec == 109) {
                             (void)(_strftime_write_2d((uint8_t *)s, maxsize, (&pos), ({ int32_t _l = (timeptr->tm_mon); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }))                            );
@@ -38385,23 +38415,23 @@ __attribute__((used)) size_t strftime(char * s, size_t maxsize, const char * for
                                                                 if (spec == 106) {
                                                                     int32_t yday = ({ int32_t _l = (timeptr->tm_yday); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                                                                     if ((pos + 2) < maxsize) {
-                                                                        s[pos] = (uint8_t)(48 + ((yday / 100) % 10));
+                                                                        s[pos] = (uint8_t)(48 + ({ __typeof__(({ __typeof__(yday) _uya_dv_l = (yday); __typeof__(100) _uya_dv_r = (100); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) _uya_dv_l = (({ __typeof__(yday) _uya_dv_l = (yday); __typeof__(100) _uya_dv_r = (100); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
                                                                         pos = (pos + 1);
-                                                                        s[pos] = (uint8_t)(48 + ((yday / 10) % 10));
+                                                                        s[pos] = (uint8_t)(48 + ({ __typeof__(({ __typeof__(yday) _uya_dv_l = (yday); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) _uya_dv_l = (({ __typeof__(yday) _uya_dv_l = (yday); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
                                                                         pos = (pos + 1);
-                                                                        s[pos] = (uint8_t)(48 + (yday % 10));
+                                                                        s[pos] = (uint8_t)(48 + ({ __typeof__(yday) _uya_dv_l = (yday); __typeof__(10) _uya_dv_r = (10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
                                                                         pos = (pos + 1);
                                                                     }
                                                                 } else {
                                                                     if (spec == 85) {
-                                                                        int32_t week = (({ int32_t _l = (({ int32_t _l = (timeptr->tm_yday); int32_t _r = (timeptr->tm_wday); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (7); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) / 7);
+                                                                        int32_t week = ({ __typeof__(({ int32_t _l = (({ int32_t _l = (timeptr->tm_yday); int32_t _r = (timeptr->tm_wday); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (7); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })) _uya_dv_l = (({ int32_t _l = (({ int32_t _l = (timeptr->tm_yday); int32_t _r = (timeptr->tm_wday); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (7); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); __typeof__(7) _uya_dv_r = (7); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
                                                                         if (week < 0) {
                                                                             week = 0;
                                                                         }
                                                                         (void)(_strftime_write_2d((uint8_t *)s, maxsize, (&pos), week)                                                                        );
                                                                     } else {
                                                                         if (spec == 73) {
-                                                                            int32_t h = (timeptr->tm_hour % 12);
+                                                                            int32_t h = ({ __typeof__(timeptr->tm_hour) _uya_dv_l = (timeptr->tm_hour); __typeof__(12) _uya_dv_r = (12); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                                                                             if (h == 0) {
                                                                                 h = 12;
                                                                             }
@@ -39422,7 +39452,7 @@ struct err_union_size_t std_io_file_write(struct File * f, const uint8_t * buf, 
     struct err_union_intptr_t r = sys_write(f->fd, (const char *)(const uint8_t *)buf, count);
     const intptr_t n = ({ struct err_union_intptr_t _uya_catch_tmp = r; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
-            struct err_union_size_t _uya_ret = ({ struct err_union_intptr_t _uya_asbang_src = r; struct err_union_size_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (size_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (size_t)(_uya_asbang_src.value); } _uya_asbang; });
+            struct err_union_size_t _uya_ret = ({ struct err_union_intptr_t _uya_asbang_src = r; struct err_union_size_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (__typeof__(_uya_asbang.value)){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (__typeof__(_uya_asbang.value))(_uya_asbang_src.value); } _uya_asbang; });
             return _uya_ret;
                 }
     } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
@@ -39688,7 +39718,7 @@ size_t std_io_fread(uint8_t * ptr, size_t size, size_t nmemb, struct FILE * stre
                 }
     }
         {
-        size_t _uya_ret = ((size_t)bytes_read / size);
+        size_t _uya_ret = ({ __typeof__((size_t)bytes_read) _uya_dv_l = ((size_t)bytes_read); __typeof__(size) _uya_dv_r = (size); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         return _uya_ret;
         }
 }
@@ -39713,7 +39743,7 @@ size_t std_io_fwrite(const uint8_t * ptr, size_t size, size_t nmemb, struct FILE
                 }
     }
         {
-        size_t _uya_ret = ((size_t)result / size);
+        size_t _uya_ret = ({ __typeof__((size_t)result) _uya_dv_l = ((size_t)result); __typeof__(size) _uya_dv_r = (size); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         return _uya_ret;
         }
 }
@@ -40167,7 +40197,7 @@ size_t std_mem_mem_copy(uint8_t * dst, const uint8_t * src, size_t n) {
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(uint8_t *)dst, (const char *)(const uint8_t *)src, n));
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(uint8_t *)dst, (const char *)(const uint8_t *)src, n));
         {
         size_t _uya_ret = n;
         return _uya_ret;
@@ -40184,7 +40214,7 @@ size_t std_mem_mem_set(uint8_t * dst, uint8_t value, size_t n) {
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)dst, (int32_t)value, n));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)dst, (int32_t)value, n));
         {
         size_t _uya_ret = n;
         return _uya_ret;
@@ -40201,7 +40231,7 @@ size_t std_mem_mem_move(uint8_t * dst, const uint8_t * src, size_t n) {
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memmove((char *)(uint8_t *)dst, (const char *)(const uint8_t *)src, n));
+    (void)((uint8_t *)__uya_checked_memmove((char *)(uint8_t *)dst, (const char *)(const uint8_t *)src, n));
         {
         size_t _uya_ret = n;
         return _uya_ret;
@@ -44625,7 +44655,7 @@ static __attribute__((used)) uint8_t * arena_strdup(struct CompilerArena * arena
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)result, (const char *)(void *)src, str_len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)result, (const char *)(void *)src, str_len)    );
         {
         uint8_t * _uya_ret = result;
         return _uya_ret;
@@ -51078,7 +51108,7 @@ static __attribute__((used)) double parse_float_literal_with_suffix(uint8_t * st
     uint8_t * const cleaned = remove_underscores((uint8_t *)str, arena);
     if (cleaned == NULL) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
@@ -51928,13 +51958,13 @@ static __attribute__((used)) struct ImportedItem * checker_import_table_lookup_l
     }
     uint32_t ih = hash_string((uint8_t *)local_name);
     const int32_t itbl_cap = checker->import_table.table.capacity;
-    int32_t ii = ((int32_t)ih % itbl_cap);
+    int32_t ii = ({ __typeof__((int32_t)ih) _uya_dv_l = ((int32_t)ih); __typeof__(itbl_cap) _uya_dv_r = (itbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (ii < 0) {
         ii = ({ int32_t _l = (ii); int32_t _r = (itbl_cap); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     }
     int32_t i = 0;
     while (i < itbl_cap) {
-        const int32_t sl = ((ii + i) % itbl_cap);
+        const int32_t sl = ({ __typeof__((ii + i)) _uya_dv_l = ((ii + i)); __typeof__(itbl_cap) _uya_dv_r = (itbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         struct ImportedItem * const imp = checker_import_slot_at(checker, sl);
         if (imp == NULL) {
             break;
@@ -51997,7 +52027,7 @@ static __attribute__((used)) uint8_t * checker_build_use_module_name(struct Type
                 dst = (&dst[1]);
             }
             const size_t seg_len = std_string_strlen((uint8_t *)seg2);
-            (void)((uint8_t *)memcpy((char *)(void *)dst, (const char *)(void *)seg2, seg_len)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)dst, (const char *)(void *)seg2, seg_len)            );
             dst = (&dst[seg_len]);
         }
         i = (i + 1);
@@ -52054,7 +52084,7 @@ static __attribute__((used)) uint8_t * checker_build_use_parent_module_name(stru
                 dst = (&dst[1]);
             }
             const size_t seg_len = std_string_strlen((uint8_t *)seg2);
-            (void)((uint8_t *)memcpy((char *)(void *)dst, (const char *)(void *)seg2, seg_len)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)dst, (const char *)(void *)seg2, seg_len)            );
             dst = (&dst[seg_len]);
         }
         i = (i + 1);
@@ -52078,13 +52108,13 @@ static __attribute__((used)) int32_t checker_module_exports_name(struct TypeChec
     }
     const int32_t mh = hash_string((uint8_t *)module_name);
     const int32_t mtbl_cap = checker->module_table.table.capacity;
-    int32_t mi = (mh % mtbl_cap);
+    int32_t mi = ({ __typeof__(mh) _uya_dv_l = (mh); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (mi < 0) {
         mi = ({ int32_t _l = (mi); int32_t _r = (mtbl_cap); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     }
     int32_t i = 0;
     while (i < mtbl_cap) {
-        const int32_t slot = ((mi + i) % mtbl_cap);
+        const int32_t slot = ({ __typeof__((mi + i)) _uya_dv_l = ((mi + i)); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         struct ModuleInfo * const mod = checker_module_slot_at(checker, slot);
         if (mod == NULL) {
             break;
@@ -52460,13 +52490,13 @@ static __attribute__((used)) struct ASTNode * resolve_reachable_callee_fn_decl(s
         }
         uint32_t mh = hash_string((uint8_t *)module_name);
         const int32_t mtbl_cap = checker->module_table.table.capacity;
-        int32_t mi = ((int32_t)mh % mtbl_cap);
+        int32_t mi = ({ __typeof__((int32_t)mh) _uya_dv_l = ((int32_t)mh); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         if (mi < 0) {
             mi = ({ int32_t _l = (mi); int32_t _r = (mtbl_cap); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
         }
         int32_t i3 = 0;
         while (i3 < mtbl_cap) {
-            const int32_t ml = ((mi + i3) % mtbl_cap);
+            const int32_t ml = ({ __typeof__((mi + i3)) _uya_dv_l = ((mi + i3)); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             struct ModuleInfo * const mod = checker_module_slot_at(checker, ml);
             if (mod == NULL) {
                 break;
@@ -53799,14 +53829,14 @@ static __attribute__((used)) struct Type checker_check_call_expr(struct TypeChec
                 if (module_name != NULL) {
                     uint32_t mh = hash_string((uint8_t *)module_name);
                     const int32_t mtbl_cap = checker->module_table.table.capacity;
-                    int32_t mi = ((int32_t)mh % mtbl_cap);
+                    int32_t mi = ({ __typeof__((int32_t)mh) _uya_dv_l = ((int32_t)mh); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                     if (mi < 0) {
                         mi = ({ int32_t _l = (mi); int32_t _r = (mtbl_cap); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                     }
                     int32_t i3 = 0;
                     int32_t found_module = 0;
                     while (i3 < mtbl_cap) {
-                        const int32_t ml = ((mi + i3) % mtbl_cap);
+                        const int32_t ml = ({ __typeof__((mi + i3)) _uya_dv_l = ((mi + i3)); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                         struct ModuleInfo * const mod = checker_module_slot_at(checker, ml);
                         if (mod == NULL) {
                             break;
@@ -55047,13 +55077,13 @@ static __attribute__((used)) struct Type checker_check_member_access(struct Type
         if (symbol == NULL) {
             const int32_t ih = hash_string(obj->identifier_name);
             const int32_t itbl_cap = checker->import_table.table.capacity;
-            int32_t ii = (ih % itbl_cap);
+            int32_t ii = ({ __typeof__(ih) _uya_dv_l = (ih); __typeof__(itbl_cap) _uya_dv_r = (itbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             if (ii < 0) {
                 ii = ({ int32_t _l = (ii); int32_t _r = (itbl_cap); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
             }
             int32_t mi = 0;
             while (mi < itbl_cap) {
-                const int32_t sl = ((ii + mi) % itbl_cap);
+                const int32_t sl = ({ __typeof__((ii + mi)) _uya_dv_l = ((ii + mi)); __typeof__(itbl_cap) _uya_dv_r = (itbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                 struct ImportedItem * const imp = checker_import_slot_at(checker, sl);
                 if (imp == NULL) {
                     break;
@@ -55579,7 +55609,7 @@ static __attribute__((used)) int32_t checker_embed_extract_dir(uint8_t * filenam
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)out, (const char *)(void *)filename, (size_t)dir_len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)out, (const char *)(void *)filename, (size_t)dir_len)    );
     out[dir_len] = (uint8_t)0;
         {
         int32_t _uya_ret = 0;
@@ -55606,7 +55636,7 @@ static __attribute__((used)) int32_t checker_embed_join_path(uint8_t * base_dir,
                 return _uya_ret;
                         }
         }
-        (void)((uint8_t *)memcpy((char *)(void *)out, (const char *)(void *)path_literal, (size_t)(path_len + 1))        );
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)out, (const char *)(void *)path_literal, (size_t)(path_len + 1))        );
                 {
             int32_t _uya_ret = 0;
             return _uya_ret;
@@ -55620,13 +55650,13 @@ static __attribute__((used)) int32_t checker_embed_join_path(uint8_t * base_dir,
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)out, (const char *)(void *)base_dir, (size_t)base_len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)out, (const char *)(void *)base_dir, (size_t)base_len)    );
     int32_t pos = base_len;
     if (((pos > 0) && (checker_embed_is_path_sep(out[(pos - 1)]) == 0))) {
         out[pos] = (uint8_t)47;
         pos = ({ int32_t _l = (pos); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     }
-    (void)((uint8_t *)memcpy((char *)(void *)(&out[pos]), (const char *)(void *)path_literal, (size_t)(lit_len + 1))    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&out[pos]), (const char *)(void *)path_literal, (size_t)(lit_len + 1))    );
         {
         int32_t _uya_ret = 0;
         return _uya_ret;
@@ -59829,13 +59859,13 @@ static __attribute__((used)) struct Type infer_call_expr(struct TypeChecker * ch
                 if (func_name != NULL) {
                     uint32_t mh = hash_string((uint8_t *)module_name);
                     const int32_t mtbl_cap = checker->module_table.table.capacity;
-                    int32_t mi = ((int32_t)mh % mtbl_cap);
+                    int32_t mi = ({ __typeof__((int32_t)mh) _uya_dv_l = ((int32_t)mh); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                     if (mi < 0) {
                         mi = ({ int32_t _l = (mi); int32_t _r = (mtbl_cap); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                     }
                     int32_t i3 = 0;
                     while (i3 < mtbl_cap) {
-                        const int32_t ml = ((mi + i3) % mtbl_cap);
+                        const int32_t ml = ({ __typeof__((mi + i3)) _uya_dv_l = ((mi + i3)); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                         struct ModuleInfo * const mod = checker_module_slot_at(checker, ml);
                         if (mod == NULL) {
                             break;
@@ -60338,13 +60368,13 @@ static __attribute__((used)) struct Type infer_member_access(struct TypeChecker 
                 }
                 const int32_t ih = hash_string(enum_name);
                 const int32_t itbl_cap = checker->import_table.table.capacity;
-                int32_t ii = (ih % itbl_cap);
+                int32_t ii = ({ __typeof__(ih) _uya_dv_l = (ih); __typeof__(itbl_cap) _uya_dv_r = (itbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                 if (ii < 0) {
                     ii = ({ int32_t _l = (ii); int32_t _r = (itbl_cap); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                 }
                 int32_t i2 = 0;
                 while (i2 < itbl_cap) {
-                    const int32_t sl = ((ii + i2) % itbl_cap);
+                    const int32_t sl = ({ __typeof__((ii + i2)) _uya_dv_l = ((ii + i2)); __typeof__(itbl_cap) _uya_dv_r = (itbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                     struct ImportedItem * const imp = checker_import_slot_at(checker, sl);
                     if (imp == NULL) {
                         break;
@@ -62273,13 +62303,13 @@ static __attribute__((used)) struct Type checker_get_pipeline_callee_first_param
                 if (module_name != NULL) {
                     const uint32_t mh = hash_string((uint8_t *)module_name);
                     const int32_t mtbl_cap = checker->module_table.table.capacity;
-                    int32_t mi = ((int32_t)mh % mtbl_cap);
+                    int32_t mi = ({ __typeof__((int32_t)mh) _uya_dv_l = ((int32_t)mh); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                     if (mi < 0) {
                         mi = ({ int32_t _l = (mi); int32_t _r = (mtbl_cap); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                     }
                     int32_t i3 = 0;
                     while (i3 < mtbl_cap) {
-                        const int32_t ml = ((mi + i3) % mtbl_cap);
+                        const int32_t ml = ({ __typeof__((mi + i3)) _uya_dv_l = ((mi + i3)); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                         struct ModuleInfo * const mod = checker_module_slot_at(checker, ml);
                         if (mod == NULL) {
                             break;
@@ -64619,7 +64649,7 @@ static __attribute__((used)) void checker_update_module_root_from_fn_decl(struct
         if (root_dir == NULL) {
             return;
         }
-        (void)((uint8_t *)memcpy((char *)(void *)root_dir, (const char *)(void *)filename, dir_len)        );
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)root_dir, (const char *)(void *)filename, dir_len)        );
         root_dir[dir_len] = 0;
         checker->module_root_dir = (uint8_t *)root_dir;
         return;
@@ -66504,7 +66534,7 @@ static __attribute__((used)) int32_t state_machine_size_estimate(int32_t await_c
             n = param_count;
         }
         if (n > 0) {
-            if (n > (max_v / 16)) {
+            if (n > ({ __typeof__(max_v) _uya_dv_l = (max_v); __typeof__(16) _uya_dv_r = (16); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) {
                                 {
                     int32_t _uya_ret = max_v;
                     return _uya_ret;
@@ -67030,7 +67060,7 @@ static __attribute__((used)) int32_t checker_check_struct_interface_impl_recursi
             }
         }
         if (((base_len > 0) && (base_len < MAX_BASE_NAME_LEN))) {
-            (void)((uint8_t *)memcpy((char *)(void *)(&base_name_buf[0]), (const char *)(void *)iface_name, (size_t)base_len)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&base_name_buf[0]), (const char *)(void *)iface_name, (size_t)base_len)            );
             base_name_buf[base_len] = 0;
             base_iface_name = (&base_name_buf[0]);
         }
@@ -67220,7 +67250,7 @@ int32_t uya_DynTable_reserve(struct DynTable * self, int32_t want) {
                 }
     }
     uint8_t * * const kk = (uint8_t * *)nk_raw;
-    (void)((uint8_t *)memset((char *)nv_raw, 0, (self->elem_size * nu))    );
+    (void)((uint8_t *)__uya_checked_memset((char *)nv_raw, 0, (self->elem_size * nu))    );
     int32_t i = 0;
     while (i < nc) {
         kk[i] = NULL;
@@ -67248,7 +67278,7 @@ int32_t uya_DynTable_reserve(struct DynTable * self, int32_t want) {
             uint8_t * const src = (old_vals + (esz * ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(j) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 _uya_catch_result = (0ULL);
             } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; })));
-            (void)((uint8_t *)memcpy((char *)uya_DynTable_value_ptr(self, slot), (const char *)src, esz)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)uya_DynTable_value_ptr(self, slot), (const char *)src, esz)            );
             ((struct DynTable *)self)->count = (self->count + 1);
         }
         j = (j + 1);
@@ -67274,13 +67304,13 @@ int32_t uya_DynTable_find_empty_slot(struct DynTable * self, uint8_t * key) {
                 }
     }
     const int32_t h = hash_string((uint8_t *)key);
-    int32_t idx = (h % cap);
+    int32_t idx = ({ __typeof__(h) _uya_dv_l = (h); __typeof__(cap) _uya_dv_r = (cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (idx < 0) {
         idx = (idx + cap);
     }
     int32_t i = 0;
     while (i < cap) {
-        const int32_t slot = ((idx + i) % cap);
+        const int32_t slot = ({ __typeof__((idx + i)) _uya_dv_l = ((idx + i)); __typeof__(cap) _uya_dv_r = (cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         if (self->keys[slot] == NULL) {
                         {
                 int32_t _uya_ret = slot;
@@ -67309,13 +67339,13 @@ int32_t uya_DynTable_find(struct DynTable * self, uint8_t * key) {
                 }
     }
     const int32_t h = hash_string((uint8_t *)key);
-    int32_t idx = (h % self->capacity);
+    int32_t idx = ({ __typeof__(h) _uya_dv_l = (h); __typeof__(self->capacity) _uya_dv_r = (self->capacity); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (idx < 0) {
         idx = (idx + self->capacity);
     }
     int32_t i = 0;
     while (i < self->capacity) {
-        const int32_t slot = ((idx + i) % self->capacity);
+        const int32_t slot = ({ __typeof__((idx + i)) _uya_dv_l = ((idx + i)); __typeof__(self->capacity) _uya_dv_r = (self->capacity); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         if (self->keys[slot] == NULL) {
                         {
                 int32_t _uya_ret = (-1);
@@ -67370,7 +67400,7 @@ int32_t uya_DynTable_put(struct DynTable * self, uint8_t * key, uint8_t * value)
         (void)(uya_DynTable_key_set(self, slot, key)        );
         ((struct DynTable *)self)->count = (self->count + 1);
     }
-    (void)((uint8_t *)memcpy((char *)uya_DynTable_value_ptr(self, slot), (const char *)value, self->elem_size)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)uya_DynTable_value_ptr(self, slot), (const char *)value, self->elem_size)    );
         {
         int32_t _uya_ret = 0;
         return _uya_ret;
@@ -67393,7 +67423,7 @@ void uya_DynTable_clear(struct DynTable * self) {
         const size_t nu = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(self->capacity) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
             _uya_catch_result = (0ULL);
         } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
-        (void)((uint8_t *)memset((char *)self->values, 0, (self->elem_size * nu))        );
+        (void)((uint8_t *)__uya_checked_memset((char *)self->values, 0, (self->elem_size * nu))        );
     }
     int32_t i = 0;
     while (i < self->capacity) {
@@ -69074,10 +69104,10 @@ static __attribute__((used)) struct Interval interval_div(struct Interval a, str
             return _uya_ret;
                 }
     }
-    const int32_t q1 = (a.min / b.min);
-    const int32_t q2 = (a.min / b.max);
-    const int32_t q3 = (a.max / b.min);
-    const int32_t q4 = (a.max / b.max);
+    const int32_t q1 = ({ __typeof__(a.min) _uya_dv_l = (a.min); __typeof__(b.min) _uya_dv_r = (b.min); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    const int32_t q2 = ({ __typeof__(a.min) _uya_dv_l = (a.min); __typeof__(b.max) _uya_dv_r = (b.max); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    const int32_t q3 = ({ __typeof__(a.max) _uya_dv_l = (a.max); __typeof__(b.min) _uya_dv_r = (b.min); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    const int32_t q4 = ({ __typeof__(a.max) _uya_dv_l = (a.max); __typeof__(b.max) _uya_dv_r = (b.max); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     int32_t min_val = q1;
     int32_t max_val = q1;
     if (q2 < min_val) {
@@ -69504,14 +69534,14 @@ static __attribute__((used)) struct WideInterval wide_neg(struct WideInterval a)
         if (a.hi == wide_i64_min()) {
             out.lo_known = 0;
         } else {
-            out.lo = ({ int32_t _l = (0LL); int32_t _r = (a.hi); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+            out.lo = ({ int64_t _l = (0LL); int64_t _r = (a.hi); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
         }
     }
     if (out.hi_known != 0) {
         if (a.lo == wide_i64_min()) {
             out.hi_known = 0;
         } else {
-            out.hi = ({ int32_t _l = (0LL); int32_t _r = (a.lo); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+            out.hi = ({ int64_t _l = (0LL); int64_t _r = (a.lo); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
         }
     }
         {
@@ -69824,10 +69854,10 @@ static __attribute__((used)) struct WideInterval wide_interval_of_expr(struct Ty
                 if (op == main_TokenType_TOKEN_PERCENT) {
                     int64_t m = right.lo;
                     if (m < 0LL) {
-                        m = ({ int32_t _l = (0LL); int32_t _r = (m); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                        m = ({ int64_t _l = (0LL); int64_t _r = (m); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
                     }
                     const int64_t span = ({ int64_t _l = (m); int64_t _r = (1LL); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
-                    int64_t lo_v = ({ int32_t _l = (0LL); int32_t _r = (span); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                    int64_t lo_v = ({ int64_t _l = (0LL); int64_t _r = (span); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
                     if (((left.lo_known != 0) && (left.lo >= 0LL))) {
                         lo_v = 0LL;
                     }
@@ -69840,7 +69870,7 @@ static __attribute__((used)) struct WideInterval wide_interval_of_expr(struct Ty
                 if (((left.lo_known != 0) && (left.hi_known != 0))) {
                     int64_t abs_max = 0LL;
                     if (left.lo < 0LL) {
-                        abs_max = ({ int32_t _l = (0LL); int32_t _r = (left.lo); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                        abs_max = ({ int64_t _l = (0LL); int64_t _r = (left.lo); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
                     } else {
                         abs_max = left.lo;
                     }
@@ -69848,15 +69878,15 @@ static __attribute__((used)) struct WideInterval wide_interval_of_expr(struct Ty
                     if (hi_abs > abs_max) {
                         abs_max = hi_abs;
                     }
-                    if (((hi_abs < 0LL) && (({ int32_t _l = (0LL); int32_t _r = (hi_abs); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) > abs_max))) {
-                        abs_max = ({ int32_t _l = (0LL); int32_t _r = (hi_abs); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                    if (((hi_abs < 0LL) && (({ int64_t _l = (0LL); int64_t _r = (hi_abs); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; }) > abs_max))) {
+                        abs_max = ({ int64_t _l = (0LL); int64_t _r = (hi_abs); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
                     }
                     int64_t k = right.lo;
                     if (k < 0LL) {
-                        k = ({ int32_t _l = (0LL); int32_t _r = (k); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                        k = ({ int64_t _l = (0LL); int64_t _r = (k); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
                     }
-                    const int64_t bound = (abs_max / k);
-                    struct WideInterval div_r = (struct WideInterval){.lo = ({ int32_t _l = (0LL); int32_t _r = (bound); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }), .hi = bound, .lo_known = 1, .hi_known = 1};
+                    const int64_t bound = ({ __typeof__(abs_max) _uya_dv_l = (abs_max); __typeof__(k) _uya_dv_r = (k); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+                    struct WideInterval div_r = (struct WideInterval){.lo = ({ int64_t _l = (0LL); int64_t _r = (bound); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; }), .hi = bound, .lo_known = 1, .hi_known = 1};
                                         {
                         struct WideInterval _uya_ret = wide_intersect(div_r, left);
                         return _uya_ret;
@@ -70911,7 +70941,7 @@ static __attribute__((used)) int32_t lookup_node_result_cache_slot(struct ASTNod
             return _uya_ret;
                 }
     }
-    const size_t node_hash = ((uintptr_t)((void *)node) / (size_t)8);
+    const size_t node_hash = ({ __typeof__((uintptr_t)((void *)node)) _uya_dv_l = ((uintptr_t)((void *)node)); __typeof__((size_t)8) _uya_dv_r = ((size_t)8); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         {
         int32_t _uya_ret = (int32_t)(node_hash & 8191ULL);
         return _uya_ret;
@@ -73355,7 +73385,7 @@ static __attribute__((used)) uint8_t * get_type_name_from_ast(struct ASTNode * t
                 uint8_t * const buf = (uint8_t *)compiler_arena_alloc(arena, (uint64_t)(inner_len + 3));
                 if (buf != NULL) {
                     buf[0] = (int8_t)38;
-                    (void)((uint8_t *)memcpy((char *)(void *)(buf + 1), (const char *)(void *)inner, (uint64_t)inner_len)                    );
+                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(buf + 1), (const char *)(void *)inner, (uint64_t)inner_len)                    );
                     const int32_t idx = ({ int32_t _l = (inner_len); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                     if (((idx >= 0) && (idx < 1000000))) {
                         buf[idx] = (int8_t)0;
@@ -73698,7 +73728,7 @@ static __attribute__((used)) uint8_t * macro_arena_strdup(struct CompilerArena *
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)buf, (const char *)(void *)src, (uint64_t)(len + 1))    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)buf, (const char *)(void *)src, (uint64_t)(len + 1))    );
         {
         uint8_t * _uya_ret = buf;
         return _uya_ret;
@@ -73730,9 +73760,9 @@ static __attribute__((used)) uint8_t * macro_i64_to_string(struct CompilerArena 
     } else {
         while (((magnitude > 0) && (digit_count < 31))) {
             if (((digit_count >= 0) && (digit_count < 32))) {
-                const uint64_t digit = (magnitude % (uint64_t)10);
+                const uint64_t digit = ({ __typeof__(magnitude) _uya_dv_l = (magnitude); __typeof__((uint64_t)10) _uya_dv_r = ((uint64_t)10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                 tmp[digit_count] = (uint8_t)(digit + (uint64_t)48);
-                magnitude = (magnitude / (uint64_t)10);
+                magnitude = ({ __typeof__(magnitude) _uya_dv_l = (magnitude); __typeof__((uint64_t)10) _uya_dv_r = ((uint64_t)10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
                 digit_count = (digit_count + 1);
             }
         }
@@ -73816,8 +73846,8 @@ static __attribute__((used)) uint8_t * macro_concat2(struct CompilerArena * aren
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)buf, (const char *)(void *)a, (uint64_t)len_a)    );
-    (void)((uint8_t *)memcpy((char *)(void *)(buf + len_a), (const char *)(void *)b, (uint64_t)(len_b + 1))    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)buf, (const char *)(void *)a, (uint64_t)len_a)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(buf + len_a), (const char *)(void *)b, (uint64_t)(len_b + 1))    );
         {
         uint8_t * _uya_ret = buf;
         return _uya_ret;
@@ -73856,7 +73886,7 @@ static __attribute__((used)) void macro_append_bytes(uint8_t * dst, int32_t * po
         return;
     }
     const int32_t len = std_string_strlen((uint8_t *)src);
-    (void)((uint8_t *)memcpy((char *)(void *)(dst + pos[0]), (const char *)(void *)src, (uint64_t)len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(dst + pos[0]), (const char *)(void *)src, (uint64_t)len)    );
     pos[0] = ({ int32_t _l = (pos[0]); int32_t _r = (len); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     const int32_t p = pos[0];
     if (((p >= 0) && (p < 1000000))) {
@@ -74080,7 +74110,7 @@ static __attribute__((used)) uint8_t * type_to_source_string(struct ASTNode * ty
                         }
         }
         buf[0] = (int8_t)42;
-        (void)((uint8_t *)memcpy((char *)(void *)(buf + 1), (const char *)(void *)inner, (uint64_t)(inner_len + 1))        );
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(buf + 1), (const char *)(void *)inner, (uint64_t)(inner_len + 1))        );
                 {
             uint8_t * _uya_ret = buf;
             return _uya_ret;
@@ -74164,7 +74194,7 @@ static __attribute__((used)) uint8_t * ast_expr_to_source_string(struct ASTNode 
                         }
         }
         buf[0] = (int8_t)34;
-        (void)((uint8_t *)memcpy((char *)(void *)(buf + 1), (const char *)(void *)raw, (uint64_t)(len + 1))        );
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(buf + 1), (const char *)(void *)raw, (uint64_t)(len + 1))        );
         const int32_t idx1 = ({ int32_t _l = (len); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
         const int32_t idx2 = ({ int32_t _l = (len); int32_t _r = (2); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
         if (((idx1 >= 0) && (idx1 < 1000000))) {
@@ -75672,7 +75702,7 @@ static __attribute__((used)) int64_t macro_eval_expr(struct ASTNode * expr, stru
                             if (op == main_TokenType_TOKEN_SLASH) {
                                 if (right != 0) {
                                                                         {
-                                        int64_t _uya_ret = (left / right);
+                                        int64_t _uya_ret = ({ __typeof__(left) _uya_dv_l = (left); __typeof__(right) _uya_dv_r = (right); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
                                         return _uya_ret;
                                                                         }
                                 } else {
@@ -75685,7 +75715,7 @@ static __attribute__((used)) int64_t macro_eval_expr(struct ASTNode * expr, stru
                                 if (op == main_TokenType_TOKEN_PERCENT) {
                                     if (right != 0) {
                                                                                 {
-                                            int64_t _uya_ret = (left % right);
+                                            int64_t _uya_ret = ({ __typeof__(left) _uya_dv_l = (left); __typeof__(right) _uya_dv_r = (right); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                                             return _uya_ret;
                                                                                 }
                                     } else {
@@ -81480,7 +81510,7 @@ static __attribute__((used)) uint8_t * extract_module_path_allocated(struct Type
                         dst[0] = 46;
                         dst = (&dst[1]);
                     }
-                    (void)((uint8_t *)memcpy((char *)(void *)dst, (const char *)(void *)p, dir_len)                    );
+                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)dst, (const char *)(void *)p, dir_len)                    );
                     dst = (&dst[dir_len]);
                     dir_count = (dir_count + 1);
                 }
@@ -81563,7 +81593,7 @@ static __attribute__((used)) uint8_t * extract_module_path_allocated(struct Type
             uint8_t * const module_name = (uint8_t *)compiler_arena_alloc(checker->arena, (total_len + 1));
             if (module_name != NULL) {
                 (void)(std_string_strcpy((uint8_t *)module_name, (uint8_t *)(uint8_t *)str1587)                );
-                (void)((uint8_t *)memcpy((char *)(void *)((uint8_t *)module_name + 4), (const char *)(void *)relative_path, module_len)                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)((uint8_t *)module_name + 4), (const char *)(void *)relative_path, module_len)                );
                 const size_t name_end = ({ size_t _l = ((size_t)4); size_t _r = (module_len); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
                 if (name_end < (total_len + 1)) {
                     module_name[name_end] = 0;
@@ -81650,7 +81680,7 @@ static __attribute__((used)) uint8_t * extract_module_path_allocated(struct Type
             uint8_t * const module_name_c = (uint8_t *)compiler_arena_alloc(checker->arena, (total_len_c + 1));
             if (module_name_c != NULL) {
                 (void)(std_string_strcpy((uint8_t *)module_name_c, (uint8_t *)(uint8_t *)str1594)                );
-                (void)((uint8_t *)memcpy((char *)(void *)((uint8_t *)module_name_c + 6), (const char *)(void *)relative_path_c, module_len_c)                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)((uint8_t *)module_name_c + 6), (const char *)(void *)relative_path_c, module_len_c)                );
                 const size_t name_end_c = ({ size_t _l = ((size_t)6); size_t _r = (module_len_c); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
                 if (name_end_c < (total_len_c + 1)) {
                     module_name_c[name_end_c] = 0;
@@ -81689,7 +81719,7 @@ static __attribute__((used)) uint8_t * extract_module_path_allocated(struct Type
         if (base_len_k > 0) {
             uint8_t * const module_name_k = (uint8_t *)compiler_arena_alloc(checker->arena, (base_len_k + 1));
             if (module_name_k != NULL) {
-                (void)((uint8_t *)memcpy((char *)(void *)module_name_k, (const char *)(void *)relative_path_k, base_len_k)                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)module_name_k, (const char *)(void *)relative_path_k, base_len_k)                );
                 if (((base_len_k >= 0) && (base_len_k < 1000000))) {
                     module_name_k[base_len_k] = 0;
                 }
@@ -81729,7 +81759,7 @@ static __attribute__((used)) uint8_t * extract_module_path_allocated(struct Type
             uint8_t * const module_name_tls = (uint8_t *)compiler_arena_alloc(checker->arena, (total_len_tls + 1));
             if (module_name_tls != NULL) {
                 (void)(std_string_strcpy((uint8_t *)module_name_tls, (uint8_t *)(uint8_t *)str1599)                );
-                (void)((uint8_t *)memcpy((char *)(void *)((uint8_t *)module_name_tls + 4), (const char *)(void *)relative_path_tls, base_len_tls)                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)((uint8_t *)module_name_tls + 4), (const char *)(void *)relative_path_tls, base_len_tls)                );
                 const size_t name_end_tls = ({ size_t _l = ((size_t)4); size_t _r = (base_len_tls); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
                 if (name_end_tls < (total_len_tls + 1)) {
                     module_name_tls[name_end_tls] = 0;
@@ -81775,7 +81805,7 @@ static __attribute__((used)) uint8_t * extract_module_path_allocated(struct Type
             if (module_len > 0) {
                 uint8_t * const module_name_uya = (uint8_t *)compiler_arena_alloc(checker->arena, (module_len + 1));
                 if (module_name_uya != NULL) {
-                    (void)((uint8_t *)memcpy((char *)(void *)module_name_uya, (const char *)(void *)relative_path_uya, module_len)                    );
+                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)module_name_uya, (const char *)(void *)relative_path_uya, module_len)                    );
                     if (((module_len >= 0) && (module_len < 1000000))) {
                         module_name_uya[module_len] = 0;
                     }
@@ -81881,7 +81911,7 @@ static __attribute__((used)) uint8_t * extract_module_path_allocated(struct Type
                 dst[0] = 46;
                 dst = (&dst[1]);
             }
-            (void)((uint8_t *)memcpy((char *)(void *)dst, (const char *)(void *)p, dir_len)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)dst, (const char *)(void *)p, dir_len)            );
             dst = (&dst[dir_len]);
             dir_count = (dir_count + 1);
         }
@@ -81923,7 +81953,7 @@ static __attribute__((used)) struct ModuleInfo * find_or_create_module(struct Ty
                 }
     }
     const int32_t hash = hash_string((uint8_t *)module_name);
-    int32_t index = (hash % mod_cap);
+    int32_t index = ({ __typeof__(hash) _uya_dv_l = (hash); __typeof__(mod_cap) _uya_dv_r = (mod_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (index < 0) {
         index = (index + mod_cap);
     }
@@ -81932,7 +81962,7 @@ static __attribute__((used)) struct ModuleInfo * find_or_create_module(struct Ty
     }
     int32_t i = 0;
     while (i < mod_cap) {
-        const int32_t slot = ((index + i) % mod_cap);
+        const int32_t slot = ({ __typeof__((index + i)) _uya_dv_l = ((index + i)); __typeof__(mod_cap) _uya_dv_r = (mod_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         struct ModuleInfo * module = checker_module_slot_at(checker, slot);
         if (((module != NULL) && (str_equals(module->module_name, (uint8_t *)module_name) != 0))) {
                         {
@@ -81996,7 +82026,7 @@ static __attribute__((used)) int32_t append_module_export(struct TypeChecker * c
                         }
         }
         if (((module->exports != NULL) && (module->export_count > 0))) {
-            (void)((uint8_t *)memcpy((char *)(void *)new_exports, (const char *)(void *)module->exports, ({ size_t _l = ((size_t)(int32_t)sizeof(struct ExportedItem)); size_t _r = ((size_t)module->export_count); size_t _s; size_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((size_t)-1); else _res = _s; _res; }))            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)new_exports, (const char *)(void *)module->exports, ({ size_t _l = ((size_t)(int32_t)sizeof(struct ExportedItem)); size_t _r = ((size_t)module->export_count); size_t _s; size_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((size_t)-1); else _res = _s; _res; }))            );
         }
         module->exports = new_exports;
         module->export_capacity = new_cap;
@@ -82120,11 +82150,11 @@ static __attribute__((used)) uint8_t * build_project_file_module_alias(struct Ty
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)alias_name, (const char *)(void *)dir_module_name, dir_module_len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)alias_name, (const char *)(void *)dir_module_name, dir_module_len)    );
     if (((dir_module_len >= 0) && (dir_module_len < 1000000))) {
         alias_name[dir_module_len] = 46;
     }
-    (void)((uint8_t *)memcpy((char *)(void *)(((uint8_t *)alias_name + dir_module_len) + 1), (const char *)(void *)file_name, file_base_len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(((uint8_t *)alias_name + dir_module_len) + 1), (const char *)(void *)file_name, file_base_len)    );
     if (((total_len >= 0) && (total_len < 1000000))) {
         alias_name[total_len] = 0;
     }
@@ -82173,7 +82203,7 @@ static __attribute__((used)) uint8_t * build_uya_root_file_module_alias(struct T
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)alias_name, (const char *)(void *)relative_path, base_len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)alias_name, (const char *)(void *)relative_path, base_len)    );
     alias_name[base_len] = 0;
     size_t idx = 0;
     while (idx < base_len) {
@@ -82563,13 +82593,13 @@ static __attribute__((used)) int32_t checker_insert_import_item(struct TypeCheck
     import->item_type = item_type;
     const int32_t import_hash = hash_string(import->local_name);
     const int32_t imp_cap = checker->import_table.table.capacity;
-    int32_t import_index = (import_hash % imp_cap);
+    int32_t import_index = ({ __typeof__(import_hash) _uya_dv_l = (import_hash); __typeof__(imp_cap) _uya_dv_r = (imp_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (import_index < 0) {
         import_index = ({ int32_t _l = (import_index); int32_t _r = (imp_cap); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     }
     int32_t slot_i = 0;
     while (slot_i < imp_cap) {
-        const int32_t slot = ((import_index + slot_i) % imp_cap);
+        const int32_t slot = ({ __typeof__((import_index + slot_i)) _uya_dv_l = ((import_index + slot_i)); __typeof__(imp_cap) _uya_dv_r = (imp_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         if (checker_import_slot_at(checker, slot) == NULL) {
             (void)(checker_import_slot_set(checker, slot, import)            );
             checker->import_table.table.count = ({ int32_t _l = (checker->import_table.table.count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
@@ -82685,7 +82715,7 @@ static __attribute__((used)) int32_t process_use_stmt(struct TypeChecker * check
                             dst = (&dst[1]);
                         }
                         const size_t sl = std_string_strlen((uint8_t *)segs[i]);
-                        (void)((uint8_t *)memcpy((char *)(void *)dst, (const char *)(void *)segs[i], sl)                        );
+                        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)dst, (const char *)(void *)segs[i], sl)                        );
                         dst = (&dst[sl]);
                     }
                     i = (i + 1);
@@ -82712,7 +82742,7 @@ static __attribute__((used)) int32_t process_use_stmt(struct TypeChecker * check
                         if (dir_len_check < PATH_MAX) {
                             module_root_for_check = (uint8_t *)compiler_arena_alloc(checker->arena, (dir_len_check + 1));
                             if (module_root_for_check != NULL) {
-                                (void)((uint8_t *)memcpy((char *)(void *)module_root_for_check, (const char *)(void *)node->filename, dir_len_check)                                );
+                                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)module_root_for_check, (const char *)(void *)node->filename, dir_len_check)                                );
                                 module_root_for_check[dir_len_check] = 0;
                             }
                         }
@@ -82814,7 +82844,7 @@ static __attribute__((used)) int32_t process_use_stmt(struct TypeChecker * check
                                 dst = (&dst[1]);
                             }
                             const size_t sl = std_string_strlen((uint8_t *)segs[i]);
-                            (void)((uint8_t *)memcpy((char *)(void *)dst, (const char *)(void *)segs[i], sl)                            );
+                            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)dst, (const char *)(void *)segs[i], sl)                            );
                             dst = (&dst[sl]);
                         }
                         i = (i + 1);
@@ -82846,7 +82876,7 @@ static __attribute__((used)) int32_t process_use_stmt(struct TypeChecker * check
                             if (dir_len < PATH_MAX) {
                                 module_root_from_file = (uint8_t *)compiler_arena_alloc(checker->arena, (dir_len + 1));
                                 if (module_root_from_file != NULL) {
-                                    (void)((uint8_t *)memcpy((char *)(void *)module_root_from_file, (const char *)(void *)node->filename, dir_len)                                    );
+                                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)module_root_from_file, (const char *)(void *)node->filename, dir_len)                                    );
                                     module_root_from_file[dir_len] = 0;
                                 }
                             }
@@ -82903,14 +82933,14 @@ static __attribute__((used)) int32_t process_use_stmt(struct TypeChecker * check
                     } else {
                         const int32_t fh = hash_string((uint8_t *)full_path);
                         const int32_t mod_cap2 = checker->module_table.table.capacity;
-                        int32_t fi = (fh % mod_cap2);
+                        int32_t fi = ({ __typeof__(fh) _uya_dv_l = (fh); __typeof__(mod_cap2) _uya_dv_r = (mod_cap2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                         if (fi < 0) {
                             fi = ({ int32_t _l = (fi); int32_t _r = (mod_cap2); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                         }
                         struct ModuleInfo * full_mod = NULL;
                         i = 0;
                         while (i < mod_cap2) {
-                            const int32_t slot = ((fi + i) % mod_cap2);
+                            const int32_t slot = ({ __typeof__((fi + i)) _uya_dv_l = ((fi + i)); __typeof__(mod_cap2) _uya_dv_r = (mod_cap2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                             struct ModuleInfo * const m = checker_module_slot_at(checker, slot);
                             if (((m != NULL) && (str_equals(m->module_name, (uint8_t *)full_path) != 0))) {
                                 full_mod = m;
@@ -82954,7 +82984,7 @@ static __attribute__((used)) int32_t process_use_stmt(struct TypeChecker * check
                                                 sdst = (&sdst[1]);
                                             }
                                             const size_t sl = std_string_strlen((uint8_t *)segs[i]);
-                                            (void)((uint8_t *)memcpy((char *)(void *)sdst, (const char *)(void *)segs[i], sl)                                            );
+                                            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)sdst, (const char *)(void *)segs[i], sl)                                            );
                                             sdst = (&sdst[sl]);
                                         }
                                         i = (i + 1);
@@ -83016,14 +83046,14 @@ static __attribute__((used)) int32_t process_use_stmt(struct TypeChecker * check
                 } else {
                     const int32_t current_hash = hash_string(current_module_name);
                     const int32_t mod_cap3 = checker->module_table.table.capacity;
-                    int32_t current_index = (current_hash % mod_cap3);
+                    int32_t current_index = ({ __typeof__(current_hash) _uya_dv_l = (current_hash); __typeof__(mod_cap3) _uya_dv_r = (mod_cap3); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                     if (current_index < 0) {
                         current_index = ({ int32_t _l = (current_index); int32_t _r = (mod_cap3); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                     }
                     struct ModuleInfo * current_module = NULL;
                     int32_t si = 0;
                     while (si < mod_cap3) {
-                        const int32_t slot = ((current_index + si) % mod_cap3);
+                        const int32_t slot = ({ __typeof__((current_index + si)) _uya_dv_l = ((current_index + si)); __typeof__(mod_cap3) _uya_dv_r = (mod_cap3); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                         struct ModuleInfo * const m = checker_module_slot_at(checker, slot);
                         if (((m != NULL) && (str_equals(m->module_name, current_module_name) != 0))) {
                             current_module = m;
@@ -83056,7 +83086,7 @@ static __attribute__((used)) int32_t process_use_stmt(struct TypeChecker * check
                             struct ModuleDependency * const new_deps = (struct ModuleDependency *)compiler_arena_alloc(checker->arena, ((int32_t)sizeof(struct ModuleDependency) * new_count));
                             if (new_deps != NULL) {
                                 if (((current_module->dependencies != NULL) && (current_module->dependency_count > 0))) {
-                                    (void)((uint8_t *)memcpy((char *)(void *)new_deps, (const char *)(void *)current_module->dependencies, ({ size_t _l = ((size_t)(int32_t)sizeof(struct ModuleDependency)); size_t _r = ((size_t)current_module->dependency_count); size_t _s; size_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((size_t)-1); else _res = _s; _res; }))                                    );
+                                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)new_deps, (const char *)(void *)current_module->dependencies, ({ size_t _l = ((size_t)(int32_t)sizeof(struct ModuleDependency)); size_t _r = ((size_t)current_module->dependency_count); size_t _s; size_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((size_t)-1); else _res = _s; _res; }))                                    );
                                 }
                                 const int32_t last_idx = current_module->dependency_count;
                                 new_deps[last_idx].target_module = module_name;
@@ -83100,14 +83130,14 @@ static __attribute__((used)) int32_t process_use_stmt(struct TypeChecker * check
                 import->item_type = (0 - 1);
                 const int32_t import_hash = hash_string(import->local_name);
                 const int32_t imp_cap = checker->import_table.table.capacity;
-                int32_t import_index = (import_hash % imp_cap);
+                int32_t import_index = ({ __typeof__(import_hash) _uya_dv_l = (import_hash); __typeof__(imp_cap) _uya_dv_r = (imp_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                 if (import_index < 0) {
                     import_index = ({ int32_t _l = (import_index); int32_t _r = (imp_cap); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                 }
                 const int32_t imp_cap2 = checker->import_table.table.capacity;
                 int32_t j = 0;
                 while (j < imp_cap2) {
-                    const int32_t slot = ((import_index + j) % imp_cap2);
+                    const int32_t slot = ({ __typeof__((import_index + j)) _uya_dv_l = ((import_index + j)); __typeof__(imp_cap2) _uya_dv_r = (imp_cap2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                     if (checker_import_slot_at(checker, slot) == NULL) {
                         (void)(checker_import_slot_set(checker, slot, import)                        );
                         checker->import_table.table.count = ({ int32_t _l = (checker->import_table.table.count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
@@ -83180,13 +83210,13 @@ static __attribute__((used)) int32_t process_use_stmt(struct TypeChecker * check
                     import->item_type = item_type;
                     const int32_t import_hash = hash_string(import->local_name);
                     const int32_t imp_cap = checker->import_table.table.capacity;
-                    int32_t import_index = (import_hash % imp_cap);
+                    int32_t import_index = ({ __typeof__(import_hash) _uya_dv_l = (import_hash); __typeof__(imp_cap) _uya_dv_r = (imp_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                     if (import_index < 0) {
                         import_index = ({ int32_t _l = (import_index); int32_t _r = (imp_cap); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                     }
                     int32_t slot_i = 0;
                     while (slot_i < imp_cap) {
-                        const int32_t slot = ((import_index + slot_i) % imp_cap);
+                        const int32_t slot = ({ __typeof__((import_index + slot_i)) _uya_dv_l = ((import_index + slot_i)); __typeof__(imp_cap) _uya_dv_r = (imp_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                         if (checker_import_slot_at(checker, slot) == NULL) {
                             (void)(checker_import_slot_set(checker, slot, import)                            );
                             checker->import_table.table.count = ({ int32_t _l = (checker->import_table.table.count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
@@ -83254,13 +83284,13 @@ static __attribute__((used)) int32_t dfs_visit_module(struct TypeChecker * check
             uint8_t * const last_module = path[(path_len - 1)];
             const int32_t last_hash = hash_string(last_module);
             const int32_t mod_cap4 = checker->module_table.table.capacity;
-            int32_t last_index = (last_hash % mod_cap4);
+            int32_t last_index = ({ __typeof__(last_hash) _uya_dv_l = (last_hash); __typeof__(mod_cap4) _uya_dv_r = (mod_cap4); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             if (last_index < 0) {
                 last_index = ({ int32_t _l = (last_index); int32_t _r = (mod_cap4); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
             }
             i = 0;
             while (i < mod_cap4) {
-                const int32_t slot = ((last_index + i) % mod_cap4);
+                const int32_t slot = ({ __typeof__((last_index + i)) _uya_dv_l = ((last_index + i)); __typeof__(mod_cap4) _uya_dv_r = (mod_cap4); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                 struct ModuleInfo * const m = checker_module_slot_at(checker, slot);
                 if (((m != NULL) && (str_equals(m->module_name, last_module) != 0))) {
                     int32_t j = 0;
@@ -83295,14 +83325,14 @@ static __attribute__((used)) int32_t dfs_visit_module(struct TypeChecker * check
     visit_state[state_idx].state = 1;
     const int32_t hash = hash_string((uint8_t *)module_name);
     const int32_t mod_cap5 = checker->module_table.table.capacity;
-    int32_t index = (hash % mod_cap5);
+    int32_t index = ({ __typeof__(hash) _uya_dv_l = (hash); __typeof__(mod_cap5) _uya_dv_r = (mod_cap5); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (index < 0) {
         index = ({ int32_t _l = (index); int32_t _r = (mod_cap5); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     }
     struct ModuleInfo * module = NULL;
     i = 0;
     while (i < mod_cap5) {
-        const int32_t slot = ((index + i) % mod_cap5);
+        const int32_t slot = ({ __typeof__((index + i)) _uya_dv_l = ((index + i)); __typeof__(mod_cap5) _uya_dv_r = (mod_cap5); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         struct ModuleInfo * const m = checker_module_slot_at(checker, slot);
         if (((m != NULL) && (str_equals(m->module_name, (uint8_t *)module_name) != 0))) {
             module = m;
@@ -84913,7 +84943,7 @@ static __attribute__((used)) int32_t check_i32_mul_overflow(int32_t left, int32_
                 }
     }
     if (((left > 0) && (right > 0))) {
-        if (left > (I32_MAX / right)) {
+        if (left > ({ __typeof__(I32_MAX) _uya_dv_l = (I32_MAX); __typeof__(right) _uya_dv_r = (right); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) {
                         {
                 int32_t _uya_ret = 1;
                 return _uya_ret;
@@ -84921,15 +84951,15 @@ static __attribute__((used)) int32_t check_i32_mul_overflow(int32_t left, int32_
         }
     }
     if (((left < 0) && (right < 0))) {
-        const int64_t neg_left = ({ int32_t _l = (0LL); int32_t _r = ((int64_t)left); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
-        const int64_t neg_right = ({ int32_t _l = (0LL); int32_t _r = ((int64_t)right); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+        const int64_t neg_left = ({ int64_t _l = (0LL); int64_t _r = ((int64_t)left); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
+        const int64_t neg_right = ({ int64_t _l = (0LL); int64_t _r = ((int64_t)right); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
         if (neg_right <= 0LL) {
                         {
                 int32_t _uya_ret = 1;
                 return _uya_ret;
                         }
         }
-        if (neg_left > (2147483647LL / neg_right)) {
+        if (neg_left > ({ __typeof__(2147483647LL) _uya_dv_l = (2147483647LL); __typeof__(neg_right) _uya_dv_r = (neg_right); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) {
                         {
                 int32_t _uya_ret = 1;
                 return _uya_ret;
@@ -84937,7 +84967,7 @@ static __attribute__((used)) int32_t check_i32_mul_overflow(int32_t left, int32_
         }
     }
     if (((left > 0) && (right < 0))) {
-        if (right < (I32_MIN / left)) {
+        if (right < ({ __typeof__(I32_MIN) _uya_dv_l = (I32_MIN); __typeof__(left) _uya_dv_r = (left); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) {
                         {
                 int32_t _uya_ret = 1;
                 return _uya_ret;
@@ -84945,7 +84975,7 @@ static __attribute__((used)) int32_t check_i32_mul_overflow(int32_t left, int32_
         }
     }
     if (((left < 0) && (right > 0))) {
-        if (left < (I32_MIN / right)) {
+        if (left < ({ __typeof__(I32_MIN) _uya_dv_l = (I32_MIN); __typeof__(right) _uya_dv_r = (right); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })) {
                         {
                 int32_t _uya_ret = 1;
                 return _uya_ret;
@@ -85349,7 +85379,7 @@ static __attribute__((used)) int32_t checker_eval_const_expr_ex_impl(struct Type
                                                                                                                 }
                                                     }
                                                                                                         {
-                                                        int32_t _uya_ret = checker_const_ok(out_ok, (left_val / right_val));
+                                                        int32_t _uya_ret = checker_const_ok(out_ok, ({ __typeof__(left_val) _uya_dv_l = (left_val); __typeof__(right_val) _uya_dv_r = (right_val); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
                                                         return _uya_ret;
                                                                                                         }
                                                 } else {
@@ -85362,7 +85392,7 @@ static __attribute__((used)) int32_t checker_eval_const_expr_ex_impl(struct Type
                                                                                                                         }
                                                         }
                                                                                                                 {
-                                                            int32_t _uya_ret = checker_const_ok(out_ok, (left_val % right_val));
+                                                            int32_t _uya_ret = checker_const_ok(out_ok, ({ __typeof__(left_val) _uya_dv_l = (left_val); __typeof__(right_val) _uya_dv_r = (right_val); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
                                                             return _uya_ret;
                                                                                                                 }
                                                     } else {
@@ -85678,7 +85708,7 @@ static __attribute__((used)) int32_t get_type_size_bytes(struct Type * t) {
     }
     if (((t->kind == checker_TypeKind_TYPE_ARRAY) && (t->array_size >= 0))) {
         const int32_t elem_size = get_type_size_bytes(t->element_type);
-        if (((elem_size > 0) && (t->array_size <= (2147483647 / elem_size)))) {
+        if (((elem_size > 0) && (t->array_size <= ({ __typeof__(2147483647) _uya_dv_l = (2147483647); __typeof__(elem_size) _uya_dv_r = (elem_size); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })))) {
                         {
                 int32_t _uya_ret = ({ int32_t _l = (elem_size); int32_t _r = (t->array_size); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
                 return _uya_ret;
@@ -86011,7 +86041,7 @@ int32_t checker_proof_checker_eval_const_expr_in_block(struct TypeChecker * chec
                                                                                 }
                                     }
                                                                         {
-                                        int32_t _uya_ret = (left_val / right_val);
+                                        int32_t _uya_ret = ({ __typeof__(left_val) _uya_dv_l = (left_val); __typeof__(right_val) _uya_dv_r = (right_val); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
                                         return _uya_ret;
                                                                         }
                                 } else {
@@ -86023,7 +86053,7 @@ int32_t checker_proof_checker_eval_const_expr_in_block(struct TypeChecker * chec
                                                                                         }
                                         }
                                                                                 {
-                                            int32_t _uya_ret = (left_val % right_val);
+                                            int32_t _uya_ret = ({ __typeof__(left_val) _uya_dv_l = (left_val); __typeof__(right_val) _uya_dv_r = (right_val); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                                             return _uya_ret;
                                                                                 }
                                     } else {
@@ -88327,8 +88357,8 @@ static __attribute__((used)) int32_t function_edge_cache_slot(struct ASTNode * f
             return _uya_ret;
                 }
     }
-    const size_t from_hash = ((uintptr_t)((void *)from_decl) / (size_t)8);
-    const size_t to_hash = ((uintptr_t)((void *)to_decl) / (size_t)8);
+    const size_t from_hash = ({ __typeof__((uintptr_t)((void *)from_decl)) _uya_dv_l = ((uintptr_t)((void *)from_decl)); __typeof__((size_t)8) _uya_dv_r = ((size_t)8); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+    const size_t to_hash = ({ __typeof__((uintptr_t)((void *)to_decl)) _uya_dv_l = ((uintptr_t)((void *)to_decl)); __typeof__((size_t)8) _uya_dv_r = ((size_t)8); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         {
         int32_t _uya_ret = (int32_t)(((from_hash * 131ULL) + to_hash) & 32767ULL);
         return _uya_ret;
@@ -88475,7 +88505,7 @@ static __attribute__((used)) int32_t checker_mark_reachability_node_visited(stru
             return _uya_ret;
                 }
     }
-    const size_t node_hash = ((uintptr_t)((void *)node) / (size_t)8);
+    const size_t node_hash = ({ __typeof__((uintptr_t)((void *)node)) _uya_dv_l = ((uintptr_t)((void *)node)); __typeof__((size_t)8) _uya_dv_r = ((size_t)8); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     int32_t slot = (int32_t)(node_hash & MAX_REACHABILITY_VISIT_MASK);
     int32_t probe = 0;
     while (probe < MAX_REACHABILITY_VISIT_SLOTS) {
@@ -88752,13 +88782,13 @@ static __attribute__((used)) int32_t symbol_table_insert(struct TypeChecker * ch
             return _uya_ret;
                 }
     }
-    int32_t index = (hash % sym_cap);
+    int32_t index = ({ __typeof__(hash) _uya_dv_l = (hash); __typeof__(sym_cap) _uya_dv_r = (sym_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (index < 0) {
         index = (index + sym_cap);
     }
     int32_t i = 0;
     while (i < sym_cap) {
-        const int32_t slot_idx = ((index + i) % sym_cap);
+        const int32_t slot_idx = ({ __typeof__((index + i)) _uya_dv_l = ((index + i)); __typeof__(sym_cap) _uya_dv_r = (sym_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         if (checker_symbol_slot_at(checker, slot_idx) == NULL) {
             (void)(checker_symbol_slot_set(checker, slot_idx, symbol)            );
             checker->symbol_table.table.count = ({ int32_t _l = (checker->symbol_table.table.count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
@@ -88805,13 +88835,13 @@ static __attribute__((used)) struct FunctionSignature * function_table_lookup(st
             return _uya_ret;
                 }
     }
-    int32_t index = (hash % cap);
+    int32_t index = ({ __typeof__(hash) _uya_dv_l = (hash); __typeof__(cap) _uya_dv_r = (cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (index < 0) {
         index = (index + cap);
     }
     int32_t i = 0;
     while (i < cap) {
-        const int32_t slot_idx = ((index + i) % cap);
+        const int32_t slot_idx = ({ __typeof__((index + i)) _uya_dv_l = ((index + i)); __typeof__(cap) _uya_dv_r = (cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         struct FunctionSignature * const sig = checker_function_slot_at(checker, slot_idx);
         if (sig == NULL) {
             break;
@@ -88876,13 +88906,13 @@ static __attribute__((used)) struct FunctionSignature * function_table_lookup_sa
             return _uya_ret;
                 }
     }
-    int32_t index = (hash % cap);
+    int32_t index = ({ __typeof__(hash) _uya_dv_l = (hash); __typeof__(cap) _uya_dv_r = (cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (index < 0) {
         index = (index + cap);
     }
     int32_t i = 0;
     while (i < cap) {
-        const int32_t slot_idx = ((index + i) % cap);
+        const int32_t slot_idx = ({ __typeof__((index + i)) _uya_dv_l = ((index + i)); __typeof__(cap) _uya_dv_r = (cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         struct FunctionSignature * const sig = checker_function_slot_at(checker, slot_idx);
         if (sig == NULL) {
             break;
@@ -88943,13 +88973,13 @@ static __attribute__((used)) int32_t function_table_insert(struct TypeChecker * 
             return _uya_ret;
                 }
     }
-    int32_t index = (hash % cap);
+    int32_t index = ({ __typeof__(hash) _uya_dv_l = (hash); __typeof__(cap) _uya_dv_r = (cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (index < 0) {
         index = (index + cap);
     }
     int32_t i = 0;
     while (i < cap) {
-        const int32_t slot_idx = ((index + i) % cap);
+        const int32_t slot_idx = ({ __typeof__((index + i)) _uya_dv_l = ((index + i)); __typeof__(cap) _uya_dv_r = (cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         struct FunctionSignature * const existing = checker_function_slot_at(checker, slot_idx);
         if (existing == NULL) {
             (void)(checker_function_slot_set(checker, slot_idx, sig)            );
@@ -89054,13 +89084,13 @@ static __attribute__((used)) void checker_exit_scope(struct TypeChecker * checke
             if (sym_cap <= 0) {
                 break;
             }
-            int32_t index = (hash % sym_cap);
+            int32_t index = ({ __typeof__(hash) _uya_dv_l = (hash); __typeof__(sym_cap) _uya_dv_r = (sym_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             if (index < 0) {
                 index = ({ int32_t _l = (index); int32_t _r = (sym_cap); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
             }
             int32_t i = 0;
             while (i < sym_cap) {
-                const int32_t slot = ((index + i) % sym_cap);
+                const int32_t slot = ({ __typeof__((index + i)) _uya_dv_l = ((index + i)); __typeof__(sym_cap) _uya_dv_r = (sym_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                 if (checker_symbol_slot_at(checker, slot) == symbol) {
                     (void)(checker_symbol_slot_set(checker, slot, NULL)                    );
                     checker->symbol_table.table.count = ({ int32_t _l = (checker->symbol_table.table.count); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
@@ -89226,7 +89256,7 @@ static __attribute__((used)) bool string_pool_ensure_buckets(struct StringPool *
         struct StringPoolEntry * entry = old[j];
         while (entry != NULL) {
             struct StringPoolEntry * const next_entry = entry->next;
-            int32_t nb_idx = ((entry->hash & 2147483647) % nc);
+            int32_t nb_idx = ({ __typeof__((entry->hash & 2147483647)) _uya_dv_l = ((entry->hash & 2147483647)); __typeof__(nc) _uya_dv_r = (nc); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             if (nb_idx < 0) {
                 nb_idx = 0;
             }
@@ -89271,7 +89301,7 @@ static __attribute__((used)) uint8_t * string_pool_intern(struct StringPool * po
                 }
     }
     const int32_t hash = hash_string((uint8_t *)str);
-    const int32_t bucket_idx = ((hash & 2147483647) % pool->bucket_count);
+    const int32_t bucket_idx = ({ __typeof__((hash & 2147483647)) _uya_dv_l = ((hash & 2147483647)); __typeof__(pool->bucket_count) _uya_dv_r = (pool->bucket_count); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (bucket_idx < 0) {
                 {
             uint8_t * _uya_ret = str;
@@ -89304,7 +89334,7 @@ static __attribute__((used)) uint8_t * string_pool_intern(struct StringPool * po
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)new_str, (const char *)(void *)str, n)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)new_str, (const char *)(void *)str, n)    );
     struct StringPoolEntry * const new_entry = (struct StringPoolEntry *)compiler_arena_alloc(arena, (size_t)(int32_t)sizeof(struct StringPoolEntry));
     if (new_entry == NULL) {
                 {
@@ -89340,7 +89370,7 @@ static __attribute__((used)) uint8_t * checker_arena_strdup(struct CompilerArena
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)result, (const char *)(void *)src, n)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)result, (const char *)(void *)src, n)    );
         {
         uint8_t * _uya_ret = result;
         return _uya_ret;
@@ -91271,7 +91301,7 @@ static __attribute__((used)) int32_t layout_align_up_i32(int32_t value, int32_t 
             return _uya_ret;
                 }
     }
-    const int32_t remainder = (value % align);
+    const int32_t remainder = ({ __typeof__(value) _uya_dv_l = (value); __typeof__(align) _uya_dv_r = (align); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (remainder == 0) {
                 {
             int32_t _uya_ret = value;
@@ -91749,7 +91779,7 @@ static __attribute__((used)) int32_t get_type_size_bytes_v2(struct TypeChecker *
     }
     if (t->kind == checker_TypeKind_TYPE_ARRAY) {
         const int32_t elem_sz = get_type_size_bytes_v2(checker, t->element_type, program_node);
-        if ((((elem_sz > 0) && (t->array_size > 0)) && (t->array_size <= (2147483647 / elem_sz)))) {
+        if ((((elem_sz > 0) && (t->array_size > 0)) && (t->array_size <= ({ __typeof__(2147483647) _uya_dv_l = (2147483647); __typeof__(elem_sz) _uya_dv_r = (elem_sz); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })))) {
                         {
                 int32_t _uya_ret = ({ int32_t _l = (elem_sz); int32_t _r = (t->array_size); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
                 return _uya_ret;
@@ -94531,7 +94561,7 @@ static __attribute__((used)) uint8_t * join_segments_alloc(uint8_t * * segs, int
                 dst = (dst + 1);
             }
             const size_t sl = std_string_strlen((uint8_t *)segs[j]);
-            (void)((uint8_t *)memcpy((char *)(void *)dst, (const char *)(void *)segs[j], sl)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)dst, (const char *)(void *)segs[j], sl)            );
             dst = (dst + sl);
         }
         j = (j + 1);
@@ -95225,7 +95255,7 @@ static __attribute__((used)) int32_t collect_module_dependencies(uint8_t * filen
                     uint8_t * const entry_file = processed_files->items[0];
                     uint8_t * const slash = std_string_strrchr((uint8_t *)entry_file, 47);
                     if (slash != NULL) {
-                        struct err_union_size_t dlen_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(({ int32_t _l = (({ int64_t _l = ((int64_t)slash); int64_t _r = ((int64_t)entry_file); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })) }; _uya_asbang; });
+                        struct err_union_size_t dlen_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(({ int64_t _l = (({ int64_t _l = ((int64_t)slash); int64_t _r = ((int64_t)entry_file); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1); int64_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })) }; _uya_asbang; });
                         const size_t dlen = ({ struct err_union_size_t _uya_catch_tmp = dlen_tmp; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                                                         {
                                 int32_t _uya_ret = 1;
@@ -95235,7 +95265,7 @@ static __attribute__((used)) int32_t collect_module_dependencies(uint8_t * filen
                                                         }
                         } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
                         if (dlen < (size_t)PATH_MAX) {
-                            (void)((uint8_t *)memcpy((char *)(void *)(&main_dir[0]), (const char *)(void *)entry_file, dlen)                            );
+                            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&main_dir[0]), (const char *)(void *)entry_file, dlen)                            );
                             main_dir[dlen] = (uint8_t)0;
                         } else {
                             (void)(std_string_strcpy((&main_dir[0]), (uint8_t *)(uint8_t *)str30)                            );
@@ -95932,7 +95962,7 @@ static __attribute__((used)) int32_t c_import_tokenize_flags(struct CompilerAren
                 return _uya_ret;
                         }
         }
-        (void)((uint8_t *)memcpy((char *)(void *)token, (const char *)(void *)(&src[start]), len)        );
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)token, (const char *)(void *)(&src[start]), len)        );
         token[len] = (uint8_t)0;
         tokens[token_index] = token;
         token_index = (token_index + 1);
@@ -96228,8 +96258,8 @@ static __attribute__((used)) uint8_t * build_c_import_sidecar_path(struct Compil
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)out, (const char *)(void *)c_path, len)    );
-    (void)((uint8_t *)memcpy((char *)(void *)((uint8_t *)out + len), (const char *)(void *)suffix, suffix_len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)out, (const char *)(void *)c_path, len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)((uint8_t *)out + len), (const char *)(void *)suffix, suffix_len)    );
     out[(len + suffix_len)] = (uint8_t)0;
         {
         uint8_t * _uya_ret = out;
@@ -98494,7 +98524,7 @@ static __attribute__((used)) int32_t microapp_extract_internal_elf64(uint8_t * e
                     return _uya_ret;
                                 }
             }
-            (void)((uint8_t *)memcpy((char *)(void *)(&file_buffer[0]), (const char *)(void *)(elf + (size_t)sh_offset), (size_t)sh_size)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&file_buffer[0]), (const char *)(void *)(elf + (size_t)sh_offset), (size_t)sh_size)            );
             code_len[0] = (uint32_t)sh_size;
             text_raw_u64 = sh_addr;
             if (((saw_base == 0) || (sh_addr < base_raw_u64))) {
@@ -98509,7 +98539,7 @@ static __attribute__((used)) int32_t microapp_extract_internal_elf64(uint8_t * e
                         return _uya_ret;
                                         }
                 }
-                (void)((uint8_t *)memcpy((char *)(void *)(&microapp_rodata_buffer[0]), (const char *)(void *)(elf + (size_t)sh_offset), (size_t)sh_size)                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&microapp_rodata_buffer[0]), (const char *)(void *)(elf + (size_t)sh_offset), (size_t)sh_size)                );
                 rodata_len[0] = (uint32_t)sh_size;
                 rodata_raw_u64 = sh_addr;
                 if (((saw_base == 0) || (sh_addr < base_raw_u64))) {
@@ -98524,7 +98554,7 @@ static __attribute__((used)) int32_t microapp_extract_internal_elf64(uint8_t * e
                             return _uya_ret;
                                                 }
                     }
-                    (void)((uint8_t *)memcpy((char *)(void *)(&microapp_data_buffer[0]), (const char *)(void *)(elf + (size_t)sh_offset), (size_t)sh_size)                    );
+                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&microapp_data_buffer[0]), (const char *)(void *)(elf + (size_t)sh_offset), (size_t)sh_size)                    );
                     data_len[0] = (uint32_t)sh_size;
                     data_raw_u64 = sh_addr;
                     if (((saw_base == 0) || (sh_addr < base_raw_u64))) {
@@ -99042,10 +99072,10 @@ static __attribute__((used)) struct err_union_uint32_t microapp_aarch64_patch_br
             return _uya_ret;
                 }
     } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; })); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
-    if ((disp % (int64_t)4) != 0) {
+    if (({ __typeof__(disp) _uya_dv_l = (disp); __typeof__((int64_t)4) _uya_dv_r = ((int64_t)4); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) != 0) {
         return (struct err_union_uint32_t){ .error_id = -911224723U, .value = 0 };
     }
-    const int64_t imm26 = (disp / (int64_t)4);
+    const int64_t imm26 = ({ __typeof__(disp) _uya_dv_l = (disp); __typeof__((int64_t)4) _uya_dv_r = ((int64_t)4); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     const uint32_t field = ({ struct err_union_uint32_t _uya_try_tmp = microapp_aarch64_encode_signed_field(imm26, 26U); if (_uya_try_tmp.error_id != 0) {
         return (struct err_union_uint32_t){ .error_id = _uya_try_tmp.error_id };
     }; _uya_try_tmp.value; });
@@ -99089,7 +99119,7 @@ static __attribute__((used)) struct err_union_uint32_t microapp_aarch64_patch_ad
     const uint32_t target_page = (target_va & ((uint32_t)4294963200ULL));
     struct err_union_int64_t place_i64 = ({ struct err_union_int64_t _uya_asbang = { .error_id = 0, .value = (int64_t)(place_page) }; _uya_asbang; });
     struct err_union_int64_t target_i64 = ({ struct err_union_int64_t _uya_asbang = { .error_id = 0, .value = (int64_t)(target_page) }; _uya_asbang; });
-    const int64_t disp_pages = ((target_i64.value - place_i64.value) / 4096);
+    const int64_t disp_pages = ({ __typeof__((target_i64.value - place_i64.value)) _uya_dv_l = ((target_i64.value - place_i64.value)); __typeof__(4096) _uya_dv_r = (4096); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     const uint32_t field = ({ struct err_union_uint32_t _uya_try_tmp = microapp_aarch64_encode_signed_field(disp_pages, 21U); if (_uya_try_tmp.error_id != 0) {
         return (struct err_union_uint32_t){ .error_id = _uya_try_tmp.error_id };
     }; _uya_try_tmp.value; });
@@ -99119,10 +99149,10 @@ static __attribute__((used)) struct err_union_uint32_t microapp_aarch64_patch_ld
             return _uya_ret;
                 }
     } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; })); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
-    if ((disp % (int64_t)4) != 0) {
+    if (({ __typeof__(disp) _uya_dv_l = (disp); __typeof__((int64_t)4) _uya_dv_r = ((int64_t)4); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) != 0) {
         return (struct err_union_uint32_t){ .error_id = -911224723U, .value = 0 };
     }
-    const int64_t imm19 = (disp / (int64_t)4);
+    const int64_t imm19 = ({ __typeof__(disp) _uya_dv_l = (disp); __typeof__((int64_t)4) _uya_dv_r = ((int64_t)4); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     const uint32_t field = ({ struct err_union_uint32_t _uya_try_tmp = microapp_aarch64_encode_signed_field(imm19, 19U); if (_uya_try_tmp.error_id != 0) {
         return (struct err_union_uint32_t){ .error_id = _uya_try_tmp.error_id };
     }; _uya_try_tmp.value; });
@@ -99775,7 +99805,7 @@ static __attribute__((used)) int32_t microapp_extract_macho_arm64_object(uint8_t
                                 return _uya_ret;
                                                         }
                         }
-                        (void)((uint8_t *)memcpy((char *)(void *)(&file_buffer[(size_t)sec_off]), (const char *)(void *)(obj + (size_t)sec_file_off), (size_t)sec_size)                        );
+                        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&file_buffer[(size_t)sec_off]), (const char *)(void *)(obj + (size_t)sec_file_off), (size_t)sec_size)                        );
                     }
                 } else {
                     if (kind == ELF64_SECTION_KIND_RODATA_RAW) {
@@ -99787,7 +99817,7 @@ static __attribute__((used)) int32_t microapp_extract_macho_arm64_object(uint8_t
                                     return _uya_ret;
                                                                 }
                             }
-                            (void)((uint8_t *)memcpy((char *)(void *)(&microapp_rodata_buffer[(size_t)sec_off]), (const char *)(void *)(obj + (size_t)sec_file_off), (size_t)sec_size)                            );
+                            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&microapp_rodata_buffer[(size_t)sec_off]), (const char *)(void *)(obj + (size_t)sec_file_off), (size_t)sec_size)                            );
                         }
                     } else {
                         if (kind == ELF64_SECTION_KIND_DATA_RAW) {
@@ -99799,7 +99829,7 @@ static __attribute__((used)) int32_t microapp_extract_macho_arm64_object(uint8_t
                                         return _uya_ret;
                                                                         }
                                 }
-                                (void)((uint8_t *)memcpy((char *)(void *)(&microapp_data_buffer[(size_t)sec_off]), (const char *)(void *)(obj + (size_t)sec_file_off), (size_t)sec_size)                                );
+                                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&microapp_data_buffer[(size_t)sec_off]), (const char *)(void *)(obj + (size_t)sec_file_off), (size_t)sec_size)                                );
                             }
                         } else {
                             if (kind == ELF64_SECTION_KIND_BSS_RAW) {
@@ -100271,7 +100301,7 @@ static __attribute__((used)) int32_t microapp_extract_object_elf64(uint8_t * obj
                         return _uya_ret;
                                         }
                 }
-                (void)((uint8_t *)memcpy((char *)(void *)(&file_buffer[(size_t)sec_off]), (const char *)(void *)(elf + (size_t)sh_offset_u64), (size_t)sh_size_u64)                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&file_buffer[(size_t)sec_off]), (const char *)(void *)(elf + (size_t)sh_offset_u64), (size_t)sh_size_u64)                );
             }
         } else {
             if (kind == ELF64_SECTION_KIND_RODATA_RAW) {
@@ -100283,7 +100313,7 @@ static __attribute__((used)) int32_t microapp_extract_object_elf64(uint8_t * obj
                             return _uya_ret;
                                                 }
                     }
-                    (void)((uint8_t *)memcpy((char *)(void *)(&microapp_rodata_buffer[(size_t)sec_off]), (const char *)(void *)(elf + (size_t)sh_offset_u64), (size_t)sh_size_u64)                    );
+                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&microapp_rodata_buffer[(size_t)sec_off]), (const char *)(void *)(elf + (size_t)sh_offset_u64), (size_t)sh_size_u64)                    );
                 }
             } else {
                 if (kind == ELF64_SECTION_KIND_DATA_RAW) {
@@ -100295,7 +100325,7 @@ static __attribute__((used)) int32_t microapp_extract_object_elf64(uint8_t * obj
                                 return _uya_ret;
                                                         }
                         }
-                        (void)((uint8_t *)memcpy((char *)(void *)(&microapp_data_buffer[(size_t)sec_off]), (const char *)(void *)(elf + (size_t)sh_offset_u64), (size_t)sh_size_u64)                        );
+                        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&microapp_data_buffer[(size_t)sec_off]), (const char *)(void *)(elf + (size_t)sh_offset_u64), (size_t)sh_size_u64)                        );
                     }
                 } else {
                     if (kind == ELF64_SECTION_KIND_BSS_RAW) {
@@ -103485,13 +103515,13 @@ static __attribute__((used)) int32_t exec_builder_compile_zero_value(struct Exec
     }
     if (ty->kind == checker_TypeKind_TYPE_F32) {
                 {
-            int32_t _uya_ret = exec_builder_emit_loaded_const_value(ctx, ast_node, exec_make_f32((float)0.0000000000000000));
+            int32_t _uya_ret = exec_builder_emit_loaded_const_value(ctx, ast_node, exec_make_f32((float)0.00000000000000000));
             return _uya_ret;
                 }
     }
     if (ty->kind == checker_TypeKind_TYPE_F64) {
                 {
-            int32_t _uya_ret = exec_builder_emit_loaded_const_value(ctx, ast_node, exec_make_f64(0.0000000000000000));
+            int32_t _uya_ret = exec_builder_emit_loaded_const_value(ctx, ast_node, exec_make_f64(0.00000000000000000));
             return _uya_ret;
                 }
     }
@@ -103941,7 +103971,7 @@ static __attribute__((used)) struct ExecValue exec_builder_make_embed_slice(uint
                 }
     }
     if (((size > 0) && (backing.ptr_value != NULL))) {
-        (void)((uint8_t *)memcpy((char *)(void *)backing.ptr_value, (const char *)(const void *)data, (size_t)size));
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)backing.ptr_value, (const char *)(const void *)data, (size_t)size));
     }
         {
         struct ExecValue _uya_ret = exec_make_raw_slice((uint8_t *)backing.ptr_value, (int32_t)checker_TypeKind_TYPE_U8, size);
@@ -104136,7 +104166,7 @@ static __attribute__((used)) int32_t exec_builder_emit_int_tag_compare(struct Ex
             return _uya_ret;
                 }
     }
-    struct HIRExpr pattern_expr = (struct HIRExpr){.kind = exec_HIRExprKind_HIR_EXPR_CONST, .ast_node = ast_node, .type_ref = (struct HIRTypeRef){.type = make_u32_type()}, .local_slot = (-1), .global_slot = (-1), .unary_op = 0, .binary_op = 0, .int_value = value, .float_value = 0.0000000000000000, .bool_value = 0, .string_value = NULL, .left = NULL, .right = NULL, .callee_name = NULL, .callee_decl = NULL, .call_host_id = exec_ExecHostCallId_EXEC_HOST_CALL_NONE, .call_args = NULL, .call_arg_count = 0, .dispatch_decls = NULL, .dispatch_decl_count = 0, .items = NULL, .item_count = 0, .block = 0, .extra = NULL, .match_arms = NULL, .match_arm_count = 0};
+    struct HIRExpr pattern_expr = (struct HIRExpr){.kind = exec_HIRExprKind_HIR_EXPR_CONST, .ast_node = ast_node, .type_ref = (struct HIRTypeRef){.type = make_u32_type()}, .local_slot = (-1), .global_slot = (-1), .unary_op = 0, .binary_op = 0, .int_value = value, .float_value = 0.00000000000000000, .bool_value = 0, .string_value = NULL, .left = NULL, .right = NULL, .callee_name = NULL, .callee_decl = NULL, .call_host_id = exec_ExecHostCallId_EXEC_HOST_CALL_NONE, .call_args = NULL, .call_arg_count = 0, .dispatch_decls = NULL, .dispatch_decl_count = 0, .items = NULL, .item_count = 0, .block = 0, .extra = NULL, .match_arms = NULL, .match_arm_count = 0};
     if (exec_builder_emit_const(ctx, pattern_slot, (&pattern_expr)) < 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -104360,7 +104390,7 @@ static __attribute__((used)) int32_t exec_builder_emit_i32_const_slot(struct Exe
             return _uya_ret;
                 }
     }
-    struct HIRExpr expr_const = (struct HIRExpr){.kind = exec_HIRExprKind_HIR_EXPR_CONST, .ast_node = ast_node, .type_ref = (struct HIRTypeRef){.type = make_i32_type()}, .local_slot = (-1), .global_slot = (-1), .unary_op = 0, .binary_op = 0, .int_value = (int64_t)value, .float_value = 0.0000000000000000, .bool_value = 0, .string_value = NULL, .left = NULL, .right = NULL, .callee_name = NULL, .callee_decl = NULL, .call_host_id = exec_ExecHostCallId_EXEC_HOST_CALL_NONE, .call_args = NULL, .call_arg_count = 0, .dispatch_decls = NULL, .dispatch_decl_count = 0, .items = NULL, .item_count = 0, .block = 0, .extra = NULL, .match_arms = NULL, .match_arm_count = 0};
+    struct HIRExpr expr_const = (struct HIRExpr){.kind = exec_HIRExprKind_HIR_EXPR_CONST, .ast_node = ast_node, .type_ref = (struct HIRTypeRef){.type = make_i32_type()}, .local_slot = (-1), .global_slot = (-1), .unary_op = 0, .binary_op = 0, .int_value = (int64_t)value, .float_value = 0.00000000000000000, .bool_value = 0, .string_value = NULL, .left = NULL, .right = NULL, .callee_name = NULL, .callee_decl = NULL, .call_host_id = exec_ExecHostCallId_EXEC_HOST_CALL_NONE, .call_args = NULL, .call_arg_count = 0, .dispatch_decls = NULL, .dispatch_decl_count = 0, .items = NULL, .item_count = 0, .block = 0, .extra = NULL, .match_arms = NULL, .match_arm_count = 0};
     if (exec_builder_emit_const(ctx, dst_slot, (&expr_const)) < 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -106113,7 +106143,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
                             return _uya_ret;
                                                 }
                     }
-                    struct HIRExpr union_pattern_expr = (struct HIRExpr){.kind = exec_HIRExprKind_HIR_EXPR_CONST, .ast_node = expr->ast_node, .type_ref = (struct HIRTypeRef){.type = make_i32_type()}, .local_slot = (-1), .global_slot = (-1), .unary_op = 0, .binary_op = 0, .int_value = union_arm->int_value, .float_value = 0.0000000000000000, .bool_value = 0, .string_value = NULL, .left = NULL, .right = NULL, .callee_name = NULL, .callee_decl = NULL, .call_host_id = exec_ExecHostCallId_EXEC_HOST_CALL_NONE, .call_args = NULL, .call_arg_count = 0, .dispatch_decls = NULL, .dispatch_decl_count = 0, .items = NULL, .item_count = 0, .block = 0, .extra = NULL, .match_arms = NULL, .match_arm_count = 0};
+                    struct HIRExpr union_pattern_expr = (struct HIRExpr){.kind = exec_HIRExprKind_HIR_EXPR_CONST, .ast_node = expr->ast_node, .type_ref = (struct HIRTypeRef){.type = make_i32_type()}, .local_slot = (-1), .global_slot = (-1), .unary_op = 0, .binary_op = 0, .int_value = union_arm->int_value, .float_value = 0.00000000000000000, .bool_value = 0, .string_value = NULL, .left = NULL, .right = NULL, .callee_name = NULL, .callee_decl = NULL, .call_host_id = exec_ExecHostCallId_EXEC_HOST_CALL_NONE, .call_args = NULL, .call_arg_count = 0, .dispatch_decls = NULL, .dispatch_decl_count = 0, .items = NULL, .item_count = 0, .block = 0, .extra = NULL, .match_arms = NULL, .match_arm_count = 0};
                     if (exec_builder_emit_const(ctx, pattern_slot2, (&union_pattern_expr)) < 0) {
                                                 {
                             int32_t _uya_ret = (-1);
@@ -106267,7 +106297,7 @@ static __attribute__((used)) int32_t exec_builder_compile_expr(struct ExecFuncti
                     if (arm->bool_value != 0) {
                         pattern_type = make_bool_type();
                     }
-                    struct HIRExpr const_expr = (struct HIRExpr){.kind = exec_HIRExprKind_HIR_EXPR_CONST, .ast_node = expr->ast_node, .type_ref = (struct HIRTypeRef){.type = pattern_type}, .local_slot = (-1), .global_slot = (-1), .unary_op = 0, .binary_op = 0, .int_value = arm->int_value, .float_value = 0.0000000000000000, .bool_value = (int32_t)arm->int_value, .string_value = NULL, .left = NULL, .right = NULL, .callee_name = NULL, .callee_decl = NULL, .call_host_id = exec_ExecHostCallId_EXEC_HOST_CALL_NONE, .call_args = NULL, .call_arg_count = 0, .dispatch_decls = NULL, .dispatch_decl_count = 0, .items = NULL, .item_count = 0, .block = 0, .extra = NULL, .match_arms = NULL, .match_arm_count = 0};
+                    struct HIRExpr const_expr = (struct HIRExpr){.kind = exec_HIRExprKind_HIR_EXPR_CONST, .ast_node = expr->ast_node, .type_ref = (struct HIRTypeRef){.type = pattern_type}, .local_slot = (-1), .global_slot = (-1), .unary_op = 0, .binary_op = 0, .int_value = arm->int_value, .float_value = 0.00000000000000000, .bool_value = (int32_t)arm->int_value, .string_value = NULL, .left = NULL, .right = NULL, .callee_name = NULL, .callee_decl = NULL, .call_host_id = exec_ExecHostCallId_EXEC_HOST_CALL_NONE, .call_args = NULL, .call_arg_count = 0, .dispatch_decls = NULL, .dispatch_decl_count = 0, .items = NULL, .item_count = 0, .block = 0, .extra = NULL, .match_arms = NULL, .match_arm_count = 0};
                     if (exec_builder_emit_const(ctx, pattern_slot, (&const_expr)) < 0) {
                                                 {
                             int32_t _uya_ret = (-1);
@@ -109143,9 +109173,9 @@ static __attribute__((used)) struct BCFunction * exec_builder_build_function(str
                 }
     }
     if (((ctx.instrs != NULL) && (ctx.instr_count > 0))) {
-        (void)((uint8_t *)memcpy((char *)(void *)out_instrs, (const char *)(void *)ctx.instrs, ({ int32_t _l = ((int32_t)sizeof(struct BCInstr)); int32_t _r = ((size_t)ctx.instr_count); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }))        );
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)out_instrs, (const char *)(void *)ctx.instrs, ({ int32_t _l = ((int32_t)sizeof(struct BCInstr)); int32_t _r = ((size_t)ctx.instr_count); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }))        );
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)out_fn, 0, (int32_t)sizeof(struct BCFunction)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)out_fn, 0, (int32_t)sizeof(struct BCFunction)));
     out_fn->name = fn_hir->name;
     out_fn->decl = fn_hir->decl;
     out_fn->instrs = out_instrs;
@@ -109266,7 +109296,7 @@ struct BCProgram * exec_builder_exec_build_bytecode(struct CompilerArena * arena
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)program, 0, (int32_t)sizeof(struct BCProgram)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)program, 0, (int32_t)sizeof(struct BCProgram)));
     program->functions = functions;
     program->function_count = total_function_count;
     program->entry_function_index = entry_index;
@@ -109322,7 +109352,7 @@ struct BCProgram * exec_builder_exec_build_bytecode(struct CompilerArena * arena
                 return _uya_ret;
                         }
         }
-        (void)((uint8_t *)memcpy((char *)(void *)const_values, (const char *)(void *)(&const_pool_builder.values[0]), ({ int32_t _l = ((int32_t)sizeof(struct ExecValue)); int32_t _r = ((size_t)const_pool_builder.count); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }))        );
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)const_values, (const char *)(void *)(&const_pool_builder.values[0]), ({ int32_t _l = ((int32_t)sizeof(struct ExecValue)); int32_t _r = ((size_t)const_pool_builder.count); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }))        );
         program->const_pool = (struct BCConstPool){.values = const_values, .count = const_pool_builder.count};
     } else {
         program->const_pool = (struct BCConstPool){.values = NULL, .count = 0};
@@ -109336,7 +109366,7 @@ struct BCProgram * exec_builder_exec_build_bytecode(struct CompilerArena * arena
                 return _uya_ret;
                         }
         }
-        (void)((uint8_t *)memcpy((char *)(void *)host_calls, (const char *)(void *)(&host_call_builder.sites[0]), ({ int32_t _l = ((int32_t)sizeof(struct BCHostCallSite)); int32_t _r = ((size_t)host_call_builder.count); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }))        );
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)host_calls, (const char *)(void *)(&host_call_builder.sites[0]), ({ int32_t _l = ((int32_t)sizeof(struct BCHostCallSite)); int32_t _r = ((size_t)host_call_builder.count); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }))        );
         program->host_calls = host_calls;
         program->host_call_count = host_call_builder.count;
     } else {
@@ -110438,7 +110468,7 @@ static __attribute__((used)) int32_t exec_format_buffer_append(struct ExecFormat
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(uint8_t *)(buf->data + buf->len), (const char *)(const uint8_t *)src, len));
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(uint8_t *)(buf->data + buf->len), (const char *)(const uint8_t *)src, len));
     buf->len = (buf->len + len);
         {
         int32_t _uya_ret = 1;
@@ -110538,8 +110568,8 @@ static __attribute__((used)) size_t exec_format_write_uint(uint8_t * buf, size_t
                 }
     }
     while (((v > (uint64_t)0) && (n < (size_t)32))) {
-        digits[n] = ({ uint8_t _l = ((uint8_t)48); uint8_t _r = ((uint8_t)(v % (uint64_t)10)); uint8_t _s; __builtin_add_overflow(_l, _r, &_s) ? 255 : _s; });
-        v = (v / (uint64_t)10);
+        digits[n] = ({ uint8_t _l = ((uint8_t)48); uint8_t _r = ((uint8_t)({ __typeof__(v) _uya_dv_l = (v); __typeof__((uint64_t)10) _uya_dv_r = ((uint64_t)10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; })); uint8_t _s; __builtin_add_overflow(_l, _r, &_s) ? 255 : _s; });
+        v = ({ __typeof__(v) _uya_dv_l = (v); __typeof__((uint64_t)10) _uya_dv_r = ((uint64_t)10); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         n = (n + (size_t)1);
     }
     size_t i = (size_t)0;
@@ -110918,7 +110948,7 @@ static __attribute__((used)) int32_t exec_format_printf_like(int32_t target, int
             } else {
                 if (target == EXEC_FORMAT_TARGET_BUF) {
                     if (dst != NULL) {
-                        (void)((uint8_t *)memcpy((char *)(uint8_t *)dst, (const char *)(const uint8_t *)buf.data, buf.len));
+                        (void)((uint8_t *)__uya_checked_memcpy((char *)(uint8_t *)dst, (const char *)(const uint8_t *)buf.data, buf.len));
                         dst[buf.len] = (uint8_t)0;
                         result = (int32_t)buf.len;
                     }
@@ -110932,7 +110962,7 @@ static __attribute__((used)) int32_t exec_format_printf_like(int32_t target, int
                                 if (n > (cap - (size_t)1)) {
                                     n = (cap - (size_t)1);
                                 }
-                                (void)((uint8_t *)memcpy((char *)(uint8_t *)dst, (const char *)(const uint8_t *)buf.data, n));
+                                (void)((uint8_t *)__uya_checked_memcpy((char *)(uint8_t *)dst, (const char *)(const uint8_t *)buf.data, n));
                                 dst[n] = (uint8_t)0;
                                 result = (int32_t)buf.len;
                             }
@@ -114145,7 +114175,7 @@ static __attribute__((used)) struct HIRExpr * exec_lower_alloc_expr(struct ExecL
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)expr, 0, (int32_t)sizeof(struct HIRExpr)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)expr, 0, (int32_t)sizeof(struct HIRExpr)));
     expr->kind = kind;
     expr->ast_node = ast_node;
     expr->type_ref = exec_lower_make_type_ref(type);
@@ -114169,7 +114199,7 @@ static __attribute__((used)) struct HIRStmt * exec_lower_alloc_stmt(struct ExecL
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)stmt, 0, (int32_t)sizeof(struct HIRStmt)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)stmt, 0, (int32_t)sizeof(struct HIRStmt)));
     stmt->kind = kind;
     stmt->ast_node = ast_node;
     stmt->scope_id = (-1);
@@ -114212,7 +114242,7 @@ static __attribute__((used)) struct HIRStmt * exec_lower_alloc_scope_stmt_raw(st
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)stmt, 0, (int32_t)sizeof(struct HIRStmt)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)stmt, 0, (int32_t)sizeof(struct HIRStmt)));
     stmt->kind = kind;
     stmt->ast_node = ast_node;
     stmt->scope_id = scope_id;
@@ -114251,7 +114281,7 @@ static __attribute__((used)) struct HIRBlock * exec_lower_alloc_scoped_block(str
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)block, 0, (int32_t)sizeof(struct HIRBlock)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)block, 0, (int32_t)sizeof(struct HIRBlock)));
     block->scope_id = scope_id;
     block->stmts = stmts;
     block->stmt_count = total_stmt_count;
@@ -114292,7 +114322,7 @@ static __attribute__((used)) struct HIRBlock * exec_lower_alloc_scoped_block_raw
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)block, 0, (int32_t)sizeof(struct HIRBlock)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)block, 0, (int32_t)sizeof(struct HIRBlock)));
     block->scope_id = scope_id;
     block->stmts = stmts;
     block->stmt_count = total_stmt_count;
@@ -114609,7 +114639,7 @@ static __attribute__((used)) struct HIRBlock * exec_lower_make_block_prefix(stru
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)synthetic_block, 0, (int32_t)sizeof(struct ASTNode)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)synthetic_block, 0, (int32_t)sizeof(struct ASTNode)));
     synthetic_block->type = main_ASTNodeType_AST_BLOCK;
     synthetic_block->line = block->line;
     synthetic_block->column = block->column;
@@ -116468,7 +116498,7 @@ static __attribute__((used)) void exec_lower_set_native_field_info(struct ExecLo
         out_pointee[0] = ({ int32_t _l = ((int32_t)field_type.element_type[0].kind); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
         const int32_t elem_size = exec_lower_size_align_of_type(ctx, copy_type((&field_type.element_type[0])), 1);
         if (elem_size > 0) {
-            out_count[0] = (field_size / elem_size);
+            out_count[0] = ({ __typeof__(field_size) _uya_dv_l = (field_size); __typeof__(elem_size) _uya_dv_r = (elem_size); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         }
     }
 }
@@ -116536,7 +116566,7 @@ static __attribute__((used)) int32_t exec_lower_native_field_layout(struct ExecL
                                 }
             }
             if (field_align > 1) {
-                const int32_t rem = (offset % field_align);
+                const int32_t rem = ({ __typeof__(offset) _uya_dv_l = (offset); __typeof__(field_align) _uya_dv_r = (field_align); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                 if (rem != 0) {
                     offset = ({ int32_t _l = (offset); int32_t _r = (({ int32_t _l = (field_align); int32_t _r = (rem); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                 }
@@ -116594,7 +116624,7 @@ static __attribute__((used)) int32_t exec_lower_native_field_layout(struct ExecL
                                         }
                 }
                 if (gf_align > 1) {
-                    const int32_t rem2 = (group_offset % gf_align);
+                    const int32_t rem2 = ({ __typeof__(group_offset) _uya_dv_l = (group_offset); __typeof__(gf_align) _uya_dv_r = (gf_align); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                     if (rem2 != 0) {
                         group_offset = ({ int32_t _l = (group_offset); int32_t _r = (({ int32_t _l = (gf_align); int32_t _r = (rem2); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                     }
@@ -116612,7 +116642,7 @@ static __attribute__((used)) int32_t exec_lower_native_field_layout(struct ExecL
             }
             int32_t group_size = group_offset;
             if (group_align > 1) {
-                const int32_t rem3 = (group_size % group_align);
+                const int32_t rem3 = ({ __typeof__(group_size) _uya_dv_l = (group_size); __typeof__(group_align) _uya_dv_r = (group_align); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                 if (rem3 != 0) {
                     group_size = ({ int32_t _l = (group_size); int32_t _r = (({ int32_t _l = (group_align); int32_t _r = (rem3); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                 }
@@ -116630,7 +116660,7 @@ static __attribute__((used)) int32_t exec_lower_native_field_layout(struct ExecL
         }
         int32_t block_base = offset;
         if (block_align > 1) {
-            const int32_t rem4 = (block_base % block_align);
+            const int32_t rem4 = ({ __typeof__(block_base) _uya_dv_l = (block_base); __typeof__(block_align) _uya_dv_r = (block_align); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
             if (rem4 != 0) {
                 block_base = ({ int32_t _l = (block_base); int32_t _r = (({ int32_t _l = (block_align); int32_t _r = (rem4); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
             }
@@ -117739,7 +117769,7 @@ static __attribute__((used)) struct HIRBlock * exec_lower_wrap_stmt_node_as_bloc
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)synthetic_block, 0, (int32_t)sizeof(struct ASTNode)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)synthetic_block, 0, (int32_t)sizeof(struct ASTNode)));
     synthetic_block->type = main_ASTNodeType_AST_BLOCK;
     synthetic_block->line = stmt_node->line;
     synthetic_block->column = stmt_node->column;
@@ -117783,7 +117813,7 @@ static __attribute__((used)) struct ASTNode * exec_lower_alloc_synth_ast(struct 
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)node, 0, (int32_t)sizeof(struct ASTNode)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)node, 0, (int32_t)sizeof(struct ASTNode)));
     node->type = node_type;
     if (like != NULL) {
         node->line = like->line;
@@ -117894,7 +117924,7 @@ static __attribute__((used)) struct HIRBlock * exec_lower_concat_blocks(struct E
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)block, 0, (int32_t)sizeof(struct HIRBlock)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)block, 0, (int32_t)sizeof(struct HIRBlock)));
     int32_t i = 0;
     while (i < first->stmt_count) {
         stmts[i] = first->stmts[i];
@@ -118768,13 +118798,13 @@ static __attribute__((used)) struct ASTNode * exec_lower_find_module_export_decl
     }
     uint32_t mh = hash_string((uint8_t *)module_name);
     const int32_t mtbl_cap = checker->module_table.table.capacity;
-    int32_t mi = ((int32_t)mh % mtbl_cap);
+    int32_t mi = ({ __typeof__((int32_t)mh) _uya_dv_l = ((int32_t)mh); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (mi < 0) {
         mi = ((int32_t)((uint32_t)(mi) + (uint32_t)(mtbl_cap)));
     }
     int32_t i = 0;
     while (i < mtbl_cap) {
-        const int32_t slot = ((mi + i) % mtbl_cap);
+        const int32_t slot = ({ __typeof__((mi + i)) _uya_dv_l = ((mi + i)); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         struct ModuleInfo * const module = checker_module_slot_at(checker, slot);
         if (module == NULL) {
             break;
@@ -121691,8 +121721,8 @@ static __attribute__((used)) void exec_lower_emit_global_init_stmt(struct Compil
         (void)(exec_backend_set_error(globals[slot].decl, (uint8_t *)(uint8_t *)str2601, 0)        );
         return;
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)stmt, 0, (int32_t)sizeof(struct HIRStmt)));
-    (void)((uint8_t *)memset((char *)(uint8_t *)target, 0, (int32_t)sizeof(struct HIRExpr)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)stmt, 0, (int32_t)sizeof(struct HIRStmt)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)target, 0, (int32_t)sizeof(struct HIRExpr)));
     stmt->kind = exec_HIRStmtKind_HIR_STMT_ASSIGN;
     stmt->ast_node = globals[slot].decl;
     target->kind = exec_HIRExprKind_HIR_EXPR_GLOBAL;
@@ -121738,7 +121768,7 @@ static __attribute__((used)) struct HIRFunction * exec_lower_build_global_init_f
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)fn_hir, 0, (int32_t)sizeof(struct HIRFunction)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)fn_hir, 0, (int32_t)sizeof(struct HIRFunction)));
     int32_t emitted[8192] = {0};
     int32_t emitted_count = 0;
     int32_t stmt_idx = 1;
@@ -122306,7 +122336,7 @@ static __attribute__((used)) struct ASTNode * exec_lower_single_stmt_block(struc
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)block, 0, (int32_t)sizeof(struct ASTNode)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)block, 0, (int32_t)sizeof(struct ASTNode)));
     block->type = main_ASTNodeType_AST_BLOCK;
     block->line = stmt->line;
     block->column = stmt->column;
@@ -126722,7 +126752,7 @@ static __attribute__((used)) struct HIRFunction * exec_lower_function(struct Com
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)hir_fn, 0, (int32_t)sizeof(struct HIRFunction)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)hir_fn, 0, (int32_t)sizeof(struct HIRFunction)));
     hir_fn->name = fn_decl->fn_decl_name;
     hir_fn->decl = fn_decl;
     hir_fn->return_type = exec_lower_make_type_ref((&return_type));
@@ -127078,7 +127108,7 @@ static __attribute__((used)) struct HIRModule * exec_lower_module(struct Compile
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(uint8_t *)module, 0, (int32_t)sizeof(struct HIRModule)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)module, 0, (int32_t)sizeof(struct HIRModule)));
     module->functions = functions;
     module->function_count = count;
     module->entry_function = entry_fn;
@@ -127367,7 +127397,7 @@ int32_t exec_main_exec_build_program(struct TypeChecker * checker, struct ASTNod
     const int64_t lower_start_time = clock();
     struct HIRModule * const lowered = exec_lower_module(checker->arena, checker, program);
     const int64_t lower_end_time = clock();
-    g_exec_last_lower_time_ms = (({ int32_t _l = (({ int64_t _l = (lower_end_time); int64_t _r = (lower_start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
+    g_exec_last_lower_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (lower_end_time); int64_t _r = (lower_start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (lower_end_time); int64_t _r = (lower_start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     if (lowered == NULL) {
         if (exec_backend_get_last_error() == NULL) {
             (void)(exec_backend_set_error(program, (uint8_t *)(uint8_t *)str2742, 0)            );
@@ -127390,7 +127420,7 @@ int32_t exec_main_exec_build_program(struct TypeChecker * checker, struct ASTNod
     const int64_t build_start_time = clock();
     struct BCProgram * const bytecode = exec_builder_exec_build_bytecode(checker->arena, checker, lowered);
     const int64_t build_end_time = clock();
-    g_exec_last_bytecode_build_time_ms = (({ int32_t _l = (({ int64_t _l = (build_end_time); int64_t _r = (build_start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
+    g_exec_last_bytecode_build_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (build_end_time); int64_t _r = (build_start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (build_end_time); int64_t _r = (build_start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     if (bytecode == NULL) {
         if (exec_backend_get_last_error() == NULL) {
             (void)(exec_backend_set_error(program, (uint8_t *)(uint8_t *)str2743, 0)            );
@@ -127464,7 +127494,7 @@ static __attribute__((used)) int32_t exec_c_import_append(uint8_t * buf, size_t 
     }
     const size_t used = std_string_strlen((const uint8_t *)buf);
     const size_t need = std_string_strlen((const uint8_t *)text);
-    if (({ int32_t _l = (({ size_t _l = (used); size_t _r = (need); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; })); int32_t _r = (2ULL); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) >= cap) {
+    if (({ size_t _l = (({ size_t _l = (used); size_t _r = (need); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; })); size_t _r = (2ULL); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; }) >= cap) {
                 {
             int32_t _uya_ret = 0;
             return _uya_ret;
@@ -127688,7 +127718,7 @@ int32_t exec_main_exec_run_program() {
     (void)(std_io_fflush(libc_stdout));
     (void)(std_io_fflush(libc_stderr));
     const int64_t run_end_time = clock();
-    g_exec_last_vm_run_time_ms = (({ int32_t _l = (({ int64_t _l = (run_end_time); int64_t _r = (run_start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / CLOCKS_PER_SEC);
+    g_exec_last_vm_run_time_ms = ({ __typeof__(({ int64_t _l = (({ int64_t _l = (run_end_time); int64_t _r = (run_start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = (run_end_time); int64_t _r = (run_start_time); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__(CLOCKS_PER_SEC) _uya_dv_r = (CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         {
         int32_t _uya_ret = exit_code;
         return _uya_ret;
@@ -128143,7 +128173,7 @@ static __attribute__((used)) void exec_vm_dbg_count_alloc(size_t size) {
         g_exec_dbg_max_size = (int64_t)size;
     }
     const size_t ev_size = (size_t)(int32_t)sizeof(struct ExecValue);
-    if ((((ev_size > (size_t)0) && (size >= ev_size)) && ((size % ev_size) == (size_t)0))) {
+    if ((((ev_size > (size_t)0) && (size >= ev_size)) && (({ __typeof__(size) _uya_dv_l = (size); __typeof__(ev_size) _uya_dv_r = (ev_size); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) == (size_t)0))) {
         g_exec_dbg_agg_bytes = ({ int64_t _l = (g_exec_dbg_agg_bytes); int64_t _r = ((int64_t)size); int64_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
         g_exec_dbg_agg_calls = ({ int64_t _l = (g_exec_dbg_agg_calls); int64_t _r = (1); int64_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
     } else {
@@ -128179,11 +128209,11 @@ static __attribute__((used)) void exec_vm_dbg_count_alloc(size_t size) {
     if (exec_vm_dbg_enabled() == 0) {
         return;
     }
-    const int64_t chunk = (g_exec_dbg_alloc_bytes / 268435456);
+    const int64_t chunk = ({ __typeof__(g_exec_dbg_alloc_bytes) _uya_dv_l = (g_exec_dbg_alloc_bytes); __typeof__(268435456) _uya_dv_r = (268435456); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     if (chunk > g_exec_dbg_printed_chunk) {
         g_exec_dbg_printed_chunk = chunk;
-        (void)(libc_fprintf(libc_stderr, (const char *)str2768, (g_exec_dbg_alloc_bytes / 1048576), g_exec_dbg_alloc_calls, g_exec_dbg_clone_calls, g_exec_value_arena_segment_count, (g_exec_dbg_big_bytes / 1048576), g_exec_dbg_big_calls, (g_exec_dbg_max_size / 1024LL))        );
-        (void)(libc_fprintf(libc_stderr, (const char *)str2769, (int32_t)sizeof(struct ExecValue), (g_exec_dbg_agg_bytes / 1048576), g_exec_dbg_agg_calls, (g_exec_dbg_str_bytes / 1048576), g_exec_dbg_str_calls)        );
+        (void)(libc_fprintf(libc_stderr, (const char *)str2768, ({ __typeof__(g_exec_dbg_alloc_bytes) _uya_dv_l = (g_exec_dbg_alloc_bytes); __typeof__(1048576) _uya_dv_r = (1048576); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }), g_exec_dbg_alloc_calls, g_exec_dbg_clone_calls, g_exec_value_arena_segment_count, ({ __typeof__(g_exec_dbg_big_bytes) _uya_dv_l = (g_exec_dbg_big_bytes); __typeof__(1048576) _uya_dv_r = (1048576); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }), g_exec_dbg_big_calls, ({ __typeof__(g_exec_dbg_max_size) _uya_dv_l = (g_exec_dbg_max_size); __typeof__(1024LL) _uya_dv_r = (1024LL); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }))        );
+        (void)(libc_fprintf(libc_stderr, (const char *)str2769, (int32_t)sizeof(struct ExecValue), ({ __typeof__(g_exec_dbg_agg_bytes) _uya_dv_l = (g_exec_dbg_agg_bytes); __typeof__(1048576) _uya_dv_r = (1048576); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }), g_exec_dbg_agg_calls, ({ __typeof__(g_exec_dbg_str_bytes) _uya_dv_l = (g_exec_dbg_str_bytes); __typeof__(1048576) _uya_dv_r = (1048576); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }), g_exec_dbg_str_calls)        );
         int32_t top_i = 0;
         while (top_i < 5) {
             int32_t best = (0 - 1);
@@ -128211,7 +128241,7 @@ static __attribute__((used)) void exec_vm_dbg_count_alloc(size_t size) {
             }
             top_i = (top_i + 1);
         }
-        (void)(libc_fprintf(libc_stderr, (const char *)str2771, (g_exec_dbg_bucket_bytes[0] / 1048576), g_exec_dbg_bucket_calls[0], (g_exec_dbg_bucket_bytes[1] / 1048576), g_exec_dbg_bucket_calls[1], (g_exec_dbg_bucket_bytes[2] / 1048576), g_exec_dbg_bucket_calls[2], (g_exec_dbg_bucket_bytes[3] / 1048576), g_exec_dbg_bucket_calls[3], (g_exec_dbg_bucket_bytes[4] / 1048576), g_exec_dbg_bucket_calls[4], (g_exec_dbg_bucket_bytes[5] / 1048576), g_exec_dbg_bucket_calls[5], (g_exec_dbg_bucket_bytes[6] / 1048576), g_exec_dbg_bucket_calls[6])        );
+        (void)(libc_fprintf(libc_stderr, (const char *)str2771, ({ __typeof__(g_exec_dbg_bucket_bytes[0]) _uya_dv_l = (g_exec_dbg_bucket_bytes[0]); __typeof__(1048576) _uya_dv_r = (1048576); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }), g_exec_dbg_bucket_calls[0], ({ __typeof__(g_exec_dbg_bucket_bytes[1]) _uya_dv_l = (g_exec_dbg_bucket_bytes[1]); __typeof__(1048576) _uya_dv_r = (1048576); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }), g_exec_dbg_bucket_calls[1], ({ __typeof__(g_exec_dbg_bucket_bytes[2]) _uya_dv_l = (g_exec_dbg_bucket_bytes[2]); __typeof__(1048576) _uya_dv_r = (1048576); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }), g_exec_dbg_bucket_calls[2], ({ __typeof__(g_exec_dbg_bucket_bytes[3]) _uya_dv_l = (g_exec_dbg_bucket_bytes[3]); __typeof__(1048576) _uya_dv_r = (1048576); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }), g_exec_dbg_bucket_calls[3], ({ __typeof__(g_exec_dbg_bucket_bytes[4]) _uya_dv_l = (g_exec_dbg_bucket_bytes[4]); __typeof__(1048576) _uya_dv_r = (1048576); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }), g_exec_dbg_bucket_calls[4], ({ __typeof__(g_exec_dbg_bucket_bytes[5]) _uya_dv_l = (g_exec_dbg_bucket_bytes[5]); __typeof__(1048576) _uya_dv_r = (1048576); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }), g_exec_dbg_bucket_calls[5], ({ __typeof__(g_exec_dbg_bucket_bytes[6]) _uya_dv_l = (g_exec_dbg_bucket_bytes[6]); __typeof__(1048576) _uya_dv_r = (1048576); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }), g_exec_dbg_bucket_calls[6])        );
     }
 }
 
@@ -128236,14 +128266,14 @@ static __attribute__((used)) uint8_t * exec_value_alloc_bytes_locked(size_t size
         }
     }
     size_t total = ({ size_t _l = (size); size_t _r = ((size_t)16); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
-    const size_t slack = (total % (size_t)16);
+    const size_t slack = ({ __typeof__(total) _uya_dv_l = (total); __typeof__((size_t)16) _uya_dv_r = ((size_t)16); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (slack != (size_t)0) {
         total = ({ size_t _l = (total); size_t _r = (((size_t)16 - slack)); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
     }
     if ((((g_exec_value_arena_base == NULL) || (g_exec_value_arena_capacity == (size_t)0)) || (({ size_t _l = (g_exec_value_arena_used); size_t _r = (total); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; }) > g_exec_value_arena_capacity))) {
         uint8_t * const grown = exec_value_arena_grow_locked(total);
         if ((void *)grown != NULL) {
-            (void)((uint8_t *)memset((char *)(uint8_t *)grown, 0, size));
+            (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)grown, 0, size));
                         {
                 uint8_t * _uya_ret = grown;
                 return _uya_ret;
@@ -128264,7 +128294,7 @@ static __attribute__((used)) uint8_t * exec_value_alloc_bytes_locked(size_t size
             g_exec_value_fallback_hi[fb_idx] = ({ size_t _l = (fb_lo); size_t _r = (({ size_t _l = (size); size_t _r = ((size_t)16); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; })); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
             g_exec_value_fallback_count = (fb_idx + 1);
         }
-        (void)((uint8_t *)memset((char *)(uint8_t *)fallback, 0, size));
+        (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)fallback, 0, size));
                 {
             uint8_t * _uya_ret = fallback;
             return _uya_ret;
@@ -128272,7 +128302,7 @@ static __attribute__((used)) uint8_t * exec_value_alloc_bytes_locked(size_t size
     }
     uint8_t * const mem = (g_exec_value_arena_base + g_exec_value_arena_used);
     g_exec_value_arena_used = ({ size_t _l = (g_exec_value_arena_used); size_t _r = (total); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
-    (void)((uint8_t *)memset((char *)(uint8_t *)mem, 0, size));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)mem, 0, size));
     (void)(exec_vm_dbg_count_alloc(size)    );
         {
         uint8_t * _uya_ret = mem;
@@ -128495,7 +128525,7 @@ static __attribute__((used)) struct ExecValue exec_value_make_raw_array(int32_t 
         if (raw_bytes >= EXEC_VALUE_RAW_ARRAY_NATIVE_MIN) {
             data = (uint8_t *)malloc(raw_bytes);
             if (data != NULL) {
-                (void)((uint8_t *)memset((char *)(void *)data, 0, raw_bytes));
+                (void)((uint8_t *)__uya_checked_memset((char *)(void *)data, 0, raw_bytes));
             }
         } else {
             data = exec_value_alloc_bytes(raw_bytes);
@@ -128595,8 +128625,8 @@ static __attribute__((used)) int32_t exec_value_array_registry_reserve_locked(in
     }
     if ((((g_exec_value_array_count > 0) && (g_exec_value_array_bases != NULL)) && (g_exec_value_array_spans != NULL))) {
         const size_t copy_bytes = ((size_t)(int32_t)sizeof(size_t) * (size_t)g_exec_value_array_count);
-        (void)((uint8_t *)memcpy((char *)(void *)fresh_bases, (const char *)(const void *)g_exec_value_array_bases, copy_bytes));
-        (void)((uint8_t *)memcpy((char *)(void *)fresh_spans, (const char *)(const void *)g_exec_value_array_spans, copy_bytes));
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)fresh_bases, (const char *)(const void *)g_exec_value_array_bases, copy_bytes));
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)fresh_spans, (const char *)(const void *)g_exec_value_array_spans, copy_bytes));
     }
     g_exec_value_array_bases = fresh_bases;
     g_exec_value_array_spans = fresh_spans;
@@ -128655,7 +128685,7 @@ static __attribute__((used)) bool exec_value_address_is_array_element(size_t add
     int32_t lo = 0;
     int32_t hi = g_exec_value_array_count;
     while (lo < hi) {
-        const int32_t mid = ((lo + hi) / 2);
+        const int32_t mid = ({ __typeof__((lo + hi)) _uya_dv_l = ((lo + hi)); __typeof__(2) _uya_dv_r = (2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         if (((mid < 0) || (mid >= g_exec_value_array_capacity))) {
                         {
                 bool _uya_ret = false;
@@ -128671,7 +128701,7 @@ static __attribute__((used)) bool exec_value_address_is_array_element(size_t add
                 lo = (mid + 1);
             } else {
                                 {
-                    bool _uya_ret = ((({ size_t _l = (addr); size_t _r = (base); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; }) % (size_t)(int32_t)sizeof(struct ExecValue)) == (size_t)0);
+                    bool _uya_ret = (({ __typeof__(({ size_t _l = (addr); size_t _r = (base); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; })) _uya_dv_l = (({ size_t _l = (addr); size_t _r = (base); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; })); __typeof__((size_t)(int32_t)sizeof(struct ExecValue)) _uya_dv_r = ((size_t)(int32_t)sizeof(struct ExecValue)); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) == (size_t)0);
                     return _uya_ret;
                                 }
             }
@@ -128707,7 +128737,7 @@ static __attribute__((used)) int32_t exec_value_array_element_remaining(size_t a
     int32_t lo = 0;
     int32_t hi = g_exec_value_array_count;
     while (lo < hi) {
-        const int32_t mid = ((lo + hi) / 2);
+        const int32_t mid = ({ __typeof__((lo + hi)) _uya_dv_l = ((lo + hi)); __typeof__(2) _uya_dv_r = (2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         if (((mid < 0) || (mid >= g_exec_value_array_capacity))) {
                         {
                 int32_t _uya_ret = 0;
@@ -128723,14 +128753,14 @@ static __attribute__((used)) int32_t exec_value_array_element_remaining(size_t a
                 lo = (mid + 1);
             } else {
                 const size_t off = ({ size_t _l = (addr); size_t _r = (base); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; });
-                if ((off % stride) != (size_t)0) {
+                if (({ __typeof__(off) _uya_dv_l = (off); __typeof__(stride) _uya_dv_r = (stride); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) != (size_t)0) {
                                         {
                         int32_t _uya_ret = 0;
                         return _uya_ret;
                                         }
                 }
-                const size_t total = (span / stride);
-                const size_t idx = (off / stride);
+                const size_t total = ({ __typeof__(span) _uya_dv_l = (span); __typeof__(stride) _uya_dv_r = (stride); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+                const size_t idx = ({ __typeof__(off) _uya_dv_l = (off); __typeof__(stride) _uya_dv_r = (stride); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
                 if (idx >= total) {
                                         {
                         int32_t _uya_ret = 0;
@@ -128820,8 +128850,8 @@ static __attribute__((used)) int32_t exec_agg_free_lists_init() {
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(void *)heads, 0, bytes));
-    (void)((uint8_t *)memset((char *)(void *)counts, 0, ({ size_t _l = ((size_t)(int32_t)sizeof(int32_t)); size_t _r = ((size_t)EXEC_AGG_FREE_CLASSES); size_t _s; size_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((size_t)-1); else _res = _s; _res; })));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)heads, 0, bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)counts, 0, ({ size_t _l = ((size_t)(int32_t)sizeof(int32_t)); size_t _r = ((size_t)EXEC_AGG_FREE_CLASSES); size_t _s; size_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((size_t)-1); else _res = _s; _res; })));
     g_exec_agg_free_heads = heads;
     g_exec_agg_free_counts = counts;
         {
@@ -129089,7 +129119,7 @@ static __attribute__((used)) struct ExecValue exec_value_make_aggregate(enum exe
             }
             (void)(exec_value_register_array((uintptr_t)((void *)values), count)            );
         }
-        (void)((uint8_t *)memset((char *)(void *)values, 0, (size_t)((int32_t)sizeof(struct ExecValue) * count)));
+        (void)((uint8_t *)__uya_checked_memset((char *)(void *)values, 0, (size_t)((int32_t)sizeof(struct ExecValue) * count)));
         if (g_exec_dbg_enabled >= 0) {
             const int32_t obi = (g_exec_dbg_cur_op & 255);
             g_exec_dbg_op_alloc[obi] = ({ int64_t _l = (g_exec_dbg_op_alloc[obi]); int64_t _r = (1); int64_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
@@ -129305,7 +129335,7 @@ static __attribute__((used)) struct ExecValue exec_value_clone(struct ExecValue 
         if ((((count > 0) && (cloned.ptr_value != NULL)) && (value->ptr_value != NULL))) {
             const size_t elem_size = exec_vm_type_kind_size(elem_kind_code);
             if (elem_size > (size_t)0) {
-                (void)((uint8_t *)memcpy((char *)(void *)cloned.ptr_value, (const char *)(const void *)value->ptr_value, (elem_size * (size_t)count))                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)cloned.ptr_value, (const char *)(const void *)value->ptr_value, (elem_size * (size_t)count))                );
             }
         }
                 {
@@ -129795,7 +129825,7 @@ static __attribute__((used)) float exec_value_as_f32(struct ExecValue * value) {
     (void)value;
     if (value == NULL) {
                 {
-            float _uya_ret = (float)0.0000000000000000;
+            float _uya_ret = (float)0.00000000000000000;
             return _uya_ret;
                 }
     }
@@ -129821,7 +129851,7 @@ static __attribute__((used)) double exec_value_as_f64(struct ExecValue * value) 
     (void)value;
     if (value == NULL) {
                 {
-            double _uya_ret = 0.0000000000000000;
+            double _uya_ret = 0.00000000000000000;
             return _uya_ret;
                 }
     }
@@ -129871,13 +129901,13 @@ static __attribute__((used)) int32_t exec_value_truthy(struct ExecValue value) {
     }
     if (value.kind == exec_ExecValueKind_EXEC_VALUE_F32) {
                 {
-            int32_t _uya_ret = (int32_t)(exec_f32_from_bits((uint32_t)value.i64_value) != (float)0.0000000000000000);
+            int32_t _uya_ret = (int32_t)(exec_f32_from_bits((uint32_t)value.i64_value) != (float)0.00000000000000000);
             return _uya_ret;
                 }
     }
     if (value.kind == exec_ExecValueKind_EXEC_VALUE_F64) {
                 {
-            int32_t _uya_ret = (int32_t)(exec_f64_from_bits((uint64_t)value.i64_value) != 0.0000000000000000);
+            int32_t _uya_ret = (int32_t)(exec_f64_from_bits((uint64_t)value.i64_value) != 0.00000000000000000);
             return _uya_ret;
                 }
     }
@@ -130063,7 +130093,7 @@ static __attribute__((used)) void exec_vm_sig_deliver_pending(struct BCProgram *
         }
         const int64_t bit = exec_vm_sig_bit(sig);
         if ((((bit != 0LL) && ((g_exec_vm_sig_pending & bit) != 0LL)) && ((g_exec_vm_sig_mask & bit) == 0LL))) {
-            g_exec_vm_sig_pending = (g_exec_vm_sig_pending & ({ int32_t _l = (0LL); int32_t _r = (({ int64_t _l = (bit); int64_t _r = (1LL); int64_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }));
+            g_exec_vm_sig_pending = (g_exec_vm_sig_pending & ({ int64_t _l = (0LL); int64_t _r = (({ int64_t _l = (bit); int64_t _r = (1LL); int64_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; }));
             const int32_t handler_idx = g_exec_vm_sig_handlers[sig];
             if (handler_idx >= 0) {
                 struct ExecValue sig_args[1] = {exec_make_i32(sig)};
@@ -130430,7 +130460,7 @@ static __attribute__((used)) int32_t exec_vm_store_aggregate_in_place(struct Exe
                 return _uya_ret;
                         }
         }
-        (void)((uint8_t *)memcpy((char *)(void *)dst->ptr_value, (const char *)(const void *)src->ptr_value, (elem_size * (size_t)src->i64_value)));
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)dst->ptr_value, (const char *)(const void *)src->ptr_value, (elem_size * (size_t)src->i64_value)));
         dst->i64_value = src->i64_value;
                 {
             int32_t _uya_ret = 1;
@@ -130745,7 +130775,7 @@ static __attribute__((used)) struct ExecValue exec_vm_sat_mul(enum exec_ExecValu
     if (exec_vm_value_kind_is_unsigned(kind) != 0) {
         uint64_t umax[1] = {0ULL};
         (void)(exec_vm_sat_bounds_unsigned(kind, (&umax[0]))        );
-        if (((a_unsigned != 0ULL) && (b_unsigned > (umax[0] / a_unsigned)))) {
+        if (((a_unsigned != 0ULL) && (b_unsigned > ({ __typeof__(umax[0]) _uya_dv_l = (umax[0]); __typeof__(a_unsigned) _uya_dv_r = (a_unsigned); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })))) {
                         {
                 struct ExecValue _uya_ret = exec_vm_make_integer_by_kind(kind, 0, umax[0]);
                 return _uya_ret;
@@ -130760,7 +130790,7 @@ static __attribute__((used)) struct ExecValue exec_vm_sat_mul(enum exec_ExecValu
     int64_t hi[1] = {0LL};
     (void)(exec_vm_sat_bounds_signed(kind, (&lo[0]), (&hi[0]))    );
     const int64_t prod = ({ int64_t _l = (a_signed); int64_t _r = (b_signed); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; });
-    if (((a_signed != 0) && ((prod / a_signed) != b_signed))) {
+    if (((a_signed != 0) && (({ __typeof__(prod) _uya_dv_l = (prod); __typeof__(a_signed) _uya_dv_r = (a_signed); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }) != b_signed))) {
         if ((((a_signed > 0) && (b_signed > 0)) || ((a_signed < 0) && (b_signed < 0)))) {
                         {
                 struct ExecValue _uya_ret = exec_vm_make_integer_by_kind(kind, hi[0], 0);
@@ -130880,7 +130910,7 @@ static __attribute__((used)) struct ExecValue exec_vm_checked_arith(enum exec_BC
         }
         if (opcode == exec_BCOpcode_BC_DIV_CHECK) {
                         {
-                struct ExecValue _uya_ret = exec_make_error_union_ok(exec_vm_make_float_by_kind(kind, (exec_value_as_f64((&left)) / exec_value_as_f64((&right)))));
+                struct ExecValue _uya_ret = exec_make_error_union_ok(exec_vm_make_float_by_kind(kind, ({ __typeof__(exec_value_as_f64((&left))) _uya_dv_l = (exec_value_as_f64((&left))); __typeof__(exec_value_as_f64((&right))) _uya_dv_r = (exec_value_as_f64((&right))); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })));
                 return _uya_ret;
                         }
         }
@@ -130915,9 +130945,9 @@ static __attribute__((used)) struct ExecValue exec_vm_checked_arith(enum exec_BC
                     }
                 } else {
                     if (opcode == exec_BCOpcode_BC_DIV_CHECK) {
-                        value_u = (lhs_u / rhs_u);
+                        value_u = ({ __typeof__(lhs_u) _uya_dv_l = (lhs_u); __typeof__(rhs_u) _uya_dv_r = (rhs_u); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
                     } else {
-                        value_u = (lhs_u % rhs_u);
+                        value_u = ({ __typeof__(lhs_u) _uya_dv_l = (lhs_u); __typeof__(rhs_u) _uya_dv_r = (rhs_u); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                     }
                 }
             }
@@ -130950,9 +130980,9 @@ static __attribute__((used)) struct ExecValue exec_vm_checked_arith(enum exec_BC
         }
         int64_t value_d = 0;
         if (opcode == exec_BCOpcode_BC_DIV_CHECK) {
-            value_d = (lhs / rhs);
+            value_d = ({ __typeof__(lhs) _uya_dv_l = (lhs); __typeof__(rhs) _uya_dv_r = (rhs); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         } else {
-            value_d = (lhs % rhs);
+            value_d = ({ __typeof__(lhs) _uya_dv_l = (lhs); __typeof__(rhs) _uya_dv_r = (rhs); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         }
                 {
             struct ExecValue _uya_ret = exec_make_error_union_ok(exec_vm_make_integer_by_kind(kind, value_d, 0));
@@ -131527,7 +131557,7 @@ static __attribute__((used)) struct ExecValue * exec_vm_realign_to_slot(size_t a
                 }
     }
     const size_t delta = ({ size_t _l = (addr); size_t _r = (base); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; });
-    const size_t aligned = ({ size_t _l = (base); size_t _r = (({ int32_t _l = ((delta / slot_bytes)); int32_t _r = (slot_bytes); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; })); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
+    const size_t aligned = ({ size_t _l = (base); size_t _r = (({ size_t _l = (({ __typeof__(delta) _uya_dv_l = (delta); __typeof__(slot_bytes) _uya_dv_r = (slot_bytes); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); size_t _r = (slot_bytes); size_t _s; size_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((size_t)-1); else _res = _s; _res; })); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
         {
         struct ExecValue * _uya_ret = (struct ExecValue *)(void *)(uintptr_t)(aligned);
         return _uya_ret;
@@ -132182,8 +132212,8 @@ static __attribute__((used)) struct ExecValue exec_vm_vector_compare(int32_t opc
         }
         int32_t lane_true = 0;
         if (((is_f32 != 0) || (is_f64 != 0))) {
-            double lf = 0.0000000000000000;
-            double rf = 0.0000000000000000;
+            double lf = 0.00000000000000000;
+            double rf = 0.00000000000000000;
             if (is_f32 != 0) {
                 lf = (double)exec_f32_from_bits((uint32_t)lb);
                 rf = (double)exec_f32_from_bits((uint32_t)rb);
@@ -132288,8 +132318,8 @@ static __attribute__((used)) struct ExecValue exec_vm_vector_binary(int32_t opco
         }
         int64_t res = 0;
         if (is_float_elem != 0) {
-            double lf = 0.0000000000000000;
-            double rf = 0.0000000000000000;
+            double lf = 0.00000000000000000;
+            double rf = 0.00000000000000000;
             if (is_f32_elem != 0) {
                 lf = (double)exec_f32_from_bits((uint32_t)lb);
                 rf = (double)exec_f32_from_bits((uint32_t)rb);
@@ -132297,7 +132327,7 @@ static __attribute__((used)) struct ExecValue exec_vm_vector_binary(int32_t opco
                 lf = exec_f64_from_bits((uint64_t)lb);
                 rf = exec_f64_from_bits((uint64_t)rb);
             }
-            double fr = 0.0000000000000000;
+            double fr = 0.00000000000000000;
             if (opcode_code == (int32_t)exec_BCOpcode_BC_ADD) {
                 fr = (lf + rf);
             } else {
@@ -132307,8 +132337,8 @@ static __attribute__((used)) struct ExecValue exec_vm_vector_binary(int32_t opco
                     if (opcode_code == (int32_t)exec_BCOpcode_BC_MUL) {
                         fr = (lf * rf);
                     } else {
-                        if (rf != 0.0000000000000000) {
-                            fr = (lf / rf);
+                        if (rf != 0.00000000000000000) {
+                            fr = ({ __typeof__(lf) _uya_dv_l = (lf); __typeof__(rf) _uya_dv_r = (rf); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
                         }
                     }
                 }
@@ -132330,12 +132360,12 @@ static __attribute__((used)) struct ExecValue exec_vm_vector_binary(int32_t opco
                     } else {
                         if (opcode_code == (int32_t)exec_BCOpcode_BC_DIV) {
                             if (rb != 0) {
-                                res = (lb / rb);
+                                res = ({ __typeof__(lb) _uya_dv_l = (lb); __typeof__(rb) _uya_dv_r = (rb); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
                             }
                         } else {
                             if (opcode_code == (int32_t)exec_BCOpcode_BC_REM) {
                                 if (rb != 0) {
-                                    res = (lb % rb);
+                                    res = ({ __typeof__(lb) _uya_dv_l = (lb); __typeof__(rb) _uya_dv_r = (rb); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                                 }
                             } else {
                                 if (opcode_code == (int32_t)exec_BCOpcode_BC_BIT_AND) {
@@ -132621,7 +132651,7 @@ static __attribute__((used)) uint64_t exec_vm_scalar_view_bits(struct ExecValue 
                 }
     }
     const int32_t mask_shift = ({ int32_t _l = ((int32_t)width); int32_t _r = (8); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
-    const uint64_t mask = ({ int32_t _l = ((1ULL << mask_shift)); int32_t _r = (1ULL); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    const uint64_t mask = ({ uint64_t _l = ((1ULL << mask_shift)); uint64_t _r = (1ULL); uint64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; });
         {
         uint64_t _uya_ret = ((uint64_t)value->i64_value & mask);
         return _uya_ret;
@@ -132978,7 +133008,7 @@ static __attribute__((used)) struct ExecValue exec_vm_box_value_ref_via_allocato
     }
     struct ExecValue * const box_dst = (struct ExecValue *)box_ret.ptr_value;
     struct ExecValue box_copy = exec_value_clone((&value));
-    (void)((uint8_t *)memcpy((char *)(uint8_t *)box_dst, (const char *)(uint8_t *)(&box_copy), (size_t)(int32_t)sizeof(struct ExecValue)));
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(uint8_t *)box_dst, (const char *)(uint8_t *)(&box_copy), (size_t)(int32_t)sizeof(struct ExecValue)));
     (void)(exec_value_register_boxed((uintptr_t)((void *)box_dst))    );
         {
         struct ExecValue _uya_ret = exec_vm_make_value_ref(box_dst, pointee_kind);
@@ -133325,14 +133355,14 @@ static __attribute__((used)) bool exec_vm_address_is_exec_value_storage(size_t a
         (void)(exec_vm_slot_pool_range(pool_owner, (&pool_base), (&pool_size))        );
         if ((((pool_base != (size_t)0) && (addr >= pool_base)) && (addr < ({ size_t _l = (pool_base); size_t _r = (pool_size); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; })))) {
                         {
-                bool _uya_ret = ((({ size_t _l = (addr); size_t _r = (pool_base); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; }) % (size_t)(int32_t)sizeof(struct ExecValue)) == (size_t)0);
+                bool _uya_ret = (({ __typeof__(({ size_t _l = (addr); size_t _r = (pool_base); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; })) _uya_dv_l = (({ size_t _l = (addr); size_t _r = (pool_base); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; })); __typeof__((size_t)(int32_t)sizeof(struct ExecValue)) _uya_dv_r = ((size_t)(int32_t)sizeof(struct ExecValue)); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) == (size_t)0);
                 return _uya_ret;
                         }
         }
     }
     if ((((g_exec_vm_globals_base != 0) && (addr >= g_exec_vm_globals_base)) && (addr < g_exec_vm_globals_end))) {
                 {
-            bool _uya_ret = ((({ size_t _l = (addr); size_t _r = (g_exec_vm_globals_base); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; }) % (size_t)(int32_t)sizeof(struct ExecValue)) == (size_t)0);
+            bool _uya_ret = (({ __typeof__(({ size_t _l = (addr); size_t _r = (g_exec_vm_globals_base); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; })) _uya_dv_l = (({ size_t _l = (addr); size_t _r = (g_exec_vm_globals_base); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; })); __typeof__((size_t)(int32_t)sizeof(struct ExecValue)) _uya_dv_r = ((size_t)(int32_t)sizeof(struct ExecValue)); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) == (size_t)0);
             return _uya_ret;
                 }
     }
@@ -133804,7 +133834,7 @@ static __attribute__((used)) struct ExecValue exec_vm_pointer_add(struct BCFunct
     int32_t effective_sub = (int32_t)(subtract != 0);
     if (((effective_sub != 0) && (offset->kind == exec_ExecValueKind_EXEC_VALUE_POINTER))) {
                 {
-            struct ExecValue _uya_ret = exec_make_i64((({ int64_t _l = (base->i64_value); int64_t _r = (offset->i64_value); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; }) / (int64_t)elem_size));
+            struct ExecValue _uya_ret = exec_make_i64(({ __typeof__(({ int64_t _l = (base->i64_value); int64_t _r = (offset->i64_value); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })) _uya_dv_l = (({ int64_t _l = (base->i64_value); int64_t _r = (offset->i64_value); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); __typeof__((int64_t)elem_size) _uya_dv_r = ((int64_t)elem_size); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
             return _uya_ret;
                 }
     }
@@ -134040,7 +134070,7 @@ static __attribute__((used)) int32_t exec_vm_native_agg_hash_rebuild(int32_t cap
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(void *)table, 0, bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)table, 0, bytes));
     g_exec_native_agg_hash = table;
     g_exec_native_agg_hash_mask = (buckets - 1);
     g_exec_native_agg_hash_used = 0;
@@ -134088,11 +134118,11 @@ static __attribute__((used)) int32_t exec_vm_native_agg_table_init() {
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(void *)new_base, 0, base_bytes));
-    (void)((uint8_t *)memset((char *)(void *)new_count, 0, count_bytes));
-    (void)((uint8_t *)memset((char *)(void *)new_caps, 0, count_bytes));
-    (void)((uint8_t *)memset((char *)(void *)new_storage, 0, storage_bytes));
-    (void)((uint8_t *)memset((char *)(void *)new_handles, 0, handle_bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)new_base, 0, base_bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)new_count, 0, count_bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)new_caps, 0, count_bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)new_storage, 0, storage_bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)new_handles, 0, handle_bytes));
     g_exec_native_agg_base = new_base;
     g_exec_native_agg_count = new_count;
     g_exec_native_agg_caps = new_caps;
@@ -134105,7 +134135,7 @@ static __attribute__((used)) int32_t exec_vm_native_agg_table_init() {
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(void *)next_tbl, 0, count_bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)next_tbl, 0, count_bytes));
     g_exec_native_agg_next = next_tbl;
     g_exec_native_agg_free_head = 0;
     g_exec_native_agg_capacity = cap;
@@ -134168,11 +134198,11 @@ static __attribute__((used)) int32_t exec_vm_native_agg_table_grow() {
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(void *)new_base, 0, base_bytes));
-    (void)((uint8_t *)memset((char *)(void *)new_count, 0, count_bytes));
-    (void)((uint8_t *)memset((char *)(void *)new_caps, 0, count_bytes));
-    (void)((uint8_t *)memset((char *)(void *)new_storage, 0, storage_bytes));
-    (void)((uint8_t *)memset((char *)(void *)new_handles, 0, handle_bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)new_base, 0, base_bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)new_count, 0, count_bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)new_caps, 0, count_bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)new_storage, 0, storage_bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)new_handles, 0, handle_bytes));
     int32_t * const new_next = (int32_t *)exec_value_alloc_bytes(count_bytes);
     if (new_next == NULL) {
                 {
@@ -134180,7 +134210,7 @@ static __attribute__((used)) int32_t exec_vm_native_agg_table_grow() {
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(void *)new_next, 0, count_bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)new_next, 0, count_bytes));
     size_t * const old_base = g_exec_native_agg_base;
     int32_t * const old_count = g_exec_native_agg_count;
     int32_t * const old_caps = g_exec_native_agg_caps;
@@ -134291,7 +134321,7 @@ static __attribute__((used)) int32_t exec_vm_native_agg_ensure(struct ExecVmStat
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(void *)mem, 0, bytes));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)mem, 0, bytes));
     struct ExecValue * const old_mem = agg_storage[slot];
     if (old_mem != NULL) {
         int32_t i = 0;
@@ -134976,7 +135006,7 @@ static __attribute__((used)) size_t exec_vm_align_up(size_t offset, size_t align
             return _uya_ret;
                 }
     }
-    const size_t rem = (offset % align);
+    const size_t rem = ({ __typeof__(offset) _uya_dv_l = (offset); __typeof__(align) _uya_dv_r = (align); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (rem == (size_t)0) {
                 {
             size_t _uya_ret = offset;
@@ -135205,7 +135235,7 @@ static __attribute__((used)) int32_t exec_vm_copy_native_bytes_into_value(struct
                 return _uya_ret;
                         }
         }
-        (void)((uint8_t *)memcpy((char *)(void *)target->ptr_value, (const char *)(const void *)(src + offset), take));
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)target->ptr_value, (const char *)(const void *)(src + offset), take));
                 {
             int32_t _uya_ret = 0;
             return _uya_ret;
@@ -135456,7 +135486,7 @@ static __attribute__((used)) void exec_vm_zero_value_in_place(struct ExecValue *
     if (exec_value_is_raw_array(target) != 0) {
         if (target->ptr_value != NULL) {
             const size_t bytes = (exec_vm_type_kind_size((int32_t)target->aux_i64_value) * (size_t)target->i64_value);
-            (void)((uint8_t *)memset((char *)(void *)target->ptr_value, 0, bytes));
+            (void)((uint8_t *)__uya_checked_memset((char *)(void *)target->ptr_value, 0, bytes));
         }
         return;
     }
@@ -136713,7 +136743,7 @@ static __attribute__((used)) uint8_t * exec_vm_lookup_error_name(struct BCProgra
     int32_t left = 0;
     int32_t right = (program->error_name_count - 1);
     while (left <= right) {
-        const int32_t mid = (left + ((right - left) / 2));
+        const int32_t mid = (left + ({ __typeof__((right - left)) _uya_dv_l = ((right - left)); __typeof__(2) _uya_dv_r = (2); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
         struct BCErrorNameEntry * const entry = (program->error_names + mid);
         if (entry == NULL) {
             break;
@@ -136826,7 +136856,7 @@ static __attribute__((used)) int32_t exec_vm_do_sscanf(struct ExecFrame * frame,
         int32_t any = 0;
         int64_t acc = 0;
         while (((src[si] >= (uint8_t)48) && (src[si] <= (uint8_t)57))) {
-            acc = ({ int32_t _l = (({ int64_t _l = (acc); int64_t _r = (10); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); int32_t _r = (({ int64_t _l = ((int64_t)src[si]); int64_t _r = (48); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+            acc = ({ int64_t _l = (({ int64_t _l = (acc); int64_t _r = (10); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); int64_t _r = (({ int64_t _l = ((int64_t)src[si]); int64_t _r = (48); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
             any = 1;
             si = (si + 1);
         }
@@ -137125,7 +137155,7 @@ static __attribute__((used)) int32_t exec_vm_syscall_shield_vm_addresses(struct 
             si = (si + 1);
             continue;
         }
-        (void)((uint8_t *)memset((char *)(void *)scratch2, 0, shield_bytes));
+        (void)((uint8_t *)__uya_checked_memset((char *)(void *)scratch2, 0, shield_bytes));
         if (((field_probe != NULL) && (field_probe->values != NULL))) {
             int32_t fi = 0;
             while (((fi < field_count2) && (fi < 64))) {
@@ -137191,7 +137221,7 @@ static __attribute__((used)) int32_t exec_vm_syscall_marshal_out_struct(struct B
                 if (exec_vm_address_is_vm_resident((size_t)args[oi])) {
                     int64_t * const scratch = (int64_t *)exec_value_alloc_bytes((size_t)256);
                     if (scratch != NULL) {
-                        (void)((uint8_t *)memset((char *)(void *)scratch, 0, (size_t)256));
+                        (void)((uint8_t *)__uya_checked_memset((char *)(void *)scratch, 0, (size_t)256));
                         args[oi] = (int64_t)scratch;
                     }
                 }
@@ -137870,7 +137900,7 @@ static __attribute__((used)) int32_t exec_vm_spawn_host_thread(struct BCProgram 
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(void *)state_ptr, 0, (size_t)(int32_t)sizeof(struct ExecVmState)));
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)state_ptr, 0, (size_t)(int32_t)sizeof(struct ExecVmState)));
     state_ptr->is_host_thread = 1;
     state_ptr->cancel_pending = 0;
     if (((slot >= 0) && (slot < EXEC_VM_THREAD_SLOTS))) {
@@ -138080,7 +138110,7 @@ static __attribute__((used)) double exec_vm_libm_unary(uint8_t * name, double x)
                 }
     }
         {
-        double _uya_ret = 0.0000000000000000;
+        double _uya_ret = 0.00000000000000000;
         return _uya_ret;
         }
 }
@@ -138132,7 +138162,7 @@ static __attribute__((used)) double exec_vm_libm_binary(uint8_t * name, double x
                 }
     }
         {
-        double _uya_ret = 0.0000000000000000;
+        double _uya_ret = 0.00000000000000000;
         return _uya_ret;
         }
 }
@@ -139233,7 +139263,7 @@ static __attribute__((used)) int32_t exec_vm_call_host(struct BCProgram * progra
             g_exec_vm_sig_mask = (g_exec_vm_sig_mask | sp_new);
         } else {
             if (sp_how_value == 1) {
-                g_exec_vm_sig_mask = (g_exec_vm_sig_mask & ({ int32_t _l = (0LL); int32_t _r = (({ int64_t _l = (sp_new); int64_t _r = (1LL); int64_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }));
+                g_exec_vm_sig_mask = (g_exec_vm_sig_mask & ({ int64_t _l = (0LL); int64_t _r = (({ int64_t _l = (sp_new); int64_t _r = (1LL); int64_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; }));
             } else {
                 g_exec_vm_sig_mask = sp_new;
             }
@@ -139408,7 +139438,7 @@ static __attribute__((used)) int32_t exec_vm_call_host(struct BCProgram * progra
                     g_exec_vm_thread_body_budget = 20000000LL;
                     const int32_t thread_rc2 = exec_vm_call_function(frame->vm, program, routine_index, (&thread_args[0]), 1, 0, (&thread_ret));
                     g_exec_vm_thread_body_budget = 0LL;
-                    if (((exec_value_is_pointer_like(thread_ret) != 0) && ((uintptr_t)(thread_ret.ptr_value) == ({ int32_t _l = (0ULL); int32_t _r = (1ULL); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })))) {
+                    if (((exec_value_is_pointer_like(thread_ret) != 0) && ((uintptr_t)(thread_ret.ptr_value) == ({ size_t _l = (0ULL); size_t _r = (1ULL); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; })))) {
                         struct ExecVmState * const mark_state = exec_vm_thread_states[free_slot];
                         if (mark_state != NULL) {
                             mark_state->cancel_pending = 1;
@@ -139440,10 +139470,10 @@ static __attribute__((used)) int32_t exec_vm_call_host(struct BCProgram * progra
                 if (cancel_state_ptr != NULL) {
                     cancel_state_ptr->cancel_pending = 1;
                 }
-                exec_vm_thread_result[th_slot] = exec_make_pointer_with_kind(({ int32_t _l = (0ULL); int32_t _r = (1ULL); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }), (int32_t)checker_TypeKind_TYPE_VOID);
+                exec_vm_thread_result[th_slot] = exec_make_pointer_with_kind(({ size_t _l = (0ULL); size_t _r = (1ULL); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; }), (int32_t)checker_TypeKind_TYPE_VOID);
                 struct ExecValue canceled_ret = exec_make_pointer_with_kind((size_t)0, (int32_t)checker_TypeKind_TYPE_VOID);
-                canceled_ret.ptr_value = (void *)(uintptr_t)(({ int32_t _l = (0ULL); int32_t _r = (1ULL); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }));
-                canceled_ret.i64_value = (int64_t)({ int32_t _l = (0ULL); int32_t _r = (1ULL); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                canceled_ret.ptr_value = (void *)(uintptr_t)(({ size_t _l = (0ULL); size_t _r = (1ULL); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; }));
+                canceled_ret.i64_value = (int64_t)({ size_t _l = (0ULL); size_t _r = (1ULL); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; });
                 exec_vm_thread_result[th_slot] = canceled_ret;
             }
             out_value[0] = exec_make_i32(0);
@@ -139516,8 +139546,8 @@ static __attribute__((used)) int32_t exec_vm_call_host(struct BCProgram * progra
                         struct ExecVmState * const join_state_ptr = exec_vm_thread_states[th_slot];
                         if (((join_state_ptr != NULL) && (join_state_ptr->cancel_pending != 0))) {
                             join_result = exec_make_pointer_with_kind((size_t)0, (int32_t)checker_TypeKind_TYPE_VOID);
-                            join_result.ptr_value = (void *)(uintptr_t)(({ int32_t _l = (0ULL); int32_t _r = (1ULL); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }));
-                            join_result.i64_value = (int64_t)({ int32_t _l = (0ULL); int32_t _r = (1ULL); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                            join_result.ptr_value = (void *)(uintptr_t)(({ size_t _l = (0ULL); size_t _r = (1ULL); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; }));
+                            join_result.i64_value = (int64_t)({ size_t _l = (0ULL); size_t _r = (1ULL); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; });
                         }
                     }
                     (void)(exec_vm_store_slot(retval_target, join_result)                    );
@@ -139532,8 +139562,8 @@ static __attribute__((used)) int32_t exec_vm_call_host(struct BCProgram * progra
                     struct ExecValue * const rv_target = exec_vm_ref_target_value(rv_slot);
                     if (rv_target != NULL) {
                         struct ExecValue canceled_val = exec_make_pointer_with_kind((size_t)0, (int32_t)checker_TypeKind_TYPE_VOID);
-                        canceled_val.ptr_value = (void *)(uintptr_t)(({ int32_t _l = (0ULL); int32_t _r = (1ULL); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }));
-                        canceled_val.i64_value = (int64_t)({ int32_t _l = (0ULL); int32_t _r = (1ULL); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                        canceled_val.ptr_value = (void *)(uintptr_t)(({ size_t _l = (0ULL); size_t _r = (1ULL); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; }));
+                        canceled_val.i64_value = (int64_t)({ size_t _l = (0ULL); size_t _r = (1ULL); size_t _s; __builtin_sub_overflow(_l, _r, &_s) ? 0 : _s; });
                         (void)(exec_vm_store_slot(rv_target, canceled_val)                        );
                     }
                 }
@@ -140301,7 +140331,7 @@ static __attribute__((used)) int32_t exec_vm_call_host(struct BCProgram * progra
                                 }
             }
             const size_t alloc_count = (size_t)alloc_second->i64_value;
-            if ((((alloc_count > (size_t)0) && (alloc_total > (size_t)0)) && (alloc_total < ((size_t)1073741824 / alloc_count)))) {
+            if ((((alloc_count > (size_t)0) && (alloc_total > (size_t)0)) && (alloc_total < ({ __typeof__((size_t)1073741824) _uya_dv_l = ((size_t)1073741824); __typeof__(alloc_count) _uya_dv_r = (alloc_count); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })))) {
                 alloc_total = (alloc_total * alloc_count);
             } else {
                 alloc_total = (size_t)0;
@@ -141195,7 +141225,7 @@ static __attribute__((used)) int32_t vm_step(struct BCProgram * program, struct 
                                                                                     un_res = (int64_t)exec_f64_to_bits((-exec_f64_from_bits((uint64_t)un_bits)));
                                                                                 }
                                                                             } else {
-                                                                                un_res = ({ int32_t _l = (0); int32_t _r = (un_bits); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                                                                                un_res = ({ int64_t _l = (0); int64_t _r = (un_bits); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; });
                                                                             }
                                                                         }
                                                                         (void)(exec_vector_set_lane_bits(un_dst, un_kind, uni, un_res)                                                                        );
@@ -141400,12 +141430,12 @@ static __attribute__((used)) int32_t vm_step(struct BCProgram * program, struct 
                                                                                                                                                                                                                                 }
                                                                                                             }
                                                                                                             if (exec_vm_value_kind_is_float(div_kind) != 0) {
-                                                                                                                slot_a[0] = exec_vm_make_float_by_kind(div_kind, (exec_value_as_f64(slot_b) / exec_value_as_f64(slot_c)));
+                                                                                                                slot_a[0] = exec_vm_make_float_by_kind(div_kind, ({ __typeof__(exec_value_as_f64(slot_b)) _uya_dv_l = (exec_value_as_f64(slot_b)); __typeof__(exec_value_as_f64(slot_c)) _uya_dv_r = (exec_value_as_f64(slot_c)); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
                                                                                                             } else {
                                                                                                                 if (exec_vm_value_kind_is_unsigned(div_kind) != 0) {
-                                                                                                                    slot_a[0] = exec_vm_make_integer_by_kind(div_kind, 0, ((uint64_t)slot_b->i64_value / (uint64_t)slot_c->i64_value));
+                                                                                                                    slot_a[0] = exec_vm_make_integer_by_kind(div_kind, 0, ({ __typeof__((uint64_t)slot_b->i64_value) _uya_dv_l = ((uint64_t)slot_b->i64_value); __typeof__((uint64_t)slot_c->i64_value) _uya_dv_r = ((uint64_t)slot_c->i64_value); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
                                                                                                                 } else {
-                                                                                                                    slot_a[0] = exec_vm_make_integer_by_kind(div_kind, (slot_b->i64_value / slot_c->i64_value), 0);
+                                                                                                                    slot_a[0] = exec_vm_make_integer_by_kind(div_kind, ({ __typeof__(slot_b->i64_value) _uya_dv_l = (slot_b->i64_value); __typeof__(slot_c->i64_value) _uya_dv_r = (slot_c->i64_value); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }), 0);
                                                                                                                 }
                                                                                                             }
                                                                                                         } else {
@@ -141433,9 +141463,9 @@ static __attribute__((used)) int32_t vm_step(struct BCProgram * program, struct 
                                                                                                                                                                                                                                         }
                                                                                                                 }
                                                                                                                 if (exec_vm_value_kind_is_unsigned(rem_kind) != 0) {
-                                                                                                                    slot_a[0] = exec_vm_make_integer_by_kind(rem_kind, 0, ((uint64_t)slot_b->i64_value % (uint64_t)slot_c->i64_value));
+                                                                                                                    slot_a[0] = exec_vm_make_integer_by_kind(rem_kind, 0, ({ __typeof__((uint64_t)slot_b->i64_value) _uya_dv_l = ((uint64_t)slot_b->i64_value); __typeof__((uint64_t)slot_c->i64_value) _uya_dv_r = ((uint64_t)slot_c->i64_value); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }));
                                                                                                                 } else {
-                                                                                                                    slot_a[0] = exec_vm_make_integer_by_kind(rem_kind, (slot_b->i64_value % slot_c->i64_value), 0);
+                                                                                                                    slot_a[0] = exec_vm_make_integer_by_kind(rem_kind, ({ __typeof__(slot_b->i64_value) _uya_dv_l = (slot_b->i64_value); __typeof__(slot_c->i64_value) _uya_dv_r = (slot_c->i64_value); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }), 0);
                                                                                                                 }
                                                                                                             } else {
                                                                                                                 if (instr->opcode == exec_BCOpcode_BC_BIT_AND) {
@@ -141525,7 +141555,7 @@ static __attribute__((used)) int32_t vm_step(struct BCProgram * program, struct 
                                                                                                                                         }
                                                                                                                                         const enum exec_ExecValueKind neg_kind = exec_vm_value_kind_from_type_code((int32_t)instr->imm, slot_b->kind);
                                                                                                                                         if (exec_vm_value_kind_is_float(neg_kind) != 0) {
-                                                                                                                                            slot_a[0] = exec_vm_make_float_by_kind(neg_kind, (0.0000000000000000 - exec_value_as_f64(slot_b)));
+                                                                                                                                            slot_a[0] = exec_vm_make_float_by_kind(neg_kind, (0.00000000000000000 - exec_value_as_f64(slot_b)));
                                                                                                                                         } else {
                                                                                                                                             if (exec_vm_value_kind_is_unsigned(neg_kind) != 0) {
                                                                                                                                                 slot_a[0] = exec_vm_make_integer_by_kind(neg_kind, 0, ((uint64_t)0 - (uint64_t)slot_b->i64_value));
@@ -142481,7 +142511,7 @@ static __attribute__((used)) int32_t vm_step(struct BCProgram * program, struct 
                                                                                                                                                                                                                     if (rv_is_mul != 0) {
                                                                                                                                                                                                                         acc = 1;
                                                                                                                                                                                                                     }
-                                                                                                                                                                                                                    double acc_f = 0.0000000000000000;
+                                                                                                                                                                                                                    double acc_f = 0.00000000000000000;
                                                                                                                                                                                                                     if (rv_is_mul != 0) {
                                                                                                                                                                                                                         acc_f = 1.0000000000000000;
                                                                                                                                                                                                                     }
@@ -142489,7 +142519,7 @@ static __attribute__((used)) int32_t vm_step(struct BCProgram * program, struct 
                                                                                                                                                                                                                     while (((ri < rv_lanes) && (rv_data != NULL))) {
                                                                                                                                                                                                                         const int64_t lane_bits = exec_vector_lane_bits(rv_data, rv_kind, ri);
                                                                                                                                                                                                                         if (rv_is_float != 0) {
-                                                                                                                                                                                                                            double lane_f = 0.0000000000000000;
+                                                                                                                                                                                                                            double lane_f = 0.00000000000000000;
                                                                                                                                                                                                                             if (rv_is_f32 != 0) {
                                                                                                                                                                                                                                 lane_f = (double)exec_f32_from_bits((uint32_t)lane_bits);
                                                                                                                                                                                                                             } else {
@@ -146395,7 +146425,7 @@ static __attribute__((used)) uint8_t * c99_build_use_module_name(struct C99CodeG
                 dst = (&dst[1]);
             }
             const size_t sl = std_string_strlen((uint8_t *)seg);
-            (void)((uint8_t *)memcpy((char *)(void *)dst, (const char *)(void *)seg, sl)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)dst, (const char *)(void *)seg, sl)            );
             dst = (&dst[sl]);
         }
         i = (i + 1);
@@ -148734,7 +148764,7 @@ static __attribute__((used)) void gen_expr(struct C99CodeGenerator * codegen, st
                                                                                                                                                         int32_t i = 0;
                                                                                                                                                         while (i < n) {
                                                                                                                                                             uint8_t * const et = get_c_type_of_expr(codegen, elements[i]);
-                                                                                                                                                            total_len = ({ int32_t _l = (({ int32_t _l = (total_len); int32_t _r = (std_string_strlen((uint8_t *)et)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (24); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                                                                                                                                                            total_len = ({ size_t _l = (({ int32_t _l = (total_len); int32_t _r = (std_string_strlen((uint8_t *)et)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); size_t _r = (24); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
                                                                                                                                                             i = (i + 1);
                                                                                                                                                         }
                                                                                                                                                         uint8_t * const type_buf = (uint8_t *)compiler_arena_alloc(codegen->arena, total_len);
@@ -148911,7 +148941,7 @@ static __attribute__((used)) void gen_expr(struct C99CodeGenerator * codegen, st
                                                                                                                                                                                         const int32_t elem_len = std_runtime_ptr_diff(bracket, (uint8_t *)type_c);
                                                                                                                                                                                         uint8_t * const elem_type = (uint8_t *)compiler_arena_alloc(codegen->arena, (elem_len + 1));
                                                                                                                                                                                         if (elem_type != NULL) {
-                                                                                                                                                                                            (void)((uint8_t *)memcpy((char *)(void *)elem_type, (const char *)(void *)type_c, elem_len)                                                                                                                                                                                            );
+                                                                                                                                                                                            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)elem_type, (const char *)(void *)type_c, elem_len)                                                                                                                                                                                            );
                                                                                                                                                                                             elem_type[elem_len] = 0;
                                                                                                                                                                                             if (std_string_strncmp((uint8_t *)elem_type, (uint8_t *)(uint8_t *)str584, 6) == 0) {
                                                                                                                                                                                                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str3275, (void *)codegen->emit_stream)                                                                                                                                                                                                );
@@ -150445,7 +150475,7 @@ static __attribute__((used)) uint8_t * c99_async_frame_helper_name(struct C99Cod
             }
         }
     }
-    const size_t total_len = ({ int32_t _l = ((std_string_strlen((uint8_t *)base_name) + std_string_strlen((uint8_t *)suffix))); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    const size_t total_len = ({ size_t _l = ((std_string_strlen((uint8_t *)base_name) + std_string_strlen((uint8_t *)suffix))); size_t _r = (1); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
     uint8_t * const result = (uint8_t *)compiler_arena_alloc(codegen->arena, total_len);
     if (result == NULL) {
                 {
@@ -151079,7 +151109,7 @@ static __attribute__((used)) int32_t c99_emit_static_method_call(struct C99CodeG
                     const int32_t mono_len = std_runtime_ptr_diff((uint8_t *)end, start);
                     uint8_t * const mono_buf = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)(mono_len + 1));
                     if (mono_buf != NULL) {
-                        (void)((uint8_t *)memcpy((char *)(void *)mono_buf, (const char *)(void *)start, (size_t)mono_len)                        );
+                        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)mono_buf, (const char *)(void *)start, (size_t)mono_len)                        );
                         uint8_t * const mono_end = (mono_buf + (size_t)mono_len);
                         mono_end[0] = 0;
                         owner_mono_name = mono_buf;
@@ -151499,7 +151529,7 @@ static __attribute__((used)) void gen_call_expr(struct C99CodeGenerator * codege
                                         uint8_t * const us = std_string_strchr((uint8_t *)start, 95);
                                         if (((us != NULL) && (us[1] != 0))) {
                                             uint8_t * const suffix = (uint8_t *)(&us[1]);
-                                            const int32_t need = ({ int32_t _l = (({ int32_t _l = (6); int32_t _r = (std_string_strlen((uint8_t *)suffix)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                                            const int32_t need = ({ size_t _l = (({ int32_t _l = (6); int32_t _r = (std_string_strlen((uint8_t *)suffix)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); size_t _r = (1); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
                                             if (((need > 0) && (need < 128))) {
                                                 uint8_t * const buf = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)need);
                                                 if (buf != NULL) {
@@ -151581,7 +151611,7 @@ static __attribute__((used)) void gen_call_expr(struct C99CodeGenerator * codege
                                 uint8_t * const us = std_string_strchr((uint8_t *)start, 95);
                                 if (((us != NULL) && (us[1] != 0))) {
                                     uint8_t * const suffix = (uint8_t *)(&us[1]);
-                                    const int32_t need = ({ int32_t _l = (({ int32_t _l = (6); int32_t _r = (std_string_strlen((uint8_t *)suffix)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                                    const int32_t need = ({ size_t _l = (({ int32_t _l = (6); int32_t _r = (std_string_strlen((uint8_t *)suffix)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); size_t _r = (1); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
                                     if (((need > 0) && (need < 128))) {
                                         uint8_t * const buf = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)need);
                                         if (buf != NULL) {
@@ -157109,6 +157139,103 @@ static __attribute__((used)) int32_t c99_scalar_type_rank(uint8_t * type_c) {
         }
 }
 
+static __attribute__((used)) int32_t c99_wrapping_type_rank(uint8_t * type_c) {
+    (void)type_c;
+    const int32_t rank = c99_scalar_type_rank((uint8_t *)type_c);
+    if (rank != 0) {
+                {
+            int32_t _uya_ret = rank;
+            return _uya_ret;
+                }
+    }
+    if (type_c == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strcmp((uint8_t *)type_c, (uint8_t *)(uint8_t *)str3144) == 0) {
+                {
+            int32_t _uya_ret = 4;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) uint8_t * c99_wrapping_operand_type_c(struct C99CodeGenerator * codegen, struct ASTNode * expr) {
+    (void)codegen;
+    (void)expr;
+    if (((codegen == NULL) || (expr == NULL))) {
+                {
+            uint8_t * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+    if (expr->type == main_ASTNodeType_AST_CAST_EXPR) {
+                {
+            uint8_t * _uya_ret = c99_interp_expr_c_type(codegen, expr);
+            return _uya_ret;
+                }
+    }
+    if (expr->type == main_ASTNodeType_AST_BINARY_EXPR) {
+        uint8_t * const left_c = c99_wrapping_operand_type_c(codegen, expr->binary_expr_left);
+        uint8_t * const right_c = c99_wrapping_operand_type_c(codegen, expr->binary_expr_right);
+        if (c99_wrapping_type_rank(left_c) >= c99_wrapping_type_rank(right_c)) {
+                        {
+                uint8_t * _uya_ret = left_c;
+                return _uya_ret;
+                        }
+        }
+                {
+            uint8_t * _uya_ret = right_c;
+            return _uya_ret;
+                }
+    }
+        {
+        uint8_t * _uya_ret = get_c_type_of_expr(codegen, expr);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) uint8_t * c99_widen_wrapping_operand_type(struct C99CodeGenerator * codegen, struct ASTNode * expr, uint8_t * type_c) {
+    (void)codegen;
+    (void)expr;
+    (void)type_c;
+    if (((expr == NULL) || (type_c == NULL))) {
+                {
+            uint8_t * _uya_ret = type_c;
+            return _uya_ret;
+                }
+    }
+    if (c99_wrapping_type_rank((uint8_t *)type_c) != 3) {
+                {
+            uint8_t * _uya_ret = type_c;
+            return _uya_ret;
+                }
+    }
+    uint8_t * const inferred_c = c99_get_inferred_expr_type_c(codegen, expr);
+    if (inferred_c == NULL) {
+                {
+            uint8_t * _uya_ret = type_c;
+            return _uya_ret;
+                }
+    }
+    if (c99_wrapping_type_rank(inferred_c) > 3) {
+                {
+            uint8_t * _uya_ret = inferred_c;
+            return _uya_ret;
+                }
+    }
+        {
+        uint8_t * _uya_ret = type_c;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) void gen_binary_expr(struct C99CodeGenerator * codegen, struct ASTNode * expr) {
     (void)codegen;
     (void)expr;
@@ -157168,13 +157295,14 @@ static __attribute__((used)) void gen_binary_expr(struct C99CodeGenerator * code
         }
     } else {
         if (((((((op_code == (int32_t)main_TokenType_TOKEN_PLUS_PIPE) || (op_code == (int32_t)main_TokenType_TOKEN_MINUS_PIPE)) || (op_code == (int32_t)main_TokenType_TOKEN_ASTERISK_PIPE)) || (op_code == (int32_t)main_TokenType_TOKEN_PLUS_PERCENT)) || (op_code == (int32_t)main_TokenType_TOKEN_MINUS_PERCENT)) || (op_code == (int32_t)main_TokenType_TOKEN_ASTERISK_PERCENT))) {
-            uint8_t * type_c = get_c_type_of_expr(codegen, left);
+            uint8_t * type_c = c99_wrapping_operand_type_c(codegen, left);
             if (((left != NULL) && (left->type == main_ASTNodeType_AST_NUMBER))) {
                 uint8_t * const right_type_c = get_c_type_of_expr(codegen, right);
                 if (c99_scalar_type_rank(right_type_c) > 0) {
                     type_c = right_type_c;
                 }
             }
+            type_c = c99_widen_wrapping_operand_type(codegen, left, (uint8_t *)type_c);
             if (type_c == NULL) {
                 type_c = (uint8_t *)(uint8_t *)str3184;
             }
@@ -157771,7 +157899,7 @@ static __attribute__((used)) void gen_len_expr(struct C99CodeGenerator * codegen
                             const int32_t num_len = ({ int32_t _l = (std_runtime_ptr_diff(close_bracket, bracket)); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                             uint8_t num_buf[32] = {0};
                             if (((num_len < NUM_BUF_SIZE) && (num_len > 0))) {
-                                (void)((uint8_t *)memcpy((char *)(void *)(&num_buf[0]), (const char *)(void *)(&type_c[(bracket_offset + 1)]), num_len)                                );
+                                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&num_buf[0]), (const char *)(void *)(&type_c[(bracket_offset + 1)]), num_len)                                );
                                 num_buf[num_len] = 0;
                                 array_size = atoi((const char *)(uint8_t *)(&num_buf[0]));
                                 if (array_size > 0) {
@@ -158541,7 +158669,7 @@ static __attribute__((used)) void gen_catch_expr(struct C99CodeGenerator * codeg
                                                 if (((((rest_len >= 3) && (rest[(rest_len - 3)] == 112)) && (rest[(rest_len - 2)] == 116)) && (rest[(rest_len - 1)] == 114))) {
                                                     uint8_t buf[128] = {0};
                                                     if ((rest_len - 3) < 125) {
-                                                        (void)((uint8_t *)memcpy((char *)(void *)(&buf[0]), (const char *)(void *)rest, (size_t)(rest_len - 3))                                                        );
+                                                        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&buf[0]), (const char *)(void *)rest, (size_t)(rest_len - 3))                                                        );
                                                         buf[(rest_len - 3)] = 0;
                                                         uint8_t buf2[132] = {0};
                                                         (void)(snprintf((char *)(uint8_t *)(&buf2[0]), 132, (const char *)str3881, (uint8_t *)(&buf[0]))                                                        );
@@ -160757,13 +160885,13 @@ struct ASTNode * c99_find_module_export_function_decl(struct C99CodeGenerator * 
     struct TypeChecker * const checker_ptr = codegen->checker;
     const uint32_t mh = hash_string((uint8_t *)module_name);
     const int32_t mtbl_cap = checker_ptr->module_table.table.capacity;
-    int32_t mi = ((int32_t)mh % mtbl_cap);
+    int32_t mi = ({ __typeof__((int32_t)mh) _uya_dv_l = ((int32_t)mh); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (mi < 0) {
         mi = ((int32_t)((uint32_t)(mi) + (uint32_t)(mtbl_cap)));
     }
     int32_t i3 = 0;
     while (i3 < mtbl_cap) {
-        const int32_t ml = ((mi + i3) % mtbl_cap);
+        const int32_t ml = ({ __typeof__((mi + i3)) _uya_dv_l = ((mi + i3)); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         struct ModuleInfo * const mod = checker_module_slot_at(checker_ptr, ml);
         if (mod == NULL) {
             break;
@@ -161224,7 +161352,7 @@ static __attribute__((used)) uint8_t * get_module_prefix_from_filename(struct C9
             uint8_t * const prefix = (uint8_t *)compiler_arena_alloc(codegen->arena, total_len);
             if (prefix != NULL) {
                 (void)(std_string_strcpy((uint8_t *)prefix, (uint8_t *)(uint8_t *)str4088)                );
-                (void)((uint8_t *)memcpy((char *)(void *)((uint8_t *)prefix + 4), (const char *)(void *)rel, slash_pos)                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)((uint8_t *)prefix + 4), (const char *)(void *)rel, slash_pos)                );
                 prefix[({ int32_t _l = (4); int32_t _r = (slash_pos); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })] = (uint8_t)95;
                 prefix[({ int32_t _l = (({ int32_t _l = (4); int32_t _r = (slash_pos); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })] = (uint8_t)0;
                 size_t idx = 4;
@@ -161262,11 +161390,11 @@ static __attribute__((used)) uint8_t * get_module_prefix_from_filename(struct C9
         if (((rel_tls_len > 4) && (std_string_strcmp((uint8_t *)((uint8_t *)rel_tls + (rel_tls_len - 4)), (uint8_t *)(uint8_t *)str1585) == 0))) {
             base_tls_len = (rel_tls_len - 4);
         }
-        const size_t total_tls_len = ({ int32_t _l = (({ int32_t _l = (4); int32_t _r = (base_tls_len); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (2); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+        const size_t total_tls_len = ({ size_t _l = (({ int32_t _l = (4); int32_t _r = (base_tls_len); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); size_t _r = (2); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
         uint8_t * const prefix_tls = (uint8_t *)compiler_arena_alloc(codegen->arena, total_tls_len);
         if (prefix_tls != NULL) {
             (void)(std_string_strcpy((uint8_t *)prefix_tls, (uint8_t *)(uint8_t *)str4089)            );
-            (void)((uint8_t *)memcpy((char *)(void *)((uint8_t *)prefix_tls + 4), (const char *)(void *)rel_tls, base_tls_len)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)((uint8_t *)prefix_tls + 4), (const char *)(void *)rel_tls, base_tls_len)            );
             const int32_t tls_idx1 = ({ int32_t _l = (4); int32_t _r = ((int32_t)base_tls_len); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
             const int32_t tls_idx2 = ({ int32_t _l = (tls_idx1); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
             if (((tls_idx1 >= 0) && (tls_idx1 < 1000000))) {
@@ -161314,7 +161442,7 @@ static __attribute__((used)) uint8_t * get_module_prefix_from_filename(struct C9
         }
         uint8_t * const prefix = (uint8_t *)compiler_arena_alloc(codegen->arena, (base_len + 2));
         if (prefix != NULL) {
-            (void)((uint8_t *)memcpy((char *)(void *)prefix, (const char *)(void *)rel, base_len)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)prefix, (const char *)(void *)rel, base_len)            );
             const int32_t p_idx1 = (int32_t)base_len;
             const int32_t p_idx2 = ({ int32_t _l = (p_idx1); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
             if (((p_idx1 >= 0) && (p_idx1 < 1000000))) {
@@ -161348,7 +161476,7 @@ static __attribute__((used)) uint8_t * get_module_prefix_from_filename(struct C9
                 const size_t base_root_len = (rel_root_len - 4);
                 uint8_t * const prefix_root = (uint8_t *)compiler_arena_alloc(codegen->arena, (base_root_len + 2));
                 if (prefix_root != NULL) {
-                    (void)((uint8_t *)memcpy((char *)(void *)prefix_root, (const char *)(void *)rel_root, base_root_len)                    );
+                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)prefix_root, (const char *)(void *)rel_root, base_root_len)                    );
                     const int32_t root_idx1 = (int32_t)base_root_len;
                     const int32_t root_idx2 = (root_idx1 + 1);
                     if (((root_idx1 >= 0) && (root_idx1 < 1000000))) {
@@ -161477,7 +161605,7 @@ static __attribute__((used)) int32_t c99_private_fn_scope_cache_slot(struct ASTN
             return _uya_ret;
                 }
     }
-    const size_t node_hash = ((uintptr_t)((void *)fn_decl) / (size_t)8);
+    const size_t node_hash = ({ __typeof__((uintptr_t)((void *)fn_decl)) _uya_dv_l = ((uintptr_t)((void *)fn_decl)); __typeof__((size_t)8) _uya_dv_r = ((size_t)8); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         {
         int32_t _uya_ret = (int32_t)(node_hash & 8191ULL);
         return _uya_ret;
@@ -161516,7 +161644,7 @@ static __attribute__((used)) int32_t c99_static_top_fn_cache_slot(struct ASTNode
             return _uya_ret;
                 }
     }
-    const size_t node_hash = ((uintptr_t)((void *)fn_decl) / (size_t)8);
+    const size_t node_hash = ({ __typeof__((uintptr_t)((void *)fn_decl)) _uya_dv_l = ((uintptr_t)((void *)fn_decl)); __typeof__((size_t)8) _uya_dv_r = ((size_t)8); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         {
         int32_t _uya_ret = (int32_t)(node_hash & 8191ULL);
         return _uya_ret;
@@ -162651,7 +162779,7 @@ static __attribute__((used)) int32_t c99_layout_align_up_i32(int32_t value, int3
             return _uya_ret;
                 }
     }
-    const int32_t remainder = (value % align);
+    const int32_t remainder = ({ __typeof__(value) _uya_dv_l = (value); __typeof__(align) _uya_dv_r = (align); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     if (remainder == 0) {
                 {
             int32_t _uya_ret = value;
@@ -162885,7 +163013,7 @@ static __attribute__((used)) int32_t get_type_size_bytes_resolved(struct C99Code
     if (k == checker_TypeKind_TYPE_ARRAY) {
         if (((t->element_type != NULL) && (t->array_size > 0))) {
             const int32_t esz = get_type_size_bytes_resolved(codegen, t->element_type);
-            if (((esz > 0) && (t->array_size <= (2147483647 / esz)))) {
+            if (((esz > 0) && (t->array_size <= ({ __typeof__(2147483647) _uya_dv_l = (2147483647); __typeof__(esz) _uya_dv_r = (esz); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })))) {
                                 {
                     int32_t _uya_ret = ({ int32_t _l = (esz); int32_t _r = (t->array_size); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
                     return _uya_ret;
@@ -163674,7 +163802,7 @@ static __attribute__((used)) int32_t c99_async_await_operand_is_inlineable(struc
                 }
     }
     uint8_t * const prefix = (uint8_t *)str1040;
-    const size_t total_len = ({ int32_t _l = ((std_string_strlen((uint8_t *)prefix) + std_string_strlen((uint8_t *)func_c_name))); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    const size_t total_len = ({ size_t _l = ((std_string_strlen((uint8_t *)prefix) + std_string_strlen((uint8_t *)func_c_name))); size_t _r = (1); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
     uint8_t * const result = (uint8_t *)compiler_arena_alloc(codegen->arena, total_len);
     if (result == NULL) {
                 {
@@ -168608,13 +168736,13 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         if (st_sz <= 0) {
             st_sz = 24;
         }
-        est_offset = ({ int32_t _l = (((est_offset + 7) / 8)); int32_t _r = (8); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+        est_offset = ({ int32_t _l = (({ __typeof__((est_offset + 7)) _uya_dv_l = ((est_offset + 7)); __typeof__(8) _uya_dv_r = (8); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); int32_t _r = (8); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
         est_offset = ({ int32_t _l = (est_offset); int32_t _r = (st_sz); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
         if (8 > est_align) {
             est_align = 8;
         }
     }
-    est_offset = ({ int32_t _l = ((({ int32_t _l = (est_offset); int32_t _r = (7); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) / 8)); int32_t _r = (8); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+    est_offset = ({ int32_t _l = (({ __typeof__(({ int32_t _l = (est_offset); int32_t _r = (7); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })) _uya_dv_l = (({ int32_t _l = (est_offset); int32_t _r = (7); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); __typeof__(8) _uya_dv_r = (8); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); int32_t _r = (8); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
     est_offset = ({ int32_t _l = (est_offset); int32_t _r = (16); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     if (8 > est_align) {
         est_align = 8;
@@ -168638,7 +168766,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             if (child_al <= 0) {
                 child_al = 8;
             }
-            est_offset = ({ int32_t _l = ((({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (child_al); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) / child_al)); int32_t _r = (child_al); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+            est_offset = ({ int32_t _l = (({ __typeof__(({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (child_al); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })) _uya_dv_l = (({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (child_al); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); __typeof__(child_al) _uya_dv_r = (child_al); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); int32_t _r = (child_al); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
             est_offset = ({ int32_t _l = (est_offset); int32_t _r = (child_sz); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
             if (child_al > est_align) {
                 est_align = child_al;
@@ -168659,7 +168787,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             if (use_al <= 0) {
                 use_al = 8;
             }
-            est_offset = ({ int32_t _l = ((({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (use_al); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) / use_al)); int32_t _r = (use_al); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+            est_offset = ({ int32_t _l = (({ __typeof__(({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (use_al); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })) _uya_dv_l = (({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (use_al); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); __typeof__(use_al) _uya_dv_r = (use_al); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); int32_t _r = (use_al); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
             est_offset = ({ int32_t _l = (est_offset); int32_t _r = (use_sz); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
             if (use_al > est_align) {
                 est_align = use_al;
@@ -168680,7 +168808,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             if (use_al <= 0) {
                 use_al = 8;
             }
-            est_offset = ({ int32_t _l = ((({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (use_al); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) / use_al)); int32_t _r = (use_al); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+            est_offset = ({ int32_t _l = (({ __typeof__(({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (use_al); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })) _uya_dv_l = (({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (use_al); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); __typeof__(use_al) _uya_dv_r = (use_al); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); int32_t _r = (use_al); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
             est_offset = ({ int32_t _l = (est_offset); int32_t _r = (use_sz); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
             if (use_al > est_align) {
                 est_align = use_al;
@@ -168702,7 +168830,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             if (use_al <= 0) {
                 use_al = 8;
             }
-            est_offset = ({ int32_t _l = ((({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (use_al); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) / use_al)); int32_t _r = (use_al); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+            est_offset = ({ int32_t _l = (({ __typeof__(({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (use_al); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })) _uya_dv_l = (({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (use_al); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); __typeof__(use_al) _uya_dv_r = (use_al); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); int32_t _r = (use_al); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
             est_offset = ({ int32_t _l = (est_offset); int32_t _r = (use_sz); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
             if (use_al > est_align) {
                 est_align = use_al;
@@ -168714,7 +168842,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         est_align = fn_decl->fn_decl_align;
     }
     if (est_align > 0) {
-        est_offset = ({ int32_t _l = ((({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (est_align); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) / est_align)); int32_t _r = (est_align); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+        est_offset = ({ int32_t _l = (({ __typeof__(({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (est_align); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })) _uya_dv_l = (({ int32_t _l = (({ int32_t _l = (est_offset); int32_t _r = (est_align); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); __typeof__(est_align) _uya_dv_r = (est_align); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; })); int32_t _r = (est_align); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
     }
     if (est_offset < 0) {
         est_offset = 0;
@@ -171541,7 +171669,7 @@ static __attribute__((used)) void gen_global_var(struct C99CodeGenerator * codeg
             const int32_t base_len = std_runtime_ptr_diff(first_bracket, (uint8_t *)full_type_c);
             uint8_t * const base_type = (uint8_t *)compiler_arena_alloc(codegen->arena, (base_len + 1));
             if (base_type != NULL) {
-                (void)((uint8_t *)memcpy((char *)(void *)base_type, (const char *)(void *)full_type_c, base_len)                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)base_type, (const char *)(void *)full_type_c, base_len)                );
                 base_type[base_len] = 0;
                 uint8_t * const dimensions = ((uint8_t *)full_type_c + base_len);
                 if (is_const != 0) {
@@ -171896,7 +172024,7 @@ static __attribute__((used)) uint8_t * get_c_name_for_identifier_ref(struct C99C
                 const int32_t n_len = std_string_strlen((uint8_t *)name);
                 uint8_t * const buf = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)(((s_len + 2) + n_len) + 1));
                 if (buf != NULL) {
-                    (void)(snprintf((char *)(uint8_t *)buf, ((int32_t)((uint32_t)(((int32_t)((uint32_t)(((const int32_t)((uint32_t)(s_len) + (uint32_t)(2)))) + (uint32_t)(n_len)))) + (uint32_t)(1))), (const char *)"%s->%s", (uint8_t *)codegen->async_state_var, (uint8_t *)name)                    );
+                    (void)(snprintf((char *)(uint8_t *)buf, ((const int32_t)((uint32_t)(((const int32_t)((uint32_t)(((const int32_t)((uint32_t)(s_len) + (uint32_t)(2)))) + (uint32_t)(n_len)))) + (uint32_t)(1))), (const char *)"%s->%s", (uint8_t *)codegen->async_state_var, (uint8_t *)name)                    );
                                         {
                         uint8_t * _uya_ret = buf;
                         return _uya_ret;
@@ -172171,7 +172299,7 @@ static __attribute__((used)) void c99_mirror_emit_extern_global_line(struct C99C
             const int32_t tblen = std_runtime_ptr_diff(tfb, (uint8_t *)tc);
             uint8_t * const tbt = (uint8_t *)compiler_arena_alloc(codegen->arena, (tblen + 1));
             if (tbt != NULL) {
-                (void)((uint8_t *)memcpy((char *)(void *)tbt, (const char *)(void *)tc, tblen)                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)tbt, (const char *)(void *)tc, tblen)                );
                 tbt[tblen] = 0;
                 if (((is_const != 0) && (c99_c_type_str_leading_const(tbt) == 0))) {
                     (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)"extern _Thread_local const %s %s%s;\n", (uint8_t *)tbt, (uint8_t *)cname, tfb)                    );
@@ -172194,7 +172322,7 @@ static __attribute__((used)) void c99_mirror_emit_extern_global_line(struct C99C
         const int32_t base_len = std_runtime_ptr_diff(first_bracket, (uint8_t *)tc);
         uint8_t * const base_type = (uint8_t *)compiler_arena_alloc(codegen->arena, (base_len + 1));
         if (base_type != NULL) {
-            (void)((uint8_t *)memcpy((char *)(void *)base_type, (const char *)(void *)tc, base_len)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)base_type, (const char *)(void *)tc, base_len)            );
             base_type[base_len] = 0;
             if (is_const != 0) {
                 if (c99_c_type_str_leading_const(base_type) != 0) {
@@ -174671,7 +174799,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     }
     if (prof_codegen != 0) {
         t_mk1 = clock();
-        prof_ms_precollect = (({ int32_t _l = (({ int64_t _l = ((int64_t)t_mk1); int64_t _r = ((int64_t)t_precollect_start); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / (int64_t)CLOCKS_PER_SEC);
+        prof_ms_precollect = ({ __typeof__(({ int64_t _l = (({ int64_t _l = ((int64_t)t_mk1); int64_t _r = ((int64_t)t_precollect_start); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = ((int64_t)t_mk1); int64_t _r = ((int64_t)t_precollect_start); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__((int64_t)CLOCKS_PER_SEC) _uya_dv_r = ((int64_t)CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     }
     if (((codegen->split_enabled != 0) && (codegen->split_mirror != 0))) {
         if (codegen_c99_utils_c99_split_mirror_prepare(codegen, ast) != 0) {
@@ -176776,7 +176904,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(c99_emit_newline(codegen)    );
     if (prof_codegen != 0) {
         t_mk2 = clock();
-        prof_ms_header = (({ int32_t _l = (({ int64_t _l = ((int64_t)t_mk2); int64_t _r = ((int64_t)t_mk1); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / (int64_t)CLOCKS_PER_SEC);
+        prof_ms_header = ({ __typeof__(({ int64_t _l = (({ int64_t _l = ((int64_t)t_mk2); int64_t _r = ((int64_t)t_mk1); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = ((int64_t)t_mk2); int64_t _r = ((int64_t)t_mk1); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__((int64_t)CLOCKS_PER_SEC) _uya_dv_r = ((int64_t)CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     }
     int32_t i = 0;
     if (codegen->split_mirror == 0) {
@@ -176908,7 +177036,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(c99_emit_newline(codegen)    );
     if (prof_codegen != 0) {
         t_mk3 = clock();
-        prof_ms_step1_typedef = (({ int32_t _l = (({ int64_t _l = ((int64_t)t_mk3); int64_t _r = ((int64_t)t_mk2); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / (int64_t)CLOCKS_PER_SEC);
+        prof_ms_step1_typedef = ({ __typeof__(({ int64_t _l = (({ int64_t _l = ((int64_t)t_mk3); int64_t _r = ((int64_t)t_mk2); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = ((int64_t)t_mk3); int64_t _r = ((int64_t)t_mk2); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__((int64_t)CLOCKS_PER_SEC) _uya_dv_r = ((int64_t)CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     }
     (void)(codegen_c99_types_emit_pending_slice_structs(codegen)    );
     if (codegen->slice_struct_count > 0) {
@@ -176923,7 +177051,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(emit_simd_x86_sse_runtime_helpers(codegen)        );
         if (prof_codegen != 0) {
             const clock_t t_simd1 = clock();
-            prof_simd_ms = (({ int32_t _l = (((int64_t)t_simd1 - (int64_t)t_simd0)); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / (int64_t)CLOCKS_PER_SEC);
+            prof_simd_ms = ({ __typeof__(({ int64_t _l = (((int64_t)t_simd1 - (int64_t)t_simd0)); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (((int64_t)t_simd1 - (int64_t)t_simd0)); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__((int64_t)CLOCKS_PER_SEC) _uya_dv_r = ((int64_t)CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         }
         (void)(c99_emit_newline(codegen)        );
     }
@@ -177614,7 +177742,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     }
     if (prof_codegen != 0) {
         t_mk4 = clock();
-        prof_ms_step6_mid = (({ int32_t _l = (({ int64_t _l = ((int64_t)t_mk4); int64_t _r = ((int64_t)t_mk3); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / (int64_t)CLOCKS_PER_SEC);
+        prof_ms_step6_mid = ({ __typeof__(({ int64_t _l = (({ int64_t _l = ((int64_t)t_mk4); int64_t _r = ((int64_t)t_mk3); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (({ int64_t _l = ((int64_t)t_mk4); int64_t _r = ((int64_t)t_mk3); int64_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 9223372036854775807LL : (-9223372036854775807LL-1LL)) : _s; })); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__((int64_t)CLOCKS_PER_SEC) _uya_dv_r = ((int64_t)CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     }
     int32_t di2 = 0;
     while (di2 < decl_count) {
@@ -177861,8 +177989,8 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     }
     if (prof_codegen != 0) {
         const clock_t t_prelude_end = clock();
-        prof_ms_prelude = (({ int32_t _l = (((int64_t)t_prelude_end - (int64_t)prof_t0)); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / (int64_t)CLOCKS_PER_SEC);
-        prof_ms_step6e_tail = (({ int32_t _l = (((int64_t)t_prelude_end - (int64_t)t_mk4)); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / (int64_t)CLOCKS_PER_SEC);
+        prof_ms_prelude = ({ __typeof__(({ int64_t _l = (((int64_t)t_prelude_end - (int64_t)prof_t0)); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (((int64_t)t_prelude_end - (int64_t)prof_t0)); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__((int64_t)CLOCKS_PER_SEC) _uya_dv_r = ((int64_t)CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+        prof_ms_step6e_tail = ({ __typeof__(({ int64_t _l = (((int64_t)t_prelude_end - (int64_t)t_mk4)); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (((int64_t)t_prelude_end - (int64_t)t_mk4)); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__((int64_t)CLOCKS_PER_SEC) _uya_dv_r = ((int64_t)CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
     }
     if (((codegen->split_mirror != 0) && (codegen->split_dir != NULL))) {
         uint8_t pp[1024] = {0};
@@ -178612,7 +178740,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     }
     if (prof_codegen != 0) {
         const clock_t t1 = clock();
-        const int64_t total_ms = (({ int32_t _l = (((int64_t)t1 - (int64_t)prof_t0)); int32_t _r = (1000); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) / (int64_t)CLOCKS_PER_SEC);
+        const int64_t total_ms = ({ __typeof__(({ int64_t _l = (((int64_t)t1 - (int64_t)prof_t0)); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })) _uya_dv_l = (({ int64_t _l = (((int64_t)t1 - (int64_t)prof_t0)); int64_t _r = (1000); int64_t _s; int64_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 9223372036854775807LL : (-9223372036854775807LL-1LL); else _res = _s; _res; })); __typeof__((int64_t)CLOCKS_PER_SEC) _uya_dv_r = ((int64_t)CLOCKS_PER_SEC); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
         int64_t body_ms = (total_ms - prof_ms_prelude);
         if (body_ms < 0) {
             body_ms = 0;
@@ -180071,7 +180199,7 @@ static __attribute__((used)) uint8_t * get_expr_concrete_struct_for_interface(st
             if (((pos > 0) && (codegen->arena != NULL))) {
                 uint8_t * const struct_name = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)(pos + 1));
                 if (struct_name != NULL) {
-                    (void)((uint8_t *)memcpy((char *)(void *)struct_name, (const char *)(void *)start, (size_t)pos)                    );
+                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)struct_name, (const char *)(void *)start, (size_t)pos)                    );
                     struct_name[pos] = 0;
                     if (struct_implements_interface_c99(codegen, struct_name, (uint8_t *)interface_name) != 0) {
                                                 {
@@ -180121,7 +180249,7 @@ static __attribute__((used)) uint8_t * get_expr_concrete_struct_for_interface(st
     if (((pos2 > 0) && (codegen->arena != NULL))) {
         uint8_t * const struct_name2 = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)(pos2 + 1));
         if (struct_name2 != NULL) {
-            (void)((uint8_t *)memcpy((char *)(void *)struct_name2, (const char *)(void *)start2, (size_t)pos2)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)struct_name2, (const char *)(void *)start2, (size_t)pos2)            );
             struct_name2[pos2] = 0;
             if (struct_implements_interface_c99(codegen, struct_name2, (uint8_t *)interface_name) != 0) {
                                 {
@@ -182702,7 +182830,7 @@ static __attribute__((used)) void gen_var_decl_stmt(struct C99CodeGenerator * co
             const int32_t base_len = std_runtime_ptr_diff(first_bracket, (uint8_t *)type_c);
             uint8_t * const base_type = (uint8_t *)compiler_arena_alloc(codegen->arena, (base_len + 1));
             if (base_type != NULL) {
-                (void)((uint8_t *)memcpy((char *)(void *)base_type, (const char *)(void *)type_c, base_len)                );
+                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)base_type, (const char *)(void *)type_c, base_len)                );
                 base_type[base_len] = 0;
                 uint8_t * const dimensions = ((uint8_t *)type_c + base_len);
                 if (((((((init_expr != NULL) && (init_expr->type == main_ASTNodeType_AST_TRY_EXPR)) && (init_expr->try_expr_operand != NULL)) && (var_type->type_array_size_expr != NULL)) && (var_type->type_array_size_expr->type == main_ASTNodeType_AST_NUMBER)) && (var_type->type_array_element_type != NULL))) {
@@ -185544,7 +185672,7 @@ static __attribute__((used)) struct ASTNode * find_struct_decl_from_type_c(struc
         name_len = (C99_GENERIC_NAME_BUF_SIZE - 1);
     }
     uint8_t name_buf[128] = {0};
-    (void)((uint8_t *)memcpy((char *)(void *)(&name_buf[0]), (const char *)(void *)p, (size_t)name_len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&name_buf[0]), (const char *)(void *)p, (size_t)name_len)    );
     if (((name_len >= 0) && (name_len < C99_GENERIC_NAME_BUF_SIZE))) {
         name_buf[name_len] = 0;
     }
@@ -186155,7 +186283,7 @@ static __attribute__((used)) uint8_t * get_method_c_name(struct C99CodeGenerator
             return _uya_ret;
                 }
     }
-    const int32_t len = ({ int32_t _l = (({ int32_t _l = (({ int32_t _l = (({ int32_t _l = (5); int32_t _r = (std_string_strlen((uint8_t *)safe_s)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (std_string_strlen((uint8_t *)safe_m)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    const int32_t len = ({ size_t _l = (({ size_t _l = (({ size_t _l = (({ int32_t _l = (5); int32_t _r = (std_string_strlen((uint8_t *)safe_s)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); size_t _r = (1); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; })); size_t _r = (std_string_strlen((uint8_t *)safe_m)); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; })); size_t _r = (1); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
     uint8_t * const buf = (uint8_t *)compiler_arena_alloc(codegen->arena, len);
     if (buf == NULL) {
                 {
@@ -186213,7 +186341,7 @@ static __attribute__((used)) uint8_t * get_mono_method_c_name(struct C99CodeGene
             return _uya_ret;
                 }
     }
-    const int32_t len = ({ int32_t _l = (({ int32_t _l = (({ int32_t _l = (({ int32_t _l = (({ int32_t _l = (({ int32_t _l = (5); int32_t _r = (std_string_strlen((uint8_t *)safe_s)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (std_string_strlen((uint8_t *)safe_m)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (std_string_strlen((&suffix[0]))); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    const int32_t len = ({ size_t _l = (({ size_t _l = (({ size_t _l = (({ size_t _l = (({ size_t _l = (({ int32_t _l = (5); int32_t _r = (std_string_strlen((uint8_t *)safe_s)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); size_t _r = (1); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; })); size_t _r = (std_string_strlen((uint8_t *)safe_m)); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; })); size_t _r = (1); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; })); size_t _r = (std_string_strlen((&suffix[0]))); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; })); size_t _r = (1); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
     uint8_t * const buf = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)len);
     if (buf == NULL) {
                 {
@@ -186731,7 +186859,7 @@ static __attribute__((used)) void emit_vtable_constants(struct C99CodeGenerator 
                 const int32_t base_len = std_runtime_ptr_diff(lt, (uint8_t *)iface_name);
                 uint8_t * const buf = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)(base_len + 1));
                 if (buf != NULL) {
-                    (void)((uint8_t *)memcpy((char *)(void *)buf, (const char *)(void *)iface_name, (size_t)base_len)                    );
+                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)buf, (const char *)(void *)iface_name, (size_t)base_len)                    );
                     if (((base_len >= 0) && (base_len < 1000000))) {
                         buf[base_len] = 0;
                     }
@@ -187851,7 +187979,7 @@ static __attribute__((used)) uint8_t * resolve_typedef_to_mono_struct_name_if_ge
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)copy_ms, (const char *)(void *)ms, (size_t)pos_ms)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)copy_ms, (const char *)(void *)ms, (size_t)pos_ms)    );
     if (((pos_ms >= 0) && (pos_ms < 1000000))) {
         copy_ms[pos_ms] = 0;
     }
@@ -189812,7 +189940,7 @@ static __attribute__((used)) uint8_t * c99_type_to_c_uncached(struct C99CodeGene
                 }
                 uint8_t base_buf[128] = {0};
                 if (((base_len >= 0) && (base_len < STRUCT_NAME_BUF_SIZE))) {
-                    (void)((uint8_t *)memcpy((char *)(void *)(&base_buf[0]), (const char *)(void *)pointee_type, base_len)                    );
+                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&base_buf[0]), (const char *)(void *)pointee_type, base_len)                    );
                     base_buf[base_len] = 0;
                     if (is_const != 0) {
                         (void)(snprintf((char *)(uint8_t *)arr_ptr, total_len, (const char *)"const %s (*)%s", (uint8_t *)(&base_buf[0]), dims)                        );
@@ -190260,7 +190388,7 @@ static __attribute__((used)) uint8_t * c99_type_to_c_uncached(struct C99CodeGene
                                             int32_t i = 0;
                                             while (i < n) {
                                                 uint8_t * const et = c99_type_to_c(codegen, element_types[i]);
-                                                total_len = ({ int32_t _l = (({ int32_t _l = (total_len); int32_t _r = (std_string_strlen((uint8_t *)et)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (24); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                                                total_len = ({ size_t _l = (({ int32_t _l = (total_len); int32_t _r = (std_string_strlen((uint8_t *)et)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); size_t _r = (24); size_t _s; __builtin_add_overflow(_l, _r, &_s) ? ((size_t)-1) : _s; });
                                                 i = (i + 1);
                                             }
                                             uint8_t * const result = (uint8_t *)compiler_arena_alloc(codegen->arena, total_len);
@@ -195884,7 +196012,7 @@ static __attribute__((used)) uint8_t * get_slice_struct_type_c(struct C99CodeGen
                 const int32_t elem_len = std_runtime_ptr_diff(first_bracket, (uint8_t *)base_type_c_array);
                 if (((elem_len > 0) && (elem_len < STRUCT_NAME_BUF_SIZE))) {
                     uint8_t elem_buf[128] = {0};
-                    (void)((uint8_t *)memcpy((char *)(void *)(&elem_buf[0]), (const char *)(void *)base_type_c_array, (size_t)elem_len)                    );
+                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&elem_buf[0]), (const char *)(void *)base_type_c_array, (size_t)elem_len)                    );
                     elem_buf[elem_len] = 0;
                                         {
                         uint8_t * _uya_ret = c99_slice_struct_type_from_elem_c(codegen, (uint8_t *)(&elem_buf[0]));
@@ -195980,10 +196108,10 @@ static __attribute__((used)) uint8_t * c99_array_index_result_type_c(struct C99C
                 }
     }
     if (prefix_len > 0) {
-        (void)((uint8_t *)memcpy((char *)(void *)result, (const char *)(void *)array_type_c, (size_t)prefix_len)        );
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)result, (const char *)(void *)array_type_c, (size_t)prefix_len)        );
     }
     if (suffix_len > 0) {
-        (void)((uint8_t *)memcpy((char *)(void *)(&result[prefix_len]), (const char *)(void *)suffix, (size_t)suffix_len)        );
+        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&result[prefix_len]), (const char *)(void *)suffix, (size_t)suffix_len)        );
     }
     const int32_t result_end_idx = (prefix_len + suffix_len);
     if (((result_end_idx < 0) || (result_end_idx >= result_len))) {
@@ -196419,7 +196547,7 @@ static __attribute__((used)) uint8_t * get_c_type_of_expr(struct C99CodeGenerato
                                                     return _uya_ret;
                                                                                                 }
                                             }
-                                            (void)((uint8_t *)memcpy((char *)(void *)buf, (const char *)(void *)ptr_type, (size_t)len)                                            );
+                                            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)buf, (const char *)(void *)ptr_type, (size_t)len)                                            );
                                             if (((len >= 0) && (len < 1000000))) {
                                                 buf[len] = (uint8_t)0;
                                             }
@@ -196451,8 +196579,8 @@ static __attribute__((used)) uint8_t * get_c_type_of_expr(struct C99CodeGenerato
                                                             const int32_t elem_len = std_string_strlen((uint8_t *)elem_type_c);
                                                             uint8_t * const slice_type = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)((prefix_len + elem_len) + 1));
                                                             if (slice_type != NULL) {
-                                                                (void)((uint8_t *)memcpy((char *)(void *)slice_type, (const char *)(void *)prefix, (size_t)prefix_len)                                                                );
-                                                                (void)((uint8_t *)memcpy((char *)(void *)((uint8_t *)slice_type + (int32_t)prefix_len), (const char *)(void *)elem_type_c, (size_t)(elem_len + 1))                                                                );
+                                                                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)slice_type, (const char *)(void *)prefix, (size_t)prefix_len)                                                                );
+                                                                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)((uint8_t *)slice_type + (int32_t)prefix_len), (const char *)(void *)elem_type_c, (size_t)(elem_len + 1))                                                                );
                                                                                                                                 {
                                                                     uint8_t * _uya_ret = slice_type;
                                                                     return _uya_ret;
@@ -196475,8 +196603,8 @@ static __attribute__((used)) uint8_t * get_c_type_of_expr(struct C99CodeGenerato
                                             const int32_t elem_len = std_string_strlen((uint8_t *)elem_type_c);
                                             uint8_t * const slice_type = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)((prefix_len + elem_len) + 1));
                                             if (slice_type != NULL) {
-                                                (void)((uint8_t *)memcpy((char *)(void *)slice_type, (const char *)(void *)prefix, (size_t)prefix_len)                                                );
-                                                (void)((uint8_t *)memcpy((char *)(void *)((uint8_t *)slice_type + (int32_t)prefix_len), (const char *)(void *)elem_type_c, (size_t)(elem_len + 1))                                                );
+                                                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)slice_type, (const char *)(void *)prefix, (size_t)prefix_len)                                                );
+                                                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)((uint8_t *)slice_type + (int32_t)prefix_len), (const char *)(void *)elem_type_c, (size_t)(elem_len + 1))                                                );
                                                                                                 {
                                                     uint8_t * _uya_ret = slice_type;
                                                     return _uya_ret;
@@ -196489,7 +196617,7 @@ static __attribute__((used)) uint8_t * get_c_type_of_expr(struct C99CodeGenerato
                                                 const int32_t op_len = std_string_strlen(operand_c);
                                                 uint8_t * const ptr_c = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)(op_len + 3));
                                                 if (ptr_c != NULL) {
-                                                    (void)((uint8_t *)memcpy((char *)(void *)ptr_c, (const char *)(void *)operand_c, (size_t)op_len)                                                    );
+                                                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)ptr_c, (const char *)(void *)operand_c, (size_t)op_len)                                                    );
                                                     (ptr_c + (size_t)op_len)[0] = (uint8_t)32;
                                                     (ptr_c + (size_t)op_len)[1] = (uint8_t)42;
                                                     (ptr_c + (size_t)op_len)[2] = (uint8_t)0;
@@ -196616,7 +196744,7 @@ static __attribute__((used)) uint8_t * get_c_type_of_expr(struct C99CodeGenerato
                                                                         if (len > 0) {
                                                                             uint8_t * const elem_type = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)(len + 1));
                                                                             if (elem_type != NULL) {
-                                                                                (void)((uint8_t *)memcpy((char *)(void *)elem_type, (const char *)(void *)base_c, (size_t)len)                                                                                );
+                                                                                (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)elem_type, (const char *)(void *)base_c, (size_t)len)                                                                                );
                                                                                 if (((len >= 0) && (len < 1000000))) {
                                                                                     elem_type[len] = (uint8_t)0;
                                                                                 }
@@ -196641,13 +196769,13 @@ static __attribute__((used)) uint8_t * get_c_type_of_expr(struct C99CodeGenerato
                                                                             uint8_t * const func_name = callee->member_access_field_name;
                                                                             uint32_t mh = hash_string(module_name);
                                                                             const int32_t mtbl_cap = codegen->checker->module_table.table.capacity;
-                                                                            int32_t mi = ((int32_t)mh % mtbl_cap);
+                                                                            int32_t mi = ({ __typeof__((int32_t)mh) _uya_dv_l = ((int32_t)mh); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                                                                             if (mi < 0) {
                                                                                 mi = ((int32_t)((uint32_t)(mi) + (uint32_t)(mtbl_cap)));
                                                                             }
                                                                             int32_t i3 = 0;
                                                                             while (i3 < mtbl_cap) {
-                                                                                const int32_t ml = ((mi + i3) % mtbl_cap);
+                                                                                const int32_t ml = ({ __typeof__((mi + i3)) _uya_dv_l = ((mi + i3)); __typeof__(mtbl_cap) _uya_dv_r = (mtbl_cap); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                                                                                 struct ModuleInfo * const mod = checker_module_slot_at(codegen->checker, ml);
                                                                                 if (mod == NULL) {
                                                                                     break;
@@ -197384,7 +197512,7 @@ static __attribute__((used)) uint8_t * get_array_wrapper_struct_name(struct C99C
         first = 0;
         const int32_t name_len = std_string_strlen((uint8_t *)elem_name);
         if (({ int32_t _l = (pos); int32_t _r = (name_len); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) < TEMP_BUF_LIMIT) {
-            (void)((uint8_t *)memcpy((char *)(void *)(&name_buf[pos]), (const char *)(void *)elem_name, name_len)            );
+            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&name_buf[pos]), (const char *)(void *)elem_name, name_len)            );
             pos = ({ int32_t _l = (pos); int32_t _r = (name_len); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
         }
         if (size_expr != NULL) {
@@ -197394,7 +197522,7 @@ static __attribute__((used)) uint8_t * get_array_wrapper_struct_name(struct C99C
                 (void)(snprintf((char *)(uint8_t *)(&size_str[0]), 32, (const char *)"_%d", size)                );
                 const int32_t size_len = std_string_strlen((uint8_t *)(&size_str[0]));
                 if (({ int32_t _l = (pos); int32_t _r = (size_len); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) < TEMP_BUF_LIMIT) {
-                    (void)((uint8_t *)memcpy((char *)(void *)(&name_buf[pos]), (const char *)(void *)(&size_str[0]), size_len)                    );
+                    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&name_buf[pos]), (const char *)(void *)(&size_str[0]), size_len)                    );
                     pos = ({ int32_t _l = (pos); int32_t _r = (size_len); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                 }
             }
@@ -197562,8 +197690,8 @@ static __attribute__((used)) uint8_t * get_array_element_type(struct C99CodeGene
                                 return _uya_ret;
                                                         }
                         }
-                        (void)((uint8_t *)memcpy((char *)(void *)elem_type, (const char *)(void *)type_c, base_len)                        );
-                        (void)((uint8_t *)memcpy((char *)(void *)(&elem_type[base_len]), (const char *)(void *)second_bracket, inner_dims_len)                        );
+                        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)elem_type, (const char *)(void *)type_c, base_len)                        );
+                        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&elem_type[base_len]), (const char *)(void *)second_bracket, inner_dims_len)                        );
                         elem_type[({ int32_t _l = (base_len); int32_t _r = (inner_dims_len); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })] = 0;
                                                 {
                             uint8_t * _uya_ret = elem_type;
@@ -197578,7 +197706,7 @@ static __attribute__((used)) uint8_t * get_array_element_type(struct C99CodeGene
                                 return _uya_ret;
                                                         }
                         }
-                        (void)((uint8_t *)memcpy((char *)(void *)elem_type2, (const char *)(void *)type_c, base_len)                        );
+                        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)elem_type2, (const char *)(void *)type_c, base_len)                        );
                         if (((base_len >= 0) && (base_len < 1000000))) {
                             elem_type2[base_len] = 0;
                         }
@@ -197597,7 +197725,7 @@ static __attribute__((used)) uint8_t * get_array_element_type(struct C99CodeGene
                     if (base_len_p > 0) {
                         uint8_t * const elem_p = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)(base_len_p + 1));
                         if (elem_p != NULL) {
-                            (void)((uint8_t *)memcpy((char *)(void *)elem_p, (const char *)(void *)type_c, (size_t)base_len_p)                            );
+                            (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)elem_p, (const char *)(void *)type_c, (size_t)base_len_p)                            );
                             if (((base_len_p >= 0) && (base_len_p < 1000000))) {
                                 elem_p[base_len_p] = 0;
                             }
@@ -197639,8 +197767,8 @@ static __attribute__((used)) uint8_t * get_array_element_type(struct C99CodeGene
                                 return _uya_ret;
                                                         }
                         }
-                        (void)((uint8_t *)memcpy((char *)(void *)elem_type3, (const char *)(void *)type_c2, base_len2)                        );
-                        (void)((uint8_t *)memcpy((char *)(void *)(&elem_type3[base_len2]), (const char *)(void *)second_bracket2, inner_dims_len2)                        );
+                        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)elem_type3, (const char *)(void *)type_c2, base_len2)                        );
+                        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)(&elem_type3[base_len2]), (const char *)(void *)second_bracket2, inner_dims_len2)                        );
                         elem_type3[({ int32_t _l = (base_len2); int32_t _r = (inner_dims_len2); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })] = 0;
                                                 {
                             uint8_t * _uya_ret = elem_type3;
@@ -197655,7 +197783,7 @@ static __attribute__((used)) uint8_t * get_array_element_type(struct C99CodeGene
                                 return _uya_ret;
                                                         }
                         }
-                        (void)((uint8_t *)memcpy((char *)(void *)elem_type4, (const char *)(void *)type_c2, len2)                        );
+                        (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)elem_type4, (const char *)(void *)type_c2, len2)                        );
                         if (((len2 >= 0) && (len2 < 1000000))) {
                             elem_type4[len2] = 0;
                         }
@@ -197701,7 +197829,7 @@ static __attribute__((used)) uint8_t * get_array_element_type(struct C99CodeGene
                     const int32_t suffix_len = (std_string_strlen((uint8_t *)(&type_c[(p_offset + 10)])) + 1);
                     uint8_t * const elem = (uint8_t *)compiler_arena_alloc(codegen->arena, suffix_len);
                     if (elem != NULL) {
-                        (void)((uint8_t *)memcpy((char *)(uint8_t *)elem, (const char *)(uint8_t *)(&type_c[(p_offset + 10)]), suffix_len)                        );
+                        (void)((uint8_t *)__uya_checked_memcpy((char *)(uint8_t *)elem, (const char *)(uint8_t *)(&type_c[(p_offset + 10)]), suffix_len)                        );
                                                 {
                             uint8_t * _uya_ret = elem;
                             return _uya_ret;
@@ -198247,7 +198375,7 @@ static __attribute__((used)) int32_t c99_codegen_new(struct C99CodeGenerator * c
     codegen->current_drop_scope = (-1);
     codegen->slice_struct_count = 0;
     codegen->err_union_struct_count = 0;
-    (void)((uint8_t *)memset((char *)(uint8_t *)(&codegen->err_union_body_emitted[0]), 0, ((size_t)C99_MAX_ERR_UNION_STRUCTS * (int32_t)sizeof(int32_t))));
+    (void)((uint8_t *)__uya_checked_memset((char *)(uint8_t *)(&codegen->err_union_body_emitted[0]), 0, ((size_t)C99_MAX_ERR_UNION_STRUCTS * (int32_t)sizeof(int32_t))));
     codegen->simd_struct_count = 0;
     codegen->simd_vector_struct_reg_count = 0;
     codegen->simd_max_lanes_i8 = 0;
@@ -199251,7 +199379,7 @@ void codegen_c99_utils_c99_mirror_emit_for_node(struct C99CodeGenerator * codege
     if (((codegen->parallel_workers > 1) && (codegen->parallel_worker >= 0))) {
         int32_t target_owner = codegen->parallel_common_worker;
         if (((ix >= 0) && (ix < codegen->split_mirror_count))) {
-            target_owner = (ix % codegen->parallel_workers);
+            target_owner = ({ __typeof__(ix) _uya_dv_l = (ix); __typeof__(codegen->parallel_workers) _uya_dv_r = (codegen->parallel_workers); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
         }
         if (target_owner != codegen->parallel_worker) {
             codegen->parallel_violation = 1;
@@ -199326,7 +199454,7 @@ int32_t codegen_c99_utils_c99_parallel_owns_decl(struct C99CodeGenerator * codeg
     const int32_t tu = table[decl_index];
     int32_t owner = codegen->parallel_common_worker;
     if (tu >= 0) {
-        owner = (tu % codegen->parallel_workers);
+        owner = ({ __typeof__(tu) _uya_dv_l = (tu); __typeof__(codegen->parallel_workers) _uya_dv_r = (codegen->parallel_workers); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     }
     if (owner < 0) {
         owner = 0;
@@ -199890,7 +200018,7 @@ uint8_t * c99_arena_strdup(struct CompilerArena * arena, uint8_t * src) {
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)dst, (const char *)(void *)src, str_len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)dst, (const char *)(void *)src, str_len)    );
         {
         uint8_t * _uya_ret = dst;
         return _uya_ret;
@@ -200510,7 +200638,7 @@ static __attribute__((used)) void emit_embed_constants_range(struct C99CodeGener
             } else {
                 int32_t bi = 0;
                 while (bi < item.size) {
-                    if ((bi % 12) == 0) {
+                    if (({ __typeof__(bi) _uya_dv_l = (bi); __typeof__(12) _uya_dv_r = (12); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }) == 0) {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)"\n    ", (void *)codegen->emit_stream)                        );
                     } else {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str2745, (void *)codegen->emit_stream)                        );
@@ -200893,7 +201021,7 @@ static __attribute__((used)) int32_t eval_const_expr(struct C99CodeGenerator * c
                                                                                 }
                                     }
                                                                         {
-                                        int32_t _uya_ret = (left_val / right_val);
+                                        int32_t _uya_ret = ({ __typeof__(left_val) _uya_dv_l = (left_val); __typeof__(right_val) _uya_dv_r = (right_val); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
                                         return _uya_ret;
                                                                         }
                                 } else {
@@ -200905,7 +201033,7 @@ static __attribute__((used)) int32_t eval_const_expr(struct C99CodeGenerator * c
                                                                                         }
                                         }
                                                                                 {
-                                            int32_t _uya_ret = (left_val % right_val);
+                                            int32_t _uya_ret = ({ __typeof__(left_val) _uya_dv_l = (left_val); __typeof__(right_val) _uya_dv_r = (right_val); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
                                             return _uya_ret;
                                                                                 }
                                     } else {
@@ -202320,7 +202448,7 @@ void std_crypto_sha256_digest(struct uya_slice_uint8_t data, struct uya_slice_ui
     const size_t rem1 = (r + 1);
     const size_t eight = 8;
     const size_t bl64 = 64;
-    size_t pad = ((bl64 - ((rem1 + eight) % bl64)) % bl64);
+    size_t pad = ({ __typeof__((bl64 - ({ __typeof__((rem1 + eight)) _uya_dv_l = ((rem1 + eight)); __typeof__(bl64) _uya_dv_r = (bl64); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }))) _uya_dv_l = ((bl64 - ({ __typeof__((rem1 + eight)) _uya_dv_l = ((rem1 + eight)); __typeof__(bl64) _uya_dv_r = (bl64); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }))); __typeof__(bl64) _uya_dv_r = (bl64); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     size_t z = 0;
     while (z < pad) {
         tail[(rem1 + z)] = (uint8_t)0;
@@ -202422,7 +202550,7 @@ void uya_Sha256Ctx_final(struct Sha256Ctx * self, struct uya_slice_uint8_t diges
     const uint64_t bitlen = (self->total_len * 8ULL);
     const size_t bl64 = 64;
     const size_t eight = 8;
-    const size_t pad = ((bl64 - ((ti + eight) % bl64)) % bl64);
+    const size_t pad = ({ __typeof__((bl64 - ({ __typeof__((ti + eight)) _uya_dv_l = ((ti + eight)); __typeof__(bl64) _uya_dv_r = (bl64); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }))) _uya_dv_l = ((bl64 - ({ __typeof__((ti + eight)) _uya_dv_l = ((ti + eight)); __typeof__(bl64) _uya_dv_r = (bl64); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; }))); __typeof__(bl64) _uya_dv_r = (bl64); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  %  _uya_dv_r; });
     const size_t total = ((ti + pad) + eight);
     int32_t ei = 0;
     while (ei < 8) {
@@ -202560,7 +202688,7 @@ static __attribute__((used)) void copy_bytes(struct uya_slice_uint8_t dst, uint3
 uint32_t payload_total_size(struct PayloadObj * p) {
     (void)p;
         {
-        uint32_t _uya_ret = ({ int32_t _l = (({ int32_t _l = (({ int32_t _l = ((IMAGE_HEADER_SIZE + (uint32_t)p->code.len)); int32_t _r = ((uint32_t)p->rodata.len); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = ((uint32_t)p->data.len); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = ((uint32_t)p->relocs.len); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+        uint32_t _uya_ret = ({ uint32_t _l = (({ uint32_t _l = (({ uint32_t _l = ((IMAGE_HEADER_SIZE + (uint32_t)p->code.len)); uint32_t _r = ((uint32_t)p->rodata.len); uint32_t _s; __builtin_add_overflow(_l, _r, &_s) ? 4294967295U : _s; })); uint32_t _r = ((uint32_t)p->data.len); uint32_t _s; __builtin_add_overflow(_l, _r, &_s) ? 4294967295U : _s; })); uint32_t _r = ((uint32_t)p->relocs.len); uint32_t _s; __builtin_add_overflow(_l, _r, &_s) ? 4294967295U : _s; });
         return _uya_ret;
         }
 }
@@ -203513,7 +203641,7 @@ int32_t cmd_upm_upm_lib_path_utils_upm_bytes_copy(uint8_t * dst, size_t cap, uin
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)dst, (const char *)(void *)src, src_len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)dst, (const char *)(void *)src, src_len)    );
     dst[src_len] = (uint8_t)0;
         {
         int32_t _uya_ret = 0;
@@ -203647,7 +203775,7 @@ int32_t cmd_upm_upm_lib_path_utils_upm_path_dirname(uint8_t * path, uint8_t * ou
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)out, (const char *)(void *)(&tmp[0]), prefix_len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)out, (const char *)(void *)(&tmp[0]), prefix_len)    );
     out[prefix_len] = (uint8_t)47;
     out[(prefix_len + 1ULL)] = (uint8_t)0;
         {
@@ -203710,7 +203838,7 @@ int32_t cmd_upm_upm_lib_path_utils_upm_path_parent_dir(uint8_t * dir_path, uint8
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memcpy((char *)(void *)out, (const char *)(void *)(&tmp[0]), prefix_len)    );
+    (void)((uint8_t *)__uya_checked_memcpy((char *)(void *)out, (const char *)(void *)(&tmp[0]), prefix_len)    );
     out[prefix_len] = (uint8_t)47;
     out[(prefix_len + 1ULL)] = (uint8_t)0;
         {
@@ -205872,7 +206000,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_185883484_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -207119,7 +207247,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_466384096_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -207363,7 +207491,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_1872351365_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_466384096_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;
@@ -208597,7 +208725,7 @@ static __attribute__((used)) int32_t upm_parse_add_args(int32_t start_index, str
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(void *)args_out, 0, (int32_t)sizeof(struct UPMAddArgs))    );
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)args_out, 0, (int32_t)sizeof(struct UPMAddArgs))    );
     args_out->input_path[0] = (uint8_t)46;
     args_out->input_path[1] = (uint8_t)0;
     args_out->dep = upm_dep_init((uint8_t *)(uint8_t *)str120);
@@ -208948,7 +209076,7 @@ static __attribute__((used)) int32_t upm_parse_remove_args(int32_t start_index, 
             return _uya_ret;
                 }
     }
-    (void)((uint8_t *)memset((char *)(void *)args_out, 0, (int32_t)sizeof(struct UPMRemoveArgs))    );
+    (void)((uint8_t *)__uya_checked_memset((char *)(void *)args_out, 0, (int32_t)sizeof(struct UPMRemoveArgs))    );
     args_out->input_path[0] = (uint8_t)46;
     args_out->input_path[1] = (uint8_t)0;
     int32_t i = start_index;

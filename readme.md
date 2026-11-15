@@ -339,14 +339,14 @@ fn increment(counter: *Counter) void {
 }
 ```
 
-## 当前状态（v0.11.0）
+## 当前状态（v0.12.0）
 
 - **自举编译器**：已完成自举，所有测试通过。编译器能编译自身，输出 C99 代码（默认多文件至 `.uyacache`，可用 `--no-split-c` 单文件）。
 - **开发模式**：仅维护 `src/` 目录的自举编译器。
 - **快速构建**：Linux 冷启动 `make from-c`，macOS 冷启动 `make from-c-native`；日常自举构建 `make uya`（nostdlib 静态）/ `make uya-hosted`（hosted）。前端默认按 CPU 核数进程级并行（`--jobs/-j`，上限 32），无改动时增量指纹直接短路。
 - **安全验证**：`make uya-safety` 构建启用内存安全检查的编译器；默认构建在编译期证明 UB，无法证明即编译错误。
-- **语言规范**：完整版见 [docs/uya.md](./docs/uya.md)（0.49.54）。
-- **最新特性**：在 **v0.10.4** 的编译器容量收口与密码学底座基础上，当前 **v0.11.0** 收口三条主线——**安全证明**：`--strict-overflow` 翻为**默认开启**，并新增 `--strict-div` 除零正确性证明（默认关，跨函数不变量暂无法表达）；**静默错误收口**：lexer 未知字符不再静默 EOF、`@print`/字符串插值按实参真实类型选格式串、大于 `INT64_MAX` 的整数字面量按位模式解析、接口字段访问与接口数组元素赋值改为编译期拒绝、数组/切片比较运算符改为编译期拒绝、pipeline worker 入口加 fd 自检不再误接管普通程序；**平台与构建链**：macOS hosted 生成 C 的 7 处 ABI 撞车修复、自举种子家族恢复可交叉编译，未安装 zig 的宿主不再把 `make check` / `make release` 判成失败。
+- **语言规范**：完整版见 [docs/uya.md](./docs/uya.md)（0.49.57）。
+- **最新特性**：在 **v0.11.0** 的安全证明与静默错误收口之上，当前 **v0.12.0** 收口两条主线——**exec 后端打通自举**：`uya run --vm` / `uya test --vm` 解释执行 `src/main.uya` 能编出可用的原生编译器，自举产物可再编出可运行二进制，CPU 普查 912/912，解释器峰值 RSS 由 57 GB 降到 **34.7 GB**（引用计数回收、精确分配、值竞技场分段串联、竞技场护栏）；**新语言特性**：`struct` 匿名 union 重叠块（规范 **0.49.57**，互斥字段共享存储、`v.field` 直接访问），自举编译器 `ASTNode` 借此从 1848 B 压到 **152 B**。附带 P-384/P-256 域运算提速、std.async / UyaGin / DNS 语义级修复与 CPU/内存两条普查门禁。
 
 ## 文档
 
@@ -383,6 +383,6 @@ fn increment(counter: *Counter) void {
 
 ---
 
-**注意**：语言规范为完整版（0.49.56）；当前 **里程碑发行**为 **v0.11.0**，说明见 [docs/releases/RELEASE_v0.11.0.md](./docs/releases/RELEASE_v0.11.0.md)；上一里程碑总览见 [docs/releases/RELEASE_v0.10.4.md](./docs/releases/RELEASE_v0.10.4.md) 与 [docs/uya.md](./docs/uya.md)。
+**注意**：语言规范为完整版（0.49.57）；当前 **里程碑发行**为 **v0.12.0**，说明见 [docs/releases/RELEASE_v0.12.0.md](./docs/releases/RELEASE_v0.12.0.md)；上一里程碑总览见 [docs/releases/RELEASE_v0.11.0.md](./docs/releases/RELEASE_v0.11.0.md) 与 [docs/uya.md](./docs/uya.md)。
 
 **许可证**：本项目采用 [MIT 许可证](./LICENSE)。Copyright (c) 2025-2026 Uya 语言项目
