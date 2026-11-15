@@ -60,6 +60,9 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_branch }}
+      # 只认「这个标签对象当前指向的提交」上的 CI。同一个标签名可能被重推过（历史上就发生过），
+      # 旧标签对象上那次红不能拖累新提交的发布。
+      TAG_SHA_EVENT: ${{ github.event.workflow_run.head_sha }}
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
       ALLOW_RED_CI: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_red_ci || false }}
       OVERRIDE_REASON: ${{ github.event_name == 'workflow_dispatch' && inputs.reason || '' }}
@@ -96,6 +99,22 @@ jobs:
             echo "::warning::${TAG} 跳过 CI 闸门发布：${OVERRIDE_REASON}"
             exit 0
           fi
+          SHA="${TAG_SHA_EVENT:-}"
+          if [ -z "${SHA}" ]; then
+            # 手动触发：从远端标签对象解引用出提交（annotated tag 要再取一层）。
+            ref=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" 2>/dev/null || true)
+            sha=$(printf '%s' "${ref}" | jq -r '.object.sha // empty')
+            type=$(printf '%s' "${ref}" | jq -r '.object.type // empty')
+            if [ "${type}" = "tag" ] && [ -n "${sha}" ]; then
+              sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${sha}" --jq '.object.sha' 2>/dev/null || true)
+            fi
+            SHA="${sha}"
+          fi
+          if [ -z "${SHA}" ]; then
+            echo "::error::拿不到标签 ${TAG} 指向的提交，拒绝发布"
+            exit 1
+          fi
+          echo "标签 ${TAG} 指向提交 ${SHA}（只认该提交上的 CI 结论）"
           deadline=$(( SECONDS + 7200 ))
           while :; do
             all_ok=1
@@ -103,9 +122,9 @@ jobs:
               # 只看该标签触发的 push run：main 上同名 workflow 的成功不能替代标签上的验证。
               state=$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow "${wf}" \
                         --branch "${TAG}" --limit 20 \
-                        --json event,status,conclusion,headBranch \
-                      | jq -r --arg tag "${TAG}" '
-                          map(select(.event == "push" and .headBranch == $tag)) as $runs
+                        --json event,status,conclusion,headBranch,headSha \
+                      | jq -r --arg tag "${TAG}" --arg sha "${SHA}" '
+                          map(select(.event == "push" and .headBranch == $tag and .headSha == $sha)) as $runs
                           | if ($runs | length) == 0 then "missing"
                             elif ([$runs[] | select(.status != "completed")] | length) > 0 then "pending"
                             elif ([$runs[] | select(.conclusion != "success")] | length) > 0 then "failed"
@@ -144,9 +163,9 @@ jobs:
           for wf in ${ADVISORY_WORKFLOWS:-}; do
             state=$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow "${wf}" \
                       --branch "${TAG}" --limit 20 \
-                      --json event,status,conclusion,headBranch \
-                    | jq -r --arg tag "${TAG}" '
-                        map(select(.event == "push" and .headBranch == $tag)) as $runs
+                      --json event,status,conclusion,headBranch,headSha \
+                    | jq -r --arg tag "${TAG}" --arg sha "${SHA}" '
+                        map(select(.event == "push" and .headBranch == $tag and .headSha == $sha)) as $runs
                         | if ($runs | length) == 0 then "missing"
                           elif ([$runs[] | select(.status != "completed")] | length) > 0 then "pending"
                           elif ([$runs[] | select(.conclusion != "success")] | length) > 0 then "failed"

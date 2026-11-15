@@ -1,0 +1,1709 @@
+2026-10-23T23:05:25.5731030Z Current runner version: '2.338.0'
+2026-10-23T23:05:25.5749540Z ##[group]Runner Image Provisioner
+2026-10-23T23:05:25.5750240Z Hosted Compute Agent
+2026-10-23T23:05:25.5750630Z Version: 20260828.587
+2026-10-23T23:05:25.5797080Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-10-23T23:05:25.5797710Z Build Date: 2026-08-28T16:44:25Z
+2026-10-23T23:05:25.5798160Z Worker ID: {f08ff8f0-80d2-4d97-ba0a-8f77190cad0c}
+2026-10-23T23:05:25.5798610Z Azure Region: westus
+2026-10-23T23:05:25.5798980Z ##[endgroup]
+2026-10-23T23:05:25.5800760Z ##[group]Operating System
+2026-10-23T23:05:25.5801150Z macOS
+2026-10-23T23:05:25.5801470Z 15.7.9
+2026-10-23T23:05:25.5801790Z 24G830
+2026-10-23T23:05:25.5802110Z ##[endgroup]
+2026-10-23T23:05:25.5802450Z ##[group]Runner Image
+2026-10-23T23:05:25.5802830Z Image: macos-15-arm64
+2026-10-23T23:05:25.5803200Z Version: 20260907.0337.1
+2026-10-23T23:05:25.5804070Z Included Software: https://github.com/actions/runner-images/blob/macos-15-arm64/20260907.0337/images/macos/macos-15-arm64-Readme.md
+2026-10-23T23:05:25.5805110Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-15-arm64%2F20260907.0337
+2026-10-23T23:05:25.5805760Z ##[endgroup]
+2026-10-23T23:05:25.5806570Z ##[group]GITHUB_TOKEN Permissions
+2026-10-23T23:05:25.5808330Z Contents: read
+2026-10-23T23:05:25.5808700Z Metadata: read
+2026-10-23T23:05:25.5809040Z Packages: read
+2026-10-23T23:05:25.5809400Z ##[endgroup]
+2026-10-23T23:05:25.5810960Z Secret source: Actions
+2026-10-23T23:05:25.5811530Z Cache mode: write
+2026-10-23T23:05:25.5811980Z Prepare workflow directory
+2026-10-23T23:05:25.6331450Z Prepare all required actions
+2026-10-23T23:05:25.6368980Z Getting action download info
+2026-10-23T23:05:25.9470600Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-23T23:05:26.5413410Z Complete job name: hosted
+2026-10-23T23:05:26.6179940Z ##[group]Run actions/checkout@v4
+2026-10-23T23:05:26.6182650Z with:
+2026-10-23T23:05:26.6183020Z   repository: uya-lang/uya
+2026-10-23T23:05:26.6185990Z   token: ***
+2026-10-23T23:05:26.6186320Z   ssh-strict: true
+2026-10-23T23:05:26.6186670Z   ssh-user: git
+2026-10-23T23:05:26.6187090Z   persist-credentials: true
+2026-10-23T23:05:26.6187450Z   clean: true
+2026-10-23T23:05:26.6187780Z   sparse-checkout-cone-mode: true
+2026-10-23T23:05:26.6188170Z   fetch-depth: 1
+2026-10-23T23:05:26.6188500Z   fetch-tags: false
+2026-10-23T23:05:26.6188830Z   show-progress: true
+2026-10-23T23:05:26.6189170Z   lfs: false
+2026-10-23T23:05:26.6189480Z   submodules: false
+2026-10-23T23:05:26.6189820Z   set-safe-directory: true
+2026-10-23T23:05:26.6190200Z   allow-unsafe-pr-checkout: false
+2026-10-23T23:05:26.6190940Z env:
+2026-10-23T23:05:26.6191260Z   HOST_OS: macos
+2026-10-23T23:05:26.6191590Z   HOST_ARCH: arm64
+2026-10-23T23:05:26.6191920Z   TARGET_OS: macos
+2026-10-23T23:05:26.6192310Z   TARGET_ARCH: arm64
+2026-10-23T23:05:26.6192680Z   UYA_ROOT: /Users/runner/work/uya/uya/lib/
+2026-10-23T23:05:26.6193090Z   LC_ALL: C
+2026-10-23T23:05:26.6193400Z ##[endgroup]
+2026-10-23T23:05:27.1242410Z Syncing repository: uya-lang/uya
+2026-10-23T23:05:27.1245970Z ##[group]Getting Git version info
+2026-10-23T23:05:27.1246540Z Working directory is '/Users/runner/work/uya/uya'
+2026-10-23T23:05:27.1247310Z [command]/opt/homebrew/bin/git version
+2026-10-23T23:05:27.1908510Z git version 2.55.0
+2026-10-23T23:05:27.1925700Z ##[endgroup]
+2026-10-23T23:05:27.1934610Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/d5d1fb6f-c1f8-4e19-975b-ac718117a1fb/.gitconfig'
+2026-10-23T23:05:27.1942700Z Temporarily overriding HOME='/Users/runner/work/_temp/d5d1fb6f-c1f8-4e19-975b-ac718117a1fb' before making global git config changes
+2026-10-23T23:05:27.1943680Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-23T23:05:27.1953150Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/uya/uya
+2026-10-23T23:05:27.2102380Z Deleting the contents of '/Users/runner/work/uya/uya'
+2026-10-23T23:05:27.2108910Z ##[group]Initializing the repository
+2026-10-23T23:05:27.2112230Z [command]/opt/homebrew/bin/git init /Users/runner/work/uya/uya
+2026-10-23T23:05:27.2397060Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-23T23:05:27.2412430Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-23T23:05:27.2414430Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-23T23:05:27.2429730Z hint: call:
+2026-10-23T23:05:27.2435710Z hint:
+2026-10-23T23:05:27.2454340Z hint: 	git config --global init.defaultBranch <name>
+2026-10-23T23:05:27.2455190Z hint:
+2026-10-23T23:05:27.2455890Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-23T23:05:27.2456890Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-23T23:05:27.2457920Z hint:
+2026-10-23T23:05:27.2458600Z hint: 	git branch -m <name>
+2026-10-23T23:05:27.2459200Z hint:
+2026-10-23T23:05:27.2461880Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-23T23:05:27.2465290Z Initialized empty Git repository in /Users/runner/work/uya/uya/.git/
+2026-10-23T23:05:27.2473590Z [command]/opt/homebrew/bin/git remote add origin https://github.com/uya-lang/uya
+2026-10-23T23:05:27.2548330Z ##[endgroup]
+2026-10-23T23:05:27.2550110Z ##[group]Disabling automatic garbage collection
+2026-10-23T23:05:27.2551910Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-10-23T23:05:27.2633860Z ##[endgroup]
+2026-10-23T23:05:27.2635400Z ##[group]Setting up auth
+2026-10-23T23:05:27.2638070Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-23T23:05:27.2724360Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-23T23:05:27.3997800Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-23T23:05:27.4065120Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-23T23:05:27.5088750Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-23T23:05:27.5108810Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-23T23:05:27.6211910Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-23T23:05:27.6214790Z ##[endgroup]
+2026-10-23T23:05:27.6215850Z ##[group]Fetching the repository
+2026-10-23T23:05:27.6217440Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +0c09f71499aabdf4b44444d33ca849eb23c92c2a:refs/remotes/origin/main
+2026-10-23T23:05:30.0894860Z From https://github.com/uya-lang/uya
+2026-10-23T23:05:30.0898870Z  * [new ref]         0c09f71499aabdf4b44444d33ca849eb23c92c2a -> origin/main
+2026-10-23T23:05:30.0906440Z ##[endgroup]
+2026-10-23T23:05:30.0908940Z ##[group]Determining the checkout info
+2026-10-23T23:05:30.0911750Z ##[endgroup]
+2026-10-23T23:05:30.0913450Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-10-23T23:05:30.1085300Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-23T23:05:30.1273170Z ##[group]Checking out the ref
+2026-10-23T23:05:30.1285020Z [command]/opt/homebrew/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-10-23T23:05:31.2449160Z Switched to a new branch 'main'
+2026-10-23T23:05:31.2456780Z branch 'main' set up to track 'origin/main'.
+2026-10-23T23:05:31.2504600Z ##[endgroup]
+2026-10-23T23:05:31.2703190Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-10-23T23:05:31.2820800Z 0c09f71499aabdf4b44444d33ca849eb23c92c2a
+2026-10-23T23:05:31.3128360Z ##[group]Run rm -rf bin
+2026-10-23T23:05:31.3128880Z [36;1mrm -rf bin[0m
+2026-10-23T23:05:31.3129260Z [36;1mmkdir -p bin[0m
+2026-10-23T23:05:31.3182830Z shell: /bin/bash -e {0}
+2026-10-23T23:05:31.3183310Z env:
+2026-10-23T23:05:31.3183690Z   HOST_OS: macos
+2026-10-23T23:05:31.3184120Z   HOST_ARCH: arm64
+2026-10-23T23:05:31.3184420Z   TARGET_OS: macos
+2026-10-23T23:05:31.3184780Z   TARGET_ARCH: arm64
+2026-10-23T23:05:31.3185110Z   UYA_ROOT: /Users/runner/work/uya/uya/lib/
+2026-10-23T23:05:31.3185480Z   LC_ALL: C
+2026-10-23T23:05:31.3185760Z ##[endgroup]
+2026-10-23T23:05:31.3710210Z ##[group]Run make from-c-native
+2026-10-23T23:05:31.3710660Z [36;1mmake from-c-native[0m
+2026-10-23T23:05:31.3747250Z shell: /bin/bash -e {0}
+2026-10-23T23:05:31.3747670Z env:
+2026-10-23T23:05:31.3748170Z   HOST_OS: macos
+2026-10-23T23:05:31.3748520Z   HOST_ARCH: arm64
+2026-10-23T23:05:31.3748800Z   TARGET_OS: macos
+2026-10-23T23:05:31.3749090Z   TARGET_ARCH: arm64
+2026-10-23T23:05:31.3749490Z   UYA_ROOT: /Users/runner/work/uya/uya/lib/
+2026-10-23T23:05:31.3749840Z   LC_ALL: C
+2026-10-23T23:05:31.3750110Z ##[endgroup]
+2026-10-23T23:05:33.1153490Z ==========================================
+2026-10-23T23:05:33.1210560Z 从本机 C99 seed 构建编译器 (from-c-native)
+2026-10-23T23:05:33.1271810Z ==========================================
+2026-10-23T23:05:33.1389110Z bin/uya.c 不存在，使用 macOS hosted 本机备份 backup/uya-hosted-macos-arm64.c ...
+2026-10-23T23:05:33.1884450Z 编译 bin/uya.c ...
+2026-10-23T23:05:33.1952890Z CFLAGS: -std=c99 -O2 -fno-builtin -fwrapv -fno-strict-overflow -Werror
+2026-10-23T23:05:33.1996150Z HOST_OS=macos HOST_ARCH=arm64
+2026-10-23T23:05:33.2072960Z TOOLCHAIN=system
+2026-10-23T23:05:33.2140220Z CC_DRIVER=cc
+2026-10-23T23:06:13.7423910Z 
+2026-10-23T23:06:13.7447840Z ✓ 编译器构建完成: bin/uya
+2026-10-23T23:06:13.7825630Z -rwxr-xr-x  1 runner  staff  2509584 Oct 23 23:06 bin/uya
+2026-10-23T23:06:13.8287760Z ##[group]Run make uya-hosted
+2026-10-23T23:06:13.8289050Z [36;1mmake uya-hosted[0m
+2026-10-23T23:06:13.8800730Z shell: /bin/bash -e {0}
+2026-10-23T23:06:13.8801000Z env:
+2026-10-23T23:06:13.8801300Z   HOST_OS: macos
+2026-10-23T23:06:13.8801500Z   HOST_ARCH: arm64
+2026-10-23T23:06:13.8801700Z   TARGET_OS: macos
+2026-10-23T23:06:13.8801850Z   TARGET_ARCH: arm64
+2026-10-23T23:06:13.8802100Z   UYA_ROOT: /Users/runner/work/uya/uya/lib/
+2026-10-23T23:06:13.8802360Z   LC_ALL: C
+2026-10-23T23:06:13.8803700Z ##[endgroup]
+2026-10-23T23:06:14.0448160Z ==========================================
+2026-10-23T23:06:14.0604290Z 构建自举编译器 (uya-hosted)
+2026-10-23T23:06:14.0701300Z 使用 hosted 链接路径
+2026-10-23T23:06:14.0784720Z ==========================================
+2026-10-23T23:06:14.0960780Z 使用 hosted 编译器编译 src/ ...
+2026-10-23T23:06:14.1061240Z TARGET_OS=macos TARGET_ARCH=arm64 TARGET_TRIPLE=
+2026-10-23T23:06:14.1829770Z ==========================================
+2026-10-23T23:06:14.1831640Z Uya Mini 自举编译（自动依赖收集）
+2026-10-23T23:06:14.1832520Z ==========================================
+2026-10-23T23:06:14.1833390Z 编译器: /Users/runner/work/uya/uya/bin/uya
+2026-10-23T23:06:14.1834700Z 源代码目录: /Users/runner/work/uya/uya/src
+2026-10-23T23:06:14.1835570Z 输出文件: /Users/runner/work/uya/uya/src/build/uya-hosted.c
+2026-10-23T23:06:14.1836470Z 输入路径: /Users/runner/work/uya/uya/src/main.uya
+2026-10-23T23:06:14.1836950Z 
+2026-10-23T23:06:14.1837340Z 注意: 编译器将自动收集所有模块依赖
+2026-10-23T23:06:14.1837800Z ==========================================
+2026-10-23T23:06:14.1838200Z 
+2026-10-23T23:06:26.1504150Z 
+2026-10-23T23:06:26.1519430Z [0;32m✓ 编译成功！[0m
+2026-10-23T23:06:26.1520360Z 
+2026-10-23T23:06:26.1554580Z 
+2026-10-23T23:06:26.1558880Z [1;33m可执行文件未自动生成，尝试手动链接...[0m
+2026-10-23T23:07:04.2337880Z [0;32m✓ C99 可执行文件已生成: /Users/runner/work/uya/uya/bin/uya-hosted[0m
+2026-10-23T23:07:04.2537050Z 
+2026-10-23T23:07:04.2639020Z 可执行文件: /Users/runner/work/uya/uya/bin/uya-hosted
+2026-10-23T23:07:04.2684490Z 文件大小: 2.4M
+2026-10-23T23:07:04.2685130Z 类型: 可执行文件
+2026-10-23T23:07:04.2686230Z 目标文件: /Users/runner/work/uya/uya/src/build/uya-hosted.c（中间文件，可删除）
+2026-10-23T23:07:04.2782950Z 
+2026-10-23T23:07:04.2829370Z 更新 bin/uya.c（若存在单文件 src/build/uya.c）…
+2026-10-23T23:07:04.2874190Z （多文件 C：未生成 src/build/uya.c；单文件见 make backup-seed）
+2026-10-23T23:07:04.2934520Z 
+2026-10-23T23:07:04.2978720Z ✓ 自举编译器构建完成: bin/uya-hosted（hosted）
+2026-10-23T23:07:04.3061330Z 
+2026-10-23T23:07:04.3133430Z 提示: 运行 'make b-hosted' 验证 hosted 自举
+2026-10-23T23:07:04.3380570Z ##[group]Run make b-hosted
+2026-10-23T23:07:04.3381340Z [36;1mmake b-hosted[0m
+2026-10-23T23:07:04.3498410Z shell: /bin/bash -e {0}
+2026-10-23T23:07:04.3498780Z env:
+2026-10-23T23:07:04.3498990Z   HOST_OS: macos
+2026-10-23T23:07:04.3499240Z   HOST_ARCH: arm64
+2026-10-23T23:07:04.3499490Z   TARGET_OS: macos
+2026-10-23T23:07:04.3499800Z   TARGET_ARCH: arm64
+2026-10-23T23:07:04.3500340Z   UYA_ROOT: /Users/runner/work/uya/uya/lib/
+2026-10-23T23:07:04.3500690Z   LC_ALL: C
+2026-10-23T23:07:04.3501480Z ##[endgroup]
+2026-10-23T23:07:04.4607650Z ==========================================
+2026-10-23T23:07:04.4664340Z 构建自举编译器 (uya-hosted)
+2026-10-23T23:07:04.4716960Z 使用 hosted 链接路径
+2026-10-23T23:07:04.4767100Z ==========================================
+2026-10-23T23:07:04.4925290Z 使用 hosted 编译器编译 src/ ...
+2026-10-23T23:07:04.5001320Z TARGET_OS=macos TARGET_ARCH=arm64 TARGET_TRIPLE=
+2026-10-23T23:07:04.5640000Z ==========================================
+2026-10-23T23:07:04.5641350Z Uya Mini 自举编译（自动依赖收集）
+2026-10-23T23:07:04.5641930Z ==========================================
+2026-10-23T23:07:04.5642740Z 编译器: /Users/runner/work/uya/uya/bin/uya
+2026-10-23T23:07:04.5643700Z 源代码目录: /Users/runner/work/uya/uya/src
+2026-10-23T23:07:04.5644630Z 输出文件: /Users/runner/work/uya/uya/src/build/uya-hosted.c
+2026-10-23T23:07:04.5645470Z 输入路径: /Users/runner/work/uya/uya/src/main.uya
+2026-10-23T23:07:04.5645920Z 
+2026-10-23T23:07:04.5646200Z 注意: 编译器将自动收集所有模块依赖
+2026-10-23T23:07:04.5646670Z ==========================================
+2026-10-23T23:07:04.5647060Z 
+2026-10-23T23:07:13.3866370Z 
+2026-10-23T23:07:13.3870460Z [0;32m✓ 编译成功！[0m
+2026-10-23T23:07:13.3871420Z 
+2026-10-23T23:07:13.3908390Z 
+2026-10-23T23:07:13.3910460Z [1;33mC 源文件已更新，重新链接可执行文件...[0m
+2026-10-23T23:07:49.6166700Z [0;32m✓ C99 可执行文件已生成: /Users/runner/work/uya/uya/bin/uya-hosted[0m
+2026-10-23T23:07:49.6168120Z 
+2026-10-23T23:07:49.6168800Z 可执行文件: /Users/runner/work/uya/uya/bin/uya-hosted
+2026-10-23T23:07:49.6247670Z 文件大小: 2.4M
+2026-10-23T23:07:49.6248950Z 类型: 可执行文件
+2026-10-23T23:07:49.6250480Z 目标文件: /Users/runner/work/uya/uya/src/build/uya-hosted.c（中间文件，可删除）
+2026-10-23T23:07:49.6387430Z 
+2026-10-23T23:07:49.6442180Z 更新 bin/uya.c（若存在单文件 src/build/uya.c）…
+2026-10-23T23:07:49.6526310Z （多文件 C：未生成 src/build/uya.c；单文件见 make backup-seed）
+2026-10-23T23:07:49.6578230Z 
+2026-10-23T23:07:49.6637120Z ✓ 自举编译器构建完成: bin/uya-hosted（hosted）
+2026-10-23T23:07:49.6715310Z 
+2026-10-23T23:07:49.6775230Z 提示: 运行 'make b-hosted' 验证 hosted 自举
+2026-10-23T23:07:49.6937790Z ==========================================
+2026-10-23T23:07:49.7033330Z hosted 自举验证：编译器编译自身，验证输出一致性
+2026-10-23T23:07:49.7080130Z ==========================================
+2026-10-23T23:07:49.7659250Z ==========================================
+2026-10-23T23:07:49.7661290Z Uya Mini 自举编译（自动依赖收集）
+2026-10-23T23:07:49.7661920Z ==========================================
+2026-10-23T23:07:49.7663520Z 编译器: /Users/runner/work/uya/uya/bin/uya-hosted
+2026-10-23T23:07:49.7664250Z 源代码目录: /Users/runner/work/uya/uya/src
+2026-10-23T23:07:49.7664740Z 输出文件: /Users/runner/work/uya/uya/src/build/uya-hosted.c
+2026-10-23T23:07:49.7665390Z 输入路径: /Users/runner/work/uya/uya/src/main.uya
+2026-10-23T23:07:49.7665690Z 
+2026-10-23T23:07:49.7665830Z 注意: 编译器将自动收集所有模块依赖
+2026-10-23T23:07:49.7666230Z ==========================================
+2026-10-23T23:07:49.7697380Z 
+2026-10-23T23:07:58.6144480Z 
+2026-10-23T23:07:58.6150700Z [0;32m✓ 编译成功！[0m
+2026-10-23T23:07:58.6151450Z 
+2026-10-23T23:07:58.6193060Z 
+2026-10-23T23:07:58.6194700Z [1;33mC 源文件已更新，重新链接可执行文件...[0m
+2026-10-23T23:08:35.7113380Z [0;32m✓ C99 可执行文件已生成: /Users/runner/work/uya/uya/bin/uya-hosted[0m
+2026-10-23T23:08:35.7125580Z 
+2026-10-23T23:08:35.7229410Z 可执行文件: /Users/runner/work/uya/uya/bin/uya-hosted
+2026-10-23T23:08:35.7332870Z 文件大小: 2.4M
+2026-10-23T23:08:35.7409000Z 类型: 可执行文件
+2026-10-23T23:08:35.7411230Z 目标文件: /Users/runner/work/uya/uya/src/build/uya-hosted.c（中间文件，可删除）
+2026-10-23T23:08:35.7418800Z 
+2026-10-23T23:08:35.7419940Z ==========================================
+2026-10-23T23:08:35.7428240Z 自举对比：用自举编译器编译自身，对比 C 输出（diff）
+2026-10-23T23:08:35.7431770Z Darwin hosted（单文件自举）：默认优先使用 C 输出对比，避免依赖 GNU/ELF 风格的二进制规范化。
+2026-10-23T23:08:35.7433480Z ==========================================
+2026-10-23T23:08:45.2560180Z [0;32m✓ 自举对比一致：C 编译器与自举编译器生成的 C 文件完全一致[0m
+2026-10-23T23:08:45.2660690Z 
+2026-10-23T23:08:45.2709440Z ✓ hosted 自举验证完成
+2026-10-23T23:08:45.2890710Z ##[group]Run make tests-hosted
+2026-10-23T23:08:45.2891190Z [36;1mmake tests-hosted[0m
+2026-10-23T23:08:45.3172520Z shell: /bin/bash -e {0}
+2026-10-23T23:08:45.3172770Z env:
+2026-10-23T23:08:45.3173010Z   HOST_OS: macos
+2026-10-23T23:08:45.3173220Z   HOST_ARCH: arm64
+2026-10-23T23:08:45.3173610Z   TARGET_OS: macos
+2026-10-23T23:08:45.3173930Z   TARGET_ARCH: arm64
+2026-10-23T23:08:45.3174230Z   UYA_ROOT: /Users/runner/work/uya/uya/lib/
+2026-10-23T23:08:45.3197020Z   LC_ALL: C
+2026-10-23T23:08:45.3197170Z   TEST_PROFILE: hosted
+2026-10-23T23:08:45.3197340Z   SKIP_DARWIN_DEFAULT: 1
+2026-10-23T23:08:45.3197580Z ##[endgroup]
+2026-10-23T23:08:45.5407850Z ==========================================
+2026-10-23T23:08:45.5409370Z 测试 hosted 编译器 (uya-hosted)
+2026-10-23T23:08:45.5410270Z ==========================================
+2026-10-23T23:09:32.9320550Z 开始运行 Uya 测试程序（并行版本，3 线程）...
+2026-10-23T23:09:32.9324450Z 使用编译器: /Users/runner/work/uya/uya/bin/uya-hosted
+2026-10-23T23:09:32.9339560Z fd 上限: unlimited（RLIMIT_NOFILE 软上限，已按硬上限提升）
+2026-10-23T23:09:32.9339960Z 
+2026-10-23T23:09:39.8630070Z 提示: 宿主为 macOS，已默认跳过 Linux syscall/async/pthread 与 arm64 不适用用例（SKIP_DARWIN_DEFAULT=0 可关闭）
+2026-10-23T23:09:39.8631470Z 
+2026-10-23T23:09:40.0442840Z 提示: 当前工具链无法链接 libcrypto，已跳过 test_tls_ecdsa
+2026-10-23T23:09:40.0543330Z 
+2026-10-23T23:09:48.0307980Z 发现 1031 个测试任务
+2026-10-23T23:09:48.0308730Z 
+2026-10-23T23:09:55.5501500Z [1030/1031] 测试: multifile (多文件编译)
+2026-10-23T23:09:57.6296820Z   ✓ multifile:多文件测试通过
+2026-10-23T23:09:57.6372170Z [1031/1031] 测试: cross_deps (多文件编译)
+2026-10-23T23:09:58.0072310Z   ✓ cross_deps:多文件测试通过
+2026-10-23T23:09:58.0120440Z 
+2026-10-23T23:09:58.0128130Z 开始顺序执行 8 个网络敏感单文件测试...
+2026-10-23T23:09:58.0376450Z   -> 运行 test_https_google
+2026-10-23T23:10:00.9823210Z   ✓ test_https_google:测试通过
+2026-10-23T23:10:01.0116870Z   -> 运行 test_https_production
+2026-10-23T23:10:03.7888600Z   ✓ test_https_production:测试通过
+2026-10-23T23:10:03.8212800Z   -> 运行 test_https_debug
+2026-10-23T23:10:06.7588240Z   ✓ test_https_debug:测试通过
+2026-10-23T23:10:06.8355910Z   -> 运行 test_https_loopback
+2026-10-23T23:10:10.0393640Z   ✓ test_https_loopback:测试通过
+2026-10-23T23:10:10.0630390Z   -> 运行 test_raw_tls
+2026-10-23T23:10:11.1930750Z   ✓ test_raw_tls:测试通过
+2026-10-23T23:10:11.2222200Z   -> 运行 test_struct_method_chain
+2026-10-23T23:10:11.5206640Z   ✓ test_struct_method_chain:测试通过
+2026-10-23T23:10:11.5436060Z   -> 运行 test_https_real_site
+2026-10-23T23:10:14.7939370Z   ✓ test_https_real_site:测试通过
+2026-10-23T23:10:14.8326660Z   -> 运行 test_union_variant_generic_method
+2026-10-23T23:10:15.1450260Z   ✓ test_union_variant_generic_method:测试通过
+2026-10-23T23:10:15.1491830Z   顺序单文件测试完成
+2026-10-23T23:10:15.1494080Z 
+2026-10-23T23:10:15.1495740Z 开始并行执行 1021 个单文件测试（3 线程，流水线式）...
+2026-10-23T23:10:15.2166030Z   (当前 bash 不支持 wait -n，使用批量并行模式)
+2026-10-23T23:10:15.5305480Z   ✓ minimal_extern_test:测试通过
+2026-10-23T23:10:15.5437200Z   ✓ test_simple_conversion_correct:测试通过
+2026-10-23T23:10:15.5578470Z   ✓ test_usize:测试通过
+2026-10-23T23:10:15.9384240Z   ✓ test_len:测试通过
+2026-10-23T23:10:15.9507070Z   ✓ error_asm_missing_close_paren:预期编译失败
+2026-10-23T23:10:15.9655530Z   ✓ error_const_overflow_sub_add_boundary:预期编译失败
+2026-10-23T23:10:16.5227710Z   ✓ test_tls_async_runtime_boundary:测试通过
+2026-10-23T23:10:16.5602640Z   ✓ test_tflm_interpreter:测试通过
+2026-10-23T23:10:16.5817530Z   ✓ error_interface_static_method:预期编译失败
+2026-10-23T23:10:17.6246690Z ----- linker output begin: test_typed_pipeline_capability -----
+2026-10-23T23:10:17.6365000Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_capability/compiler_work/test_typed_pipeline_capability.c:3193:18: error: conflicting types for 'ptsname'
+2026-10-23T23:10:17.6381160Z  3193 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:10:17.6398810Z       |                  ^
+2026-10-23T23:10:17.6411110Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:10:17.6453560Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:10:17.6466220Z       |                         ^
+2026-10-23T23:10:17.6470110Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_capability/compiler_work/test_typed_pipeline_capability.c:10751:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:17.6478770Z  10751 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:17.6568250Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:17.6587840Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_capability/compiler_work/test_typed_pipeline_capability.c:10848:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:17.6605030Z  10848 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:17.6657780Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:17.6661960Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_capability/compiler_work/test_typed_pipeline_capability.c:10956:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:17.6665930Z  10956 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:17.6666770Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:17.6669890Z 3 warnings and 1 error generated.
+2026-10-23T23:10:17.6670900Z ----- linker output end: test_typed_pipeline_capability -----
+2026-10-23T23:10:17.6671870Z   ✓ test_generic_minimal:测试通过
+2026-10-23T23:10:17.6672760Z   ❌ test_typed_pipeline_capability:链接失败
+2026-10-23T23:10:17.6843610Z   ✓ error_char_escape_u_overflow:预期编译失败
+2026-10-23T23:10:18.6337800Z   ✓ test_vec_helper:测试通过
+2026-10-23T23:10:18.6580820Z   ✓ test_yaml_parse_invalid:测试通过
+2026-10-23T23:10:18.6708340Z   ✓ test_struct_method_multi:测试通过
+2026-10-23T23:10:19.0957180Z   ✓ test_exec_vm_compiler_repeat_array_literal:测试通过
+2026-10-23T23:10:19.1125710Z   ✓ error_const_sub_overflow:预期编译失败
+2026-10-23T23:10:19.1222300Z   ✓ test_macro_expr_int:测试通过
+2026-10-23T23:10:19.6008480Z   ✓ test_simd_i8_u8_i64_sse:测试通过
+2026-10-23T23:10:19.6180120Z   ✓ test_generic_parser:测试通过
+2026-10-23T23:10:19.6329150Z   ✓ error_embed_non_literal:预期编译失败
+2026-10-23T23:10:21.0335800Z   ✓ test_generic_nested_call:测试通过
+2026-10-23T23:10:21.0512040Z   ✓ test_json_complex:测试通过
+2026-10-23T23:10:21.0662100Z   ✓ test_else_if:测试通过
+2026-10-23T23:10:21.4774940Z   ✓ struct_assignment:测试通过
+2026-10-23T23:10:21.4984250Z   ✓ error_null_deref_write:预期编译失败
+2026-10-23T23:10:21.5188280Z   ✓ test_struct_array_len_div_codegen:测试通过
+2026-10-23T23:10:21.9365340Z   ✓ test_macro_nested_call:测试通过
+2026-10-23T23:10:21.9498220Z   ✓ test_generic_lookahead:测试通过
+2026-10-23T23:10:21.9664900Z   ✓ recursive_fibonacci:测试通过
+2026-10-23T23:10:22.4348090Z   ✓ error_asm_invalid_output_type:预期编译失败
+2026-10-23T23:10:22.4590890Z   ✓ error_atomic_compound_float_rhs:预期编译失败
+2026-10-23T23:10:22.4737670Z   ✓ test_generic_factory_return:测试通过
+2026-10-23T23:10:23.3288470Z ----- linker output begin: test_typed_pipeline_caller_buffers -----
+2026-10-23T23:10:23.3374820Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_caller_buffers/compiler_work/test_typed_pipeline_caller_buffers.c:3150:18: error: conflicting types for 'ptsname'
+2026-10-23T23:10:23.3376920Z  3150 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:10:23.3378740Z       |                  ^
+2026-10-23T23:10:23.3381620Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:10:23.3382540Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:10:23.3383070Z       |                         ^
+2026-10-23T23:10:23.3384440Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_caller_buffers/compiler_work/test_typed_pipeline_caller_buffers.c:10565:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:23.3386300Z  10565 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:23.3386830Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:23.3388390Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_caller_buffers/compiler_work/test_typed_pipeline_caller_buffers.c:10662:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:23.3390200Z  10662 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:23.3390690Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:23.3393240Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_caller_buffers/compiler_work/test_typed_pipeline_caller_buffers.c:10770:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:23.3394590Z  10770 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:23.3394930Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:23.3395250Z 3 warnings and 1 error generated.
+2026-10-23T23:10:23.3395570Z ----- linker output end: test_typed_pipeline_caller_buffers -----
+2026-10-23T23:10:23.3429970Z   ✓ test_defer:测试通过
+2026-10-23T23:10:23.3534430Z   ✓ error_ffi_ptr_in_normal_fn:预期编译失败
+2026-10-23T23:10:23.3642750Z   ❌ test_typed_pipeline_caller_buffers:链接失败
+2026-10-23T23:10:23.8533730Z   ✓ test_empty_struct_init:测试通过
+2026-10-23T23:10:23.8649220Z   ✓ error_simd_float_vector_mod:预期编译失败
+2026-10-23T23:10:23.8734730Z   ✓ test_json_parse_invalid:测试通过
+2026-10-23T23:10:24.1444700Z ----- linker output begin: test_asm_memory_clobber_flag -----
+2026-10-23T23:10:24.1546670Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_asm_memory_clobber_flag/compiler_work/test_asm_memory_clobber_flag.c:2299:19: error: unrecognized instruction mnemonic
+2026-10-23T23:10:24.1604140Z  2299 | __asm__ volatile ("mfence\n\t"
+2026-10-23T23:10:24.1604940Z       |                   ^
+2026-10-23T23:10:24.1607620Z <inline asm>:1:2: note: instantiated into assembly here
+2026-10-23T23:10:24.1640200Z     1 |         mfence
+2026-10-23T23:10:24.1641460Z       |         ^
+2026-10-23T23:10:24.1642340Z 1 error generated.
+2026-10-23T23:10:24.1643220Z ----- linker output end: test_asm_memory_clobber_flag -----
+2026-10-23T23:10:24.2713140Z   ❌ test_asm_memory_clobber_flag:链接失败
+2026-10-23T23:10:24.2805890Z   ✓ test_kernel_update:测试通过
+2026-10-23T23:10:24.2874780Z   ✓ test_static_method_type_alias:测试通过
+2026-10-23T23:10:24.9420490Z ----- linker output begin: test_module_scope_isolation_stdlib_check -----
+2026-10-23T23:10:24.9522150Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_module_scope_isolation_stdlib_check/compiler_work/test_module_scope_isolation_stdlib_check.c:3154:18: error: conflicting types for 'ptsname'
+2026-10-23T23:10:24.9623300Z  3154 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:10:24.9634730Z       |                  ^
+2026-10-23T23:10:24.9636800Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:10:24.9638100Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:10:24.9638630Z       |                         ^
+2026-10-23T23:10:24.9639970Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_module_scope_isolation_stdlib_check/compiler_work/test_module_scope_isolation_stdlib_check.c:10582:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:24.9641360Z  10582 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:24.9641880Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:24.9643190Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_module_scope_isolation_stdlib_check/compiler_work/test_module_scope_isolation_stdlib_check.c:10679:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:24.9644480Z  10679 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:24.9644920Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:24.9646580Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_module_scope_isolation_stdlib_check/compiler_work/test_module_scope_isolation_stdlib_check.c:10787:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:24.9647870Z  10787 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:24.9648370Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:24.9648830Z 3 warnings and 1 error generated.
+2026-10-23T23:10:24.9649280Z ----- linker output end: test_module_scope_isolation_stdlib_check -----
+2026-10-23T23:10:24.9650790Z   ✓ test_fmt_import_sort:测试通过
+2026-10-23T23:10:24.9666500Z   ✓ test_struct_inner_method_multi:测试通过
+2026-10-23T23:10:24.9746530Z   ❌ test_module_scope_isolation_stdlib_check:链接失败
+2026-10-23T23:10:25.2736790Z   ✓ test_macro_func_position:测试通过
+2026-10-23T23:10:25.2801330Z   ✓ test_union_struct_variant:测试通过
+2026-10-23T23:10:25.2868220Z   ✓ test_binary_expr:测试通过
+2026-10-23T23:10:25.6100400Z   ✓ test_exec_vm_simd_unsupported:测试通过
+2026-10-23T23:10:25.6177330Z   ✓ test_crypto_blake3:测试通过
+2026-10-23T23:10:25.6253140Z   ✓ test_tls_aes_gcm:测试通过
+2026-10-23T23:10:28.6340850Z   ✓ test_nested_struct_access:测试通过
+2026-10-23T23:10:28.6430270Z   ✓ test_http_uyagin_websocket:测试通过
+2026-10-23T23:10:28.6510080Z   ✓ test_macro_for_typeinfo_fields:测试通过
+2026-10-23T23:10:32.2386080Z   ✓ test_generic_struct_fn:测试通过
+2026-10-23T23:10:32.2506830Z   ✓ test_http_websocket_read_message_semantics:测试通过
+2026-10-23T23:10:32.2681730Z   ✓ test_module_export:测试通过
+2026-10-23T23:10:32.7529030Z   ✓ test_exec_vm_interface_stateful:测试通过
+2026-10-23T23:10:32.7593630Z   ✓ test_exec_vm_catch_bare_return:测试通过
+2026-10-23T23:10:32.7679160Z   ✓ test_exec_vm_error_builtin:测试通过
+2026-10-23T23:10:33.0522760Z   ✓ test_fmt_rewrite:测试通过
+2026-10-23T23:10:33.0621110Z   ✓ error_array_bounds_const_expr:预期编译失败
+2026-10-23T23:10:33.0757440Z   ✓ test_loop_unroll:测试通过
+2026-10-23T23:10:33.3341190Z   ✓ test_http_hpack:测试通过
+2026-10-23T23:10:33.3413180Z   ✓ test_exec_vm_hir_scope:测试通过
+2026-10-23T23:10:33.3504290Z   ✓ error_array_bounds_interval_wrap:预期编译失败
+2026-10-23T23:10:34.0046300Z   ✓ test_exec_vm_stdio_varargs:测试通过
+2026-10-23T23:10:34.0160350Z   ✓ test_simd_i16_add:测试通过
+2026-10-23T23:10:34.0252840Z   ✓ error_print_unsupported_type:预期编译失败
+2026-10-23T23:10:34.8691460Z   ✓ test_print_builtin_format:测试通过
+2026-10-23T23:10:34.8880140Z   ✓ test_errdefer_only_on_error:测试通过
+2026-10-23T23:10:34.9030900Z   ✓ test_function_call_pointer_return:测试通过
+2026-10-23T23:10:35.3478850Z   ✓ test_break_continue_for:测试通过
+2026-10-23T23:10:35.3609220Z   ✓ test_exec_vm_compiler_match_return_block_multi_stmt:测试通过
+2026-10-23T23:10:35.3724310Z   ✓ test_http_websocket_http2_h3_route:测试通过
+2026-10-23T23:10:38.5211170Z   ✓ test_http_websocket_handshake:测试通过
+2026-10-23T23:10:38.5338920Z   ✓ test_slice_to_byte_pointer_arg:测试通过
+2026-10-23T23:10:38.5436000Z   ✓ test_operator_precedence:测试通过
+2026-10-23T23:10:39.1568610Z   ✓ test_ffi_cast:测试通过
+2026-10-23T23:10:39.1683070Z   ✓ test_exec_vm_compiler_error_union_value:测试通过
+2026-10-23T23:10:39.1810030Z   ✓ test_yaml_parse_flow_array:测试通过
+2026-10-23T23:10:39.9252280Z ----- linker output begin: test_typed_pipeline_executor_single -----
+2026-10-23T23:10:39.9349040Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_executor_single/compiler_work/test_typed_pipeline_executor_single.c:3164:18: error: conflicting types for 'ptsname'
+2026-10-23T23:10:39.9350620Z  3164 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:10:39.9353540Z       |                  ^
+2026-10-23T23:10:39.9366040Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:10:39.9468070Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:10:39.9500530Z       |                         ^
+2026-10-23T23:10:39.9512360Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_executor_single/compiler_work/test_typed_pipeline_executor_single.c:10775:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:39.9514180Z  10775 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:39.9515530Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:39.9518280Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_executor_single/compiler_work/test_typed_pipeline_executor_single.c:10872:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:39.9519620Z  10872 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:39.9520020Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:39.9522620Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_executor_single/compiler_work/test_typed_pipeline_executor_single.c:10980:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:39.9523970Z  10980 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:39.9531420Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:39.9531830Z 3 warnings and 1 error generated.
+2026-10-23T23:10:39.9533490Z ----- linker output end: test_typed_pipeline_executor_single -----
+2026-10-23T23:10:39.9535760Z   ✓ test_enum_explicit_value:测试通过
+2026-10-23T23:10:39.9587800Z   ❌ test_typed_pipeline_executor_single:链接失败
+2026-10-23T23:10:39.9687570Z   ✓ test_try_overflow_types:测试通过
+2026-10-23T23:10:40.3108410Z   ✓ error_simd_vector_load_pointee_mismatch:预期编译失败
+2026-10-23T23:10:40.3209220Z   ✓ test_generic_struct_nested:测试通过
+2026-10-23T23:10:40.3363060Z   ✓ test_fmt_tokenizer:测试通过
+2026-10-23T23:10:43.1599200Z   ✓ test_http_websocket_heartbeat_config:测试通过
+2026-10-23T23:10:43.1702140Z   ✓ test_static_method_generic_struct:测试通过
+2026-10-23T23:10:43.1774410Z   ✓ error_async_frame_pinned_return:预期编译失败
+2026-10-23T23:10:43.4914740Z   ✓ error_module_use_undefined:预期编译失败
+2026-10-23T23:10:43.4979080Z   ✓ test_pointer_array_field_access:测试通过
+2026-10-23T23:10:43.5048170Z   ✓ control_flow:测试通过
+2026-10-23T23:10:44.3911860Z   ✓ test_json_expect_helpers:测试通过
+2026-10-23T23:10:44.3997990Z   ✓ test_json_encode_arena:测试通过
+2026-10-23T23:10:44.4103340Z   ✓ test_json_array:测试通过
+2026-10-23T23:10:44.7618290Z   ✓ comparison:测试通过
+2026-10-23T23:10:44.7689640Z   ✓ error_struct_method_arg_count:预期编译失败
+2026-10-23T23:10:44.7780960Z   ✓ test_simd_u32_basic:测试通过
+2026-10-23T23:10:45.0095020Z   ✓ error_asm_missing_close_brace:预期编译失败
+2026-10-23T23:10:45.0169290Z   ✓ test_macro_edge_cases:测试通过
+2026-10-23T23:10:45.0253570Z   ✓ error_simd_vector_select_mask_lanes:预期编译失败
+2026-10-23T23:10:45.4128760Z   ✓ error_array_bounds_unsigned_cast_upper_only:预期编译失败
+2026-10-23T23:10:45.4260660Z   ✓ error_asm_too_many_inputs:预期编译失败
+2026-10-23T23:10:45.4510340Z   ✓ test_fmt_trailing_comment_attach:测试通过
+2026-10-23T23:10:45.8294960Z   ✓ error_interp_dynamic_width:预期编译失败
+2026-10-23T23:10:45.8498100Z   ✓ test_errdefer_scope:测试通过
+2026-10-23T23:10:45.8691000Z   ✓ test_method_block_string_constant:测试通过
+2026-10-23T23:10:46.6044180Z ----- linker output begin: test_std_script_pipeline_facade -----
+2026-10-23T23:10:46.6146020Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_std_script_pipeline_facade/compiler_work/test_std_script_pipeline_facade.c:3190:18: error: conflicting types for 'ptsname'
+2026-10-23T23:10:46.6183400Z  3190 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:10:46.6189180Z       |                  ^
+2026-10-23T23:10:46.6190880Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:10:46.6192790Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:10:46.6193480Z       |                         ^
+2026-10-23T23:10:46.6196810Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_std_script_pipeline_facade/compiler_work/test_std_script_pipeline_facade.c:10807:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:46.6200010Z  10807 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:46.6200440Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:46.6201810Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_std_script_pipeline_facade/compiler_work/test_std_script_pipeline_facade.c:10904:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:46.6203130Z  10904 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:46.6203530Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:46.6209480Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_std_script_pipeline_facade/compiler_work/test_std_script_pipeline_facade.c:11012:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:46.6212780Z  11012 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:46.6213770Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:46.6214440Z 3 warnings and 1 error generated.
+2026-10-23T23:10:46.6215310Z ----- linker output end: test_std_script_pipeline_facade -----
+2026-10-23T23:10:46.6216960Z   ✓ test_boolean_func:测试通过
+2026-10-23T23:10:46.6301210Z   ❌ test_std_script_pipeline_facade:链接失败
+2026-10-23T23:10:46.6444110Z   ✓ error_test_libc_use:预期编译失败
+2026-10-23T23:10:46.9985860Z   ✓ test_simple_fn:测试通过
+2026-10-23T23:10:47.0144980Z   ✓ test_saturating_wrapping:测试通过
+2026-10-23T23:10:47.0264090Z   ✓ error_block_comment_unclosed:预期编译失败
+2026-10-23T23:10:47.3943150Z   ✓ test_simple_cast:测试通过
+2026-10-23T23:10:47.4106580Z   ✓ malloc_test:测试通过
+2026-10-23T23:10:47.4282340Z   ✓ test_try_only:测试通过
+2026-10-23T23:10:47.6811150Z   ✓ test_complex_and:测试通过
+2026-10-23T23:10:47.6901620Z   ✓ test_macro_interp:测试通过
+2026-10-23T23:10:47.6970400Z   ✓ error_const_overflow:预期编译失败
+2026-10-23T23:10:48.2280230Z ----- linker output begin: test_typed_pipeline_parser_positive -----
+2026-10-23T23:10:48.2381440Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_parser_positive/compiler_work/test_typed_pipeline_parser_positive.c:3155:18: error: conflicting types for 'ptsname'
+2026-10-23T23:10:48.2454330Z  3155 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:10:48.2531720Z       |                  ^
+2026-10-23T23:10:48.2541190Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:10:48.2643730Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:10:48.2745340Z       |                         ^
+2026-10-23T23:10:48.2754140Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_parser_positive/compiler_work/test_typed_pipeline_parser_positive.c:10618:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:48.2791410Z  10618 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:48.2797690Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:48.2816850Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_parser_positive/compiler_work/test_typed_pipeline_parser_positive.c:10715:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:48.2822510Z  10715 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:48.2827940Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:48.2832770Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_parser_positive/compiler_work/test_typed_pipeline_parser_positive.c:10823:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:48.2840390Z  10823 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:48.2844640Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:48.2848950Z 3 warnings and 1 error generated.
+2026-10-23T23:10:48.2855740Z ----- linker output end: test_typed_pipeline_parser_positive -----
+2026-10-23T23:10:48.2860750Z   ✓ test_number_literals:测试通过
+2026-10-23T23:10:48.2863890Z   ❌ test_typed_pipeline_parser_positive:链接失败
+2026-10-23T23:10:48.2870920Z   ✓ test_string_literal_init:测试通过
+2026-10-23T23:10:51.7231120Z   ✓ test_http_websocket_heartbeat:测试通过
+2026-10-23T23:10:51.7349320Z   ✓ error_proof_timeout:预期编译失败
+2026-10-23T23:10:51.7455320Z   ❌ test_signal:测试失败（退出码: 1）
+2026-10-23T23:10:52.0649920Z   ✓ error_array_eq_compare:预期编译失败
+2026-10-23T23:10:52.0843800Z   ✓ error_asm_output_pointer:预期编译失败
+2026-10-23T23:10:52.0969610Z   ✓ test_va_builtin:测试通过
+2026-10-23T23:10:52.9985520Z   ✓ error_array_bounds_struct_const:预期编译失败
+2026-10-23T23:10:53.0123670Z   ✓ error_path_for_need_proof:预期编译失败
+2026-10-23T23:10:53.0228650Z   ✓ test_json_from_json_reflect:测试通过
+2026-10-23T23:10:53.3210740Z   ✓ test_print_interp:测试通过
+2026-10-23T23:10:53.3361880Z   ✓ error_drop_duplicate:预期编译失败
+2026-10-23T23:10:53.3485740Z   ✓ test_return_expr_bounds:测试通过
+2026-10-23T23:10:54.0839070Z   ✓ test_kernel_host:测试通过
+2026-10-23T23:10:54.0938840Z   ✓ error_async_errdefer_break:预期编译失败
+2026-10-23T23:10:54.1021680Z   ✓ test_std_base64:测试通过
+2026-10-23T23:10:54.4950060Z   ✓ test_exec_vm_error_union:测试通过
+2026-10-23T23:10:54.5007610Z   ✓ test_empty_array:测试通过
+2026-10-23T23:10:54.5124930Z   ✓ test_if_return_simple:测试通过
+2026-10-23T23:10:54.8479600Z   ✓ error_const_slice_element_assign_member:预期编译失败
+2026-10-23T23:10:54.8561450Z   ✓ void_function:测试通过
+2026-10-23T23:10:54.8669140Z   ✓ error_async_defer_return:预期编译失败
+2026-10-23T23:10:55.3905900Z   ✓ test_simd_vec64_sse_chain:测试通过
+2026-10-23T23:10:55.3991630Z   ✓ test_macro_mc_eval:测试通过
+2026-10-23T23:10:55.4089100Z   ✓ test_yaml_parse_anchor_flow:测试通过
+2026-10-23T23:10:58.9322900Z   ✓ test_http_websocket_module_smoke:测试通过
+2026-10-23T23:10:58.9473410Z   ✓ test_fmt_parser:测试通过
+2026-10-23T23:10:58.9634040Z   ✓ test_http_websocket_async:测试通过
+2026-10-23T23:10:59.7891460Z ----- linker output begin: test_typed_pipeline_checker_positive -----
+2026-10-23T23:10:59.7992790Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_checker_positive/compiler_work/test_typed_pipeline_checker_positive.c:3153:18: error: conflicting types for 'ptsname'
+2026-10-23T23:10:59.8095250Z  3153 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:10:59.8139560Z       |                  ^
+2026-10-23T23:10:59.8158140Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:10:59.8171800Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:10:59.8174950Z       |                         ^
+2026-10-23T23:10:59.8180960Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_checker_positive/compiler_work/test_typed_pipeline_checker_positive.c:10591:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:59.8220540Z  10591 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:59.8225160Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:59.8228370Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_checker_positive/compiler_work/test_typed_pipeline_checker_positive.c:10688:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:59.8229690Z  10688 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:59.8232830Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:59.8262810Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_checker_positive/compiler_work/test_typed_pipeline_checker_positive.c:10796:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:10:59.8273320Z  10796 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:10:59.8282640Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:10:59.8335840Z 3 warnings and 1 error generated.
+2026-10-23T23:10:59.8337800Z ----- linker output end: test_typed_pipeline_checker_positive -----
+2026-10-23T23:10:59.8342930Z   ✓ test_simd_type_positions:测试通过
+2026-10-23T23:10:59.8348770Z   ✓ test_simd_c99_select_emit_u32_only:测试通过
+2026-10-23T23:10:59.8382500Z   ❌ test_typed_pipeline_checker_positive:链接失败
+2026-10-23T23:11:00.3557850Z   ✓ error_typed_pipeline_instance_method_receiver:预期编译失败
+2026-10-23T23:11:00.3641050Z   ✓ test_codegen_declare_function:测试通过
+2026-10-23T23:11:00.3799910Z   ✓ error_defer_return_single:预期编译失败
+2026-10-23T23:11:00.7013930Z   ✓ test_struct_default:测试通过
+2026-10-23T23:11:00.7079130Z   ✓ test_union:测试通过
+2026-10-23T23:11:00.7138860Z   ✓ error_defer_continue:预期编译失败
+2026-10-23T23:11:01.0435140Z   ✓ test_literal_suffix:测试通过
+2026-10-23T23:11:01.0551760Z   ✓ test_defer_scope:测试通过
+2026-10-23T23:11:01.0626020Z   ✓ extern_var_test:测试通过
+2026-10-23T23:11:01.4347970Z   ✓ test_simd_c99_select_emit_i32x2_and_f32x4:测试通过
+2026-10-23T23:11:01.4478970Z   ✓ error_lexer_unknown_char:预期编译失败
+2026-10-23T23:11:01.4674190Z   ✓ test_macro_type:测试通过
+2026-10-23T23:11:01.7711020Z   ✓ error_interface_compose_missing:预期编译失败
+2026-10-23T23:11:01.7872150Z   ✓ error_array_bounds_const:预期编译失败
+2026-10-23T23:11:01.8014720Z   ✓ test_exec_vm_catch_block_prefix:测试通过
+2026-10-23T23:11:03.2416740Z   ✓ test_raw_string:测试通过
+2026-10-23T23:11:03.2541550Z   ✓ test_tls_handshake:测试通过
+2026-10-23T23:11:03.2696230Z   ✓ test_exec_vm_compiler_unary_bit_not:测试通过
+2026-10-23T23:11:03.7136810Z   ✓ test_protobuf_oneof:测试通过
+2026-10-23T23:11:03.7343190Z   ✓ test_crypto_hmac_sha256:测试通过
+2026-10-23T23:11:03.7550950Z   ✓ error_drop_wrong_sig:预期编译失败
+2026-10-23T23:11:04.0742570Z   ✓ error_cast_enum_requires_asbang:预期编译失败
+2026-10-23T23:11:04.0861850Z   ✓ test_simd_mask_bitwise_shift:测试通过
+2026-10-23T23:11:04.0969050Z   ✓ error_extern_union_match:预期编译失败
+2026-10-23T23:11:04.8027850Z   ✓ test_exec_vm_local_load_store:测试通过
+2026-10-23T23:11:04.8099240Z   ✓ error_asm_invalid_input_type:预期编译失败
+2026-10-23T23:11:04.8255310Z   ✓ test_c99_async_frame_empty_descriptors:测试通过
+2026-10-23T23:11:05.2516010Z   ✓ test_protobuf_repeated:测试通过
+2026-10-23T23:11:05.2721620Z   ✓ error_try_overflow_operand_not_integer:预期编译失败
+2026-10-23T23:11:05.2911050Z   ✓ test_embed_builtin:测试通过
+2026-10-23T23:11:05.6957450Z   ✓ test_error_compare_legacy_compat:测试通过
+2026-10-23T23:11:05.7027060Z   ✓ test_simd_vector_reduce_min_max:测试通过
+2026-10-23T23:11:05.7090070Z   ✓ error_simd_float_vector_tilde:预期编译失败
+2026-10-23T23:11:06.2432420Z   ✓ test_macro_expr_bool:测试通过
+2026-10-23T23:11:06.2545210Z   ✓ test_yaml_parse_multi:测试通过
+2026-10-23T23:11:06.2675870Z   ✓ error_typed_pipeline_right_not_call:预期编译失败
+2026-10-23T23:11:07.1522630Z   ✓ test_json_roundtrip:测试通过
+2026-10-23T23:11:07.1676850Z   ✓ repro_codegen_ast_simplify:测试通过
+2026-10-23T23:11:07.1754570Z   ✓ test_simple_compare:测试通过
+2026-10-23T23:11:07.9830470Z   ✓ recursive_mutual:测试通过
+2026-10-23T23:11:07.9922630Z   ✓ error_try_overflow_error_union_subexpr:预期编译失败
+2026-10-23T23:11:08.0003440Z   ✓ test_json_encode_slice:测试通过
+2026-10-23T23:11:08.6577910Z   ✓ test_std_runtime:测试通过
+2026-10-23T23:11:08.6683380Z   ✓ test_exec_vm_stdlib_unistd:测试通过
+2026-10-23T23:11:08.6760420Z   ✓ test_println_basic:测试通过
+2026-10-23T23:11:08.9675790Z   ✓ error_cast_integer_narrow_requires_asbang:预期编译失败
+2026-10-23T23:11:08.9789330Z   ✓ test_const_pointer:测试通过
+2026-10-23T23:11:08.9869510Z   ✓ test_enum_mixed_value:测试通过
+2026-10-23T23:11:09.3500750Z   ✓ test_error_runtime_only:测试通过
+2026-10-23T23:11:09.3578300Z   ✓ test_llvm_ir:测试通过
+2026-10-23T23:11:09.3671150Z   ✓ error_async_frame_pinned_method_arg:预期编译失败
+2026-10-23T23:11:10.0395940Z   ✓ error_async_await_in_defer:预期编译失败
+2026-10-23T23:11:10.0507200Z   ✓ test_simd_vec8_i32:测试通过
+2026-10-23T23:11:10.0637050Z   ✓ test_unistd:测试通过
+2026-10-23T23:11:10.4043140Z   ✓ test_simd_c99_select_emit_i32x2_only:测试通过
+2026-10-23T23:11:10.4154890Z   ✓ test_for_iterator:测试通过
+2026-10-23T23:11:10.4289420Z   ✓ test_error_forward_use:测试通过
+2026-10-23T23:11:10.9036400Z   ✓ error_simd_vector_store_pointee_mismatch:预期编译失败
+2026-10-23T23:11:10.9130100Z   ✓ bench_protobuf:测试通过
+2026-10-23T23:11:10.9229890Z   ✓ test_unary_operators:测试通过
+2026-10-23T23:11:11.1786950Z   ✓ test_return_catch_err_pointer:测试通过
+2026-10-23T23:11:11.1855720Z   ✓ test_ptr_from_usize:测试通过
+2026-10-23T23:11:11.1941860Z   ✓ error_microapp_mode_host_api_libc:预期编译失败
+2026-10-23T23:11:11.7879130Z   ✓ test_exec_vm_extern_impl_body_first:测试通过
+2026-10-23T23:11:11.7977510Z   ✓ test_simd_splat_f32_suffix:测试通过
+2026-10-23T23:11:11.8086310Z   ✓ arithmetic:测试通过
+2026-10-23T23:11:12.0752270Z   ✓ test_exec_vm_compiler_asm_target:测试通过
+2026-10-23T23:11:12.0871120Z   ✓ test_macro_simple_interp:测试通过
+2026-10-23T23:11:12.0998360Z   ✓ pointer_test:测试通过
+2026-10-23T23:11:12.5156410Z   ✓ test_simd_div_f32_i32:测试通过
+2026-10-23T23:11:12.5275870Z   ✓ test_macro_mc_type:测试通过
+2026-10-23T23:11:12.5409490Z   ✓ test_union_generic_to:测试通过
+2026-10-23T23:11:12.9149050Z   ✓ recursive_gcd:测试通过
+2026-10-23T23:11:12.9285310Z   ✓ test_simd_c99_select_emit_f32_only:测试通过
+2026-10-23T23:11:12.9381680Z   ✓ test_exec_vm_short_circuit:测试通过
+2026-10-23T23:11:13.2223760Z   ✓ test_bitwise:测试通过
+2026-10-23T23:11:13.2336280Z   ✓ test_array_addr:测试通过
+2026-10-23T23:11:13.2447290Z   ✓ test_interface_global_init:测试通过
+2026-10-23T23:11:13.4822650Z   ✓ error_syscall_not_const:预期编译失败
+2026-10-23T23:11:13.4915890Z   ✓ test_error_simple:测试通过
+2026-10-23T23:11:13.4994420Z   ✓ error_drop_manual_call:预期编译失败
+2026-10-23T23:11:13.7408740Z ----- linker output begin: test_std_stdlib_malloc_only -----
+2026-10-23T23:11:13.7513470Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:11:13.7607170Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:11:13.7623700Z ----- linker output end: test_std_stdlib_malloc_only -----
+2026-10-23T23:11:13.7883030Z ----- linker output begin: test_libc_heap_tcache -----
+2026-10-23T23:11:13.7911230Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:11:13.7912930Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:11:13.7913510Z ----- linker output end: test_libc_heap_tcache -----
+2026-10-23T23:11:13.7956580Z   ❌ test_std_stdlib_malloc_only:链接失败
+2026-10-23T23:11:13.8042300Z   ✓ error_interface_field_access:预期编译失败
+2026-10-23T23:11:13.8138230Z   ❌ test_libc_heap_tcache:链接失败
+2026-10-23T23:11:14.1034090Z   ✓ test_json_value:测试通过
+2026-10-23T23:11:14.1149770Z   ✓ test_c_import_cflags:测试通过
+2026-10-23T23:11:14.1216130Z   ✓ test_bounds_interval_wrap:测试通过
+2026-10-23T23:11:14.4211200Z   ✓ error_const_mul_overflow:预期编译失败
+2026-10-23T23:11:14.4294770Z   ✓ error_async_defer_continue_nested:预期编译失败
+2026-10-23T23:11:14.4436240Z   ✓ test_compare_simple:测试通过
+2026-10-23T23:11:14.7642640Z ----- linker output begin: bench_malloc_phase4 -----
+2026-10-23T23:11:14.7679210Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:11:14.7680200Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:11:14.7683200Z ----- linker output end: bench_malloc_phase4 -----
+2026-10-23T23:11:14.7816110Z   ✓ error_async_await_in_return:预期编译失败
+2026-10-23T23:11:14.7879830Z   ✓ test_const_pointer_simple:测试通过
+2026-10-23T23:11:14.7975750Z   ❌ bench_malloc_phase4:链接失败
+2026-10-23T23:11:15.2397090Z   ✓ test_yaml_parse_block_scalar:测试通过
+2026-10-23T23:11:15.2493840Z   ✓ test_union_drop_auto_variant:测试通过
+2026-10-23T23:11:15.2629310Z   ✓ test_defer_continue:测试通过
+2026-10-23T23:11:15.5963880Z   ✓ error_typed_pipeline_try_forward_use_after_move:预期编译失败
+2026-10-23T23:11:15.6035830Z   ✓ test_string_layer:测试通过
+2026-10-23T23:11:15.6100990Z   ✓ test_std_net_socket:测试通过
+2026-10-23T23:11:16.6681550Z   ✓ sizeof_test:测试通过
+2026-10-23T23:11:16.6856360Z   ✓ test_generic_in_expr:测试通过
+2026-10-23T23:11:16.6994560Z   ✓ test_c99_async_frame_descriptors:测试通过
+2026-10-23T23:11:17.1724010Z   ✓ test_generic_method_simple:测试通过
+2026-10-23T23:11:17.1795230Z   ✓ test_len_comprehensive:测试通过
+2026-10-23T23:11:17.1898750Z   ✓ test_macro_slice_expr_codegen:测试通过
+2026-10-23T23:11:17.5095880Z   ✓ error_array_bounds_guard_off_by_one:预期编译失败
+2026-10-23T23:11:17.5194640Z   ✓ test_double_pointer_assign_regression:测试通过
+2026-10-23T23:11:17.5295120Z   ✓ test_union_struct_field_codegen:测试通过
+2026-10-23T23:11:17.8267710Z ----- linker output begin: test_mem -----
+2026-10-23T23:11:17.8364310Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:11:17.8365430Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:11:17.8370440Z ----- linker output end: test_mem -----
+2026-10-23T23:11:18.0397820Z   ❌ test_mem:链接失败
+2026-10-23T23:11:18.0516220Z   ✓ test_crypto_crc32:测试通过
+2026-10-23T23:11:18.0624760Z   ✓ test_yaml_encode_flow:测试通过
+2026-10-23T23:11:19.0395360Z   ✓ error_slice_eq_compare:预期编译失败
+2026-10-23T23:11:19.0483240Z   ✓ test_slice_struct_field_byte:测试通过
+2026-10-23T23:11:19.0604060Z   ✓ test_http_jwt:测试通过
+2026-10-23T23:11:19.8510220Z   ✓ test_cfg_target:测试通过
+2026-10-23T23:11:19.8618140Z   ✓ test_stdio:测试通过
+2026-10-23T23:11:19.8740840Z   ✓ test_struct_method_ptr:测试通过
+2026-10-23T23:11:20.2952280Z   ✓ test_drop_order:测试通过
+2026-10-23T23:11:20.3073900Z   ✓ test_macro_stmt_return:测试通过
+2026-10-23T23:11:20.3194430Z   ✓ simple_function:测试通过
+2026-10-23T23:11:20.8735860Z   ✓ test_func_return:测试通过
+2026-10-23T23:11:20.8902890Z   ✓ test_std_mem_directory_module_alias:测试通过
+2026-10-23T23:11:20.8978320Z   ✓ test_http_multipart:测试通过
+2026-10-23T23:11:21.2931120Z   ✓ test_function_reachability_string_interp_expr:测试通过
+2026-10-23T23:11:21.3055590Z   ✓ test_protobuf_encode_basic:测试通过
+2026-10-23T23:11:21.3143580Z   ✓ test_function_reachability_codegen:测试通过
+2026-10-23T23:11:21.9200660Z   ✓ error_opaque_struct_copy_after_move:预期编译失败
+2026-10-23T23:11:21.9280130Z   ✓ test_std_dns_async_composition_shape:测试通过
+2026-10-23T23:11:21.9366240Z   ✓ test_atomic_ops:测试通过
+2026-10-23T23:11:22.3382720Z ----- linker output begin: test_libc_heap_coalescing_adjacent -----
+2026-10-23T23:11:22.3416220Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:11:22.3417210Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:11:22.3419240Z ----- linker output end: test_libc_heap_coalescing_adjacent -----
+2026-10-23T23:11:22.3468430Z   ✓ test_macro_param_stmt:测试通过
+2026-10-23T23:11:22.3547150Z   ❌ test_libc_heap_coalescing_adjacent:链接失败
+2026-10-23T23:11:22.3623690Z   ✓ error_defer_break_nested:预期编译失败
+2026-10-23T23:11:24.4530900Z   ✓ test_constant_folding:测试通过
+2026-10-23T23:11:24.4680270Z   ✓ test_http_uyagin_recover_observe:测试通过
+2026-10-23T23:11:24.4837390Z   ✓ test_generic_fn_only:测试通过
+2026-10-23T23:11:24.9442270Z   ✓ error_async_await_in_errdefer:预期编译失败
+2026-10-23T23:11:24.9566980Z   ✓ test_match:测试通过
+2026-10-23T23:11:24.9711550Z   ✓ error_slice_negative_start:预期编译失败
+2026-10-23T23:11:25.4649640Z   ✓ error_print_no_arg:预期编译失败
+2026-10-23T23:11:25.4809940Z   ✓ test_json_parse_array:测试通过
+2026-10-23T23:11:25.4958800Z   ✓ error_check_missing_brace:预期编译失败
+2026-10-23T23:11:26.2263820Z   ✓ error_asbang_requires_try_or_catch_var_init:预期编译失败
+2026-10-23T23:11:26.2349200Z   ✓ test_tls_entropy:测试通过
+2026-10-23T23:11:26.2418080Z   ✓ recursive_power:测试通过
+2026-10-23T23:11:26.9042700Z   ✓ extern_function:测试通过
+2026-10-23T23:11:26.9177830Z   ✓ test_macro_generic_method:测试通过
+2026-10-23T23:11:26.9275130Z   ✓ test_std_stdlib_simple:测试通过
+2026-10-23T23:11:27.5324390Z   ✓ test_simd_vector_reduce_mul:测试通过
+2026-10-23T23:11:27.5441280Z   ✓ test_std_io_file:测试通过
+2026-10-23T23:11:27.5688810Z   ✓ test_exec_vm_layout_consistency:测试通过
+2026-10-23T23:11:28.0444800Z   ✓ test_direct_bool:测试通过
+2026-10-23T23:11:28.0541440Z   ✓ test_pointer_member_access:测试通过
+2026-10-23T23:11:28.0618490Z   ✓ test_generic_method:测试通过
+2026-10-23T23:11:29.2860400Z   ✓ test_type_alias:测试通过
+2026-10-23T23:11:29.2961520Z   ✓ test_json_encode_basic:测试通过
+2026-10-23T23:11:29.3035600Z   ✓ test_tflm_model:测试通过
+2026-10-23T23:11:29.8583330Z   ✓ test_proof_len_nested:测试通过
+2026-10-23T23:11:29.8777270Z   ✓ test_http_http2_frame:测试通过
+2026-10-23T23:11:29.8889890Z   ✓ test_yaml_encode_flow_anchors:测试通过
+2026-10-23T23:11:30.2353600Z   ✓ test_crypto_sha256:测试通过
+2026-10-23T23:11:30.2455590Z   ✓ test_defer_return_order:测试通过
+2026-10-23T23:11:30.2573200Z   ✓ error_asm_too_many_outputs:预期编译失败
+2026-10-23T23:11:33.2642640Z   ✓ test_simd_c99_select_emit_i32x4_and_u32x4:测试通过
+2026-10-23T23:11:33.2792240Z   ✓ test_https_bridge_safety:测试通过
+2026-10-23T23:11:33.2935520Z   ✓ test_stdio_file_buffering:测试通过
+2026-10-23T23:11:34.2927310Z   ✓ error_simd_float_vector_bitwise:预期编译失败
+2026-10-23T23:11:34.3075050Z   ✓ test_json_encode_long_str:测试通过
+2026-10-23T23:11:34.3220170Z   ✓ test_usize_from_ptr:测试通过
+2026-10-23T23:11:37.6656040Z   ✓ test_generic_struct_method:测试通过
+2026-10-23T23:11:37.6793850Z   ✓ test_crypto_md5:测试通过
+2026-10-23T23:11:37.6894890Z   ✓ test_http_websocket_reconnect:测试通过
+2026-10-23T23:11:38.0160780Z   ✓ error_struct_method_not_found:预期编译失败
+2026-10-23T23:11:38.0259380Z   ✓ test_type_conversion_comprehensive:测试通过
+2026-10-23T23:11:38.0347060Z   ✓ error_string_escape_surrogate_u:预期编译失败
+2026-10-23T23:11:38.4115470Z   ✓ test_static_method_union:测试通过
+2026-10-23T23:11:38.4248890Z   ✓ test_macro_basic:测试通过
+2026-10-23T23:11:38.4386440Z   ✓ test_exec_vm_catch_empty_block:测试通过
+2026-10-23T23:11:38.8260450Z   ✓ test_break_continue:测试通过
+2026-10-23T23:11:38.8370580Z   ✓ test_fmt_comments_phase2:测试通过
+2026-10-23T23:11:38.8506870Z   ✓ test_generic_call:测试通过
+2026-10-23T23:11:39.3622820Z   ✓ recursive_factorial:测试通过
+2026-10-23T23:11:39.3684580Z   ✓ test_exec_vm_compiler_atomic_global:测试通过
+2026-10-23T23:11:39.3766720Z   ✓ test_fmt_api_rewrite:测试通过
+2026-10-23T23:11:39.6844910Z   ✓ test_slice_param_c99_emit:测试通过
+2026-10-23T23:11:39.6983050Z   ✓ error_simd_vector_mask_mix_and:预期编译失败
+2026-10-23T23:11:39.7078180Z   ✓ test_atomic_basic:测试通过
+2026-10-23T23:11:40.5241360Z ----- linker output begin: test_typed_pipeline_imported_transformer_positive -----
+2026-10-23T23:11:40.5345490Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_imported_transformer_positive/compiler_work/test_typed_pipeline_imported_transformer_positive.c:3131:18: error: conflicting types for 'ptsname'
+2026-10-23T23:11:40.5404330Z  3131 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:11:40.5488090Z       |                  ^
+2026-10-23T23:11:40.5515330Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:11:40.5538420Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:11:40.5551620Z       |                         ^
+2026-10-23T23:11:40.5595760Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_imported_transformer_positive/compiler_work/test_typed_pipeline_imported_transformer_positive.c:10525:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:11:40.5608700Z  10525 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:11:40.5614850Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:11:40.5626300Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_imported_transformer_positive/compiler_work/test_typed_pipeline_imported_transformer_positive.c:10622:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:11:40.5631430Z  10622 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:11:40.5632300Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:11:40.5634730Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_imported_transformer_positive/compiler_work/test_typed_pipeline_imported_transformer_positive.c:10730:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:11:40.5637290Z  10730 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:11:40.5638000Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:11:40.5638920Z 3 warnings and 1 error generated.
+2026-10-23T23:11:40.5684350Z ----- linker output end: test_typed_pipeline_imported_transformer_positive -----
+2026-10-23T23:11:40.5686650Z   ✓ test_printf_f:测试通过
+2026-10-23T23:11:40.5725960Z   ✓ test_exec_vm_compiler_field_pointer_index:测试通过
+2026-10-23T23:11:40.5862110Z   ❌ test_typed_pipeline_imported_transformer_positive:链接失败
+2026-10-23T23:11:41.3765550Z   ✓ extern_ffi_test:测试通过
+2026-10-23T23:11:41.3882880Z   ✓ error_typed_pipeline_non_pipeline_error_union:预期编译失败
+2026-10-23T23:11:41.4023710Z   ✓ test_ctype:测试通过
+2026-10-23T23:11:41.7117720Z   ✓ error_drop_manual_type_call:预期编译失败
+2026-10-23T23:11:41.7249100Z   ✓ test_kernel_scheduler:测试通过
+2026-10-23T23:11:41.7340120Z   ✓ test_null_comprehensive:测试通过
+2026-10-23T23:11:41.9686090Z   ✓ error_simd_mask_in_condition:预期编译失败
+2026-10-23T23:11:41.9798860Z   ✓ unary_expr:测试通过
+2026-10-23T23:11:41.9929440Z   ✓ error_const_div_zero:预期编译失败
+2026-10-23T23:11:42.2786410Z   ✓ test_test_basic:测试通过
+2026-10-23T23:11:42.2916000Z   ✓ test_exec_vm_enum_value:测试通过
+2026-10-23T23:11:42.2982110Z   ✓ test_table_capacity:测试通过
+2026-10-23T23:11:42.6884170Z   ✓ test_json_parse_float:测试通过
+2026-10-23T23:11:42.6949110Z   ✓ test_if_block_bare_catch:测试通过
+2026-10-23T23:11:42.7014430Z   ✓ test_array_pointer_access:测试通过
+2026-10-23T23:11:43.4861690Z   ✓ test_zero_deps:测试通过
+2026-10-23T23:11:43.4942930Z   ✓ test_yaml_json_convert:测试通过
+2026-10-23T23:11:43.5017360Z   ✓ test_generic_parser_full:测试通过
+2026-10-23T23:11:43.7170440Z   ✓ test_print_basic:测试通过
+2026-10-23T23:11:43.7257680Z   ✓ error_microapp_mode_extern:预期编译失败
+2026-10-23T23:11:43.7341210Z   ✓ error_errdefer_wrong_scope:预期编译失败
+2026-10-23T23:11:44.4302860Z   ✓ bench_malloc_phase2:测试通过
+2026-10-23T23:11:44.4483400Z   ✓ test_enum_member_access:测试通过
+2026-10-23T23:11:44.4584470Z   ✓ test_ec_p384_ecdh:测试通过
+2026-10-23T23:11:44.8317700Z   ✓ test_function_forward_ref:测试通过
+2026-10-23T23:11:44.8422860Z   ✓ error_await_operand_not_future:预期编译失败
+2026-10-23T23:11:44.8502210Z   ✓ test_simd_c99_select_emit_i32_only:测试通过
+2026-10-23T23:11:45.2968630Z   ✓ test_saturating_wrapping_vm:测试通过
+2026-10-23T23:11:45.3108450Z   ✓ error_move_active_pointer:预期编译失败
+2026-10-23T23:11:45.3239430Z   ✓ nested_with_structs:测试通过
+2026-10-23T23:11:46.1026520Z   ✓ test_non_generic_struct_generic_method:测试通过
+2026-10-23T23:11:46.1097900Z   ✓ test_mem_heap:测试通过
+2026-10-23T23:11:46.1164610Z   ✓ test_option_struct:测试通过
+2026-10-23T23:11:46.4168710Z   ✓ test_tls_chacha20_poly1305:测试通过
+2026-10-23T23:11:46.4234790Z   ✓ test_fmt_comment_collection:测试通过
+2026-10-23T23:11:46.4317410Z   ✓ error_macro_mc_type:预期编译失败
+2026-10-23T23:11:47.1128030Z ----- linker output begin: test_typed_pipeline_lowering -----
+2026-10-23T23:11:47.1231460Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_lowering/compiler_work/test_typed_pipeline_lowering.c:3153:18: error: conflicting types for 'ptsname'
+2026-10-23T23:11:47.1334710Z  3153 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:11:47.1368150Z       |                  ^
+2026-10-23T23:11:47.1368960Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:11:47.1369720Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:11:47.1371940Z       |                         ^
+2026-10-23T23:11:47.1373270Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_lowering/compiler_work/test_typed_pipeline_lowering.c:10600:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:11:47.1396730Z  10600 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:11:47.1397210Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:11:47.1398480Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_lowering/compiler_work/test_typed_pipeline_lowering.c:10697:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:11:47.1399860Z  10697 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:11:47.1400260Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:11:47.1403130Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_lowering/compiler_work/test_typed_pipeline_lowering.c:10805:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:11:47.1405490Z  10805 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:11:47.1411390Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:11:47.1411770Z 3 warnings and 1 error generated.
+2026-10-23T23:11:47.1412170Z ----- linker output end: test_typed_pipeline_lowering -----
+2026-10-23T23:11:47.1412880Z   ✓ test_function_reachability_address_taken:测试通过
+2026-10-23T23:11:47.1506500Z   ✓ test_nested_member_access:测试通过
+2026-10-23T23:11:47.1586810Z   ❌ test_typed_pipeline_lowering:链接失败
+2026-10-23T23:11:47.4325250Z   ✓ test_ec_p256_ecdh:测试通过
+2026-10-23T23:11:47.4422270Z   ✓ test_pointer_array_access:测试通过
+2026-10-23T23:11:47.4508530Z   ✓ error_defer_continue_nested:预期编译失败
+2026-10-23T23:11:47.6804770Z   ✓ test_option_core:测试通过
+2026-10-23T23:11:47.6898270Z   ✓ test_c99_private_fn_name_collision:测试通过
+2026-10-23T23:11:47.6981060Z   ✓ error_const_reassignment:预期编译失败
+2026-10-23T23:11:48.0150750Z   ✓ test_type_conversion_pointer:测试通过
+2026-10-23T23:11:48.0272150Z   ✓ test_exec_vm_compiler_array_ptr_member:测试通过
+2026-10-23T23:11:48.0360130Z   ✓ test_drop_export_main_direct:测试通过
+2026-10-23T23:11:48.8509550Z   ✓ test_simd_vec8_sse_chain:测试通过
+2026-10-23T23:11:48.8602850Z   ✓ test_libc_stdio_new:测试通过
+2026-10-23T23:11:48.8763140Z   ✓ test_dyn_table_growth:测试通过
+2026-10-23T23:11:49.7739770Z   ✓ test_exec_vm_libc_module_global:测试通过
+2026-10-23T23:11:49.8043580Z   ✓ test_function_export:测试通过
+2026-10-23T23:11:49.8245900Z   ✓ test_for_range:测试通过
+2026-10-23T23:11:50.3662600Z ----- linker output begin: test_std_stdlib_malloc -----
+2026-10-23T23:11:50.3702850Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:11:50.3717240Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:11:50.3735110Z ----- linker output end: test_std_stdlib_malloc -----
+2026-10-23T23:11:50.3802510Z   ✓ test_proof_optimization:测试通过
+2026-10-23T23:11:50.3899550Z   ✓ test_c99_pointer_access:测试通过
+2026-10-23T23:11:50.4051500Z   ❌ test_std_stdlib_malloc:链接失败
+2026-10-23T23:11:51.2877110Z ----- linker output begin: test_typed_pipeline_lowering_error -----
+2026-10-23T23:11:51.2987410Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_lowering_error/compiler_work/test_typed_pipeline_lowering_error.c:3155:18: error: conflicting types for 'ptsname'
+2026-10-23T23:11:51.3086990Z  3155 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:11:51.3196220Z       |                  ^
+2026-10-23T23:11:51.3326570Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:11:51.3431320Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:11:51.3533470Z       |                         ^
+2026-10-23T23:11:51.3635880Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_lowering_error/compiler_work/test_typed_pipeline_lowering_error.c:10595:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:11:51.3639560Z  10595 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:11:51.3742380Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:11:51.3850670Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_lowering_error/compiler_work/test_typed_pipeline_lowering_error.c:10692:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:11:51.3921500Z  10692 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:11:51.4023180Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:11:51.4043290Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_lowering_error/compiler_work/test_typed_pipeline_lowering_error.c:10800:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:11:51.4114030Z  10800 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:11:51.4186410Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:11:51.4190380Z 3 warnings and 1 error generated.
+2026-10-23T23:11:51.4201080Z ----- linker output end: test_typed_pipeline_lowering_error -----
+2026-10-23T23:11:51.4226870Z   ✓ test_simd_f64_mul_div:测试通过
+2026-10-23T23:11:51.4239260Z   ✓ test_std_stdlib_debug:测试通过
+2026-10-23T23:11:51.4254840Z   ❌ test_typed_pipeline_lowering_error:链接失败
+2026-10-23T23:11:51.8098540Z   ✓ test_struct_comparison:测试通过
+2026-10-23T23:11:51.8169420Z   ✓ test_branch_assign_bounds_ok:测试通过
+2026-10-23T23:11:51.8265090Z   ✓ error_async_frame_pinned_move:预期编译失败
+2026-10-23T23:11:52.2719850Z   ✓ test_c99_vp8_short_payload_codegen:测试通过
+2026-10-23T23:11:52.2785060Z   ✓ test_yaml_fold_block:测试通过
+2026-10-23T23:11:52.2938980Z   ✓ test_match_type_inference:测试通过
+2026-10-23T23:11:52.6200910Z   ✓ test_std_sha1:测试通过
+2026-10-23T23:11:52.6285600Z   ✓ error_string_escape_bad_x:预期编译失败
+2026-10-23T23:11:52.6388450Z   ✓ test_struct_pointer_return:测试通过
+2026-10-23T23:11:52.9415420Z   ✓ test_saturating_parity:测试通过
+2026-10-23T23:11:52.9526980Z   ✓ error_async_frame_pool_empty_array_init:预期编译失败
+2026-10-23T23:11:52.9623900Z   ✓ test_std_runtime_simple:测试通过
+2026-10-23T23:11:53.5271650Z   ✓ error_asm_missing_paren:预期编译失败
+2026-10-23T23:11:53.5342200Z   ✓ test_method_temp_receiver:测试通过
+2026-10-23T23:11:53.5413440Z   ✓ test_math:测试通过
+2026-10-23T23:11:54.3039030Z   ✓ test_if_return:测试通过
+2026-10-23T23:11:54.3115630Z   ✓ test_json_nested:测试通过
+2026-10-23T23:11:54.3186830Z   ✓ test_const_receiver_codegen:测试通过
+2026-10-23T23:11:54.6387330Z   ✓ error_array_bounds_upper_only_need_lower:预期编译失败
+2026-10-23T23:11:54.6458590Z   ✓ error_embed_dir_too_many_args:预期编译失败
+2026-10-23T23:11:54.6532920Z   ✓ test_simd_fn_vector_return:测试通过
+2026-10-23T23:11:55.5606490Z   ✓ test_json_to_json_reflect:测试通过
+2026-10-23T23:11:55.5705480Z   ✓ bench_malloc_phase3:测试通过
+2026-10-23T23:11:55.5785380Z   ✓ test_type_parse:测试通过
+2026-10-23T23:11:55.8842980Z ----- linker output begin: test_libc_heap_realloc_in_place -----
+2026-10-23T23:11:55.8946990Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:11:55.9049710Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:11:55.9157680Z ----- linker output end: test_libc_heap_realloc_in_place -----
+2026-10-23T23:11:56.0147580Z   ❌ test_libc_heap_realloc_in_place:链接失败
+2026-10-23T23:11:56.0226720Z   ✓ test_yaml_anchor_limits:测试通过
+2026-10-23T23:11:56.0292650Z   ✓ complex_expr:测试通过
+2026-10-23T23:11:56.3749170Z   ✓ test_dead_code_elimination:测试通过
+2026-10-23T23:11:56.3849580Z   ✓ test_protobuf_packed:测试通过
+2026-10-23T23:11:56.3914390Z   ✓ test_struct_method:测试通过
+2026-10-23T23:11:56.6298490Z   ✓ test_union_nested_deps:测试通过
+2026-10-23T23:11:56.6363330Z   ✓ test_exec_vm_scalar_pointer:测试通过
+2026-10-23T23:11:56.6436960Z   ✓ error_typed_pipeline_parser_negative_eof:预期编译失败
+2026-10-23T23:11:57.3097080Z   ✓ test_atomic_types:测试通过
+2026-10-23T23:11:57.3296120Z   ✓ test_std_io_buffering:测试通过
+2026-10-23T23:11:57.3399650Z   ✓ test_macro_simple:测试通过
+2026-10-23T23:11:58.1242840Z   ✓ test_exec_vm_builtin_bridge:测试通过
+2026-10-23T23:11:58.1344350Z   ✓ test_byte:测试通过
+2026-10-23T23:11:58.1485440Z   ✓ test_std_stdlib:测试通过
+2026-10-23T23:11:58.2916750Z   ✓ error_for_iterator_interface_value:预期编译失败
+2026-10-23T23:11:58.3053280Z   ✓ error_asm_missing_string:预期编译失败
+2026-10-23T23:11:58.3143350Z   ✓ error_enum_c_style_access:预期编译失败
+2026-10-23T23:11:58.9555320Z   ✓ test_libc_printf_import:测试通过
+2026-10-23T23:11:58.9698450Z   ✓ test_slice_expr_from_const_byte_param:测试通过
+2026-10-23T23:11:58.9777340Z   ✓ bench_asm_atomic:测试通过
+2026-10-23T23:11:59.3484330Z   ✓ test_fmt_comments:测试通过
+2026-10-23T23:11:59.3612580Z   ✓ test_fmt_api_phase3:测试通过
+2026-10-23T23:11:59.3726450Z   ✓ error_asm_missing_brace:预期编译失败
+2026-10-23T23:11:59.7504640Z   ✓ test_simd_splat_binary_context:测试通过
+2026-10-23T23:11:59.7601180Z   ✓ test_c99_const_identifier:测试通过
+2026-10-23T23:11:59.7687130Z   ✓ test_tls_common:测试通过
+2026-10-23T23:12:00.2370170Z   ✓ error_simd_splat_type_mismatch:预期编译失败
+2026-10-23T23:12:00.2515120Z   ✓ test_string_interp_minimal:测试通过
+2026-10-23T23:12:00.2674040Z   ✓ test_generic_comprehensive:测试通过
+2026-10-23T23:12:00.6142670Z   ✓ test_as_force_cast:测试通过
+2026-10-23T23:12:00.6242920Z   ✓ error_asbang_requires_try_or_catch_expr_stmt:预期编译失败
+2026-10-23T23:12:00.6370150Z   ✓ error_defer_break:预期编译失败
+2026-10-23T23:12:01.0003800Z   ✓ test_null_return:测试通过
+2026-10-23T23:12:01.0120170Z   ✓ test_global_struct_const_init:测试通过
+2026-10-23T23:12:01.0226580Z   ✓ test_simple_return:测试通过
+2026-10-23T23:12:01.7353020Z ----- linker output begin: test_typed_pipeline_type_identity -----
+2026-10-23T23:12:01.7387050Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_type_identity/compiler_work/test_typed_pipeline_type_identity.c:3152:18: error: conflicting types for 'ptsname'
+2026-10-23T23:12:01.7398890Z  3152 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:12:01.7400430Z       |                  ^
+2026-10-23T23:12:01.7404030Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:12:01.7405460Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:12:01.7408040Z       |                         ^
+2026-10-23T23:12:01.7410750Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_type_identity/compiler_work/test_typed_pipeline_type_identity.c:10583:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:12:01.7437210Z  10583 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:12:01.7471490Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:12:01.7482410Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_type_identity/compiler_work/test_typed_pipeline_type_identity.c:10680:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:12:01.7495750Z  10680 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:12:01.7506460Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:12:01.7527950Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_type_identity/compiler_work/test_typed_pipeline_type_identity.c:10788:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:12:01.7537240Z  10788 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:12:01.7544480Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:12:01.7556510Z 3 warnings and 1 error generated.
+2026-10-23T23:12:01.7557240Z ----- linker output end: test_typed_pipeline_type_identity -----
+2026-10-23T23:12:01.7558710Z   ✓ error_async_indirect_recursive:预期编译失败
+2026-10-23T23:12:01.7571750Z   ❌ test_typed_pipeline_type_identity:链接失败
+2026-10-23T23:12:01.7651120Z   ✓ test_tls_dtls:测试通过
+2026-10-23T23:12:02.0787880Z   ✓ test_varargs:测试通过
+2026-10-23T23:12:02.0937110Z   ✓ test_struct_forward_decl:测试通过
+2026-10-23T23:12:02.1087670Z   ✓ error_microapp_mode_addr:预期编译失败
+2026-10-23T23:12:02.6714450Z   ✓ test_generic_union:测试通过
+2026-10-23T23:12:02.6785740Z   ✓ test_macro_mc_get_env:测试通过
+2026-10-23T23:12:02.6872220Z   ✓ test_yaml_tab_indent:测试通过
+2026-10-23T23:12:03.4423000Z   ✓ test_return:测试通过
+2026-10-23T23:12:03.4549130Z   ✓ test_exec_vm_compiler_imported_global_ident:测试通过
+2026-10-23T23:12:03.4656260Z   ✓ test_simd_vector_store:测试通过
+2026-10-23T23:12:03.8670720Z   ✓ test_return_catch_u32_success_path:测试通过
+2026-10-23T23:12:03.8796480Z   ✓ bench_asm_strlen:测试通过
+2026-10-23T23:12:03.8929450Z   ✓ test_export_for_c:测试通过
+2026-10-23T23:12:04.2678270Z   ✓ test_arena_buffer:测试通过
+2026-10-23T23:12:04.2763930Z   ✓ test_interface_value_assign:测试通过
+2026-10-23T23:12:04.2846750Z   ✓ test_use_file_module_path:测试通过
+2026-10-23T23:12:04.6363580Z   ✓ error_extern_union_method_block:预期编译失败
+2026-10-23T23:12:04.6504120Z   ✓ test_hosted_macro_name_collision:测试通过
+2026-10-23T23:12:04.6647480Z   ✓ test_const_parser:测试通过
+2026-10-23T23:12:05.0410590Z   ✓ test_std_string:测试通过
+2026-10-23T23:12:05.0490510Z   ✓ error_path_while_need_proof:预期编译失败
+2026-10-23T23:12:05.0579890Z   ✓ test_generic_field_debug:测试通过
+2026-10-23T23:12:05.9293350Z ----- linker output begin: test_typed_pipeline_module_qualified_positive -----
+2026-10-23T23:12:05.9396490Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_module_qualified_positive/compiler_work/test_typed_pipeline_module_qualified_positive.c:3131:18: error: conflicting types for 'ptsname'
+2026-10-23T23:12:05.9446780Z  3131 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:12:05.9448530Z       |                  ^
+2026-10-23T23:12:05.9452510Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:12:05.9455640Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:12:05.9456180Z       |                         ^
+2026-10-23T23:12:05.9457710Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_module_qualified_positive/compiler_work/test_typed_pipeline_module_qualified_positive.c:10525:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:12:05.9466480Z  10525 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:12:05.9468010Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:12:05.9471390Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_module_qualified_positive/compiler_work/test_typed_pipeline_module_qualified_positive.c:10622:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:12:05.9475040Z  10622 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:12:05.9476100Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:12:05.9481700Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_module_qualified_positive/compiler_work/test_typed_pipeline_module_qualified_positive.c:10730:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:12:05.9485520Z  10730 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:12:05.9486490Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:12:05.9487230Z 3 warnings and 1 error generated.
+2026-10-23T23:12:05.9488190Z ----- linker output end: test_typed_pipeline_module_qualified_positive -----
+2026-10-23T23:12:05.9489740Z   ✓ test_slice:测试通过
+2026-10-23T23:12:05.9557030Z   ✓ debug_logical_and_op:测试通过
+2026-10-23T23:12:05.9682280Z   ❌ test_typed_pipeline_module_qualified_positive:链接失败
+2026-10-23T23:12:06.2432930Z   ✓ error_array_bounds_multidim_const:预期编译失败
+2026-10-23T23:12:06.2541470Z   ✓ test_extern_ffi_pointer:测试通过
+2026-10-23T23:12:06.2672770Z   ✓ test_exec_vm_loop_control:测试通过
+2026-10-23T23:12:06.5736690Z   ✓ test_global_string_literal:测试通过
+2026-10-23T23:12:06.5802390Z   ✓ test_asm_basic:测试通过
+2026-10-23T23:12:06.5911050Z   ✓ error_simd_any_requires_mask:预期编译失败
+2026-10-23T23:12:09.4378070Z   ✓ test_struct_array_field:测试通过
+2026-10-23T23:12:09.4470150Z   ✓ test_http_websocket_backpressure:测试通过
+2026-10-23T23:12:09.4575040Z   ✓ test_generic_field_compare:测试通过
+2026-10-23T23:12:09.8063560Z   ✓ test_astnode_union:测试通过
+2026-10-23T23:12:09.8138270Z   ✓ test_exec_vm_compiler_global_index_addr:测试通过
+2026-10-23T23:12:09.8288450Z   ✓ test_generic_pointer:测试通过
+2026-10-23T23:12:10.1703550Z   ✓ test_simd_c99_select_emit_i32x2_and_u32x4:测试通过
+2026-10-23T23:12:10.1823770Z   ✓ test_defer_lifo:测试通过
+2026-10-23T23:12:10.1896970Z   ✓ test_exec_vm_multi_fn:测试通过
+2026-10-23T23:12:10.5090670Z   ✓ test_exec_vm_if_else:测试通过
+2026-10-23T23:12:10.5149740Z   ✓ test_comprehensive_cast:测试通过
+2026-10-23T23:12:10.5263740Z   ✓ test_for_loop:测试通过
+2026-10-23T23:12:10.8280550Z ----- linker output begin: test_libc_heap_find_chunk_footer_fit -----
+2026-10-23T23:12:10.8309080Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:12:10.8309970Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:12:10.8311040Z ----- linker output end: test_libc_heap_find_chunk_footer_fit -----
+2026-10-23T23:12:10.8358280Z   ✓ error_typed_pipeline_try_forward_type_mismatch:预期编译失败
+2026-10-23T23:12:10.8491310Z   ❌ test_libc_heap_find_chunk_footer_fit:链接失败
+2026-10-23T23:12:10.8596170Z   ✓ test_struct_inner_method_with_interface:测试通过
+2026-10-23T23:12:11.4004130Z   ✓ test_crypto_sha512:测试通过
+2026-10-23T23:12:11.4105410Z   ✓ test_exec_vm_extern_unsupported:测试通过
+2026-10-23T23:12:11.4188270Z   ✓ test_yaml_parse_flow_object:测试通过
+2026-10-23T23:12:14.3984890Z   ✓ test_generic_multi_type_param:测试通过
+2026-10-23T23:12:14.4107990Z   ✓ test_https_websocket_loopback:测试通过
+2026-10-23T23:12:14.4226830Z   ✓ test_macro_param_type:测试通过
+2026-10-23T23:12:15.1185230Z   ✓ bench_malloc_throughput:测试通过
+2026-10-23T23:12:15.1335720Z   ✓ test_constant_folding_simple:测试通过
+2026-10-23T23:12:15.1475530Z   ✓ error_static_method_name_conflict:预期编译失败
+2026-10-23T23:12:15.8963350Z   ✓ test_exec_vm_c_import_unsupported:测试通过
+2026-10-23T23:12:15.9089440Z   ✓ test_exec_vm_compiler_error_union_error_id:测试通过
+2026-10-23T23:12:15.9200340Z   ✓ error_defer_return_double_nested:预期编译失败
+2026-10-23T23:12:16.7415270Z   ✓ test_wchar:测试通过
+2026-10-23T23:12:16.7517920Z   ✓ test_errno:测试通过
+2026-10-23T23:12:16.7586960Z   ✓ test_macro_sugar:测试通过
+2026-10-23T23:12:17.4963850Z   ✓ test_crypto_blake2b:测试通过
+2026-10-23T23:12:17.5106610Z   ✓ test_std_stdio:测试通过
+2026-10-23T23:12:17.5200610Z   ✓ test_exec_vm_compiler_sizeof_struct:测试通过
+2026-10-23T23:12:17.9533160Z   ✓ test_yaml_parse_block:测试通过
+2026-10-23T23:12:17.9692360Z   ✓ test_macro_mc_type_auto:测试通过
+2026-10-23T23:12:17.9764650Z   ✓ test_asm_syscall:测试通过
+2026-10-23T23:12:18.3070910Z   ✓ test_main_first_stmt:测试通过
+2026-10-23T23:12:18.3191350Z   ✓ test_kernel_sandbox:测试通过
+2026-10-23T23:12:18.3314480Z   ✓ error_macro_mc_error:预期编译失败
+2026-10-23T23:12:18.7081820Z   ✓ test_tuple:测试通过
+2026-10-23T23:12:18.7152890Z   ✓ test_fmt_api_simplify:测试通过
+2026-10-23T23:12:18.7220140Z   ✓ test_fmt_doc_comment_attach:测试通过
+2026-10-23T23:12:18.9985430Z   ✓ error_array_bounds_index_too_large:预期编译失败
+2026-10-23T23:12:19.0045670Z   ✓ test_kernel_image:测试通过
+2026-10-23T23:12:19.0118440Z   ✓ test_drop_simple:测试通过
+2026-10-23T23:12:19.1989800Z   ✓ error_array_bounds_oob_in_return:预期编译失败
+2026-10-23T23:12:19.2083690Z   ✓ extern_ffi_simple:测试通过
+2026-10-23T23:12:19.2195530Z   ✓ error_type_mismatch:预期编译失败
+2026-10-23T23:12:19.5293450Z   ✓ test_crypto_sha256_stream:测试通过
+2026-10-23T23:12:19.5372910Z   ✓ test_exec_vm_opaque_struct:测试通过
+2026-10-23T23:12:19.5501090Z   ✓ test_exec_vm_compiler_union_field_match:测试通过
+2026-10-23T23:12:19.8445600Z   ✓ test_protobuf_dynamic:测试通过
+2026-10-23T23:12:19.8511830Z   ✓ mixed_nesting:测试通过
+2026-10-23T23:12:19.8572060Z   ✓ error_branch_assign_stale_bounds:预期编译失败
+2026-10-23T23:12:20.9017630Z   ✓ test_generic_edge_cases:测试通过
+2026-10-23T23:12:20.9098090Z   ✓ test_std_mqtt_async:测试通过
+2026-10-23T23:12:20.9169470Z   ✓ test_kernel_paging:测试通过
+2026-10-23T23:12:21.2723100Z   ✓ error_async_frame_generic_concrete:预期编译失败
+2026-10-23T23:12:21.2843780Z   ✓ test_ub_safety_guards:测试通过
+2026-10-23T23:12:21.2920450Z   ✓ test_generic_in_control_flow:测试通过
+2026-10-23T23:12:21.5984590Z   ✓ test_tls_drbg:测试通过
+2026-10-23T23:12:21.6095890Z   ✓ very_deep_nested:测试通过
+2026-10-23T23:12:21.6201320Z   ✓ test_exec_vm_catch_void_tail:测试通过
+2026-10-23T23:12:21.9685450Z   ✓ deep_nested_if:测试通过
+2026-10-23T23:12:21.9787040Z   ✓ error_array_overrange:预期编译失败
+2026-10-23T23:12:21.9926330Z   ✓ test_tflm_arena:测试通过
+2026-10-23T23:12:22.3472940Z   ✓ error_embed_dir_not_directory:预期编译失败
+2026-10-23T23:12:22.3606370Z   ✓ logical_expr3:测试通过
+2026-10-23T23:12:22.3729140Z   ✓ test_simd_c99_select_emit_i32x2_and_i32x4:测试通过
+2026-10-23T23:12:22.7452080Z   ✓ test_func_name_simple:测试通过
+2026-10-23T23:12:22.7538330Z   ✓ test_pointer_cast:测试通过
+2026-10-23T23:12:22.7657180Z   ✓ test_va_list_builtin:测试通过
+2026-10-23T23:12:23.0550780Z   ✓ error_simd_invalid_vector_lanes:预期编译失败
+2026-10-23T23:12:23.0670750Z   ✓ test_usize_constraints:测试通过
+2026-10-23T23:12:23.0868600Z   ✓ error_use_module_invalid_call:预期编译失败
+2026-10-23T23:12:23.8972350Z   ✓ test_struct_layout:测试通过
+2026-10-23T23:12:23.9073240Z   ✓ test_inline_optimization:测试通过
+2026-10-23T23:12:23.9166830Z   ✓ test_libc_stdlib_symbols_hosted:测试通过
+2026-10-23T23:12:24.2363300Z   ✓ test_macro_type_return:测试通过
+2026-10-23T23:12:24.2476500Z   ✓ error_array_bounds_usize_lower_only:预期编译失败
+2026-10-23T23:12:24.2559500Z   ✓ error_async_await_in_while_cond:预期编译失败
+2026-10-23T23:12:24.7419000Z   ✓ test_generic_inference:测试通过
+2026-10-23T23:12:24.7539510Z   ✓ test_http_websocket_async_read_message_shape:测试通过
+2026-10-23T23:12:24.7652550Z   ✓ test_simd_vec32_sse_chain:测试通过
+2026-10-23T23:12:25.1509430Z   ✓ test_field_array:测试通过
+2026-10-23T23:12:25.1711290Z   ✓ logical_expr:测试通过
+2026-10-23T23:12:25.1913150Z   ✓ repro_codegen_ast_rewrite:测试通过
+2026-10-23T23:12:25.9278510Z   ✓ test_exec_vm_extern_bridge:测试通过
+2026-10-23T23:12:25.9480680Z   ✓ test_http_types:测试通过
+2026-10-23T23:12:25.9582700Z   ✓ test_tls_mpi:测试通过
+2026-10-23T23:12:26.3590060Z   ✓ error_array_bounds_param_read_need_proof:预期编译失败
+2026-10-23T23:12:26.3791980Z   ✓ error_static_method_called_via_instance:预期编译失败
+2026-10-23T23:12:26.3994820Z   ✓ test_extern_body_bare_catch:测试通过
+2026-10-23T23:12:26.8528820Z   ✓ test_kernel_layout:测试通过
+2026-10-23T23:12:26.8639530Z   ✓ test_for_simple:测试通过
+2026-10-23T23:12:26.8726900Z   ✓ test_exec_vm_match_basic:测试通过
+2026-10-23T23:12:29.8018880Z   ✓ error_array_bounds_const_negative_index:预期编译失败
+2026-10-23T23:12:29.8086870Z   ✓ test_tls_async_runtime_io:测试通过
+2026-10-23T23:12:29.8155090Z   ✓ error_try_overflow_needs_error_union_fn:预期编译失败
+2026-10-23T23:12:30.2549660Z   ✓ test_global_var:测试通过
+2026-10-23T23:12:30.2642070Z   ✓ test_proof_step_limit:测试通过
+2026-10-23T23:12:30.2733760Z   ✓ test_test_multiple:测试通过
+2026-10-23T23:12:30.5081250Z   ✓ logical_expr2:测试通过
+2026-10-23T23:12:30.5171170Z   ✓ error_move_use_after:预期编译失败
+2026-10-23T23:12:30.5237050Z   ✓ error_module_not_directory:预期编译失败
+2026-10-23T23:12:33.1792450Z   ✓ test_fmt_api:测试通过
+2026-10-23T23:12:33.1893280Z   ✓ test_exec_vm_compiler_zero_struct_array_global:测试通过
+2026-10-23T23:12:33.2041340Z   ✓ test_tls_rsa:测试通过
+2026-10-23T23:12:33.6182810Z   ✓ error_slice_range_oob:预期编译失败
+2026-10-23T23:12:33.6399990Z   ✓ test_json_parse_string:测试通过
+2026-10-23T23:12:33.6547990Z   ✓ error_uninitialized_var:预期编译失败
+2026-10-23T23:12:33.9036200Z   ✓ nested_control:测试通过
+2026-10-23T23:12:33.9128840Z   ✓ error_errdefer_return:预期编译失败
+2026-10-23T23:12:33.9245870Z   ✓ error_if_expression_branch_type_mismatch:预期编译失败
+2026-10-23T23:12:34.2023500Z   ✓ test_exec_vm_discard_assign:测试通过
+2026-10-23T23:12:34.2154840Z   ✓ test_main_only:测试通过
+2026-10-23T23:12:34.2260630Z   ✓ test_asm_const_output:测试通过
+2026-10-23T23:12:34.4308000Z   ✓ error_array_bounds_for_range_wide:预期编译失败
+2026-10-23T23:12:34.4398470Z   ✓ test_try_div:测试通过
+2026-10-23T23:12:34.4510080Z   ✓ test_error_global:测试通过
+2026-10-23T23:12:35.1545240Z   ✓ test_main_with_errors:测试通过
+2026-10-23T23:12:35.1607830Z   ✓ test_simd_sse_compare_ops:测试通过
+2026-10-23T23:12:35.1708400Z   ✓ test_tls_store:测试通过
+2026-10-23T23:12:35.3957980Z   ✓ test_exec_vm_defer:测试通过
+2026-10-23T23:12:35.4026250Z   ✓ error_async_wrong_return:预期编译失败
+2026-10-23T23:12:35.4101360Z   ✓ error_simd_vector_reduce_add_not_vector:预期编译失败
+2026-10-23T23:12:35.9599860Z ----- linker output begin: test_typed_pipeline_result_types -----
+2026-10-23T23:12:35.9649220Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_result_types/compiler_work/test_typed_pipeline_result_types.c:3150:18: error: conflicting types for 'ptsname'
+2026-10-23T23:12:35.9650110Z  3150 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:12:35.9650480Z       |                  ^
+2026-10-23T23:12:35.9651280Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:12:35.9651950Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:12:35.9652300Z       |                         ^
+2026-10-23T23:12:35.9655200Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_result_types/compiler_work/test_typed_pipeline_result_types.c:10564:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:12:35.9656600Z  10564 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:12:35.9656990Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:12:35.9658140Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_result_types/compiler_work/test_typed_pipeline_result_types.c:10661:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:12:35.9659450Z  10661 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:12:35.9659870Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:12:35.9661060Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_result_types/compiler_work/test_typed_pipeline_result_types.c:10769:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:12:35.9662260Z  10769 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:12:35.9662810Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:12:35.9663150Z 3 warnings and 1 error generated.
+2026-10-23T23:12:35.9663490Z ----- linker output end: test_typed_pipeline_result_types -----
+2026-10-23T23:12:35.9712410Z   ❌ test_typed_pipeline_result_types:链接失败
+2026-10-23T23:12:35.9764300Z   ✓ test_static_method_generic_method:测试通过
+2026-10-23T23:12:35.9830670Z   ✓ test_asm_target:测试通过
+2026-10-23T23:12:36.2607020Z   ✓ error_asm_array_input:预期编译失败
+2026-10-23T23:12:36.2732600Z   ✓ error_embed_dir_missing_dir:预期编译失败
+2026-10-23T23:12:36.2835080Z   ✓ test_fmt_printer:测试通过
+2026-10-23T23:12:36.6673900Z   ✓ test_json_parse_object:测试通过
+2026-10-23T23:12:36.6782190Z   ✓ test_generic_simple:测试通过
+2026-10-23T23:12:36.6913240Z   ✓ error_const_div_zero_nested:预期编译失败
+2026-10-23T23:12:37.5165060Z   ✓ test_exec_vm_compiler_array_literal_many_items:测试通过
+2026-10-23T23:12:37.5279410Z   ✓ test_json_from_json_wrong_type:测试通过
+2026-10-23T23:12:37.5373490Z   ✓ test_http_router:测试通过
+2026-10-23T23:12:37.8142870Z   ✓ test_generic_constraint:测试通过
+2026-10-23T23:12:37.8203950Z   ✓ test_protobuf_map:测试通过
+2026-10-23T23:12:37.8259600Z   ✓ error_async_frame_pinned_struct_init:预期编译失败
+2026-10-23T23:12:38.4224630Z   ✓ test_macro_struct_return:测试通过
+2026-10-23T23:12:38.4289710Z   ✓ error_simd_u32_vector_plus_pipe:预期编译失败
+2026-10-23T23:12:38.4384110Z   ✓ bench_capability_runtime:测试通过
+2026-10-23T23:12:38.6764390Z   ✓ test_exec_vm_drop_local:测试通过
+2026-10-23T23:12:38.6874120Z   ✓ test_null_check:测试通过
+2026-10-23T23:12:38.6962040Z   ✓ test_opaque_struct_positive:测试通过
+2026-10-23T23:12:38.9873110Z   ✓ test_crypto_blake2s:测试通过
+2026-10-23T23:12:38.9932100Z   ✓ test_simd_c99_select_emit_f32x2_only:测试通过
+2026-10-23T23:12:39.0008110Z   ✓ sizeof_byte_ffi:测试通过
+2026-10-23T23:12:39.2640770Z   ✓ test_test_nested:测试通过
+2026-10-23T23:12:39.2741590Z   ✓ test_for_ref:测试通过
+2026-10-23T23:12:39.2891560Z   ✓ test_try_overflow_arith:测试通过
+2026-10-23T23:12:39.5257220Z   ✓ test_vec:测试通过
+2026-10-23T23:12:39.5341300Z   ✓ test_asm_types:测试通过
+2026-10-23T23:12:39.5420200Z   ✓ error_move_in_loop:预期编译失败
+2026-10-23T23:12:39.8007430Z   ✓ error_asm_arm64_unimplemented:预期编译失败
+2026-10-23T23:12:39.8099650Z   ✓ test_union_method:测试通过
+2026-10-23T23:12:39.8178120Z   ✓ test_struct_method_void:测试通过
+2026-10-23T23:12:40.3520270Z   ✓ test_yaml_encode_fold_roundtrip:测试通过
+2026-10-23T23:12:40.3581840Z   ✓ test_functions:测试通过
+2026-10-23T23:12:40.3665640Z   ✓ test_symbolic_expr:测试通过
+2026-10-23T23:12:41.2843650Z   ✓ test_std_sql:测试通过
+2026-10-23T23:12:41.2903860Z   ✓ test_enum_basic:测试通过
+2026-10-23T23:12:41.2970730Z   ✓ error_simd_non_literal_lanes:预期编译失败
+2026-10-23T23:12:41.5782280Z   ✓ test_src_location:测试通过
+2026-10-23T23:12:41.5876750Z   ✓ test_mixed_type_arithmetic:测试通过
+2026-10-23T23:12:41.5959970Z   ✓ error_move_active_pointer_after_borrow:预期编译失败
+2026-10-23T23:12:41.9793110Z   ✓ test_c99_import_main_codegen:测试通过
+2026-10-23T23:12:41.9911210Z   ✓ test_simd_c99_select_emit_f32x2_and_f32x4:测试通过
+2026-10-23T23:12:42.0013420Z   ✓ test_yaml_parse_flow_basic:测试通过
+2026-10-23T23:12:43.2983000Z   ✓ test_errdefer_lifo:测试通过
+2026-10-23T23:12:43.3044230Z   ✓ test_http_uyagin_async_boundary:测试通过
+2026-10-23T23:12:43.3159150Z   ✓ assignment:测试通过
+2026-10-23T23:12:43.6731660Z   ✓ test_std_jpeg_decode:测试通过
+2026-10-23T23:12:43.6844850Z   ✓ test_double_pointer_type:测试通过
+2026-10-23T23:12:43.6925350Z   ✓ test_http_parse:测试通过
+2026-10-23T23:12:44.0039590Z   ✓ test_empty_struct:测试通过
+2026-10-23T23:12:44.0154180Z   ✓ test_generic_return_struct:测试通过
+2026-10-23T23:12:44.0301900Z   ✓ test_block_comment:测试通过
+2026-10-23T23:12:44.3709460Z   ✓ error_await_in_future_returning_non_async:预期编译失败
+2026-10-23T23:12:44.3826780Z   ✓ simd_c99_neon:测试通过
+2026-10-23T23:12:44.3928850Z   ✓ struct_comparison:测试通过
+2026-10-23T23:12:44.9330800Z   ✓ error_move_struct_init_interface_field:预期编译失败
+2026-10-23T23:12:44.9436100Z   ✓ test_multilevel_module:测试通过
+2026-10-23T23:12:44.9505440Z   ✓ test_float:测试通过
+2026-10-23T23:12:45.2169190Z   ✓ error_variable_shadowing:预期编译失败
+2026-10-23T23:12:45.2265410Z   ✓ test_path_for:测试通过
+2026-10-23T23:12:45.2409260Z   ✓ test_generic_interface_impl:测试通过
+2026-10-23T23:12:45.5487900Z   ✓ test_union_value_struct_deps:测试通过
+2026-10-23T23:12:45.5583080Z   ✓ test_simd_sse_lower_i32x4:测试通过
+2026-10-23T23:12:45.5689280Z   ✓ recursive_sum:测试通过
+2026-10-23T23:12:45.8602080Z   ✓ test_tls_record:测试通过
+2026-10-23T23:12:45.8712920Z   ✓ error_simd_float_vector_shift:预期编译失败
+2026-10-23T23:12:45.8811310Z   ✓ test_struct_inner_method_mixed:测试通过
+2026-10-23T23:12:47.9632140Z   ✓ test_fmt_stmt_comment_attach:测试通过
+2026-10-23T23:12:47.9736970Z   ✓ test_tls_async_io_future:测试通过
+2026-10-23T23:12:47.9808990Z   ✓ test_exec_vm_compiler_else_if_local:测试通过
+2026-10-23T23:12:48.5422910Z   ✓ test_array_repeat:测试通过
+2026-10-23T23:12:48.5512760Z   ✓ test_runtime_environment:测试通过
+2026-10-23T23:12:48.5593690Z   ✓ test_string_interp:测试通过
+2026-10-23T23:12:51.4685140Z   ✓ test_http_websocket_json:测试通过
+2026-10-23T23:12:51.4760400Z   ✓ test_move_simple:测试通过
+2026-10-23T23:12:51.4833710Z   ✓ test_union_inner_method:测试通过
+2026-10-23T23:12:52.2409790Z   ✓ test_json_from_json_slice:测试通过
+2026-10-23T23:12:52.2532270Z   ✓ test_bounds_const_negative_index:测试通过
+2026-10-23T23:12:52.2603670Z   ✓ test_interface_field_init:测试通过
+2026-10-23T23:12:52.6122040Z   ✓ test_std_env:测试通过
+2026-10-23T23:12:52.6222240Z   ✓ test_struct_inner_method_args:测试通过
+2026-10-23T23:12:52.6317700Z   ✓ error_opaque_struct_field_external:预期编译失败
+2026-10-23T23:12:52.8940930Z   ✓ test_strict_div:测试通过
+2026-10-23T23:12:52.9072560Z   ✓ error_bounds_need_proof:预期编译失败
+2026-10-23T23:12:52.9245890Z   ✓ error_asm_void_input:预期编译失败
+2026-10-23T23:12:53.2535390Z   ✓ test_and_return:测试通过
+2026-10-23T23:12:53.2655220Z   ✓ operator_precedence:测试通过
+2026-10-23T23:12:53.2716880Z   ✓ test_macro_mc_source:测试通过
+2026-10-23T23:12:54.0480830Z   ✓ test_macro_param_pattern:测试通过
+2026-10-23T23:12:54.0542440Z   ✓ test_err_handling:测试通过
+2026-10-23T23:12:54.0690400Z   ✓ test_json_encode_object:测试通过
+2026-10-23T23:12:54.3640840Z   ✓ test_use_wildcard_module_path:测试通过
+2026-10-23T23:12:54.3766800Z   ✓ test_fmt_simplify:测试通过
+2026-10-23T23:12:54.3868170Z   ✓ test_macro_interp_position:测试通过
+2026-10-23T23:12:54.6803520Z   ✓ test_asm_atomic:测试通过
+2026-10-23T23:12:54.6903440Z   ✓ test_non_generic_struct_generic_method_err:测试通过
+2026-10-23T23:12:54.7020400Z   ✓ test_atomic_struct:测试通过
+2026-10-23T23:12:55.0318010Z ----- linker output begin: test_libc_heap_find_chunk_cross_bin -----
+2026-10-23T23:12:55.0379490Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:12:55.0379840Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:12:55.0380250Z ----- linker output end: test_libc_heap_find_chunk_cross_bin -----
+2026-10-23T23:12:57.7749730Z   ✓ test_outlibc_basic:测试通过
+2026-10-23T23:12:57.7880410Z   ❌ test_libc_heap_find_chunk_cross_bin:链接失败
+2026-10-23T23:12:57.8032730Z   ✓ test_http_websocket_frame:测试通过
+2026-10-23T23:12:58.8295930Z   ✓ error_async_await_in_for_range_end:预期编译失败
+2026-10-23T23:12:58.8401660Z   ✓ test_exec_vm_for_range:测试通过
+2026-10-23T23:12:58.8488860Z   ✓ test_crypto_ed25519:测试通过
+2026-10-23T23:12:59.1373240Z   ✓ test_alignof:测试通过
+2026-10-23T23:12:59.1470810Z   ✓ test_asm_void_output:测试通过
+2026-10-23T23:12:59.1565410Z   ✓ error_asm_ffi_pointer:预期编译失败
+2026-10-23T23:12:59.4597810Z   ✓ pointer_deref_assign:测试通过
+2026-10-23T23:12:59.4735420Z   ✓ error_const_mod_zero:预期编译失败
+2026-10-23T23:12:59.4851950Z   ✓ test_macro_with_params:测试通过
+2026-10-23T23:12:59.8683540Z ----- linker output begin: test_libc_heap_large_path -----
+2026-10-23T23:12:59.8754650Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:12:59.8756210Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:12:59.8757520Z ----- linker output end: test_libc_heap_large_path -----
+2026-10-23T23:12:59.8820490Z   ✓ logical_expr4:测试通过
+2026-10-23T23:12:59.8889920Z   ✓ test_escape_chars:测试通过
+2026-10-23T23:12:59.8987900Z   ❌ test_libc_heap_large_path:链接失败
+2026-10-23T23:13:00.9622980Z   ✓ test_drop_in_function:测试通过
+2026-10-23T23:13:00.9702410Z   ✓ test_exec_vm_compiler_global_partial_struct_zero_fill:测试通过
+2026-10-23T23:13:00.9854780Z   ✓ bench_json:测试通过
+2026-10-23T23:13:01.3909440Z   ✓ test_simd_splat_peer_infer:测试通过
+2026-10-23T23:13:01.4112810Z   ✓ test_defer_break:测试通过
+2026-10-23T23:13:01.4213620Z   ✓ test_int_types:测试通过
+2026-10-23T23:13:01.7626960Z ----- linker output begin: test_libc_heap_bins -----
+2026-10-23T23:13:01.7740150Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:13:01.7845680Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:13:01.7947220Z ----- linker output end: test_libc_heap_bins -----
+2026-10-23T23:13:04.7045800Z   ✓ test_http_websocket_types:测试通过
+2026-10-23T23:13:04.7120520Z   ✓ test_simd_unary_ops:测试通过
+2026-10-23T23:13:04.7252810Z   ❌ test_libc_heap_bins:链接失败
+2026-10-23T23:13:05.3311100Z   ✓ error_await_operand_not_error_union:预期编译失败
+2026-10-23T23:13:05.3396610Z   ✓ test_drop_after_move:测试通过
+2026-10-23T23:13:05.3519970Z   ✓ test_kernel_dispatch:测试通过
+2026-10-23T23:13:05.6097080Z   ✓ test_catch_bare_statement:测试通过
+2026-10-23T23:13:05.6185160Z   ✓ test_extern_union:测试通过
+2026-10-23T23:13:05.6284670Z   ✓ test_iter_simple:测试通过
+2026-10-23T23:13:05.9473920Z   ✓ error_embed_too_many_args:预期编译失败
+2026-10-23T23:13:05.9601810Z   ✓ test_println_bytes_ptr_slice:测试通过
+2026-10-23T23:13:05.9706910Z   ✓ test_simd_vector_sat_wrap_i32:测试通过
+2026-10-23T23:13:06.6241930Z   ✓ test_defer_single_stmt:测试通过
+2026-10-23T23:13:06.6368530Z   ✓ test_mem_allocator:测试通过
+2026-10-23T23:13:06.6455010Z   ✓ test_tls_x509:测试通过
+2026-10-23T23:13:06.9700160Z   ✓ test_std_mem_file_module_alias:测试通过
+2026-10-23T23:13:06.9837200Z   ✓ test_std_jpeg_encode:测试通过
+2026-10-23T23:13:06.9955660Z   ✓ test_drop_external:测试通过
+2026-10-23T23:13:07.2316460Z   ✓ test_nested_generic:测试通过
+2026-10-23T23:13:07.2416620Z   ✓ test_exec_vm_interface_dispatch:测试通过
+2026-10-23T23:13:07.2519090Z   ✓ test_enum_sizeof:测试通过
+2026-10-23T23:13:07.5404250Z   ✓ test_fmt_idempotent:测试通过
+2026-10-23T23:13:07.5490760Z   ✓ test_kernel_smoke:测试通过
+2026-10-23T23:13:07.5566510Z   ✓ test_use_directory_module_path:测试通过
+2026-10-23T23:13:07.7752230Z   ✓ test_exec_vm_catch_error_bind:测试通过
+2026-10-23T23:13:07.7841530Z   ✓ extern_ffi_no_struct:测试通过
+2026-10-23T23:13:07.7890980Z   ✓ error_opaque_struct_construct_external:预期编译失败
+2026-10-23T23:13:08.1247580Z   ✓ test_asm_expressions:测试通过
+2026-10-23T23:13:08.1302440Z   ✓ error_typed_pipeline_checker_right:预期编译失败
+2026-10-23T23:13:08.1357190Z   ✓ test_struct_array_field_typed_empty_init:测试通过
+2026-10-23T23:13:09.4323850Z   ✓ test_tls_x25519_pure:测试通过
+2026-10-23T23:13:09.4420800Z   ✓ test_std_net_addr:测试通过
+2026-10-23T23:13:09.4513080Z   ✓ test_tls_sha256:测试通过
+2026-10-23T23:13:09.6869400Z   ✓ test_basic_block_terminator:测试通过
+2026-10-23T23:13:09.6974430Z   ✓ error_typed_pipeline_parser_negative:预期编译失败
+2026-10-23T23:13:09.7055900Z   ✓ test_generic_struct_method_return:测试通过
+2026-10-23T23:13:09.9306070Z   ✓ test_struct_field_access:测试通过
+2026-10-23T23:13:09.9394640Z   ✓ test_underscore:测试通过
+2026-10-23T23:13:09.9471060Z   ✓ error_interface_compose_cycle:预期编译失败
+2026-10-23T23:13:10.2387880Z   ✓ test_exec_vm_union_dispatch:测试通过
+2026-10-23T23:13:10.2488390Z   ✓ test_exec_vm_int_limit:测试通过
+2026-10-23T23:13:10.2610090Z   ✓ multi_param:测试通过
+2026-10-23T23:13:10.4896160Z   ✓ test_macro_nested:测试通过
+2026-10-23T23:13:10.4964840Z   ✓ test_macro_comprehensive:测试通过
+2026-10-23T23:13:10.5068360Z   ✓ test_macro_type_position:测试通过
+2026-10-23T23:13:10.6842220Z   ✓ test_exec_vm_bitwise:测试通过
+2026-10-23T23:13:10.6953020Z   ✓ error_union_static_method_variant_conflict:预期编译失败
+2026-10-23T23:13:10.7058120Z   ✓ error_microapp_mode_host_api_std_time:预期编译失败
+2026-10-23T23:13:11.3158970Z   ✓ test_string_interp_simple:测试通过
+2026-10-23T23:13:11.3284740Z   ✓ test_std_io:测试通过
+2026-10-23T23:13:11.3402860Z   ✓ test_module_use_simple:测试通过
+2026-10-23T23:13:11.5472490Z   ✓ error_asm_f64_input:预期编译失败
+2026-10-23T23:13:11.5538470Z   ✓ test_bool:测试通过
+2026-10-23T23:13:11.5651140Z   ✓ test_exec_vm_compiler_empty_struct_init:测试通过
+2026-10-23T23:13:11.8332290Z   ✓ test_compare:测试通过
+2026-10-23T23:13:11.8391750Z   ✓ error_async_for_iterator_interface_await:预期编译失败
+2026-10-23T23:13:11.8449260Z   ✓ error_typed_pipeline_sink_after_chain:预期编译失败
+2026-10-23T23:13:12.0708300Z   ✓ error_asm_slice_input:预期编译失败
+2026-10-23T23:13:12.0796290Z   ✓ test_enum_comparison:测试通过
+2026-10-23T23:13:12.0856030Z   ✓ test_void_pointer:测试通过
+2026-10-23T23:13:12.7211340Z   ✓ test_json_slice:测试通过
+2026-10-23T23:13:12.7336490Z   ✓ test_len_simple:测试通过
+2026-10-23T23:13:12.7409620Z   ✓ test_simd_vec2_i32_u32_f32:测试通过
+2026-10-23T23:13:13.2483570Z   ✓ error_simd_float_vector_plus_pipe:预期编译失败
+2026-10-23T23:13:13.2555560Z   ✓ test_tflm_cmsis:测试通过
+2026-10-23T23:13:13.2639450Z   ✓ test_setjmp:测试通过
+2026-10-23T23:13:13.4578560Z   ✓ error_defer_return_nested:预期编译失败
+2026-10-23T23:13:13.4654310Z   ✓ recursive_countdown:测试通过
+2026-10-23T23:13:13.4711590Z   ✓ error_try_overflow_catch_no_paren:预期编译失败
+2026-10-23T23:13:13.7388190Z   ✓ test_extern_ffi:测试通过
+2026-10-23T23:13:13.7502770Z   ✓ error_match_missing_else:预期编译失败
+2026-10-23T23:13:13.7587260Z   ✓ test_simd_c99_select_emit_u32x2_and_u32x4:测试通过
+2026-10-23T23:13:14.0066390Z   ✓ test_mem_arena:测试通过
+2026-10-23T23:13:14.0114220Z   ✓ test_exec_vm_aggregates:测试通过
+2026-10-23T23:13:14.0168870Z   ✓ test_export_for_c_complete:测试通过
+2026-10-23T23:13:14.2860170Z ----- linker output begin: test_libc_heap_tcache_metrics -----
+2026-10-23T23:13:14.2887800Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:13:14.2888410Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:13:14.2888980Z ----- linker output end: test_libc_heap_tcache_metrics -----
+2026-10-23T23:13:14.3017340Z   ❌ test_libc_heap_tcache_metrics:链接失败
+2026-10-23T23:13:14.3130940Z   ✓ test_c_import_file:测试通过
+2026-10-23T23:13:14.3240760Z   ✓ test_scope_rules:测试通过
+2026-10-23T23:13:14.5327070Z   ✓ nested_struct_access:测试通过
+2026-10-23T23:13:14.5409760Z   ✓ test_return_error:测试通过
+2026-10-23T23:13:14.5465780Z   ✓ nested_if_while:测试通过
+2026-10-23T23:13:14.8189490Z   ✓ test_simd_struct_field_ops:测试通过
+2026-10-23T23:13:14.8261640Z   ✓ test_len_struct_array_div_codegen:测试通过
+2026-10-23T23:13:14.8363120Z   ✓ nested_struct:测试通过
+2026-10-23T23:13:15.0797770Z   ✓ boolean_logic:测试通过
+2026-10-23T23:13:15.0894210Z   ✓ test_try_overflow_div:测试通过
+2026-10-23T23:13:15.1006830Z   ✓ error_const_bounds:预期编译失败
+2026-10-23T23:13:15.6486840Z   ✓ test_http1_async_connect_boundary:测试通过
+2026-10-23T23:13:15.6592820Z   ✓ test_ptr_arithmetic:测试通过
+2026-10-23T23:13:15.6661600Z   ✓ test_asm_verified:测试通过
+2026-10-23T23:13:15.9900530Z   ✓ test_c_import_dir:测试通过
+2026-10-23T23:13:15.9994730Z   ✓ test_generic_fn:测试通过
+2026-10-23T23:13:16.0092860Z   ✓ deep_nested_while:测试通过
+2026-10-23T23:13:16.2589540Z   ✓ test_c99_zero_init_empty_slice:测试通过
+2026-10-23T23:13:16.2706180Z   ✓ test_static_method_struct:测试通过
+2026-10-23T23:13:16.2817700Z   ✓ test_minimal:测试通过
+2026-10-23T23:13:16.5574420Z   ✓ test_asm_placeholder:测试通过
+2026-10-23T23:13:16.5741490Z   ✓ error_instance_method_called_via_type:预期编译失败
+2026-10-23T23:13:16.5919670Z   ✓ test_string_literal_assign_byte:测试通过
+2026-10-23T23:13:16.9064980Z   ✓ test_macro_integration:测试通过
+2026-10-23T23:13:16.9262930Z   ✓ error_array_bounds_multidim_outer_const:预期编译失败
+2026-10-23T23:13:16.9365020Z   ✓ test_proof_success:测试通过
+2026-10-23T23:13:20.3560840Z   ✓ error_microapp_mode_host_api_import_only:预期编译失败
+2026-10-23T23:13:20.3643750Z   ✓ test_slice_range_bounds:测试通过
+2026-10-23T23:13:20.3730920Z   ✓ test_https_local:测试通过
+2026-10-23T23:13:21.3604810Z   ✓ test_tls_session_resumption:测试通过
+2026-10-23T23:13:21.3688400Z   ✓ test_errdefer:测试通过
+2026-10-23T23:13:21.3763490Z   ✓ test_simd_vector_mod_i32:测试通过
+2026-10-23T23:13:21.7276880Z   ✓ test_asm_duplicate_output:测试通过
+2026-10-23T23:13:21.7438710Z   ✓ test_fmt_formatter:测试通过
+2026-10-23T23:13:21.7540980Z   ✓ test_protobuf_decode_errors:测试通过
+2026-10-23T23:13:22.0615660Z   ✓ test_string_interp_one:测试通过
+2026-10-23T23:13:22.0702530Z   ✓ test_mixed_types:测试通过
+2026-10-23T23:13:22.0768660Z   ✓ test_tflm_phase2:测试通过
+2026-10-23T23:13:22.4009080Z   ✓ error_typed_pipeline_parser_negative_plus_expr:预期编译失败
+2026-10-23T23:13:22.4102830Z   ✓ test_simd_vector_load:测试通过
+2026-10-23T23:13:22.4208220Z   ✓ test_string_buf:测试通过
+2026-10-23T23:13:23.1949550Z   ✓ test_json_struct_collections:测试通过
+2026-10-23T23:13:23.2019540Z   ✓ error_generic_constraint_fail:预期编译失败
+2026-10-23T23:13:23.2117740Z   ✓ error_asm_struct_input:预期编译失败
+2026-10-23T23:13:23.9072340Z   ✓ test_protobuf_nested:测试通过
+2026-10-23T23:13:23.9143320Z   ✓ test_yaml_encode_basic:测试通过
+2026-10-23T23:13:23.9256690Z   ✓ test_exec_vm_extern_impl:测试通过
+2026-10-23T23:13:24.1702680Z   ✓ error_string_assign_array_too_small:预期编译失败
+2026-10-23T23:13:24.1800770Z   ✓ test_proof_in_if:测试通过
+2026-10-23T23:13:24.1866090Z   ✓ test_run_test_macro_executes:测试通过
+2026-10-23T23:13:24.4869760Z   ✓ test_array_literal:测试通过
+2026-10-23T23:13:24.4999050Z   ✓ test_const_simple:测试通过
+2026-10-23T23:13:24.5101140Z   ✓ error_async_frame_pinned_array:预期编译失败
+2026-10-23T23:13:24.8032160Z   ✓ test_enum_return:测试通过
+2026-10-23T23:13:24.8093890Z   ✓ test_return_void_catch_elides_call:测试通过
+2026-10-23T23:13:24.8170920Z   ✓ error_simd_mask_logical_and:预期编译失败
+2026-10-23T23:13:25.5156590Z   ✓ test_vprintf:测试通过
+2026-10-23T23:13:25.5234490Z   ✓ test_time:测试通过
+2026-10-23T23:13:25.5313850Z   ✓ test_path_bounds:测试通过
+2026-10-23T23:13:26.3338000Z   ✓ test_exec_vm_stdio_no_varargs:测试通过
+2026-10-23T23:13:26.3432580Z   ✓ error_http_request_get_header_type:预期编译失败
+2026-10-23T23:13:26.3564390Z   ✓ test_std_path_module:测试通过
+2026-10-23T23:13:27.1340060Z   ✓ error_const_neg_overflow:预期编译失败
+2026-10-23T23:13:27.1437090Z   ✓ test_keyword_method_name:测试通过
+2026-10-23T23:13:27.1581680Z   ✓ test_longjmp_full:测试通过
+2026-10-23T23:13:27.9245300Z ----- linker output begin: test_typed_pipeline_cmd_argv -----
+2026-10-23T23:13:27.9345950Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_cmd_argv/compiler_work/test_typed_pipeline_cmd_argv.c:3164:18: error: conflicting types for 'ptsname'
+2026-10-23T23:13:27.9347890Z  3164 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:13:27.9351920Z       |                  ^
+2026-10-23T23:13:27.9352710Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:13:27.9360850Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:13:27.9362590Z       |                         ^
+2026-10-23T23:13:27.9376300Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_cmd_argv/compiler_work/test_typed_pipeline_cmd_argv.c:10746:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:13:27.9378400Z  10746 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:13:27.9378930Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:13:27.9387670Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_cmd_argv/compiler_work/test_typed_pipeline_cmd_argv.c:10843:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:13:27.9392950Z  10843 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:13:27.9394340Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:13:27.9397330Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_cmd_argv/compiler_work/test_typed_pipeline_cmd_argv.c:10951:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:13:27.9404550Z  10951 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:13:27.9405580Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:13:27.9406200Z 3 warnings and 1 error generated.
+2026-10-23T23:13:27.9459480Z ----- linker output end: test_typed_pipeline_cmd_argv -----
+2026-10-23T23:13:28.4847000Z   ✓ error_drop_duplicate_inner_and_block:预期编译失败
+2026-10-23T23:13:28.4958260Z   ✓ test_generic_async_method_codegen:测试通过
+2026-10-23T23:13:28.5083590Z   ❌ test_typed_pipeline_cmd_argv:链接失败
+2026-10-23T23:13:29.2354290Z   ✓ repro_codegen_call_callee_only:测试通过
+2026-10-23T23:13:29.2461330Z   ✓ test_error_same_id:测试通过
+2026-10-23T23:13:29.2565840Z   ✓ test_json_from_json_errors:测试通过
+2026-10-23T23:13:29.5403540Z   ✓ test_catch_only:测试通过
+2026-10-23T23:13:29.5526920Z   ✓ test_macro_stmt:测试通过
+2026-10-23T23:13:29.5596780Z   ✓ array_access:测试通过
+2026-10-23T23:13:29.7696820Z ----- linker output begin: test_string -----
+2026-10-23T23:13:29.7757370Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:13:29.7757970Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:13:29.7758390Z ----- linker output end: test_string -----
+2026-10-23T23:13:30.2008590Z   ❌ test_string:链接失败
+2026-10-23T23:13:30.2177160Z   ✓ test_try_overflow_catch:测试通过
+2026-10-23T23:13:30.2416610Z   ✓ nested_function_calls:测试通过
+2026-10-23T23:13:30.6300520Z   ✓ test_bounds_prover_as_usize_cast:测试通过
+2026-10-23T23:13:30.6376850Z   ✓ test_if_expression:测试通过
+2026-10-23T23:13:30.6474640Z   ✓ error_async_recursive:预期编译失败
+2026-10-23T23:13:30.9920590Z   ✓ test_protobuf_decode_basic:测试通过
+2026-10-23T23:13:30.9980240Z   ✓ test_struct_inner_method:测试通过
+2026-10-23T23:13:31.0108600Z   ✓ repro_codegen_call_args_assign:测试通过
+2026-10-23T23:13:31.2391070Z   ✓ struct_params:测试通过
+2026-10-23T23:13:31.2465950Z   ✓ test_string_literal:测试通过
+2026-10-23T23:13:31.2539470Z   ✓ error_simd_invalid_element_type:预期编译失败
+2026-10-23T23:13:31.5921540Z   ✓ test_generic_struct_field:测试通过
+2026-10-23T23:13:31.5980280Z   ✓ test_simd_mask_inline_compare:测试通过
+2026-10-23T23:13:31.6063030Z   ✓ test_null_literal:测试通过
+2026-10-23T23:13:31.8795050Z   ✓ error_va_start_non_varargs:预期编译失败
+2026-10-23T23:13:31.8886480Z   ✓ debug_logical_and:测试通过
+2026-10-23T23:13:31.8954770Z   ✓ test_generic_struct:测试通过
+2026-10-23T23:13:32.1520920Z   ✓ test_error_handling:测试通过
+2026-10-23T23:13:32.1648600Z   ✓ test_kernel_payload:测试通过
+2026-10-23T23:13:32.1791710Z   ✓ test_nested_field_move:测试通过
+2026-10-23T23:13:32.4776580Z   ✓ test_mem_layer:测试通过
+2026-10-23T23:13:32.4920480Z   ✓ test_macro_hygiene:测试通过
+2026-10-23T23:13:32.5030660Z   ✓ test_generic_multi_instance:测试通过
+2026-10-23T23:13:33.1241650Z   ✓ test_struct_slice_field:测试通过
+2026-10-23T23:13:33.1363030Z   ✓ error_async_await_in_for_range_start:预期编译失败
+2026-10-23T23:13:33.1472800Z   ✓ test_strtod:测试通过
+2026-10-23T23:13:33.4828570Z   ✓ error_tuple_index_oob:预期编译失败
+2026-10-23T23:13:33.5072780Z   ✓ test_protobuf_wire:测试通过
+2026-10-23T23:13:33.5232110Z   ✓ test_generic_interface:测试通过
+2026-10-23T23:13:34.3834770Z   ✓ test_union_fields:测试通过
+2026-10-23T23:13:34.4036820Z   ✓ test_json_encode_array:测试通过
+2026-10-23T23:13:34.4189320Z   ✓ test_optimizer_detection:测试通过
+2026-10-23T23:13:35.6213330Z   ✓ simple_if:测试通过
+2026-10-23T23:13:35.6413030Z   ✓ test_return_struct_init_drop_once:测试通过
+2026-10-23T23:13:35.6515410Z   ✓ test_interface_error_union_method:测试通过
+2026-10-23T23:13:36.0002400Z   ✓ error_atomic_non_integer:预期编译失败
+2026-10-23T23:13:36.0078100Z   ✓ test_exec_vm_compiler_global_aggregate_combo:测试通过
+2026-10-23T23:13:36.0145080Z   ✓ test_struct_inner_method_void:测试通过
+2026-10-23T23:13:36.3786550Z ----- linker output begin: bench_malloc_phase4_detail -----
+2026-10-23T23:13:36.3889100Z 当前 --nostdlib 测试链接仅支持 Linux x86_64
+2026-10-23T23:13:36.3991210Z TARGET_OS=macos TARGET_ARCH=arm64
+2026-10-23T23:13:36.4051990Z ----- linker output end: bench_malloc_phase4_detail -----
+2026-10-23T23:13:36.4052960Z   ✓ test_macro_complex_stmt:测试通过
+2026-10-23T23:13:36.4190120Z   ❌ bench_malloc_phase4_detail:链接失败
+2026-10-23T23:13:36.4315550Z   ✓ test_generic_multi_constraint:测试通过
+2026-10-23T23:13:36.8127970Z   ✓ test_simd_vec16_sse_chain:测试通过
+2026-10-23T23:13:36.8235780Z   ✓ test_naked_fn:测试通过
+2026-10-23T23:13:36.8321460Z   ✓ test_function_reachability_codegen_microapp:测试通过
+2026-10-23T23:13:37.7578850Z   ✓ test_crypto_bigint:测试通过
+2026-10-23T23:13:37.7681060Z   ✓ error_println_no_arg:预期编译失败
+2026-10-23T23:13:37.7798300Z   ✓ test_simd_c99_select_emit_u32x2_only:测试通过
+2026-10-23T23:13:38.3826000Z   ✓ error_embed_missing_file:预期编译失败
+2026-10-23T23:13:38.3951050Z   ✓ test_stdlib:测试通过
+2026-10-23T23:13:38.4021530Z   ✓ error_simd_invalid_mask_lanes:预期编译失败
+2026-10-23T23:13:38.6021690Z   ✓ test_exec_vm_const_pool:测试通过
+2026-10-23T23:13:38.6095780Z   ✓ test_asm_type_safety:测试通过
+2026-10-23T23:13:38.6187560Z   ✓ error_defer_return:预期编译失败
+2026-10-23T23:13:38.9541950Z   ✓ test_match_ref_else:测试通过
+2026-10-23T23:13:38.9661480Z   ✓ test_abi_calling_convention:测试通过
+2026-10-23T23:13:38.9805450Z   ✓ test_struct_inner_generic_method:测试通过
+2026-10-23T23:13:39.4726070Z   ✓ test_optimized_astnode:测试通过
+2026-10-23T23:13:39.4855960Z   ✓ test_crypto_curve25519:测试通过
+2026-10-23T23:13:39.4998220Z   ✓ test_capability_runtime_compat:测试通过
+2026-10-23T23:13:39.8689420Z   ✓ test_simd_vector_reduce_add:测试通过
+2026-10-23T23:13:39.8783620Z   ✓ error_typed_pipeline_checker_left:预期编译失败
+2026-10-23T23:13:39.8888160Z   ✓ test_max_min:测试通过
+2026-10-23T23:13:40.6789610Z   ✓ test_enum_auto_increment:测试通过
+2026-10-23T23:13:40.6903900Z   ✓ test_exec_vm_try_unsupported:测试通过
+2026-10-23T23:13:40.7024880Z   ✓ bench_malloc_realloc_vector:测试通过
+2026-10-23T23:13:40.9562050Z   ✓ test_generic_struct_ptr_field:测试通过
+2026-10-23T23:13:40.9640330Z   ✓ error_array_bounds_param_write_need_proof:预期编译失败
+2026-10-23T23:13:40.9715110Z   ✓ test_exec_vm_struct_init_zero_fill:测试通过
+2026-10-23T23:13:41.3484580Z   ✓ error_const_slice_element_assign:预期编译失败
+2026-10-23T23:13:41.3593190Z   ✓ test_simd_return_splat_binary:测试通过
+2026-10-23T23:13:41.3658080Z   ✓ test_varargs_full:测试通过
+2026-10-23T23:13:41.9771780Z   ✓ test_defer_nested_return:测试通过
+2026-10-23T23:13:41.9824120Z   ✓ test_std_path_platform_cfg:测试通过
+2026-10-23T23:13:41.9876530Z   ✓ error_circular_dependency:预期编译失败
+2026-10-23T23:13:42.2338300Z   ✓ test_slice_pointer_element_codegen:测试通过
+2026-10-23T23:13:42.2450490Z   ✓ error_await_outside_async:预期编译失败
+2026-10-23T23:13:42.2540910Z   ✓ test_hashmap:测试通过
+2026-10-23T23:13:42.7501140Z   ✓ error_interface_array_elem_assign:预期编译失败
+2026-10-23T23:13:42.7554000Z   ✓ error_null_deref:预期编译失败
+2026-10-23T23:13:42.7669290Z   ✓ test_exec_vm_compiler_slice_ptr:测试通过
+2026-10-23T23:13:43.0826240Z   ✓ test_interface_compose:测试通过
+2026-10-23T23:13:43.0957570Z   ✓ test_simd_u16_basic:测试通过
+2026-10-23T23:13:43.1039140Z   ✓ error_symbolic_expr:预期编译失败
+2026-10-23T23:13:43.3368440Z   ✓ test_struct_method_with_interface:测试通过
+2026-10-23T23:13:43.3430370Z   ✓ struct_test:测试通过
+2026-10-23T23:13:43.3486700Z   ✓ error_asm_f64_output:预期编译失败
+2026-10-23T23:13:43.6122890Z   ✓ test_multidimensional_array:测试通过
+2026-10-23T23:13:43.6223030Z   ✓ test_string_buf_vec_field:测试通过
+2026-10-23T23:13:43.6349250Z   ✓ test_http_http2_stream:测试通过
+2026-10-23T23:13:44.0540760Z   ✓ error_async_frame_pinned_arg:预期编译失败
+2026-10-23T23:13:44.0653590Z   ✓ test_struct_method_args:测试通过
+2026-10-23T23:13:44.0805610Z   ✓ test_yaml_parse_anchor_block:测试通过
+2026-10-23T23:13:44.3624220Z   ✓ test_alignof_comprehensive:测试通过
+2026-10-23T23:13:44.3710470Z   ✓ test_macro_multiple_calls:测试通过
+2026-10-23T23:13:44.3787460Z   ✓ test_array_assignment:测试通过
+2026-10-23T23:13:44.8030930Z ----- linker output begin: test_typed_pipeline_try_forward_lowering -----
+2026-10-23T23:13:44.8055830Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_try_forward_lowering/compiler_work/test_typed_pipeline_try_forward_lowering.c:3166:18: error: conflicting types for 'ptsname'
+2026-10-23T23:13:44.8056610Z  3166 | extern uint8_t * ptsname(int32_t fd);
+2026-10-23T23:13:44.8056980Z       |                  ^
+2026-10-23T23:13:44.8057670Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:238:18: note: previous declaration is here
+2026-10-23T23:13:44.8058390Z   238 | char *_LIBC_CSTR        ptsname(int);
+2026-10-23T23:13:44.8058670Z       |                         ^
+2026-10-23T23:13:44.8060050Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_try_forward_lowering/compiler_work/test_typed_pipeline_try_forward_lowering.c:10700:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:13:44.8061450Z  10700 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:13:44.8061790Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:13:44.8063030Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_try_forward_lowering/compiler_work/test_typed_pipeline_try_forward_lowering.c:10797:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:13:44.8064290Z  10797 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:13:44.8065070Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:13:44.8066320Z /Users/runner/work/uya/uya/tests/build/tests/tests_test_typed_pipeline_try_forward_lowering/compiler_work/test_typed_pipeline_try_forward_lowering.c:10905:21: warning: initializing 'uint8_t *const' (aka 'unsigned char *const') with an expression of type 'char *' converts between pointers to integer types where one is of the unique plain 'char' type and the other is not [-Wpointer-sign]
+2026-10-23T23:13:44.8067510Z  10905 |     uint8_t * const slave_name = ptsname(master_fd);
+2026-10-23T23:13:44.8067880Z        |                     ^            ~~~~~~~~~~~~~~~~~~
+2026-10-23T23:13:44.8068220Z 3 warnings and 1 error generated.
+2026-10-23T23:13:44.8068710Z ----- linker output end: test_typed_pipeline_try_forward_lowering -----
+2026-10-23T23:13:44.8094010Z   ✓ test_json_parse_basic:测试通过
+2026-10-23T23:13:44.8152370Z   ✓ test_buffer_ptr_access:测试通过
+2026-10-23T23:13:44.8222990Z   ❌ test_typed_pipeline_try_forward_lowering:链接失败
+2026-10-23T23:13:45.0832150Z   ✓ test_simd_vector_select:测试通过
+2026-10-23T23:13:45.0970620Z   ✓ error_asm_empty_block:预期编译失败
+2026-10-23T23:13:45.1046480Z   ✓ test_int_limit_i8_nested:测试通过
+2026-10-23T23:13:45.3475090Z   ✓ test_method_ns_ref_receiver:测试通过
+2026-10-23T23:13:45.3598740Z   ✓ error_microapp_mode_asm:预期编译失败
+2026-10-23T23:13:45.3702750Z   ✓ test_interface:测试通过
+2026-10-23T23:13:45.6056090Z   ✓ error_error_id_collision:预期编译失败
+2026-10-23T23:13:45.6170790Z   ✓ bench_asm_memcpy:测试通过
+2026-10-23T23:13:45.6283220Z   ✓ test_std_ring_queue:测试通过
+2026-10-23T23:13:45.8412480Z   ✓ test_fmt_comment_grouping:测试通过
+2026-10-23T23:13:45.8501230Z   ✓ test_struct_method_err:测试通过
+2026-10-23T23:13:45.8593050Z   ✓ test_path_while:测试通过
+2026-10-23T23:13:46.0556550Z   ✓ error_null_deref_member:预期编译失败
+2026-10-23T23:13:46.0624280Z   ✓ error_wrong_return_type:预期编译失败
+2026-10-23T23:13:46.0695790Z   ✓ test_slice_return:测试通过
+2026-10-23T23:13:46.7873190Z   ✓ test_var_init_default:测试通过
+2026-10-23T23:13:46.7930830Z   ✓ test_json_struct_roundtrip:测试通过
+2026-10-23T23:13:46.8006890Z   ✓ test_complex_expressions:测试通过
+2026-10-23T23:13:48.5630390Z   ✓ error_asbang_requires_try_or_catch_call_arg:预期编译失败
+2026-10-23T23:13:48.5759550Z   ✓ error_array_bounds_signed_cast_lower_bound:预期编译失败
+2026-10-23T23:13:48.5845800Z   ✓ test_crypto_bigint_modexp4096:测试通过
+2026-10-23T23:13:48.8462900Z   ✓ test_exec_vm_compiler_match_return_struct_field:测试通过
+2026-10-23T23:13:48.8582170Z   ✓ test_function_reachability_tuple_expr:测试通过
+2026-10-23T23:13:48.8674890Z   ✓ error_atomic_compound_bool_rhs:预期编译失败
+2026-10-23T23:13:49.2270120Z   ✓ test_array_bounds:测试通过
+2026-10-23T23:13:49.2360190Z   ✓ test_simd_c99_select_emit_i32x4_and_f32x4:测试通过
+2026-10-23T23:13:49.2426640Z   ✓ test_exec_vm_compiler_typed_catch_local:测试通过
+2026-10-23T23:13:49.5644930Z   ✓ test_std_mem:测试通过
+2026-10-23T23:13:49.5757100Z   ✓ test_generic_method_call:测试通过
+2026-10-23T23:13:49.5873560Z   ✓ nested_recursive:测试通过
+2026-10-23T23:13:49.8575980Z   ✓ test_simd_value_ops:测试通过
+2026-10-23T23:13:49.8627460Z   单文件测试完成
+2026-10-23T23:13:49.8641440Z 
+2026-10-23T23:13:49.8641680Z ================================
+2026-10-23T23:13:49.8642260Z 总计: 1031 个测试
+2026-10-23T23:13:49.8642780Z 通过: 1000
+2026-10-23T23:13:49.8643420Z 失败: 31
+2026-10-23T23:13:49.8643660Z ================================
+2026-10-23T23:13:49.8738370Z 
+2026-10-23T23:13:49.8740080Z ✗ hosted 测试失败（退出码 1）
+2026-10-23T23:13:49.8741920Z make: *** [tests-hosted] Error 1
+2026-10-23T23:13:49.8891970Z ##[error]Process completed with exit code 2.
+2026-10-23T23:13:49.9429710Z Post job cleanup.
+2026-10-23T23:13:50.4433030Z [command]/opt/homebrew/bin/git version
+2026-10-23T23:13:50.4837290Z git version 2.55.0
+2026-10-23T23:13:50.4864980Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/29bf0c74-b1b3-4fb6-a69a-bd1fe1b7a058/.gitconfig'
+2026-10-23T23:13:50.4873220Z Temporarily overriding HOME='/Users/runner/work/_temp/29bf0c74-b1b3-4fb6-a69a-bd1fe1b7a058' before making global git config changes
+2026-10-23T23:13:50.4873960Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-23T23:13:50.4876030Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/uya/uya
+2026-10-23T23:13:50.5279380Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-23T23:13:50.5354650Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-23T23:13:50.6939860Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-23T23:13:50.7003270Z http.https://github.com/.extraheader
+2026-10-23T23:13:50.7019890Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-23T23:13:50.7177690Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-23T23:13:50.8511960Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-23T23:13:50.8611460Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-23T23:13:51.0507610Z Cleaning up orphan processes
+2026-10-23T23:13:51.5182590Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

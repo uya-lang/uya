@@ -1,0 +1,1468 @@
+﻿2026-10-24T00:31:17.6739320Z Current runner version: '2.338.0'
+2026-10-24T00:31:17.6752220Z ##[group]Runner Image Provisioner
+2026-10-24T00:31:17.6752700Z Hosted Compute Agent
+2026-10-24T00:31:17.6753050Z Version: 20260828.587
+2026-10-24T00:31:17.6753450Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-10-24T00:31:17.6753950Z Build Date: 2026-08-28T16:44:25Z
+2026-10-24T00:31:17.6754360Z Worker ID: {b588171e-2679-4f5c-8163-ae31726d5207}
+2026-10-24T00:31:17.6754780Z Azure Region: westus
+2026-10-24T00:31:17.6755130Z ##[endgroup]
+2026-10-24T00:31:17.6755890Z ##[group]Operating System
+2026-10-24T00:31:17.6756250Z macOS
+2026-10-24T00:31:17.6756550Z 15.7.9
+2026-10-24T00:31:17.6756850Z 24G830
+2026-10-24T00:31:17.6757160Z ##[endgroup]
+2026-10-24T00:31:17.6757500Z ##[group]Runner Image
+2026-10-24T00:31:17.6757870Z Image: macos-15-arm64
+2026-10-24T00:31:17.6758230Z Version: 20260907.0337.1
+2026-10-24T00:31:17.6759000Z Included Software: https://github.com/actions/runner-images/blob/macos-15-arm64/20260907.0337/images/macos/macos-15-arm64-Readme.md
+2026-10-24T00:31:17.6759970Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-15-arm64%2F20260907.0337
+2026-10-24T00:31:17.6760590Z ##[endgroup]
+2026-10-24T00:31:17.6761300Z ##[group]GITHUB_TOKEN Permissions
+2026-10-24T00:31:17.6762180Z Contents: read
+2026-10-24T00:31:17.6762520Z Metadata: read
+2026-10-24T00:31:17.6762860Z Packages: read
+2026-10-24T00:31:17.6763210Z ##[endgroup]
+2026-10-24T00:31:17.6764680Z Secret source: Actions
+2026-10-24T00:31:17.6765240Z Cache mode: write
+2026-10-24T00:31:17.6765660Z Prepare workflow directory
+2026-10-24T00:31:17.7084170Z Prepare all required actions
+2026-10-24T00:31:17.7123550Z Getting action download info
+2026-10-24T00:31:18.0765520Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-24T00:31:18.3009340Z Complete job name: hosted
+2026-10-24T00:31:18.3482240Z ##[group]Run actions/checkout@v4
+2026-10-24T00:31:18.3482720Z with:
+2026-10-24T00:31:18.3483020Z   repository: uya-lang/uya
+2026-10-24T00:31:18.3485550Z   token: ***
+2026-10-24T00:31:18.3485840Z   ssh-strict: true
+2026-10-24T00:31:18.3486130Z   ssh-user: git
+2026-10-24T00:31:18.3486440Z   persist-credentials: true
+2026-10-24T00:31:18.3486760Z   clean: true
+2026-10-24T00:31:18.3487070Z   sparse-checkout-cone-mode: true
+2026-10-24T00:31:18.3487420Z   fetch-depth: 1
+2026-10-24T00:31:18.3487710Z   fetch-tags: false
+2026-10-24T00:31:18.3488010Z   show-progress: true
+2026-10-24T00:31:18.3488310Z   lfs: false
+2026-10-24T00:31:18.3488590Z   submodules: false
+2026-10-24T00:31:18.3488900Z   set-safe-directory: true
+2026-10-24T00:31:18.3489240Z   allow-unsafe-pr-checkout: false
+2026-10-24T00:31:18.3489680Z env:
+2026-10-24T00:31:18.3489960Z   HOST_OS: macos
+2026-10-24T00:31:18.3490250Z   HOST_ARCH: arm64
+2026-10-24T00:31:18.3490540Z   TARGET_OS: macos
+2026-10-24T00:31:18.3490930Z   TARGET_ARCH: arm64
+2026-10-24T00:31:18.3491260Z   UYA_ROOT: /Users/runner/work/uya/uya/lib/
+2026-10-24T00:31:18.3491630Z   LC_ALL: C
+2026-10-24T00:31:18.3491900Z ##[endgroup]
+2026-10-24T00:31:18.7236110Z Syncing repository: uya-lang/uya
+2026-10-24T00:31:18.7237520Z ##[group]Getting Git version info
+2026-10-24T00:31:18.7237990Z Working directory is '/Users/runner/work/uya/uya'
+2026-10-24T00:31:18.7238700Z [command]/opt/homebrew/bin/git version
+2026-10-24T00:31:18.7425800Z git version 2.55.0
+2026-10-24T00:31:18.7444200Z ##[endgroup]
+2026-10-24T00:31:18.7451380Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/1985a455-91e3-4aea-8f06-50cbab773cb8/.gitconfig'
+2026-10-24T00:31:18.7457330Z Temporarily overriding HOME='/Users/runner/work/_temp/1985a455-91e3-4aea-8f06-50cbab773cb8' before making global git config changes
+2026-10-24T00:31:18.7458570Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-24T00:31:18.7461010Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/uya/uya
+2026-10-24T00:31:18.7556040Z Deleting the contents of '/Users/runner/work/uya/uya'
+2026-10-24T00:31:18.7559280Z ##[group]Initializing the repository
+2026-10-24T00:31:18.7561790Z [command]/opt/homebrew/bin/git init /Users/runner/work/uya/uya
+2026-10-24T00:31:18.7738630Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-24T00:31:18.7739620Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-24T00:31:18.7740410Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-24T00:31:18.7741180Z hint: call:
+2026-10-24T00:31:18.7741540Z hint:
+2026-10-24T00:31:18.7742090Z hint: 	git config --global init.defaultBranch <name>
+2026-10-24T00:31:18.7742650Z hint:
+2026-10-24T00:31:18.7743750Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-24T00:31:18.7744870Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-24T00:31:18.7746010Z hint:
+2026-10-24T00:31:18.7746810Z hint: 	git branch -m <name>
+2026-10-24T00:31:18.7747710Z hint:
+2026-10-24T00:31:18.7748210Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-24T00:31:18.7749020Z Initialized empty Git repository in /Users/runner/work/uya/uya/.git/
+2026-10-24T00:31:18.7754000Z [command]/opt/homebrew/bin/git remote add origin https://github.com/uya-lang/uya
+2026-10-24T00:31:18.7816290Z ##[endgroup]
+2026-10-24T00:31:18.7816990Z ##[group]Disabling automatic garbage collection
+2026-10-24T00:31:18.7818720Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-10-24T00:31:18.7872590Z ##[endgroup]
+2026-10-24T00:31:18.7873220Z ##[group]Setting up auth
+2026-10-24T00:31:18.7876290Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-24T00:31:18.7932960Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-24T00:31:18.8648050Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-24T00:31:18.8696730Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-24T00:31:18.9295130Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-24T00:31:18.9340980Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-24T00:31:18.9939270Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-24T00:31:19.0254080Z ##[endgroup]
+2026-10-24T00:31:19.0254730Z ##[group]Fetching the repository
+2026-10-24T00:31:19.0281180Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +4b7ebf8fa63cd99bc800b22073e54d5de51b391c:refs/remotes/origin/main
+2026-10-24T00:31:20.5727680Z From https://github.com/uya-lang/uya
+2026-10-24T00:31:20.5729020Z  * [new ref]         4b7ebf8fa63cd99bc800b22073e54d5de51b391c -> origin/main
+2026-10-24T00:31:20.5731590Z ##[endgroup]
+2026-10-24T00:31:20.5732520Z ##[group]Determining the checkout info
+2026-10-24T00:31:20.5733590Z ##[endgroup]
+2026-10-24T00:31:20.5734480Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-10-24T00:31:20.5795010Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-24T00:31:20.5843660Z ##[group]Checking out the ref
+2026-10-24T00:31:20.5845630Z [command]/opt/homebrew/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-10-24T00:31:20.9179970Z Switched to a new branch 'main'
+2026-10-24T00:31:20.9187230Z branch 'main' set up to track 'origin/main'.
+2026-10-24T00:31:20.9195650Z ##[endgroup]
+2026-10-24T00:31:20.9276400Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-10-24T00:31:20.9330130Z 4b7ebf8fa63cd99bc800b22073e54d5de51b391c
+2026-10-24T00:31:20.9484470Z ##[group]Run rm -rf bin
+2026-10-24T00:31:20.9484720Z [36;1mrm -rf bin[0m
+2026-10-24T00:31:20.9484900Z [36;1mmkdir -p bin[0m
+2026-10-24T00:31:20.9521620Z shell: /bin/bash -e {0}
+2026-10-24T00:31:20.9521820Z env:
+2026-10-24T00:31:20.9521980Z   HOST_OS: macos
+2026-10-24T00:31:20.9522140Z   HOST_ARCH: arm64
+2026-10-24T00:31:20.9522310Z   TARGET_OS: macos
+2026-10-24T00:31:20.9522540Z   TARGET_ARCH: arm64
+2026-10-24T00:31:20.9522750Z   UYA_ROOT: /Users/runner/work/uya/uya/lib/
+2026-10-24T00:31:20.9522980Z   LC_ALL: C
+2026-10-24T00:31:20.9523220Z ##[endgroup]
+2026-10-24T00:31:20.9885060Z ##[group]Run make from-c-native
+2026-10-24T00:31:20.9885380Z [36;1mmake from-c-native[0m
+2026-10-24T00:31:20.9916410Z shell: /bin/bash -e {0}
+2026-10-24T00:31:20.9916750Z env:
+2026-10-24T00:31:20.9916940Z   HOST_OS: macos
+2026-10-24T00:31:20.9917180Z   HOST_ARCH: arm64
+2026-10-24T00:31:20.9917430Z   TARGET_OS: macos
+2026-10-24T00:31:20.9917640Z   TARGET_ARCH: arm64
+2026-10-24T00:31:20.9917940Z   UYA_ROOT: /Users/runner/work/uya/uya/lib/
+2026-10-24T00:31:20.9918190Z   LC_ALL: C
+2026-10-24T00:31:20.9918390Z ##[endgroup]
+2026-10-24T00:31:21.9138800Z ==========================================
+2026-10-24T00:31:21.9162880Z 从本机 C99 seed 构建编译器 (from-c-native)
+2026-10-24T00:31:21.9187750Z ==========================================
+2026-10-24T00:31:21.9234120Z bin/uya.c 不存在，使用 macOS hosted 本机备份 backup/uya-hosted-macos-arm64.c ...
+2026-10-24T00:31:21.9337890Z 编译 bin/uya.c ...
+2026-10-24T00:31:21.9364890Z CFLAGS: -std=c99 -O2 -fno-builtin -fwrapv -fno-strict-overflow -Werror
+2026-10-24T00:31:21.9393460Z HOST_OS=macos HOST_ARCH=arm64
+2026-10-24T00:31:21.9422170Z TOOLCHAIN=system
+2026-10-24T00:31:21.9465800Z CC_DRIVER=cc
+2026-10-24T00:31:51.1960130Z 
+2026-10-24T00:31:51.2037950Z ✓ 编译器构建完成: bin/uya
+2026-10-24T00:31:51.2191480Z -rwxr-xr-x  1 runner  staff  2509584 Oct 24 00:31 bin/uya
+2026-10-24T00:31:51.2446130Z ##[group]Run make uya-hosted
+2026-10-24T00:31:51.2446450Z [36;1mmake uya-hosted[0m
+2026-10-24T00:31:51.2516310Z shell: /bin/bash -e {0}
+2026-10-24T00:31:51.2516640Z env:
+2026-10-24T00:31:51.2516960Z   HOST_OS: macos
+2026-10-24T00:31:51.2517310Z   HOST_ARCH: arm64
+2026-10-24T00:31:51.2517560Z   TARGET_OS: macos
+2026-10-24T00:31:51.2517960Z   TARGET_ARCH: arm64
+2026-10-24T00:31:51.2518210Z   UYA_ROOT: /Users/runner/work/uya/uya/lib/
+2026-10-24T00:31:51.2518720Z   LC_ALL: C
+2026-10-24T00:31:51.2518960Z ##[endgroup]
+2026-10-24T00:31:51.3600980Z ==========================================
+2026-10-24T00:31:51.3658840Z 构建自举编译器 (uya-hosted)
+2026-10-24T00:31:51.3716380Z 使用 hosted 链接路径
+2026-10-24T00:31:51.3765060Z ==========================================
+2026-10-24T00:31:51.3859030Z 使用 hosted 编译器编译 src/ ...
+2026-10-24T00:31:51.3901620Z TARGET_OS=macos TARGET_ARCH=arm64 TARGET_TRIPLE=
+2026-10-24T00:31:51.4423750Z ==========================================
+2026-10-24T00:31:51.4425020Z Uya Mini 自举编译（自动依赖收集）
+2026-10-24T00:31:51.4425590Z ==========================================
+2026-10-24T00:31:51.4426150Z 编译器: /Users/runner/work/uya/uya/bin/uya
+2026-10-24T00:31:51.4426660Z 源代码目录: /Users/runner/work/uya/uya/src
+2026-10-24T00:31:51.4427170Z 输出文件: /Users/runner/work/uya/uya/src/build/uya-hosted.c
+2026-10-24T00:31:51.4429770Z 输入路径: /Users/runner/work/uya/uya/src/main.uya
+2026-10-24T00:31:51.4430490Z 
+2026-10-24T00:31:51.4431220Z 注意: 编译器将自动收集所有模块依赖
+2026-10-24T00:31:51.4431970Z ==========================================
+2026-10-24T00:31:51.4432360Z 
+2026-10-24T00:32:05.2984350Z 
+2026-10-24T00:32:05.2988320Z [0;32m✓ 编译成功！[0m
+2026-10-24T00:32:05.2988820Z 
+2026-10-24T00:32:05.3036720Z 
+2026-10-24T00:32:05.3038450Z [1;33m可执行文件未自动生成，尝试手动链接...[0m
+2026-10-24T00:32:33.4254820Z [0;32m✓ C99 可执行文件已生成: /Users/runner/work/uya/uya/bin/uya-hosted[0m
+2026-10-24T00:32:33.4255510Z 
+2026-10-24T00:32:33.4255840Z 可执行文件: /Users/runner/work/uya/uya/bin/uya-hosted
+2026-10-24T00:32:33.4340990Z 文件大小: 2.4M
+2026-10-24T00:32:33.4342460Z 类型: 可执行文件
+2026-10-24T00:32:33.4343500Z 目标文件: /Users/runner/work/uya/uya/src/build/uya-hosted.c（中间文件，可删除）
+2026-10-24T00:32:33.4480320Z 
+2026-10-24T00:32:33.4520860Z 更新 bin/uya.c（若存在单文件 src/build/uya.c）…
+2026-10-24T00:32:33.4558820Z （多文件 C：未生成 src/build/uya.c；单文件见 make backup-seed）
+2026-10-24T00:32:33.4597030Z 
+2026-10-24T00:32:33.4667690Z ✓ 自举编译器构建完成: bin/uya-hosted（hosted）
+2026-10-24T00:32:33.4710630Z 
+2026-10-24T00:32:33.4749850Z 提示: 运行 'make b-hosted' 验证 hosted 自举
+2026-10-24T00:32:33.5066260Z ##[group]Run make b-hosted
+2026-10-24T00:32:33.5066740Z [36;1mmake b-hosted[0m
+2026-10-24T00:32:33.5290810Z shell: /bin/bash -e {0}
+2026-10-24T00:32:33.5291090Z env:
+2026-10-24T00:32:33.5291370Z   HOST_OS: macos
+2026-10-24T00:32:33.5299200Z   HOST_ARCH: arm64
+2026-10-24T00:32:33.5299570Z   TARGET_OS: macos
+2026-10-24T00:32:33.5299860Z   TARGET_ARCH: arm64
+2026-10-24T00:32:33.5300110Z   UYA_ROOT: /Users/runner/work/uya/uya/lib/
+2026-10-24T00:32:33.5300450Z   LC_ALL: C
+2026-10-24T00:32:33.5300650Z ##[endgroup]
+2026-10-24T00:32:33.6360090Z ==========================================
+2026-10-24T00:32:33.6394360Z 构建自举编译器 (uya-hosted)
+2026-10-24T00:32:33.6421600Z 使用 hosted 链接路径
+2026-10-24T00:32:33.6451030Z ==========================================
+2026-10-24T00:32:33.6504410Z 使用 hosted 编译器编译 src/ ...
+2026-10-24T00:32:33.6534200Z TARGET_OS=macos TARGET_ARCH=arm64 TARGET_TRIPLE=
+2026-10-24T00:32:33.6788570Z ==========================================
+2026-10-24T00:32:33.6789440Z Uya Mini 自举编译（自动依赖收集）
+2026-10-24T00:32:33.6789770Z ==========================================
+2026-10-24T00:32:33.6790160Z 编译器: /Users/runner/work/uya/uya/bin/uya
+2026-10-24T00:32:33.6790520Z 源代码目录: /Users/runner/work/uya/uya/src
+2026-10-24T00:32:33.6790870Z 输出文件: /Users/runner/work/uya/uya/src/build/uya-hosted.c
+2026-10-24T00:32:33.6791190Z 输入路径: /Users/runner/work/uya/uya/src/main.uya
+2026-10-24T00:32:33.6791360Z 
+2026-10-24T00:32:33.6791630Z 注意: 编译器将自动收集所有模块依赖
+2026-10-24T00:32:33.6791910Z ==========================================
+2026-10-24T00:32:33.6792170Z 
+2026-10-24T00:32:40.8034620Z 
+2026-10-24T00:32:40.8036810Z [0;32m✓ 编译成功！[0m
+2026-10-24T00:32:40.8037500Z 
+2026-10-24T00:32:40.8065100Z 
+2026-10-24T00:32:40.8066160Z [1;33mC 源文件已更新，重新链接可执行文件...[0m
+2026-10-24T00:33:14.2837070Z [0;32m✓ C99 可执行文件已生成: /Users/runner/work/uya/uya/bin/uya-hosted[0m
+2026-10-24T00:33:14.2848230Z 
+2026-10-24T00:33:14.2848990Z 可执行文件: /Users/runner/work/uya/uya/bin/uya-hosted
+2026-10-24T00:33:14.2977040Z 文件大小: 2.4M
+2026-10-24T00:33:14.2994680Z 类型: 可执行文件
+2026-10-24T00:33:14.2996750Z 目标文件: /Users/runner/work/uya/uya/src/build/uya-hosted.c（中间文件，可删除）
+2026-10-24T00:33:14.3129070Z 
+2026-10-24T00:33:14.3193310Z 更新 bin/uya.c（若存在单文件 src/build/uya.c）…
+2026-10-24T00:33:14.3293200Z （多文件 C：未生成 src/build/uya.c；单文件见 make backup-seed）
+2026-10-24T00:33:14.3350260Z 
+2026-10-24T00:33:14.3400000Z ✓ 自举编译器构建完成: bin/uya-hosted（hosted）
+2026-10-24T00:33:14.3517620Z 
+2026-10-24T00:33:14.3558040Z 提示: 运行 'make b-hosted' 验证 hosted 自举
+2026-10-24T00:33:14.3765630Z ==========================================
+2026-10-24T00:33:14.3810440Z hosted 自举验证：编译器编译自身，验证输出一致性
+2026-10-24T00:33:14.3862890Z ==========================================
+2026-10-24T00:33:14.4435250Z ==========================================
+2026-10-24T00:33:14.4437400Z Uya Mini 自举编译（自动依赖收集）
+2026-10-24T00:33:14.4437990Z ==========================================
+2026-10-24T00:33:14.4439070Z 编译器: /Users/runner/work/uya/uya/bin/uya-hosted
+2026-10-24T00:33:14.4440070Z 源代码目录: /Users/runner/work/uya/uya/src
+2026-10-24T00:33:14.4441350Z 输出文件: /Users/runner/work/uya/uya/src/build/uya-hosted.c
+2026-10-24T00:33:14.4442810Z 输入路径: /Users/runner/work/uya/uya/src/main.uya
+2026-10-24T00:33:14.4443380Z 
+2026-10-24T00:33:14.4443830Z 注意: 编译器将自动收集所有模块依赖
+2026-10-24T00:33:14.4444440Z ==========================================
+2026-10-24T00:33:14.4445080Z 
+2026-10-24T00:33:23.0786670Z 
+2026-10-24T00:33:23.0788940Z [0;32m✓ 编译成功！[0m
+2026-10-24T00:33:23.0789220Z 
+2026-10-24T00:33:23.0816420Z 
+2026-10-24T00:33:23.0817390Z [1;33mC 源文件已更新，重新链接可执行文件...[0m
+2026-10-24T00:33:51.7171900Z [0;32m✓ C99 可执行文件已生成: /Users/runner/work/uya/uya/bin/uya-hosted[0m
+2026-10-24T00:33:51.7182010Z 
+2026-10-24T00:33:51.7182750Z 可执行文件: /Users/runner/work/uya/uya/bin/uya-hosted
+2026-10-24T00:33:51.7276770Z 文件大小: 2.4M
+2026-10-24T00:33:51.7277280Z 类型: 可执行文件
+2026-10-24T00:33:51.7278340Z 目标文件: /Users/runner/work/uya/uya/src/build/uya-hosted.c（中间文件，可删除）
+2026-10-24T00:33:51.7278750Z 
+2026-10-24T00:33:51.7278880Z ==========================================
+2026-10-24T00:33:51.7280940Z 自举对比：用自举编译器编译自身，对比 C 输出（diff）
+2026-10-24T00:33:51.7281990Z Darwin hosted（单文件自举）：默认优先使用 C 输出对比，避免依赖 GNU/ELF 风格的二进制规范化。
+2026-10-24T00:33:51.7282440Z ==========================================
+2026-10-24T00:34:00.3013140Z [0;32m✓ 自举对比一致：C 编译器与自举编译器生成的 C 文件完全一致[0m
+2026-10-24T00:34:00.3158570Z 
+2026-10-24T00:34:00.3211690Z ✓ hosted 自举验证完成
+2026-10-24T00:34:00.3337150Z ##[group]Run make tests-hosted
+2026-10-24T00:34:00.3338280Z [36;1mmake tests-hosted[0m
+2026-10-24T00:34:00.3445210Z shell: /bin/bash -e {0}
+2026-10-24T00:34:00.3445530Z env:
+2026-10-24T00:34:00.3445750Z   HOST_OS: macos
+2026-10-24T00:34:00.3446050Z   HOST_ARCH: arm64
+2026-10-24T00:34:00.3446420Z   TARGET_OS: macos
+2026-10-24T00:34:00.3446700Z   TARGET_ARCH: arm64
+2026-10-24T00:34:00.3446950Z   UYA_ROOT: /Users/runner/work/uya/uya/lib/
+2026-10-24T00:34:00.3447300Z   LC_ALL: C
+2026-10-24T00:34:00.3447480Z   TEST_PROFILE: hosted
+2026-10-24T00:34:00.3447840Z   SKIP_DARWIN_DEFAULT: 1
+2026-10-24T00:34:00.3448080Z ##[endgroup]
+2026-10-24T00:34:00.4848470Z ==========================================
+2026-10-24T00:34:00.4850300Z 测试 hosted 编译器 (uya-hosted)
+2026-10-24T00:34:00.4850910Z ==========================================
+2026-10-24T00:34:43.7230360Z 开始运行 Uya 测试程序（并行版本，3 线程）...
+2026-10-24T00:34:43.7239340Z 使用编译器: /Users/runner/work/uya/uya/bin/uya-hosted
+2026-10-24T00:34:43.7244180Z fd 上限: unlimited（RLIMIT_NOFILE 软上限，已按硬上限提升）
+2026-10-24T00:34:43.7259470Z 
+2026-10-24T00:34:53.7609280Z 提示: 宿主为 macOS，已默认跳过 Linux syscall/async/pthread 与 arm64 不适用用例（SKIP_DARWIN_DEFAULT=0 可关闭）
+2026-10-24T00:34:53.7612490Z 
+2026-10-24T00:34:59.2611510Z 提示: 目标 macos/arm64 不支持 --nostdlib 静态链接，已跳过 19 个 nostdlib 专用用例
+2026-10-24T00:34:59.2612670Z 
+2026-10-24T00:34:59.3632230Z 提示: 当前工具链无法链接 libcrypto，已跳过 test_tls_ecdsa
+2026-10-24T00:34:59.3635210Z 
+2026-10-24T00:35:06.8999300Z 发现 1018 个测试任务
+2026-10-24T00:35:06.9003520Z 
+2026-10-24T00:35:13.8148690Z [1017/1018] 测试: multifile (多文件编译)
+2026-10-24T00:35:15.2204260Z   ✓ multifile:多文件测试通过
+2026-10-24T00:35:15.2253040Z [1018/1018] 测试: cross_deps (多文件编译)
+2026-10-24T00:35:15.4239090Z   ✓ cross_deps:多文件测试通过
+2026-10-24T00:35:15.4275860Z 
+2026-10-24T00:35:15.4277420Z 开始顺序执行 8 个网络敏感单文件测试...
+2026-10-24T00:35:15.4470380Z   -> 运行 test_https_google
+2026-10-24T00:35:18.3027900Z   ✓ test_https_google:测试通过
+2026-10-24T00:35:18.3188820Z   -> 运行 test_https_production
+2026-10-24T00:35:20.7064640Z   ✓ test_https_production:测试通过
+2026-10-24T00:35:20.7272980Z   -> 运行 test_https_debug
+2026-10-24T00:35:23.3858020Z   ✓ test_https_debug:测试通过
+2026-10-24T00:35:23.4470110Z   -> 运行 test_https_loopback
+2026-10-24T00:35:26.7042600Z   ✓ test_https_loopback:测试通过
+2026-10-24T00:35:26.7406520Z   -> 运行 test_raw_tls
+2026-10-24T00:35:28.0403600Z   ✓ test_raw_tls:测试通过
+2026-10-24T00:35:28.0792060Z   -> 运行 test_struct_method_chain
+2026-10-24T00:35:28.4200600Z   ✓ test_struct_method_chain:测试通过
+2026-10-24T00:35:28.4478030Z   -> 运行 test_https_real_site
+2026-10-24T00:35:31.2342220Z   ✓ test_https_real_site:测试通过
+2026-10-24T00:35:31.2494610Z   -> 运行 test_union_variant_generic_method
+2026-10-24T00:35:31.4421720Z   ✓ test_union_variant_generic_method:测试通过
+2026-10-24T00:35:31.4466270Z   顺序单文件测试完成
+2026-10-24T00:35:31.4471770Z 
+2026-10-24T00:35:31.4476040Z 开始并行执行 1008 个单文件测试（3 线程，流水线式）...
+2026-10-24T00:35:31.5031770Z   (当前 bash 不支持 wait -n，使用批量并行模式)
+2026-10-24T00:35:31.7342030Z   ✓ minimal_extern_test:测试通过
+2026-10-24T00:35:31.7456200Z   ✓ test_simple_conversion_correct:测试通过
+2026-10-24T00:35:31.7547030Z   ✓ test_usize:测试通过
+2026-10-24T00:35:31.9756090Z   ✓ test_len:测试通过
+2026-10-24T00:35:31.9819380Z   ✓ error_asm_missing_close_paren:预期编译失败
+2026-10-24T00:35:31.9877930Z   ✓ error_const_overflow_sub_add_boundary:预期编译失败
+2026-10-24T00:35:32.2821840Z   ✓ test_tls_async_runtime_boundary:测试通过
+2026-10-24T00:35:32.2888520Z   ✓ test_tflm_interpreter:测试通过
+2026-10-24T00:35:32.2958010Z   ✓ error_interface_static_method:预期编译失败
+2026-10-24T00:35:33.2049070Z ----- linker output begin: test_typed_pipeline_capability -----
+2026-10-24T00:35:33.2079460Z Undefined symbols for architecture arm64:
+2026-10-24T00:35:33.2080450Z   "___errno_location", referenced from:
+2026-10-24T00:35:33.2081420Z       _pipeline_errno_value in test_typed_pipeline_capability-68e0c2.o
+2026-10-24T00:35:33.2082380Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:35:33.2083530Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:35:33.2086240Z ----- linker output end: test_typed_pipeline_capability -----
+2026-10-24T00:35:33.2119500Z   ✓ test_generic_minimal:测试通过
+2026-10-24T00:35:33.2174760Z   ❌ test_typed_pipeline_capability:链接失败
+2026-10-24T00:35:33.2241780Z   ✓ error_char_escape_u_overflow:预期编译失败
+2026-10-24T00:35:33.6164980Z   ✓ test_vec_helper:测试通过
+2026-10-24T00:35:33.6244520Z   ✓ test_yaml_parse_invalid:测试通过
+2026-10-24T00:35:33.6301090Z   ✓ test_struct_method_multi:测试通过
+2026-10-24T00:35:33.8492420Z   ✓ test_exec_vm_compiler_repeat_array_literal:测试通过
+2026-10-24T00:35:33.8584450Z   ✓ error_const_sub_overflow:预期编译失败
+2026-10-24T00:35:33.8649180Z   ✓ test_macro_expr_int:测试通过
+2026-10-24T00:35:34.1304650Z   ✓ test_simd_i8_u8_i64_sse:测试通过
+2026-10-24T00:35:34.1411250Z   ✓ test_generic_parser:测试通过
+2026-10-24T00:35:34.1527640Z   ✓ error_embed_non_literal:预期编译失败
+2026-10-24T00:35:34.9073510Z   ✓ test_generic_nested_call:测试通过
+2026-10-24T00:35:34.9125930Z   ✓ test_json_complex:测试通过
+2026-10-24T00:35:34.9179120Z   ✓ test_else_if:测试通过
+2026-10-24T00:35:35.1386830Z   ✓ struct_assignment:测试通过
+2026-10-24T00:35:35.1441560Z   ✓ error_null_deref_write:预期编译失败
+2026-10-24T00:35:35.1496550Z   ✓ test_struct_array_len_div_codegen:测试通过
+2026-10-24T00:35:35.3677060Z   ✓ test_macro_nested_call:测试通过
+2026-10-24T00:35:35.3761430Z   ✓ test_generic_lookahead:测试通过
+2026-10-24T00:35:35.3838120Z   ✓ recursive_fibonacci:测试通过
+2026-10-24T00:35:35.5892420Z   ✓ error_asm_invalid_output_type:预期编译失败
+2026-10-24T00:35:35.6054940Z   ✓ error_atomic_compound_float_rhs:预期编译失败
+2026-10-24T00:35:35.6154470Z   ✓ test_generic_factory_return:测试通过
+2026-10-24T00:35:36.2708400Z ----- linker output begin: test_typed_pipeline_caller_buffers -----
+2026-10-24T00:35:36.2756030Z Undefined symbols for architecture arm64:
+2026-10-24T00:35:36.2756610Z   "___errno_location", referenced from:
+2026-10-24T00:35:36.2756980Z       _pipeline_errno_value in test_typed_pipeline_caller_buffers-5e89c5.o
+2026-10-24T00:35:36.2757460Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:35:36.2757840Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:35:36.2759220Z ----- linker output end: test_typed_pipeline_caller_buffers -----
+2026-10-24T00:35:36.2808160Z   ✓ test_defer:测试通过
+2026-10-24T00:35:36.2896300Z   ✓ error_ffi_ptr_in_normal_fn:预期编译失败
+2026-10-24T00:35:36.2957550Z   ❌ test_typed_pipeline_caller_buffers:链接失败
+2026-10-24T00:35:36.5864470Z   ✓ test_empty_struct_init:测试通过
+2026-10-24T00:35:36.5925630Z   ✓ error_simd_float_vector_mod:预期编译失败
+2026-10-24T00:35:36.5976890Z   ✓ test_json_parse_invalid:测试通过
+2026-10-24T00:35:36.8445900Z   ❌ test_asm_memory_clobber_flag:测试失败（退出码: 1）
+2026-10-24T00:35:36.8492290Z   ✓ test_kernel_update:测试通过
+2026-10-24T00:35:36.8544330Z   ✓ test_static_method_type_alias:测试通过
+2026-10-24T00:35:37.4849260Z ----- linker output begin: test_module_scope_isolation_stdlib_check -----
+2026-10-24T00:35:37.4877490Z Undefined symbols for architecture arm64:
+2026-10-24T00:35:37.4878460Z   "___errno_location", referenced from:
+2026-10-24T00:35:37.4879400Z       _pipeline_errno_value in test_module_scope_isolation_stdlib_check-cb0eb0.o
+2026-10-24T00:35:37.4880550Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:35:37.4881510Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:35:37.4882650Z ----- linker output end: test_module_scope_isolation_stdlib_check -----
+2026-10-24T00:35:37.4935130Z   ✓ test_fmt_import_sort:测试通过
+2026-10-24T00:35:37.5044550Z   ✓ test_struct_inner_method_multi:测试通过
+2026-10-24T00:35:37.5101950Z   ❌ test_module_scope_isolation_stdlib_check:链接失败
+2026-10-24T00:35:37.7496310Z   ✓ test_macro_func_position:测试通过
+2026-10-24T00:35:37.7577860Z   ✓ test_union_struct_variant:测试通过
+2026-10-24T00:35:37.7667940Z   ✓ test_binary_expr:测试通过
+2026-10-24T00:35:38.0859150Z   ✓ test_exec_vm_simd_unsupported:测试通过
+2026-10-24T00:35:38.0955060Z   ✓ test_crypto_blake3:测试通过
+2026-10-24T00:35:38.1066930Z   ✓ test_tls_aes_gcm:测试通过
+2026-10-24T00:35:41.3973760Z   ✓ test_nested_struct_access:测试通过
+2026-10-24T00:35:41.4089490Z   ✓ test_http_uyagin_websocket:测试通过
+2026-10-24T00:35:41.4179710Z   ✓ test_macro_for_typeinfo_fields:测试通过
+2026-10-24T00:35:44.7416710Z   ✓ test_generic_struct_fn:测试通过
+2026-10-24T00:35:44.7528170Z   ✓ test_http_websocket_read_message_semantics:测试通过
+2026-10-24T00:35:44.7615900Z   ✓ test_module_export:测试通过
+2026-10-24T00:35:45.0314510Z   ✓ test_exec_vm_interface_stateful:测试通过
+2026-10-24T00:35:45.0370360Z   ✓ test_exec_vm_catch_bare_return:测试通过
+2026-10-24T00:35:45.0439520Z   ✓ test_exec_vm_error_builtin:测试通过
+2026-10-24T00:35:45.3490290Z   ✓ test_fmt_rewrite:测试通过
+2026-10-24T00:35:45.3636170Z   ✓ error_array_bounds_const_expr:预期编译失败
+2026-10-24T00:35:45.3787630Z   ✓ test_loop_unroll:测试通过
+2026-10-24T00:35:45.6831510Z   ✓ test_http_hpack:测试通过
+2026-10-24T00:35:45.6884240Z   ✓ test_exec_vm_hir_scope:测试通过
+2026-10-24T00:35:45.6955680Z   ✓ error_array_bounds_interval_wrap:预期编译失败
+2026-10-24T00:35:46.2364150Z   ✓ test_exec_vm_stdio_varargs:测试通过
+2026-10-24T00:35:46.2487390Z   ✓ test_simd_i16_add:测试通过
+2026-10-24T00:35:46.2552290Z   ✓ error_print_unsupported_type:预期编译失败
+2026-10-24T00:35:46.8707780Z   ✓ test_print_builtin_format:测试通过
+2026-10-24T00:35:46.8871800Z   ✓ test_errdefer_only_on_error:测试通过
+2026-10-24T00:35:46.8997720Z   ✓ test_function_call_pointer_return:测试通过
+2026-10-24T00:35:47.2090400Z   ✓ test_break_continue_for:测试通过
+2026-10-24T00:35:47.2180180Z   ✓ test_exec_vm_compiler_match_return_block_multi_stmt:测试通过
+2026-10-24T00:35:47.2246640Z   ✓ test_http_websocket_http2_h3_route:测试通过
+2026-10-24T00:35:50.6278930Z   ✓ test_http_websocket_handshake:测试通过
+2026-10-24T00:35:50.6347950Z   ✓ test_slice_to_byte_pointer_arg:测试通过
+2026-10-24T00:35:50.6431840Z   ✓ test_operator_precedence:测试通过
+2026-10-24T00:35:51.1591700Z   ✓ test_ffi_cast:测试通过
+2026-10-24T00:35:51.1659910Z   ✓ test_exec_vm_compiler_error_union_value:测试通过
+2026-10-24T00:35:51.1728660Z   ✓ test_yaml_parse_flow_array:测试通过
+2026-10-24T00:35:51.8872010Z ----- linker output begin: test_typed_pipeline_executor_single -----
+2026-10-24T00:35:51.8893860Z Undefined symbols for architecture arm64:
+2026-10-24T00:35:51.8894430Z   "___errno_location", referenced from:
+2026-10-24T00:35:51.8895050Z       _pipeline_errno_value in test_typed_pipeline_executor_single-553399.o
+2026-10-24T00:35:51.8895490Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:35:51.8895980Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:35:51.8896650Z ----- linker output end: test_typed_pipeline_executor_single -----
+2026-10-24T00:35:51.8922940Z   ✓ test_enum_explicit_value:测试通过
+2026-10-24T00:35:51.8984530Z   ❌ test_typed_pipeline_executor_single:链接失败
+2026-10-24T00:35:51.9054710Z   ✓ test_try_overflow_types:测试通过
+2026-10-24T00:35:52.1208250Z   ✓ error_simd_vector_load_pointee_mismatch:预期编译失败
+2026-10-24T00:35:52.1294240Z   ✓ test_generic_struct_nested:测试通过
+2026-10-24T00:35:52.1351130Z   ✓ test_fmt_tokenizer:测试通过
+2026-10-24T00:35:54.9117420Z   ✓ test_http_websocket_heartbeat_config:测试通过
+2026-10-24T00:35:54.9217110Z   ✓ test_static_method_generic_struct:测试通过
+2026-10-24T00:35:54.9287420Z   ✓ error_async_frame_pinned_return:预期编译失败
+2026-10-24T00:35:55.2144930Z   ✓ error_module_use_undefined:预期编译失败
+2026-10-24T00:35:55.2255810Z   ✓ test_pointer_array_field_access:测试通过
+2026-10-24T00:35:55.2392270Z   ✓ control_flow:测试通过
+2026-10-24T00:35:56.1079830Z   ✓ test_json_expect_helpers:测试通过
+2026-10-24T00:35:56.1135070Z   ✓ test_json_encode_arena:测试通过
+2026-10-24T00:35:56.1191810Z   ✓ test_json_array:测试通过
+2026-10-24T00:35:56.4165180Z   ✓ comparison:测试通过
+2026-10-24T00:35:56.4228560Z   ✓ error_struct_method_arg_count:预期编译失败
+2026-10-24T00:35:56.4298820Z   ✓ test_simd_u32_basic:测试通过
+2026-10-24T00:35:56.6432460Z   ✓ error_asm_missing_close_brace:预期编译失败
+2026-10-24T00:35:56.6481330Z   ✓ test_macro_edge_cases:测试通过
+2026-10-24T00:35:56.6538570Z   ✓ error_simd_vector_select_mask_lanes:预期编译失败
+2026-10-24T00:35:56.8998840Z   ✓ error_array_bounds_unsigned_cast_upper_only:预期编译失败
+2026-10-24T00:35:56.9052080Z   ✓ error_asm_too_many_inputs:预期编译失败
+2026-10-24T00:35:56.9121590Z   ✓ test_fmt_trailing_comment_attach:测试通过
+2026-10-24T00:35:57.1432850Z   ✓ error_interp_dynamic_width:预期编译失败
+2026-10-24T00:35:57.1524960Z   ✓ test_errdefer_scope:测试通过
+2026-10-24T00:35:57.1590650Z   ✓ test_method_block_string_constant:测试通过
+2026-10-24T00:35:57.8322610Z ----- linker output begin: test_std_script_pipeline_facade -----
+2026-10-24T00:35:57.8346940Z Undefined symbols for architecture arm64:
+2026-10-24T00:35:57.8348160Z   "___errno_location", referenced from:
+2026-10-24T00:35:57.8349170Z       _pipeline_errno_value in test_std_script_pipeline_facade-b1a5a8.o
+2026-10-24T00:35:57.8349570Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:35:57.8350050Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:35:57.8350540Z ----- linker output end: test_std_script_pipeline_facade -----
+2026-10-24T00:35:57.8392090Z   ✓ test_boolean_func:测试通过
+2026-10-24T00:35:57.8488800Z   ❌ test_std_script_pipeline_facade:链接失败
+2026-10-24T00:35:57.8541830Z   ✓ error_test_libc_use:预期编译失败
+2026-10-24T00:35:58.0803390Z   ✓ test_simple_fn:测试通过
+2026-10-24T00:35:58.0906060Z   ✓ test_saturating_wrapping:测试通过
+2026-10-24T00:35:58.1119900Z   ✓ error_block_comment_unclosed:预期编译失败
+2026-10-24T00:35:58.3871790Z   ✓ test_simple_cast:测试通过
+2026-10-24T00:35:58.3958660Z   ✓ malloc_test:测试通过
+2026-10-24T00:35:58.4055880Z   ✓ test_try_only:测试通过
+2026-10-24T00:35:58.6468000Z   ✓ test_complex_and:测试通过
+2026-10-24T00:35:58.6518640Z   ✓ test_macro_interp:测试通过
+2026-10-24T00:35:58.6571760Z   ✓ error_const_overflow:预期编译失败
+2026-10-24T00:35:59.6416250Z ----- linker output begin: test_typed_pipeline_parser_positive -----
+2026-10-24T00:35:59.6445150Z Undefined symbols for architecture arm64:
+2026-10-24T00:35:59.6445660Z   "___errno_location", referenced from:
+2026-10-24T00:35:59.6446300Z       _pipeline_errno_value in test_typed_pipeline_parser_positive-7bed47.o
+2026-10-24T00:35:59.6446910Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:35:59.6447510Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:35:59.6448240Z ----- linker output end: test_typed_pipeline_parser_positive -----
+2026-10-24T00:35:59.6528900Z   ✓ test_number_literals:测试通过
+2026-10-24T00:35:59.6672250Z   ❌ test_typed_pipeline_parser_positive:链接失败
+2026-10-24T00:35:59.6824440Z   ✓ test_string_literal_init:测试通过
+2026-10-24T00:36:02.9469570Z   ✓ test_http_websocket_heartbeat:测试通过
+2026-10-24T00:36:02.9586710Z   ✓ error_proof_timeout:预期编译失败
+2026-10-24T00:36:02.9674810Z   ✓ test_signal:测试通过
+2026-10-24T00:36:03.2033540Z   ✓ error_array_eq_compare:预期编译失败
+2026-10-24T00:36:03.2104930Z   ✓ error_asm_output_pointer:预期编译失败
+2026-10-24T00:36:03.2161930Z   ✓ test_va_builtin:测试通过
+2026-10-24T00:36:03.8916610Z   ✓ error_array_bounds_struct_const:预期编译失败
+2026-10-24T00:36:03.9057130Z   ✓ error_path_for_need_proof:预期编译失败
+2026-10-24T00:36:03.9162050Z   ✓ test_json_from_json_reflect:测试通过
+2026-10-24T00:36:04.1639560Z   ✓ test_print_interp:测试通过
+2026-10-24T00:36:04.1694470Z   ✓ error_drop_duplicate:预期编译失败
+2026-10-24T00:36:04.1770840Z   ✓ test_return_expr_bounds:测试通过
+2026-10-24T00:36:04.9064070Z   ✓ test_kernel_host:测试通过
+2026-10-24T00:36:04.9152710Z   ✓ error_async_errdefer_break:预期编译失败
+2026-10-24T00:36:04.9280300Z   ✓ test_std_base64:测试通过
+2026-10-24T00:36:05.2608360Z   ✓ test_exec_vm_error_union:测试通过
+2026-10-24T00:36:05.2719740Z   ✓ test_empty_array:测试通过
+2026-10-24T00:36:05.2787130Z   ✓ test_if_return_simple:测试通过
+2026-10-24T00:36:05.5847710Z   ✓ error_const_slice_element_assign_member:预期编译失败
+2026-10-24T00:36:05.5944630Z   ✓ void_function:测试通过
+2026-10-24T00:36:05.6107460Z   ✓ error_async_defer_return:预期编译失败
+2026-10-24T00:36:06.0286920Z   ✓ test_simd_vec64_sse_chain:测试通过
+2026-10-24T00:36:06.0364690Z   ✓ test_macro_mc_eval:测试通过
+2026-10-24T00:36:06.0430770Z   ✓ test_yaml_parse_anchor_flow:测试通过
+2026-10-24T00:36:09.2135210Z   ✓ test_http_websocket_module_smoke:测试通过
+2026-10-24T00:36:09.2208650Z   ✓ test_fmt_parser:测试通过
+2026-10-24T00:36:09.2296640Z   ✓ test_http_websocket_async:测试通过
+2026-10-24T00:36:10.1430180Z ----- linker output begin: test_typed_pipeline_checker_positive -----
+2026-10-24T00:36:10.1478180Z Undefined symbols for architecture arm64:
+2026-10-24T00:36:10.1479670Z   "___errno_location", referenced from:
+2026-10-24T00:36:10.1481910Z       _pipeline_errno_value in test_typed_pipeline_checker_positive-1412f4.o
+2026-10-24T00:36:10.1483150Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:36:10.1486170Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:36:10.1488080Z ----- linker output end: test_typed_pipeline_checker_positive -----
+2026-10-24T00:36:10.1530010Z   ✓ test_simd_type_positions:测试通过
+2026-10-24T00:36:10.1635680Z   ✓ test_simd_c99_select_emit_u32_only:测试通过
+2026-10-24T00:36:10.1725050Z   ❌ test_typed_pipeline_checker_positive:链接失败
+2026-10-24T00:36:10.4259240Z   ✓ error_typed_pipeline_instance_method_receiver:预期编译失败
+2026-10-24T00:36:10.4330420Z   ✓ test_codegen_declare_function:测试通过
+2026-10-24T00:36:10.4410180Z   ✓ error_defer_return_single:预期编译失败
+2026-10-24T00:36:10.7208360Z   ✓ test_struct_default:测试通过
+2026-10-24T00:36:10.7272730Z   ✓ test_union:测试通过
+2026-10-24T00:36:10.7332600Z   ✓ error_defer_continue:预期编译失败
+2026-10-24T00:36:11.0376820Z   ✓ test_literal_suffix:测试通过
+2026-10-24T00:36:11.0452340Z   ✓ test_defer_scope:测试通过
+2026-10-24T00:36:11.0527100Z   ✓ extern_var_test:测试通过
+2026-10-24T00:36:11.3364360Z   ✓ test_simd_c99_select_emit_i32x2_and_f32x4:测试通过
+2026-10-24T00:36:11.3434920Z   ✓ error_lexer_unknown_char:预期编译失败
+2026-10-24T00:36:11.3526890Z   ✓ test_macro_type:测试通过
+2026-10-24T00:36:11.5605030Z   ✓ error_interface_compose_missing:预期编译失败
+2026-10-24T00:36:11.5724780Z   ✓ error_array_bounds_const:预期编译失败
+2026-10-24T00:36:11.5821490Z   ✓ test_exec_vm_catch_block_prefix:测试通过
+2026-10-24T00:36:12.7463770Z   ✓ test_raw_string:测试通过
+2026-10-24T00:36:12.7552230Z   ✓ test_tls_handshake:测试通过
+2026-10-24T00:36:12.7687050Z   ✓ test_exec_vm_compiler_unary_bit_not:测试通过
+2026-10-24T00:36:13.0856240Z   ✓ test_protobuf_oneof:测试通过
+2026-10-24T00:36:13.0914690Z   ✓ test_crypto_hmac_sha256:测试通过
+2026-10-24T00:36:13.1021640Z   ✓ error_drop_wrong_sig:预期编译失败
+2026-10-24T00:36:13.4160090Z   ✓ error_cast_enum_requires_asbang:预期编译失败
+2026-10-24T00:36:13.4230920Z   ✓ test_simd_mask_bitwise_shift:测试通过
+2026-10-24T00:36:13.4294980Z   ✓ error_extern_union_match:预期编译失败
+2026-10-24T00:36:14.0362410Z   ✓ test_exec_vm_local_load_store:测试通过
+2026-10-24T00:36:14.0430380Z   ✓ error_asm_invalid_input_type:预期编译失败
+2026-10-24T00:36:14.0502550Z   ✓ test_c99_async_frame_empty_descriptors:测试通过
+2026-10-24T00:36:14.3327050Z   ✓ test_protobuf_repeated:测试通过
+2026-10-24T00:36:14.3418400Z   ✓ error_try_overflow_operand_not_integer:预期编译失败
+2026-10-24T00:36:14.3483080Z   ✓ test_embed_builtin:测试通过
+2026-10-24T00:36:14.7021000Z   ✓ test_error_compare_legacy_compat:测试通过
+2026-10-24T00:36:14.7133000Z   ✓ test_simd_vector_reduce_min_max:测试通过
+2026-10-24T00:36:14.7224000Z   ✓ error_simd_float_vector_tilde:预期编译失败
+2026-10-24T00:36:15.2893580Z   ✓ test_macro_expr_bool:测试通过
+2026-10-24T00:36:15.3098450Z   ✓ test_yaml_parse_multi:测试通过
+2026-10-24T00:36:15.3303200Z   ✓ error_typed_pipeline_right_not_call:预期编译失败
+2026-10-24T00:36:16.3439140Z   ✓ test_json_roundtrip:测试通过
+2026-10-24T00:36:16.3545540Z   ✓ repro_codegen_ast_simplify:测试通过
+2026-10-24T00:36:16.3644330Z   ✓ test_simple_compare:测试通过
+2026-10-24T00:36:17.2652890Z   ✓ recursive_mutual:测试通过
+2026-10-24T00:36:17.2753810Z   ✓ error_try_overflow_error_union_subexpr:预期编译失败
+2026-10-24T00:36:17.2848250Z   ✓ test_json_encode_slice:测试通过
+2026-10-24T00:36:18.0075030Z   ✓ test_std_runtime:测试通过
+2026-10-24T00:36:18.0191920Z   ✓ test_exec_vm_stdlib_unistd:测试通过
+2026-10-24T00:36:18.0296170Z   ✓ test_println_basic:测试通过
+2026-10-24T00:36:18.2788010Z   ✓ error_cast_integer_narrow_requires_asbang:预期编译失败
+2026-10-24T00:36:18.2898630Z   ✓ test_const_pointer:测试通过
+2026-10-24T00:36:18.2965570Z   ✓ test_enum_mixed_value:测试通过
+2026-10-24T00:36:18.6454550Z   ✓ test_error_runtime_only:测试通过
+2026-10-24T00:36:18.6551080Z   ✓ test_llvm_ir:测试通过
+2026-10-24T00:36:18.6625410Z   ✓ error_async_frame_pinned_method_arg:预期编译失败
+2026-10-24T00:36:19.3414370Z   ✓ error_async_await_in_defer:预期编译失败
+2026-10-24T00:36:19.3498160Z   ✓ test_simd_vec8_i32:测试通过
+2026-10-24T00:36:19.3711890Z   ✓ test_unistd:测试通过
+2026-10-24T00:36:19.6963920Z   ✓ test_simd_c99_select_emit_i32x2_only:测试通过
+2026-10-24T00:36:19.7060220Z   ✓ test_for_iterator:测试通过
+2026-10-24T00:36:19.7128250Z   ✓ test_error_forward_use:测试通过
+2026-10-24T00:36:20.2031530Z   ✓ error_simd_vector_store_pointee_mismatch:预期编译失败
+2026-10-24T00:36:20.2085960Z   ✓ bench_protobuf:测试通过
+2026-10-24T00:36:20.2140610Z   ✓ test_unary_operators:测试通过
+2026-10-24T00:36:20.4810080Z   ✓ test_return_catch_err_pointer:测试通过
+2026-10-24T00:36:20.4906180Z   ✓ test_ptr_from_usize:测试通过
+2026-10-24T00:36:20.5024780Z   ✓ error_microapp_mode_host_api_libc:预期编译失败
+2026-10-24T00:36:21.1325630Z   ✓ test_exec_vm_extern_impl_body_first:测试通过
+2026-10-24T00:36:21.1391530Z   ✓ test_simd_splat_f32_suffix:测试通过
+2026-10-24T00:36:21.1446720Z   ✓ arithmetic:测试通过
+2026-10-24T00:36:21.3978560Z   ✓ test_exec_vm_compiler_asm_target:测试通过
+2026-10-24T00:36:21.4067460Z   ✓ test_macro_simple_interp:测试通过
+2026-10-24T00:36:21.4123880Z   ✓ pointer_test:测试通过
+2026-10-24T00:36:21.6927780Z   ✓ test_simd_div_f32_i32:测试通过
+2026-10-24T00:36:21.7016890Z   ✓ test_macro_mc_type:测试通过
+2026-10-24T00:36:21.7077860Z   ✓ test_union_generic_to:测试通过
+2026-10-24T00:36:21.9724420Z   ✓ recursive_gcd:测试通过
+2026-10-24T00:36:21.9797810Z   ✓ test_simd_c99_select_emit_f32_only:测试通过
+2026-10-24T00:36:21.9852470Z   ✓ test_exec_vm_short_circuit:测试通过
+2026-10-24T00:36:22.2116200Z   ✓ test_bitwise:测试通过
+2026-10-24T00:36:22.2179270Z   ✓ test_array_addr:测试通过
+2026-10-24T00:36:22.2269780Z   ✓ test_interface_global_init:测试通过
+2026-10-24T00:36:22.3963030Z   ✓ error_syscall_not_const:预期编译失败
+2026-10-24T00:36:22.4024260Z   ✓ test_error_simple:测试通过
+2026-10-24T00:36:22.4129800Z   ✓ error_drop_manual_call:预期编译失败
+2026-10-24T00:36:22.6592350Z   ✓ error_interface_field_access:预期编译失败
+2026-10-24T00:36:22.6687770Z   ✓ test_json_value:测试通过
+2026-10-24T00:36:22.6785840Z   ✓ test_c_import_cflags:测试通过
+2026-10-24T00:36:22.8803670Z   ✓ test_bounds_interval_wrap:测试通过
+2026-10-24T00:36:22.8875560Z   ✓ error_const_mul_overflow:预期编译失败
+2026-10-24T00:36:22.8929210Z   ✓ error_async_defer_continue_nested:预期编译失败
+2026-10-24T00:36:23.1180510Z   ✓ test_compare_simple:测试通过
+2026-10-24T00:36:23.1252550Z   ✓ error_async_await_in_return:预期编译失败
+2026-10-24T00:36:23.1314640Z   ✓ test_const_pointer_simple:测试通过
+2026-10-24T00:36:23.5108180Z   ✓ test_yaml_parse_block_scalar:测试通过
+2026-10-24T00:36:23.5206850Z   ✓ test_union_drop_auto_variant:测试通过
+2026-10-24T00:36:23.5290750Z   ✓ test_defer_continue:测试通过
+2026-10-24T00:36:23.9491000Z   ✓ error_typed_pipeline_try_forward_use_after_move:预期编译失败
+2026-10-24T00:36:23.9553530Z   ✓ test_string_layer:测试通过
+2026-10-24T00:36:23.9629160Z   ✓ test_std_net_socket:测试通过
+2026-10-24T00:36:25.1605610Z   ✓ sizeof_test:测试通过
+2026-10-24T00:36:25.1672270Z   ✓ test_generic_in_expr:测试通过
+2026-10-24T00:36:25.1742880Z   ✓ test_c99_async_frame_descriptors:测试通过
+2026-10-24T00:36:25.4216250Z   ✓ test_generic_method_simple:测试通过
+2026-10-24T00:36:25.4280990Z   ✓ test_len_comprehensive:测试通过
+2026-10-24T00:36:25.4346590Z   ✓ test_macro_slice_expr_codegen:测试通过
+2026-10-24T00:36:25.6640410Z   ✓ error_array_bounds_guard_off_by_one:预期编译失败
+2026-10-24T00:36:25.6932850Z   ✓ test_double_pointer_assign_regression:测试通过
+2026-10-24T00:36:25.7033870Z   ✓ test_union_struct_field_codegen:测试通过
+2026-10-24T00:36:26.1169880Z   ✓ test_crypto_crc32:测试通过
+2026-10-24T00:36:26.1227400Z   ✓ test_yaml_encode_flow:测试通过
+2026-10-24T00:36:26.1284720Z   ✓ error_slice_eq_compare:预期编译失败
+2026-10-24T00:36:26.9112010Z   ✓ test_slice_struct_field_byte:测试通过
+2026-10-24T00:36:26.9201790Z   ✓ test_http_jwt:测试通过
+2026-10-24T00:36:26.9264060Z   ✓ test_cfg_target:测试通过
+2026-10-24T00:36:27.4242520Z   ✓ test_stdio:测试通过
+2026-10-24T00:36:27.4294390Z   ✓ test_struct_method_ptr:测试通过
+2026-10-24T00:36:27.4352850Z   ✓ test_drop_order:测试通过
+2026-10-24T00:36:27.6727550Z   ✓ test_macro_stmt_return:测试通过
+2026-10-24T00:36:27.6786930Z   ✓ simple_function:测试通过
+2026-10-24T00:36:27.6847190Z   ✓ test_func_return:测试通过
+2026-10-24T00:36:27.9874760Z   ✓ test_std_mem_directory_module_alias:测试通过
+2026-10-24T00:36:27.9940690Z   ✓ test_http_multipart:测试通过
+2026-10-24T00:36:28.0024850Z   ✓ test_function_reachability_string_interp_expr:测试通过
+2026-10-24T00:36:28.2055210Z   ✓ test_protobuf_encode_basic:测试通过
+2026-10-24T00:36:28.2114050Z   ✓ test_function_reachability_codegen:测试通过
+2026-10-24T00:36:28.2188280Z   ✓ error_opaque_struct_copy_after_move:预期编译失败
+2026-10-24T00:36:28.5830010Z   ✓ test_std_dns_async_composition_shape:测试通过
+2026-10-24T00:36:28.5890670Z   ✓ test_atomic_ops:测试通过
+2026-10-24T00:36:28.5951200Z   ✓ test_macro_param_stmt:测试通过
+2026-10-24T00:36:29.9101610Z   ✓ error_defer_break_nested:预期编译失败
+2026-10-24T00:36:29.9164880Z   ✓ test_constant_folding:测试通过
+2026-10-24T00:36:29.9236830Z   ✓ test_http_uyagin_recover_observe:测试通过
+2026-10-24T00:36:30.1757640Z   ✓ test_generic_fn_only:测试通过
+2026-10-24T00:36:30.1846610Z   ✓ error_async_await_in_errdefer:预期编译失败
+2026-10-24T00:36:30.1928170Z   ✓ test_match:测试通过
+2026-10-24T00:36:30.5020900Z   ✓ error_slice_negative_start:预期编译失败
+2026-10-24T00:36:30.5113230Z   ✓ error_print_no_arg:预期编译失败
+2026-10-24T00:36:30.5210060Z   ✓ test_json_parse_array:测试通过
+2026-10-24T00:36:31.0423220Z   ✓ error_check_missing_brace:预期编译失败
+2026-10-24T00:36:31.0491510Z   ✓ error_asbang_requires_try_or_catch_var_init:预期编译失败
+2026-10-24T00:36:31.0555490Z   ✓ test_tls_entropy:测试通过
+2026-10-24T00:36:31.2691750Z   ✓ recursive_power:测试通过
+2026-10-24T00:36:31.2746200Z   ✓ extern_function:测试通过
+2026-10-24T00:36:31.2802290Z   ✓ test_macro_generic_method:测试通过
+2026-10-24T00:36:31.7968500Z   ✓ test_std_stdlib_simple:测试通过
+2026-10-24T00:36:31.8017610Z   ✓ test_simd_vector_reduce_mul:测试通过
+2026-10-24T00:36:31.8083590Z   ✓ test_std_io_file:测试通过
+2026-10-24T00:36:32.0210250Z   ✓ test_exec_vm_layout_consistency:测试通过
+2026-10-24T00:36:32.0321360Z   ✓ test_direct_bool:测试通过
+2026-10-24T00:36:32.0409230Z   ✓ test_pointer_member_access:测试通过
+2026-10-24T00:36:32.6171500Z   ✓ test_generic_method:测试通过
+2026-10-24T00:36:32.6230820Z   ✓ test_type_alias:测试通过
+2026-10-24T00:36:32.6298870Z   ✓ test_json_encode_basic:测试通过
+2026-10-24T00:36:32.8897130Z   ✓ test_tflm_model:测试通过
+2026-10-24T00:36:32.8949350Z   ✓ test_proof_len_nested:测试通过
+2026-10-24T00:36:32.9000630Z   ✓ test_http_http2_frame:测试通过
+2026-10-24T00:36:33.1874240Z   ✓ test_yaml_encode_flow_anchors:测试通过
+2026-10-24T00:36:33.1930510Z   ✓ test_crypto_sha256:测试通过
+2026-10-24T00:36:33.1989730Z   ✓ test_defer_return_order:测试通过
+2026-10-24T00:36:35.4432090Z   ✓ error_asm_too_many_outputs:预期编译失败
+2026-10-24T00:36:35.4482280Z   ✓ test_simd_c99_select_emit_i32x4_and_u32x4:测试通过
+2026-10-24T00:36:35.4577740Z   ✓ test_https_bridge_safety:测试通过
+2026-10-24T00:36:36.0994050Z   ✓ test_stdio_file_buffering:测试通过
+2026-10-24T00:36:36.1059630Z   ✓ error_simd_float_vector_bitwise:预期编译失败
+2026-10-24T00:36:36.1139590Z   ✓ test_json_encode_long_str:测试通过
+2026-10-24T00:36:36.3581010Z   ✓ test_usize_from_ptr:测试通过
+2026-10-24T00:36:36.3651410Z   ✓ test_generic_struct_method:测试通过
+2026-10-24T00:36:36.3713590Z   ✓ test_crypto_md5:测试通过
+2026-10-24T00:36:38.9296550Z   ✓ test_http_websocket_reconnect:测试通过
+2026-10-24T00:36:38.9400010Z   ✓ error_struct_method_not_found:预期编译失败
+2026-10-24T00:36:38.9469330Z   ✓ test_type_conversion_comprehensive:测试通过
+2026-10-24T00:36:39.1446360Z   ✓ error_string_escape_surrogate_u:预期编译失败
+2026-10-24T00:36:39.1503730Z   ✓ test_static_method_union:测试通过
+2026-10-24T00:36:39.1582790Z   ✓ test_macro_basic:测试通过
+2026-10-24T00:36:39.4585300Z   ✓ test_exec_vm_catch_empty_block:测试通过
+2026-10-24T00:36:39.4646410Z   ✓ test_break_continue:测试通过
+2026-10-24T00:36:39.4700470Z   ✓ test_fmt_comments_phase2:测试通过
+2026-10-24T00:36:39.7107640Z   ✓ test_generic_call:测试通过
+2026-10-24T00:36:39.7161070Z   ✓ recursive_factorial:测试通过
+2026-10-24T00:36:39.7217250Z   ✓ test_exec_vm_compiler_atomic_global:测试通过
+2026-10-24T00:36:39.9513970Z   ✓ test_fmt_api_rewrite:测试通过
+2026-10-24T00:36:39.9588170Z   ✓ test_slice_param_c99_emit:测试通过
+2026-10-24T00:36:39.9647990Z   ✓ error_simd_vector_mask_mix_and:预期编译失败
+2026-10-24T00:36:40.4683340Z   ✓ test_atomic_basic:测试通过
+2026-10-24T00:36:40.4760690Z   ✓ test_printf_f:测试通过
+2026-10-24T00:36:40.4827580Z   ✓ test_exec_vm_compiler_field_pointer_index:测试通过
+2026-10-24T00:36:41.1193750Z ----- linker output begin: test_typed_pipeline_imported_transformer_positive -----
+2026-10-24T00:36:41.1222870Z Undefined symbols for architecture arm64:
+2026-10-24T00:36:41.1223930Z   "___errno_location", referenced from:
+2026-10-24T00:36:41.1225820Z       _pipeline_errno_value in test_typed_pipeline_imported_transformer_positive-0310bf.o
+2026-10-24T00:36:41.1226730Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:36:41.1227270Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:36:41.1227960Z ----- linker output end: test_typed_pipeline_imported_transformer_positive -----
+2026-10-24T00:36:41.1268160Z   ❌ test_typed_pipeline_imported_transformer_positive:链接失败
+2026-10-24T00:36:41.1329220Z   ✓ extern_ffi_test:测试通过
+2026-10-24T00:36:41.1395530Z   ✓ error_typed_pipeline_non_pipeline_error_union:预期编译失败
+2026-10-24T00:36:41.6143840Z   ✓ test_ctype:测试通过
+2026-10-24T00:36:41.6192480Z   ✓ error_drop_manual_type_call:预期编译失败
+2026-10-24T00:36:41.6239710Z   ✓ test_kernel_scheduler:测试通过
+2026-10-24T00:36:41.8111850Z   ✓ test_null_comprehensive:测试通过
+2026-10-24T00:36:41.8165620Z   ✓ error_simd_mask_in_condition:预期编译失败
+2026-10-24T00:36:41.8217430Z   ✓ unary_expr:测试通过
+2026-10-24T00:36:42.0065400Z   ✓ error_const_div_zero:预期编译失败
+2026-10-24T00:36:42.0120030Z   ✓ test_test_basic:测试通过
+2026-10-24T00:36:42.0177190Z   ✓ test_exec_vm_enum_value:测试通过
+2026-10-24T00:36:42.2880370Z   ✓ test_table_capacity:测试通过
+2026-10-24T00:36:42.2936830Z   ✓ test_json_parse_float:测试通过
+2026-10-24T00:36:42.3005510Z   ✓ test_if_block_bare_catch:测试通过
+2026-10-24T00:36:42.9614660Z   ✓ test_array_pointer_access:测试通过
+2026-10-24T00:36:42.9674240Z   ✓ test_zero_deps:测试通过
+2026-10-24T00:36:42.9739810Z   ✓ test_yaml_json_convert:测试通过
+2026-10-24T00:36:43.1631010Z   ✓ test_generic_parser_full:测试通过
+2026-10-24T00:36:43.1687190Z   ✓ test_print_basic:测试通过
+2026-10-24T00:36:43.1746750Z   ✓ error_microapp_mode_extern:预期编译失败
+2026-10-24T00:36:43.6621380Z   ✓ error_errdefer_wrong_scope:预期编译失败
+2026-10-24T00:36:43.6684460Z   ✓ bench_malloc_phase2:测试通过
+2026-10-24T00:36:43.6747580Z   ✓ test_enum_member_access:测试通过
+2026-10-24T00:36:43.9119770Z   ✓ test_ec_p384_ecdh:测试通过
+2026-10-24T00:36:43.9174230Z   ✓ test_function_forward_ref:测试通过
+2026-10-24T00:36:43.9229540Z   ✓ error_await_operand_not_future:预期编译失败
+2026-10-24T00:36:44.1533050Z   ✓ test_simd_c99_select_emit_i32_only:测试通过
+2026-10-24T00:36:44.1592240Z   ✓ test_saturating_wrapping_vm:测试通过
+2026-10-24T00:36:44.1652490Z   ✓ error_move_active_pointer:预期编译失败
+2026-10-24T00:36:44.6541270Z   ✓ nested_with_structs:测试通过
+2026-10-24T00:36:44.6606710Z   ✓ test_non_generic_struct_generic_method:测试通过
+2026-10-24T00:36:44.6685740Z   ✓ test_mem_heap:测试通过
+2026-10-24T00:36:44.9164310Z   ✓ test_option_struct:测试通过
+2026-10-24T00:36:44.9224210Z   ✓ test_tls_chacha20_poly1305:测试通过
+2026-10-24T00:36:44.9314940Z   ✓ test_fmt_comment_collection:测试通过
+2026-10-24T00:36:45.1095020Z   ✓ error_macro_mc_type:预期编译失败
+2026-10-24T00:36:45.1169260Z   ✓ test_function_reachability_address_taken:测试通过
+2026-10-24T00:36:45.1230290Z   ✓ test_nested_member_access:测试通过
+2026-10-24T00:36:45.7961350Z ----- linker output begin: test_typed_pipeline_lowering -----
+2026-10-24T00:36:45.8020640Z Undefined symbols for architecture arm64:
+2026-10-24T00:36:45.8052820Z   "___errno_location", referenced from:
+2026-10-24T00:36:45.8073630Z       _pipeline_errno_value in test_typed_pipeline_lowering-aae2aa.o
+2026-10-24T00:36:45.8109920Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:36:45.8116190Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:36:45.8123800Z ----- linker output end: test_typed_pipeline_lowering -----
+2026-10-24T00:36:45.8124520Z   ❌ test_typed_pipeline_lowering:链接失败
+2026-10-24T00:36:45.8168690Z   ✓ test_ec_p256_ecdh:测试通过
+2026-10-24T00:36:45.8228080Z   ✓ test_pointer_array_access:测试通过
+2026-10-24T00:36:46.0700930Z   ✓ error_defer_continue_nested:预期编译失败
+2026-10-24T00:36:46.0760360Z   ✓ test_option_core:测试通过
+2026-10-24T00:36:46.0815660Z   ✓ test_c99_private_fn_name_collision:测试通过
+2026-10-24T00:36:46.3084020Z   ✓ error_const_reassignment:预期编译失败
+2026-10-24T00:36:46.3177570Z   ✓ test_type_conversion_pointer:测试通过
+2026-10-24T00:36:46.3267460Z   ✓ test_exec_vm_compiler_array_ptr_member:测试通过
+2026-10-24T00:36:46.6288570Z   ✓ test_drop_export_main_direct:测试通过
+2026-10-24T00:36:46.6339900Z   ✓ test_simd_vec8_sse_chain:测试通过
+2026-10-24T00:36:46.6397100Z   ✓ test_libc_stdio_new:测试通过
+2026-10-24T00:36:47.1466020Z   ✓ test_dyn_table_growth:测试通过
+2026-10-24T00:36:47.1524060Z   ✓ test_exec_vm_libc_module_global:测试通过
+2026-10-24T00:36:47.1582150Z   ✓ test_function_export:测试通过
+2026-10-24T00:36:47.3866570Z   ✓ test_for_range:测试通过
+2026-10-24T00:36:47.3930900Z   ✓ test_proof_optimization:测试通过
+2026-10-24T00:36:47.3985510Z   ✓ test_c99_pointer_access:测试通过
+2026-10-24T00:36:48.0954770Z ----- linker output begin: test_typed_pipeline_lowering_error -----
+2026-10-24T00:36:48.0981820Z Undefined symbols for architecture arm64:
+2026-10-24T00:36:48.0982390Z   "___errno_location", referenced from:
+2026-10-24T00:36:48.0984730Z       _pipeline_errno_value in test_typed_pipeline_lowering_error-38864c.o
+2026-10-24T00:36:48.0985330Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:36:48.0985880Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:36:48.0986350Z ----- linker output end: test_typed_pipeline_lowering_error -----
+2026-10-24T00:36:48.1019050Z   ✓ test_simd_f64_mul_div:测试通过
+2026-10-24T00:36:48.1067350Z   ✓ test_std_stdlib_debug:测试通过
+2026-10-24T00:36:48.1117070Z   ❌ test_typed_pipeline_lowering_error:链接失败
+2026-10-24T00:36:48.3325450Z   ✓ test_struct_comparison:测试通过
+2026-10-24T00:36:48.3380340Z   ✓ test_branch_assign_bounds_ok:测试通过
+2026-10-24T00:36:48.3446550Z   ✓ error_async_frame_pinned_move:预期编译失败
+2026-10-24T00:36:48.6740150Z   ✓ test_c99_vp8_short_payload_codegen:测试通过
+2026-10-24T00:36:48.6801830Z   ✓ test_yaml_fold_block:测试通过
+2026-10-24T00:36:48.6875510Z   ✓ test_match_type_inference:测试通过
+2026-10-24T00:36:48.9091320Z   ✓ test_std_sha1:测试通过
+2026-10-24T00:36:48.9145430Z   ✓ error_string_escape_bad_x:预期编译失败
+2026-10-24T00:36:48.9199330Z   ✓ test_struct_pointer_return:测试通过
+2026-10-24T00:36:49.1238070Z   ✓ test_saturating_parity:测试通过
+2026-10-24T00:36:49.1305390Z   ✓ error_async_frame_pool_empty_array_init:预期编译失败
+2026-10-24T00:36:49.1364930Z   ✓ test_std_runtime_simple:测试通过
+2026-10-24T00:36:49.6017050Z   ✓ error_asm_missing_paren:预期编译失败
+2026-10-24T00:36:49.6073960Z   ✓ test_method_temp_receiver:测试通过
+2026-10-24T00:36:49.6132660Z   ✓ test_math:测试通过
+2026-10-24T00:36:50.1919030Z   ✓ test_if_return:测试通过
+2026-10-24T00:36:50.1977730Z   ✓ test_json_nested:测试通过
+2026-10-24T00:36:50.2030430Z   ✓ test_const_receiver_codegen:测试通过
+2026-10-24T00:36:50.4190160Z   ✓ error_array_bounds_upper_only_need_lower:预期编译失败
+2026-10-24T00:36:50.4247230Z   ✓ error_embed_dir_too_many_args:预期编译失败
+2026-10-24T00:36:50.4314720Z   ✓ test_simd_fn_vector_return:测试通过
+2026-10-24T00:36:51.0514690Z   ✓ test_json_to_json_reflect:测试通过
+2026-10-24T00:36:51.0578310Z   ✓ bench_malloc_phase3:测试通过
+2026-10-24T00:36:51.0670150Z   ✓ test_type_parse:测试通过
+2026-10-24T00:36:51.3792310Z   ✓ test_yaml_anchor_limits:测试通过
+2026-10-24T00:36:51.3847600Z   ✓ complex_expr:测试通过
+2026-10-24T00:36:51.3910020Z   ✓ test_dead_code_elimination:测试通过
+2026-10-24T00:36:51.6113120Z   ✓ test_protobuf_packed:测试通过
+2026-10-24T00:36:51.6172280Z   ✓ test_struct_method:测试通过
+2026-10-24T00:36:51.6234080Z   ✓ test_union_nested_deps:测试通过
+2026-10-24T00:36:51.7978040Z   ✓ test_exec_vm_scalar_pointer:测试通过
+2026-10-24T00:36:51.8028800Z   ✓ error_typed_pipeline_parser_negative_eof:预期编译失败
+2026-10-24T00:36:51.8084270Z   ✓ test_atomic_types:测试通过
+2026-10-24T00:36:52.2889140Z   ✓ test_std_io_buffering:测试通过
+2026-10-24T00:36:52.2941940Z   ✓ test_macro_simple:测试通过
+2026-10-24T00:36:52.2993510Z   ✓ test_exec_vm_builtin_bridge:测试通过
+2026-10-24T00:36:52.7448930Z   ✓ test_byte:测试通过
+2026-10-24T00:36:52.7533080Z   ✓ test_std_stdlib:测试通过
+2026-10-24T00:36:52.7596210Z   ✓ error_for_iterator_interface_value:预期编译失败
+2026-10-24T00:36:53.2913390Z   ✓ error_asm_missing_string:预期编译失败
+2026-10-24T00:36:53.2989950Z   ✓ error_enum_c_style_access:预期编译失败
+2026-10-24T00:36:53.3091210Z   ✓ test_libc_printf_import:测试通过
+2026-10-24T00:36:53.5999290Z   ✓ test_slice_expr_from_const_byte_param:测试通过
+2026-10-24T00:36:53.6069920Z   ✓ bench_asm_atomic:测试通过
+2026-10-24T00:36:53.6151330Z   ✓ test_fmt_comments:测试通过
+2026-10-24T00:36:53.8842080Z   ✓ test_fmt_api_phase3:测试通过
+2026-10-24T00:36:53.8929180Z   ✓ error_asm_missing_brace:预期编译失败
+2026-10-24T00:36:53.9053060Z   ✓ test_simd_splat_binary_context:测试通过
+2026-10-24T00:36:54.0872010Z   ✓ test_c99_const_identifier:测试通过
+2026-10-24T00:36:54.0934470Z   ✓ test_tls_common:测试通过
+2026-10-24T00:36:54.0992670Z   ✓ error_simd_splat_type_mismatch:预期编译失败
+2026-10-24T00:36:54.3242260Z   ✓ test_string_interp_minimal:测试通过
+2026-10-24T00:36:54.3346800Z   ✓ test_generic_comprehensive:测试通过
+2026-10-24T00:36:54.3398880Z   ✓ test_as_force_cast:测试通过
+2026-10-24T00:36:54.5423750Z   ✓ error_asbang_requires_try_or_catch_expr_stmt:预期编译失败
+2026-10-24T00:36:54.5518220Z   ✓ error_defer_break:预期编译失败
+2026-10-24T00:36:54.5662280Z   ✓ test_null_return:测试通过
+2026-10-24T00:36:54.7984470Z   ✓ test_global_struct_const_init:测试通过
+2026-10-24T00:36:54.8119400Z   ✓ test_simple_return:测试通过
+2026-10-24T00:36:54.8235050Z   ✓ error_async_indirect_recursive:预期编译失败
+2026-10-24T00:36:55.5145600Z ----- linker output begin: test_typed_pipeline_type_identity -----
+2026-10-24T00:36:55.5168550Z Undefined symbols for architecture arm64:
+2026-10-24T00:36:55.5168870Z   "___errno_location", referenced from:
+2026-10-24T00:36:55.5169250Z       _pipeline_errno_value in test_typed_pipeline_type_identity-39351e.o
+2026-10-24T00:36:55.5169630Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:36:55.5170080Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:36:55.5170550Z ----- linker output end: test_typed_pipeline_type_identity -----
+2026-10-24T00:36:55.5205420Z   ❌ test_typed_pipeline_type_identity:链接失败
+2026-10-24T00:36:55.5282620Z   ✓ test_tls_dtls:测试通过
+2026-10-24T00:36:55.5428090Z   ✓ test_varargs:测试通过
+2026-10-24T00:36:55.7774680Z   ✓ test_struct_forward_decl:测试通过
+2026-10-24T00:36:55.7895550Z   ✓ error_microapp_mode_addr:预期编译失败
+2026-10-24T00:36:55.7960810Z   ✓ test_generic_union:测试通过
+2026-10-24T00:36:56.1283120Z   ✓ test_macro_mc_get_env:测试通过
+2026-10-24T00:36:56.1433250Z   ✓ test_yaml_tab_indent:测试通过
+2026-10-24T00:36:56.1473590Z   ✓ test_return:测试通过
+2026-10-24T00:36:56.6414640Z   ✓ test_exec_vm_compiler_imported_global_ident:测试通过
+2026-10-24T00:36:56.6493490Z   ✓ test_simd_vector_store:测试通过
+2026-10-24T00:36:56.6559320Z   ✓ test_return_catch_u32_success_path:测试通过
+2026-10-24T00:36:56.8951530Z   ✓ bench_asm_strlen:测试通过
+2026-10-24T00:36:56.9162890Z   ✓ test_export_for_c:测试通过
+2026-10-24T00:36:56.9223550Z   ✓ test_arena_buffer:测试通过
+2026-10-24T00:36:57.1196200Z   ✓ test_interface_value_assign:测试通过
+2026-10-24T00:36:57.1284780Z   ✓ test_use_file_module_path:测试通过
+2026-10-24T00:36:57.1343450Z   ✓ error_extern_union_method_block:预期编译失败
+2026-10-24T00:36:57.4170550Z   ✓ test_hosted_macro_name_collision:测试通过
+2026-10-24T00:36:57.4210240Z   ✓ test_const_parser:测试通过
+2026-10-24T00:36:57.4265930Z   ✓ test_std_string:测试通过
+2026-10-24T00:36:57.6982590Z   ✓ error_path_while_need_proof:预期编译失败
+2026-10-24T00:36:57.7087610Z   ✓ test_generic_field_debug:测试通过
+2026-10-24T00:36:57.7182070Z   ✓ test_slice:测试通过
+2026-10-24T00:36:58.3718890Z ----- linker output begin: test_typed_pipeline_module_qualified_positive -----
+2026-10-24T00:36:58.3819020Z Undefined symbols for architecture arm64:
+2026-10-24T00:36:58.3876280Z   "___errno_location", referenced from:
+2026-10-24T00:36:58.3880990Z       _pipeline_errno_value in test_typed_pipeline_module_qualified_positive-76c2a6.o
+2026-10-24T00:36:58.3890140Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:36:58.3934550Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:36:58.3970430Z ----- linker output end: test_typed_pipeline_module_qualified_positive -----
+2026-10-24T00:36:58.3971200Z   ✓ debug_logical_and_op:测试通过
+2026-10-24T00:36:58.3977650Z   ❌ test_typed_pipeline_module_qualified_positive:链接失败
+2026-10-24T00:36:58.4089080Z   ✓ error_array_bounds_multidim_const:预期编译失败
+2026-10-24T00:36:58.6329780Z   ✓ test_extern_ffi_pointer:测试通过
+2026-10-24T00:36:58.6387750Z   ✓ test_exec_vm_loop_control:测试通过
+2026-10-24T00:36:58.6493860Z   ✓ test_global_string_literal:测试通过
+2026-10-24T00:36:58.9277890Z   ✓ test_asm_basic:测试通过
+2026-10-24T00:36:58.9386080Z   ✓ error_simd_any_requires_mask:预期编译失败
+2026-10-24T00:36:58.9448750Z   ✓ test_struct_array_field:测试通过
+2026-10-24T00:37:02.1048110Z   ✓ test_http_websocket_backpressure:测试通过
+2026-10-24T00:37:02.1114460Z   ✓ test_generic_field_compare:测试通过
+2026-10-24T00:37:02.1201150Z   ✓ test_astnode_union:测试通过
+2026-10-24T00:37:02.4693910Z   ✓ test_exec_vm_compiler_global_index_addr:测试通过
+2026-10-24T00:37:02.4786130Z   ✓ test_generic_pointer:测试通过
+2026-10-24T00:37:02.4846780Z   ✓ test_simd_c99_select_emit_i32x2_and_u32x4:测试通过
+2026-10-24T00:37:02.7215060Z   ✓ test_defer_lifo:测试通过
+2026-10-24T00:37:02.7279290Z   ✓ test_exec_vm_multi_fn:测试通过
+2026-10-24T00:37:02.7331600Z   ✓ test_exec_vm_if_else:测试通过
+2026-10-24T00:37:02.9833770Z   ✓ test_comprehensive_cast:测试通过
+2026-10-24T00:37:02.9915940Z   ✓ test_for_loop:测试通过
+2026-10-24T00:37:03.0001190Z   ✓ error_typed_pipeline_try_forward_type_mismatch:预期编译失败
+2026-10-24T00:37:03.5407010Z   ✓ test_struct_inner_method_with_interface:测试通过
+2026-10-24T00:37:03.5515760Z   ✓ test_crypto_sha512:测试通过
+2026-10-24T00:37:03.5738600Z   ✓ test_exec_vm_extern_unsupported:测试通过
+2026-10-24T00:37:06.2801950Z   ✓ test_yaml_parse_flow_object:测试通过
+2026-10-24T00:37:06.2892750Z   ✓ test_generic_multi_type_param:测试通过
+2026-10-24T00:37:06.2954580Z   ✓ test_https_websocket_loopback:测试通过
+2026-10-24T00:37:06.7962740Z   ✓ test_macro_param_type:测试通过
+2026-10-24T00:37:06.8048150Z   ✓ bench_malloc_throughput:测试通过
+2026-10-24T00:37:06.8126740Z   ✓ test_constant_folding_simple:测试通过
+2026-10-24T00:37:07.3809270Z   ✓ error_static_method_name_conflict:预期编译失败
+2026-10-24T00:37:07.3894140Z   ✓ test_exec_vm_c_import_unsupported:测试通过
+2026-10-24T00:37:07.4027060Z   ✓ test_exec_vm_compiler_error_union_error_id:测试通过
+2026-10-24T00:37:07.9785200Z   ✓ error_defer_return_double_nested:预期编译失败
+2026-10-24T00:37:07.9913820Z   ✓ test_wchar:测试通过
+2026-10-24T00:37:07.9996230Z   ✓ test_errno:测试通过
+2026-10-24T00:37:08.6025860Z   ✓ test_macro_sugar:测试通过
+2026-10-24T00:37:08.6105890Z   ✓ test_crypto_blake2b:测试通过
+2026-10-24T00:37:08.6187600Z   ✓ test_std_stdio:测试通过
+2026-10-24T00:37:09.0305420Z   ✓ test_exec_vm_compiler_sizeof_struct:测试通过
+2026-10-24T00:37:09.0393810Z   ✓ test_yaml_parse_block:测试通过
+2026-10-24T00:37:09.0452580Z   ✓ test_macro_mc_type_auto:测试通过
+2026-10-24T00:37:09.2698020Z   ✓ test_asm_syscall:测试通过
+2026-10-24T00:37:09.2771590Z   ✓ test_main_first_stmt:测试通过
+2026-10-24T00:37:09.2880310Z   ✓ test_kernel_sandbox:测试通过
+2026-10-24T00:37:09.5755820Z   ✓ error_macro_mc_error:预期编译失败
+2026-10-24T00:37:09.5810310Z   ✓ test_tuple:测试通过
+2026-10-24T00:37:09.5875850Z   ✓ test_fmt_api_simplify:测试通过
+2026-10-24T00:37:09.8347800Z   ✓ test_fmt_doc_comment_attach:测试通过
+2026-10-24T00:37:09.8397910Z   ✓ error_array_bounds_index_too_large:预期编译失败
+2026-10-24T00:37:09.8455870Z   ✓ test_kernel_image:测试通过
+2026-10-24T00:37:10.0506550Z   ✓ test_drop_simple:测试通过
+2026-10-24T00:37:10.0556200Z   ✓ error_array_bounds_oob_in_return:预期编译失败
+2026-10-24T00:37:10.0619060Z   ✓ extern_ffi_simple:测试通过
+2026-10-24T00:37:10.2775270Z   ✓ error_type_mismatch:预期编译失败
+2026-10-24T00:37:10.2833140Z   ✓ test_crypto_sha256_stream:测试通过
+2026-10-24T00:37:10.2886870Z   ✓ test_exec_vm_opaque_struct:测试通过
+2026-10-24T00:37:10.5325590Z   ✓ test_exec_vm_compiler_union_field_match:测试通过
+2026-10-24T00:37:10.5385950Z   ✓ test_protobuf_dynamic:测试通过
+2026-10-24T00:37:10.5440190Z   ✓ mixed_nesting:测试通过
+2026-10-24T00:37:11.3290250Z   ✓ error_branch_assign_stale_bounds:预期编译失败
+2026-10-24T00:37:11.3344310Z   ✓ test_generic_edge_cases:测试通过
+2026-10-24T00:37:11.3401430Z   ✓ test_std_mqtt_async:测试通过
+2026-10-24T00:37:11.8313970Z   ✓ test_kernel_paging:测试通过
+2026-10-24T00:37:11.8372960Z   ✓ error_async_frame_generic_concrete:预期编译失败
+2026-10-24T00:37:11.8429550Z   ✓ test_ub_safety_guards:测试通过
+2026-10-24T00:37:12.0711070Z   ✓ test_generic_in_control_flow:测试通过
+2026-10-24T00:37:12.0767930Z   ✓ test_tls_drbg:测试通过
+2026-10-24T00:37:12.0833440Z   ✓ very_deep_nested:测试通过
+2026-10-24T00:37:12.2798480Z   ✓ test_exec_vm_catch_void_tail:测试通过
+2026-10-24T00:37:12.2858840Z   ✓ deep_nested_if:测试通过
+2026-10-24T00:37:12.2915390Z   ✓ error_array_overrange:预期编译失败
+2026-10-24T00:37:12.4639590Z   ✓ test_tflm_arena:测试通过
+2026-10-24T00:37:12.4697650Z   ✓ error_embed_dir_not_directory:预期编译失败
+2026-10-24T00:37:12.4763470Z   ✓ logical_expr3:测试通过
+2026-10-24T00:37:12.7423500Z   ✓ test_simd_c99_select_emit_i32x2_and_i32x4:测试通过
+2026-10-24T00:37:12.7501640Z   ✓ test_func_name_simple:测试通过
+2026-10-24T00:37:12.7563710Z   ✓ test_pointer_cast:测试通过
+2026-10-24T00:37:12.9507750Z   ✓ test_va_list_builtin:测试通过
+2026-10-24T00:37:12.9564490Z   ✓ error_simd_invalid_vector_lanes:预期编译失败
+2026-10-24T00:37:12.9623400Z   ✓ test_usize_constraints:测试通过
+2026-10-24T00:37:13.1620040Z   ✓ error_use_module_invalid_call:预期编译失败
+2026-10-24T00:37:13.1670690Z   ✓ test_struct_layout:测试通过
+2026-10-24T00:37:13.1718900Z   ✓ test_inline_optimization:测试通过
+2026-10-24T00:37:13.5971120Z   ✓ test_libc_stdlib_symbols_hosted:测试通过
+2026-10-24T00:37:13.6048110Z   ✓ test_macro_type_return:测试通过
+2026-10-24T00:37:13.6110740Z   ✓ error_array_bounds_usize_lower_only:预期编译失败
+2026-10-24T00:37:13.9469710Z   ✓ error_async_await_in_while_cond:预期编译失败
+2026-10-24T00:37:13.9532220Z   ✓ test_generic_inference:测试通过
+2026-10-24T00:37:13.9610110Z   ✓ test_http_websocket_async_read_message_shape:测试通过
+2026-10-24T00:37:14.2148130Z   ✓ test_simd_vec32_sse_chain:测试通过
+2026-10-24T00:37:14.2200230Z   ✓ test_field_array:测试通过
+2026-10-24T00:37:14.2258410Z   ✓ logical_expr:测试通过
+2026-10-24T00:37:14.6965280Z   ✓ repro_codegen_ast_rewrite:测试通过
+2026-10-24T00:37:14.7022280Z   ✓ test_exec_vm_extern_bridge:测试通过
+2026-10-24T00:37:14.7083510Z   ✓ test_http_types:测试通过
+2026-10-24T00:37:14.8947110Z   ✓ test_tls_mpi:测试通过
+2026-10-24T00:37:14.9001410Z   ✓ error_array_bounds_param_read_need_proof:预期编译失败
+2026-10-24T00:37:14.9057700Z   ✓ error_static_method_called_via_instance:预期编译失败
+2026-10-24T00:37:15.1161920Z   ✓ test_extern_body_bare_catch:测试通过
+2026-10-24T00:37:15.1218160Z   ✓ test_kernel_layout:测试通过
+2026-10-24T00:37:15.1281910Z   ✓ test_for_simple:测试通过
+2026-10-24T00:37:17.3345740Z   ✓ test_exec_vm_match_basic:测试通过
+2026-10-24T00:37:17.3398310Z   ✓ error_array_bounds_const_negative_index:预期编译失败
+2026-10-24T00:37:17.3475800Z   ✓ test_tls_async_runtime_io:测试通过
+2026-10-24T00:37:17.5378370Z   ✓ error_try_overflow_needs_error_union_fn:预期编译失败
+2026-10-24T00:37:17.5428960Z   ✓ test_global_var:测试通过
+2026-10-24T00:37:17.5486360Z   ✓ test_proof_step_limit:测试通过
+2026-10-24T00:37:17.7364160Z   ✓ test_test_multiple:测试通过
+2026-10-24T00:37:17.7423080Z   ✓ logical_expr2:测试通过
+2026-10-24T00:37:17.7491610Z   ✓ error_move_use_after:预期编译失败
+2026-10-24T00:37:18.0107180Z   ✓ error_module_not_directory:预期编译失败
+2026-10-24T00:37:18.0165930Z   ✓ test_fmt_api:测试通过
+2026-10-24T00:37:18.0230300Z   ✓ test_exec_vm_compiler_zero_struct_array_global:测试通过
+2026-10-24T00:37:20.1468320Z   ✓ test_tls_rsa:测试通过
+2026-10-24T00:37:20.1535840Z   ✓ error_slice_range_oob:预期编译失败
+2026-10-24T00:37:20.1598070Z   ✓ test_json_parse_string:测试通过
+2026-10-24T00:37:20.3473950Z   ✓ error_asm_aarch64_barrier_needs_memory_clobber:预期编译失败
+2026-10-24T00:37:20.3580510Z   ✓ error_uninitialized_var:预期编译失败
+2026-10-24T00:37:20.3675150Z   ✓ nested_control:测试通过
+2026-10-24T00:37:20.5328210Z   ✓ error_errdefer_return:预期编译失败
+2026-10-24T00:37:20.5384740Z   ✓ error_if_expression_branch_type_mismatch:预期编译失败
+2026-10-24T00:37:20.5440200Z   ✓ test_exec_vm_discard_assign:测试通过
+2026-10-24T00:37:20.7936770Z   ✓ test_main_only:测试通过
+2026-10-24T00:37:20.8011700Z   ✓ test_asm_const_output:测试通过
+2026-10-24T00:37:20.8076060Z   ✓ error_array_bounds_for_range_wide:预期编译失败
+2026-10-24T00:37:21.0480840Z   ✓ test_try_div:测试通过
+2026-10-24T00:37:21.0534880Z   ✓ test_error_global:测试通过
+2026-10-24T00:37:21.0591810Z   ✓ test_main_with_errors:测试通过
+2026-10-24T00:37:21.6293860Z   ✓ test_simd_sse_compare_ops:测试通过
+2026-10-24T00:37:21.6348430Z   ✓ test_tls_store:测试通过
+2026-10-24T00:37:21.6406220Z   ✓ test_exec_vm_defer:测试通过
+2026-10-24T00:37:22.2740340Z ----- linker output begin: test_typed_pipeline_result_types -----
+2026-10-24T00:37:22.2770030Z Undefined symbols for architecture arm64:
+2026-10-24T00:37:22.2771110Z   "___errno_location", referenced from:
+2026-10-24T00:37:22.2771970Z       _pipeline_errno_value in test_typed_pipeline_result_types-d48d7b.o
+2026-10-24T00:37:22.2772990Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:37:22.2774600Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:37:22.2775830Z ----- linker output end: test_typed_pipeline_result_types -----
+2026-10-24T00:37:22.2811780Z   ✓ error_async_wrong_return:预期编译失败
+2026-10-24T00:37:22.2915440Z   ✓ error_simd_vector_reduce_add_not_vector:预期编译失败
+2026-10-24T00:37:22.2984600Z   ❌ test_typed_pipeline_result_types:链接失败
+2026-10-24T00:37:22.4979090Z   ✓ test_static_method_generic_method:测试通过
+2026-10-24T00:37:22.5036500Z   ✓ test_asm_target:测试通过
+2026-10-24T00:37:22.5106120Z   ✓ error_asm_array_input:预期编译失败
+2026-10-24T00:37:22.7753620Z   ✓ error_embed_dir_missing_dir:预期编译失败
+2026-10-24T00:37:22.7811120Z   ✓ test_fmt_printer:测试通过
+2026-10-24T00:37:22.7862010Z   ✓ test_json_parse_object:测试通过
+2026-10-24T00:37:22.9909200Z   ✓ test_generic_simple:测试通过
+2026-10-24T00:37:22.9964600Z   ✓ error_const_div_zero_nested:预期编译失败
+2026-10-24T00:37:23.0018110Z   ✓ test_exec_vm_compiler_array_literal_many_items:测试通过
+2026-10-24T00:37:23.5959210Z   ✓ test_json_from_json_wrong_type:测试通过
+2026-10-24T00:37:23.6025360Z   ✓ test_http_router:测试通过
+2026-10-24T00:37:23.6086550Z   ✓ test_generic_constraint:测试通过
+2026-10-24T00:37:23.8342930Z   ✓ test_protobuf_map:测试通过
+2026-10-24T00:37:23.8424750Z   ✓ error_async_frame_pinned_struct_init:预期编译失败
+2026-10-24T00:37:23.8480520Z   ✓ test_macro_struct_return:测试通过
+2026-10-24T00:37:24.3851080Z   ✓ error_simd_u32_vector_plus_pipe:预期编译失败
+2026-10-24T00:37:24.3967960Z   ✓ bench_capability_runtime:测试通过
+2026-10-24T00:37:24.4028160Z   ✓ test_exec_vm_drop_local:测试通过
+2026-10-24T00:37:24.6271730Z   ✓ test_null_check:测试通过
+2026-10-24T00:37:24.6336790Z   ✓ test_opaque_struct_positive:测试通过
+2026-10-24T00:37:24.6399050Z   ✓ test_crypto_blake2s:测试通过
+2026-10-24T00:37:24.8845520Z   ✓ test_simd_c99_select_emit_f32x2_only:测试通过
+2026-10-24T00:37:24.8909110Z   ✓ sizeof_byte_ffi:测试通过
+2026-10-24T00:37:24.8988990Z   ✓ test_test_nested:测试通过
+2026-10-24T00:37:25.1217890Z   ✓ test_for_ref:测试通过
+2026-10-24T00:37:25.1289190Z   ✓ test_try_overflow_arith:测试通过
+2026-10-24T00:37:25.1350940Z   ✓ test_vec:测试通过
+2026-10-24T00:37:25.2874400Z   ✓ test_asm_types:测试通过
+2026-10-24T00:37:25.2957810Z   ✓ error_move_in_loop:预期编译失败
+2026-10-24T00:37:25.3017290Z   ✓ error_asm_arm64_unimplemented:预期编译失败
+2026-10-24T00:37:25.6597770Z   ✓ test_union_method:测试通过
+2026-10-24T00:37:25.6662700Z   ✓ test_struct_method_void:测试通过
+2026-10-24T00:37:25.6722830Z   ✓ test_yaml_encode_fold_roundtrip:测试通过
+2026-10-24T00:37:26.4563010Z   ✓ test_functions:测试通过
+2026-10-24T00:37:26.4619310Z   ✓ test_symbolic_expr:测试通过
+2026-10-24T00:37:26.4681070Z   ✓ test_std_sql:测试通过
+2026-10-24T00:37:26.6640630Z   ✓ test_enum_basic:测试通过
+2026-10-24T00:37:26.6699520Z   ✓ error_simd_non_literal_lanes:预期编译失败
+2026-10-24T00:37:26.6758940Z   ✓ test_src_location:测试通过
+2026-10-24T00:37:26.8731690Z   ✓ test_mixed_type_arithmetic:测试通过
+2026-10-24T00:37:26.8787990Z   ✓ error_move_active_pointer_after_borrow:预期编译失败
+2026-10-24T00:37:26.8844430Z   ✓ test_c99_import_main_codegen:测试通过
+2026-10-24T00:37:27.1962190Z   ✓ test_simd_c99_select_emit_f32x2_and_f32x4:测试通过
+2026-10-24T00:37:27.2010740Z   ✓ test_yaml_parse_flow_basic:测试通过
+2026-10-24T00:37:27.2067780Z   ✓ test_errdefer_lifo:测试通过
+2026-10-24T00:37:28.5051040Z   ✓ test_http_uyagin_async_boundary:测试通过
+2026-10-24T00:37:28.5113900Z   ✓ assignment:测试通过
+2026-10-24T00:37:28.5200070Z   ✓ test_std_jpeg_decode:测试通过
+2026-10-24T00:37:28.7947400Z   ✓ test_double_pointer_type:测试通过
+2026-10-24T00:37:28.8005760Z   ✓ test_http_parse:测试通过
+2026-10-24T00:37:28.8064130Z   ✓ test_empty_struct:测试通过
+2026-10-24T00:37:28.9959280Z   ✓ test_generic_return_struct:测试通过
+2026-10-24T00:37:29.0032520Z   ✓ test_block_comment:测试通过
+2026-10-24T00:37:29.0076200Z   ✓ error_await_in_future_returning_non_async:预期编译失败
+2026-10-24T00:37:29.2870080Z   ✓ simd_c99_neon:测试通过
+2026-10-24T00:37:29.2928930Z   ✓ struct_comparison:测试通过
+2026-10-24T00:37:29.2988270Z   ✓ error_move_struct_init_interface_field:预期编译失败
+2026-10-24T00:37:29.7535060Z   ✓ test_multilevel_module:测试通过
+2026-10-24T00:37:29.7624020Z   ✓ test_float:测试通过
+2026-10-24T00:37:29.7720610Z   ✓ error_variable_shadowing:预期编译失败
+2026-10-24T00:37:30.0254460Z   ✓ test_path_for:测试通过
+2026-10-24T00:37:30.0307120Z   ✓ test_generic_interface_impl:测试通过
+2026-10-24T00:37:30.0384480Z   ✓ test_union_value_struct_deps:测试通过
+2026-10-24T00:37:30.4042430Z   ✓ test_simd_sse_lower_i32x4:测试通过
+2026-10-24T00:37:30.4126140Z   ✓ recursive_sum:测试通过
+2026-10-24T00:37:30.4213940Z   ✓ test_tls_record:测试通过
+2026-10-24T00:37:30.7901700Z   ✓ error_simd_float_vector_shift:预期编译失败
+2026-10-24T00:37:30.7961510Z   ✓ test_struct_inner_method_mixed:测试通过
+2026-10-24T00:37:30.8051430Z   ✓ test_fmt_stmt_comment_attach:测试通过
+2026-10-24T00:37:33.2898970Z   ✓ test_tls_async_io_future:测试通过
+2026-10-24T00:37:33.2954770Z   ✓ test_exec_vm_compiler_else_if_local:测试通过
+2026-10-24T00:37:33.3014450Z   ✓ test_array_repeat:测试通过
+2026-10-24T00:37:36.0196720Z   ✓ test_runtime_environment:测试通过
+2026-10-24T00:37:36.0286400Z   ✓ test_string_interp:测试通过
+2026-10-24T00:37:36.0360780Z   ✓ test_http_websocket_json:测试通过
+2026-10-24T00:37:36.7514780Z   ✓ test_move_simple:测试通过
+2026-10-24T00:37:36.7564960Z   ✓ test_union_inner_method:测试通过
+2026-10-24T00:37:36.7618210Z   ✓ test_json_from_json_slice:测试通过
+2026-10-24T00:37:37.0237540Z   ✓ test_bounds_const_negative_index:测试通过
+2026-10-24T00:37:37.0295370Z   ✓ test_interface_field_init:测试通过
+2026-10-24T00:37:37.0379120Z   ✓ test_std_env:测试通过
+2026-10-24T00:37:37.2719150Z   ✓ test_struct_inner_method_args:测试通过
+2026-10-24T00:37:37.2802060Z   ✓ error_opaque_struct_field_external:预期编译失败
+2026-10-24T00:37:37.2868060Z   ✓ test_strict_div:测试通过
+2026-10-24T00:37:37.5022870Z   ✓ error_bounds_need_proof:预期编译失败
+2026-10-24T00:37:37.5115580Z   ✓ error_asm_void_input:预期编译失败
+2026-10-24T00:37:37.5174580Z   ✓ test_and_return:测试通过
+2026-10-24T00:37:37.7511100Z   ✓ operator_precedence:测试通过
+2026-10-24T00:37:37.7575840Z   ✓ test_macro_mc_source:测试通过
+2026-10-24T00:37:37.7657680Z   ✓ test_macro_param_pattern:测试通过
+2026-10-24T00:37:38.3537660Z   ✓ test_err_handling:测试通过
+2026-10-24T00:37:38.3598750Z   ✓ test_json_encode_object:测试通过
+2026-10-24T00:37:38.3715260Z   ✓ test_use_wildcard_module_path:测试通过
+2026-10-24T00:37:38.5870320Z   ✓ test_fmt_simplify:测试通过
+2026-10-24T00:37:38.5928530Z   ✓ test_macro_interp_position:测试通过
+2026-10-24T00:37:38.5995490Z   ✓ test_asm_atomic:测试通过
+2026-10-24T00:37:38.8349030Z   ✓ test_non_generic_struct_generic_method_err:测试通过
+2026-10-24T00:37:38.8420290Z   ✓ test_atomic_struct:测试通过
+2026-10-24T00:37:38.8500360Z   ✓ test_outlibc_basic:测试通过
+2026-10-24T00:37:41.6239930Z   ✓ test_http_websocket_frame:测试通过
+2026-10-24T00:37:41.6332610Z   ✓ error_async_await_in_for_range_end:预期编译失败
+2026-10-24T00:37:41.6520640Z   ✓ test_exec_vm_for_range:测试通过
+2026-10-24T00:37:42.5929410Z   ✓ test_crypto_ed25519:测试通过
+2026-10-24T00:37:42.6097150Z   ✓ test_alignof:测试通过
+2026-10-24T00:37:42.6196840Z   ✓ test_asm_void_output:测试通过
+2026-10-24T00:37:42.8451670Z   ✓ error_asm_ffi_pointer:预期编译失败
+2026-10-24T00:37:42.8531850Z   ✓ pointer_deref_assign:测试通过
+2026-10-24T00:37:42.8611730Z   ✓ error_const_mod_zero:预期编译失败
+2026-10-24T00:37:43.1514170Z   ✓ test_macro_with_params:测试通过
+2026-10-24T00:37:43.1574660Z   ✓ logical_expr4:测试通过
+2026-10-24T00:37:43.1645560Z   ✓ test_escape_chars:测试通过
+2026-10-24T00:37:43.9040890Z   ✓ test_drop_in_function:测试通过
+2026-10-24T00:37:43.9102540Z   ✓ test_exec_vm_compiler_global_partial_struct_zero_fill:测试通过
+2026-10-24T00:37:43.9166790Z   ✓ bench_json:测试通过
+2026-10-24T00:37:44.2196750Z   ✓ test_simd_splat_peer_infer:测试通过
+2026-10-24T00:37:44.2264300Z   ✓ test_defer_break:测试通过
+2026-10-24T00:37:44.2363330Z   ✓ test_int_types:测试通过
+2026-10-24T00:37:46.8839490Z   ✓ test_http_websocket_types:测试通过
+2026-10-24T00:37:46.8902470Z   ✓ test_simd_unary_ops:测试通过
+2026-10-24T00:37:46.8961730Z   ✓ error_await_operand_not_error_union:预期编译失败
+2026-10-24T00:37:47.4532190Z   ✓ test_drop_after_move:测试通过
+2026-10-24T00:37:47.4633610Z   ✓ test_kernel_dispatch:测试通过
+2026-10-24T00:37:47.4835440Z   ✓ test_catch_bare_statement:测试通过
+2026-10-24T00:37:47.6868160Z   ✓ test_extern_union:测试通过
+2026-10-24T00:37:47.6927150Z   ✓ test_iter_simple:测试通过
+2026-10-24T00:37:47.7002630Z   ✓ error_embed_too_many_args:预期编译失败
+2026-10-24T00:37:47.9569430Z   ✓ test_println_bytes_ptr_slice:测试通过
+2026-10-24T00:37:47.9625720Z   ✓ test_simd_vector_sat_wrap_i32:测试通过
+2026-10-24T00:37:47.9687820Z   ✓ test_defer_single_stmt:测试通过
+2026-10-24T00:37:48.5032670Z   ✓ test_mem_allocator:测试通过
+2026-10-24T00:37:48.5087600Z   ✓ test_tls_x509:测试通过
+2026-10-24T00:37:48.5165520Z   ✓ test_std_mem_file_module_alias:测试通过
+2026-10-24T00:37:48.7900520Z   ✓ test_std_jpeg_encode:测试通过
+2026-10-24T00:37:48.7956380Z   ✓ test_drop_external:测试通过
+2026-10-24T00:37:48.8012980Z   ✓ test_nested_generic:测试通过
+2026-10-24T00:37:49.1087090Z   ✓ test_exec_vm_interface_dispatch:测试通过
+2026-10-24T00:37:49.1165320Z   ✓ test_enum_sizeof:测试通过
+2026-10-24T00:37:49.1252800Z   ✓ test_fmt_idempotent:测试通过
+2026-10-24T00:37:49.3547360Z   ✓ test_kernel_smoke:测试通过
+2026-10-24T00:37:49.3623030Z   ✓ test_use_directory_module_path:测试通过
+2026-10-24T00:37:49.3729380Z   ✓ test_exec_vm_catch_error_bind:测试通过
+2026-10-24T00:37:49.6051060Z   ✓ extern_ffi_no_struct:测试通过
+2026-10-24T00:37:49.6113290Z   ✓ error_opaque_struct_construct_external:预期编译失败
+2026-10-24T00:37:49.6171400Z   ✓ test_asm_expressions:测试通过
+2026-10-24T00:37:51.1413510Z   ✓ error_typed_pipeline_checker_right:预期编译失败
+2026-10-24T00:37:51.1576730Z   ✓ test_struct_array_field_typed_empty_init:测试通过
+2026-10-24T00:37:51.1662510Z   ✓ test_tls_x25519_pure:测试通过
+2026-10-24T00:37:51.5689260Z   ✓ test_std_net_addr:测试通过
+2026-10-24T00:37:51.5761160Z   ✓ test_tls_sha256:测试通过
+2026-10-24T00:37:51.5834660Z   ✓ test_basic_block_terminator:测试通过
+2026-10-24T00:37:51.8485140Z   ✓ error_typed_pipeline_parser_negative:预期编译失败
+2026-10-24T00:37:51.8556530Z   ✓ test_generic_struct_method_return:测试通过
+2026-10-24T00:37:51.8614020Z   ✓ test_struct_field_access:测试通过
+2026-10-24T00:37:52.0687800Z   ✓ test_underscore:测试通过
+2026-10-24T00:37:52.0819200Z   ✓ error_interface_compose_cycle:预期编译失败
+2026-10-24T00:37:52.0913560Z   ✓ test_exec_vm_union_dispatch:测试通过
+2026-10-24T00:37:52.4230640Z   ✓ test_exec_vm_int_limit:测试通过
+2026-10-24T00:37:52.4322490Z   ✓ multi_param:测试通过
+2026-10-24T00:37:52.4447530Z   ✓ test_macro_nested:测试通过
+2026-10-24T00:37:52.9780300Z   ✓ test_macro_comprehensive:测试通过
+2026-10-24T00:37:52.9951930Z   ✓ test_macro_type_position:测试通过
+2026-10-24T00:37:53.0096120Z   ✓ test_exec_vm_bitwise:测试通过
+2026-10-24T00:37:53.3766000Z   ✓ error_union_static_method_variant_conflict:预期编译失败
+2026-10-24T00:37:53.3940490Z   ✓ error_microapp_mode_host_api_std_time:预期编译失败
+2026-10-24T00:37:53.4053970Z   ✓ test_string_interp_simple:测试通过
+2026-10-24T00:37:54.0725150Z   ✓ test_std_io:测试通过
+2026-10-24T00:37:54.0790190Z   ✓ test_module_use_simple:测试通过
+2026-10-24T00:37:54.0854650Z   ✓ error_asm_f64_input:预期编译失败
+2026-10-24T00:37:54.3809340Z   ✓ test_bool:测试通过
+2026-10-24T00:37:54.3921900Z   ✓ test_exec_vm_compiler_empty_struct_init:测试通过
+2026-10-24T00:37:54.4008630Z   ✓ test_compare:测试通过
+2026-10-24T00:37:54.6236060Z   ✓ error_async_for_iterator_interface_await:预期编译失败
+2026-10-24T00:37:54.6303480Z   ✓ error_typed_pipeline_sink_after_chain:预期编译失败
+2026-10-24T00:37:54.6369780Z   ✓ error_asm_slice_input:预期编译失败
+2026-10-24T00:37:55.4251270Z   ✓ test_enum_comparison:测试通过
+2026-10-24T00:37:55.4375740Z   ✓ test_void_pointer:测试通过
+2026-10-24T00:37:55.4478880Z   ✓ test_json_slice:测试通过
+2026-10-24T00:37:55.7384910Z   ✓ test_len_simple:测试通过
+2026-10-24T00:37:55.7523090Z   ✓ test_simd_vec2_i32_u32_f32:测试通过
+2026-10-24T00:37:55.7724970Z   ✓ error_simd_float_vector_plus_pipe:预期编译失败
+2026-10-24T00:37:56.5268230Z   ✓ test_tflm_cmsis:测试通过
+2026-10-24T00:37:56.5338020Z   ✓ test_setjmp:测试通过
+2026-10-24T00:37:56.5403010Z   ✓ error_defer_return_nested:预期编译失败
+2026-10-24T00:37:56.8222780Z   ✓ recursive_countdown:测试通过
+2026-10-24T00:37:56.8334560Z   ✓ error_try_overflow_catch_no_paren:预期编译失败
+2026-10-24T00:37:56.8407120Z   ✓ test_extern_ffi:测试通过
+2026-10-24T00:37:57.1737810Z   ✓ error_match_missing_else:预期编译失败
+2026-10-24T00:37:57.1832130Z   ✓ test_simd_c99_select_emit_u32x2_and_u32x4:测试通过
+2026-10-24T00:37:57.1893770Z   ✓ test_mem_arena:测试通过
+2026-10-24T00:37:57.5083440Z   ✓ test_exec_vm_aggregates:测试通过
+2026-10-24T00:37:57.5156570Z   ✓ test_export_for_c_complete:测试通过
+2026-10-24T00:37:57.5223630Z   ✓ test_c_import_file:测试通过
+2026-10-24T00:37:57.7894840Z   ✓ test_scope_rules:测试通过
+2026-10-24T00:37:57.7967020Z   ✓ nested_struct_access:测试通过
+2026-10-24T00:37:57.8031180Z   ✓ test_return_error:测试通过
+2026-10-24T00:37:58.1284230Z   ✓ nested_if_while:测试通过
+2026-10-24T00:37:58.1393840Z   ✓ test_simd_struct_field_ops:测试通过
+2026-10-24T00:37:58.1494320Z   ✓ test_len_struct_array_div_codegen:测试通过
+2026-10-24T00:37:58.4272100Z   ✓ nested_struct:测试通过
+2026-10-24T00:37:58.4345240Z   ✓ boolean_logic:测试通过
+2026-10-24T00:37:58.4410100Z   ✓ test_try_overflow_div:测试通过
+2026-10-24T00:37:58.9745750Z   ✓ error_const_bounds:预期编译失败
+2026-10-24T00:37:58.9820980Z   ✓ test_http1_async_connect_boundary:测试通过
+2026-10-24T00:37:58.9950180Z   ✓ test_ptr_arithmetic:测试通过
+2026-10-24T00:37:59.3135750Z   ✓ test_asm_verified:测试通过
+2026-10-24T00:37:59.3226980Z   ✓ test_c_import_dir:测试通过
+2026-10-24T00:37:59.3347340Z   ✓ test_generic_fn:测试通过
+2026-10-24T00:37:59.5904320Z   ✓ deep_nested_while:测试通过
+2026-10-24T00:37:59.6012660Z   ✓ test_c99_zero_init_empty_slice:测试通过
+2026-10-24T00:37:59.6145010Z   ✓ test_static_method_struct:测试通过
+2026-10-24T00:37:59.9186460Z   ✓ test_minimal:测试通过
+2026-10-24T00:37:59.9333850Z   ✓ test_asm_placeholder:测试通过
+2026-10-24T00:37:59.9438350Z   ✓ error_instance_method_called_via_type:预期编译失败
+2026-10-24T00:38:00.2473800Z   ✓ test_string_literal_assign_byte:测试通过
+2026-10-24T00:38:00.2558750Z   ✓ test_macro_integration:测试通过
+2026-10-24T00:38:00.2615520Z   ✓ error_array_bounds_multidim_outer_const:预期编译失败
+2026-10-24T00:38:00.5284120Z   ✓ test_proof_success:测试通过
+2026-10-24T00:38:00.5342950Z   ✓ error_microapp_mode_host_api_import_only:预期编译失败
+2026-10-24T00:38:00.5404590Z   ✓ test_slice_range_bounds:测试通过
+2026-10-24T00:38:03.1124690Z   ✓ test_https_local:测试通过
+2026-10-24T00:38:03.1191510Z   ✓ test_tls_session_resumption:测试通过
+2026-10-24T00:38:03.1269400Z   ✓ test_errdefer:测试通过
+2026-10-24T00:38:03.4942580Z   ✓ test_simd_vector_mod_i32:测试通过
+2026-10-24T00:38:03.5010520Z   ✓ test_asm_duplicate_output:测试通过
+2026-10-24T00:38:03.5072710Z   ✓ test_fmt_formatter:测试通过
+2026-10-24T00:38:03.8038260Z   ✓ test_protobuf_decode_errors:测试通过
+2026-10-24T00:38:03.8103210Z   ✓ test_string_interp_one:测试通过
+2026-10-24T00:38:03.8162350Z   ✓ test_mixed_types:测试通过
+2026-10-24T00:38:04.1261700Z   ✓ test_tflm_phase2:测试通过
+2026-10-24T00:38:04.1341170Z   ✓ error_typed_pipeline_parser_negative_plus_expr:预期编译失败
+2026-10-24T00:38:04.1438710Z   ✓ test_simd_vector_load:测试通过
+2026-10-24T00:38:04.8616320Z   ✓ test_string_buf:测试通过
+2026-10-24T00:38:04.8720430Z   ✓ test_json_struct_collections:测试通过
+2026-10-24T00:38:04.8789400Z   ✓ error_generic_constraint_fail:预期编译失败
+2026-10-24T00:38:05.2584150Z   ✓ error_asm_struct_input:预期编译失败
+2026-10-24T00:38:05.2680550Z   ✓ test_protobuf_nested:测试通过
+2026-10-24T00:38:05.2839680Z   ✓ test_yaml_encode_basic:测试通过
+2026-10-24T00:38:05.9362540Z   ✓ test_exec_vm_extern_impl:测试通过
+2026-10-24T00:38:05.9433330Z   ✓ error_string_assign_array_too_small:预期编译失败
+2026-10-24T00:38:05.9524650Z   ✓ test_proof_in_if:测试通过
+2026-10-24T00:38:06.2985080Z   ✓ test_run_test_macro_executes:测试通过
+2026-10-24T00:38:06.3053340Z   ✓ test_array_literal:测试通过
+2026-10-24T00:38:06.3141030Z   ✓ test_const_simple:测试通过
+2026-10-24T00:38:06.7840700Z   ✓ error_async_frame_pinned_array:预期编译失败
+2026-10-24T00:38:06.7973870Z   ✓ test_enum_return:测试通过
+2026-10-24T00:38:06.8062740Z   ✓ test_return_void_catch_elides_call:测试通过
+2026-10-24T00:38:07.5710890Z   ✓ error_simd_mask_logical_and:预期编译失败
+2026-10-24T00:38:07.5858260Z   ✓ test_vprintf:测试通过
+2026-10-24T00:38:07.5962700Z   ✓ test_time:测试通过
+2026-10-24T00:38:08.1786520Z   ✓ test_path_bounds:测试通过
+2026-10-24T00:38:08.1924320Z   ✓ test_exec_vm_stdio_no_varargs:测试通过
+2026-10-24T00:38:08.2020720Z   ✓ error_http_request_get_header_type:预期编译失败
+2026-10-24T00:38:08.8493790Z   ✓ test_std_path_module:测试通过
+2026-10-24T00:38:08.8596440Z   ✓ error_const_neg_overflow:预期编译失败
+2026-10-24T00:38:08.8736870Z   ✓ test_keyword_method_name:测试通过
+2026-10-24T00:38:09.9370120Z   ✓ test_longjmp_full:测试通过
+2026-10-24T00:38:09.9502090Z   ✓ error_drop_duplicate_inner_and_block:预期编译失败
+2026-10-24T00:38:09.9593130Z   ✓ test_generic_async_method_codegen:测试通过
+2026-10-24T00:38:11.0296910Z ----- linker output begin: test_typed_pipeline_cmd_argv -----
+2026-10-24T00:38:11.0402580Z Undefined symbols for architecture arm64:
+2026-10-24T00:38:11.0504490Z   "___errno_location", referenced from:
+2026-10-24T00:38:11.0604690Z       _pipeline_errno_value in test_typed_pipeline_cmd_argv-ab94cc.o
+2026-10-24T00:38:11.0705430Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:38:11.0788620Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:38:11.0800180Z ----- linker output end: test_typed_pipeline_cmd_argv -----
+2026-10-24T00:38:11.0806750Z   ❌ test_typed_pipeline_cmd_argv:链接失败
+2026-10-24T00:38:11.0910330Z   ✓ repro_codegen_call_callee_only:测试通过
+2026-10-24T00:38:11.0941720Z   ✓ test_error_same_id:测试通过
+2026-10-24T00:38:11.8613820Z   ✓ test_json_from_json_errors:测试通过
+2026-10-24T00:38:11.8709040Z   ✓ test_catch_only:测试通过
+2026-10-24T00:38:11.8801360Z   ✓ test_macro_stmt:测试通过
+2026-10-24T00:38:12.3824070Z   ✓ array_access:测试通过
+2026-10-24T00:38:12.3912520Z   ✓ test_try_overflow_catch:测试通过
+2026-10-24T00:38:12.4056090Z   ✓ nested_function_calls:测试通过
+2026-10-24T00:38:12.6728150Z   ✓ test_bounds_prover_as_usize_cast:测试通过
+2026-10-24T00:38:12.6831480Z   ✓ test_if_expression:测试通过
+2026-10-24T00:38:12.6891040Z   ✓ error_async_recursive:预期编译失败
+2026-10-24T00:38:12.9227260Z   ✓ test_protobuf_decode_basic:测试通过
+2026-10-24T00:38:12.9287400Z   ✓ test_struct_inner_method:测试通过
+2026-10-24T00:38:12.9350820Z   ✓ repro_codegen_call_args_assign:测试通过
+2026-10-24T00:38:13.1295550Z   ✓ struct_params:测试通过
+2026-10-24T00:38:13.1365460Z   ✓ test_string_literal:测试通过
+2026-10-24T00:38:13.1430150Z   ✓ error_simd_invalid_element_type:预期编译失败
+2026-10-24T00:38:13.4306550Z   ✓ test_generic_struct_field:测试通过
+2026-10-24T00:38:13.4369590Z   ✓ test_simd_mask_inline_compare:测试通过
+2026-10-24T00:38:13.4440600Z   ✓ test_null_literal:测试通过
+2026-10-24T00:38:13.6574130Z   ✓ error_va_start_non_varargs:预期编译失败
+2026-10-24T00:38:13.6633630Z   ✓ debug_logical_and:测试通过
+2026-10-24T00:38:13.6707130Z   ✓ test_generic_struct:测试通过
+2026-10-24T00:38:13.8989200Z   ✓ test_error_handling:测试通过
+2026-10-24T00:38:13.9045870Z   ✓ test_kernel_payload:测试通过
+2026-10-24T00:38:13.9117920Z   ✓ test_nested_field_move:测试通过
+2026-10-24T00:38:14.1448870Z   ✓ test_mem_layer:测试通过
+2026-10-24T00:38:14.1512030Z   ✓ test_macro_hygiene:测试通过
+2026-10-24T00:38:14.1581910Z   ✓ test_generic_multi_instance:测试通过
+2026-10-24T00:38:14.7461070Z   ✓ test_struct_slice_field:测试通过
+2026-10-24T00:38:14.7565410Z   ✓ error_async_await_in_for_range_start:预期编译失败
+2026-10-24T00:38:14.7621630Z   ✓ test_strtod:测试通过
+2026-10-24T00:38:15.0206670Z   ✓ error_tuple_index_oob:预期编译失败
+2026-10-24T00:38:15.0266400Z   ✓ test_protobuf_wire:测试通过
+2026-10-24T00:38:15.0322960Z   ✓ test_generic_interface:测试通过
+2026-10-24T00:38:15.7415890Z   ✓ test_union_fields:测试通过
+2026-10-24T00:38:15.7500840Z   ✓ test_json_encode_array:测试通过
+2026-10-24T00:38:15.7570270Z   ✓ test_optimizer_detection:测试通过
+2026-10-24T00:38:16.6295410Z   ✓ simple_if:测试通过
+2026-10-24T00:38:16.6371850Z   ✓ test_return_struct_init_drop_once:测试通过
+2026-10-24T00:38:16.6447880Z   ✓ test_interface_error_union_method:测试通过
+2026-10-24T00:38:16.8856240Z   ✓ error_atomic_non_integer:预期编译失败
+2026-10-24T00:38:16.8926050Z   ✓ test_exec_vm_compiler_global_aggregate_combo:测试通过
+2026-10-24T00:38:16.8987320Z   ✓ test_struct_inner_method_void:测试通过
+2026-10-24T00:38:17.2643920Z   ✓ test_macro_complex_stmt:测试通过
+2026-10-24T00:38:17.2720310Z   ✓ test_generic_multi_constraint:测试通过
+2026-10-24T00:38:17.2798470Z   ✓ test_simd_vec16_sse_chain:测试通过
+2026-10-24T00:38:18.1873660Z   ✓ test_naked_fn:测试通过
+2026-10-24T00:38:18.1943400Z   ✓ test_function_reachability_codegen_microapp:测试通过
+2026-10-24T00:38:18.2023150Z   ✓ test_crypto_bigint:测试通过
+2026-10-24T00:38:18.4426320Z   ✓ error_println_no_arg:预期编译失败
+2026-10-24T00:38:18.4514010Z   ✓ test_simd_c99_select_emit_u32x2_only:测试通过
+2026-10-24T00:38:18.4578640Z   ✓ error_embed_missing_file:预期编译失败
+2026-10-24T00:38:19.0067640Z   ✓ test_stdlib:测试通过
+2026-10-24T00:38:19.0139160Z   ✓ error_simd_invalid_mask_lanes:预期编译失败
+2026-10-24T00:38:19.0204420Z   ✓ test_exec_vm_const_pool:测试通过
+2026-10-24T00:38:19.2485780Z   ✓ test_asm_type_safety:测试通过
+2026-10-24T00:38:19.2563480Z   ✓ error_defer_return:预期编译失败
+2026-10-24T00:38:19.2644380Z   ✓ test_match_ref_else:测试通过
+2026-10-24T00:38:19.5056710Z   ✓ test_abi_calling_convention:测试通过
+2026-10-24T00:38:19.5119070Z   ✓ test_struct_inner_generic_method:测试通过
+2026-10-24T00:38:19.5194510Z   ✓ test_optimized_astnode:测试通过
+2026-10-24T00:38:19.9135690Z   ✓ test_crypto_curve25519:测试通过
+2026-10-24T00:38:19.9224660Z   ✓ test_capability_runtime_compat:测试通过
+2026-10-24T00:38:19.9307920Z   ✓ test_simd_vector_reduce_add:测试通过
+2026-10-24T00:38:20.2541850Z   ✓ error_typed_pipeline_checker_left:预期编译失败
+2026-10-24T00:38:20.2654420Z   ✓ test_max_min:测试通过
+2026-10-24T00:38:20.2728450Z   ✓ test_enum_auto_increment:测试通过
+2026-10-24T00:38:20.9718920Z   ✓ test_exec_vm_try_unsupported:测试通过
+2026-10-24T00:38:20.9766730Z   ✓ bench_malloc_realloc_vector:测试通过
+2026-10-24T00:38:20.9841130Z   ✓ test_generic_struct_ptr_field:测试通过
+2026-10-24T00:38:21.1878680Z   ✓ error_array_bounds_param_write_need_proof:预期编译失败
+2026-10-24T00:38:21.1949930Z   ✓ test_exec_vm_struct_init_zero_fill:测试通过
+2026-10-24T00:38:21.2019890Z   ✓ error_const_slice_element_assign:预期编译失败
+2026-10-24T00:38:21.5134130Z   ✓ test_simd_return_splat_binary:测试通过
+2026-10-24T00:38:21.5246010Z   ✓ test_varargs_full:测试通过
+2026-10-24T00:38:21.5345250Z   ✓ test_defer_nested_return:测试通过
+2026-10-24T00:38:22.1737110Z   ✓ test_std_path_platform_cfg:测试通过
+2026-10-24T00:38:22.1821480Z   ✓ error_circular_dependency:预期编译失败
+2026-10-24T00:38:22.1968090Z   ✓ test_slice_pointer_element_codegen:测试通过
+2026-10-24T00:38:22.4993090Z   ✓ error_await_outside_async:预期编译失败
+2026-10-24T00:38:22.5090490Z   ✓ test_hashmap:测试通过
+2026-10-24T00:38:22.5175680Z   ✓ error_interface_array_elem_assign:预期编译失败
+2026-10-24T00:38:23.2017290Z   ✓ error_null_deref:预期编译失败
+2026-10-24T00:38:23.2145100Z   ✓ test_exec_vm_compiler_slice_ptr:测试通过
+2026-10-24T00:38:23.2249050Z   ✓ test_interface_compose:测试通过
+2026-10-24T00:38:23.5974960Z   ✓ test_simd_u16_basic:测试通过
+2026-10-24T00:38:23.6077590Z   ✓ error_symbolic_expr:预期编译失败
+2026-10-24T00:38:23.6164320Z   ✓ test_struct_method_with_interface:测试通过
+2026-10-24T00:38:23.9569190Z   ✓ struct_test:测试通过
+2026-10-24T00:38:23.9640430Z   ✓ error_asm_f64_output:预期编译失败
+2026-10-24T00:38:23.9716120Z   ✓ test_multidimensional_array:测试通过
+2026-10-24T00:38:24.2472130Z   ✓ test_string_buf_vec_field:测试通过
+2026-10-24T00:38:24.2532700Z   ✓ test_http_http2_stream:测试通过
+2026-10-24T00:38:24.2635740Z   ✓ error_async_frame_pinned_arg:预期编译失败
+2026-10-24T00:38:24.6427070Z   ✓ test_struct_method_args:测试通过
+2026-10-24T00:38:24.6511730Z   ✓ test_yaml_parse_anchor_block:测试通过
+2026-10-24T00:38:24.6613460Z   ✓ test_alignof_comprehensive:测试通过
+2026-10-24T00:38:25.0177240Z   ✓ test_macro_multiple_calls:测试通过
+2026-10-24T00:38:25.0241320Z   ✓ test_array_assignment:测试通过
+2026-10-24T00:38:25.0321170Z   ✓ test_json_parse_basic:测试通过
+2026-10-24T00:38:25.8637280Z ----- linker output begin: test_typed_pipeline_try_forward_lowering -----
+2026-10-24T00:38:25.8670120Z Undefined symbols for architecture arm64:
+2026-10-24T00:38:25.8675050Z   "___errno_location", referenced from:
+2026-10-24T00:38:25.8676140Z       _pipeline_errno_value in test_typed_pipeline_try_forward_lowering-e0a9db.o
+2026-10-24T00:38:25.8679580Z ld: symbol(s) not found for architecture arm64
+2026-10-24T00:38:25.8682720Z clang: error: linker command failed with exit code 1 (use -v to see invocation)
+2026-10-24T00:38:25.8689170Z ----- linker output end: test_typed_pipeline_try_forward_lowering -----
+2026-10-24T00:38:25.8705840Z   ✓ test_buffer_ptr_access:测试通过
+2026-10-24T00:38:25.8765470Z   ❌ test_typed_pipeline_try_forward_lowering:链接失败
+2026-10-24T00:38:25.8826330Z   ✓ test_simd_vector_select:测试通过
+2026-10-24T00:38:26.1993100Z   ✓ error_asm_empty_block:预期编译失败
+2026-10-24T00:38:26.2078960Z   ✓ test_int_limit_i8_nested:测试通过
+2026-10-24T00:38:26.2182600Z   ✓ test_method_ns_ref_receiver:测试通过
+2026-10-24T00:38:26.4697620Z   ✓ error_microapp_mode_asm:预期编译失败
+2026-10-24T00:38:26.4809740Z   ✓ test_interface:测试通过
+2026-10-24T00:38:26.4888610Z   ✓ error_error_id_collision:预期编译失败
+2026-10-24T00:38:26.8346190Z   ✓ bench_asm_memcpy:测试通过
+2026-10-24T00:38:26.8452950Z   ✓ test_std_ring_queue:测试通过
+2026-10-24T00:38:26.8536780Z   ✓ test_fmt_comment_grouping:测试通过
+2026-10-24T00:38:27.0639010Z   ✓ test_struct_method_err:测试通过
+2026-10-24T00:38:27.0696710Z   ✓ test_path_while:测试通过
+2026-10-24T00:38:27.0758860Z   ✓ error_null_deref_member:预期编译失败
+2026-10-24T00:38:27.2957350Z   ✓ error_wrong_return_type:预期编译失败
+2026-10-24T00:38:27.3026950Z   ✓ test_slice_return:测试通过
+2026-10-24T00:38:27.3091460Z   ✓ test_var_init_default:测试通过
+2026-10-24T00:38:28.1012060Z   ✓ test_json_struct_roundtrip:测试通过
+2026-10-24T00:38:28.1096440Z   ✓ test_complex_expressions:测试通过
+2026-10-24T00:38:28.1179980Z   ✓ error_asbang_requires_try_or_catch_call_arg:预期编译失败
+2026-10-24T00:38:29.9540720Z   ✓ error_array_bounds_signed_cast_lower_bound:预期编译失败
+2026-10-24T00:38:29.9641980Z   ✓ test_crypto_bigint_modexp4096:测试通过
+2026-10-24T00:38:29.9717550Z   ✓ test_exec_vm_compiler_match_return_struct_field:测试通过
+2026-10-24T00:38:30.3198210Z   ✓ test_function_reachability_tuple_expr:测试通过
+2026-10-24T00:38:30.3265620Z   ✓ error_atomic_compound_bool_rhs:预期编译失败
+2026-10-24T00:38:30.3335310Z   ✓ test_array_bounds:测试通过
+2026-10-24T00:38:30.6886860Z   ✓ test_simd_c99_select_emit_i32x4_and_f32x4:测试通过
+2026-10-24T00:38:30.6965070Z   ✓ test_exec_vm_compiler_typed_catch_local:测试通过
+2026-10-24T00:38:30.7032230Z   ✓ test_std_mem:测试通过
+2026-10-24T00:38:31.0803290Z   ✓ test_generic_method_call:测试通过
+2026-10-24T00:38:31.0887990Z   ✓ nested_recursive:测试通过
+2026-10-24T00:38:31.0990990Z   ✓ test_simd_value_ops:测试通过
+2026-10-24T00:38:31.1030530Z   单文件测试完成
+2026-10-24T00:38:31.1033310Z 
+2026-10-24T00:38:31.1033940Z ================================
+2026-10-24T00:38:31.1035750Z 总计: 1018 个测试
+2026-10-24T00:38:31.1036140Z 通过: 1002
+2026-10-24T00:38:31.1036530Z 失败: 16
+2026-10-24T00:38:31.1036840Z ================================
+2026-10-24T00:38:31.1083340Z 
+2026-10-24T00:38:31.1084250Z ✗ hosted 测试失败（退出码 1）
+2026-10-24T00:38:31.1116420Z make: *** [tests-hosted] Error 1
+2026-10-24T00:38:31.1230680Z ##[error]Process completed with exit code 2.
+2026-10-24T00:38:31.1670260Z Post job cleanup.
+2026-10-24T00:38:31.6284890Z [command]/opt/homebrew/bin/git version
+2026-10-24T00:38:31.6666310Z git version 2.55.0
+2026-10-24T00:38:31.6722150Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/c755d736-1f61-4630-aef1-1f73b8c4cf4c/.gitconfig'
+2026-10-24T00:38:31.6740100Z Temporarily overriding HOME='/Users/runner/work/_temp/c755d736-1f61-4630-aef1-1f73b8c4cf4c' before making global git config changes
+2026-10-24T00:38:31.6741360Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-24T00:38:31.6744350Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/uya/uya
+2026-10-24T00:38:31.6930850Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-24T00:38:31.7006300Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-24T00:38:31.8581990Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-24T00:38:31.8642270Z http.https://github.com/.extraheader
+2026-10-24T00:38:31.8651730Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-24T00:38:31.8727280Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-24T00:38:31.9710490Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-24T00:38:31.9775790Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-24T00:38:32.1834940Z Cleaning up orphan processes
+2026-10-24T00:38:34.8614190Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
