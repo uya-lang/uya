@@ -452,6 +452,26 @@ struct C99CodeGenerator {
     // 各镜像 TU 的磁盘绝对/相对路径（与 split_mirror_handles 同序），
     // 供「函数体阶段并行」时按 TU 打开临时文件与回填。
     split_mirror_paths: &(&byte),
+
+    // ===== 大源文件按顶层声明切块（chunk）=====
+    // 一个源文件可以占多个镜像槽位：`make -j` 的 makespan 由**最大的单个 .c** 决定，
+    // 实测 src/exec/lower.c 单文件 `cc -c -O2` 要 4.4 s，而整段 C 阶段的 CPU 总量除以
+    // 核数只有 1.8 s —— 把大文件切成 N 块后，最大的 TU 缩到约 1/N，C 阶段才吃满核。
+    //
+    // 分块只影响「声明落到哪个 .c」，不影响语义：各 TU 共用同一套
+    // uya_split_protos.h / uya_mirror_globals.h 前导，且镜像 .c 里没有文件级 static
+    // （唯二带 static 的 runtime/thread 单元本来就被排除在镜像之外，留 uya_common.c）。
+    //
+    // slot_chunks[slot]：该槽位是所属源文件的第几块（0 起，0 表示整文件不切）。
+    split_mirror_slot_chunks: &i32,
+    // file_chunks[base_slot]：该源文件占几个槽位（只在块起点槽位有效）。
+    split_mirror_file_chunks: &i32,
+    // slot_decls[slot]：该槽位承载的顶层声明数；写 Makefile 时按它降序排 OBJS（LPT），
+    // 让大 TU 先开工，否则它们排在列表尾部要等前一轮槽位空出来才起编译。
+    split_mirror_slot_decls: &i32,
+    // 当前正在发射的顶层声明的槽位（-1 = 未设置，按文件名路由）。分块切分后同一源文件
+    // 的声明要落到不同槽位，仅凭 filename 无法区分，因此由发射循环显式压入。
+    emit_decl_slot: i32,
     split_common_out: &void,
     // 镜像模式：第七步函数原型写入 uya_split_protos.h（含 #include uya_part1_types.h），各 .c 首行 #include 该头
     split_protos_out: &void,
@@ -477,10 +497,12 @@ struct C99CodeGenerator {
     parallel_body_temps: &(&void),
     // 一旦有发射被路由到「不属于本 worker」的分片就置 1，worker 必须放弃并行。
     parallel_violation: i32,
-    // 顶层声明 → 镜像 TU 下标（-1 = common）的预计算表。
-    // 并行时三个发射循环都会逐声明判定归属，若每次都做路径归一化 + 线性查表，
-    // 开销会随「声明数 × TU 数 × worker 数」放大，实测能吃掉并行的全部收益，
-    // 因此在 fork 前算一次，之后只做数组下标。
+    // 顶层声明 → 镜像槽位（-1 = uya_common.c）的预计算表。
+    // 三处用途，因此不论是否并行都会填好（见 c99_parallel_prepare_decl_tu）：
+    //   1. 并行时逐声明判定归属（若每次都做路径归一化 + 线性查表，开销会随
+    //      「声明数 × TU 数 × worker 数」放大，实测能吃掉并行的全部收益）；
+    //   2. 分块切分时决定声明落到哪个槽位（同一源文件可能有多个槽位）；
+    //   3. 统计各槽位承载的声明数，供 Makefile 按 LPT 排 OBJS。
     parallel_decl_tu: &i32,
     parallel_decl_count: i32
 }

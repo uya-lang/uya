@@ -297,12 +297,21 @@ uya_split_snapshot_mtimes() {
     if ! command -v sha256sum >/dev/null 2>&1; then
         return 0
     fi
+    # 一次 sha256sum + 一次 stat 处理全部生成文件（镜像模式下 160+ 个 .c/.h）。
+    # 早先是「每个文件两个子进程」，166 个文件光 fork 就 ~330 次，约 0.2s 纯开销。
+    local files=()
+    local f
     while IFS= read -r f; do
-        local h m
-        h="$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)"
-        m="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
-        printf '%s|%s|%s\n' "$h" "$m" "$f" >>"$snap"
+        files+=("$f")
     done < <(find "$split_dir" -name '*.c' -o -name '*.h' 2>/dev/null)
+    if [ "${#files[@]}" -eq 0 ]; then
+        return 0
+    fi
+    # 三个输出都按参数顺序逐行对齐，故可直接 paste 起来。
+    paste -d'|' \
+        <(sha256sum "${files[@]}" 2>/dev/null | cut -d' ' -f1) \
+        <(stat -c %Y "${files[@]}" 2>/dev/null) \
+        <(printf '%s\n' "${files[@]}") >"$snap" 2>/dev/null
 }
 
 uya_split_restore_mtimes() {
@@ -313,17 +322,34 @@ uya_split_restore_mtimes() {
     if ! command -v sha256sum >/dev/null 2>&1; then
         return 0
     fi
+    # 先收集快照里仍然存在的文件，再一次 sha256sum 全部算完（避免每文件一个子进程）。
     local restored=0
+    local paths=()
+    local want_hash=()
+    local want_mtime=()
+    local old_hash old_mtime path
     while IFS='|' read -r old_hash old_mtime path; do
         [ -n "$path" ] || continue
         [ -f "$path" ] || continue
-        local new_hash
-        new_hash="$(sha256sum "$path" 2>/dev/null | cut -d' ' -f1)"
-        if [ "$old_hash" = "$new_hash" ]; then
-            # 内容一致：把 mtime 还原，make 就不会重编对应 TU。
-            touch -d "@$old_mtime" "$path" 2>/dev/null && restored=$((restored + 1))
-        fi
+        paths+=("$path")
+        want_hash+=("$old_hash")
+        want_mtime+=("$old_mtime")
     done <"$snap"
+    if [ "${#paths[@]}" -gt 0 ]; then
+        # 一次 sha256sum 算完，输出顺序与参数顺序一致，故按序号对齐即可。
+        local n=0
+        local new_hash
+        while IFS= read -r new_hash; do
+            if [ "$n" -ge "${#paths[@]}" ]; then
+                break
+            fi
+            if [ "$new_hash" = "${want_hash[$n]}" ]; then
+                # 内容一致：把 mtime 还原，make 就不会重编对应 TU。
+                touch -d "@${want_mtime[$n]}" "${paths[$n]}" 2>/dev/null && restored=$((restored + 1))
+            fi
+            n=$((n + 1))
+        done < <(sha256sum "${paths[@]}" 2>/dev/null | cut -d' ' -f1)
+    fi
     rm -f "$snap"
     if [ "$VERBOSE" = true ] && [ "$restored" -gt 0 ]; then
         echo "增量：$restored 个生成文件内容未变，已还原 mtime（对应 .o 不会重编）"
@@ -356,9 +382,17 @@ uya_build_stamp_fingerprint() {
         printf '\nsources:\n'
         if [ -f "$manifest" ] && command -v sha256sum >/dev/null 2>&1; then
             # manifest 首行是注释；其余是上一轮参与编译的源文件绝对路径。
-            tail -n +2 "$manifest" | while IFS= read -r f; do
-                [ -f "$f" ] && sha256sum "$f" 2>/dev/null
-            done
+            # 一次 sha256sum 处理全部源文件（镜像模式下 110+ 个），而非每文件一个子进程。
+            local srcs=()
+            local f
+            while IFS= read -r f; do
+                [ -f "$f" ] && srcs+=("$f")
+            done < <(tail -n +2 "$manifest")
+            if [ "${#srcs[@]}" -gt 0 ]; then
+                sha256sum "${srcs[@]}" 2>/dev/null
+            else
+                printf 'nosources'
+            fi
         else
             printf 'nomanifest'
         fi
