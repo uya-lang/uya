@@ -142,8 +142,9 @@ struct Packet {
 
 ## 统计与验证
 
-- `make check`：**1197 / 1197**，失败 0。
-- `uya test --vm` 普查（`make exec-census`）：**912 / 912**。
+- `make check`：**1198 / 1198**，失败 0。
+- `uya test --vm` 普查（`make exec-census`）：**912 / 912**（发版前最后一轮全量普查；
+  本版新增的 `test_i64_wrapping_chain` 与改用真实证书链的 `test_tls_x509` 已在 `--vm` 下单独验证通过）。
 - 自举：`make b` 前后端一致，`--vm` 自举产物可再编出可运行原生二进制。
 - 版本一致性：`tests/verify_version_sources.sh` 通过，`bin/uya --version` 报 `v0.12.0`。
 - 自 v0.11.0 以来共 **1085** 个提交（其中 597 个是 exec VM 攻坚期的逐轮定位记录）。
