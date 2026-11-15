@@ -28082,3 +28082,17 @@ rc=0            # 自举出来的编译器**能编出可运行的原生二进制
 | VM 静态容量按需增长 | ✅（槽池/旁路表/常量池） |
 | 内存放大 | ✅ 57GB → **34.7GB（-39%）**，竞技场同阶段 -51% |
 | census 912/912、make check 1197/1197、种子可重建 | ✅（持续复验） |
+
+### 4. 注意事项：`make from-c-native` 产出的 `bin/uya` 跑 `--vm` 会失败（既有现象，与本轮改动无关）
+
+复验方法：干净检出同一提交，先 `make from-c-native` 再跑
+
+```
+./bin/uya run --vm src/main.uya -- --version
+→ exec backend 失败: src/cmd/upm/upm_lib/lockfile.uya:448:9: exec: 无法解析成员方法调用(kind=13)
+```
+
+而同一棵树上 `make uya` 重建 `bin/uya` 之后就正常输出 `v0.11.0`。
+在两个提交（合并前 15ef02e6 / 合并后 810f12e7）上表现一致，说明这是
+**种子构建路径（from-c-native）与 `make uya` 产物的差异**，不是本次改动引入的。
+结论：跑 `--vm` 里程碑之前，先用 `make uya` 构建 `bin/uya`。
