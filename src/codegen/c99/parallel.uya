@@ -40,6 +40,9 @@ use std.string.strcpy;
 use libc.unlink;
 use libc.snprintf;
 
+extern fn ftell(stream: *void) i64;
+extern fn getenv(name: *byte) *byte;
+
 // 临时分片文件的后缀：函数体阶段每个镜像 TU（以及 uya_common.c）一个。
 const C99_PARALLEL_BODY_SUFFIX: &const byte = ".uyabody" as *const byte;
 
@@ -170,7 +173,21 @@ export fn c99_parallel_body_begin(codegen: &C99CodeGenerator, workers: i32) i32 
         temps[si] = null;
         si = si + 1;
     }
-    // 逐个 TU 开临时文件；任何一步失败都回滚。
+    // 先把**全部**原句柄存下来，再逐个开临时文件。
+    //
+    // 顺序很重要：`discard` 的回滚就是「句柄表 = orig」。若边开边存，一旦第 k 个临时
+    // 文件打开失败，orig[k..] 还是 null，回滚就会把后面所有 TU 的句柄（包括 uya_common.c）
+    // 全部置空 —— 后续写入静默落空，C 产物丢掉整段函数体，只在链接时报
+    // `undefined reference to ...`，极难定位。先存全部原句柄后，回滚永远是幂等的。
+    si = 0;
+    while si < slot_count {
+        if si < codegen.split_mirror_count {
+            orig[si] = codegen.split_mirror_handles[si];
+        } else {
+            orig[si] = codegen.split_common_out;
+        }
+        si = si + 1;
+    }
     si = 0;
     while si < slot_count {
         var base: [byte: 1024] = [];
@@ -189,11 +206,6 @@ export fn c99_parallel_body_begin(codegen: &C99CodeGenerator, workers: i32) i32 
             return 0 - 1;
         }
         temps[si] = fh;
-        if si < codegen.split_mirror_count {
-            orig[si] = codegen.split_mirror_handles[si];
-        } else {
-            orig[si] = codegen.split_common_out;
-        }
         si = si + 1;
     }
     // 切换路由：emit_for_node / emit_common 之后都写到临时分片。
@@ -205,6 +217,9 @@ export fn c99_parallel_body_begin(codegen: &C99CodeGenerator, workers: i32) i32 
     codegen.split_common_out = temps[codegen.split_mirror_count];
     codegen.emit_stream = codegen.split_common_out;
     codegen.parallel_violation = 0;
+    if parallel_debug_enabled() != 0 {
+        fprintf(libc.stderr, "[dbg] body_begin workers=%d slots=%d\n" as *byte, workers, slot_count);
+    }
     return 0;
 }
 
@@ -365,15 +380,32 @@ export fn c99_parallel_body_worker_finish(codegen: &C99CodeGenerator) void {
     if temps == null {
         return;
     }
+    const dbg: i32 = parallel_debug_enabled();
     const slot_count: i32 = codegen.split_mirror_count +| 1;
+    if dbg != 0 {
+        fprintf(libc.stderr, "[dbg] worker_finish worker=%d slots=%d\n" as *byte, codegen.parallel_worker, slot_count);
+    }
     var si: i32 = 0;
     while si < slot_count {
         if temps[si] != null {
+            if dbg != 0 && si == codegen.split_mirror_count {
+                const pos: i64 = ftell(temps[si] as *void);
+                fprintf(libc.stderr, "[dbg] worker=%d common_temp_bytes=%lld\n" as *byte, codegen.parallel_worker, pos);
+            }
             _ = fclose(temps[si] as *void);
             temps[si] = null;
         }
         si = si + 1;
     }
+}
+
+// 诊断开关：UYA_DEBUG_PARALLEL 非空时打印并行函数体阶段的分片大小（排障用）。
+fn parallel_debug_enabled() i32 {
+    const e: &byte = getenv("UYA_DEBUG_PARALLEL" as *byte) as &byte;
+    if e != null && e[0] != 0 as byte {
+        return 1;
+    }
+    return 0;
 }
 
 /// 复核「共享注册表在函数体阶段没有变化」。

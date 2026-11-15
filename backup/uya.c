@@ -8707,6 +8707,10 @@ struct C99CodeGenerator {
     int32_t split_mirror_lcp;
     void * * split_mirror_handles;
     uint8_t * * split_mirror_paths;
+    int32_t * split_mirror_slot_chunks;
+    int32_t * split_mirror_file_chunks;
+    int32_t * split_mirror_slot_decls;
+    int32_t emit_decl_slot;
     void * split_common_out;
     void * split_protos_out;
     void * split_part1_types_h;
@@ -12218,6 +12222,7 @@ void codegen_c99_parallel_c99_parallel_body_discard(struct C99CodeGenerator * co
 int32_t codegen_c99_parallel_c99_parallel_body_commit(struct C99CodeGenerator * codegen);
 static __attribute__((used)) int32_t c99_parallel_body_append(void * dst, uint8_t * tmp);
 void codegen_c99_parallel_c99_parallel_body_worker_finish(struct C99CodeGenerator * codegen);
+static __attribute__((used)) int32_t parallel_debug_enabled();
 int32_t codegen_c99_parallel_c99_parallel_registry_closed(struct C99CodeGenerator * codegen, int32_t strings_before, int32_t embed_before, int32_t mono_before);
 static __attribute__((used)) int32_t is_expr_type(enum main_ASTNodeType node_type);
 static __attribute__((used)) int32_t stmt_expr_needs_error_void_propagation(struct C99CodeGenerator * codegen, struct ASTNode * stmt);
@@ -12493,15 +12498,24 @@ static __attribute__((used)) int32_t c99_mirror_lcp_len_flat(uint8_t * uniq, int
 static __attribute__((used)) int32_t c99_mirror_rel_c_from_key(uint8_t * src, int32_t lcp, uint8_t * out_rel, int32_t max_out);
 static __attribute__((used)) int32_t c99_copy_uya_rel_to_c(uint8_t * rel_uya, uint8_t * out_rel, int32_t max_out);
 static __attribute__((used)) int32_t c99_mirror_normalize_one_path(uint8_t * src, uint8_t * out, int32_t max_out);
+static __attribute__((used)) int32_t c99_mirror_chunk_count(int32_t decls);
+static __attribute__((used)) int32_t c99_mirror_slot_count_for_key(uint8_t * key, int32_t decls, int32_t allow_chunk);
+static __attribute__((used)) int32_t c99_mirror_chunk_rel_c(uint8_t * rel_c, int32_t chunk, uint8_t * out, int32_t cap);
+int32_t codegen_c99_utils_c99_mirror_slot_rel_c(struct C99CodeGenerator * codegen, int32_t slot, uint8_t * out, int32_t cap);
+static __attribute__((used)) int32_t c99_mirror_c_path_to_o(uint8_t * rel_c, uint8_t * out, int32_t cap);
+static __attribute__((used)) int32_t c99_mirror_open_slot(struct C99CodeGenerator * codegen, int32_t slot);
 int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * codegen, struct ASTNode * program);
 void codegen_c99_utils_c99_mirror_emit_common(struct C99CodeGenerator * codegen);
 int32_t codegen_c99_utils_c99_mirror_tu_index_for_node(struct C99CodeGenerator * codegen, struct ASTNode * node);
 void codegen_c99_utils_c99_mirror_emit_for_node(struct C99CodeGenerator * codegen, struct ASTNode * node);
+void codegen_c99_utils_c99_mirror_set_emit_decl(struct C99CodeGenerator * codegen, int32_t decl_index);
+int32_t codegen_c99_utils_c99_mirror_decl_slot_for_node(struct C99CodeGenerator * codegen, struct ASTNode * node);
 int32_t codegen_c99_utils_c99_parallel_prepare_decl_tu(struct C99CodeGenerator * codegen, struct ASTNode * ast);
 int32_t codegen_c99_utils_c99_parallel_owns_decl(struct C99CodeGenerator * codegen, int32_t decl_index);
 void codegen_c99_utils_c99_split_begin_body(struct C99CodeGenerator * codegen);
 void codegen_c99_utils_c99_split_finish_part2_externs(struct C99CodeGenerator * codegen);
 void codegen_c99_utils_c99_write_mirror_manifest(struct C99CodeGenerator * codegen, struct ASTNode * program);
+static __attribute__((used)) int32_t * c99_mirror_lpt_order(struct C99CodeGenerator * codegen);
 void codegen_c99_utils_c99_write_split_makefile(struct C99CodeGenerator * codegen);
 static __attribute__((used)) void emit_line_directive(struct C99CodeGenerator * codegen, int32_t line, uint8_t * filename);
 static __attribute__((used)) void init_indent_spaces();
@@ -12651,7 +12665,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_4165437801_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -12688,7 +12702,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_2942657677_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -16044,6 +16058,16 @@ __attribute__((used)) const int32_t C99_IDENTIFIER_TYPE_CACHE_MASK = 4095;
 #undef C99_MIRROR_INIT_SLOTS
 #endif
 __attribute__((used)) const int32_t C99_MIRROR_INIT_SLOTS = 256;
+
+#ifdef C99_MIRROR_CHUNK_DECLS
+#undef C99_MIRROR_CHUNK_DECLS
+#endif
+__attribute__((used)) const int32_t C99_MIRROR_CHUNK_DECLS = 48;
+
+#ifdef C99_MIRROR_MAX_CHUNKS
+#undef C99_MIRROR_MAX_CHUNKS
+#endif
+__attribute__((used)) const int32_t C99_MIRROR_MAX_CHUNKS = 4;
 
 #ifdef C99_SAFE_IDENT_CACHE_BITS
 #undef C99_SAFE_IDENT_CACHE_BITS
@@ -177975,6 +177999,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
                 return _uya_ret;
                         }
         }
+        (void)(codegen_c99_utils_c99_parallel_prepare_decl_tu(codegen, ast));
     }
     if (is_std_lib != 0) {
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"// 零依赖标准库：自己定义所有类型（用于 --nostdlib 编译）\n", (void *)codegen->emit_stream)        );
@@ -181393,6 +181418,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     while (i < decl_count) {
         struct ASTNode * const decl = ast->program_decls[i];
         if (decl != NULL) {
+            (void)(codegen_c99_utils_c99_mirror_set_emit_decl(codegen, i)            );
             (void)(codegen_c99_utils_c99_mirror_emit_for_node(codegen, decl)            );
             if (decl->type == main_ASTNodeType_AST_USE_STMT) {
                 i = (i + 1);
@@ -181420,6 +181446,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     while (i < decl_count) {
         struct ASTNode * const decl = ast->program_decls[i];
         if (((((decl != NULL) && (decl->type == main_ASTNodeType_AST_VAR_DECL)) && (decl->var_decl_is_const == 0)) && (decl->var_decl_is_export == 0))) {
+            (void)(codegen_c99_utils_c99_mirror_set_emit_decl(codegen, i)            );
             (void)(codegen_c99_utils_c99_mirror_emit_for_node(codegen, decl)            );
             (void)(gen_global_var(codegen, decl)            );
             (void)(c99_emit_newline(codegen)            );
@@ -181432,6 +181459,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         while (i < decl_count) {
             struct ASTNode * const decl = ast->program_decls[i];
             if (((((decl != NULL) && (decl->type == main_ASTNodeType_AST_VAR_DECL)) && (decl->var_decl_is_const == 0)) && (decl->var_decl_is_export != 0))) {
+                (void)(codegen_c99_utils_c99_mirror_set_emit_decl(codegen, i)                );
                 (void)(codegen_c99_utils_c99_mirror_emit_for_node(codegen, decl)                );
                 (void)(gen_global_var(codegen, decl)                );
                 (void)(c99_emit_newline(codegen)                );
@@ -181441,8 +181469,16 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     }
     int32_t cg_body_mode = 0;
     int32_t cg_emit_now = 1;
+    uint8_t * const cg_dbg_env = (uint8_t *)(uint8_t *)getenv((const char *)(uint8_t *)(uint8_t *)str763);
+    int32_t cg_dbg_parallel = 0;
+    if (((cg_dbg_env != NULL) && (cg_dbg_env[0] != (uint8_t)0))) {
+        cg_dbg_parallel = 1;
+    }
     int32_t * cg_body_pids = NULL;
     int32_t cg_body_worker_count = 1;
+    if (cg_dbg_parallel != 0) {
+        (void)(fprintf(stderr, (const char *)"[dbg] mirror=%d count=%d jobs=%d\n", codegen->split_mirror, codegen->split_mirror_count, parallel_parallel_jobs_for(codegen->split_mirror_count))        );
+    }
     if (((codegen->split_mirror != 0) && (codegen->split_mirror_count > 1))) {
         const int32_t want_workers = parallel_parallel_jobs_for(codegen->split_mirror_count);
         if (want_workers > 1) {
@@ -181491,6 +181527,9 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
                     }
                     if (cg_body_mode == 0) {
                         int32_t cg_wait = parallel_parallel_wait_all(cg_body_pids, want_workers);
+                        if (cg_dbg_parallel != 0) {
+                            (void)(fprintf(stderr, (const char *)"[dbg] parent wait=%d workers=%d\n", cg_wait, want_workers)                            );
+                        }
                         if (((fork_failed != 0) && (cg_wait == 0))) {
                             cg_wait = 1;
                         }
@@ -181505,6 +181544,9 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
                         }
                     } else {
                         cg_body_worker_count = want_workers;
+                        if (cg_dbg_parallel != 0) {
+                            (void)(fprintf(stderr, (const char *)"[dbg] child worker=%d workers=%d\n", codegen->parallel_worker, want_workers)                            );
+                        }
                     }
                 } else {
                     (void)(codegen_c99_parallel_c99_parallel_body_discard(codegen)                    );
@@ -181512,10 +181554,14 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             }
         }
     }
+    if (cg_dbg_parallel != 0) {
+        (void)(fprintf(stderr, (const char *)"[dbg] after_block body_mode=%d emit_now=%d worker=%d workers=%d\n", cg_body_mode, cg_emit_now, codegen->parallel_worker, codegen->parallel_workers)        );
+    }
     i = 0;
     while (((cg_emit_now != 0) && (i < decl_count))) {
         struct ASTNode * const decl = ast->program_decls[i];
         if (((decl != NULL) && (codegen_c99_utils_c99_parallel_owns_decl(codegen, i) != 0))) {
+            (void)(codegen_c99_utils_c99_mirror_set_emit_decl(codegen, i)            );
             (void)(codegen_c99_utils_c99_mirror_emit_for_node(codegen, decl)            );
             if (decl->type == main_ASTNodeType_AST_USE_STMT) {
                 i = (i + 1);
@@ -181711,6 +181757,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         }
         i = (i + 1);
     }
+    (void)(codegen_c99_utils_c99_mirror_set_emit_decl(codegen, (0 - 1))    );
     if ((((cg_emit_now != 0) && (test_count > 0)) && (codegen_c99_parallel_c99_parallel_is_common_owner(codegen) != 0))) {
         (void)(codegen_c99_utils_c99_mirror_emit_common(codegen)        );
         if (((codegen->split_mirror != 0) && (saved_has_std_testing != 0))) {
@@ -181793,7 +181840,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
                                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str580, (void *)codegen->emit_stream)                                );
                             }
                         }
-                        pj = (pj + 1);
+                        pj = ({ int32_t _l = (pj); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                     }
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)") {\n", (void *)codegen->emit_stream)                    );
                 } else {
@@ -182023,6 +182070,8 @@ static __attribute__((used)) void emit_async_frame_descriptors(struct C99CodeGen
     (void)(fprintf((void *)codegen->emit_stream, (const char *)"int32_t _uya_async_frame_heap_fallback = %d;\n", codegen->async_frame_heap_fallback)    );
 }
 
+
+
 int32_t codegen_c99_parallel_c99_parallel_needs_serial_globals(struct C99CodeGenerator * codegen) {
     (void)codegen;
     if (((codegen == NULL) || (codegen->split_mirror == 0))) {
@@ -182182,6 +182231,15 @@ int32_t codegen_c99_parallel_c99_parallel_body_begin(struct C99CodeGenerator * c
     }
     si = 0;
     while (si < slot_count) {
+        if (si < codegen->split_mirror_count) {
+            orig[si] = codegen->split_mirror_handles[si];
+        } else {
+            orig[si] = codegen->split_common_out;
+        }
+        si = (si + 1);
+    }
+    si = 0;
+    while (si < slot_count) {
         uint8_t base[1024] = {0};
         if (c99_parallel_body_slot_path(codegen, si, (uint8_t *)(&base[0]), 1024) != 0) {
             (void)(codegen_c99_parallel_c99_parallel_body_discard(codegen)            );
@@ -182207,11 +182265,6 @@ int32_t codegen_c99_parallel_c99_parallel_body_begin(struct C99CodeGenerator * c
                         }
         }
         temps[si] = fh;
-        if (si < codegen->split_mirror_count) {
-            orig[si] = codegen->split_mirror_handles[si];
-        } else {
-            orig[si] = codegen->split_common_out;
-        }
         si = (si + 1);
     }
     si = 0;
@@ -182222,6 +182275,9 @@ int32_t codegen_c99_parallel_c99_parallel_body_begin(struct C99CodeGenerator * c
     codegen->split_common_out = temps[codegen->split_mirror_count];
     codegen->emit_stream = codegen->split_common_out;
     codegen->parallel_violation = 0;
+    if (parallel_debug_enabled() != 0) {
+        (void)(fprintf(stderr, (const char *)"[dbg] body_begin workers=%d slots=%d\n", workers, slot_count)        );
+    }
         {
         int32_t _uya_ret = 0;
         return _uya_ret;
@@ -182384,15 +182440,37 @@ void codegen_c99_parallel_c99_parallel_body_worker_finish(struct C99CodeGenerato
     if (temps == NULL) {
         return;
     }
+    const int32_t dbg = parallel_debug_enabled();
     const int32_t slot_count = ({ int32_t _l = (codegen->split_mirror_count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    if (dbg != 0) {
+        (void)(fprintf(stderr, (const char *)"[dbg] worker_finish worker=%d slots=%d\n", codegen->parallel_worker, slot_count)        );
+    }
     int32_t si = 0;
     while (si < slot_count) {
         if (temps[si] != NULL) {
+            if (((dbg != 0) && (si == codegen->split_mirror_count))) {
+                const int64_t pos = ftell((void *)temps[si]);
+                (void)(fprintf(stderr, (const char *)"[dbg] worker=%d common_temp_bytes=%lld\n", codegen->parallel_worker, pos)                );
+            }
             (void)(std_io_fclose((void *)temps[si]));
             temps[si] = NULL;
         }
         si = (si + 1);
     }
+}
+
+static __attribute__((used)) int32_t parallel_debug_enabled() {
+    uint8_t * const e = (uint8_t *)(uint8_t *)getenv((const char *)(uint8_t *)(uint8_t *)str763);
+    if (((e != NULL) && (e[0] != (uint8_t)0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
 }
 
 int32_t codegen_c99_parallel_c99_parallel_registry_closed(struct C99CodeGenerator * codegen, int32_t strings_before, int32_t embed_before, int32_t mono_before) {
@@ -201076,6 +201154,8 @@ static __attribute__((used)) uint8_t * get_identifier_type_c(struct C99CodeGener
 
 
 
+
+
 static __attribute__((used)) uint8_t c99_path_buf_char_at(uint8_t * buf, int32_t idx) {
     (void)buf;
     (void)idx;
@@ -201102,6 +201182,7 @@ static __attribute__((used)) uint8_t c99_path_buf_char_at(uint8_t * buf, int32_t
         return _uya_ret;
         }
 }
+
 
 
 
@@ -201491,6 +201572,10 @@ static __attribute__((used)) int32_t c99_codegen_new(struct C99CodeGenerator * c
         sm_init = (sm_init + 1);
     }
     codegen->split_mirror_count = 0;
+    codegen->split_mirror_slot_chunks = NULL;
+    codegen->split_mirror_file_chunks = NULL;
+    codegen->split_mirror_slot_decls = NULL;
+    codegen->emit_decl_slot = (0 - 1);
     codegen->parallel_workers = 1;
     codegen->parallel_worker = (0 - 1);
     codegen->parallel_common_worker = 0;
@@ -202196,6 +202281,278 @@ static __attribute__((used)) int32_t c99_mirror_normalize_one_path(uint8_t * src
         }
 }
 
+static __attribute__((used)) int32_t c99_mirror_chunk_count(int32_t decls) {
+    (void)decls;
+    if (decls <= C99_MIRROR_CHUNK_DECLS) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    const int32_t jobs = parallel_parallel_jobs_for(1000);
+    int32_t maxc = 1;
+    if (jobs > 4) {
+        maxc = 2;
+    }
+    if (jobs > 8) {
+        maxc = 3;
+    }
+    if (jobs > 16) {
+        maxc = C99_MIRROR_MAX_CHUNKS;
+    }
+    int32_t k = (1 + ({ __typeof__((decls - 1)) _uya_dv_l = ((decls - 1)); __typeof__(C99_MIRROR_CHUNK_DECLS) _uya_dv_r = (C99_MIRROR_CHUNK_DECLS); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; }));
+    if (k > maxc) {
+        k = maxc;
+    }
+    if (k < 1) {
+        k = 1;
+    }
+        {
+        int32_t _uya_ret = k;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_mirror_slot_count_for_key(uint8_t * key, int32_t decls, int32_t allow_chunk) {
+    (void)key;
+    (void)decls;
+    (void)allow_chunk;
+    if (((key == NULL) || (allow_chunk == 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strstr((uint8_t *)key, (uint8_t *)(uint8_t *)str356) != NULL) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strstr((uint8_t *)key, (uint8_t *)(uint8_t *)"async_frame.uya") != NULL) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = c99_mirror_chunk_count(decls);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_mirror_chunk_rel_c(uint8_t * rel_c, int32_t chunk, uint8_t * out, int32_t cap) {
+    (void)rel_c;
+    (void)chunk;
+    (void)out;
+    (void)cap;
+    if ((((rel_c == NULL) || (out == NULL)) || (cap < 8))) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    int32_t blen = 0;
+    while (((blen < 511) && (rel_c[blen] != (uint8_t)0))) {
+        blen = (blen + 1);
+    }
+    int32_t stem_len = blen;
+    if ((((blen >= 3) && (rel_c[(blen - 2)] == (uint8_t)46)) && (rel_c[(blen - 1)] == (uint8_t)99))) {
+        stem_len = ({ int32_t _l = (blen); int32_t _r = (2); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    }
+    int32_t n = 0;
+    int32_t i = 0;
+    while (((i < stem_len) && (n < (cap - 1)))) {
+        out[n] = rel_c[i];
+        n = (n + 1);
+        i = (i + 1);
+    }
+    if (chunk > 0) {
+        if ((n + 4) < cap) {
+            out[n] = (uint8_t)95;
+            n = (n + 1);
+            out[n] = (uint8_t)99;
+            n = (n + 1);
+            int32_t num = ({ int32_t _l = (chunk); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+            if (num > 9) {
+                num = 9;
+            }
+            out[n] = (uint8_t)({ int32_t _l = (48); int32_t _r = (num); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+            n = (n + 1);
+        }
+    }
+    if ((n + 2) < cap) {
+        out[n] = (uint8_t)46;
+        n = (n + 1);
+        out[n] = (uint8_t)99;
+        n = (n + 1);
+    }
+    if (n < cap) {
+        out[n] = (uint8_t)0;
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+int32_t codegen_c99_utils_c99_mirror_slot_rel_c(struct C99CodeGenerator * codegen, int32_t slot, uint8_t * out, int32_t cap) {
+    (void)codegen;
+    (void)slot;
+    (void)out;
+    (void)cap;
+    if ((((codegen == NULL) || (out == NULL)) || (cap < 8))) {
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    if (((slot < 0) || (slot >= codegen->split_mirror_count))) {
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    if (codegen->split_mirror_keys[slot] == NULL) {
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    uint8_t base_rel[512] = {0};
+    if (c99_mirror_rel_c_from_key(codegen->split_mirror_keys[slot], codegen->split_mirror_lcp, (uint8_t *)(&base_rel[0]), 512) != 0) {
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    int32_t chunk = 0;
+    if (codegen->split_mirror_slot_chunks != NULL) {
+        chunk = codegen->split_mirror_slot_chunks[slot];
+    }
+        {
+        int32_t _uya_ret = c99_mirror_chunk_rel_c((uint8_t *)(&base_rel[0]), chunk, (uint8_t *)out, cap);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_mirror_c_path_to_o(uint8_t * rel_c, uint8_t * out, int32_t cap) {
+    (void)rel_c;
+    (void)out;
+    (void)cap;
+    if ((((rel_c == NULL) || (out == NULL)) || (cap < 4))) {
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    int32_t i = 0;
+    while ((((i < (cap - 1)) && (i < 511)) && (rel_c[i] != (uint8_t)0))) {
+        out[i] = rel_c[i];
+        i = (i + 1);
+    }
+    out[i] = (uint8_t)0;
+    if ((((i >= 3) && (out[(i - 2)] == (uint8_t)46)) && (out[(i - 1)] == (uint8_t)99))) {
+        out[({ int32_t _l = (i); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })] = (uint8_t)111;
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = (0 - 1);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_mirror_open_slot(struct C99CodeGenerator * codegen, int32_t slot) {
+    (void)codegen;
+    (void)slot;
+    if (((codegen == NULL) || (codegen->split_dir == NULL))) {
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    uint8_t * const src = codegen->split_mirror_keys[slot];
+    if (src == NULL) {
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    uint8_t rel_c_buf[512] = {0};
+    if (codegen_c99_utils_c99_mirror_slot_rel_c(codegen, slot, (uint8_t *)(&rel_c_buf[0]), 512) != 0) {
+        (void)(fprintf(stderr, (const char *)"错误: split-C mirror 无法生成相对 C 路径: slot=%d\n", slot)        );
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    uint8_t fullp[1024] = {0};
+    const int32_t fl = snprintf((char *)(uint8_t *)(&fullp[0]), 1024, (const char *)str1741, (uint8_t *)codegen->split_dir, (uint8_t *)(&rel_c_buf[0]));
+    if (((fl <= 0) || (fl >= 1024))) {
+        (void)(fprintf(stderr, (const char *)"错误: split-C mirror 输出路径过长: dir=%s rel=%s\n", (uint8_t *)codegen->split_dir, (uint8_t *)(&rel_c_buf[0]))        );
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    (void)(c99_mkdir_p_for_file((uint8_t *)(&fullp[0]))    );
+    void * const fh = std_io_fopen((uint8_t *)(&fullp[0]), (uint8_t *)(uint8_t *)str11);
+    if (fh == NULL) {
+        (void)(fprintf(stderr, (const char *)"错误: split-C mirror 无法打开输出文件: %s\n", (uint8_t *)(&fullp[0]))        );
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n", (void *)fh)    );
+    if (((codegen->freestanding == 0) && (codegen->needs_string_h != 0))) {
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <string.h>\n", (void *)fh)        );
+    }
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str378, (void *)fh)    );
+    int32_t is_libc_stdio_unit = 0;
+    if (std_string_strstr((uint8_t *)src, (uint8_t *)(uint8_t *)str356) != NULL) {
+        is_libc_stdio_unit = 1;
+    }
+    if (codegen->freestanding == 0) {
+        if (codegen->has_stdio_conflicts == 0) {
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <stdio.h>\n", (void *)fh)            );
+        }
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t std_runtime_get_argc(void);\n", (void *)fh)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"uint8_t *std_runtime_get_argv(int32_t index);\n", (void *)fh)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern char *getenv(const char *);\n", (void *)fh)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern const uint32_t S_IFMT;\nextern const uint32_t S_IFDIR;\nextern const uint32_t S_IFREG;\n", (void *)fh)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern const uint8_t DT_REG;\nextern const uint8_t DT_UNKNOWN;\nextern const uint8_t DT_DIR;\n", (void *)fh)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern const int64_t CLOCKS_PER_SEC;\nextern uint64_t clock(void);\n", (void *)fh)        );
+        if (codegen->has_stdio_conflicts != 0) {
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern struct FILE _stdin, _stdout, _stderr;\n", (void *)fh)            );
+            if (is_libc_stdio_unit == 0) {
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define stdin (&_stdin)\n#define stdout (&_stdout)\n#define stderr (&_stderr)\n", (void *)fh)                );
+            }
+        }
+    } else {
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern struct FILE _stdin, _stdout, _stderr;\n", (void *)fh)        );
+        if (is_libc_stdio_unit == 0) {
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define stdin (&_stdin)\n#define stdout (&_stdout)\n#define stderr (&_stderr)\n", (void *)fh)            );
+        }
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t std_runtime_get_argc(void);\n", (void *)fh)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"uint8_t *std_runtime_get_argv(int32_t index);\n", (void *)fh)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern char *getenv(const char *);\n", (void *)fh)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern const uint32_t S_IFMT;\nextern const uint32_t S_IFDIR;\nextern const uint32_t S_IFREG;\n", (void *)fh)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern const uint8_t DT_REG;\nextern const uint8_t DT_UNKNOWN;\nextern const uint8_t DT_DIR;\n", (void *)fh)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern const int64_t CLOCKS_PER_SEC;\nextern uint64_t clock(void);\n", (void *)fh)        );
+    }
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str378, (void *)fh)    );
+    codegen->split_mirror_handles[slot] = (void *)fh;
+    codegen->split_mirror_paths[slot] = c99_arena_strdup(codegen->arena, (uint8_t *)(&fullp[0]));
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
 int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * codegen, struct ASTNode * program) {
     (void)codegen;
     (void)program;
@@ -202211,6 +202568,21 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
             int32_t _uya_ret = (-1);
             return _uya_ret;
                 }
+    }
+    int32_t allow_chunk = 1;
+    int32_t ai = 0;
+    while (ai < program->program_decl_count) {
+        struct ASTNode * const ad = program->program_decls[ai];
+        if ((((ad != NULL) && (ad->type == main_ASTNodeType_AST_FN_DECL)) && (ad->fn_decl_is_async != 0))) {
+            allow_chunk = 0;
+            ai = program->program_decl_count;
+        }
+        ai = ({ int32_t _l = (ai); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    }
+    allow_chunk = 0;
+    uint8_t * const chunk_env = (uint8_t *)(uint8_t *)getenv((const char *)(uint8_t *)(uint8_t *)"UYA_SPLIT_CHUNK");
+    if ((((chunk_env != NULL) && (chunk_env[0] == (uint8_t)49)) && (chunk_env[1] == (uint8_t)0))) {
+        allow_chunk = 1;
     }
     int32_t uniq_cap = C99_MIRROR_INIT_SLOTS;
     if (({ int32_t _l = (program->program_decl_count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) > uniq_cap) {
@@ -202307,11 +202679,67 @@ uint8_t (* const uniq)[512] = (uint8_t (*)[512])compiler_arena_alloc(codegen->ar
     }
     const int32_t lcp = c99_mirror_lcp_len_flat((uint8_t *)(&uniq[0][0]), uniq_count);
     codegen->split_mirror_lcp = lcp;
+    const size_t fdecl_u = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(uniq_count) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    int32_t * const fdecl = (int32_t *)compiler_arena_alloc(codegen->arena, (fdecl_u * (int32_t)sizeof(int32_t)));
+    if (fdecl == NULL) {
+        (void)(fprintf(stderr, (const char *)"错误: split-C mirror 声明数统计表分配失败\n")        );
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    int32_t fz = 0;
+    while (fz < uniq_count) {
+        if (((fz >= 0) && (fz < uniq_count))) {
+            fdecl[fz] = 0;
+        }
+        fz = (fz + 1);
+    }
+    int32_t dci = 0;
+    while (dci < program->program_decl_count) {
+        struct ASTNode * const dl = program->program_decls[dci];
+        if (((dl != NULL) && (dl->filename != NULL))) {
+            uint8_t norm_d[512] = {0};
+            if (c99_mirror_normalize_one_path(dl->filename, (uint8_t *)(&norm_d[0]), 512) == 0) {
+                int32_t uf = 0;
+                while (uf < uniq_count) {
+                    if ((((uf >= 0) && (uf < uniq_count)) && (std_string_strcmp((uint8_t *)(&uniq[uf][0]), (uint8_t *)(&norm_d[0])) == 0))) {
+                        fdecl[uf] = ({ int32_t _l = (fdecl[uf]); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                        uf = uniq_count;
+                    }
+                    uf = ({ int32_t _l = (uf); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                }
+            }
+        }
+        dci = (dci + 1);
+    }
+    int32_t slots_total = 0;
+    int32_t sc_i = 0;
+    while (sc_i < uniq_count) {
+        if (((sc_i >= 0) && (sc_i < uniq_count))) {
+            slots_total = ({ int32_t _l = (slots_total); int32_t _r = (c99_mirror_slot_count_for_key((uint8_t *)(&uniq[sc_i][0]), fdecl[sc_i], allow_chunk)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+        }
+        sc_i = (sc_i + 1);
+    }
+    if (slots_total < 1) {
+        slots_total = 1;
+    }
     int32_t mirror_cap = C99_MIRROR_INIT_SLOTS;
-    if (({ int32_t _l = (uniq_count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) > mirror_cap) {
-        mirror_cap = ({ int32_t _l = (uniq_count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    if (({ int32_t _l = (slots_total); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) > mirror_cap) {
+        mirror_cap = ({ int32_t _l = (slots_total); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     }
     const size_t mirror_nu = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(mirror_cap) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    const size_t slot_nu = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(mirror_cap) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -202320,7 +202748,9 @@ uint8_t (* const uniq)[512] = (uint8_t (*)[512])compiler_arena_alloc(codegen->ar
     uint8_t * * const mkeys = (uint8_t * *)compiler_arena_alloc(codegen->arena, (mirror_nu * (int32_t)sizeof(uint8_t *)));
     void * * const mhandles = (void * *)compiler_arena_alloc(codegen->arena, (mirror_nu * (int32_t)sizeof(void *)));
     uint8_t * * const mpaths = (uint8_t * *)compiler_arena_alloc(codegen->arena, (mirror_nu * (int32_t)sizeof(uint8_t *)));
-    if ((((mkeys == NULL) || (mhandles == NULL)) || (mpaths == NULL))) {
+    int32_t * const mchunks = (int32_t *)compiler_arena_alloc(codegen->arena, (slot_nu * (int32_t)sizeof(int32_t)));
+    int32_t * const mfchunks = (int32_t *)compiler_arena_alloc(codegen->arena, (slot_nu * (int32_t)sizeof(int32_t)));
+    if ((((((mkeys == NULL) || (mhandles == NULL)) || (mpaths == NULL)) || (mchunks == NULL)) || (mfchunks == NULL))) {
         (void)(fprintf(stderr, (const char *)"错误: split-C mirror 表分配失败\n")        );
                 {
             int32_t _uya_ret = (-1);
@@ -202332,23 +202762,24 @@ uint8_t (* const uniq)[512] = (uint8_t (*)[512])compiler_arena_alloc(codegen->ar
         mkeys[mk] = NULL;
         mhandles[mk] = NULL;
         mpaths[mk] = NULL;
+        mchunks[mk] = 0;
+        mfchunks[mk] = 1;
         mk = (mk + 1);
     }
     codegen->split_mirror_keys = mkeys;
     codegen->split_mirror_handles = mhandles;
     codegen->split_mirror_paths = mpaths;
+    codegen->split_mirror_slot_chunks = mchunks;
+    codegen->split_mirror_file_chunks = mfchunks;
+    codegen->split_mirror_slot_decls = NULL;
+    codegen->parallel_decl_tu = NULL;
+    codegen->parallel_decl_count = 0;
+    codegen->split_mirror_count = slots_total;
+    int32_t slot_i = 0;
     int32_t ci = 0;
     while (ci < uniq_count) {
-        if (ci >= 0) {
+        if (((ci >= 0) && (ci < uniq_count))) {
             uint8_t * const src = (uint8_t *)(&uniq[ci][0]);
-            uint8_t rel_c_buf[512] = {0};
-            if (c99_mirror_rel_c_from_key(src, lcp, (uint8_t *)(&rel_c_buf[0]), 512) != 0) {
-                (void)(fprintf(stderr, (const char *)"错误: split-C mirror 无法生成相对 C 路径: src=%s lcp=%d\n", (uint8_t *)src, lcp)                );
-                                {
-                    int32_t _uya_ret = (-1);
-                    return _uya_ret;
-                                }
-            }
             uint8_t * const key_copy = c99_arena_strdup(codegen->arena, src);
             if (key_copy == NULL) {
                 (void)(fprintf(stderr, (const char *)"错误: split-C mirror 复制路径失败: %s\n", (uint8_t *)src)                );
@@ -202357,72 +202788,25 @@ uint8_t (* const uniq)[512] = (uint8_t (*)[512])compiler_arena_alloc(codegen->ar
                     return _uya_ret;
                                 }
             }
-            codegen->split_mirror_keys[ci] = key_copy;
-            uint8_t fullp[1024] = {0};
-            const int32_t fl = snprintf((char *)(uint8_t *)(&fullp[0]), 1024, (const char *)str1741, (uint8_t *)codegen->split_dir, (uint8_t *)(&rel_c_buf[0]));
-            if (((fl <= 0) || (fl >= 1024))) {
-                (void)(fprintf(stderr, (const char *)"错误: split-C mirror 输出路径过长: dir=%s rel=%s\n", (uint8_t *)codegen->split_dir, (uint8_t *)(&rel_c_buf[0]))                );
-                                {
-                    int32_t _uya_ret = (-1);
-                    return _uya_ret;
-                                }
-            }
-            (void)(c99_mkdir_p_for_file((uint8_t *)(&fullp[0]))            );
-            void * const fh = std_io_fopen((uint8_t *)(&fullp[0]), (uint8_t *)(uint8_t *)str11);
-            if (fh == NULL) {
-                (void)(fprintf(stderr, (const char *)"错误: split-C mirror 无法打开输出文件: %s\n", (uint8_t *)(&fullp[0]))                );
-                                {
-                    int32_t _uya_ret = (-1);
-                    return _uya_ret;
-                                }
-            }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n", (void *)fh)            );
-            if (((codegen->freestanding == 0) && (codegen->needs_string_h != 0))) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <string.h>\n", (void *)fh)                );
-            }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str378, (void *)fh)            );
-            int32_t is_libc_stdio_unit = 0;
-            uint8_t tmp_stdio[512] = {0};
-            if (c99_mirror_normalize_one_path(src, (uint8_t *)(&tmp_stdio[0]), 512) == 0) {
-                if (std_string_strstr((uint8_t *)(&tmp_stdio[0]), (uint8_t *)(uint8_t *)str356) != NULL) {
-                    is_libc_stdio_unit = 1;
+            const int32_t kc = c99_mirror_slot_count_for_key(src, fdecl[ci], allow_chunk);
+            mfchunks[slot_i] = kc;
+            int32_t cc = 0;
+            while (cc < kc) {
+                const int32_t slot = (slot_i + cc);
+                mkeys[slot] = key_copy;
+                mchunks[slot] = cc;
+                if (c99_mirror_open_slot(codegen, slot) != 0) {
+                                        {
+                        int32_t _uya_ret = (-1);
+                        return _uya_ret;
+                                        }
                 }
+                cc = (cc + 1);
             }
-            if (codegen->freestanding == 0) {
-                if (codegen->has_stdio_conflicts == 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <stdio.h>\n", (void *)fh)                    );
-                }
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t std_runtime_get_argc(void);\n", (void *)fh)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"uint8_t *std_runtime_get_argv(int32_t index);\n", (void *)fh)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern char *getenv(const char *);\n", (void *)fh)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern const uint32_t S_IFMT;\nextern const uint32_t S_IFDIR;\nextern const uint32_t S_IFREG;\n", (void *)fh)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern const uint8_t DT_REG;\nextern const uint8_t DT_UNKNOWN;\nextern const uint8_t DT_DIR;\n", (void *)fh)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern const int64_t CLOCKS_PER_SEC;\nextern uint64_t clock(void);\n", (void *)fh)                );
-                if (codegen->has_stdio_conflicts != 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern struct FILE _stdin, _stdout, _stderr;\n", (void *)fh)                    );
-                    if (is_libc_stdio_unit == 0) {
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define stdin (&_stdin)\n#define stdout (&_stdout)\n#define stderr (&_stderr)\n", (void *)fh)                        );
-                    }
-                }
-            } else {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern struct FILE _stdin, _stdout, _stderr;\n", (void *)fh)                );
-                if (is_libc_stdio_unit == 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define stdin (&_stdin)\n#define stdout (&_stdout)\n#define stderr (&_stderr)\n", (void *)fh)                    );
-                }
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t std_runtime_get_argc(void);\n", (void *)fh)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"uint8_t *std_runtime_get_argv(int32_t index);\n", (void *)fh)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern char *getenv(const char *);\n", (void *)fh)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern const uint32_t S_IFMT;\nextern const uint32_t S_IFDIR;\nextern const uint32_t S_IFREG;\n", (void *)fh)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern const uint8_t DT_REG;\nextern const uint8_t DT_UNKNOWN;\nextern const uint8_t DT_DIR;\n", (void *)fh)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern const int64_t CLOCKS_PER_SEC;\nextern uint64_t clock(void);\n", (void *)fh)                );
-            }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str378, (void *)fh)            );
-            codegen->split_mirror_handles[ci] = (void *)fh;
-            codegen->split_mirror_paths[ci] = c99_arena_strdup(codegen->arena, (uint8_t *)(&fullp[0]));
+            slot_i = (slot_i + kc);
         }
         ci = (ci + 1);
     }
-    codegen->split_mirror_count = uniq_count;
     uint8_t comp[1024] = {0};
     const int32_t cl = snprintf((char *)(uint8_t *)(&comp[0]), 1024, (const char *)"%s/uya_common.c", (uint8_t *)codegen->split_dir);
     if (((cl <= 0) || (cl >= 1024))) {
@@ -202542,7 +202926,7 @@ void codegen_c99_utils_c99_mirror_emit_for_node(struct C99CodeGenerator * codege
     if (codegen->split_common_out == NULL) {
         return;
     }
-    const int32_t ix = codegen_c99_utils_c99_mirror_tu_index_for_node(codegen, node);
+    const int32_t ix = codegen_c99_utils_c99_mirror_decl_slot_for_node(codegen, node);
     if (((codegen->parallel_workers > 1) && (codegen->parallel_worker >= 0))) {
         int32_t target_owner = codegen->parallel_common_worker;
         if (((ix >= 0) && (ix < codegen->split_mirror_count))) {
@@ -202559,12 +202943,59 @@ void codegen_c99_utils_c99_mirror_emit_for_node(struct C99CodeGenerator * codege
     codegen->emit_stream = codegen->split_common_out;
 }
 
+void codegen_c99_utils_c99_mirror_set_emit_decl(struct C99CodeGenerator * codegen, int32_t decl_index) {
+    (void)codegen;
+    (void)decl_index;
+    if (codegen == NULL) {
+        return;
+    }
+    if ((((decl_index < 0) || (decl_index >= codegen->parallel_decl_count)) || (codegen->parallel_decl_tu == NULL))) {
+        codegen->emit_decl_slot = (0 - 1);
+        return;
+    }
+    codegen->emit_decl_slot = codegen->parallel_decl_tu[decl_index];
+}
+
+int32_t codegen_c99_utils_c99_mirror_decl_slot_for_node(struct C99CodeGenerator * codegen, struct ASTNode * node) {
+    (void)codegen;
+    (void)node;
+    if (((codegen == NULL) || (codegen->split_mirror == 0))) {
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    const int32_t cur = codegen->emit_decl_slot;
+    if (((((cur >= 0) && (cur < codegen->split_mirror_count)) && (node != NULL)) && (node->filename != NULL))) {
+        uint8_t * const key = codegen->split_mirror_keys[cur];
+        uint8_t norm_n[512] = {0};
+        if (((key != NULL) && (c99_mirror_normalize_one_path(node->filename, (uint8_t *)(&norm_n[0]), 512) == 0))) {
+            if (std_string_strcmp((uint8_t *)key, (uint8_t *)(&norm_n[0])) == 0) {
+                                {
+                    int32_t _uya_ret = cur;
+                    return _uya_ret;
+                                }
+            }
+        }
+    }
+        {
+        int32_t _uya_ret = codegen_c99_utils_c99_mirror_tu_index_for_node(codegen, node);
+        return _uya_ret;
+        }
+}
+
 int32_t codegen_c99_utils_c99_parallel_prepare_decl_tu(struct C99CodeGenerator * codegen, struct ASTNode * ast) {
     (void)codegen;
     (void)ast;
     if (((codegen == NULL) || (ast == NULL))) {
                 {
             int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    if (((codegen->parallel_decl_tu != NULL) && (codegen->parallel_decl_count == ast->program_decl_count))) {
+                {
+            int32_t _uya_ret = 0;
             return _uya_ret;
                 }
     }
@@ -202575,21 +203006,168 @@ int32_t codegen_c99_utils_c99_parallel_prepare_decl_tu(struct C99CodeGenerator *
             return _uya_ret;
                 }
     }
-    const size_t nu = (size_t)n;
+    const size_t nu = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(n) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    const size_t slots_u = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(codegen->split_mirror_count) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
     int32_t * const table = (int32_t *)compiler_arena_alloc(codegen->arena, (nu * (int32_t)sizeof(int32_t)));
-    if (table == NULL) {
+    int32_t * const decls = (int32_t *)compiler_arena_alloc(codegen->arena, (slots_u * (int32_t)sizeof(int32_t)));
+    int32_t * const base_of = (int32_t *)compiler_arena_alloc(codegen->arena, (nu * (int32_t)sizeof(int32_t)));
+    int32_t * const spans = (int32_t *)compiler_arena_alloc(codegen->arena, (nu * (int32_t)sizeof(int32_t)));
+    int32_t * const pins = (int32_t *)compiler_arena_alloc(codegen->arena, (nu * (int32_t)sizeof(int32_t)));
+    int32_t * const buf = (int32_t *)compiler_arena_alloc(codegen->arena, (nu * (int32_t)sizeof(int32_t)));
+    int32_t * const loads = (int32_t *)compiler_arena_alloc(codegen->arena, (slots_u * (int32_t)sizeof(int32_t)));
+    int32_t * const filemax = (int32_t *)compiler_arena_alloc(codegen->arena, (slots_u * (int32_t)sizeof(int32_t)));
+    if (((((((((table == NULL) || (decls == NULL)) || (base_of == NULL)) || (spans == NULL)) || (pins == NULL)) || (buf == NULL)) || (loads == NULL)) || (filemax == NULL))) {
                 {
             int32_t _uya_ret = (0 - 1);
             return _uya_ret;
                 }
     }
+    const int32_t slots = codegen->split_mirror_count;
+    int32_t z = 0;
+    while (z < slots) {
+        if (((z >= 0) && (z < slots))) {
+            decls[z] = 0;
+            loads[z] = 0;
+            filemax[z] = 0;
+        }
+        z = (z + 1);
+    }
     int32_t i = 0;
     while (i < n) {
-        table[i] = codegen_c99_utils_c99_mirror_tu_index_for_node(codegen, ast->program_decls[i]);
+        if (((i >= 0) && (i < n))) {
+            struct ASTNode * const dl = ast->program_decls[i];
+            const int32_t base = codegen_c99_utils_c99_mirror_tu_index_for_node(codegen, dl);
+            base_of[i] = base;
+            spans[i] = 1;
+            int32_t pin = 0;
+            if ((((dl != NULL) && (dl->type != main_ASTNodeType_AST_FN_DECL)) && (dl->type != main_ASTNodeType_AST_METHOD_BLOCK))) {
+                pin = 1;
+            }
+            pins[i] = pin;
+            table[i] = base;
+            if (((base >= 0) && (base < slots))) {
+                decls[base] = ({ int32_t _l = (decls[base]); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                int32_t sp = 0;
+                if (((({ int32_t _l = (i); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) < n) && (base_of[({ int32_t _l = (i); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })] == base))) {
+                    struct ASTNode * const dn = ast->program_decls[({ int32_t _l = (i); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })];
+                    if ((((dn != NULL) && (dl != NULL)) && (dn->line > dl->line))) {
+                        sp = ({ int32_t _l = (dn->line); int32_t _r = (dl->line); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                    }
+                }
+                if (sp > 0) {
+                    spans[i] = sp;
+                    if (sp > filemax[base]) {
+                        filemax[base] = sp;
+                    }
+                }
+            }
+        }
         i = (i + 1);
+    }
+    i = 0;
+    while (i < n) {
+        if (((i >= 0) && (i < n))) {
+            const int32_t base = base_of[i];
+            if (((base >= 0) && (base < slots))) {
+                if (spans[i] <= 1) {
+                    int32_t fb = filemax[base];
+                    if (fb < 32) {
+                        fb = 32;
+                    }
+                    spans[i] = fb;
+                }
+            }
+        }
+        i = (i + 1);
+    }
+    i = 0;
+    while (i < n) {
+        if (((i >= 0) && (i < n))) {
+            const int32_t base = base_of[i];
+            if ((((base >= 0) && (base < slots)) && (pins[i] != 0))) {
+                loads[base] = ({ int32_t _l = (loads[base]); int32_t _r = (spans[i]); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+            }
+        }
+        i = (i + 1);
+    }
+    int32_t slot_walk = 0;
+    while (slot_walk < slots) {
+        if ((((((slot_walk >= 0) && (slot_walk < slots)) && (codegen->split_mirror_slot_chunks != NULL)) && (codegen->split_mirror_slot_chunks[slot_walk] == 0)) && (codegen->split_mirror_file_chunks != NULL))) {
+            const int32_t kc = codegen->split_mirror_file_chunks[slot_walk];
+            if (kc > 1) {
+                int32_t cnt = 0;
+                int32_t j = 0;
+                while (j < n) {
+                    if (((((((j >= 0) && (j < n)) && (cnt >= 0)) && (cnt < n)) && (base_of[j] == slot_walk)) && (pins[j] == 0))) {
+                        buf[cnt] = j;
+                        cnt = ({ int32_t _l = (cnt); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                    }
+                    j = (j + 1);
+                }
+                int32_t a = 1;
+                while (a < cnt) {
+                    if (((((a >= 0) && (a < cnt)) && (buf[a] >= 0)) && (buf[a] < n))) {
+                        const int32_t cur = buf[a];
+                        const int32_t curw = spans[cur];
+                        int32_t b = (a - 1);
+                        while (((b >= 0) && (b < cnt))) {
+                            if (((buf[b] >= 0) && (buf[b] < n))) {
+                                if (spans[buf[b]] >= curw) {
+                                    break;
+                                }
+                                if ((((b + 1) >= 0) && ((b + 1) < cnt))) {
+                                    buf[(b + 1)] = buf[b];
+                                }
+                            }
+                            b = (b - 1);
+                        }
+                        if ((((b + 1) >= 0) && ((b + 1) < cnt))) {
+                            buf[(b + 1)] = cur;
+                        }
+                    }
+                    a = (a + 1);
+                }
+                int32_t q = 0;
+                while (q < cnt) {
+                    if (((((q >= 0) && (q < cnt)) && (buf[q] >= 0)) && (buf[q] < n))) {
+                        const int32_t di = buf[q];
+                        int32_t best = slot_walk;
+                        int32_t best_load = 2147483647;
+                        int32_t c = 0;
+                        while (c < kc) {
+                            const int32_t sl = ({ int32_t _l = (slot_walk); int32_t _r = (c); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                            if (((sl >= 0) && (sl < slots))) {
+                                if (loads[sl] < best_load) {
+                                    best_load = loads[sl];
+                                    best = sl;
+                                }
+                            }
+                            c = (c + 1);
+                        }
+                        if (((best >= 0) && (best < slots))) {
+                            loads[best] = ({ int32_t _l = (loads[best]); int32_t _r = (spans[di]); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                            table[di] = best;
+                        }
+                    }
+                    q = (q + 1);
+                }
+            }
+        }
+        slot_walk = (slot_walk + 1);
     }
     codegen->parallel_decl_tu = table;
     codegen->parallel_decl_count = n;
+    codegen->split_mirror_slot_decls = decls;
         {
         int32_t _uya_ret = 0;
         return _uya_ret;
@@ -202849,6 +203427,102 @@ uint8_t (* const uniq)[512] = (uint8_t (*)[512])compiler_arena_alloc(codegen->ar
     (void)(std_io_fclose((void *)mf));
 }
 
+static __attribute__((used)) int32_t * c99_mirror_lpt_order(struct C99CodeGenerator * codegen) {
+    (void)codegen;
+    if (codegen == NULL) {
+                {
+            int32_t * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+    const int32_t n = codegen->split_mirror_count;
+    if (n <= 0) {
+                {
+            int32_t * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+    const size_t nu = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(n) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            int32_t * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    int32_t * const order = (int32_t *)compiler_arena_alloc(codegen->arena, (nu * (int32_t)sizeof(int32_t)));
+    if (order == NULL) {
+                {
+            int32_t * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+    int32_t * w = NULL;
+    if (codegen->split_mirror_handles != NULL) {
+        const size_t wu = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(n) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                        {
+                int32_t * _uya_ret = NULL;
+                return _uya_ret;
+                        }
+        } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+        w = (int32_t *)compiler_arena_alloc(codegen->arena, (wu * (int32_t)sizeof(int32_t)));
+    }
+    int32_t i = 0;
+    while (i < n) {
+        if (((i >= 0) && (i < n))) {
+            order[i] = i;
+            if (w != NULL) {
+                int32_t sz = 0;
+                if (codegen->split_mirror_handles[i] != NULL) {
+                    const int64_t tf = ftell((void *)codegen->split_mirror_handles[i]);
+                    if (tf > 0) {
+                        int32_t fsz = 0;
+                        fsz = ({ struct err_union_int32_t _uya_catch_tmp = ({ struct err_union_int32_t _uya_asbang = { .error_id = 0, .value = (int32_t)(tf) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                            _uya_catch_result = ((int32_t)0);
+                        } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+                        if (fsz > 0) {
+                            sz = fsz;
+                        }
+                    }
+                }
+                if (((sz <= 0) && (codegen->split_mirror_slot_decls != NULL))) {
+                    sz = codegen->split_mirror_slot_decls[i];
+                }
+                w[i] = sz;
+            }
+        }
+        i = (i + 1);
+    }
+    int32_t * const sdc = codegen->split_mirror_slot_decls;
+    int32_t * const cmp = w;
+    if (cmp != NULL) {
+        int32_t a = 1;
+        while (a < n) {
+            if (((((a >= 0) && (a < n)) && (order[a] >= 0)) && (order[a] < n))) {
+                const int32_t cur = order[a];
+                int32_t b = (a - 1);
+                while (((b >= 0) && (b < n))) {
+                    if (((order[b] >= 0) && (order[b] < n))) {
+                        if (cmp[order[b]] >= cmp[cur]) {
+                            break;
+                        }
+                        if ((((b + 1) >= 0) && ((b + 1) < n))) {
+                            order[(b + 1)] = order[b];
+                        }
+                    }
+                    b = (b - 1);
+                }
+                if ((((b + 1) >= 0) && ((b + 1) < n))) {
+                    order[(b + 1)] = cur;
+                }
+            }
+            a = (a + 1);
+        }
+    }
+        {
+        int32_t * _uya_ret = order;
+        return _uya_ret;
+        }
+}
+
 void codegen_c99_utils_c99_write_split_makefile(struct C99CodeGenerator * codegen) {
     (void)codegen;
     if ((((codegen == NULL) || (codegen->split_enabled == 0)) || (codegen->split_dir == NULL))) {
@@ -202878,42 +203552,15 @@ void codegen_c99_utils_c99_write_split_makefile(struct C99CodeGenerator * codege
                 cimp_obj_i = (cimp_obj_i + 1);
             }
         }
-        const int32_t klcp = codegen->split_mirror_lcp;
+        int32_t * const lpt = c99_mirror_lpt_order(codegen);
         int32_t oi = 0;
-        while (oi < codegen->split_mirror_count) {
-            if (oi >= 0) {
-                if (codegen->split_mirror_keys[oi] != NULL) {
-                    uint8_t cpath[512] = {0};
-                    uint8_t opath[512] = {0};
-                    if (c99_mirror_rel_c_from_key(codegen->split_mirror_keys[oi], klcp, (uint8_t *)(&cpath[0]), 512) == 0) {
-                        int32_t pi2 = 0;
-                        while (pi2 < 511) {
-                            if ((((pi2 >= 0) && (pi2 < 512)) && (cpath[pi2] != (uint8_t)0))) {
-                                if (((pi2 >= 0) && (pi2 < 512))) {
-                                    opath[pi2] = cpath[pi2];
-                                }
-                                pi2 = (pi2 + 1);
-                            } else {
-                                break;
-                            }
-                        }
-                        if (pi2 >= 3) {
-                            const int32_t p1 = ({ int32_t _l = (pi2); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
-                            const int32_t p2 = ({ int32_t _l = (pi2); int32_t _r = (2); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
-                            if (((((p2 >= 0) && (p2 < 512)) && (p1 >= 0)) && (p1 < 512))) {
-                                const uint8_t p2b = opath[p2];
-                                const uint8_t p1b = opath[p1];
-                                if (((p2b == (uint8_t)46) && (p1b == (uint8_t)99))) {
-                                    opath[p1] = (uint8_t)111;
-                                    if (((pi2 >= 0) && (pi2 < 512))) {
-                                        opath[pi2] = (uint8_t)0;
-                                    }
-                                }
-                            }
-                        }
-                        (void)(std_io_fputc(32, (void *)mf)                        );
-                        (void)(std_io_fputs((uint8_t *)(&opath[0]), (void *)mf)                        );
-                    }
+        while (((lpt != NULL) && (oi < codegen->split_mirror_count))) {
+            if (((((oi >= 0) && (oi < codegen->split_mirror_count)) && (lpt[oi] >= 0)) && (lpt[oi] < codegen->split_mirror_count))) {
+                uint8_t cpath[512] = {0};
+                uint8_t opath[512] = {0};
+                if (((codegen_c99_utils_c99_mirror_slot_rel_c(codegen, lpt[oi], (uint8_t *)(&cpath[0]), 512) == 0) && (c99_mirror_c_path_to_o((uint8_t *)(&cpath[0]), (uint8_t *)(&opath[0]), 512) == 0))) {
+                    (void)(std_io_fputc(32, (void *)mf)                    );
+                    (void)(std_io_fputs((uint8_t *)(&opath[0]), (void *)mf)                    );
                 }
             }
             oi = (oi + 1);
@@ -202969,38 +203616,11 @@ void codegen_c99_utils_c99_write_split_makefile(struct C99CodeGenerator * codege
         }
         int32_t ri = 0;
         while (ri < codegen->split_mirror_count) {
-            if (ri >= 0) {
-                if (codegen->split_mirror_keys[ri] != NULL) {
-                    uint8_t cpr[512] = {0};
-                    if (c99_mirror_rel_c_from_key(codegen->split_mirror_keys[ri], klcp, (uint8_t *)(&cpr[0]), 512) == 0) {
-                        uint8_t opr[512] = {0};
-                        int32_t qi2 = 0;
-                        while (qi2 < 511) {
-                            if ((((qi2 >= 0) && (qi2 < 512)) && (cpr[qi2] != (uint8_t)0))) {
-                                if (((qi2 >= 0) && (qi2 < 512))) {
-                                    opr[qi2] = cpr[qi2];
-                                }
-                                qi2 = (qi2 + 1);
-                            } else {
-                                break;
-                            }
-                        }
-                        if (qi2 >= 3) {
-                            const int32_t q1 = ({ int32_t _l = (qi2); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
-                            const int32_t q2 = ({ int32_t _l = (qi2); int32_t _r = (2); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
-                            if (((((q2 >= 0) && (q2 < 512)) && (q1 >= 0)) && (q1 < 512))) {
-                                const uint8_t q2b = opr[q2];
-                                const uint8_t q1b = opr[q1];
-                                if (((q2b == (uint8_t)46) && (q1b == (uint8_t)99))) {
-                                    opr[q1] = (uint8_t)111;
-                                    if (((qi2 >= 0) && (qi2 < 512))) {
-                                        opr[qi2] = (uint8_t)0;
-                                    }
-                                }
-                            }
-                        }
-                        (void)(fprintf((void *)mf, (const char *)"%s: %s uya_split_protos.h uya_mirror_globals.h uya_part1_types.h uya_strings_extern.h uya_vtable_externs.h\n\t$(CC) -c $(CFLAGS) -I. %s -o %s\n", (uint8_t *)(&opr[0]), (uint8_t *)(&cpr[0]), (uint8_t *)(&cpr[0]), (uint8_t *)(&opr[0]))                        );
-                    }
+            if (((ri >= 0) && (ri < codegen->split_mirror_count))) {
+                uint8_t cpr[512] = {0};
+                uint8_t opr[512] = {0};
+                if (((codegen_c99_utils_c99_mirror_slot_rel_c(codegen, ri, (uint8_t *)(&cpr[0]), 512) == 0) && (c99_mirror_c_path_to_o((uint8_t *)(&cpr[0]), (uint8_t *)(&opr[0]), 512) == 0))) {
+                    (void)(fprintf((void *)mf, (const char *)"%s: %s uya_split_protos.h uya_mirror_globals.h uya_part1_types.h uya_strings_extern.h uya_vtable_externs.h\n\t$(CC) -c $(CFLAGS) -I. %s -o %s\n", (uint8_t *)(&opr[0]), (uint8_t *)(&cpr[0]), (uint8_t *)(&cpr[0]), (uint8_t *)(&opr[0]))                    );
                 }
             }
             ri = (ri + 1);
@@ -209167,7 +209787,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_4165437801_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -210414,7 +211034,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_2942657677_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -210658,7 +211278,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_1872351365_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_2942657677_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;

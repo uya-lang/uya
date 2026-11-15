@@ -1,6 +1,6 @@
 # 编译提速：并行编译与增量编译
 
-**更新日期**：2026-10-19
+**更新日期**：2026-11-16
 
 本文记录 Uya 自举构建的三层提速机制、实测数据与全部相关开关。
 
@@ -27,6 +27,22 @@
 | C 阶段 `make -j` | `-j16` 4.83 s | `-j44` **4.39 s** |
 
 前端 parse 与 codegen 的数字来自 `bin/uya build ... --jobs=N --verbose` 的「编译统计」段落。
+
+### 2.1 2026-11 复测（同一台 44 核机器，load ≈ 5，仅作相对比较）
+
+绝对数字受机器负载影响明显（本轮机器上有两个与构建无关的 50% CPU 进程），
+所以下面每一条都是**前后脚背靠背**测出来的差分，而不是跨时间点的绝对值：
+
+| 场景 | 改动前 | 现在 | 差分 |
+|---|---:|---:|---:|
+| `make uya` 无改动（指纹命中） | 0.38 s | **0.16 s** | −0.22 s（批量 `sha256sum`） |
+| C 阶段 `make -j44`，OBJS 按声明数排 vs 按实际 C 体积排 | 6.13 s | **5.84 s** | −0.29 s（LPT 排序） |
+| `make uya` 全量强制 | 15.0 s | **14.5 s** | −0.5 s |
+| `make b` 自举验证 | 28.5 s | **27.4 s** | −1.1 s |
+
+剩下的时间分布（`CC=/bin/true` 把 C 阶段压成 0 后测前端）：
+前端 7.9 s（其中类型检查 6.5 s）、C 阶段 5.9 s、链接与脚本开销约 0.7 s。
+**类型检查现在是最大单项**，见 §八。
 
 ## 三、前端进程级并行（`--jobs` / `UYA_JOBS`）
 
@@ -106,6 +122,51 @@ Windows 目标没有 fork，`parallel_available()` 返回 0，自动全串行。
 实测 `-j8 / -j16 / -j44` = 6.80 s / 4.83 s / 4.39 s。关键路径是单个大 TU
 （`src/codegen/c99/expr.c`，约 1 MB，单文件 `cc -c` 需 3.5 s），所以再提高并行度收益有限。
 
+因此镜像 Makefile 的 `OBJS` **按实际 C 体积降序**输出（`c99_mirror_lpt_order`：体积取
+`ftell` 到的已发射字节数，取不到时退回声明数）。`OBJS` 的顺序就是 `make` 的启动顺序，
+最大的 TU 必须第一个开始编译，否则它最后才开始、把整段 C 阶段拖成「最慢 TU + 排队时间」。
+背靠背实测：把 `OBJS` 反过来（小 TU 先开工）6.13 s，按体积降序 5.84 s（−5%）。
+
+### 4.1 大文件切块（实验开关，默认关闭）
+
+`--split-c-dir` 的镜像模式默认「一个源文件一个 TU」。`UYA_SPLIT_CHUNK=1` 时，顶层声明数
+超过 `C99_MIRROR_CHUNK_DECLS`（48）的源文件会被切成最多 4 块（`expr.uya` →
+`expr.c` / `expr_c2.c` / …）。路由表 `parallel_decl_tu` 同时承担三件事：并行归属、
+分块路由、Makefile 排序权重。
+
+几条硬约束（都是测试踩出来的，全部写在 `c99_mirror_slot_count_for_key` 里）：
+
+- **非函数声明一律钉在块 0**：C 的 const 不是常量表达式，`const size_t B = A | 2;` 要求 A
+  在同一个 TU。现场：`lib/libc/heap.uya` 的 `CHUNK_STATE_MASK = CHUNK_FLAG_FREE | CHUNK_FLAG_TCACHE`、
+  `lib/libc/math.uya` 的 `libc_HUGE_VALF = (float)libc_INFINITY`，跨块会报
+  `initializer element is not constant`。
+- **`lib/libc/stdio.uya` 整文件不拆**：stdin/stdout/stderr 三个宏是按源文件判断的，
+  拆开后非首块拿到的就是 libc 的 `stdout` 符号（`--nostdlib` 下没有 `<stdio.h>`）。
+- **`lib/std/async_frame.uya` 整文件不拆**：`_uya_async_frame_descriptors` 的**定义**由收尾阶段
+  一次性发射到 `uya_common.c`，而 `extern` 声明跟着声明所在的源文件走。
+- **程序里只要有 `async fn` 就整体关闭切块**：async 变换生成的 `<fn>_poll` / `<fn>_frame_stop`
+  是 `static`，定义只发射一次，拆块后同文件其它块只拿到前向声明，链接报
+  `undefined reference to <fn>_poll`。
+- 切块数按并行度收敛：≤4 核不切，>16 核才允许 4 块（切块用「重复解析 ~700 KB 头」的固定
+  开销换关键路径，核少时纯亏）。
+
+实测（44 核，同一台机器前后脚，前端并行度 32）：
+
+| | TU 数 | 前端 codegen CPU | C 阶段 `-j44` | 全量合计 |
+|---|---:|---:|---:|---:|
+| 不切块（默认） | 106 | 0.94 s | 5.89 s | **13.8 s** |
+| 切块 | 164 | 6.55 s | 4.22 s | 18.7 s |
+
+C 阶段确实快 28%（最大 TU 从 1.13 MB 降到 890 KB），但 codegen 的 body 阶段 CPU 从 0.94 s
+涨到 6.55 s，净亏约 5 s —— 所以**默认关闭**，只保留 `UYA_SPLIT_CHUNK=1` 做实验。
+
+正确性侧是干净的：拆分前后产物 `diff -r` 逐字节一致，`make b` 自举比对通过，
+`tests/verify_async_nested_split_codegen.sh`、`tests/split_c_smoke.sh` 均通过。
+未定位的问题：多出来的 5.6 s 与槽位数量成正比，但**不在**「节点→槽位」路由上
+（给路由加 filename 指针 O(1) 快路径后毫无改善），下一步应在 body 发射循环里按槽位
+统计调用次数与字节数，找出「每槽位一份」的重复工作。定位后把
+`c99_split_mirror_prepare` 里的 `allow_chunk` 默认值改成 1 即可。
+
 ## 五、增量编译
 
 ### 5.1 指纹短路（无改动直接跳过整轮编译）
@@ -117,7 +178,10 @@ sha256( 构建签名 + 编译器命令行 + 编译器二进制内容 + 全部输
 ```
 
 指纹写入 `<split-dir>/.uya-build-stamp`；命中且 `make -q -C <split-dir>` 认为 C 目标全部就绪时，
-直接输出「增量命中」并退出，整轮编译跳过（实测 22 s → 0.4 s）。
+直接输出「增量命中」并退出，整轮编译跳过（实测 22 s → 0.4 s，批量算哈希后 0.16 s）。
+
+源文件哈希、生成物快照/还原都是**一次 `sha256sum` + 一次 `stat` 处理全部文件**，
+不再「每个文件两个子进程」（镜像模式下 160+ 个 `.c/.h`、110+ 个源文件，光 fork 就 300+ 次）。
 
 - `CI` / `GITHUB_ACTIONS` 下**默认不短路**，保证每次都能真正验证；
 - `UYA_FORCE_BUILD=1` 强制重建；
@@ -146,6 +210,8 @@ uya 写 `.c/.h` 是无条件覆盖，mtime 必然变新，于是 `make` 会重�
 | `bash tests/verify_compile_incremental.sh` | 指纹短路命中 / `UYA_FORCE_BUILD=1` 强制重建 / 改源码后不再命中 / 生成 C 未变时 C 阶段不重编 |
 | `bash tests/split_c_smoke.sh` | split-C 基本可用性 |
 | `bash tests/verify_compile_sh_split_cache_cleanup.sh` | 签名式清理不误删外来源码 |
+| `bash tests/verify_async_nested_split_codegen.sh` | 含 async 的程序在镜像模式下能编译链接（切块必须整体关闭） |
+| `bash tests/verify_split_c_makefile_dependencies.sh` | 镜像 Makefile 的依赖关系（每个 `.o` 只依赖自己的 `.c` 与生成的头） |
 
 ## 七、复现命令
 
@@ -162,6 +228,13 @@ perf report --no-children --sort symbol
 # 生成阶段子计时
 UYA_PROFILE_CODEGEN=1 ... --verbose
 
+# 切块实验开/关的前端 codegen 子计时（对比 body_ms）
+UYA_SPLIT_CHUNK=1 UYA_PROFILE_CODEGEN=1 ... --verbose
+
+# 只测前端：把 C 阶段压成空操作
+UYA_JOBS=32 CC=/bin/true UYA_SPLIT_C_DIR=/tmp/x ../bin/uya build "$PWD/main.uya" -o /tmp/x/a \
+  --c99 --nostdlib --safety-proof
+
 # 共享注册表闭合探测（并行 codegen 的前提）
 UYA_PROFILE_REGISTRY=1 ... --verbose
 
@@ -175,7 +248,8 @@ UYA_PROFILE_ARENA=1 ... --verbose
   期间写符号表、单态化队列、错误列表并回写 AST 节点类型，后一个声明依赖前一个的声明结果；
   加上 100+ 模块级全局与错误顺序敏感，本轮不做。可行的后续设计是
   「先声明后检查、按文件 fork 检查体、错误按文件序合并」。
-- **拆大 TU 进一步压 C 阶段关键路径**：`src/codegen/c99/expr.uya`（1 万行、生成 1 MB C）
-  决定了 `make -j` 的下限。拆成两个源文件可把 C 阶段从 4.4 s 压到约 2.6 s，
-  但需要同步 `use`、`src/compile.sh` 的手写文件列表与镜像说明，单独排期。
+- **切块的「每槽位重复开销」**（最高优先）：§4.1 的分块实现已就绪、正确性已验证，
+  但 164 个槽位时 codegen body 阶段 CPU 从 0.94 s 涨到 6.55 s，把 C 阶段的 1.7 s 收益
+  吃光。定位并消掉这 5.6 s，就能把 `allow_chunk` 默认打开，C 阶段直接 −28%。
+- **并行类型检查（checker）**：见下一条，类型检查 6.5 s 已经是全流程最大单项。
 - **不引入 ccache**：头文件全量变化时基本全 miss，且会引入外部依赖。

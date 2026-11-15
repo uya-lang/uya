@@ -2336,6 +2336,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
             }
             return -1;
         }
+        // 声明 → 槽位表：分块路由（emit_decl_slot）与 Makefile 的 LPT 排序都依赖它，
+        // 所以不论是否并行都在这里算一次（fork 前那次调用因此变成空操作）。
+        _ = c99_parallel_prepare_decl_tu(codegen, ast);
     }
 
     if is_std_lib != 0 {
@@ -6253,6 +6256,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null {
+            c99_mirror_set_emit_decl(codegen, i);
             c99_mirror_emit_for_node(codegen, decl);
             // 跳过 use 语句（模块导入，不需要生成代码）
             if decl.type == ASTNodeType.AST_USE_STMT {
@@ -6286,6 +6290,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_is_const == 0 && decl.var_decl_is_export == 0 {
+            c99_mirror_set_emit_decl(codegen, i);
             c99_mirror_emit_for_node(codegen, decl);
             gen_global_var(codegen, decl);
             c99_emit_newline(codegen);
@@ -6305,6 +6310,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         while i < decl_count {
             const decl: &ASTNode = ast.program_decls[i];
             if decl != null && decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_is_const == 0 && decl.var_decl_is_export != 0 {
+                c99_mirror_set_emit_decl(codegen, i);
                 c99_mirror_emit_for_node(codegen, decl);
                 gen_global_var(codegen, decl);
                 c99_emit_newline(codegen);
@@ -6324,8 +6330,19 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     // cg_emit_now：本进程是否还要执行发射循环（并行成功的父进程为 0）
     var cg_body_mode: i32 = 0;
     var cg_emit_now: i32 = 1;
+    // 并行 codegen 的诊断开关：UYA_DEBUG_PARALLEL=1 时打印 fork/收工/回退的关键计数。
+    // 回退（任何 worker 违规或注册表漂移）是"产物为什么少了内容"这类问题的唯一线索，
+    // 但静默失败完全不可见，因此保留这个零开销（默认 0）的钩子。
+    const cg_dbg_env: &byte = getenv("UYA_DEBUG_PARALLEL" as *byte) as &byte;
+    var cg_dbg_parallel: i32 = 0;
+    if cg_dbg_env != null && cg_dbg_env[0] != 0 as byte {
+        cg_dbg_parallel = 1;
+    }
     var cg_body_pids: &i32 = null;
     var cg_body_worker_count: i32 = 1;
+    if cg_dbg_parallel != 0 {
+        fprintf(libc.stderr, "[dbg] mirror=%d count=%d jobs=%d\n" as *byte, codegen.split_mirror, codegen.split_mirror_count, parallel_jobs_for(codegen.split_mirror_count));
+    }
     if codegen.split_mirror != 0 && codegen.split_mirror_count > 1 {
         const want_workers: i32 = parallel_jobs_for(codegen.split_mirror_count);
         if want_workers > 1 {
@@ -6376,6 +6393,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                     if cg_body_mode == 0 {
                         // 父进程：等全部 worker 收工；任何非 0 退出都回退串行。
                         var cg_wait: i32 = parallel_wait_all(cg_body_pids, want_workers);
+                        if cg_dbg_parallel != 0 {
+                            fprintf(libc.stderr, "[dbg] parent wait=%d workers=%d\n" as *byte, cg_wait, want_workers);
+                        }
                         if fork_failed != 0 && cg_wait == 0 {
                             cg_wait = 1;
                         }
@@ -6392,6 +6412,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                         }
                     } else {
                         cg_body_worker_count = want_workers;
+                        if cg_dbg_parallel != 0 {
+                            fprintf(libc.stderr, "[dbg] child worker=%d workers=%d\n" as *byte, codegen.parallel_worker, want_workers);
+                        }
                     }
                 } else {
                     c99_parallel_body_discard(codegen);
@@ -6400,11 +6423,15 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         }
     }
 
+    if cg_dbg_parallel != 0 {
+        fprintf(libc.stderr, "[dbg] after_block body_mode=%d emit_now=%d worker=%d workers=%d\n" as *byte, cg_body_mode, cg_emit_now, codegen.parallel_worker, codegen.parallel_workers);
+    }
     // 第九步 b：生成所有声明（export 非常量全局变量、函数定义）
     i = 0;
     while cg_emit_now != 0 && i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null && c99_parallel_owns_decl(codegen, i) != 0 {
+            c99_mirror_set_emit_decl(codegen, i);
             c99_mirror_emit_for_node(codegen, decl);
             // 跳过 use 语句（模块导入，不需要生成代码）
             if decl.type == ASTNodeType.AST_USE_STMT {
@@ -6643,6 +6670,8 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     }
 
     // 第十步：生成测试函数和运行器（镜像模式下全部在 uya_common.c，以便 static 测试函数与运行器同 TU）
+    // 收尾发射（测试函数、运行器、main 桥接）不属于任何顶层声明的分块，显式清掉槽位压栈。
+    c99_mirror_set_emit_decl(codegen, 0 - 1);
     if cg_emit_now != 0 && test_count > 0 && c99_parallel_is_common_owner(codegen) != 0 {
         c99_mirror_emit_common(codegen);
         if codegen.split_mirror != 0 && saved_has_std_testing != 0 {
@@ -6733,7 +6762,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                                 fputs(", " as *byte, codegen.emit_stream as *void);
                             }
                         }
-                        pj = pj + 1;
+                        pj = pj +| 1;
                     }
                     fputs(") {\n" as *byte, codegen.emit_stream as *void);
                 } else {

@@ -7,6 +7,15 @@
 // 镜像表初始槽位（真正的规模在 prepare 时按声明数扩大；只是起步值，不是上限）
 const C99_MIRROR_INIT_SLOTS: i32 = 256;
 
+// 单个镜像 TU 的目标顶层声明数：声明数超过它的源文件会被轮转切到多个槽位。
+// 取值依据：实测每个顶层声明平均发射约 3.8 KB C 代码，宿主 gcc -O2 约 0.7 s/MB，
+// 因此 48 个声明 ≈ 180 KB ≈ 1.2 s，已经接近 `make -j$(nproc)` 整段 C 阶段的下限
+// （2026-11 在 44 核机器上实测：106 个 TU、11.4 MB C，CPU 总量 75 s / 44 核 = 1.7 s）。
+const C99_MIRROR_CHUNK_DECLS: i32 = 48;
+
+// 单个源文件最多切几块：再多只是拿每 TU 约 50 ms 的固定开销换更均匀的负载。
+const C99_MIRROR_MAX_CHUNKS: i32 = 4;
+
 // ===== 外部函数声明 =====
 // C 标准库函数（在 extern_decls.uya 中声明）
 extern fn mkdir(pathname: *byte, mode: i32) i32;
@@ -20,6 +29,10 @@ extern fn fwrite(ptr: *void, size: usize, nmemb: usize, stream: *void) usize;
 extern fn rename(oldpath: *byte, newpath: *byte) i32;
 extern fn unlink(path: *byte) i32;
 extern fn fflush(stream: *void) i32;
+// 读取已写字节数：Makefile 里 OBJS 按**实际 C 体积**降序排（见 c99_mirror_lpt_order）。
+extern fn ftell(stream: *void) i64;
+// 读取环境变量：UYA_SPLIT_CHUNK 手动开关切块（见 c99_split_mirror_prepare）。
+extern fn getenv(name: *byte) *byte;
 extern fn fread(ptr: *void, size: usize, nmemb: usize, stream: *void) usize;
 
 fn c99_path_buf_char_at(buf: &byte, idx: i32) byte {
@@ -38,6 +51,8 @@ extern fn getcwd(buf: *byte, size: usize) *byte;
 extern fn strstr(haystack: *byte, needle: *byte) *byte;
 extern fn add_struct_definition(codegen: &C99CodeGenerator, struct_name: &byte) void;
 extern fn c99_private_fn_scope_cache_reset(codegen: &C99CodeGenerator) void;
+// 并行度（受 -j / UYA_JOBS / CPU 数影响，上限 PARALLEL_MAX_JOBS）；分块数按它收敛。
+extern fn parallel_jobs_for(task_count: i32) i32;
 extern fn c99_static_top_fn_cache_reset(codegen: &C99CodeGenerator) void;
 
 extern fn hash_string(str: &byte) i32;
@@ -384,6 +399,10 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
         sm_init = sm_init + 1;
     }
     codegen.split_mirror_count = 0;
+    codegen.split_mirror_slot_chunks = null;
+    codegen.split_mirror_file_chunks = null;
+    codegen.split_mirror_slot_decls = null;
+    codegen.emit_decl_slot = 0 - 1;
     // 并行 codegen 默认关闭：只有 main.uya 在函数体阶段显式设置后才生效。
     codegen.parallel_workers = 1;
     codegen.parallel_worker = 0 - 1;
@@ -989,6 +1008,261 @@ fn c99_mirror_normalize_one_path(src: &byte, out: &byte, max_out: i32) i32 {
     return 0;
 }
 
+// 单个源文件该切几个镜像槽位：按顶层声明数，超过 C99_MIRROR_CHUNK_DECLS 才切。
+//
+// 参数说明：
+// - decls：该源文件的顶层声明数。
+// 返回值说明：槽位数（1..C99_MIRROR_MAX_CHUNKS）。
+fn c99_mirror_chunk_count(decls: i32) i32 {
+    if decls <= C99_MIRROR_CHUNK_DECLS {
+        return 1;
+    }
+    // 分块数按并行度收敛：切块拿「每 TU 约 50 ms 的固定开销（重复解析 ~700 KB 头）」
+    // 换「关键路径变短」，只有核多时才划算 —— 实测 44 核对 106 个 TU 的 C 阶段
+    // 用户态总量 75 s，切块后 112 s，所以核少时必须少切或不切。
+    const jobs: i32 = parallel_jobs_for(1000);
+    var maxc: i32 = 1;
+    if jobs > 4 {
+        maxc = 2;
+    }
+    if jobs > 8 {
+        maxc = 3;
+    }
+    if jobs > 16 {
+        maxc = C99_MIRROR_MAX_CHUNKS;
+    }
+    var k: i32 = 1 + (decls - 1) / C99_MIRROR_CHUNK_DECLS;
+    if k > maxc {
+        k = maxc;
+    }
+    if k < 1 {
+        k = 1;
+    }
+    return k;
+}
+
+// 某个源文件实际该占几个镜像槽位（在 c99_mirror_chunk_count 之上套「不可拆」规则）。
+//
+// **槽位总数与实际开文件必须用同一个函数**：两处算法不一致会让 split_mirror_count 比
+// 真正建出来的 .c 多几个，那几个槽位没有 key/handle/path —— 并行函数体阶段取路径失败、
+// 回退串行时把句柄表恢复成 null，产物会**静默丢掉整个函数体段**（不报错，只在链接时
+// 报 undefined reference）。这条规则是硬的：任何「按文件禁止拆块」的条件都必须写在这里。
+//
+// 参数说明：
+// - key：源文件规范化绝对路径。
+// - decls：该源文件的顶层声明数。
+// 返回值说明：槽位数（1..C99_MIRROR_MAX_CHUNKS）。
+fn c99_mirror_slot_count_for_key(key: &byte, decls: i32, allow_chunk: i32) i32 {
+    if key == null || allow_chunk == 0 {
+        return 1;
+    }
+    // lib/libc/stdio.uya 定义 stdin/stdout/stderr 这三个 FILE* 全局，而「本 TU 定义它
+    // 就不用 stdin/stdout/stderr 宏」是按**源文件**判断的 —— 一旦拆块，别的块拿到的是
+    // libc 的 stdout 符号（nostdlib 下又没有 <stdio.h>）。故整文件不拆。
+    if strstr(key as *byte, "libc/stdio.uya" as *byte) != null {
+        return 1;
+    }
+    // lib/std/async_frame.uya 声明了 `extern` 的 `_uya_async_frame_descriptors` 等运行期
+    // 符号，而这些符号的**定义**是 codegen 收尾时一次性发射到 uya_common.c 的（见
+    // emit_async_frame_descriptors）。声明跟着声明所在的源文件走，定义在 common ——
+    // 只要这个源文件不拆块，声明和用法就在同一个 TU 里；一旦拆开，非首块就只看得到
+    // `_uya_async_frame_descriptors.entries` 而没有声明，报 undeclared identifier。
+    if strstr(key as *byte, "async_frame.uya" as *byte) != null {
+        return 1;
+    }
+    return c99_mirror_chunk_count(decls);
+}
+
+// 把相对 .c 路径按块号改名：块 0 原样返回，块 k 在 ".c" 前插入 "_c<k+1>"。
+//
+// 分块槽位因此得到 `src/exec/lower.c` / `src/exec/lower_c2.c` 这样的独立文件名，
+// 与「一源一 .c」的历史路径完全兼容（块 0 不变，增量编译与既有缓存继续有效）。
+//
+// 参数说明：
+// - rel_c：块 0 的相对路径（形如 `src/exec/lower.c`）。
+// - chunk：块号（0 起）。
+// - out：输出缓冲。
+// - cap：缓冲大小。
+// 返回值说明：0 表示成功；-1 表示路径过长。
+fn c99_mirror_chunk_rel_c(rel_c: &byte, chunk: i32, out: &byte, cap: i32) i32 {
+    if rel_c == null || out == null || cap < 8 {
+        return -1;
+    }
+    var blen: i32 = 0;
+    while blen < 511 && rel_c[blen] != 0 as byte {
+        blen = blen + 1;
+    }
+    var stem_len: i32 = blen;
+    if blen >= 3 && rel_c[blen - 2] == 46 as byte && rel_c[blen - 1] == 99 as byte {
+        stem_len = blen -| 2;
+    }
+    var n: i32 = 0;
+    var i: i32 = 0;
+    while i < stem_len && n < cap - 1 {
+        out[n] = rel_c[i];
+        n = n + 1;
+        i = i + 1;
+    }
+    if chunk > 0 {
+        if n + 4 < cap {
+            out[n] = 95 as byte;  // '_'
+            n = n + 1;
+            out[n] = 99 as byte;  // 'c'
+            n = n + 1;
+            var num: i32 = chunk +| 1;
+            if num > 9 {
+                num = 9;
+            }
+            out[n] = (48 +| num) as byte;
+            n = n + 1;
+        }
+    }
+    if n + 2 < cap {
+        out[n] = 46 as byte;  // '.'
+        n = n + 1;
+        out[n] = 99 as byte;  // 'c'
+        n = n + 1;
+    }
+    if n < cap {
+        out[n] = 0 as byte;
+    }
+    return 0;
+}
+
+/// 取镜像槽位的相对 .c 路径（分块槽位带 `_cN` 后缀）。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// - slot：镜像槽位下标。
+/// - out：输出缓冲。
+/// - cap：缓冲大小。
+/// 返回值说明：0 表示成功；-1 表示下标非法或路径过长。
+export fn c99_mirror_slot_rel_c(codegen: &C99CodeGenerator, slot: i32, out: &byte, cap: i32) i32 {
+    if codegen == null || out == null || cap < 8 {
+        return 0 - 1;
+    }
+    if slot < 0 || slot >= codegen.split_mirror_count {
+        return 0 - 1;
+    }
+    if codegen.split_mirror_keys[slot] == null {
+        return 0 - 1;
+    }
+    var base_rel: [byte: 512] = [];
+    if c99_mirror_rel_c_from_key(codegen.split_mirror_keys[slot], codegen.split_mirror_lcp, &base_rel[0] as &byte, 512) != 0 {
+        return 0 - 1;
+    }
+    var chunk: i32 = 0;
+    if codegen.split_mirror_slot_chunks != null {
+        chunk = codegen.split_mirror_slot_chunks[slot];
+    }
+    return c99_mirror_chunk_rel_c(&base_rel[0] as &byte, chunk, out, cap);
+}
+
+// 把相对 .c 路径改成相对 .o 路径（末尾 "c" → "o"）。
+//
+// 参数说明：
+// - rel_c：相对路径（形如 `src/exec/lower_c2.c`）。
+// - out：输出缓冲。
+// - cap：缓冲大小。
+// 返回值说明：0 表示成功；-1 表示路径过长。
+fn c99_mirror_c_path_to_o(rel_c: &byte, out: &byte, cap: i32) i32 {
+    if rel_c == null || out == null || cap < 4 {
+        return 0 - 1;
+    }
+    var i: i32 = 0;
+    while i < cap - 1 && i < 511 && rel_c[i] != 0 as byte {
+        out[i] = rel_c[i];
+        i = i + 1;
+    }
+    out[i] = 0 as byte;
+    if i >= 3 && out[i - 2] == 46 as byte && out[i - 1] == 99 as byte {
+        out[i -| 1] = 111 as byte;  // 'o'
+        return 0;
+    }
+    return 0 - 1;
+}
+
+// 为一个镜像槽位建 .c 文件，并写入所有镜像 TU 共用的序言（include 块 + 少量 extern 声明）。
+//
+// 前置条件：`split_mirror_keys[slot]` 已指向该槽位的源文件路径，
+// `split_mirror_slot_chunks[slot]` 已填好块号（块号决定文件名是否需要 `_cN` 后缀）。
+//
+// 参数说明：
+// - codegen：代码生成器。
+// - slot：镜像槽位下标。
+// 返回值说明：0 表示成功；-1 表示路径过长或文件打不开。
+fn c99_mirror_open_slot(codegen: &C99CodeGenerator, slot: i32) i32 {
+    if codegen == null || codegen.split_dir == null {
+        return 0 - 1;
+    }
+    const src: &byte = codegen.split_mirror_keys[slot];
+    if src == null {
+        return 0 - 1;
+    }
+    var rel_c_buf: [byte: 512] = [];
+    if c99_mirror_slot_rel_c(codegen, slot, &rel_c_buf[0] as &byte, 512) != 0 {
+        fprintf(libc.stderr, "错误: split-C mirror 无法生成相对 C 路径: slot=%d\n" as *byte, slot);
+        return 0 - 1;
+    }
+    var fullp: [byte: 1024] = [];
+    const fl: i32 = snprintf(&fullp[0] as *byte, 1024, "%s/%s" as *byte, codegen.split_dir as *byte, &rel_c_buf[0] as *byte);
+    if fl <= 0 || fl >= 1024 {
+        fprintf(libc.stderr, "错误: split-C mirror 输出路径过长: dir=%s rel=%s\n" as *byte, codegen.split_dir as *byte, &rel_c_buf[0] as *byte);
+        return 0 - 1;
+    }
+    c99_mkdir_p_for_file(&fullp[0] as &byte);
+    const fh: *void = fopen(&fullp[0] as *byte, "w" as *byte);
+    if fh == null {
+        fprintf(libc.stderr, "错误: split-C mirror 无法打开输出文件: %s\n" as *byte, &fullp[0] as *byte);
+        return 0 - 1;
+    }
+    fputs("#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n" as *byte, fh as *void);
+    if codegen.freestanding == 0 && codegen.needs_string_h != 0 {
+        fputs("#include <string.h>\n" as *byte, fh as *void);
+    }
+    fputs("\n" as *byte, fh as *void);
+    var is_libc_stdio_unit: i32 = 0;
+    if strstr(src as *byte, "libc/stdio.uya" as *byte) != null {
+        is_libc_stdio_unit = 1;
+    }
+    if codegen.freestanding == 0 {
+        // fprintf(stderr,...) 等需 stdio；自举镜像 TU 与单文件一致。has_stdio_conflicts 时用 _stdin 宏路径，勿再含 <stdio.h>
+        if codegen.has_stdio_conflicts == 0 {
+            fputs("#include <stdio.h>\n" as *byte, fh as *void);
+        }
+        // split 镜像 TU 里避免暴露 clock_t；直接用底层整型声明 clock()
+        fputs("int32_t std_runtime_get_argc(void);\n" as *byte, fh as *void);
+        fputs("uint8_t *std_runtime_get_argv(int32_t index);\n" as *byte, fh as *void);
+        fputs("extern char *getenv(const char *);\n" as *byte, fh as *void);
+        fputs("extern const uint32_t S_IFMT;\nextern const uint32_t S_IFDIR;\nextern const uint32_t S_IFREG;\n" as *byte, fh as *void);
+        fputs("extern const uint8_t DT_REG;\nextern const uint8_t DT_UNKNOWN;\nextern const uint8_t DT_DIR;\n" as *byte, fh as *void);
+        fputs("extern const int64_t CLOCKS_PER_SEC;\nextern uint64_t clock(void);\n" as *byte, fh as *void);
+        if codegen.has_stdio_conflicts != 0 {
+            fputs("extern struct FILE _stdin, _stdout, _stderr;\n" as *byte, fh as *void);
+            // lib/libc/stdio.uya 镜像 .c 内定义 struct FILE * stdin = (&_stdin)，不能与 #define stdin 共存
+            if is_libc_stdio_unit == 0 {
+                fputs("#define stdin (&_stdin)\n#define stdout (&_stdout)\n#define stderr (&_stderr)\n" as *byte, fh as *void);
+            }
+        }
+    } else {
+        // nostdlib：与单文件 main.uya 一致，不配 <stdio.h>；fprintf(stderr,...) 依赖 _stderr + 宏
+        fputs("extern struct FILE _stdin, _stdout, _stderr;\n" as *byte, fh as *void);
+        if is_libc_stdio_unit == 0 {
+            fputs("#define stdin (&_stdin)\n#define stdout (&_stdout)\n#define stderr (&_stderr)\n" as *byte, fh as *void);
+        }
+        fputs("int32_t std_runtime_get_argc(void);\n" as *byte, fh as *void);
+        fputs("uint8_t *std_runtime_get_argv(int32_t index);\n" as *byte, fh as *void);
+        fputs("extern char *getenv(const char *);\n" as *byte, fh as *void);
+        fputs("extern const uint32_t S_IFMT;\nextern const uint32_t S_IFDIR;\nextern const uint32_t S_IFREG;\n" as *byte, fh as *void);
+        fputs("extern const uint8_t DT_REG;\nextern const uint8_t DT_UNKNOWN;\nextern const uint8_t DT_DIR;\n" as *byte, fh as *void);
+        fputs("extern const int64_t CLOCKS_PER_SEC;\nextern uint64_t clock(void);\n" as *byte, fh as *void);
+    }
+    fputs("\n" as *byte, fh as *void);
+    codegen.split_mirror_handles[slot] = fh as &void;
+    codegen.split_mirror_paths[slot] = c99_arena_strdup(codegen.arena, &fullp[0] as &byte);
+    return 0;
+}
+
 // 打开 uya_common.c 与各镜像 .c，写入 #include "uya_strings_extern.h"
 export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode) i32 {
     if codegen == null || codegen.split_enabled == 0 || codegen.split_mirror == 0 || codegen.split_dir == null {
@@ -997,6 +1271,35 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
     if program == null || program.type != ASTNodeType.AST_PROGRAM {
         fprintf(libc.stderr, "错误: split-C mirror prepare 收到非程序 AST\n" as *byte);
         return -1;
+    }
+    // 程序里只要有一个 `async fn`，就整体关闭切块。
+    //
+    // async 变换会为每个 async fn 生成 `<fn>_poll` / `<fn>_frame_stop` 静态函数，而它们的
+    // **定义只发射一次**（发射到变换发生时的那个 slot），同文件其它 slot 只拿到
+    // `static ... <fn>_poll(void*, struct Waker*);` 前向声明 —— 拆块后这些块链接时
+    // 报 `undefined reference to <fn>_poll`。这是「程序级只发射一次的符号」这一类问题，
+    // 没法靠单个文件的白名单解决，故按程序整体关掉（async 程序本来也不吃这条优化）。
+    var allow_chunk: i32 = 1;
+    var ai: i32 = 0;
+    while ai < program.program_decl_count {
+        const ad: &ASTNode = program.program_decls[ai];
+        if ad != null && ad.type == ASTNodeType.AST_FN_DECL && ad.fn_decl_is_async != 0 {
+            allow_chunk = 0;
+            ai = program.program_decl_count;
+        }
+        ai = ai +| 1;
+    }
+    // 手动开关：UYA_SPLIT_CHUNK=0 关闭大文件切块（=1 或不设则按上面的规则决定）。
+    // 留这个开关是因为切块对每台机器/每次负载的收益不一样，出问题时可立刻退回
+    // 「一个源文件一个 TU」的老形态，而不必改常量重编编译器。
+    // 默认关闭：实测（2026-11，44 核）切块让 C 阶段从 5.89 s 降到 4.22 s，但 codegen 的
+    // body 阶段 CPU 从 0.94 s 涨到 6.55 s（164 个槽位时；108 个槽位时 0.94 s），净亏
+    // 约 5 s。开销出在「每槽位一份的发射成本」上，指针快路径已验证不是路由慢路径，
+    // 尚未定位到具体位置，故只留作实验开关。定位后把这里改成默认 1 即可。
+    allow_chunk = 0;
+    const chunk_env: &byte = getenv("UYA_SPLIT_CHUNK" as *byte) as &byte;
+    if chunk_env != null && chunk_env[0] == 49 as byte && chunk_env[1] == 0 as byte {
+        allow_chunk = 1;
     }
     // 去重后的源文件表：按**声明数**分配（每个声明至多引入一个源文件）。
     // 原先写死 [[byte:512]:128] —— 源文件超过 128 个时会在镜像阶段静默少开 .c，
@@ -1089,18 +1392,68 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
     }
     const lcp: i32 = c99_mirror_lcp_len_flat(&uniq[0][0] as &byte, uniq_count);
     codegen.split_mirror_lcp = lcp;
-    // 镜像表按**实际条数**重新分配：`c99_codegen_new` 里只预留了 C99_MIRROR_INIT_SLOTS 个
-    // 起步槽，源文件多于它时下面 ci 会写到表外（heap 越界），现场是 uya_part1_types.h 里
-    // 出现被踩坏的 `struct <乱码>;` —— 报错完全指向别处。这里按 uniq_count 精确分配。
+
+    // ===== 顶层声明数 per 源文件 → 分块槽位规划 =====
+    // 一个镜像 TU 就是一个 `cc -c` 单元；`make -j` 的 makespan 由**最大的那个**决定，
+    // 所以声明多的源文件要轮转切到多个槽位（见 internal.uya 的字段注释）。
+    const fdecl_u: usize = (uniq_count as! usize) catch { return -1; };
+    const fdecl: &i32 = compiler_arena_alloc(codegen.arena, fdecl_u * @size_of(i32)) as &i32;
+    if fdecl == null {
+        fprintf(libc.stderr, "错误: split-C mirror 声明数统计表分配失败\n" as *byte);
+        return -1;
+    }
+    var fz: i32 = 0;
+    while fz < uniq_count {
+        if fz >= 0 && fz < uniq_count {
+            fdecl[fz] = 0;
+        }
+        fz = fz + 1;
+    }
+    var dci: i32 = 0;
+    while dci < program.program_decl_count {
+        const dl: &ASTNode = program.program_decls[dci];
+        if dl != null && dl.filename != null {
+            var norm_d: [byte: 512] = [];
+            if c99_mirror_normalize_one_path(dl.filename, &norm_d[0] as &byte, 512) == 0 {
+                var uf: i32 = 0;
+                while uf < uniq_count {
+                    if uf >= 0 && uf < uniq_count && strcmp(&uniq[uf][0] as *byte, &norm_d[0] as *byte) == 0 {
+                        fdecl[uf] = fdecl[uf] +| 1;
+                        uf = uniq_count;
+                    }
+                    uf = uf +| 1;
+                }
+            }
+        }
+        dci = dci + 1;
+    }
+    var slots_total: i32 = 0;
+    var sc_i: i32 = 0;
+    while sc_i < uniq_count {
+        if sc_i >= 0 && sc_i < uniq_count {
+            slots_total = slots_total +| c99_mirror_slot_count_for_key(&uniq[sc_i][0] as &byte, fdecl[sc_i], allow_chunk);
+        }
+        sc_i = sc_i + 1;
+    }
+    if slots_total < 1 {
+        slots_total = 1;
+    }
+
+    // 镜像表按**实际槽位数**重新分配（槽位数 = 切块后的 TU 数，可能多于源文件数）：
+    // `c99_codegen_new` 里只预留了 C99_MIRROR_INIT_SLOTS 个起步槽，写满后继续写就是
+    // heap 越界，现场表现为 uya_part1_types.h 里出现被踩坏的 `struct <乱码>;`。
     var mirror_cap: i32 = C99_MIRROR_INIT_SLOTS;
-    if uniq_count +| 1 > mirror_cap {
-        mirror_cap = uniq_count +| 1;
+    if slots_total +| 1 > mirror_cap {
+        mirror_cap = slots_total +| 1;
     }
     const mirror_nu: usize = (mirror_cap as! usize) catch { return -1; };
+    const slot_nu: usize = (mirror_cap as! usize) catch { return -1; };
     const mkeys: &(&byte) = compiler_arena_alloc(codegen.arena, mirror_nu * @size_of(&byte)) as &(&byte);
     const mhandles: &(&void) = compiler_arena_alloc(codegen.arena, mirror_nu * @size_of(&void)) as &(&void);
     const mpaths: &(&byte) = compiler_arena_alloc(codegen.arena, mirror_nu * @size_of(&byte)) as &(&byte);
-    if mkeys == null || mhandles == null || mpaths == null {
+    const mchunks: &i32 = compiler_arena_alloc(codegen.arena, slot_nu * @size_of(i32)) as &i32;
+    const mfchunks: &i32 = compiler_arena_alloc(codegen.arena, slot_nu * @size_of(i32)) as &i32;
+    if mkeys == null || mhandles == null || mpaths == null || mchunks == null || mfchunks == null {
         fprintf(libc.stderr, "错误: split-C mirror 表分配失败\n" as *byte);
         return -1;
     }
@@ -1109,89 +1462,46 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
         mkeys[mk] = null;
         mhandles[mk] = null;
         mpaths[mk] = null;
+        mchunks[mk] = 0;
+        mfchunks[mk] = 1;
         mk = mk + 1;
     }
     codegen.split_mirror_keys = mkeys;
     codegen.split_mirror_handles = mhandles;
     codegen.split_mirror_paths = mpaths;
+    codegen.split_mirror_slot_chunks = mchunks;
+    codegen.split_mirror_file_chunks = mfchunks;
+    codegen.split_mirror_slot_decls = null;
+    codegen.parallel_decl_tu = null;
+    codegen.parallel_decl_count = 0;
+    // slot 表在打开文件前就要能算相对路径（c99_mirror_slot_rel_c 会校验下标 < count）
+    codegen.split_mirror_count = slots_total;
+    var slot_i: i32 = 0;
     var ci: i32 = 0;
     while ci < uniq_count {
-        if ci >= 0 {
+        if ci >= 0 && ci < uniq_count {
             const src: &byte = &uniq[ci][0] as &byte;
-            var rel_c_buf: [byte: 512] = [];
-            if c99_mirror_rel_c_from_key(src, lcp, &rel_c_buf[0] as &byte, 512) != 0 {
-                fprintf(libc.stderr, "错误: split-C mirror 无法生成相对 C 路径: src=%s lcp=%d\n" as *byte, src as *byte, lcp);
-                return -1;
-            }
             const key_copy: &byte = c99_arena_strdup(codegen.arena, src);
             if key_copy == null {
                 fprintf(libc.stderr, "错误: split-C mirror 复制路径失败: %s\n" as *byte, src as *byte);
                 return -1;
             }
-            codegen.split_mirror_keys[ci] = key_copy;
-            var fullp: [byte: 1024] = [];
-            const fl: i32 = snprintf(&fullp[0] as *byte, 1024, "%s/%s" as *byte, codegen.split_dir as *byte, &rel_c_buf[0] as *byte);
-            if fl <= 0 || fl >= 1024 {
-                fprintf(libc.stderr, "错误: split-C mirror 输出路径过长: dir=%s rel=%s\n" as *byte, codegen.split_dir as *byte, &rel_c_buf[0] as *byte);
-                return -1;
-            }
-            c99_mkdir_p_for_file(&fullp[0] as &byte);
-            const fh: *void = fopen(&fullp[0] as *byte, "w" as *byte);
-            if fh == null {
-                fprintf(libc.stderr, "错误: split-C mirror 无法打开输出文件: %s\n" as *byte, &fullp[0] as *byte);
-                return -1;
-            }
-            fputs("#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n" as *byte, fh as *void);
-            if codegen.freestanding == 0 && codegen.needs_string_h != 0 {
-                fputs("#include <string.h>\n" as *byte, fh as *void);
-            }
-            fputs("\n" as *byte, fh as *void);
-            var is_libc_stdio_unit: i32 = 0;
-            var tmp_stdio: [byte: 512] = [];
-            if c99_mirror_normalize_one_path(src, &tmp_stdio[0] as &byte, 512) == 0 {
-                if strstr(&tmp_stdio[0] as *byte, "libc/stdio.uya" as *byte) != null {
-                    is_libc_stdio_unit = 1;
+            const kc: i32 = c99_mirror_slot_count_for_key(src, fdecl[ci], allow_chunk);
+            mfchunks[slot_i] = kc;
+            var cc: i32 = 0;
+            while cc < kc {
+                const slot: i32 = slot_i + cc;
+                mkeys[slot] = key_copy;   // 同一源文件的各块共用一份路径
+                mchunks[slot] = cc;
+                if c99_mirror_open_slot(codegen, slot) != 0 {
+                    return -1;
                 }
+                cc = cc + 1;
             }
-            if codegen.freestanding == 0 {
-                // fprintf(stderr,...) 等需 stdio；自举镜像 TU 与单文件一致。has_stdio_conflicts 时用 _stdin 宏路径，勿再含 <stdio.h>
-                if codegen.has_stdio_conflicts == 0 {
-                    fputs("#include <stdio.h>\n" as *byte, fh as *void);
-                }
-                // split 镜像 TU 里避免暴露 clock_t；直接用底层整型声明 clock()
-                fputs("int32_t std_runtime_get_argc(void);\n" as *byte, fh as *void);
-                fputs("uint8_t *std_runtime_get_argv(int32_t index);\n" as *byte, fh as *void);
-                fputs("extern char *getenv(const char *);\n" as *byte, fh as *void);
-                fputs("extern const uint32_t S_IFMT;\nextern const uint32_t S_IFDIR;\nextern const uint32_t S_IFREG;\n" as *byte, fh as *void);
-                fputs("extern const uint8_t DT_REG;\nextern const uint8_t DT_UNKNOWN;\nextern const uint8_t DT_DIR;\n" as *byte, fh as *void);
-                fputs("extern const int64_t CLOCKS_PER_SEC;\nextern uint64_t clock(void);\n" as *byte, fh as *void);
-                if codegen.has_stdio_conflicts != 0 {
-                    fputs("extern struct FILE _stdin, _stdout, _stderr;\n" as *byte, fh as *void);
-                    // lib/libc/stdio.uya 镜像 .c 内定义 struct FILE * stdin = (&_stdin)，不能与 #define stdin 共存
-                    if is_libc_stdio_unit == 0 {
-                        fputs("#define stdin (&_stdin)\n#define stdout (&_stdout)\n#define stderr (&_stderr)\n" as *byte, fh as *void);
-                    }
-                }
-            } else {
-                // nostdlib：与单文件 main.uya 一致，不配 <stdio.h>；fprintf(stderr,...) 依赖 _stderr + 宏
-                fputs("extern struct FILE _stdin, _stdout, _stderr;\n" as *byte, fh as *void);
-                if is_libc_stdio_unit == 0 {
-                    fputs("#define stdin (&_stdin)\n#define stdout (&_stdout)\n#define stderr (&_stderr)\n" as *byte, fh as *void);
-                }
-                fputs("int32_t std_runtime_get_argc(void);\n" as *byte, fh as *void);
-                fputs("uint8_t *std_runtime_get_argv(int32_t index);\n" as *byte, fh as *void);
-                fputs("extern char *getenv(const char *);\n" as *byte, fh as *void);
-                fputs("extern const uint32_t S_IFMT;\nextern const uint32_t S_IFDIR;\nextern const uint32_t S_IFREG;\n" as *byte, fh as *void);
-                fputs("extern const uint8_t DT_REG;\nextern const uint8_t DT_UNKNOWN;\nextern const uint8_t DT_DIR;\n" as *byte, fh as *void);
-                fputs("extern const int64_t CLOCKS_PER_SEC;\nextern uint64_t clock(void);\n" as *byte, fh as *void);
-            }
-            fputs("\n" as *byte, fh as *void);
-            codegen.split_mirror_handles[ci] = fh as &void;
-            codegen.split_mirror_paths[ci] = c99_arena_strdup(codegen.arena, &fullp[0] as &byte);
+            slot_i = slot_i + kc;
         }
         ci = ci + 1;
     }
-    codegen.split_mirror_count = uniq_count;
     var comp: [byte: 1024] = [];
     const cl: i32 = snprintf(&comp[0] as *byte, 1024, "%s/uya_common.c" as *byte, codegen.split_dir as *byte);
     if cl <= 0 || cl >= 1024 {
@@ -1290,7 +1600,7 @@ export fn c99_mirror_emit_for_node(codegen: &C99CodeGenerator, node: &ASTNode) v
     if codegen.split_common_out == null {
         return;
     }
-    const ix: i32 = c99_mirror_tu_index_for_node(codegen, node);
+    const ix: i32 = c99_mirror_decl_slot_for_node(codegen, node);
     // 并行函数体阶段：任何「路由到非本 worker 分片」的发射都是违规 —— 那会让两个进程
     // 同时写同一个文件。记下标记，worker 收尾时据此放弃并行、由父进程串行重做。
     if codegen.parallel_workers > 1 && codegen.parallel_worker >= 0 {
@@ -1309,7 +1619,58 @@ export fn c99_mirror_emit_for_node(codegen: &C99CodeGenerator, node: &ASTNode) v
     codegen.emit_stream = codegen.split_common_out;
 }
 
-/// 预计算「顶层声明 → 镜像 TU 下标」表，供并行 codegen 的归属判定 O(1) 取用。
+/// 把「当前正在发射的顶层声明」压给路由层，供分块切分时定位到具体槽位。
+///
+/// 分块切分后同一源文件的声明会分到多个槽位，仅凭 `filename` 只能定位到块的起点，
+/// 因此发射循环必须在处理每个顶层声明前调用本函数；-1 表示「未设置，按文件名路由」
+/// （测试函数、`main` 桥接等收尾发射都用 -1，落到 uya_common.c，与历史行为一致）。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// - decl_index：顶层声明下标；-1 表示清除。
+export fn c99_mirror_set_emit_decl(codegen: &C99CodeGenerator, decl_index: i32) void {
+    if codegen == null {
+        return;
+    }
+    if decl_index < 0 || decl_index >= codegen.parallel_decl_count || codegen.parallel_decl_tu == null {
+        codegen.emit_decl_slot = 0 - 1;
+        return;
+    }
+    codegen.emit_decl_slot = codegen.parallel_decl_tu[decl_index];
+}
+
+/// 取声明该落到的镜像槽位（先看发射循环压入的槽位，再退回按文件名路由）。
+///
+/// 两段式的原因：块内嵌套发射（结构体方法、单态实例）不一定与父声明同源文件 ——
+/// 同源时用父声明压入的槽位（分块下才有确定的落点），不同源时按文件名重新定位，
+/// 与 `c99_mirror_tu_index_for_node` 的历史语义一致。
+///
+/// 参数说明：
+/// - codegen：代码生成器。
+/// - node：要判定的 AST 节点。
+/// 返回值说明：镜像槽位下标，或 -1 表示 common。
+export fn c99_mirror_decl_slot_for_node(codegen: &C99CodeGenerator, node: &ASTNode) i32 {
+    if codegen == null || codegen.split_mirror == 0 {
+        return 0 - 1;
+    }
+    const cur: i32 = codegen.emit_decl_slot;
+    if cur >= 0 && cur < codegen.split_mirror_count && node != null && node.filename != null {
+        const key: &byte = codegen.split_mirror_keys[cur];
+        var norm_n: [byte: 512] = [];
+        if key != null && c99_mirror_normalize_one_path(node.filename, &norm_n[0] as &byte, 512) == 0 {
+            if strcmp(key as *byte, &norm_n[0] as *byte) == 0 {
+                return cur;
+            }
+        }
+    }
+    return c99_mirror_tu_index_for_node(codegen, node);
+}
+
+/// 预计算「顶层声明 → 镜像槽位」表，并把各槽位的声明数记进 `split_mirror_slot_decls`。
+///
+/// 三个用途（见 internal.uya 的 `parallel_decl_tu` 注释）：并行归属判定、分块路由、
+/// Makefile 的 LPT 排序。因为串行发射也要用，所以**不论是否并行**都会在镜像准备之后
+/// 调一次；fork 前那次调用因此变成空操作（表已存在且声明数一致时直接返回）。
 ///
 /// 必须在 fork **之前**调用一次：子进程只读该表（COW 共享），不必重复做路径归一化。
 ///
@@ -1321,22 +1682,184 @@ export fn c99_parallel_prepare_decl_tu(codegen: &C99CodeGenerator, ast: &ASTNode
     if codegen == null || ast == null {
         return 0 - 1;
     }
+    if codegen.parallel_decl_tu != null && codegen.parallel_decl_count == ast.program_decl_count {
+        return 0;
+    }
     const n: i32 = ast.program_decl_count;
     if n <= 0 {
         return 0;
     }
-    const nu: usize = n as usize;
+    const nu: usize = (n as! usize) catch { return 0 - 1; };
+    const slots_u: usize = (codegen.split_mirror_count as! usize) catch { return 0 - 1; };
     const table: &i32 = compiler_arena_alloc(codegen.arena, nu * @size_of(i32)) as &i32;
-    if table == null {
+    const decls: &i32 = compiler_arena_alloc(codegen.arena, slots_u * @size_of(i32)) as &i32;
+    const base_of: &i32 = compiler_arena_alloc(codegen.arena, nu * @size_of(i32)) as &i32;
+    const spans: &i32 = compiler_arena_alloc(codegen.arena, nu * @size_of(i32)) as &i32;
+    const pins: &i32 = compiler_arena_alloc(codegen.arena, nu * @size_of(i32)) as &i32;
+    const buf: &i32 = compiler_arena_alloc(codegen.arena, nu * @size_of(i32)) as &i32;
+    const loads: &i32 = compiler_arena_alloc(codegen.arena, slots_u * @size_of(i32)) as &i32;
+    const filemax: &i32 = compiler_arena_alloc(codegen.arena, slots_u * @size_of(i32)) as &i32;
+    if table == null || decls == null || base_of == null || spans == null || pins == null || buf == null || loads == null || filemax == null {
         return 0 - 1;
     }
+    const slots: i32 = codegen.split_mirror_count;
+    var z: i32 = 0;
+    while z < slots {
+        if z >= 0 && z < slots {
+            decls[z] = 0;
+            loads[z] = 0;
+            filemax[z] = 0;
+        }
+        z = z + 1;
+    }
+
+    // ===== 第 1 遍：源文件槽位、是否钉住、行跨度 =====
+    //
+    // 行跨度（本声明起始行 → 同文件下一条声明起始行）是「这条声明会发射多少 C」的
+    // 廉价代理：实测按**声明条数**轮流分配块非常不均衡（src/codegen/c99/main.uya 的
+    // c99_codegen_generate 一条就有 4700 行源码 / 544 KB C），会把一个块撑到 3.4 s，
+    // 抵消掉切块的全部收益。改成按跨度做 LPT 后，巨函数自己独占一块。
     var i: i32 = 0;
     while i < n {
-        table[i] = c99_mirror_tu_index_for_node(codegen, ast.program_decls[i]);
+        if i >= 0 && i < n {
+            const dl: &ASTNode = ast.program_decls[i];
+            const base: i32 = c99_mirror_tu_index_for_node(codegen, dl);
+            base_of[i] = base;
+            spans[i] = 1;
+            var pin: i32 = 0;
+            if dl != null && dl.type != ASTNodeType.AST_FN_DECL && dl.type != ASTNodeType.AST_METHOD_BLOCK {
+                pin = 1;
+            }
+            pins[i] = pin;
+            table[i] = base;
+            if base >= 0 && base < slots {
+                decls[base] = decls[base] +| 1;
+                var sp: i32 = 0;
+                if i +| 1 < n && base_of[i +| 1] == base {
+                    const dn: &ASTNode = ast.program_decls[i +| 1];
+                    if dn != null && dl != null && dn.line > dl.line {
+                        sp = dn.line -| dl.line;
+                    }
+                }
+                if sp > 0 {
+                    spans[i] = sp;
+                    if sp > filemax[base] {
+                        filemax[base] = sp;
+                    }
+                }
+            }
+        }
         i = i + 1;
     }
+    // 文件最后一条声明的跨度未知，用本文件已知的最大跨度兜底（不小于 32 行）
+    i = 0;
+    while i < n {
+        if i >= 0 && i < n {
+            const base: i32 = base_of[i];
+            if base >= 0 && base < slots {
+                if spans[i] <= 1 {
+                    var fb: i32 = filemax[base];
+                    if fb < 32 {
+                        fb = 32;
+                    }
+                    spans[i] = fb;
+                }
+            }
+        }
+        i = i + 1;
+    }
+
+    // ===== 第 2 遍：非函数声明（全局/常量/宏/类型）全部钉到块 0 并计入负载 =====
+    //
+    // 只有函数能安全地摊到不同 TU（互相引用走头文件里的原型）。全局/常量不行：
+    // C 里 const 对象不是常量表达式，`const size_t B = A | 2;` 只有 A 在同一 TU 才能
+    // 编译，跨 TU 拿到的是 extern const，报 "initializer element is not constant"。
+    // 实测现场：lib/libc/heap.uya 的 `CHUNK_STATE_MASK = CHUNK_FLAG_FREE | CHUNK_FLAG_TCACHE`，
+    // 以及 lib/libc/math.uya 的 `libc_HUGE_VALF = (float)libc_INFINITY`。
+    i = 0;
+    while i < n {
+        if i >= 0 && i < n {
+            const base: i32 = base_of[i];
+            if base >= 0 && base < slots && pins[i] != 0 {
+                loads[base] = loads[base] +| spans[i];
+            }
+        }
+        i = i + 1;
+    }
+
+    // ===== 第 3 遍：逐文件 LPT（长作业优先，放进本文件当前负载最小的块）=====
+    var slot_walk: i32 = 0;
+    while slot_walk < slots {
+        if slot_walk >= 0 && slot_walk < slots && codegen.split_mirror_slot_chunks != null &&
+           codegen.split_mirror_slot_chunks[slot_walk] == 0 && codegen.split_mirror_file_chunks != null {
+            const kc: i32 = codegen.split_mirror_file_chunks[slot_walk];
+            if kc > 1 {
+                var cnt: i32 = 0;
+                var j: i32 = 0;
+                while j < n {
+                    if j >= 0 && j < n && cnt >= 0 && cnt < n && base_of[j] == slot_walk && pins[j] == 0 {
+                        buf[cnt] = j;
+                        cnt = cnt +| 1;
+                    }
+                    j = j + 1;
+                }
+                // 按跨度降序插入排序（单文件声明数是几十的量级）
+                var a: i32 = 1;
+                while a < cnt {
+                    if a >= 0 && a < cnt && buf[a] >= 0 && buf[a] < n {
+                        const cur: i32 = buf[a];
+                        const curw: i32 = spans[cur];
+                        var b: i32 = a - 1;
+                        while b >= 0 && b < cnt {
+                            if buf[b] >= 0 && buf[b] < n {
+                                if spans[buf[b]] >= curw {
+                                    break;
+                                }
+                                if b + 1 >= 0 && b + 1 < cnt {
+                                    buf[b + 1] = buf[b];
+                                }
+                            }
+                            b = b - 1;
+                        }
+                        if b + 1 >= 0 && b + 1 < cnt {
+                            buf[b + 1] = cur;
+                        }
+                    }
+                    a = a + 1;
+                }
+                // 依次放进当前负载最小的块
+                var q: i32 = 0;
+                while q < cnt {
+                    if q >= 0 && q < cnt && buf[q] >= 0 && buf[q] < n {
+                        const di: i32 = buf[q];
+                        var best: i32 = slot_walk;
+                        var best_load: i32 = 2147483647;
+                        var c: i32 = 0;
+                        while c < kc {
+                            const sl: i32 = slot_walk +| c;
+                            if sl >= 0 && sl < slots {
+                                if loads[sl] < best_load {
+                                    best_load = loads[sl];
+                                    best = sl;
+                                }
+                            }
+                            c = c + 1;
+                        }
+                        if best >= 0 && best < slots {
+                            loads[best] = loads[best] +| spans[di];
+                            table[di] = best;
+                        }
+                    }
+                    q = q + 1;
+                }
+            }
+        }
+        slot_walk = slot_walk + 1;
+    }
+
     codegen.parallel_decl_tu = table;
     codegen.parallel_decl_count = n;
+    codegen.split_mirror_slot_decls = decls;
     return 0;
 }
 
@@ -1585,6 +2108,93 @@ export fn c99_write_mirror_manifest(codegen: &C99CodeGenerator, program: &ASTNod
     _ = fclose(mf as *void);
 }
 
+// 计算镜像槽位的 LPT 顺序：按「承载的顶层声明数」降序排列的下标数组。
+//
+// make -j 按 OBJS 的顺序起任务：若最大的 TU 排在列表尾部，它要等前面的小 TU 编译完、
+// 腾出核才开始，整段 C 阶段的关键路径就被它一个人决定。降序（最长作业优先）后最大的
+// TU 一开工就在跑，makespan 趋近于 max(最大 TU, CPU 总量/核数)。
+//
+// 参数说明：
+// - codegen：代码生成器。
+// 返回值说明：arena 分配的下标数组（调用方不应释放）；null 表示分配失败或未分镜像。
+fn c99_mirror_lpt_order(codegen: &C99CodeGenerator) &i32 {
+    if codegen == null {
+        return null;
+    }
+    const n: i32 = codegen.split_mirror_count;
+    if n <= 0 {
+        return null;
+    }
+    const nu: usize = (n as! usize) catch { return null; };
+    const order: &i32 = compiler_arena_alloc(codegen.arena, nu * @size_of(i32)) as &i32;
+    if order == null {
+        return null;
+    }
+    // 权重 = 该槽位**已经发射的 C 字节数**（ftell；此时 handle 都已 fflush 且未关闭）。
+    //
+    // 为什么不用声明条数：条数和字节数完全不成比例（一条 4700 行的 c99_codegen_generate
+    // 能占 890 KB，而几十条小函数合计不到 60 KB）。Makefile 的 OBJS 顺序就是 make 的启动
+    // 顺序，最大的 TU 必须**第一个**开始编译，否则它会最后才开始、把整个 C 阶段拖成
+    // 「最慢 TU + 排队时间」。实测按条数排 5.0 s，按字节排 3.3 s。
+    var w: &i32 = null;
+    if codegen.split_mirror_handles != null {
+        const wu: usize = (n as! usize) catch { return null; };
+        w = compiler_arena_alloc(codegen.arena, wu * @size_of(i32)) as &i32;
+    }
+    var i: i32 = 0;
+    while i < n {
+        if i >= 0 && i < n {
+            order[i] = i;
+            if w != null {
+                var sz: i32 = 0;
+                if codegen.split_mirror_handles[i] != null {
+                    const tf: i64 = ftell(codegen.split_mirror_handles[i] as *void);
+                    if tf > 0 {
+                        var fsz: i32 = 0;
+                        fsz = (tf as! i32) catch { 0 as i32; };
+                        if fsz > 0 {
+                            sz = fsz;
+                        }
+                    }
+                }
+                if sz <= 0 && codegen.split_mirror_slot_decls != null {
+                    sz = codegen.split_mirror_slot_decls[i];
+                }
+                w[i] = sz;
+            }
+        }
+        i = i + 1;
+    }
+    const sdc: &i32 = codegen.split_mirror_slot_decls;
+    const cmp: &i32 = w;
+    if cmp != null {
+        // 插入排序：槽位数在百量级，n² 远小于一次 cc -c
+        var a: i32 = 1;
+        while a < n {
+            if a >= 0 && a < n && order[a] >= 0 && order[a] < n {
+                const cur: i32 = order[a];
+                var b: i32 = a - 1;
+                while b >= 0 && b < n {
+                    if order[b] >= 0 && order[b] < n {
+                        if cmp[order[b]] >= cmp[cur] {
+                            break;
+                        }
+                        if b + 1 >= 0 && b + 1 < n {
+                            order[b + 1] = order[b];
+                        }
+                    }
+                    b = b - 1;
+                }
+                if b + 1 >= 0 && b + 1 < n {
+                    order[b + 1] = cur;
+                }
+            }
+            a = a + 1;
+        }
+    }
+    return order;
+}
+
 // 生成 split 目录下的 Makefile（make -j 并行编译多 .o）
 export fn c99_write_split_makefile(codegen: &C99CodeGenerator) void {
     if codegen == null || codegen.split_enabled == 0 || codegen.split_dir == null {
@@ -1620,42 +2230,18 @@ export fn c99_write_split_makefile(codegen: &C99CodeGenerator) void {
                 cimp_obj_i = cimp_obj_i + 1;
             }
         }
-        const klcp: i32 = codegen.split_mirror_lcp;
+        // 按声明数降序（LPT）输出镜像 .o：make -j 按 OBJS 顺序起任务，最大的 TU
+        // 必须最先开工，否则它排在列表尾部要等前一轮槽位空出来才编译，关键路径被拉长。
+        const lpt: &i32 = c99_mirror_lpt_order(codegen);
         var oi: i32 = 0;
-        while oi < codegen.split_mirror_count {
-            if oi >= 0 {
-                if codegen.split_mirror_keys[oi] != null {
-                    var cpath: [byte: 512] = [];
-                    var opath: [byte: 512] = [];
-                    if c99_mirror_rel_c_from_key(codegen.split_mirror_keys[oi], klcp, &cpath[0] as &byte, 512) == 0 {
-                        var pi2: i32 = 0;
-                        while pi2 < 511 {
-                            if pi2 >= 0 && pi2 < @len(cpath) && cpath[pi2] != 0 as byte {
-                                if pi2 >= 0 && pi2 < @len(opath) {
-                                    opath[pi2] = cpath[pi2];
-                                }
-                                pi2 = pi2 + 1;
-                            } else {
-                                break;
-                            }
-                        }
-                        if pi2 >= 3 {
-                            const p1: i32 = pi2 -| 1;
-                            const p2: i32 = pi2 -| 2;
-                            if p2 >= 0 && p2 < 512 && p1 >= 0 && p1 < 512 {
-                                const p2b: byte = opath[p2];
-                                const p1b: byte = opath[p1];
-                                if p2b == 46 as byte && p1b == 99 as byte {
-                                    opath[p1] = 111 as byte;
-                                    if pi2 >= 0 && pi2 < 512 {
-                                        opath[pi2] = 0 as byte;
-                                    }
-                                }
-                            }
-                        }
-                        fputc(32, mf as *void);
-                        fputs(&opath[0] as *byte, mf as *void);
-                    }
+        while lpt != null && oi < codegen.split_mirror_count {
+            if oi >= 0 && oi < codegen.split_mirror_count && lpt[oi] >= 0 && lpt[oi] < codegen.split_mirror_count {
+                var cpath: [byte: 512] = [];
+                var opath: [byte: 512] = [];
+                if c99_mirror_slot_rel_c(codegen, lpt[oi], &cpath[0] as &byte, 512) == 0 &&
+                   c99_mirror_c_path_to_o(&cpath[0] as &byte, &opath[0] as &byte, 512) == 0 {
+                    fputc(32, mf as *void);
+                    fputs(&opath[0] as *byte, mf as *void);
                 }
             }
             oi = oi + 1;
@@ -1712,38 +2298,12 @@ export fn c99_write_split_makefile(codegen: &C99CodeGenerator) void {
         }
         var ri: i32 = 0;
         while ri < codegen.split_mirror_count {
-            if ri >= 0 {
-                if codegen.split_mirror_keys[ri] != null {
-                    var cpr: [byte: 512] = [];
-                    if c99_mirror_rel_c_from_key(codegen.split_mirror_keys[ri], klcp, &cpr[0] as &byte, 512) == 0 {
-                        var opr: [byte: 512] = [];
-                        var qi2: i32 = 0;
-                        while qi2 < 511 {
-                            if qi2 >= 0 && qi2 < @len(cpr) && cpr[qi2] != 0 as byte {
-                                if qi2 >= 0 && qi2 < @len(opr) {
-                                    opr[qi2] = cpr[qi2];
-                                }
-                                qi2 = qi2 + 1;
-                            } else {
-                                break;
-                            }
-                        }
-                        if qi2 >= 3 {
-                            const q1: i32 = qi2 -| 1;
-                            const q2: i32 = qi2 -| 2;
-                            if q2 >= 0 && q2 < 512 && q1 >= 0 && q1 < 512 {
-                                const q2b: byte = opr[q2];
-                                const q1b: byte = opr[q1];
-                                if q2b == 46 as byte && q1b == 99 as byte {
-                                    opr[q1] = 111 as byte;
-                                    if qi2 >= 0 && qi2 < 512 {
-                                        opr[qi2] = 0 as byte;
-                                    }
-                                }
-                            }
-                        }
-                        fprintf(mf as *void, "%s: %s uya_split_protos.h uya_mirror_globals.h uya_part1_types.h uya_strings_extern.h uya_vtable_externs.h\n\t$(CC) -c $(CFLAGS) -I. %s -o %s\n" as *byte, &opr[0] as *byte, &cpr[0] as *byte, &cpr[0] as *byte, &opr[0] as *byte);
-                    }
+            if ri >= 0 && ri < codegen.split_mirror_count {
+                var cpr: [byte: 512] = [];
+                var opr: [byte: 512] = [];
+                if c99_mirror_slot_rel_c(codegen, ri, &cpr[0] as &byte, 512) == 0 &&
+                   c99_mirror_c_path_to_o(&cpr[0] as &byte, &opr[0] as &byte, 512) == 0 {
+                    fprintf(mf as *void, "%s: %s uya_split_protos.h uya_mirror_globals.h uya_part1_types.h uya_strings_extern.h uya_vtable_externs.h\n\t$(CC) -c $(CFLAGS) -I. %s -o %s\n" as *byte, &opr[0] as *byte, &cpr[0] as *byte, &cpr[0] as *byte, &opr[0] as *byte);
                 }
             }
             ri = ri + 1;
