@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches: [ "main" ]
+    # 标签触发的含义见 ubuntu-ci.yml 与 release-publish.yml：发布只认标签上的 CI 结论。
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
 

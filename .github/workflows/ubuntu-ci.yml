@@ -3,6 +3,9 @@ name: ubuntu-ci
 on:
   push:
     branches: [ "main" ]
+    # 打标签也要在这个标签的提交上跑一轮：release-publish 只认标签上的 CI 结论，
+    # main 上同名 workflow 通过不能替代（见 .github/workflows/release-publish.yml）。
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
 
