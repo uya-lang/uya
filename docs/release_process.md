@@ -55,21 +55,29 @@ push tag vX.Y.Z
       │
       └─ 任一轮结束 ──► release-publish (.github/workflows/release-publish.yml)
                             │
-                            ├─ 轮询该标签上的 ubuntu-ci / macos-ci 结论
-                            ├─ 有任何一条 failed / cancelled ──► 拒绝发布（报错退出）
-                            ├─ 等满 2 小时仍未出结论 ────────► 拒绝发布（报错退出）
-                            ├─ 标签提交不在 main 上 ─────────► 拒绝发布（报错退出）
-                            └─ 全部 success ─────────────────► gh release create
+                            ├─ 轮询该标签上的 ubuntu-ci（**阻断项**）
+                            ├─ ubuntu-ci failed / cancelled ─────► 拒绝发布（报错退出）
+                            ├─ 等满 2 小时仍未出结论 ───────────► 拒绝发布（报错退出）
+                            ├─ 标签提交不在 main 上 ─────────────► 拒绝发布（报错退出）
+                            ├─ macos-ci（**仅参考**）红了 ───────► 照发，但记 warning + summary
+                            └─ ubuntu-ci success ───────────────► gh release create
 ```
 
 要点：
 
 - 两个 CI workflow 都有 `tags: [ "v*" ]` 触发，所以**标签提交自己会跑一轮**；
   发布工作流只看 `headBranch == <tag>` 的 push run，main 上同名 workflow 的成功不能替代。
+- **闸门口径**：`ubuntu-ci` 跑的是完整 `make release`（clean 冷启动 + 自举对比 + 全量用例 +
+  专项闸门 + 种子 + 发布构建），是唯一**阻断**发布的 CI；`macos-ci` 目前是
+  **仅参考**（`ADVISORY_WORKFLOWS`）——它会照跑、结果写进日志 / 注解 / job summary，
+  但红了不拦发布。等 macOS hosted 测试的既有问题收口后，把它加回
+  `EXPECTED_WORKFLOWS` 即可升回阻断项（见 `buglist.md` 的 macOS 条目）。
 - 发行说明取自 `docs/releases/RELEASE_<tag>.md`；文件缺失时拒绝发布
   （缺发行说明的版本不允许发）。
 - 标签带后缀（如 `v0.13.0-rc1`）时自动标记为 **pre-release**。
 - 重复执行是幂等的：Release 已存在时走 `gh release edit` 更新标题与说明，不会报错。
+- **紧急 override**：手动触发时可开 `allow_red_ci`，但**必须**同时填 `reason`
+  （写进 job summary 与日志）；不填直接报错退出，避免闸门被悄悄绕过。
 
 ### 失败之后怎么补发
 

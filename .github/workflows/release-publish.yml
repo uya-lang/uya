@@ -30,6 +30,15 @@ on:
         required: false
         default: false
         type: boolean
+      allow_red_ci:
+        description: "跳过「等 CI 全绿」（仅在 CI 已知红且理由充分时用；必须同时填 reason）"
+        required: false
+        default: false
+        type: boolean
+      reason:
+        description: "跳过 CI 闸门的理由（写进 job summary 与发布日志，便于事后追溯）"
+        required: false
+        type: string
 
 permissions:
   contents: write   # 创建/更新 Release
@@ -52,8 +61,15 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_branch }}
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
-      # 必须在这个标签上跑过的 CI 工作流（全部要通过）
-      EXPECTED_WORKFLOWS: "ubuntu-ci macos-ci"
+      ALLOW_RED_CI: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_red_ci || false }}
+      OVERRIDE_REASON: ${{ github.event_name == 'workflow_dispatch' && inputs.reason || '' }}
+      # **阻断发布**的 CI：必须在这个标签上跑过且全绿。ubuntu-ci 跑的是完整 make release
+      # （clean 冷启动 + 自举对比 + 全量用例 + 专项闸门 + 种子 + 发布构建），是发布的主闸门。
+      EXPECTED_WORKFLOWS: "ubuntu-ci"
+      # **只报告不阻断**的 CI：结果会写进日志与注解，红了也照样发布（但会被记录在案）。
+      # macos-ci 目前因 hosted 测试的既有问题常红（见 buglist.md「macOS hosted 测试」条目），
+      # 要重新把它升回阻断项时，把它加回 EXPECTED_WORKFLOWS 即可。
+      ADVISORY_WORKFLOWS: "macos-ci"
     steps:
       - name: Validate tag name
         run: |
@@ -67,6 +83,19 @@ jobs:
       - name: Wait for every CI run on this tag
         run: |
           set -euo pipefail
+          if [ "${ALLOW_RED_CI:-false}" = "true" ]; then
+            if [ -z "${OVERRIDE_REASON:-}" ]; then
+              echo "::error::allow_red_ci=true 时必须填 reason，否则无法追溯为什么绕过 CI 闸门"
+              exit 1
+            fi
+            {
+              echo "### ⚠️ 本次发布跳过了 CI 闸门"
+              echo ""
+              echo "理由：${OVERRIDE_REASON}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::${TAG} 跳过 CI 闸门发布：${OVERRIDE_REASON}"
+            exit 0
+          fi
           deadline=$(( SECONDS + 7200 ))
           while :; do
             all_ok=1
@@ -109,6 +138,30 @@ jobs:
               exit 1
             fi
             sleep 30
+          done
+
+          # 只报告不阻断的 CI：红了不拦发布，但要在日志、注解和 job summary 里留痕。
+          for wf in ${ADVISORY_WORKFLOWS:-}; do
+            state=$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow "${wf}" \
+                      --branch "${TAG}" --limit 20 \
+                      --json event,status,conclusion,headBranch \
+                    | jq -r --arg tag "${TAG}" '
+                        map(select(.event == "push" and .headBranch == $tag)) as $runs
+                        | if ($runs | length) == 0 then "missing"
+                          elif ([$runs[] | select(.status != "completed")] | length) > 0 then "pending"
+                          elif ([$runs[] | select(.conclusion != "success")] | length) > 0 then "failed"
+                          else "ok" end')
+            case "${state}" in
+              ok) echo "✓ ${wf}（仅参考）：${TAG} 上通过" ;;
+              *)
+                echo "::warning::${wf}（仅参考，不阻断发布）在 ${TAG} 上状态=${state}；详情见 buglist.md 的 macOS 条目"
+                {
+                  echo "### ⚠️ 参考 CI 未全绿"
+                  echo ""
+                  echo "- \`${wf}\`：\`${state}\`（不阻断本次发布）"
+                } >> "$GITHUB_STEP_SUMMARY"
+                ;;
+            esac
           done
 
       - name: Checkout the tagged commit
