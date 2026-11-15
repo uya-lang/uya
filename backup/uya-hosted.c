@@ -243,6 +243,9 @@ static inline int __uya_memcmp(const void *s1, const void *s2, size_t n) {
     for (size_t i = 0; i < n; i++) { if (a[i] != b[i]) return a[i] - b[i]; } return 0;
 }
 
+#undef memmove
+#undef memset
+#undef memchr
 static inline void *__uya_checked_memcpy(void *d, const void *s, size_t n) { if (d == NULL || s == NULL || n == 0) { return d; } return __uya_memcpy(d, s, n); }
 static inline void *__uya_checked_memmove(void *d, const void *s, size_t n) { extern void *memmove(void *, const void *, size_t); if (d == NULL || s == NULL || n == 0) { return d; } return memmove(d, s, n); }
 static inline void *__uya_checked_memset(void *d, int c, size_t n) { extern void *memset(void *, int, size_t); if (d == NULL || n == 0) { return d; } return memset(d, c, n); }
@@ -175343,6 +175346,9 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    for (size_t i = 0; i < n; i++) { if (a[i] != b[i]) return a[i] - b[i]; } return 0;\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str431, (void *)codegen->emit_stream)        );
         if (codegen->is_nostdlib == 0) {
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef memmove\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef memset\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef memchr\n", (void *)codegen->emit_stream)            );
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void *__uya_checked_memcpy(void *d, const void *s, size_t n) { if (d == NULL || s == NULL || n == 0) { return d; } return __uya_memcpy(d, s, n); }\n", (void *)codegen->emit_stream)            );
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void *__uya_checked_memmove(void *d, const void *s, size_t n) { extern void *memmove(void *, const void *, size_t); if (d == NULL || s == NULL || n == 0) { return d; } return memmove(d, s, n); }\n", (void *)codegen->emit_stream)            );
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void *__uya_checked_memset(void *d, int c, size_t n) { extern void *memset(void *, int, size_t); if (d == NULL || n == 0) { return d; } return memset(d, c, n); }\n", (void *)codegen->emit_stream)            );
