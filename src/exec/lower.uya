@@ -562,6 +562,9 @@ fn exec_lower_eval_size_align_builtin(ctx: &ExecLowerContext, expr: &ASTNode) i3
             const named_target_node: &ASTNode = compiler_arena_alloc(ctx.arena, @size_of(ASTNode)) as &ASTNode;
             var generic_target_type: Type = make_void_type();
             if named_target_node != null {
+                // 整节点拷贝后改 kind：源节点是别的 kind，它的变体字段会连同重叠组一起拷进来。
+                // 规矩（docs/astnode_overlap_design.md §4.3）：改完 kind 必须把**本组全部字段**
+                // 覆盖写一遍（下面 4 行），否则残留的同 offset 字节会被当成新 kind 的字段读走。
                 named_target_node[0] = target[0];
                 named_target_node.type = ASTNodeType.AST_TYPE_NAMED;
                 named_target_node.type_named_name = target.identifier_name;

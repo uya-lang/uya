@@ -4321,7 +4321,14 @@ fn exec_builder_unwrap_field_expr(expr: &HIRExpr) &HIRExpr {
 /// 参数：`ctx` 构建上下文；`stmt` 变量初始化语句（读 `var_decl_moved_field_src`）。
 /// 返回值：0 成功；-1 失败。
 fn exec_builder_emit_moved_field_clear(ctx: &ExecFunctionBuildContext, stmt: &HIRStmt) i32 {
+    // **必须校验 kind**：`HIR_STMT_VAR_INIT` 的 `ast_node` 不一定就是 `AST_VAR_DECL`
+    // ——`for x in a..b` 降级出来的迭代变量初始化，其 `ast_node` 是那个 `AST_FOR_STMT`。
+    // ASTNode 的变体字段放在匿名 union 重叠组里共享存储，`var_decl_moved_field_src`
+    // 与 `for_stmt_range_end` 同处一个 offset：不校验 kind 就会把「循环上界的 AST 指针」
+    // 当成「被移动字段的源路径」，凭空多发射一条字段清零，`--vm` 下
+    // `test_json_from_json_slice` / `test_json_struct_collections` 因此取到错的 slice 长度。
     if ctx == null || stmt == null || stmt.ast_node == null ||
+        stmt.ast_node.type != ASTNodeType.AST_VAR_DECL ||
         stmt.ast_node.var_decl_moved_field_src == null {
         return 0;
     }
