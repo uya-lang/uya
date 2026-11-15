@@ -2873,6 +2873,16 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
             // Uya 的 mem 族把「空指针 / n == 0」定义为返回入参本身；宿主 glibc 的
             // `memcpy(NULL, …)` 直接段错误。hosted 直接把调用点换成下面这些带判空的
             // 包装，保持与 Uya 语义一致（内部批量拷贝仍走 __uya_memcpy 字节循环）。
+            //
+            // 下面三个包装内部要重新声明同名真函数，所以必须先摘掉可能存在的函数式宏：
+            // Darwin 的 <string.h> 把 memmove/memset/memchr 定义成宏
+            // （secure/_string.h 的 `#define memmove(...) __memmove_chk_func(...)`），
+            // 没摘掉时 `extern void *memmove(void *, const void *, size_t);` 会被展开成
+            // 语法垃圾，macOS 上 `make uya-hosted` 因此编译不过（Linux 侧全绿）。
+            // 回归门禁：tests/verify_macos_hosted_c_syntax.sh。
+            fputs("#undef memmove\n" as *byte, codegen.emit_stream as *void);
+            fputs("#undef memset\n" as *byte, codegen.emit_stream as *void);
+            fputs("#undef memchr\n" as *byte, codegen.emit_stream as *void);
             fputs("static inline void *__uya_checked_memcpy(void *d, const void *s, size_t n) { if (d == NULL || s == NULL || n == 0) { return d; } return __uya_memcpy(d, s, n); }\n" as *byte, codegen.emit_stream as *void);
             fputs("static inline void *__uya_checked_memmove(void *d, const void *s, size_t n) { extern void *memmove(void *, const void *, size_t); if (d == NULL || s == NULL || n == 0) { return d; } return memmove(d, s, n); }\n" as *byte, codegen.emit_stream as *void);
             fputs("static inline void *__uya_checked_memset(void *d, int c, size_t n) { extern void *memset(void *, int, size_t); if (d == NULL || n == 0) { return d; } return memset(d, c, n); }\n" as *byte, codegen.emit_stream as *void);

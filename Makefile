@@ -1057,6 +1057,19 @@ check: uya
 			echo "跳过 benchmarks/http_bench_async_epoll.uya C99（设 UYA_ENABLE_HTTP_BENCH_ASYNC_EPOLL_CHECK=1 启用）"; \
 		fi; \
 		echo ""; \
+		echo "验证 macOS 目标生成 C（Darwin <string.h> 宏冲突）..."; \
+		if ZIG="$(ZIG)" bash ./tests/verify_macos_hosted_c_syntax.sh > /tmp/verify_out.txt 2>&1; then \
+			grep -E "✓|⊘|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+			VERIFY_EXIT=0; \
+		else \
+			cat /tmp/verify_out.txt; \
+			VERIFY_EXIT=1; \
+		fi; \
+		if [ $$VERIFY_EXIT -ne 0 ]; then \
+			echo "✗ macOS 目标生成 C 验证失败"; \
+			exit 1; \
+		fi; \
+		echo ""; \
 		echo "=========================================="; \
 	echo "测试结果："; \
 	echo "=========================================="; \

@@ -472,6 +472,26 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
 
 ## 编译器 bug
 
+- [x] **P0 / 严重：macOS 上 `make uya-hosted` 编译不过（Darwin `<string.h>` 函数式宏 vs 生成的 extern 声明）**
+  - 状态：**已修复**（2026-11-15；门禁 `tests/verify_macos_hosted_c_syntax.sh`，已挂进 `make check`）
+  - 现象：macos-ci 自 2026-10-31 起在 `Build hosted compiler` 步骤红（exit 2），一路红到
+    v0.12.0 的 release 提交，而 Linux 侧 `make release` 全绿 —— 典型的「只在 Darwin 头文件下成立」。
+  - 根因：`844fbf0b`（2026-10-31，hosted 下 mem 族走判空包装）让 codegen 发射
+    `static inline void *__uya_checked_memmove(...) { extern void *memmove(void *, const void *, size_t); ... }`。
+    Darwin 的 `<string.h>` 把 `memmove`/`memset`/`memchr` 定义成**函数式宏**
+    （`secure/_string.h`：`#define memmove(...) __memmove_chk_func(...)`），于是那句 `extern`
+    声明被宏展开成语法垃圾（`expected parameter declarator`），整份生成 C 编译失败。
+    Linux/glibc 不定义这些宏，所以本地永远看不到。
+  - 修复内容：
+    - `src/codegen/c99/main.uya`：发射这三个包装前先 `#undef memmove` / `#undef memset` /
+      `#undef memchr`（`#undef` 未定义的标识符是合法的），宏摘掉后 `extern` 恢复成真正的
+      函数声明。
+    - 新增 `tests/verify_macos_hosted_c_syntax.sh`：用 `bin/uya` 现场生成一份 macOS arm64
+      目标（hosted）的 C 探针程序，再用 `zig cc -target aarch64-macos -c -Werror` 编译；
+      没装 zig 时跳过（与其它跨目标验证脚本同约定）。这样「只在 macOS 上编译不过」的问题
+      在 Linux CI 上就能被抓住。
+    - `Makefile`：`check` 增加该门禁步骤。
+
 - [x] **P1 / 严重：C99 后端把 i64 饱和/包装链截断成 32 位，X.509 notAfter ≥ 2038 被算成「已过期」**
   - 状态：**已修复**（2026-11-15，v0.12.0；回归测试 `tests/test_i64_wrapping_chain.uya`）
   - 现象：`uya test tests/test_tls_x509.uya` 在 C99 与 VM 上表现不一致；进一步最小化后
