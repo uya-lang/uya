@@ -75,9 +75,10 @@
   - [ ] `tests/exec_vm_census_mems.txt` 的单用例内存额度是否可下调 —— 未做：同理，额度瓶颈不在 AST。
 - [x] **C5 自举与提交**：`make b` **通过** —— 「主编译器」与「自举编译器」编出的可执行文件 **`cmp` 字节相同**。
   提交 `65fd8038`（7 个文件，+1040/−249）。
-  `backup/uya.c` **不需要**重生成：现有种子（`6647c206` 起的版本）已经认识匿名 union 重叠块语法
-  （`grep -c var_decl_overlap_block backup/uya.c` = 11），冷启动照旧可用；本轮只改了数据布局与注释，
-  没有引入种子不认识的语法。若将来把种子回退到那之前，必须走两阶段自举 + `make backup-seed`。
+  种子已同步刷新：`make backup-seed` 用当前编译器重编单文件 C，更新了 `backup/uya.c` 与
+  `backup/uya-linux-x86_64.c`（**不需要两阶段自举** —— 现有种子（`6647c206` 起）本来就认识
+  匿名 union 重叠块语法，`grep -c var_decl_overlap_block backup/uya.c` = 11，冷启动一直可用；
+  刷新只是让种子与源码同步）。若将来把种子回退到 `6647c206` 之前，才必须走两阶段自举。
 - [ ] **C6 回滚预案**：改动集中在 `src/ast.uya` 一个文件，`git revert` 到扁平版成本可控。
 
 ---

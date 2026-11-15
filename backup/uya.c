@@ -6865,253 +6865,415 @@ struct ASTNode {
     int32_t line;
     int32_t column;
     uint8_t * filename;
-    struct ASTNode * * program_decls;
-    int32_t program_decl_count;
-    uint8_t * enum_decl_name;
-    struct EnumVariant * enum_decl_variants;
-    int32_t enum_decl_variant_count;
-    int32_t enum_decl_is_export;
-    uint8_t * error_decl_name;
-    int32_t error_decl_is_export;
-    uint8_t * interface_decl_name;
-    struct TypeParam * interface_decl_type_params;
-    int32_t interface_decl_type_param_count;
-    struct ASTNode * * interface_decl_method_sigs;
-    int32_t interface_decl_method_sig_count;
-    uint8_t * * interface_decl_composed_interfaces;
-    int32_t interface_decl_composed_count;
-    int32_t interface_decl_is_export;
-    uint8_t * struct_decl_name;
-    struct TypeParam * struct_decl_type_params;
-    int32_t struct_decl_type_param_count;
-    uint8_t * * struct_decl_interface_names;
-    int32_t struct_decl_interface_count;
-    struct ASTNode * * struct_decl_fields;
-    int32_t struct_decl_field_count;
-    struct ASTNode * * struct_decl_methods;
-    int32_t struct_decl_method_count;
-    int32_t struct_decl_is_export;
-    int32_t struct_decl_is_opaque;
-    uint8_t * union_decl_name;
-    struct ASTNode * * union_decl_variants;
-    int32_t union_decl_variant_count;
-    struct ASTNode * * union_decl_methods;
-    int32_t union_decl_method_count;
-    int32_t union_decl_is_extern;
-    int32_t union_decl_is_export;
-    struct TypeParam * union_decl_type_params;
-    int32_t union_decl_type_param_count;
-    uint8_t * method_block_struct_name;
-    uint8_t * method_block_union_name;
-    struct ASTNode * * method_block_methods;
-    int32_t method_block_method_count;
-    uint8_t * fn_decl_name;
-    struct TypeParam * fn_decl_type_params;
-    int32_t fn_decl_type_param_count;
-    struct ASTNode * * fn_decl_params;
-    int32_t fn_decl_param_count;
-    struct ASTNode * fn_decl_return_type;
-    struct ASTNode * fn_decl_body;
-    int32_t fn_decl_is_varargs;
-    int32_t fn_decl_is_export;
-    int32_t fn_decl_is_extern;
-    int32_t fn_decl_is_async;
-    int32_t fn_decl_is_naked;
-    int32_t fn_decl_align;
-    uint8_t * fn_decl_extern_lib_name;
-    uint8_t * macro_decl_name;
-    struct ASTNode * * macro_decl_params;
-    int32_t macro_decl_param_count;
-    uint8_t * macro_decl_return_tag;
-    struct ASTNode * macro_decl_body;
-    int32_t macro_decl_is_export;
-    uint8_t * type_alias_name;
-    struct ASTNode * type_alias_target_type;
-    int32_t type_alias_is_export;
-    struct ASTNode * mc_eval_operand;
-    struct ASTNode * mc_code_operand;
-    struct ASTNode * mc_ast_operand;
-    struct ASTNode * mc_error_operand;
-    struct ASTNode * mc_interp_operand;
-    struct ASTNode * mc_type_operand;
-    struct ASTNode * mc_source_operand;
-    uint8_t * var_decl_moved_field_src;
-    int32_t var_decl_is_export;
-    int32_t var_decl_is_thread_local;
-    uint8_t * var_decl_name;
-    struct ASTNode * var_decl_init;
-    int32_t var_decl_is_const;
-    int32_t var_decl_was_moved;
-    uint8_t * extern_var_decl_name;
-    struct ASTNode * extern_var_decl_var_type;
-    struct ASTNode * extern_var_decl_init_expr;
-    int32_t extern_var_decl_is_const;
-    int32_t extern_var_decl_is_extern;
-    int32_t extern_var_decl_is_export;
-    uint8_t * extern_var_decl_extern_lib_name;
-    uint8_t * * destructure_decl_names;
-    int32_t destructure_decl_name_count;
-    int32_t destructure_decl_is_const;
-    struct ASTNode * destructure_decl_init;
-    uint8_t * * use_stmt_path_segments;
-    int32_t use_stmt_path_segment_count;
-    uint8_t * use_stmt_item_name;
-    uint8_t * use_stmt_alias;
-    uint8_t * c_import_path_literal;
-    uint8_t * c_import_resolved_path;
-    uint8_t * c_import_cflags_literal;
-    uint8_t * c_import_ldflags_literal;
-    uint8_t * c_import_cflags_normalized;
-    uint8_t * c_import_ldflags_normalized;
-    uint8_t * * c_import_expanded_paths;
-    uint8_t * * c_import_expanded_rel_paths;
-    int32_t c_import_expanded_count;
-    struct ASTNode * binary_expr_left;
-    int32_t binary_expr_op;
-    struct ASTNode * binary_expr_right;
-    struct ASTNode * pipeline_expr_left;
-    struct ASTNode * pipeline_expr_right;
-    int32_t pipeline_expr_move_checked;
-    int32_t unary_expr_op;
-    struct ASTNode * unary_expr_operand;
-    struct ASTNode * try_expr_operand;
-    int32_t try_expr_is_checked_arith;
-    int32_t try_expr_checked_kind;
-    struct ASTNode * catch_expr_operand;
-    uint8_t * catch_expr_err_name;
-    struct ASTNode * catch_expr_catch_block;
-    int32_t catch_expr_is_checked_arith;
-    int32_t catch_expr_checked_kind;
-    struct ASTNode * await_expr_operand;
-    uint8_t * error_value_name;
-    struct ASTNode * match_expr_expr;
-    struct ASTMatchArm * match_expr_arms;
-    int32_t match_expr_arm_count;
-    struct ASTNode * call_expr_callee;
-    struct ASTNode * * call_expr_args;
-    int32_t call_expr_arg_count;
-    int32_t call_expr_has_ellipsis_forward;
-    struct ASTNode * * call_expr_type_args;
-    int32_t call_expr_type_arg_count;
-    struct ASTNode * simd_splat_target_type;
-    struct ASTNode * member_access_object;
-    uint8_t * member_access_field_name;
-    int32_t member_access_is_module_access;
-    uint8_t * member_access_module_name;
-    struct ASTNode * array_access_array;
-    struct ASTNode * array_access_index;
-    struct ASTNode * slice_expr_base;
-    struct ASTNode * slice_expr_start_expr;
-    struct ASTNode * slice_expr_len_expr;
-    uint8_t * struct_init_struct_name;
-    uint8_t * * struct_init_field_names;
-    struct ASTNode * * struct_init_field_values;
-    int32_t struct_init_field_count;
-    struct ASTNode * * struct_init_type_args;
-    int32_t struct_init_type_arg_count;
-    struct ASTNode * * array_literal_elements;
-    int32_t array_literal_element_count;
-    struct ASTNode * array_literal_repeat_count_expr;
-    struct ASTNode * * tuple_literal_elements;
-    int32_t tuple_literal_element_count;
-    struct ASTNode * sizeof_expr_target;
-    int32_t sizeof_expr_is_type;
-    struct ASTNode * len_expr_array;
-    struct ASTNode * alignof_expr_target;
-    int32_t alignof_expr_is_type;
-    struct ASTNode * cast_expr_expr;
-    struct ASTNode * cast_expr_target_type;
-    int32_t cast_expr_is_force_cast;
-    uint8_t * identifier_name;
-    int32_t number_value;
-    int64_t number_value_i64;
-    int32_t literal_suffix;
-    double float_literal_value;
-    int32_t float_literal_suffix;
-    int32_t bool_literal_value;
-    int32_t int_limit_is_max;
-    int32_t int_limit_resolved_kind;
-    uint8_t * string_literal_value;
-    uint8_t * embed_path_literal;
-    uint8_t * embed_resolved_path;
-    uint8_t * embed_data;
-    int32_t embed_size;
-    uint8_t * * embed_dir_paths;
-    uint8_t * * embed_dir_resolved_paths;
-    uint8_t * * embed_dir_data;
-    int32_t * embed_dir_sizes;
-    int32_t embed_dir_entry_count;
-    int32_t char_literal_value;
-    struct ASTStringInterpSegment * string_interp_segments;
-    int32_t string_interp_segment_count;
-    int32_t string_interp_computed_size;
-    struct ASTNode * if_stmt_condition;
-    struct ASTNode * if_stmt_then_branch;
-    struct ASTNode * if_stmt_else_branch;
-    struct ASTNode * while_stmt_condition;
-    struct ASTNode * while_stmt_body;
-    struct ASTNode * for_stmt_array;
-    uint8_t * for_stmt_var_name;
-    int32_t for_stmt_is_ref;
-    int32_t for_stmt_is_range;
-    struct ASTNode * for_stmt_range_start;
-    struct ASTNode * for_stmt_range_end;
-    struct ASTNode * for_stmt_body;
-    struct ASTNode * return_stmt_expr;
-    struct ASTNode * defer_stmt_body;
-    struct ASTNode * errdefer_stmt_body;
-    uint8_t * test_stmt_description;
-    struct ASTNode * test_stmt_body;
-    struct ASTNode * assign_dest;
-    struct ASTNode * assign_src;
-    struct ASTNode * * block_stmts;
-    int32_t block_stmt_count;
-    uint8_t * type_named_name;
-    struct ASTNode * * type_named_type_args;
-    int32_t type_named_type_arg_count;
-    struct ASTNode * type_pointer_pointed_type;
-    int32_t type_pointer_is_ffi_pointer;
-    int32_t type_pointer_is_const;
-    struct ASTNode * type_array_element_type;
-    struct ASTNode * type_array_size_expr;
-    struct ASTNode * type_slice_element_type;
-    struct ASTNode * type_slice_size_expr;
-    int32_t type_slice_element_const;
-    struct ASTNode * * type_tuple_element_types;
-    int32_t type_tuple_element_count;
-    struct ASTNode * type_error_union_payload_type;
-    struct ASTNode * syscall_number;
-    struct ASTNode * * syscall_args;
-    int32_t syscall_arg_count;
-    struct ASTNode * ptr_from_usize_value;
-    struct ASTNode * usize_from_ptr_ptr;
-    struct ASTNode * error_id_operand;
-    struct ASTNode * error_name_operand;
-    struct ASTNode * va_start_ap;
-    struct ASTNode * va_start_last_param;
-    struct ASTNode * va_end_ap;
-    struct ASTNode * va_arg_ap;
-    struct ASTNode * va_arg_arg_type;
-    struct ASTNode * va_copy_dest;
-    struct ASTNode * va_copy_src;
-    uint8_t * * asm_instructions;
-    int32_t asm_instruction_count;
-    struct ASTNode * * asm_inputs;
-    int32_t * asm_input_counts;
-    struct ASTNode * * asm_outputs;
-    int32_t * asm_output_counts;
-    uint8_t * * asm_clobbers;
-    int32_t asm_clobber_count;
-    int32_t asm_clobbers_memory;
-    struct ASTNode * print_expr;
-    struct ASTNode * type_atomic_inner_type;
-    struct ASTNode * type_vector_element_type;
-    struct ASTNode * type_vector_size_expr;
-    struct ASTNode * type_mask_size_expr;
-    struct ASTNode * type_frame_operand;
-    struct ASTNode * var_decl_type;
-    int32_t var_decl_overlap_block;
-    int32_t var_decl_overlap_group;
+    __extension__ union {
+        __extension__ struct {
+            struct ASTNode * * program_decls;
+            int32_t program_decl_count;
+        };
+        __extension__ struct {
+            uint8_t * enum_decl_name;
+            struct EnumVariant * enum_decl_variants;
+            int32_t enum_decl_variant_count;
+            int32_t enum_decl_is_export;
+        };
+        __extension__ struct {
+            uint8_t * error_decl_name;
+            int32_t error_decl_is_export;
+        };
+        __extension__ struct {
+            uint8_t * interface_decl_name;
+            struct TypeParam * interface_decl_type_params;
+            int32_t interface_decl_type_param_count;
+            struct ASTNode * * interface_decl_method_sigs;
+            int32_t interface_decl_method_sig_count;
+            uint8_t * * interface_decl_composed_interfaces;
+            int32_t interface_decl_composed_count;
+            int32_t interface_decl_is_export;
+        };
+        __extension__ struct {
+            uint8_t * struct_decl_name;
+            struct TypeParam * struct_decl_type_params;
+            int32_t struct_decl_type_param_count;
+            uint8_t * * struct_decl_interface_names;
+            int32_t struct_decl_interface_count;
+            struct ASTNode * * struct_decl_fields;
+            int32_t struct_decl_field_count;
+            struct ASTNode * * struct_decl_methods;
+            int32_t struct_decl_method_count;
+            int32_t struct_decl_is_export;
+            int32_t struct_decl_is_opaque;
+        };
+        __extension__ struct {
+            uint8_t * union_decl_name;
+            struct ASTNode * * union_decl_variants;
+            int32_t union_decl_variant_count;
+            struct ASTNode * * union_decl_methods;
+            int32_t union_decl_method_count;
+            int32_t union_decl_is_extern;
+            int32_t union_decl_is_export;
+            struct TypeParam * union_decl_type_params;
+            int32_t union_decl_type_param_count;
+        };
+        __extension__ struct {
+            uint8_t * method_block_struct_name;
+            uint8_t * method_block_union_name;
+            struct ASTNode * * method_block_methods;
+            int32_t method_block_method_count;
+        };
+        __extension__ struct {
+            uint8_t * fn_decl_name;
+            struct TypeParam * fn_decl_type_params;
+            int32_t fn_decl_type_param_count;
+            struct ASTNode * * fn_decl_params;
+            int32_t fn_decl_param_count;
+            struct ASTNode * fn_decl_return_type;
+            struct ASTNode * fn_decl_body;
+            int32_t fn_decl_is_varargs;
+            int32_t fn_decl_is_export;
+            int32_t fn_decl_is_extern;
+            int32_t fn_decl_is_async;
+            int32_t fn_decl_is_naked;
+            int32_t fn_decl_align;
+            uint8_t * fn_decl_extern_lib_name;
+        };
+        __extension__ struct {
+            uint8_t * macro_decl_name;
+            struct ASTNode * * macro_decl_params;
+            int32_t macro_decl_param_count;
+            uint8_t * macro_decl_return_tag;
+            struct ASTNode * macro_decl_body;
+            int32_t macro_decl_is_export;
+        };
+        __extension__ struct {
+            uint8_t * type_alias_name;
+            struct ASTNode * type_alias_target_type;
+            int32_t type_alias_is_export;
+        };
+        __extension__ struct {
+            struct ASTNode * mc_eval_operand;
+        };
+        __extension__ struct {
+            struct ASTNode * mc_code_operand;
+        };
+        __extension__ struct {
+            struct ASTNode * mc_ast_operand;
+        };
+        __extension__ struct {
+            struct ASTNode * mc_error_operand;
+        };
+        __extension__ struct {
+            struct ASTNode * mc_interp_operand;
+        };
+        __extension__ struct {
+            struct ASTNode * mc_type_operand;
+        };
+        __extension__ struct {
+            struct ASTNode * mc_source_operand;
+        };
+        __extension__ struct {
+            uint8_t * var_decl_name;
+            struct ASTNode * var_decl_type;
+            struct ASTNode * var_decl_init;
+            int32_t var_decl_is_const;
+            int32_t var_decl_was_moved;
+            uint8_t * var_decl_moved_field_src;
+            int32_t var_decl_is_export;
+            int32_t var_decl_is_thread_local;
+            int32_t var_decl_overlap_block;
+            int32_t var_decl_overlap_group;
+        };
+        __extension__ struct {
+            uint8_t * extern_var_decl_name;
+            struct ASTNode * extern_var_decl_var_type;
+            struct ASTNode * extern_var_decl_init_expr;
+            int32_t extern_var_decl_is_const;
+            int32_t extern_var_decl_is_extern;
+            int32_t extern_var_decl_is_export;
+            uint8_t * extern_var_decl_extern_lib_name;
+        };
+        __extension__ struct {
+            uint8_t * * destructure_decl_names;
+            int32_t destructure_decl_name_count;
+            int32_t destructure_decl_is_const;
+            struct ASTNode * destructure_decl_init;
+        };
+        __extension__ struct {
+            uint8_t * * use_stmt_path_segments;
+            int32_t use_stmt_path_segment_count;
+            uint8_t * use_stmt_item_name;
+            uint8_t * use_stmt_alias;
+        };
+        __extension__ struct {
+            uint8_t * c_import_path_literal;
+            uint8_t * c_import_resolved_path;
+            uint8_t * c_import_cflags_literal;
+            uint8_t * c_import_ldflags_literal;
+            uint8_t * c_import_cflags_normalized;
+            uint8_t * c_import_ldflags_normalized;
+            uint8_t * * c_import_expanded_paths;
+            uint8_t * * c_import_expanded_rel_paths;
+            int32_t c_import_expanded_count;
+        };
+        __extension__ struct {
+            struct ASTNode * binary_expr_left;
+            int32_t binary_expr_op;
+            struct ASTNode * binary_expr_right;
+        };
+        __extension__ struct {
+            struct ASTNode * pipeline_expr_left;
+            struct ASTNode * pipeline_expr_right;
+            int32_t pipeline_expr_move_checked;
+        };
+        __extension__ struct {
+            int32_t unary_expr_op;
+            struct ASTNode * unary_expr_operand;
+        };
+        __extension__ struct {
+            struct ASTNode * try_expr_operand;
+            int32_t try_expr_is_checked_arith;
+            int32_t try_expr_checked_kind;
+        };
+        __extension__ struct {
+            struct ASTNode * catch_expr_operand;
+            uint8_t * catch_expr_err_name;
+            struct ASTNode * catch_expr_catch_block;
+            int32_t catch_expr_is_checked_arith;
+            int32_t catch_expr_checked_kind;
+        };
+        __extension__ struct {
+            struct ASTNode * await_expr_operand;
+        };
+        __extension__ struct {
+            uint8_t * error_value_name;
+        };
+        __extension__ struct {
+            struct ASTNode * match_expr_expr;
+            struct ASTMatchArm * match_expr_arms;
+            int32_t match_expr_arm_count;
+        };
+        __extension__ struct {
+            struct ASTNode * call_expr_callee;
+            struct ASTNode * * call_expr_args;
+            int32_t call_expr_arg_count;
+            int32_t call_expr_has_ellipsis_forward;
+            struct ASTNode * * call_expr_type_args;
+            int32_t call_expr_type_arg_count;
+            struct ASTNode * simd_splat_target_type;
+        };
+        __extension__ struct {
+            struct ASTNode * member_access_object;
+            uint8_t * member_access_field_name;
+            int32_t member_access_is_module_access;
+            uint8_t * member_access_module_name;
+        };
+        __extension__ struct {
+            struct ASTNode * array_access_array;
+            struct ASTNode * array_access_index;
+        };
+        __extension__ struct {
+            struct ASTNode * slice_expr_base;
+            struct ASTNode * slice_expr_start_expr;
+            struct ASTNode * slice_expr_len_expr;
+        };
+        __extension__ struct {
+            uint8_t * struct_init_struct_name;
+            uint8_t * * struct_init_field_names;
+            struct ASTNode * * struct_init_field_values;
+            int32_t struct_init_field_count;
+            struct ASTNode * * struct_init_type_args;
+            int32_t struct_init_type_arg_count;
+        };
+        __extension__ struct {
+            struct ASTNode * * array_literal_elements;
+            int32_t array_literal_element_count;
+            struct ASTNode * array_literal_repeat_count_expr;
+        };
+        __extension__ struct {
+            struct ASTNode * * tuple_literal_elements;
+            int32_t tuple_literal_element_count;
+        };
+        __extension__ struct {
+            struct ASTNode * sizeof_expr_target;
+            int32_t sizeof_expr_is_type;
+        };
+        __extension__ struct {
+            struct ASTNode * len_expr_array;
+        };
+        __extension__ struct {
+            struct ASTNode * alignof_expr_target;
+            int32_t alignof_expr_is_type;
+        };
+        __extension__ struct {
+            struct ASTNode * cast_expr_expr;
+            struct ASTNode * cast_expr_target_type;
+            int32_t cast_expr_is_force_cast;
+        };
+        __extension__ struct {
+            uint8_t * identifier_name;
+        };
+        __extension__ struct {
+            int32_t number_value;
+            int64_t number_value_i64;
+            int32_t literal_suffix;
+        };
+        __extension__ struct {
+            double float_literal_value;
+            int32_t float_literal_suffix;
+        };
+        __extension__ struct {
+            int32_t bool_literal_value;
+        };
+        __extension__ struct {
+            int32_t int_limit_is_max;
+            int32_t int_limit_resolved_kind;
+        };
+        __extension__ struct {
+            uint8_t * string_literal_value;
+        };
+        __extension__ struct {
+            uint8_t * embed_path_literal;
+            uint8_t * embed_resolved_path;
+            uint8_t * embed_data;
+            int32_t embed_size;
+            uint8_t * * embed_dir_paths;
+            uint8_t * * embed_dir_resolved_paths;
+            uint8_t * * embed_dir_data;
+            int32_t * embed_dir_sizes;
+            int32_t embed_dir_entry_count;
+        };
+        __extension__ struct {
+            int32_t char_literal_value;
+        };
+        __extension__ struct {
+            struct ASTStringInterpSegment * string_interp_segments;
+            int32_t string_interp_segment_count;
+            int32_t string_interp_computed_size;
+        };
+        __extension__ struct {
+            struct ASTNode * if_stmt_condition;
+            struct ASTNode * if_stmt_then_branch;
+            struct ASTNode * if_stmt_else_branch;
+        };
+        __extension__ struct {
+            struct ASTNode * while_stmt_condition;
+            struct ASTNode * while_stmt_body;
+        };
+        __extension__ struct {
+            struct ASTNode * for_stmt_array;
+            uint8_t * for_stmt_var_name;
+            int32_t for_stmt_is_ref;
+            int32_t for_stmt_is_range;
+            struct ASTNode * for_stmt_range_start;
+            struct ASTNode * for_stmt_range_end;
+            struct ASTNode * for_stmt_body;
+        };
+        __extension__ struct {
+            struct ASTNode * return_stmt_expr;
+        };
+        __extension__ struct {
+            struct ASTNode * defer_stmt_body;
+        };
+        __extension__ struct {
+            struct ASTNode * errdefer_stmt_body;
+        };
+        __extension__ struct {
+            uint8_t * test_stmt_description;
+            struct ASTNode * test_stmt_body;
+        };
+        __extension__ struct {
+            struct ASTNode * assign_dest;
+            struct ASTNode * assign_src;
+        };
+        __extension__ struct {
+            struct ASTNode * * block_stmts;
+            int32_t block_stmt_count;
+        };
+        __extension__ struct {
+            uint8_t * type_named_name;
+            struct ASTNode * * type_named_type_args;
+            int32_t type_named_type_arg_count;
+        };
+        __extension__ struct {
+            struct ASTNode * type_pointer_pointed_type;
+            int32_t type_pointer_is_ffi_pointer;
+            int32_t type_pointer_is_const;
+        };
+        __extension__ struct {
+            struct ASTNode * type_array_element_type;
+            struct ASTNode * type_array_size_expr;
+        };
+        __extension__ struct {
+            struct ASTNode * type_slice_element_type;
+            struct ASTNode * type_slice_size_expr;
+            int32_t type_slice_element_const;
+        };
+        __extension__ struct {
+            struct ASTNode * * type_tuple_element_types;
+            int32_t type_tuple_element_count;
+        };
+        __extension__ struct {
+            struct ASTNode * type_error_union_payload_type;
+        };
+        __extension__ struct {
+            struct ASTNode * syscall_number;
+            struct ASTNode * * syscall_args;
+            int32_t syscall_arg_count;
+        };
+        __extension__ struct {
+            struct ASTNode * ptr_from_usize_value;
+        };
+        __extension__ struct {
+            struct ASTNode * usize_from_ptr_ptr;
+        };
+        __extension__ struct {
+            struct ASTNode * error_id_operand;
+        };
+        __extension__ struct {
+            struct ASTNode * error_name_operand;
+        };
+        __extension__ struct {
+            struct ASTNode * va_start_ap;
+            struct ASTNode * va_start_last_param;
+        };
+        __extension__ struct {
+            struct ASTNode * va_end_ap;
+        };
+        __extension__ struct {
+            struct ASTNode * va_arg_ap;
+            struct ASTNode * va_arg_arg_type;
+        };
+        __extension__ struct {
+            struct ASTNode * va_copy_dest;
+            struct ASTNode * va_copy_src;
+        };
+        __extension__ struct {
+            uint8_t * * asm_instructions;
+            int32_t asm_instruction_count;
+            struct ASTNode * * asm_inputs;
+            int32_t * asm_input_counts;
+            struct ASTNode * * asm_outputs;
+            int32_t * asm_output_counts;
+            uint8_t * * asm_clobbers;
+            int32_t asm_clobber_count;
+            int32_t asm_clobbers_memory;
+        };
+        __extension__ struct {
+            struct ASTNode * print_expr;
+        };
+        __extension__ struct {
+            struct ASTNode * type_atomic_inner_type;
+        };
+        __extension__ struct {
+            struct ASTNode * type_vector_element_type;
+            struct ASTNode * type_vector_size_expr;
+        };
+        __extension__ struct {
+            struct ASTNode * type_mask_size_expr;
+        };
+        __extension__ struct {
+            struct ASTNode * type_frame_operand;
+        };
+    };
     int32_t is_optimized;
     int32_t optimized_value;
     int32_t is_dead_code;
@@ -12489,7 +12651,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_185883484_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -12526,7 +12688,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_466384096_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -110411,7 +110573,7 @@ static __attribute__((used)) struct HIRExpr * exec_builder_unwrap_field_expr(str
 static __attribute__((used)) int32_t exec_builder_emit_moved_field_clear(struct ExecFunctionBuildContext * ctx, struct HIRStmt * stmt) {
     (void)ctx;
     (void)stmt;
-    if (((((ctx == NULL) || (stmt == NULL)) || (stmt->ast_node == NULL)) || (stmt->ast_node->var_decl_moved_field_src == NULL))) {
+    if ((((((ctx == NULL) || (stmt == NULL)) || (stmt->ast_node == NULL)) || (stmt->ast_node->type != main_ASTNodeType_AST_VAR_DECL)) || (stmt->ast_node->var_decl_moved_field_src == NULL))) {
                 {
             int32_t _uya_ret = 0;
             return _uya_ret;
@@ -209002,7 +209164,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_185883484_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -210249,7 +210411,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_466384096_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -210493,7 +210655,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_466384096_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_1872351365_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;
