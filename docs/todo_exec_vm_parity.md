@@ -28083,16 +28083,33 @@ rc=0            # 自举出来的编译器**能编出可运行的原生二进制
 | 内存放大 | ✅ 57GB → **34.7GB（-39%）**，竞技场同阶段 -51% |
 | census 912/912、make check 1197/1197、种子可重建 | ✅（持续复验） |
 
-### 4. 注意事项：`make from-c-native` 产出的 `bin/uya` 跑 `--vm` 会失败（既有现象，与本轮改动无关）
+### 4. 修复：种子 C 过期导致 `from-c-native` 产物跑 `--vm` 失败（已解决）
 
-复验方法：干净检出同一提交，先 `make from-c-native` 再跑
+现象：`make from-c-native` 产出的 `bin/uya` 跑 `--vm` 会失败
 
 ```
 ./bin/uya run --vm src/main.uya -- --version
 → exec backend 失败: src/cmd/upm/upm_lib/lockfile.uya:448:9: exec: 无法解析成员方法调用(kind=13)
 ```
 
-而同一棵树上 `make uya` 重建 `bin/uya` 之后就正常输出 `v0.11.0`。
-在两个提交（合并前 15ef02e6 / 合并后 810f12e7）上表现一致，说明这是
-**种子构建路径（from-c-native）与 `make uya` 产物的差异**，不是本次改动引入的。
-结论：跑 `--vm` 里程碑之前，先用 `make uya` 构建 `bin/uya`。
+根因：`from-c-native` 优先用 `backup/uya-hosted-<os>-<arch>.c` 这份**单文件 C 种子**，
+而那份种子还是 2026-10-24 的快照 —— 比源码树旧了一个多月的改动，
+它编不了当前的 `src/`（`libc.fprintf` 一类调用解析不出来）。
+`make uya` 用的是当前源码，所以没有这个问题。
+
+修复：用当前编译器重新生成种子
+
+```
+make backup-hosted-seed-native   # 刷新 backup/uya-hosted.c 与 backup/uya-hosted-linux-x86_64.c
+rm -f bin/uya && make from-c-native
+```
+
+验证（现在 `from-c-native` 产物也能跑 `--vm`）：
+
+```
+$ ./bin/uya --version            → v0.11.0
+$ ./bin/uya run --vm src/main.uya -- --version → v0.11.0   （rc=0）
+```
+
+注：macOS 的两份 hosted 种子（`backup/uya-hosted-macos*.c`）需要在 macOS 或 zig 环境下刷新，
+本次只刷新了 linux/x86_64 与本机通用 hosted 种子。
