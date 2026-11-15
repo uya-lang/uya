@@ -38,7 +38,15 @@ CC_TARGET_FLAGS ?=
 # -fwrapv：编译器源码里仍有大量未证明的参数/计数算术；有符号溢出在 C 里是
 # 未定义行为，加这个开关让其退化为定义良好的回绕，避免 -O2 下被任意误编译。
 # （--strict-overflow 是静态闸门，默认关；try/catch 提供运行时 checked 算术。）
-CFLAGS ?= -std=c99 -O2 -fno-builtin -fwrapv -fno-strict-overflow -Werror
+# -Wno-error=format-truncation / -Wno-alloc-size-larger-than：UB 测试夹具是**对抗性**
+# 语料，故意写「snprintf 写不满 4 字节」「calloc 的 count 来自未证明的量」这类代码；
+# gcc 13 起会把这些判成 -Wformat-truncation= / -Walloc-size-larger-than= 并因 -Werror 直接
+# 编译失败（ubuntu-24.04 CI 两个用例就是这样红的，本地 gcc 12 不报）。它们是**被测试的语义**，
+# 不是缺陷，所以只对这两类告警降级；-Werror 仍然生效，其余告警依旧致命。
+# 注意 alloc-size-larger-than 是带参数的告警，`-Wno-error=alloc-size-larger-than` 在
+# gcc 12 上不认（要求 `=` 形式），因此这一条用 `-Wno-` 整条关掉。
+CFLAGS ?= -std=c99 -O2 -fno-builtin -fwrapv -fno-strict-overflow -Werror \
+          -Wno-error=format-truncation -Wno-alloc-size-larger-than
 LDFLAGS ?=
 
 # 并行程序测试 worker 数（默认 CPU 核数；可覆盖：make tests UYA_TEST_JOBS=4）
