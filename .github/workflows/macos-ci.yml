@@ -39,6 +39,11 @@ jobs:
     - name: Verify hosted self-host
       run: make b-hosted
 
+    # 大小写不敏感文件系统专项：符号导入不得把同一份模块文件加载两次
+    # （`use std.io.File;` → lib/std/io/file.uya 被合并两遍 → 单文件 C 里同名函数重复定义）。
+    - name: Verify module case-sensitivity gate
+      run: bash ./tests/verify_module_case_insensitive_fs.sh
+
     - name: Run hosted test profile
       env:
         TEST_PROFILE: hosted

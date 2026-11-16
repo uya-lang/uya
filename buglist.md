@@ -472,8 +472,10 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
 
 ## 编译器 bug
 
-- [ ] **P1：macOS hosted 测试仍有 5 例红（单文件 C 里同名函数重复定义 + 1 例运行失败）**
-  - 状态：**未修复**（2026-11-15 记录；发布闸门里 `macos-ci` 暂时降为「仅参考」，收口后升回阻断项）
+- [x] **P1：macOS hosted 测试仍有 5 例红（单文件 C 里同名函数重复定义 + 1 例运行失败）**
+  - 状态：**重复定义 4 例已修复**（2026-11-16；根因见本节末「根因与修复」）；
+    `test_typed_pipeline_executor_single` 的运行期失败待 macOS 复跑确认是否同源
+  - 发布闸门里 `macos-ci` 目前仍是「仅参考」，等这 5 例在 macOS 上连续两轮全绿再升回阻断项
   - 现象（`macos-ci` 的 `Run hosted test profile`，macOS 15 arm64、`TEST_PROFILE=hosted`）：
     - `test_std_io_file` / `test_std_io_buffering` / `test_multilevel_module`：
       `redefinition of 'std_io_file_write'` / `'std_io_file_read'`（同一份单文件 C 里出现两处定义，
@@ -489,6 +491,24 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     `TEST_PROFILE=hosted ./tests/run_programs_parallel.sh --uya --c99 test_std_io_file`
     拿到 `tests/build/.../compiler_work/*.c`，对比两处定义所在的模块边界，判断是模块被加载了两次
     （不同模块标识）、还是 hosted 桥接副本被重复发射。
+  - **根因（2026-11-16 定位并修复）**：macOS / Windows 的默认文件系统**大小写不敏感**。
+    `use std.io.File;` 是一条**符号**导入，模块解析却会去探测 `lib/std/io/File.uya` —— 在大小写
+    不敏感的文件系统上这个路径真的能打开（打开的正是 `file.uya`），于是 `file.uya` 以
+    `std.io.File` 的身份被**第二次**合并进程序，同名顶层函数重复发射。Linux 大小写敏感、
+    `File.uya` 不存在，所以本地永远复现不出来 —— 这就是它长期只在 macos-ci 上红的原因。
+    （本地把 `lib/std/io/File.uya` 复制一份喂给编译器可复现同类失败，可作为机理旁证。）
+  - **修复内容**：
+    - `src/driver/modules.uya` 新增 `module_path_entry_exists_exact_case`：按**目录项逐字节比对**
+      文件名，大小写不一致即视为「不存在」。接到 5 个模块候选路径探测点：`find_module_file` 的
+      策略2、`find_direct_module_file`、`module_dir_exists`，以及 std 目录的 `file.uya` 与
+      `<base>.uya` 两处。这样 Uya 模块名在 macOS 上也保持大小写敏感语义。
+    - 新增门禁 `tests/verify_module_case_insensitive_fs.sh`：先探测文件系统是否大小写不敏感
+      （探测不到直接 skip，Linux 恒 skip），在大小写不敏感的系统上把
+      `tests/test_multilevel_module.uya` 编译成单文件 C，断言 `std_io_file_write` 只有 1 处定义。
+      已挂进 `make check` 与 `macos-ci`（`Verify module case-sensitivity gate`）。
+    - 反向验证：`make b` 自举比对字节相同（大小写敏感文件系统上的模块解析行为未变），
+      `test_multilevel_module` / `test_std_io_file` / `test_std_io_buffering` / `test_tflm_interpreter`
+      在 Linux hosted 下全部通过。
 
 - [x] **P0 / 严重：macOS 上 `make uya-hosted` 编译不过（Darwin `<string.h>` 函数式宏 vs 生成的 extern 声明）**
   - 状态：**已修复**（2026-11-15；门禁 `tests/verify_macos_hosted_c_syntax.sh`，已挂进 `make check`）
