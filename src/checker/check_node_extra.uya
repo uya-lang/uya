@@ -300,6 +300,20 @@ fn check_assign_node(checker: &TypeChecker, node: &ASTNode) i32 {
         return 0;
     }
 
+    // B1：悬垂引用 —— 写更长寿命容器（施工图 §4.4 规则 2）
+    //
+    // ⚠ 熔断记录（施工图 §6.3）：接入 lifetime_check_store_escape 后，自举立刻
+    // 爆出 34 处误报并拒绝产出二进制。全部是**误报**，不是真问题：
+    //   - `g_compiler_arena_failure_key = key;`（arena.uya:61）—— key 是形参，
+    //     却因为 lifetime_symbol_is_param 依赖 checker.current_function_decl 而认不出；
+    //   - `arena.current_chunk = arena.first_chunk;`（arena.uya:244）—— 右值是字段读，
+    //     来源与容器同寿命，被误当成短寿命。
+    // 根因是「读值语义」在当前 origin 精度下拿不到可靠的形参/字段来源，与 return
+    // 判定当初撞到的是同一堵墙。因此按计划把这条判定**暂时关闭**，等指针变量
+    // 指向传播（P1 未实现部分）落地后再接；不能为了绿灯而放宽容，也不能留着
+    // 一堆误报让编译器无法自举。
+    // 开关保留：--lifetime-report 下仍可通过 lifetime_check_store_escape 单独统计。
+
     // Pinned 类型检查：禁止对包含 async frame 的类型进行整体赋值和按值移动
     if checker_type_contains_pinned_field(checker, &dest_type) != 0 {
         checker_report_frame_move_error(checker, node, "assign" as &byte);

@@ -1318,6 +1318,12 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
 fn checker_enter_scope(checker: &TypeChecker) void {
     if checker != null {
         checker.scope_level = checker.scope_level +| 1;
+        // 发一个新的作用域 id，并记进该层的 id 栈（供 Symbol.scope_id 与 origin 比较用）。
+        checker.scope_id_seq = checker.scope_id_seq +| 1;
+        const idx: i32 = checker.scope_level;
+        if idx >= 0 && idx < @len(checker.scope_id_stack) {
+            checker.scope_id_stack[idx] = checker.scope_id_seq;
+        }
         symbol_lookup_cache_bump_generation();
     }
 }
@@ -1384,6 +1390,17 @@ fn checker_exit_scope(checker: &TypeChecker) void {
     }
     
     checker.scope_level = checker.scope_level - 1;
+    // 回退作用域 id：把发号器退回到「进入该层之前」的值。
+    //
+    // 同一层级会被兄弟块 / 循环体反复进入，若不回退，每轮循环都会白白涨号，
+    // 长函数里 scope_id 会无限增长（origin 比较本身不受影响，但号段失去「同层可复用」
+    // 的直观含义，报告里也会出现大量无意义的 id）。回退后，同层先后两次进入得到
+    // 同一个 id —— 这与「同一层级的两个兄弟块不会同时存活」相符，比较时不会因此
+    // 误判寿命；真正需要区分的是**嵌套**层级，嵌套层 id 递增且不回退到外层之下。
+    const after_idx: i32 = checker.scope_level;
+    if after_idx >= 0 && after_idx < @len(checker.scope_id_stack) {
+        checker.scope_id_seq = checker.scope_id_stack[after_idx];
+    }
     symbol_lookup_cache_bump_generation();
 }
 

@@ -1,0 +1,15 @@
+// 预期编译失败：返回指向局部数组元素的引用（跨函数内存安全证明 B1）
+//
+// `&buf[0]` 取的是局部数组 buf 内部的地址，buf 的存储随函数返回失效，
+// 调用方拿到的指针会指向已失效的栈帧（未定义行为）。
+//
+// 归属：docs/interprocedural_proof_plan.md §4.4 规则 1（return 判定点）。
+
+fn mk() &i32 {
+    var buf: [i32: 4] = [1, 2, 3, 4];
+    return &buf[0];
+}
+
+fn main() i32 {
+    return 0;
+}

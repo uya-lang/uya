@@ -341,6 +341,7 @@ buglist ⑥ 记录：取消「形参恒非空」后，908 个测试里 361 个�
 | B1 | 悬垂引用（返回局部地址 / 局部切片 / 装箱局部接口值 / 写入更长寿命容器） | 971 返回指针函数 + 1019 指针字段 + 289 `return &` + 21 repros 中的 3 个逃逸复现 | **防回归**（UB 不崩只错值，最难查） | 低（`STATIC`/`PARAM` 放行规则清楚） | buglist P1 → `[x]`；3 个 repro 升级为 `error_*` 后按预期原因失败 |
 | B2 | 非空前提（替代 blanket 假设） | 2865 指针形参签名 + 57 处 `getenv` | 精度提升，无需 `?&T` 语法 | 中（nullable 实参直传面；实测直传 **0 处**） | ⑥ → `[x]`；shadow 报告误报数 ≤ 白名单 |
 | B3 | 非零前提 | 111 处 `/` `%` | **从无保护到默认保护** | 中（需逐点加守卫） | `--strict-div` 翻默认；`make check` 零回归 |
+| ↳ 实测 | `check --strict-div src/main.uya` 于 P0/P1/B1 落地后重测 | 实命中 **93 处**（`vm` 31、`modules` 15、`stdlib` 7、`function` 6、`value` 6、`interval` 5，其余零散） | 分两类：①同函数可证（动态表容量恒正等，补 `if cap <= 0` 守卫即可；已在 `check_call.uya` 补 3 处，93→87）②跨函数不变量（`align_size` 的 `align`、牛顿迭代 `guess`、`interval` 的 `a.min / b.min`） | ②类正是「由调用点付账」的需求，但付账方是 **B2（非空/非零义务）与 B4（后置事实）**，两者未落地 | **按 §6.3 维持默认关闭**；翻默认推迟到 B2/B4 落地后重测，届时用 `--lifetime-report` 的 `req_div_zero` 读跨函数消解率 |
 | B4 | 后置事实（返回下标范围 / 返回切片长度） | 27 返回切片 + 891 处 `>= 0` | 打通"事实来自被调方"的下标证明 | 中 | `find/chr` 类正例通过；`tests/test_bounds_*` 不回归 |
 | B5 | 非逃逸形参 → 解锁移动 | 2865 形参签名里绝大多数为纯读函数 | 易用性 + drop 正确性 | 中高（放宽会引入新的 double free） | `tests/test_drop_after_move.uya` + 嵌套字段 move 正负例 |
 | B6 | shadow 报告 | 全树 | **可执行的工作清单 + 可 diff 的基线** | 近零 | 报告两次运行 diff = 0 |

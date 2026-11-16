@@ -2870,6 +2870,9 @@ fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32 {
     
     // 模块系统：在所有 use 语句处理完后，检测循环依赖
     detect_circular_dependencies(checker);
+
+    // --lifetime-report：打完度量报告（只算不报，不影响编译结果）
+    lifetime_report_flush(checker);
     
     // 注意：即使有错误，也返回0，让编译器继续执行
     // 错误信息已经通过 checker_report_error 输出
