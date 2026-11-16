@@ -66,12 +66,18 @@ if ! UYA_ROOT="$ROOT_DIR/lib" RUNTIME_MODE=hosted \
     fail "单文件 C 生成失败：疑似符号导入把同一模块加载了两次"
 fi
 
-DEFS="$(grep -c '^struct err_union_size_t std_io_file_write' "$OUT_C" 2>/dev/null || true)"
-DEFS="${DEFS:-0}"
+# 只断言**定义**的处数：单文件 C 里本来就有 1 处前置声明（以 `;` 结尾），
+# 把声明也算进来会得到 2，误报「重复定义」。
+SIG='^struct err_union_size_t std_io_file_write'
+ALL="$(grep -c "$SIG" "$OUT_C" 2>/dev/null || true)"
+PROTOS="$(grep -c "$SIG.*;$" "$OUT_C" 2>/dev/null || true)"
+ALL="${ALL:-0}"
+PROTOS="${PROTOS:-0}"
+DEFS=$(( ALL - PROTOS ))
 if [ "$DEFS" != "1" ]; then
-    echo "----- std_io_file_write 的定义位置 -----"
+    echo "----- std_io_file_write 的出现位置（声明 + 定义）-----"
     grep -n 'std_io_file_write' "$OUT_C" | head -10 || true
-    fail "std_io_file_write 在单文件 C 里有 $DEFS 处定义，期望 1 处（模块被重复加载）"
+    fail "std_io_file_write 在单文件 C 里有 $DEFS 处**定义**（共 $ALL 处出现，其中 $PROTOS 处是声明），期望 1 处定义（模块被重复加载）"
 fi
 
 echo "✓ 大小写不敏感文件系统上未重复加载模块（std_io_file_write 定义数 = 1）"
