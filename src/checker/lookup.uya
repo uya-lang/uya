@@ -1446,6 +1446,134 @@ fn find_static_method_in_union(program_node: &ASTNode, union_name: &byte, method
     return null;
 }
 
+// ===== fn_decl → 所属类型（方法归属）索引 =====
+//
+// `checker_fn_decl_owner_type_name` / `checker_fn_decl_is_owned_method` 原来各自
+// 扫「全部 program_decls × 每个类型的方法表」——自举编译里一次失配就是几万次
+// 指针比较，两者合计占 `uya check` 约 8% 采样（直接映射缓存被指针哈希撞掉时
+// 每次都要整表重扫）。
+//
+// 这里在第一次查询时用**一遍**扫描把 fn_decl →（类型名, 是否 union）建进开放寻址表，
+// 之后两次查询都是 O(1)。插入「先到先得」：同一个 fn_decl 出现在多处时保留 decl
+// 顺序里最先扫到的那条，与旧实现「首个匹配胜出」一致。
+const OWNER_INDEX_SLOTS: i32 = 16384;
+const OWNER_INDEX_MASK: i32 = 16383;
+
+var g_owner_index_program: &ASTNode = null;
+var g_owner_index_count: i32 = 0;
+var g_owner_index_overflow: i32 = 0;
+// 1 = 索引完整可用；0 = 未建/溢出（调用方退回原来的线性扫描）
+var g_owner_index_ready: i32 = 0;
+var g_owner_index_keys: [&ASTNode: OWNER_INDEX_SLOTS] = [];
+var g_owner_index_names: [&byte: OWNER_INDEX_SLOTS] = [];
+var g_owner_index_is_union: [i32: OWNER_INDEX_SLOTS] = [];
+
+fn owner_index_hash(fn_decl: &ASTNode) i32 {
+    const v: usize = (@usize_from_ptr(fn_decl as &void) / 8 as usize);
+    return (v & (OWNER_INDEX_MASK as usize)) as i32;
+}
+
+fn owner_index_store(fn_decl: &ASTNode, owner_name: &byte, is_union: i32) void {
+    if fn_decl == null || g_owner_index_overflow != 0 {
+        return;
+    }
+    if g_owner_index_count >= (OWNER_INDEX_SLOTS * 3) / 4 {
+        g_owner_index_overflow = 1;
+        return;
+    }
+    const slot: i32 = owner_index_hash(fn_decl);
+    var probe: i32 = 0;
+    while probe < OWNER_INDEX_SLOTS {
+        const idx: i32 = (slot +| probe) & OWNER_INDEX_MASK;
+        if g_owner_index_keys[idx] == null {
+            g_owner_index_keys[idx] = fn_decl;
+            g_owner_index_names[idx] = owner_name;
+            g_owner_index_is_union[idx] = is_union;
+            g_owner_index_count = g_owner_index_count +| 1;
+            return;
+        }
+        if g_owner_index_keys[idx] == fn_decl {
+            return;
+        }
+        probe = probe +| 1;
+    }
+    g_owner_index_overflow = 1;
+}
+
+// 建索引；program 变了就重建。溢出时 g_owner_index_ready 保持 0。
+fn ensure_owner_method_index(program: &ASTNode) void {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM {
+        return;
+    }
+    if g_owner_index_program == program {
+        return;
+    }
+    g_owner_index_program = program;
+    g_owner_index_count = 0;
+    g_owner_index_overflow = 0;
+    g_owner_index_ready = 0;
+    var i: i32 = 0;
+    while i < OWNER_INDEX_SLOTS {
+        g_owner_index_keys[i] = null;
+        i = i + 1;
+    }
+    i = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null {
+            if decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_methods != null {
+                var j: i32 = 0;
+                while j < decl.struct_decl_method_count {
+                    owner_index_store(decl.struct_decl_methods[j], decl.struct_decl_name, 0);
+                    j = j + 1;
+                }
+            } else if decl.type == ASTNodeType.AST_UNION_DECL && decl.union_decl_methods != null {
+                var k: i32 = 0;
+                while k < decl.union_decl_method_count {
+                    owner_index_store(decl.union_decl_methods[k], decl.union_decl_name, 1);
+                    k = k + 1;
+                }
+            } else if decl.type == ASTNodeType.AST_METHOD_BLOCK && decl.method_block_methods != null {
+                var m: i32 = 0;
+                while m < decl.method_block_method_count {
+                    var owner_name: &byte = decl.method_block_struct_name;
+                    var owner_is_union: i32 = 0;
+                    if decl.method_block_union_name != null {
+                        owner_name = decl.method_block_union_name;
+                        owner_is_union = 1;
+                    }
+                    owner_index_store(decl.method_block_methods[m], owner_name, owner_is_union);
+                    m = m + 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    if g_owner_index_overflow == 0 {
+        g_owner_index_ready = 1;
+    }
+}
+
+// 返回索引槽位；-1 表示不在索引里（ready=1 时即「没有所属类型」）。
+fn owner_index_find(fn_decl: &ASTNode) i32 {
+    if fn_decl == null || g_owner_index_ready == 0 {
+        return 0 - 1;
+    }
+    const slot: i32 = owner_index_hash(fn_decl);
+    var probe: i32 = 0;
+    while probe < OWNER_INDEX_SLOTS {
+        const idx: i32 = (slot +| probe) & OWNER_INDEX_MASK;
+        if g_owner_index_keys[idx] == null {
+            return 0 - 1;
+        }
+        if g_owner_index_keys[idx] == fn_decl {
+            return idx;
+        }
+        probe = probe +| 1;
+    }
+    return 0 - 1;
+}
+
 fn checker_fn_decl_is_owned_method(checker: &TypeChecker, fn_decl: &ASTNode) i32 {
     if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL ||
         checker.program_node == null || checker.program_node.type != ASTNodeType.AST_PROGRAM {
@@ -1458,19 +1586,33 @@ fn checker_fn_decl_is_owned_method(checker: &TypeChecker, fn_decl: &ASTNode) i32
         g_lookup_owned_method_result_keys[owned_slot] == fn_decl {
         return g_lookup_owned_method_result_values[owned_slot];
     }
+    ensure_owner_method_index(checker.program_node);
+    var result: i32 = 0;
+    if g_owner_index_ready != 0 {
+        if owner_index_find(fn_decl) >= 0 {
+            result = 1;
+        }
+    } else {
+        result = checker_fn_decl_is_owned_method_scan(checker.program_node, fn_decl);
+    }
+    if owned_slot >= 0 && owned_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE {
+        g_lookup_owned_method_result_keys[owned_slot] = fn_decl;
+        g_lookup_owned_method_result_values[owned_slot] = result;
+        g_lookup_owned_method_result_valid[owned_slot] = 1;
+    }
+    return result;
+}
+
+// 索引不可用时的兜底：整表线性扫描（原实现）。
+fn checker_fn_decl_is_owned_method_scan(program: &ASTNode, fn_decl: &ASTNode) i32 {
     var i: i32 = 0;
-    while i < checker.program_node.program_decl_count {
-        const decl: &ASTNode = checker.program_node.program_decls[i];
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
         if decl != null {
             if decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_methods != null {
                 var j: i32 = 0;
                 while j < decl.struct_decl_method_count {
                     if decl.struct_decl_methods[j] == fn_decl {
-                        if owned_slot >= 0 && owned_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE {
-                            g_lookup_owned_method_result_keys[owned_slot] = fn_decl;
-                            g_lookup_owned_method_result_values[owned_slot] = 1;
-                            g_lookup_owned_method_result_valid[owned_slot] = 1;
-                        }
                         return 1;
                     }
                     j = j + 1;
@@ -1479,11 +1621,6 @@ fn checker_fn_decl_is_owned_method(checker: &TypeChecker, fn_decl: &ASTNode) i32
                 var k: i32 = 0;
                 while k < decl.union_decl_method_count {
                     if decl.union_decl_methods[k] == fn_decl {
-                        if owned_slot >= 0 && owned_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE {
-                            g_lookup_owned_method_result_keys[owned_slot] = fn_decl;
-                            g_lookup_owned_method_result_values[owned_slot] = 1;
-                            g_lookup_owned_method_result_valid[owned_slot] = 1;
-                        }
                         return 1;
                     }
                     k = k + 1;
@@ -1492,11 +1629,6 @@ fn checker_fn_decl_is_owned_method(checker: &TypeChecker, fn_decl: &ASTNode) i32
                 var m: i32 = 0;
                 while m < decl.method_block_method_count {
                     if decl.method_block_methods[m] == fn_decl {
-                        if owned_slot >= 0 && owned_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE {
-                            g_lookup_owned_method_result_keys[owned_slot] = fn_decl;
-                            g_lookup_owned_method_result_values[owned_slot] = 1;
-                            g_lookup_owned_method_result_valid[owned_slot] = 1;
-                        }
                         return 1;
                     }
                     m = m + 1;
@@ -1504,11 +1636,6 @@ fn checker_fn_decl_is_owned_method(checker: &TypeChecker, fn_decl: &ASTNode) i32
             }
         }
         i = i + 1;
-    }
-    if owned_slot >= 0 && owned_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE {
-        g_lookup_owned_method_result_keys[owned_slot] = fn_decl;
-        g_lookup_owned_method_result_values[owned_slot] = 0;
-        g_lookup_owned_method_result_valid[owned_slot] = 1;
     }
     return 0;
 }
@@ -1531,15 +1658,38 @@ fn checker_fn_decl_owner_type_name(checker: &TypeChecker, fn_decl: &ASTNode, out
         }
         return g_lookup_owner_type_result_names[owner_slot];
     }
+    ensure_owner_method_index(checker.program_node);
+    if g_owner_index_ready != 0 {
+        const idx: i32 = owner_index_find(fn_decl);
+        if idx < 0 || idx >= OWNER_INDEX_SLOTS {
+            lookup_owner_type_cache_store(owner_slot, fn_decl, null, 0);
+            return null;
+        }
+        if out_is_union != null {
+            out_is_union[0] = g_owner_index_is_union[idx];
+        }
+        lookup_owner_type_cache_store(owner_slot, fn_decl, g_owner_index_names[idx], g_owner_index_is_union[idx]);
+        return g_owner_index_names[idx];
+    }
+    const scanned: &byte = checker_fn_decl_owner_type_name_scan(checker.program_node, fn_decl, out_is_union);
+    var scanned_is_union: i32 = 0;
+    if out_is_union != null {
+        scanned_is_union = out_is_union[0];
+    }
+    lookup_owner_type_cache_store(owner_slot, fn_decl, scanned, scanned_is_union);
+    return scanned;
+}
+
+// 索引不可用时的兜底：整表线性扫描（原实现）。
+fn checker_fn_decl_owner_type_name_scan(program: &ASTNode, fn_decl: &ASTNode, out_is_union: &i32) &byte {
     var i: i32 = 0;
-    while i < checker.program_node.program_decl_count {
-        const decl: &ASTNode = checker.program_node.program_decls[i];
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
         if decl != null {
             if decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_methods != null {
                 var j: i32 = 0;
                 while j < decl.struct_decl_method_count {
                     if decl.struct_decl_methods[j] == fn_decl {
-                        lookup_owner_type_cache_store(owner_slot, fn_decl, decl.struct_decl_name, 0);
                         return decl.struct_decl_name;
                     }
                     j = j + 1;
@@ -1551,7 +1701,6 @@ fn checker_fn_decl_owner_type_name(checker: &TypeChecker, fn_decl: &ASTNode, out
                         if out_is_union != null {
                             out_is_union[0] = 1;
                         }
-                        lookup_owner_type_cache_store(owner_slot, fn_decl, decl.union_decl_name, 1);
                         return decl.union_decl_name;
                     }
                     k = k + 1;
@@ -1564,10 +1713,8 @@ fn checker_fn_decl_owner_type_name(checker: &TypeChecker, fn_decl: &ASTNode, out
                             if out_is_union != null {
                                 out_is_union[0] = 1;
                             }
-                            lookup_owner_type_cache_store(owner_slot, fn_decl, decl.method_block_union_name, 1);
                             return decl.method_block_union_name;
                         }
-                        lookup_owner_type_cache_store(owner_slot, fn_decl, decl.method_block_struct_name, 0);
                         return decl.method_block_struct_name;
                     }
                     m = m + 1;
@@ -1576,7 +1723,6 @@ fn checker_fn_decl_owner_type_name(checker: &TypeChecker, fn_decl: &ASTNode, out
         }
         i = i + 1;
     }
-    lookup_owner_type_cache_store(owner_slot, fn_decl, null, 0);
     return null;
 }
 

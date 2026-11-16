@@ -10606,8 +10606,14 @@ static __attribute__((used)) struct ASTNode * find_method_block_for_union(struct
 static __attribute__((used)) struct ASTNode * find_method_in_union(struct ASTNode * program_node, uint8_t * union_name, uint8_t * method_name);
 static __attribute__((used)) struct ASTNode * find_instance_method_in_union(struct ASTNode * program_node, uint8_t * union_name, uint8_t * method_name);
 static __attribute__((used)) struct ASTNode * find_static_method_in_union(struct ASTNode * program_node, uint8_t * union_name, uint8_t * method_name);
+static __attribute__((used)) int32_t owner_index_hash(struct ASTNode * fn_decl);
+static __attribute__((used)) void owner_index_store(struct ASTNode * fn_decl, uint8_t * owner_name, int32_t is_union);
+static __attribute__((used)) void ensure_owner_method_index(struct ASTNode * program);
+static __attribute__((used)) int32_t owner_index_find(struct ASTNode * fn_decl);
 static __attribute__((used)) int32_t checker_fn_decl_is_owned_method(struct TypeChecker * checker, struct ASTNode * fn_decl);
+static __attribute__((used)) int32_t checker_fn_decl_is_owned_method_scan(struct ASTNode * program, struct ASTNode * fn_decl);
 static __attribute__((used)) uint8_t * checker_fn_decl_owner_type_name(struct TypeChecker * checker, struct ASTNode * fn_decl, int32_t * out_is_union);
+static __attribute__((used)) uint8_t * checker_fn_decl_owner_type_name_scan(struct ASTNode * program, struct ASTNode * fn_decl, int32_t * out_is_union);
 static __attribute__((used)) uint8_t * checker_async_fn_graph_key(struct TypeChecker * checker, struct ASTNode * fn_decl);
 static __attribute__((used)) int32_t check_drop_method_signature(struct TypeChecker * checker, struct ASTNode * fn_decl, uint8_t * struct_name);
 static __attribute__((used)) int32_t check_drop_method_signature_union(struct TypeChecker * checker, struct ASTNode * fn_decl, uint8_t * union_name);
@@ -15168,6 +15174,16 @@ __attribute__((used)) const int32_t PROGDECL_INDEX_MASK = 16383;
 #endif
 __attribute__((used)) const int32_t PROGDECL_INDEX_ENTRIES = 32768;
 
+#ifdef OWNER_INDEX_SLOTS
+#undef OWNER_INDEX_SLOTS
+#endif
+__attribute__((used)) const int32_t OWNER_INDEX_SLOTS = 16384;
+
+#ifdef OWNER_INDEX_MASK
+#undef OWNER_INDEX_MASK
+#endif
+__attribute__((used)) const int32_t OWNER_INDEX_MASK = 16383;
+
 #ifdef CHECKER_ASSIGNED_NAMES_MAX
 #undef CHECKER_ASSIGNED_NAMES_MAX
 #endif
@@ -16715,6 +16731,20 @@ __attribute__((used)) int32_t g_progdecl_variant_slot_tail[16384] = {0};
 __attribute__((used)) uint8_t * g_progdecl_variant_name[32768] = {0};
 
 __attribute__((used)) int32_t g_progdecl_variant_next[32768] = {0};
+
+__attribute__((used)) struct ASTNode * g_owner_index_program = NULL;
+
+__attribute__((used)) int32_t g_owner_index_count = 0;
+
+__attribute__((used)) int32_t g_owner_index_overflow = 0;
+
+__attribute__((used)) int32_t g_owner_index_ready = 0;
+
+__attribute__((used)) struct ASTNode * g_owner_index_keys[16384] = {0};
+
+__attribute__((used)) uint8_t * g_owner_index_names[16384] = {0};
+
+__attribute__((used)) int32_t g_owner_index_is_union[16384] = {0};
 
 __attribute__((used)) struct ASTNode * g_macro_lookup_cached_program = NULL;
 
@@ -72829,6 +72859,135 @@ static __attribute__((used)) struct ASTNode * find_static_method_in_union(struct
         }
 }
 
+static __attribute__((used)) int32_t owner_index_hash(struct ASTNode * fn_decl) {
+    (void)fn_decl;
+    const size_t v = ({ __typeof__((uintptr_t)((void *)fn_decl)) _uya_dv_l = ((uintptr_t)((void *)fn_decl)); __typeof__((size_t)8) _uya_dv_r = ((size_t)8); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+        {
+        int32_t _uya_ret = (int32_t)(v & (size_t)OWNER_INDEX_MASK);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) void owner_index_store(struct ASTNode * fn_decl, uint8_t * owner_name, int32_t is_union) {
+    (void)fn_decl;
+    (void)owner_name;
+    (void)is_union;
+    if (((fn_decl == NULL) || (g_owner_index_overflow != 0))) {
+        return;
+    }
+    if (g_owner_index_count >= /* optimized */ 12288) {
+        g_owner_index_overflow = 1;
+        return;
+    }
+    const int32_t slot = owner_index_hash(fn_decl);
+    int32_t probe = 0;
+    while (probe < OWNER_INDEX_SLOTS) {
+        const int32_t idx = (({ int32_t _l = (slot); int32_t _r = (probe); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) & OWNER_INDEX_MASK);
+        if (g_owner_index_keys[idx] == NULL) {
+            g_owner_index_keys[idx] = fn_decl;
+            g_owner_index_names[idx] = owner_name;
+            g_owner_index_is_union[idx] = is_union;
+            g_owner_index_count = ({ int32_t _l = (g_owner_index_count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+            return;
+        }
+        if (g_owner_index_keys[idx] == fn_decl) {
+            return;
+        }
+        probe = ({ int32_t _l = (probe); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    }
+    g_owner_index_overflow = 1;
+}
+
+static __attribute__((used)) void ensure_owner_method_index(struct ASTNode * program) {
+    (void)program;
+    if (((program == NULL) || (program->type != main_ASTNodeType_AST_PROGRAM))) {
+        return;
+    }
+    if (g_owner_index_program == program) {
+        return;
+    }
+    g_owner_index_program = program;
+    g_owner_index_count = 0;
+    g_owner_index_overflow = 0;
+    g_owner_index_ready = 0;
+    int32_t i = 0;
+    while (i < OWNER_INDEX_SLOTS) {
+        g_owner_index_keys[i] = NULL;
+        i = (i + 1);
+    }
+    i = 0;
+    while (i < program->program_decl_count) {
+        struct ASTNode * const decl = program->program_decls[i];
+        if (decl != NULL) {
+            if (((decl->type == main_ASTNodeType_AST_STRUCT_DECL) && (decl->struct_decl_methods != NULL))) {
+                int32_t j = 0;
+                while (j < decl->struct_decl_method_count) {
+                    (void)(owner_index_store(decl->struct_decl_methods[j], decl->struct_decl_name, 0)                    );
+                    j = (j + 1);
+                }
+            } else {
+                if (((decl->type == main_ASTNodeType_AST_UNION_DECL) && (decl->union_decl_methods != NULL))) {
+                    int32_t k = 0;
+                    while (k < decl->union_decl_method_count) {
+                        (void)(owner_index_store(decl->union_decl_methods[k], decl->union_decl_name, 1)                        );
+                        k = (k + 1);
+                    }
+                } else {
+                    if (((decl->type == main_ASTNodeType_AST_METHOD_BLOCK) && (decl->method_block_methods != NULL))) {
+                        int32_t m = 0;
+                        while (m < decl->method_block_method_count) {
+                            uint8_t * owner_name = decl->method_block_struct_name;
+                            int32_t owner_is_union = 0;
+                            if (decl->method_block_union_name != NULL) {
+                                owner_name = decl->method_block_union_name;
+                                owner_is_union = 1;
+                            }
+                            (void)(owner_index_store(decl->method_block_methods[m], (uint8_t *)owner_name, owner_is_union)                            );
+                            m = (m + 1);
+                        }
+                    }
+                }
+            }
+        }
+        i = (i + 1);
+    }
+    if (g_owner_index_overflow == 0) {
+        g_owner_index_ready = 1;
+    }
+}
+
+static __attribute__((used)) int32_t owner_index_find(struct ASTNode * fn_decl) {
+    (void)fn_decl;
+    if (((fn_decl == NULL) || (g_owner_index_ready == 0))) {
+                {
+            int32_t _uya_ret = (0 - 1);
+            return _uya_ret;
+                }
+    }
+    const int32_t slot = owner_index_hash(fn_decl);
+    int32_t probe = 0;
+    while (probe < OWNER_INDEX_SLOTS) {
+        const int32_t idx = (({ int32_t _l = (slot); int32_t _r = (probe); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) & OWNER_INDEX_MASK);
+        if (g_owner_index_keys[idx] == NULL) {
+                        {
+                int32_t _uya_ret = (0 - 1);
+                return _uya_ret;
+                        }
+        }
+        if (g_owner_index_keys[idx] == fn_decl) {
+                        {
+                int32_t _uya_ret = idx;
+                return _uya_ret;
+                        }
+        }
+        probe = ({ int32_t _l = (probe); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    }
+        {
+        int32_t _uya_ret = (0 - 1);
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) int32_t checker_fn_decl_is_owned_method(struct TypeChecker * checker, struct ASTNode * fn_decl) {
     (void)checker;
     (void)fn_decl;
@@ -72846,19 +73005,37 @@ static __attribute__((used)) int32_t checker_fn_decl_is_owned_method(struct Type
             return _uya_ret;
                 }
     }
+    (void)(ensure_owner_method_index(checker->program_node)    );
+    int32_t result = 0;
+    if (g_owner_index_ready != 0) {
+        if (owner_index_find(fn_decl) >= 0) {
+            result = 1;
+        }
+    } else {
+        result = checker_fn_decl_is_owned_method_scan(checker->program_node, fn_decl);
+    }
+    if (((owned_slot >= 0) && (owned_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE))) {
+        g_lookup_owned_method_result_keys[owned_slot] = fn_decl;
+        g_lookup_owned_method_result_values[owned_slot] = result;
+        g_lookup_owned_method_result_valid[owned_slot] = 1;
+    }
+        {
+        int32_t _uya_ret = result;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t checker_fn_decl_is_owned_method_scan(struct ASTNode * program, struct ASTNode * fn_decl) {
+    (void)program;
+    (void)fn_decl;
     int32_t i = 0;
-    while (i < checker->program_node->program_decl_count) {
-        struct ASTNode * const decl = checker->program_node->program_decls[i];
+    while (i < program->program_decl_count) {
+        struct ASTNode * const decl = program->program_decls[i];
         if (decl != NULL) {
             if (((decl->type == main_ASTNodeType_AST_STRUCT_DECL) && (decl->struct_decl_methods != NULL))) {
                 int32_t j = 0;
                 while (j < decl->struct_decl_method_count) {
                     if (decl->struct_decl_methods[j] == fn_decl) {
-                        if (((owned_slot >= 0) && (owned_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE))) {
-                            g_lookup_owned_method_result_keys[owned_slot] = fn_decl;
-                            g_lookup_owned_method_result_values[owned_slot] = 1;
-                            g_lookup_owned_method_result_valid[owned_slot] = 1;
-                        }
                                                 {
                             int32_t _uya_ret = 1;
                             return _uya_ret;
@@ -72871,11 +73048,6 @@ static __attribute__((used)) int32_t checker_fn_decl_is_owned_method(struct Type
                     int32_t k = 0;
                     while (k < decl->union_decl_method_count) {
                         if (decl->union_decl_methods[k] == fn_decl) {
-                            if (((owned_slot >= 0) && (owned_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE))) {
-                                g_lookup_owned_method_result_keys[owned_slot] = fn_decl;
-                                g_lookup_owned_method_result_values[owned_slot] = 1;
-                                g_lookup_owned_method_result_valid[owned_slot] = 1;
-                            }
                                                         {
                                 int32_t _uya_ret = 1;
                                 return _uya_ret;
@@ -72888,11 +73060,6 @@ static __attribute__((used)) int32_t checker_fn_decl_is_owned_method(struct Type
                         int32_t m = 0;
                         while (m < decl->method_block_method_count) {
                             if (decl->method_block_methods[m] == fn_decl) {
-                                if (((owned_slot >= 0) && (owned_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE))) {
-                                    g_lookup_owned_method_result_keys[owned_slot] = fn_decl;
-                                    g_lookup_owned_method_result_values[owned_slot] = 1;
-                                    g_lookup_owned_method_result_valid[owned_slot] = 1;
-                                }
                                                                 {
                                     int32_t _uya_ret = 1;
                                     return _uya_ret;
@@ -72905,11 +73072,6 @@ static __attribute__((used)) int32_t checker_fn_decl_is_owned_method(struct Type
             }
         }
         i = (i + 1);
-    }
-    if (((owned_slot >= 0) && (owned_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE))) {
-        g_lookup_owned_method_result_keys[owned_slot] = fn_decl;
-        g_lookup_owned_method_result_values[owned_slot] = 0;
-        g_lookup_owned_method_result_valid[owned_slot] = 1;
     }
         {
         int32_t _uya_ret = 0;
@@ -72941,15 +73103,49 @@ static __attribute__((used)) uint8_t * checker_fn_decl_owner_type_name(struct Ty
             return _uya_ret;
                 }
     }
+    (void)(ensure_owner_method_index(checker->program_node)    );
+    if (g_owner_index_ready != 0) {
+        const int32_t idx = owner_index_find(fn_decl);
+        if (((idx < 0) || (idx >= OWNER_INDEX_SLOTS))) {
+            (void)(lookup_owner_type_cache_store(owner_slot, fn_decl, NULL, 0)            );
+                        {
+                uint8_t * _uya_ret = NULL;
+                return _uya_ret;
+                        }
+        }
+        if (out_is_union != NULL) {
+            out_is_union[0] = g_owner_index_is_union[idx];
+        }
+        (void)(lookup_owner_type_cache_store(owner_slot, fn_decl, g_owner_index_names[idx], g_owner_index_is_union[idx])        );
+                {
+            uint8_t * _uya_ret = g_owner_index_names[idx];
+            return _uya_ret;
+                }
+    }
+    uint8_t * const scanned = checker_fn_decl_owner_type_name_scan(checker->program_node, fn_decl, out_is_union);
+    int32_t scanned_is_union = 0;
+    if (out_is_union != NULL) {
+        scanned_is_union = out_is_union[0];
+    }
+    (void)(lookup_owner_type_cache_store(owner_slot, fn_decl, scanned, scanned_is_union)    );
+        {
+        uint8_t * _uya_ret = scanned;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) uint8_t * checker_fn_decl_owner_type_name_scan(struct ASTNode * program, struct ASTNode * fn_decl, int32_t * out_is_union) {
+    (void)program;
+    (void)fn_decl;
+    (void)out_is_union;
     int32_t i = 0;
-    while (i < checker->program_node->program_decl_count) {
-        struct ASTNode * const decl = checker->program_node->program_decls[i];
+    while (i < program->program_decl_count) {
+        struct ASTNode * const decl = program->program_decls[i];
         if (decl != NULL) {
             if (((decl->type == main_ASTNodeType_AST_STRUCT_DECL) && (decl->struct_decl_methods != NULL))) {
                 int32_t j = 0;
                 while (j < decl->struct_decl_method_count) {
                     if (decl->struct_decl_methods[j] == fn_decl) {
-                        (void)(lookup_owner_type_cache_store(owner_slot, fn_decl, decl->struct_decl_name, 0)                        );
                                                 {
                             uint8_t * _uya_ret = decl->struct_decl_name;
                             return _uya_ret;
@@ -72965,7 +73161,6 @@ static __attribute__((used)) uint8_t * checker_fn_decl_owner_type_name(struct Ty
                             if (out_is_union != NULL) {
                                 out_is_union[0] = 1;
                             }
-                            (void)(lookup_owner_type_cache_store(owner_slot, fn_decl, decl->union_decl_name, 1)                            );
                                                         {
                                 uint8_t * _uya_ret = decl->union_decl_name;
                                 return _uya_ret;
@@ -72982,13 +73177,11 @@ static __attribute__((used)) uint8_t * checker_fn_decl_owner_type_name(struct Ty
                                     if (out_is_union != NULL) {
                                         out_is_union[0] = 1;
                                     }
-                                    (void)(lookup_owner_type_cache_store(owner_slot, fn_decl, decl->method_block_union_name, 1)                                    );
                                                                         {
                                         uint8_t * _uya_ret = decl->method_block_union_name;
                                         return _uya_ret;
                                                                         }
                                 }
-                                (void)(lookup_owner_type_cache_store(owner_slot, fn_decl, decl->method_block_struct_name, 0)                                );
                                                                 {
                                     uint8_t * _uya_ret = decl->method_block_struct_name;
                                     return _uya_ret;
@@ -73002,7 +73195,6 @@ static __attribute__((used)) uint8_t * checker_fn_decl_owner_type_name(struct Ty
         }
         i = (i + 1);
     }
-    (void)(lookup_owner_type_cache_store(owner_slot, fn_decl, NULL, 0)    );
         {
         uint8_t * _uya_ret = NULL;
         return _uya_ret;
@@ -73399,6 +73591,19 @@ static __attribute__((used)) struct ASTNode * find_macro_decl_from_program(struc
     if ((((macro_slot >= 0) && (macro_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE)) && (lookup_result_cache_key_matches(g_macro_lookup_result_valid[macro_slot], g_macro_lookup_result_keys[macro_slot], (uint8_t *)macro_name) != 0))) {
                 {
             struct ASTNode * _uya_ret = g_macro_lookup_result_values[macro_slot];
+            return _uya_ret;
+                }
+    }
+    (void)(progdecl_index_ensure(program)    );
+    if (progdecl_index_ready(program) != 0) {
+        struct ASTNode * const hit = progdecl_index_find_typed(program, (uint8_t *)macro_name, main_ASTNodeType_AST_MACRO_DECL);
+        if (((macro_slot >= 0) && (macro_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE))) {
+            g_macro_lookup_result_keys[macro_slot] = macro_name;
+            g_macro_lookup_result_values[macro_slot] = hit;
+            g_macro_lookup_result_valid[macro_slot] = 1;
+        }
+                {
+            struct ASTNode * _uya_ret = hit;
             return _uya_ret;
                 }
     }
