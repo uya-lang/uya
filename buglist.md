@@ -202,6 +202,25 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - **跨函数方案（未实现）**：本条「证明器不跨函数，无法表达前提」正是
     `docs/interprocedural_proof_plan.md` 的 B3 目标 —— 把 `align != 0` 这类事实变成被调方
     的 requirement、由调用点付账。**当前状态不变：闸门仍默认关闭。**
+  - **B3 实测（2026-11-16，跨函数证明 P0/P1/B1 落地后重测）**：
+    `./bin/uya check --strict-div src/main.uya` 共命中 **93 处**，分布为
+    `src/exec/vm.uya` 31、`src/checker/modules.uya` 15、`lib/libc/stdlib.uya` 7、
+    `src/codegen/c99/function.uya` 6、`src/exec/value.uya` 6、`src/checker/interval.uya` 5、
+    `src/checker/check_expr.uya` 4、`src/checker/check_call.uya` 4，其余零散。
+    逐点检查后按形态分两类：
+    ①**同函数可证**（如 `checker.symbol_table.table.capacity` 这类动态表容量恒正）——
+       补 `if cap <= 0 { return ...; }` 守卫即可，已验证证明器能识别这种提前 return 形态；
+       本轮已在 `src/checker/check_call.uya` 的 3 处哈希取模补上守卫，命中数 **93 → 87**。
+    ②**跨函数不变量**（`src/arena.uya:49` `align_size` 的 `/ align`、`lib/libc/math.uya`
+       牛顿迭代的 `n / guess`、`lib/libc/stdio.uya` 的 `bytes_read / size`、
+       `src/checker/interval.uya` 的 `a.min / b.min` 需要先证除数区间不含 0 等）——
+       这些正是 B3 设计里「由调用点付账」的需求，但**承担付账的是 B2（非空/非零义务的产生
+       与消费）与 B4（后置事实），两者都尚未落地**；在它们之前单独翻默认，等于要求存量代码
+       把所有跨函数前提就地重写成局部守卫，改动面覆盖 `src/exec`、`src/checker`、
+       `src/codegen`、`lib/` 四处共 87 个站点，且多为热路径上的运行期守卫。
+    **结论：按 §6.3 熔断判据维持 `--strict-div` 默认关闭**，本轮只保留 ① 类三处无风险守卫
+    （不改变任何语义，表未分配时提前返回本就等价）。翻默认推迟到 B2/B4 落地后重测 ——
+    届时跨函数消解率可从 `--lifetime-report` 的 `req_div_zero` 字段直接读出。
 
 - [ ] **P1：逃逸检查（数组 / 切片 / 接口值）完全未实现**
   - `uya.md` §6.5、§6.8、§7 都写了「逃逸即编译错误」，但实测三条路径全部静默通过：

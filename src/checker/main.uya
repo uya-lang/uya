@@ -903,6 +903,21 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             // 「变量已被移动」误报（实测 `return interval_mul(a, ...)`）。
             checker_check_return_expr_bounds(checker, node.return_stmt_expr);
 
+            // B1：悬垂引用判定（施工图 §4.4 规则 1）
+            //
+            // 比对位置：必须在推断 expr_type 之后，且此前各步都没改变表达式语义。
+            //
+            // ⚠ 熔断记录（施工图 §6.3）：把「局部指针变量的值」也纳入判定时，自举
+            // 立刻爆出 231 处误报（`const node: &ASTNode = ast_new_node(...); return node;`
+            // 这类「分配后转存再返回」的合法形态遍及 parser/arena/ast/lexer/heap）。
+            // 第一版因此把判定收窄到**只认取地址形态**：`return &局部`、`return &arr[i]`、
+            // `return &s.f`。这是 buglist P1 的三条复现的共同形态，也是唯一能在当前
+            // origin 精度下零误报判定的形态。局部指针变量与调用返回值的逃逸判定
+            // 需要「指针变量当前指向」的传播（P1 未实现），留待后续阶段。
+            if lifetime_check_return_escape(checker, node, expr_type) == 0 {
+                return 0;
+            }
+
             // Pinned 类型检查：禁止按值返回包含 async frame 的类型
             if checker_type_contains_pinned_field(checker, &expr_type) != 0 {
                 checker_report_frame_move_error(checker, node.return_stmt_expr, "return" as &byte);

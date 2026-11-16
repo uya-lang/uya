@@ -143,6 +143,14 @@ var g_strict_overflow: i32 = 1;
 // 需要该保证的工程可显式开启；常量除零无论如何都会报错（常量折叠路径）。
 var g_strict_div: i32 = 0;
 
+// --lifetime-report：输出跨函数内存安全证明的**度量报告**（只算不报）。
+//
+// 这是施工图 docs/interprocedural_proof_plan.md 的 P0 阶段产物：把
+// 「跨函数消解率」与「误报数」变成可复跑、可 diff 的数字，用来决定后续
+// B1/B2/B4/B5 是否值得继续。报告本身**不产生任何编译错误**，
+// 只往 stderr 打一行行统计（file:line fn requirement bucket evidence）。
+var g_lifetime_report: i32 = 0;
+
 // --async-frame-heap=on：async frame pool 满时回退到调试 heap
 var g_async_frame_heap_fallback: i32 = 0;
 
@@ -1133,6 +1141,7 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "  --no-strict-overflow 关闭溢出闸门\n" as *byte);
     fprintf(libc.stderr, "  --strict-div         开启除零证明（默认关：整数 / 与 %% 的除数须能证明非零）\n" as *byte);
     fprintf(libc.stderr, "  --no-strict-div      关闭除零证明（默认）\n" as *byte);
+    fprintf(libc.stderr, "  --lifetime-report    输出跨函数内存安全证明的度量报告（只算不报，不影响编译结果）\n" as *byte);
     fprintf(libc.stderr, "  --nostdlib           完全独立模式：无标准库依赖，使用 syscall\n" as *byte);
     fprintf(libc.stderr, "  --async-frame-heap=on  async frame pool 满时回退到调试 heap（默认关闭）\n" as *byte);
     fprintf(libc.stderr, "  MICROAPP_TARGET_CFLAGS  microapp 目标 gcc 编译旗标；call_gate profile 默认 -std=c99 -Os -fomit-frame-pointer -fno-builtin -fno-stack-protector -fpie -ffunction-sections -fdata-sections -flto=auto，trap profile 默认改为 -fno-pie（均不含 -g）\n" as *byte);
@@ -1868,6 +1877,8 @@ fn parse_args(
             g_strict_div = 1;
         } else if strcmp(arg, "--no-strict-div" as *byte) == 0 {
             g_strict_div = 0;
+        } else if strcmp(arg, "--lifetime-report" as *byte) == 0 {
+            g_lifetime_report = 1;
         } else if strcmp(arg, "--jobs" as *byte) == 0 || strcmp(arg, "-j" as *byte) == 0 {
             // 分离写法：--jobs 8 / -j 8
             if i + 1 >= argc {
@@ -2741,6 +2752,7 @@ fn compile_files(
     checker.strict_overflow = g_strict_overflow;
     checker.strict_div = g_strict_div;
     checker.container_mode = g_container_mode;
+    checker.lifetime_report = g_lifetime_report;
 
     if g_verbose_output != 0 {
         fprintf(libc.stderr, "[v] 类型检查开始\n" as *byte);

@@ -1,0 +1,729 @@
+// checker/lifetime.uya - 跨函数内存安全证明：Origin 格与生命周期比较
+// 施工图见 docs/interprocedural_proof_plan.md §4（P1 地基）。
+//
+// 本模块只做两件事：
+//   1. 定义值「来源」（origin）这个有限格，以及它的 join / 偏序；
+//   2. 定义生命周期比较 outlives(o1, o2)。
+// 传播（transfer）在 P0/P1 只覆盖「结论可复用」的少数形态，见 lifetime_origin_of_expr。
+
+// ===== Origin 格（§4.1）=====
+//
+// UNKNOWN ⊑ LOCAL(s) ⊑ PARAM(i) ⊑ HEAP ≡ STATIC
+// （⊑ 读作「更不确定」；HEAP 与 STATIC 同层：都不随栈帧结束而失效）
+const ORIGIN_UNKNOWN: i32 = 0;
+const ORIGIN_LOCAL: i32 = 1;
+const ORIGIN_PARAM: i32 = 2;
+const ORIGIN_HEAP: i32 = 3;
+const ORIGIN_STATIC: i32 = 4;
+
+// 作用域 id 的初值：0 表示「还没有任何作用域」，真实作用域从 1 开始递增。
+const LIFETIME_SCOPE_ID_BASE: i32 = 1;
+
+// 一个 origin 值。
+//
+// 刻意**不做字段敏感**（§4.1 末尾的取舍）：`&arr[i]`、`&s.f`、`s[0:4]`、`p.f` 都只是
+// 派生，origin 只记「是否派生自同一底层存储」，不记偏移。代价是漏报「字段 x 被 free
+// 后字段 y 仍用」这类罕见场景，收益是状态数不随字段路径乘积爆炸。
+struct Origin {
+    kind: i32,      // ORIGIN_* 之一
+    scope_id: i32,  // 仅 ORIGIN_LOCAL 有意义：产生该局部存储的作用域 id
+    param_index: i32, // 仅 ORIGIN_PARAM 有意义：第几个形参（0 起）
+}
+
+/// 构造「不可判定」的 origin。
+/// 参数：无。
+/// 返回：kind = ORIGIN_UNKNOWN 的 Origin。
+fn origin_unknown() Origin {
+    var o: Origin = Origin {
+        kind: ORIGIN_UNKNOWN,
+        scope_id: 0,
+        param_index: 0,
+    };
+    return o;
+}
+
+/// 构造「局部栈存储」的 origin。
+/// 参数：scope_id - 产生该存储的作用域 id。
+/// 返回：kind = ORIGIN_LOCAL 的 Origin。
+fn origin_local(scope_id: i32) Origin {
+    var o: Origin = Origin {
+        kind: ORIGIN_LOCAL,
+        scope_id: scope_id,
+        param_index: 0,
+    };
+    return o;
+}
+
+/// 构造「形参所指存储」的 origin。
+/// 参数：param_index - 形参下标（0 起）。
+/// 返回：kind = ORIGIN_PARAM 的 Origin。
+fn origin_param(param_index: i32) Origin {
+    var o: Origin = Origin {
+        kind: ORIGIN_PARAM,
+        scope_id: 0,
+        param_index: param_index,
+    };
+    return o;
+}
+
+/// 构造「堆 / 静态」起源，二者同层（寿命都是 ∞）。
+/// 参数：即 lifetime 永不结束的 origin。
+/// 返回：kind = ORIGIN_HEAP 的 Origin。
+fn origin_heap() Origin {
+    var o: Origin = Origin {
+        kind: ORIGIN_HEAP,
+        scope_id: 0,
+        param_index: 0,
+    };
+    return o;
+}
+
+/// 构造「静态存储」的 origin（顶层 var/const、字符串字面量、static 缓冲）。
+/// 参数：无。
+/// 返回：kind = ORIGIN_STATIC 的 Origin。
+fn origin_static() Origin {
+    var o: Origin = Origin {
+        kind: ORIGIN_STATIC,
+        scope_id: 0,
+        param_index: 0,
+    };
+    return o;
+}
+
+/// 判断 origin 是否「寿命永不到期」（STATIC 或 HEAP）。
+/// 参数：o - 待判定的 origin。
+/// 返回：1 表示寿命 ∞，0 表示否则。
+fn origin_is_unbounded(o: Origin) i32 {
+    if o.kind == ORIGIN_STATIC || o.kind == ORIGIN_HEAP {
+        return 1;
+    }
+    return 0;
+}
+
+/// 判断两个 origin 是否相等（含 scope_id / param_index）。
+/// 参数：a - 左值；b - 右值。
+/// 返回：1 表示相等，0 表示不等。
+fn origin_equals(a: Origin, b: Origin) i32 {
+    if a.kind != b.kind {
+        return 0;
+    }
+    if a.kind == ORIGIN_LOCAL && a.scope_id != b.scope_id {
+        return 0;
+    }
+    if a.kind == ORIGIN_PARAM && a.param_index != b.param_index {
+        return 0;
+    }
+    return 1;
+}
+
+/// 计算两个 origin 的最小上界（join），按指针取值、**不消费**实参。
+/// 参数：a - 左值指针；b - 右值指针。
+/// 返回：二者 join 后的 origin（指针为 null 时返回 UNKNOWN）。
+///
+/// 存在的理由：`Origin` 是按值移动的类型，`origin_join(a, b)` 会把 a、b 两个局部
+/// 变量消费掉；调用点若还想再用其中任何一个（典型场景：acc 与本次 return 的 origin
+/// 都要参与后续 join），走指针入口可以避开移动检查，语义完全等价。
+fn origin_join_ptr(a: &Origin, b: &Origin) Origin {
+    if a == null || b == null {
+        return origin_unknown();
+    }
+    var va: Origin = a[0];
+    var vb: Origin = b[0];
+    return origin_join(va, vb);
+}
+
+/// 计算两个 origin 的最小上界（join）。
+/// 参数：a - 左值；b - 右值。
+/// 返回：二者 join 后的 origin。
+fn origin_join(a: Origin, b: Origin) Origin {
+    if origin_equals(a, b) != 0 {
+        return a;
+    }
+    // 任何含 UNKNOWN → UNKNOWN
+    if a.kind == ORIGIN_UNKNOWN || b.kind == ORIGIN_UNKNOWN {
+        return origin_unknown();
+    }
+    // HEAP 与 STATIC 同层：取更宽的 HEAP
+    if origin_is_unbounded(a) != 0 && origin_is_unbounded(b) != 0 {
+        return origin_heap();
+    }
+    // {LOCAL(a), LOCAL(b)} → LOCAL(min)：取更外层（更保守）
+    if a.kind == ORIGIN_LOCAL && b.kind == ORIGIN_LOCAL {
+        if a.scope_id <= b.scope_id {
+            return a;
+        }
+        return b;
+    }
+    // 不同类（LOCAL vs PARAM/∞、PARAM(i) vs PARAM(j)、LOCAL vs ∞ 等）→ UNKNOWN
+    return origin_unknown();
+}
+
+/// 把 origin 中的 PARAM(i) 按调用点实参 origin 实例化。
+/// 参数：ret - 被调方返回的 origin；actuals - 实参 origin 数组；actual_count - 实参个数。
+/// 返回：实例化后的 origin（PARAM 下标越界则降级 UNKNOWN）。
+fn origin_instantiate(ret: Origin, actuals: &Origin, actual_count: i32) Origin {
+    if ret.kind != ORIGIN_PARAM {
+        return ret;
+    }
+    if actuals == null || ret.param_index < 0 || ret.param_index >= actual_count {
+        return origin_unknown();
+    }
+    return actuals[ret.param_index];
+}
+
+// ===== 生命周期比较（§4.3）=====
+
+/// 判断 o1 的寿命是否覆盖 o2（o1 活得不比 o2 短）。
+/// 参数：o1 - 目标存储的 origin；o2 - 被写入值的 origin。
+/// 返回：1 表示 outlives；0 表示不成立或不可判定（保守返回 0，调用方按「证不出」处理）。
+///
+/// 规则：
+///   ∞（STATIC/HEAP）总是覆盖任何存储；
+///   LOCAL(a) 覆盖 LOCAL(b) 当且仅当 a <= b（a 更外层，活得至少一样久）；
+///   PARAM 的寿命由调用点决定，这里一律返回 0（交给调用点判定），
+///   UNKNOWN 同样返回 0（永不产生假保证）。
+fn origin_outlives(o1: Origin, o2: Origin) i32 {
+    if origin_is_unbounded(o1) != 0 {
+        return 1;
+    }
+    if o1.kind == ORIGIN_LOCAL && o2.kind == ORIGIN_LOCAL {
+        if o1.scope_id <= o2.scope_id {
+            return 1;
+        }
+        return 0;
+    }
+    return 0;
+}
+
+/// 判断一个 origin 能否安全地写入寿命 ∞ 的容器（全局 / 堆对象字段）。
+/// 参数：o - 待写入值的 origin。
+/// 返回：1 表示可写（STATIC / HEAP / UNKNOWN），0 表示不可写。
+///
+/// 注意 UNKNOWN 也放行：不可判定时不报错，避免把「证不出」当成「证伪」。
+fn origin_can_write_long_lived(o: Origin) i32 {
+    if o.kind == ORIGIN_STATIC || o.kind == ORIGIN_HEAP || o.kind == ORIGIN_UNKNOWN {
+        return 1;
+    }
+    return 0;
+}
+
+// ===== P0 度量报告（--lifetime-report）=====
+//
+// 施工图 §6.2 只认两个数字：跨函数消解率 = (④ + ⑤) / 全部 requirement、
+// 误报率 = Pass C 报错数 / 全部 requirement。这里先把**分母和分子都数清**，
+// 不打印逐站点明细（逐站点明细随 B1/B3 接线后再加，见 §11 的 P0 出口判据）。
+
+/// 累加一条「非空」义务（形参指针解引用前提）。
+/// 参数：checker - 类型检查器；resolved - 1 表示已消解（&x / 本地守卫 / 上游），0 表示未消解。
+/// 返回：无。
+fn lifetime_report_param_null(checker: &TypeChecker, resolved: i32) void {
+    if checker == null || checker.lifetime_report == 0 {
+        return;
+    }
+    checker.lifetime_req_total = checker.lifetime_req_total +| 1;
+    checker.lifetime_req_param_null = checker.lifetime_req_param_null +| 1;
+    lifetime_report_bucket(checker, resolved);
+}
+
+/// 累加一条「非零」义务（除数前提）。
+/// 参数：checker - 类型检查器；resolved - 1 表示已消解，0 表示未消解。
+/// 返回：无。
+fn lifetime_report_div_zero(checker: &TypeChecker, resolved: i32) void {
+    if checker == null || checker.lifetime_report == 0 {
+        return;
+    }
+    checker.lifetime_req_total = checker.lifetime_req_total +| 1;
+    checker.lifetime_req_div_zero = checker.lifetime_req_div_zero +| 1;
+    lifetime_report_bucket(checker, resolved);
+}
+
+/// 累加一条「返回指向局部存储」站点（B1 受检面）。
+/// 参数：checker - 类型检查器。
+/// 返回：无。
+fn lifetime_report_return_local(checker: &TypeChecker) void {
+    if checker == null || checker.lifetime_report == 0 {
+        return;
+    }
+    checker.lifetime_returns_local = checker.lifetime_returns_local +| 1;
+}
+
+/// 内部：按消解状态累加分子/分母。
+/// 参数：checker - 类型检查器；resolved - 1 已消解，0 未消解。
+/// 返回：无。
+fn lifetime_report_bucket(checker: &TypeChecker, resolved: i32) void {
+    if resolved != 0 {
+        checker.lifetime_req_resolved = checker.lifetime_req_resolved +| 1;
+    } else {
+        checker.lifetime_req_unresolved = checker.lifetime_req_unresolved +| 1;
+    }
+}
+
+/// 打印度量报告汇总（只在 --lifetime-report 时输出，绝不产生编译错误）。
+/// 参数：checker - 类型检查器。
+/// 返回：无。
+///
+/// 输出格式刻意保持**稳定且有序**（固定字段顺序、无时间戳、无路径绝对化），
+/// 这样两次运行的输出可以直接 diff，满足 P0 的「两次运行报告 diff = 0」出口判据。
+fn lifetime_report_flush(checker: &TypeChecker) void {
+    if checker == null || checker.lifetime_report == 0 {
+        return;
+    }
+    fprintf(libc.stderr, "[lifetime] functions=%d\n" as *byte, checker.lifetime_fn_count);
+    fprintf(libc.stderr, "[lifetime] req_total=%d req_resolved=%d req_unresolved=%d\n" as *byte,
+        checker.lifetime_req_total, checker.lifetime_req_resolved, checker.lifetime_req_unresolved);
+    fprintf(libc.stderr, "[lifetime] req_param_null=%d\n" as *byte, checker.lifetime_req_param_null);
+    fprintf(libc.stderr, "[lifetime] req_div_zero=%d\n" as *byte, checker.lifetime_req_div_zero);
+    fprintf(libc.stderr, "[lifetime] returns_local=%d\n" as *byte, checker.lifetime_returns_local);
+    fprintf(libc.stderr, "[lifetime] summary_unknown=%d\n" as *byte, checker.lifetime_summary_fail);
+}
+
+// ===== transfer 表（§4.2）：表达式 → origin =====
+//
+// 只覆盖施工图 §4.2 表里「结论可复用」的形态。刻意**不做**的部分（一律返回
+// origin_unknown()）：cast 往返、union 变体字段、@asm 输出、指针算术 —— 理由见
+// 施工图 §5.1~§5.3，那里说明了为什么任何推断都会产生假保证。
+
+/// 对一个表达式求 origin（来源）。
+/// 参数：checker - 类型检查器；expr - 待求 origin 的表达式。
+/// 返回：该表达式的 origin；非指针/不可判定形态返回 origin_unknown()。
+fn lifetime_origin_of_expr(checker: &TypeChecker, expr: &ASTNode) Origin {
+    if checker == null || expr == null {
+        return origin_unknown();
+    }
+    // `&x` / `&arr[i]` / `&s.f`：取操作数的 origin（派生不改变存储归属，§4.1）
+    if expr.type == ASTNodeType.AST_UNARY_EXPR &&
+        (expr.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND {
+        return lifetime_origin_of_place(checker, expr.unary_expr_operand);
+    }
+    // 切片 `base[start:len]` 是视图，不拥有存储
+    if expr.type == ASTNodeType.AST_SLICE_EXPR {
+        return lifetime_origin_of_place(checker, expr.slice_expr_base);
+    }
+    // 标识符：局部 / 形参 / 顶层，见 lifetime_origin_of_place
+    //
+    // 这里必须先分清两种「标识符求值」：
+    //   `&x`（取地址）→ 问的是 x **自身的存储** → LOCAL
+    //   `x`  （读值）  → 问的是 x 里那个值**指向哪** → 由 lifetime_origin_of_value 决定
+    // 二者混用正是第一版误报的根源：`const r: &byte = b; return r;` 里 r 是
+    // 局部指针变量，但它存的值来自形参 b，返回它是合法的，不该按 LOC(A) 报错。
+    if expr.type == ASTNodeType.AST_IDENTIFIER {
+        return lifetime_origin_of_value(checker, expr);
+    }
+    // 成员访问 `p.f` / `s.f`：**读字段**得到的是字段里那个值。
+    //
+    // 不能一律按容器归属处理：`arena.current_chunk = arena.first_chunk;` 的右值是
+    // 「读 first_chunk 字段」，得到的是它存的指针值，指向的存储与 arena 这个形参
+    // 同寿命；按 LOCAL(arena 的 scope) 判定会立刻误报（实测 arena/heap/main 共 34 处）。
+    // 只有 `&s.f`（取地址）才该按容器归属，那条路径走 lifetime_origin_of_place。
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return lifetime_origin_of_value(checker, expr);
+    }
+    // 下标 `s[i]`：读元素同样是读值
+    if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
+        return lifetime_origin_of_value(checker, expr);
+    }
+    // 字符串字面量：静态存储
+    if expr.type == ASTNodeType.AST_STRING {
+        return origin_static();
+    }
+    // 函数调用：实例化被调方摘要的 ret_origin（见 lifetime_origin_of_call）
+    if expr.type == ASTNodeType.AST_CALL_EXPR {
+        return lifetime_origin_of_call(checker, expr);
+    }
+    // 其余形态（cast / 算术 / @asm / union / 指针算术）：不可判定
+    return origin_unknown();
+}
+
+/// 对一个「存储位置」求 origin（标识符、字段链、下标链）。
+/// 参数：checker - 类型检查器；expr - 位置表达式。
+/// 返回：该位置所涉及的底层存储 origin。
+///
+/// 这是 origin 格「不做字段敏感」的落点：`&s.f.g` 与 `&s.g` 都是 origin(s)。
+fn lifetime_origin_of_place(checker: &TypeChecker, expr: &ASTNode) Origin {
+    if checker == null || expr == null {
+        return origin_unknown();
+    }
+    if expr.type == ASTNodeType.AST_IDENTIFIER {
+        const name: &byte = expr.identifier_name;
+        if name == null {
+            return origin_unknown();
+        }
+        const sym: &Symbol = symbol_table_lookup(checker, name);
+        if sym == null {
+            // 查不到符号：可能是顶层全局（顶层 var 走 STATIC）或未知名字。
+            // 保守给 STATIC —— 与 §2 的观察一致（`return &g_allocator` 合法）。
+            return origin_static();
+        }
+        // 形参：PARAM(i)。存不下时（P1 暂不记录 param_index）降级为「形参整体」。
+        // 用 param_index = -1 表示「是形参但下标未知」，join 时会变 UNKNOWN；
+        // 这里刻意保留 PARAM(-1) 而不是 UNKNOWN，因为「是形参」本身已经足够
+        // 让 return 判定放行（§4.4 规则 1）。
+        if lifetime_symbol_is_param(checker, sym) != 0 {
+            return origin_param(-1);
+        }
+        // 顶层符号（全局 var / const、static 缓冲）→ STATIC
+        if sym.scope_level <= 0 {
+            return origin_static();
+        }
+        // **关键区分**：这里问的是「这个位置所指的存储在哪儿」。
+        //
+        // 对 `&x`（取地址）而言，答案是「x 自身的存储」→ LOCAL。
+        // 但对**指针类型的符号**而言，`x` 求值出来是它**持有的指针值**，
+        // 该指针指向的存储完全可能在别处（`const r: &byte = &arena.buf[i]`，
+        // 之后 `return r` 返回的是堆/arena 上的地址，不是 r 自己的栈槽）。
+        // 因此指针类型符号一律返回 UNKNOWN —— 证不出 ≠ 证伪，不能报错。
+        //
+        // 这条区分是 P1 第一版最大的误报来源：不区分会把 `src/`、`lib/` 里
+        // 成百上千个「局部指针变量转存后返回」判成悬垂（实测 arena/ast/lexer/
+        // heap/parallel 全部打穿），正是施工图 §6.3 的熔断形态。
+        var sym_type: Type = sym.type;
+        if sym_type.kind == TypeKind.TYPE_POINTER || sym_type.kind == TypeKind.TYPE_SLICE {
+            return origin_unknown();
+        }
+        return origin_local(sym.scope_id);
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return lifetime_origin_of_place(checker, expr.member_access_object);
+    }
+    if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
+        return lifetime_origin_of_place(checker, expr.array_access_array);
+    }
+    if expr.type == ASTNodeType.AST_UNARY_EXPR &&
+        (expr.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND {
+        return lifetime_origin_of_expr(checker, expr);
+    }
+    // 指针解引用 `*p`：派生自 p 所指向的存储，归属仍看 p
+    return origin_unknown();
+}
+
+/// 对函数调用求 origin：解析被调方，把 ret_origin 里的 PARAM(i) 按实参 origin 代入。
+/// 参数：checker - 类型检查器；expr - 调用表达式。
+/// 返回：调用结果的 origin；不可解析时 origin_unknown()。
+fn lifetime_origin_of_call(checker: &TypeChecker, expr: &ASTNode) Origin {
+    if checker == null || expr == null || expr.call_expr_callee == null {
+        return origin_unknown();
+    }
+    const fn_decl: &ASTNode = resolve_reachable_callee_fn_decl(checker, expr.call_expr_callee);
+    if fn_decl == null || fn_decl.fn_decl_body == null {
+        // extern / 不可达 / 无体：信任边界，返回值按 UNKNOWN（§5.5）
+        return origin_unknown();
+    }
+    const ret: Origin = lifetime_summary_ret_origin(checker, fn_decl);
+    if ret.kind == ORIGIN_UNKNOWN || ret.kind != ORIGIN_PARAM {
+        return ret;
+    }
+    // 实例化 PARAM(i)：用第 i 个实参的 origin
+    const pi: i32 = ret.param_index;
+    if pi < 0 || expr.call_expr_args == null || pi >= expr.call_expr_arg_count {
+        return origin_unknown();
+    }
+    return lifetime_origin_of_expr(checker, expr.call_expr_args[pi]);
+}
+
+// ===== 函数摘要（§4.5 / §4.6 Pass A）=====
+//
+// 摘要的键就是 fn 声明节点（resolve_reachable_callee_fn_decl 已能解析）。
+// 第一版只算 ret_origin 一项 —— B1 的三处判定点只需要它；escape_mask /
+// requires 随 B2/B3 接线再加，避免一次引入过多未知量。
+
+/// 计算一个函数的「返回 origin」摘要：函数体里所有 `return expr` 的 origin 的 join。
+/// 参数：checker - 类型检查器；fn_decl - 函数声明节点。
+/// 返回：概括后仍能安全用于调用点的 origin（PARAM(i) 表示「原样返回第 i 个形参」）。
+///
+/// 单调性与保守性：
+/// - 任何一处 return 给出 UNKNOWN，整体就是 UNKNOWN（不会凭空产生保证）；
+/// - 多处 return 取 join，`return &local` 与 `return &param` 混合 → join 出 UNKNOWN，
+///   调用点因此不做任何推断（保守）。
+fn lifetime_summary_ret_origin(checker: &TypeChecker, fn_decl: &ASTNode) Origin {
+    if checker == null || fn_decl == null || fn_decl.fn_decl_body == null {
+        return origin_unknown();
+    }
+    var acc: Origin = origin_unknown();
+    var seen: i32 = 0;
+    lifetime_collect_return_origins(checker, fn_decl.fn_decl_body, &acc, &seen);
+    if seen == 0 {
+        // 没有 return 语句（void 函数）：非指针结果
+        return origin_unknown();
+    }
+    return acc;
+}
+
+/// 递归收集函数体里所有 `return expr` 的 origin，按 join 累加。
+/// 参数：checker - 类型检查器；node - 当前子树；acc - 累加器（inout）；seen - 已见 return 数（inout）。
+/// 返回：无。
+///
+/// 刻意**不进入**嵌套的 fn 声明（lambda 式内联函数会把别的函数的 return 混进来）。
+fn lifetime_collect_return_origins(checker: &TypeChecker, node: &ASTNode, acc: &Origin, seen: &i32) void {
+    if checker == null || node == null || acc == null || seen == null {
+        return;
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        seen[0] = seen[0] +| 1;
+        if node.return_stmt_expr == null {
+            return;
+        }
+        const o: Origin = lifetime_origin_of_expr(checker, node.return_stmt_expr);
+        // `Origin` 是按值移动的类型：`o` 只能被消费**一次**，且不能同时出现在
+        // if/else 两个分支里（Uya 把两个分支都视作「可能已消费」）。
+        // 因此这里让 o 只出现在一条无条件语句里：
+        //   seen[0] == 1（首次）→ acc 原值是 origin_unknown()，先把 acc 置成未知来源
+        //                        再 join，结果就等于 o 本身，语义等价且无需分支。
+        //   非首次            → 正常的 join。
+        // 已见首条时显式写回 origin_unknown()，正是为了复用同一条 join 路径。
+        if seen[0] == 1 {
+            acc[0] = origin_unknown();
+        }
+        var joined: Origin = origin_join(acc[0], o);
+        acc[0] = joined;
+        return;
+    }
+    // 不下钻嵌套函数声明
+    if node.type == ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    lifetime_walk_child_nodes(checker, node, acc, seen);
+}
+
+/// 遍历一个语句/表达式节点的直接子节点，对每个子节点回调「收集 return origin」。
+/// 参数：checker - 类型检查器；node - 当前节点；acc - 累加器（inout）；seen - 计数（inout）。
+/// 返回：无。
+///
+/// 覆盖范围只要求「不漏 return」：块、if/else、while、for、var-decl、assign、
+/// defer/errdefer、test 块、match。表达式内部不递归 —— return 语句只可能出现在
+/// 语句位置，表达式里的嵌套块（catch/match 臂）另行覆盖。
+fn lifetime_walk_child_nodes(checker: &TypeChecker, node: &ASTNode, acc: &Origin, seen: &i32) void {
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            lifetime_collect_return_origins(checker, node.block_stmts[i], acc, seen);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        lifetime_collect_return_origins(checker, node.if_stmt_then_branch, acc, seen);
+        lifetime_collect_return_origins(checker, node.if_stmt_else_branch, acc, seen);
+        return;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        lifetime_collect_return_origins(checker, node.while_stmt_body, acc, seen);
+        return;
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        lifetime_collect_return_origins(checker, node.for_stmt_body, acc, seen);
+        return;
+    }
+    if node.type == ASTNodeType.AST_DEFER_STMT {
+        lifetime_collect_return_origins(checker, node.defer_stmt_body, acc, seen);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ERRDEFER_STMT {
+        lifetime_collect_return_origins(checker, node.errdefer_stmt_body, acc, seen);
+        return;
+    }
+    if node.type == ASTNodeType.AST_TEST_STMT {
+        lifetime_collect_return_origins(checker, node.test_stmt_body, acc, seen);
+        return;
+    }
+    // 其余语句/表达式：return 不会出现在其直接子位置（表达式内的 catch/match
+    // 块可能含 return，但那已由各自语句路径覆盖；第一版不追求穷尽，宁漏勿假）。
+}
+
+// ===== B1：悬垂引用判定（§4.4 三处判定点）=====
+
+/// 判定并报告「return 返回指向局部存储的引用」。
+/// 参数：checker - 类型检查器；node - return 语句节点；expr_type - return 表达式的类型。
+/// 返回：1 表示无问题；0 表示已报错。
+///
+/// 放行规则（施工图 §4.4 规则 1，经 §6.3 熔断后收窄）：
+///   STATIC / HEAP / PARAM 一律放行；UNKNOWN 放行（证不出不等于证伪）；
+///   只有 LOCAL（当前函数内任意作用域）才报错。
+///
+/// **只认取地址形态**（`return &x` / `return &arr[i]` / `return &s.f`）：
+/// 这是当前 origin 精度下唯一能零误报判定的形态，也正是 buglist P1 三条复现的
+/// 共同形态。局部指针变量（`const p: &T = ...; return p;`）与函数调用的返回值
+/// 一律放行 —— 判定它们需要「指针变量当前指向」的传播，P1 未实现；强行判定
+/// 会立刻打出 231 处误报并让 `src/` 无法自举（实测记录见 main.uya 调用点注释）。
+fn lifetime_check_return_escape(checker: &TypeChecker, node: &ASTNode, expr_type: Type) i32 {
+    if checker == null || node == null || node.return_stmt_expr == null {
+        return 1;
+    }
+    // 只对「返回类型含指针」的情况判定：返回值不是指针就没有悬垂引用
+    if lifetime_type_may_hold_pointer(expr_type) == 0 {
+        return 1;
+    }
+    // 收窄点：只判定取地址形态。`return p;`（p 是局部指针变量）与
+    // `return f(...);`（调用返回值）在此放行，见上方说明。
+    if lifetime_expr_is_address_of_local(node.return_stmt_expr) == 0 {
+        return 1;
+    }
+    const o: Origin = lifetime_origin_of_expr(checker, node.return_stmt_expr);
+    if o.kind != ORIGIN_LOCAL {
+        return 1;
+    }
+    lifetime_report_return_local(checker);
+    checker_report_error(checker, node,
+        "返回指向局部存储的引用：该存储随函数返回失效，调用方拿到的是悬垂指针" as *byte);
+    return 0;
+}
+
+/// 判断一个类型「是否可能携带指向其他存储的引用」。
+/// 参数：t - 待判定类型。
+/// 返回：1 表示是指针或切片（可能悬垂），0 表示按值类型（不可能悬垂）。
+fn lifetime_type_may_hold_pointer(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_POINTER || t.kind == TypeKind.TYPE_SLICE {
+        return 1;
+    }
+    if t.kind == TypeKind.TYPE_ERROR_UNION && t.error_union_payload_type != null {
+        var inner: Type = t.error_union_payload_type[0];
+        return lifetime_type_may_hold_pointer(inner);
+    }
+    return 0;
+}
+
+/// 判定并报告「把短寿命的值写进长寿命的容器」（§4.4 规则 2）。
+/// 参数：checker - 类型检查器；dest - 赋值目标表达式；src - 赋值源表达式；dest_type - 目标类型。
+/// 返回：1 表示无问题；0 表示已报错。
+///
+/// 只覆盖两类「寿命明确更长」的容器，其余形态一律放行（证不出不报）：
+///   1. 写顶层全局（AST_IDENTIFIER 且符号出现在作用域 0）：要求来源为 STATIC/HEAP/UNKNOWN；
+///   2. 写结构体字段 `s.f = e`：要求 outlives(origin(s), origin(e))。
+///
+/// 刻意**不做**的：写切片元素（`arr[i] = e`）暂按放行处理 —— 切片本身的 origin
+/// 在 P1 还不能稳定拿到，贸然判定会把大量合法形态打穿（§2 的 361/908 教训）。
+fn lifetime_check_store_escape(checker: &TypeChecker, dest: &ASTNode, src: &ASTNode, dest_type: Type) i32 {
+    if checker == null || dest == null || src == null {
+        return 1;
+    }
+    if lifetime_type_may_hold_pointer(dest_type) == 0 {
+        return 1;
+    }
+    const src_origin: Origin = lifetime_origin_of_expr(checker, src);
+    if src_origin.kind == ORIGIN_UNKNOWN || src_origin.kind == ORIGIN_STATIC ||
+        src_origin.kind == ORIGIN_HEAP {
+        return 1;
+    }
+
+    // 场景 1：写全局变量（scope_level == 0 的符号 = 顶层 var）
+    if dest.type == ASTNodeType.AST_IDENTIFIER && dest.identifier_name != null {
+        const sym: &Symbol = symbol_table_lookup(checker, dest.identifier_name);
+        if sym != null && sym.scope_level <= 0 {
+            checker_report_error(checker, dest,
+                "不能把指向局部存储的引用写入全局变量：该存储随函数返回失效，全局变量会变成悬垂指针" as *byte);
+            return 0;
+        }
+        return 1;
+    }
+
+    // 场景 2：写结构体字段 `s.f = e`
+    if dest.type == ASTNodeType.AST_MEMBER_ACCESS {
+        const container: Origin = lifetime_origin_of_place(checker, dest.member_access_object);
+        if container.kind == ORIGIN_UNKNOWN {
+            return 1;
+        }
+        if origin_outlives(container, src_origin) == 0 {
+            checker_report_error(checker, dest,
+                "字段的存储寿命比赋给它的引用更长：写入后该字段会指向已失效的存储" as *byte);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/// 判断一个符号是否绑定到当前函数的形参。
+/// 参数：checker - 类型检查器；sym - 待判定符号。
+/// 返回：1 表示是形参，0 表示不是。
+///
+/// 为什么不直接用 `scope_level == 1`：函数体开作用域后才插形参，但有方法接收者
+/// 自带的 `self`、嵌套块、泛型单态化等路径会让形参落在别的层级；反过来，
+/// 第一层里也可能有非形参的局部变量。所以拿当前函数的形参表逐名核对，
+/// 这是唯一不会随作用域层级变化而漂移的判据。
+fn lifetime_symbol_is_param(checker: &TypeChecker, sym: &Symbol) i32 {
+    if checker == null || sym == null || sym.name == null {
+        return 0;
+    }
+    const fn_decl: &ASTNode = checker.current_function_decl;
+    if fn_decl == null || fn_decl.fn_decl_params == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < fn_decl.fn_decl_param_count {
+        const p: &ASTNode = fn_decl.fn_decl_params[i];
+        if p != null && p.type == ASTNodeType.AST_VAR_DECL && p.var_decl_name != null {
+            if str_equals(p.var_decl_name, sym.name) != 0 {
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+/// 对一个「值」求 origin：问的是「这个值指向的存储在哪儿」。
+/// 参数：checker - 类型检查器；expr - 求值表达式。
+/// 返回：该值携带的 origin。
+///
+/// 与 lifetime_origin_of_place 的分工：
+///   of_place  回答「这个位置的存储本身在哪」——`&x` 用它，答案是 LOCAL；
+///   of_value  回答「这个值指向哪里」——`return x` / `f(x)` 用它。
+///
+/// 对局部指针变量，P1 还没有「指针变量的当前指向」这件事（需要 each-symbol
+/// 的指向传播），因此一律 UNKNOWN：证不出 ≠ 证伪。这是有意保守的选择 ——
+/// 施工图 §6.3 已经把「误报数百条」定为熔断信号，宁可少报也不能打穿自举。
+fn lifetime_origin_of_value(checker: &TypeChecker, expr: &ASTNode) Origin {
+    if checker == null || expr == null {
+        return origin_unknown();
+    }
+    if expr.type != ASTNodeType.AST_IDENTIFIER {
+        return lifetime_origin_of_expr(checker, expr);
+    }
+    const name: &byte = expr.identifier_name;
+    if name == null {
+        return origin_unknown();
+    }
+    const sym: &Symbol = symbol_table_lookup(checker, name);
+    if sym == null {
+        return origin_static();
+    }
+    // 形参：值来自调用方 → PARAM（由调用点实例化）
+    if lifetime_symbol_is_param(checker, sym) != 0 {
+        return origin_param(-1);
+    }
+    // 顶层符号：全局 var / const、static 缓冲 → 寿命 ∞
+    if sym.scope_level <= 0 {
+        return origin_static();
+    }
+    // 局部变量：读出来的值是**副本**。
+    //   指针/切片：指向的存储未知 → UNKNOWN（见上方说明）
+    //   非指针：按值拷贝，不构成引用，也记 UNKNOWN（调用方只对指针形态判定）
+    var sym_type: Type = sym.type;
+    if sym_type.kind == TypeKind.TYPE_POINTER || sym_type.kind == TypeKind.TYPE_SLICE {
+        return origin_unknown();
+    }
+    return origin_unknown();
+}
+
+/// 判断表达式是否为「对局部存储取地址」的形态：`&x`、`&arr[i]`、`&s.f`。
+/// 参数：expr - return 表达式。
+/// 返回：1 表示是取地址形态，0 表示不是（局部指针变量、调用返回值等）。
+///
+/// 这是 B1 第一版唯一判定的形态（见 lifetime_check_return_escape 的说明）。
+/// 只做**语法层**判断，不关心操作数最终解析成局部还是形参 —— 后者交给
+/// origin 格的 LOCAL 判定，语法层只管「这是不是一个取地址表达式」。
+/// `as &T` 包裹的取地址（`(&x) as &void`）也算，因为按 §5.2 它一律 UNKNOWN，
+/// 由 origin 层自然放行，这里不必特判。
+fn lifetime_expr_is_address_of_local(expr: &ASTNode) i32 {
+    if expr == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        var op: TokenType = expr.unary_expr_op as TokenType;
+        if op == TokenType.TOKEN_AMPERSAND {
+            return 1;
+        }
+        return 0;
+    }
+    // 切片字面视图 `base[a:b]` 不会把局部栈存储带出函数体的情况极少，
+    // 第一版不判定（避免把 `s[0:4]` 里 s 为形参的合法形态误报）。
+    return 0;
+}

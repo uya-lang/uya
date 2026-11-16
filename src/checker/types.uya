@@ -224,6 +224,13 @@ struct Symbol {
     next_in_bucket: &Symbol,  // 同一作用域内同一哈希桶的下一个符号（见 TypeChecker.scope_buckets）
     pointer_known_length: i32,  // 指针已知长度（如 *byte = "ab" 为 3），-1 表示未知；用于 --safety-proof 时下标边界证明
     pointer_length_param: &byte,  // 若为函数参数且与下一参数成 (ptr, len) 对，则为 len 参数名，否则 null；有此时允许 ptr[i] 作长度证明
+    // 声明该符号的作用域 id（见 TypeChecker.scope_id_seq）。
+    //
+    // scope_level 只能区分「第几层」，无法区分同一层级的两次进入（循环体每轮复用
+    // 同一 scope_level）。跨函数证明的 origin 格需要「LOCAL(a) 是否活得比 LOCAL(b)
+    // 久」这种比较，同层的两次进入必须能分开，所以另开一个单调递增的作用域 id。
+    // 0 表示尚未记录（顶层或未接线路径），比较时按最外层处理。
+    scope_id: i32,
 }
 
 struct FunctionSignature {
@@ -326,6 +333,13 @@ struct TypeChecker {
     import_table: ImportTable,
     string_pool: StringPool,  // 字符串池
     scope_level: i32,
+    // 作用域 id 发号器：每次 checker_enter_scope 递增一次，产生的 id 记进
+    // Symbol.scope_id。与 scope_level 的区别见 Symbol.scope_id 的注释。
+    // 0 保留给「未记录」，所以从 LIFETIME_SCOPE_ID_BASE 起发号。
+    scope_id_seq: i32,
+    // 当前作用域 id 栈：作用域索引（同 scope_level）→ 该层最近一次进入的 id。
+    // exit 时用它把 scope_id_seq 回退，避免同一层级每轮循环都涨号。
+    scope_id_stack: [i32: 64],
     loop_depth: i32,
     program_node: &ASTNode,
     error_count: i32,
@@ -379,6 +393,18 @@ struct TypeChecker {
     strict_div: i32,
     // 抑制计数：>0 时跳过溢出闸门判定。
     suppress_overflow_gate: i32,
+    // --lifetime-report：输出跨函数证明的度量报告（只算不报）。
+    // 见 docs/interprocedural_proof_plan.md §6.2 的字段定义。
+    lifetime_report: i32,
+    // 度量计数器（lifetime_report != 0 时才累加；报告出口在 checker_lifetime_report_flush）。
+    lifetime_req_total: i32,
+    lifetime_req_param_null: i32,   // 形参「非空」义务总数（B2 受影响面）
+    lifetime_req_div_zero: i32,     // 除数「非零」义务总数（B3 受影响面）
+    lifetime_req_resolved: i32,     // 已消解（任一桶）
+    lifetime_req_unresolved: i32,   // 未消解（Pass C 候选误报）
+    lifetime_returns_local: i32,    // return 返回指向局部存储的站点数（B1 受检面）
+    lifetime_fn_count: i32,         // 已扫过的函数体数量
+    lifetime_summary_fail: i32,     // 摘要降级为 unknown 的次数
     // 已识别的 checked 算术根（try/catch 的操作数）。闸门对这些根的整棵子树豁免：
     // 那部分由运行时 checked 检查负责，不该再被静态闸门拦一次。
     // 按函数重置（见 checker_reset_proof_steps）。

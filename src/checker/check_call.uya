@@ -302,6 +302,12 @@ fn checker_import_table_lookup_local_name(checker: &TypeChecker, local_name: &by
     }
     var ih: u32 = hash_string(local_name);
     const itbl_cap: i32 = checker.import_table.table.capacity;
+    // B3 除零证明：动态表的 capacity 恒为正，但证明器无法从字段读取推出这一点，
+    // 于是 `% itbl_cap` 被判「除数可能为 0」。显式守卫既向证明器说明前提，
+    // 也让运行期在表未分配时安全返回（此时本来也查不到任何东西）。
+    if itbl_cap <= 0 {
+        return null;
+    }
     var ii: i32 = (ih as i32) % itbl_cap;
     if ii < 0 {
         ii = ii +| itbl_cap;
@@ -414,6 +420,10 @@ fn checker_module_exports_name(checker: &TypeChecker, module_name: &byte, item_n
     }
     const mh: i32 = hash_string(module_name);
     const mtbl_cap: i32 = checker.module_table.table.capacity;
+    // B3 除零证明：容量正性守卫（同 checker_import_table_lookup_local_name）
+    if mtbl_cap <= 0 {
+        return 0;
+    }
     var mi: i32 = mh % mtbl_cap;
     if mi < 0 {
         mi = mi +| mtbl_cap;
@@ -665,6 +675,10 @@ fn resolve_reachable_callee_fn_decl(checker: &TypeChecker, callee: &ASTNode) &AS
         }
         var mh: u32 = hash_string(module_name);
         const mtbl_cap: i32 = checker.module_table.table.capacity;
+        // B3 除零证明：容量正性守卫
+        if mtbl_cap <= 0 {
+            return null;
+        }
         var mi: i32 = (mh as i32) % mtbl_cap;
         if mi < 0 {
             mi = mi +| mtbl_cap;
