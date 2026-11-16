@@ -282,31 +282,76 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - **仍未完成**：实参不是字面量 `null` 时（如 `f(可能为空的指针变量)`）不做付账，
     需要指针指向传播（B4/B5 的前置）；方法调用与函数指针调用同样不覆盖。
 
-- [ ] **B4：后置事实（返回下标范围 / 返回切片长度）未实现**（2026-11-16 评估）
-  - 目标形态：`const i: i32 = find(s, c); if i >= 0 { s[i] }` —— `i` 的上界
-    「`i >= 0` 时 `i < s.len`」来自被调方的后置事实，而不是本函数里的守卫。
-  - **为什么本轮不做**：`src/checker/check_expr_extra.uya:checker_check_array_access`
-    把下标义务交给 `verify_linear_expr_bounds_ex` / `verify_expr_bounds_interval`，
-    这两个函数只吃**本函数内**从 `if`/`while` 条件收集到的假设集。要让跨函数事实进来，
-    必须在 `proof.uya` 的线性/区间求解器上开一个「额外假设」入口，并在
-    `var i = f(...)` 处把 `f` 的后置事实绑定到符号 `i`（形参名 → 实参变量名的映射），
-    再保证这条假设只在支配该 `if i >= 0` 的路径上生效。这是求解器层面的改造
-    （施工图预算 12 人日），不是接线工作；半成品会直接产生误报或漏报。
-  - 前置条件（按顺序）：①符号上的「跨函数事实」字段与失效规则（赋值即失效）；
-    ②`proof.uya` 接受外部假设集；③基准确认 `tests/test_bounds_*` 不回归。
-  - 判据（将来验收用）：`find` / `chr` 类正例通过；`tests/test_bounds_*` 零回归。
+- [x] **B4：后置事实（下标上界）已落地**（2026-11-16）
+  - 目标形态（旧行为是**报错**，不是静默通过）：
+    ```uya
+    fn find_in(a: &[i32: 8], needle: i32) i32 {
+        var i: i32 = 0;
+        while i < 8 { if a[i] == needle { return i; } i = i + 1; }
+        return -1;
+    }
+    const idx: i32 = find_in(a[0:8], needle);
+    if idx >= 0 { return a[idx]; }   // ← 旧：数组索引安全证明失败
+    ```
+  - 后置事实：`idx >= 0` 时必有 `idx < 8`。来源是被调方返回值的两种形态 ——
+    受 `while i < 8` 守卫的 `return i`（命中下标）与负整数哨兵 `return -1`（未命中）。
+  - 实现三件套：
+    ①`lifetime_fn_ret_index_upper`（`src/checker/lifetime.uya`）求摘要：返回类型必须是
+      `i32`；函数体顶层每条语句要么是 `while v < N`（循环内所有 return 都是
+      「未改写 v 之前的 `return v`」或负整数哨兵，且至少有一个 `return v`），
+      要么其子树的 return 全是负整数哨兵；所有循环给出的 N 必须一致。任一不满足即放弃摘要。
+    ②`lifetime_record_post_index_upper` 在 `var/const v: i32 = f(...)` 处把 N 记到
+      符号 `Symbol.post_index_upper` 上 —— **只记录事实，不加约束**。
+    ③`lifetime_apply_post_index_bound` 挂在 `main.uya` 的 if 正条件处，只在
+      `if v >= 0`（也认 `0 <= v`、`v > -1`、`&&` 两侧）的 **then 分支**里注入
+      `constraint_add(v, CONSTRAINT_LT, N)`，随分支的 `saved_constraint_count` 回滚。
+  - **为什么必须分支内注入**：上界是有条件的（`v >= 0` 才成立）。若在赋值点无条件
+    加 `v < N`，`a[v]` 在 `v == -1` 的路径上也会被放行 —— 等于用新检查制造越界。
+    健全性已验证：不加守卫的 `return a[idx]` 仍报「数组索引安全证明失败」。
+  - 验证：`make uya` 自举成功；`./bin/uya check src/main.uya` 错误数 **0**；
+    `src/` + `lib/` 全树逐文件错误总数 **502**（B4 之前基线 506，**无新增**，
+    多消解 4 条）；正例 `tests/test_bounds_index_from_callee.uya` 检查与运行均通过；
+    负例 `tests/error_bounds_index_from_callee_unguarded.uya` 按预期原因失败；
+    健全性对照（被调方上界 8、数组只有 4）仍报错，未越权放行。
+  - **仍未完成**：`ret_len_of_param`（返回切片长度）未实现；只在 `i32` 返回值 +
+    顶层 `while` 形态上有效；调用点只认「直接初始化一个变量」，形参名 → 实参名的
+    映射（`find(s, c)` 里返回上界绑定到 `s.len`）没有做。
 
-- [ ] **B5：非逃逸形参 → 移动解锁未实现**（2026-11-16 评估）
+- [ ] **新发现：`&数组` 可以类型检查通过传给 `&[T: N]` 形参，但生成不可编译的 C**（2026-11-16）
+  - 复现：`fn f(a: &[i32: 8]) i32 {...}` + `var a: [i32: 8] = []; f(&a);`
+  - 现象：`uya check` 通过；`uya run` 在 C 阶段失败 ——
+    `error: incompatible type for argument 1 of 'f'`，
+    形参被降级为 `struct uya_slice_int32_t`，实参是 `int32_t (*)[8]`。
+  - 正确写法是 `f(a[0:8])`（定长切片视图）。这条**不是** B4 引入的，是既有的
+    「检查器类型与 C 层类型不一致」缺口；在 B4 的正例里踩到，故记录在此。
+  - 归属：`src/checker`（`&[T: N]` 的真身到底是切片还是指向数组的指针，需要
+    与 `src/codegen/c99` 对齐）；影响面：所有把 `&数组` 传给定长切片形参的调用点。
+
+
+- [ ] **B5：非逃逸形参 → 移动解锁未实现**（2026-11-16 评估，含「为什么便宜版不健全」的论证）
   - 目标：形参若在被调方内**不逃逸**（不被存入字段、不被返回、不被传入可能逃逸的调用），
     调用方传值后仍可继续使用该值，从而解锁移动。
-  - **为什么本轮不做**：这是**放宽**规则，方向与 B1/B2/B3 相反 —— 放宽出错会引入新的
-    double free，比漏报更危险。它依赖 B2 已落地的 requirement 摘要机制继续扩展成
-    「形参用途摘要」，并需要 `has_active_pointer_to` 的判定源从「有没有指针指向我」
-    换成「有没有 origin 指向我的指针仍可能被使用」。当前 origin 格已有 LOCAL/PARAM/
-    HEAP/STATIC 四档与 `lifetime_origin_of_value`，但**指针指向的传播（P1 未实现部分）**
-    还缺，所以判定源换不了。
+  - 现状判定源：`src/checker/symbols.uya:has_active_pointer_to` 扫全作用域符号，
+    只要存在 `s.pointee_of == var_name` 就拒绝移动（诊断「变量存在活跃指针，不能移动」）。
+  - **为什么不做「便宜版」**：最省事的实现是「若 `p` 被传给了参数不逃逸的被调方，
+    就把 `p.pointee_of` 清空，`x` 从此可移动」。这条**不健全** ——
+    ```uya
+    const p: &i32 = &x;
+    read_only(p);      // 便宜版：认为 borrow 到此结束，清掉 p.pointee_of
+    const v: i32 = p[0];  // p 仍然被使用！
+    consume(x);        // 现在允许移动 x：p 变成悬垂指针，后续解引用是 UB
+    ```
+    要健全必须同时知道「`p` 在此之后不再被使用」，也就是**活跃性（liveness）**，
+    而当前 checker 只有「是否还在作用域里」这一层粗信息。
+  - 正确的前置条件（按顺序）：
+    ①「形参用途摘要」：形参是否被存字段 / 被返回 / 被传给可能逃逸的调用
+      （可以复用 B2 的 `lifetime_scan_param_use` 骨架，但要按「转义」而非「解引用」重写）；
+    ②符号的**最后使用点**或等价的活跃性信息（否则清 borrow 标记不健全）；
+    ③判定源从「有指针指向我」换成「有 origin 指向我的指针仍可能被使用」——
+      origin 格 LOCAL/PARAM/HEAP/STATIC 四档与 `lifetime_origin_of_value` 已在
+      `src/checker/lifetime.uya` 落地，缺的正是**指针指向的传播**（P1 未实现部分）。
   - 判据（将来验收用）：`tests/test_drop_after_move.uya` + 嵌套字段 move 正负例全绿，
-    且无新增 double free。
+    且无新增 double free；新增负例覆盖「清 borrow 后又被使用」那条路径。
 
 - [ ] **P1：逃逸检查（数组 / 切片 / 接口值）完全未实现**
   - `uya.md` §6.5、§6.8、§7 都写了「逃逸即编译错误」，但实测三条路径全部静默通过：

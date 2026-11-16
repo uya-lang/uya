@@ -1,0 +1,35 @@
+// 预期编译通过：下标上界来自被调方的后置事实（跨函数内存安全证明 B4）
+//
+// `find_in` 的返回值只有两种：命中时的下标（受 `while i < 8` 守卫，故必 < 8）
+// 与失败哨兵 `-1`。于是「`idx >= 0` 时 `idx < 8`」是它兑现给调用方的后置事实。
+//
+// 调用点先用 `if idx >= 0` 把哨兵路径排掉，再 `a[idx]` —— 上界由后置事实给出，
+// 不需要在调用方正面向用户索取 `idx < 8` 的守卫。
+//
+// 归属：docs/interprocedural_proof_plan.md B4「后置事实」。
+// 实现：lifetime_fn_ret_index_upper 求摘要，lifetime_apply_post_index_bound
+//       只在 `if v >= 0` 的 then 分支里把它变成约束 `v < N`。
+
+fn find_in(a: &[i32: 8], needle: i32) i32 {
+    var i: i32 = 0;
+    while i < 8 {
+        if a[i] == needle {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn use_it(needle: i32) i32 {
+    var a: [i32: 8] = [];
+    const idx: i32 = find_in(a[0:8], needle);
+    if idx >= 0 {
+        return a[idx];
+    }
+    return 0;
+}
+
+fn main() i32 {
+    return use_it(3);
+}

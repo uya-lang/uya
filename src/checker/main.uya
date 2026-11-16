@@ -566,6 +566,13 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         // 从条件提取约束（正条件，用于 then 分支）
         if node.if_stmt_condition != null {
             constraint_extract_from_binary(checker, node.if_stmt_condition, 1);
+            // 跨函数证明 B4：`if v >= 0` 的 then 分支里，若 v 的值来自「下标或 -1」
+            // 语义的调用，就可以把被调方承诺的上界当作已知约束 `v < N`。
+            // 只在正条件（then）里加，且随下面的 saved_constraint_count 回滚，
+            // 所以 `a[v]` 不会在 v 可能为 -1 的路径上被放行。
+            if checker.enable_safety_proof != 0 {
+                lifetime_apply_post_index_bound(checker, node.if_stmt_condition);
+            }
         }
         
         // 检查then分支

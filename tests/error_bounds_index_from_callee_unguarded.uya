@@ -1,0 +1,29 @@
+// 预期编译失败：拿到「下标或 -1」的返回值后不解空就直接当下标用（B4 的反面）
+//
+// `idx` 可能是失败哨兵 `-1`。后置事实只在「`idx >= 0` 时」成立，
+// 没有 `if idx >= 0` 守卫就没有上界可用，`a[idx]` 必须报错 ——
+// 否则这一条检查会把「有条件的事实」当成「无条件的事实」，
+// 反而在 idx == -1 的路径上放行越界访问。
+//
+// 归属：docs/interprocedural_proof_plan.md B4「后置事实」的健全性边界。
+
+fn find_in(a: &[i32: 8], needle: i32) i32 {
+    var i: i32 = 0;
+    while i < 8 {
+        if a[i] == needle {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn use_it(needle: i32) i32 {
+    var a: [i32: 8] = [];
+    const idx: i32 = find_in(a[0:8], needle);
+    return a[idx];
+}
+
+fn main() i32 {
+    return use_it(3);
+}
