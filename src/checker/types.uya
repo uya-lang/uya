@@ -224,6 +224,15 @@ struct Symbol {
     next_in_bucket: &Symbol,  // 同一作用域内同一哈希桶的下一个符号（见 TypeChecker.scope_buckets）
     pointer_known_length: i32,  // 指针已知长度（如 *byte = "ab" 为 3），-1 表示未知；用于 --safety-proof 时下标边界证明
     pointer_length_param: &byte,  // 若为函数参数且与下一参数成 (ptr, len) 对，则为 len 参数名，否则 null；有此时允许 ptr[i] 作长度证明
+    // 跨函数后置事实（B4）：该变量的值来自某个「下标或 -1」语义函数的返回值时，
+    // 记下那个函数承诺的上界 N（`值 >= 0` 时必有 `值 < N`），否则 0。
+    //
+    // 用法上有两条硬约束：
+    //   ①只能在 `if v >= 0` 的 **then 分支内**把它变成 `v < N` 的约束
+    //     （见 lifetime_apply_post_index_bound），绝不能在赋值点无条件加 ——
+    //     那样 `a[v]` 在 v == -1 的路径上也会被放行，反而制造 UB。
+    //   ②约束随分支一起回滚（main.uya 的 if 处理本来就这么做），逃不出分支。
+    post_index_upper: i32,
     // 声明该符号的作用域 id（见 TypeChecker.scope_id_seq）。
     //
     // scope_level 只能区分「第几层」，无法区分同一层级的两次进入（循环体每轮复用
@@ -415,6 +424,11 @@ struct TypeChecker {
     // 没有这个标记会把同一条诊断打两遍。只记最近一个节点足够：
     // 重复推导总是紧接着发生，中间不会插入另一个待报错的调用节点。
     lifetime_last_null_arg_node: &ASTNode,
+    // B4 后置事实摘要的扫描累加器（见 lifetime_scan_guarded_returns）。
+    // 做成 checker 上的临时字段而不是出参，是为了把扫描函数的参数控制在 4 个以内
+    // （AGENTS.md：超过 5 个参数优先拆分）。每次调用摘要前由调用方清零。
+    lifetime_scan_good: i32,        // 受 `v < N` 守卫的 `return v` 站点数
+    lifetime_scan_bad: i32,         // 无法归类（既不是负数哨兵也不是受守卫的 v）的 return 站点数
     // 已识别的 checked 算术根（try/catch 的操作数）。闸门对这些根的整棵子树豁免：
     // 那部分由运行时 checked 检查负责，不该再被静态闸门拦一次。
     // 按函数重置（见 checker_reset_proof_steps）。

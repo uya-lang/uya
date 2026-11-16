@@ -1005,3 +1005,336 @@ fn lifetime_check_call_null_args(checker: &TypeChecker, node: &ASTNode) void {
         i = i + 1;
     }
 }
+
+// ===== B4：后置事实（下标上界）=====
+//
+// 目标形态（`find` 类函数）：
+//
+//     fn find_in(a: &[i32: 8], needle: i32) i32 {
+//         var i: i32 = 0;
+//         while i < 8 {
+//             if a[i] == needle { return i; }
+//             i = i + 1;
+//         }
+//         return -1;
+//     }
+//     const idx: i32 = find_in(&a, n);
+//     if idx >= 0 { return a[idx]; }     // ← 旧行为：数组索引安全证明失败
+//
+// 后置事实：`idx >= 0` 时必有 `idx < 8`。它只能**有条件**成立，
+// 所以绝不能在赋值点无条件加约束（那样 `a[idx]` 在 idx == -1 的路径上也会放行，
+// 反而制造 UB）。正确接法是只在 `if v >= 0` 的 then 分支里注入 `v < N`，
+// 由 main.uya 的 if 处理随分支回滚 —— 见 lifetime_apply_post_index_bound。
+
+/// 判定表达式是否为负整数常量字面量（`-1` 这类失败哨兵）。
+/// 参数：expr - 待判定表达式。
+/// 返回：1 表示是负的整数字面量，0 表示不是。
+fn lifetime_expr_is_negative_literal(expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_UNARY_EXPR {
+        return 0;
+    }
+    const op: TokenType = expr.unary_expr_op as TokenType;
+    if op != TokenType.TOKEN_MINUS {
+        return 0;
+    }
+    const operand: &ASTNode = expr.unary_expr_operand;
+    if operand == null || operand.type != ASTNodeType.AST_NUMBER {
+        return 0;
+    }
+    if operand.number_value <= 0 {
+        return 0;
+    }
+    return 1;
+}
+
+/// 取 `v < N` 形式的循环条件里的 `v` 名字。
+/// 参数：cond - 循环条件表达式。
+/// 返回：变量名；不是该形式时返回 null。
+fn lifetime_cond_lt_var(cond: &ASTNode) &byte {
+    if cond == null || cond.type != ASTNodeType.AST_BINARY_EXPR {
+        return null;
+    }
+    const op: TokenType = cond.binary_expr_op as TokenType;
+    if op != TokenType.TOKEN_LESS {
+        return null;
+    }
+    const lhs: &ASTNode = cond.binary_expr_left;
+    if lhs == null || lhs.type != ASTNodeType.AST_IDENTIFIER || lhs.identifier_name == null {
+        return null;
+    }
+    const rhs: &ASTNode = cond.binary_expr_right;
+    if rhs == null || rhs.type != ASTNodeType.AST_NUMBER || rhs.number_value <= 0 {
+        return null;
+    }
+    return lhs.identifier_name;
+}
+
+/// 取 `v < N` 形式的循环条件里的上界 `N`。
+/// 参数：cond - 循环条件表达式。
+/// 返回：N（> 0）；不是该形式时返回 0。
+fn lifetime_cond_lt_bound(cond: &ASTNode) i32 {
+    if lifetime_cond_lt_var(cond) == null {
+        return 0;
+    }
+    return cond.binary_expr_right.number_value;
+}
+
+/// 扫描循环体内的 return，统计「受 `v < N` 守卫的 `return v`」与「无法归类的 return」。
+/// 参数：checker - 类型检查器（累加器在 lifetime_scan_good / lifetime_scan_bad）；
+///       node - 当前节点；var_name - 循环变量名；mutated - 进入本节点前该变量是否已被改写。
+/// 返回：无。
+///
+/// 「已改写」是健全性的关键：`return v` 只有在**本条路径上还没改过 v** 时才带守卫结论
+/// （v < N 是进入循环体时成立的事实）。块内按语句顺序推进；进入 if/循环这类
+/// 复合语句后一律保守地认为 v 可能被改写。
+fn lifetime_scan_guarded_returns(checker: &TypeChecker, node: &ASTNode, var_name: &byte, mutated: i32) void {
+    if checker == null || node == null || var_name == null {
+        return;
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var cur: i32 = mutated;
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            const stmt: &ASTNode = node.block_stmts[i];
+            if stmt != null && stmt.type == ASTNodeType.AST_ASSIGN &&
+                stmt.assign_dest != null && stmt.assign_dest.type == ASTNodeType.AST_IDENTIFIER &&
+                stmt.assign_dest.identifier_name != null &&
+                str_equals(stmt.assign_dest.identifier_name, var_name) != 0 {
+                cur = 1;
+            } else if stmt != null && (stmt.type == ASTNodeType.AST_IF_STMT ||
+                                       stmt.type == ASTNodeType.AST_WHILE_STMT ||
+                                       stmt.type == ASTNodeType.AST_FOR_STMT) {
+                lifetime_scan_guarded_returns(checker, stmt, var_name, cur);
+                cur = 1;    // 复合语句可能改写 v，后续 return 不再带守卫结论
+                i = i + 1;
+                continue;
+            }
+            lifetime_scan_guarded_returns(checker, stmt, var_name, cur);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        lifetime_scan_guarded_returns(checker, node.if_stmt_then_branch, var_name, mutated);
+        lifetime_scan_guarded_returns(checker, node.if_stmt_else_branch, var_name, mutated);
+        return;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        lifetime_scan_guarded_returns(checker, node.while_stmt_body, var_name, 1);
+        return;
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        lifetime_scan_guarded_returns(checker, node.for_stmt_body, var_name, 1);
+        return;
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        const expr: &ASTNode = node.return_stmt_expr;
+        if expr == null {
+            checker.lifetime_scan_bad = checker.lifetime_scan_bad +| 1;
+            return;
+        }
+        if lifetime_expr_is_negative_literal(expr) != 0 {
+            return;     // 失败哨兵，与上界无关
+        }
+        if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null &&
+            str_equals(expr.identifier_name, var_name) != 0 && mutated == 0 {
+            checker.lifetime_scan_good = checker.lifetime_scan_good +| 1;
+            return;
+        }
+        checker.lifetime_scan_bad = checker.lifetime_scan_bad +| 1;
+        return;
+    }
+    // 其余语句：不深入（表达式里不会有 return）。
+}
+
+/// 扫描子树里的 return，要求它们全部是负整数哨兵。
+/// 参数：checker - 类型检查器（违规计入 lifetime_scan_bad）；node - 当前节点。
+/// 返回：无。
+fn lifetime_scan_neg_returns(checker: &TypeChecker, node: &ASTNode) void {
+    if checker == null || node == null {
+        return;
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        if lifetime_expr_is_negative_literal(node.return_stmt_expr) == 0 {
+            checker.lifetime_scan_bad = checker.lifetime_scan_bad +| 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            lifetime_scan_neg_returns(checker, node.block_stmts[i]);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        lifetime_scan_neg_returns(checker, node.if_stmt_then_branch);
+        lifetime_scan_neg_returns(checker, node.if_stmt_else_branch);
+        return;
+    }
+    // 循环体、defer 等不在本函数处理范围（顶层循环由调用方单独处理）。
+}
+
+/// 求一个 while 循环贡献的下标上界。
+/// 参数：checker - 类型检查器；wh - `AST_WHILE_STMT` 节点。
+/// 返回：N（> 0）表示「循环里 return 出来的值 < N」；0 表示本循环不贡献上界；
+///       -1 表示本循环里出现了无法归类的 return（调用方应整体放弃摘要）。
+fn lifetime_while_guarded_bound(checker: &TypeChecker, wh: &ASTNode) i32 {
+    if checker == null || wh == null || wh.type != ASTNodeType.AST_WHILE_STMT {
+        return 0;
+    }
+    const var_name: &byte = lifetime_cond_lt_var(wh.while_stmt_condition);
+    const bound: i32 = lifetime_cond_lt_bound(wh.while_stmt_condition);
+    if var_name == null || bound <= 0 {
+        // 条件不是 `v < N`：循环体里若有 return，一律按无法归类处理
+        checker.lifetime_scan_good = 0;
+        checker.lifetime_scan_bad = 0;
+        lifetime_scan_neg_returns(checker, wh.while_stmt_body);
+        if checker.lifetime_scan_bad != 0 {
+            return -1;
+        }
+        return 0;
+    }
+    checker.lifetime_scan_good = 0;
+    checker.lifetime_scan_bad = 0;
+    lifetime_scan_guarded_returns(checker, wh.while_stmt_body, var_name, 0);
+    if checker.lifetime_scan_bad != 0 {
+        return -1;
+    }
+    if checker.lifetime_scan_good == 0 {
+        return 0;
+    }
+    return bound;
+}
+
+/// 求被调方的后置事实：`返回值 >= 0` 时 `返回值 < N`。
+/// 参数：checker - 类型检查器；fn_decl - 被调方函数声明。
+/// 返回：N（> 0）；推不出（或存在任何无法归类的 return）时返回 0。
+///
+/// 判据（宁漏勿假）：
+///   ①返回类型必须是 i32；
+///   ②函数体顶层每条语句要么是 `while v < N { ... }`（且循环内所有 return 都是
+///     「未改写 v 之前的 `return v`」或负整数哨兵，且至少有一个 `return v`），
+///     要么其子树的 return 全是负整数哨兵；
+///   ③所有循环给出的 N 必须一致。
+/// 任何一条不满足就放弃摘要 —— 宁可少证一条下标，也不能凭空断言上界。
+fn lifetime_fn_ret_index_upper(checker: &TypeChecker, fn_decl: &ASTNode) i32 {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
+        return 0;
+    }
+    if fn_decl.fn_decl_body == null || fn_decl.fn_decl_return_type == null {
+        return 0;
+    }
+    const ret_type: Type = type_from_ast(checker, fn_decl.fn_decl_return_type);
+    if ret_type.kind != TypeKind.TYPE_I32 {
+        return 0;
+    }
+    const body: &ASTNode = fn_decl.fn_decl_body;
+    if body.type != ASTNodeType.AST_BLOCK || body.block_stmts == null {
+        return 0;
+    }
+    var bound: i32 = 0;
+    var i: i32 = 0;
+    while i < body.block_stmt_count {
+        const stmt: &ASTNode = body.block_stmts[i];
+        if stmt != null && stmt.type == ASTNodeType.AST_WHILE_STMT {
+            const b: i32 = lifetime_while_guarded_bound(checker, stmt);
+            if b < 0 {
+                return 0;
+            }
+            if b > 0 {
+                if bound != 0 && bound != b {
+                    return 0;   // 多个循环给出的界不一致，无法合成单一事实
+                }
+                bound = b;
+            }
+        } else {
+            checker.lifetime_scan_bad = 0;
+            lifetime_scan_neg_returns(checker, stmt);
+            if checker.lifetime_scan_bad != 0 {
+                return 0;
+            }
+        }
+        i = i + 1;
+    }
+    return bound;
+}
+
+/// 在变量初始化表达式是「下标或 -1」语义的调用时，把被调方承诺的上界记到符号上。
+/// 参数：checker - 类型检查器；node - 变量声明节点。
+/// 返回：无。
+///
+/// 只认 `var v: i32 = f(...)` 这一种最简形态；实参、方法调用、函数指针一律不碰。
+fn lifetime_record_post_index_upper(checker: &TypeChecker, node: &ASTNode) void {
+    if checker == null || node == null || node.type != ASTNodeType.AST_VAR_DECL {
+        return;
+    }
+    if node.var_decl_name == null || node.var_decl_init == null {
+        return;
+    }
+    const init: &ASTNode = node.var_decl_init;
+    if init.type != ASTNodeType.AST_CALL_EXPR || init.call_expr_callee == null ||
+        init.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+        init.call_expr_callee.identifier_name == null {
+        return;
+    }
+    const sig: &FunctionSignature = function_table_lookup(checker, init.call_expr_callee.identifier_name);
+    if sig == null || sig.decl_node == null || sig.decl_node.type != ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    const upper: i32 = lifetime_fn_ret_index_upper(checker, sig.decl_node);
+    if upper <= 0 {
+        return;
+    }
+    const sym: &Symbol = symbol_table_lookup(checker, node.var_decl_name);
+    if sym == null {
+        return;
+    }
+    sym.post_index_upper = upper;
+}
+
+/// 在 `if v >= 0` 的 then 分支里把后置事实变成可用约束 `v < N`。
+/// 参数：checker - 类型检查器；cond - if 的条件表达式。
+/// 返回：无。
+///
+/// 调用方必须只在**正条件**（then 分支）时调用，且约束随分支回滚
+/// （main.uya 的 if 处理本来就保存/恢复 constraint_count）。
+/// 认三种写法：`v >= 0`、`0 <= v`、`v > -1`；`&&` 两侧都看。
+fn lifetime_apply_post_index_bound(checker: &TypeChecker, cond: &ASTNode) void {
+    if checker == null || cond == null || cond.type != ASTNodeType.AST_BINARY_EXPR {
+        return;
+    }
+    const op: TokenType = cond.binary_expr_op as TokenType;
+    if op == TokenType.TOKEN_LOGICAL_AND {
+        lifetime_apply_post_index_bound(checker, cond.binary_expr_left);
+        lifetime_apply_post_index_bound(checker, cond.binary_expr_right);
+        return;
+    }
+    const lhs: &ASTNode = cond.binary_expr_left;
+    const rhs: &ASTNode = cond.binary_expr_right;
+    if lhs == null || rhs == null {
+        return;
+    }
+    var var_name: &byte = null;
+    if op == TokenType.TOKEN_GREATER_EQUAL && rhs.type == ASTNodeType.AST_NUMBER &&
+        rhs.number_value == 0 && lhs.type == ASTNodeType.AST_IDENTIFIER {
+        var_name = lhs.identifier_name;                     // v >= 0
+    } else if op == TokenType.TOKEN_LESS_EQUAL && lhs.type == ASTNodeType.AST_NUMBER &&
+        lhs.number_value == 0 && rhs.type == ASTNodeType.AST_IDENTIFIER {
+        var_name = rhs.identifier_name;                     // 0 <= v
+    } else if op == TokenType.TOKEN_GREATER && rhs.type == ASTNodeType.AST_UNARY_EXPR &&
+        rhs.unary_expr_op as TokenType == TokenType.TOKEN_MINUS &&
+        rhs.unary_expr_operand != null && rhs.unary_expr_operand.type == ASTNodeType.AST_NUMBER &&
+        rhs.unary_expr_operand.number_value == 1 && lhs.type == ASTNodeType.AST_IDENTIFIER {
+        var_name = lhs.identifier_name;                     // v > -1
+    }
+    if var_name == null {
+        return;
+    }
+    const sym: &Symbol = symbol_table_lookup(checker, var_name);
+    if sym == null || sym.post_index_upper <= 0 {
+        return;
+    }
+    constraint_add(checker, var_name, CONSTRAINT_LT, sym.post_index_upper);
+}

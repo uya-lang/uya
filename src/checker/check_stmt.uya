@@ -316,6 +316,14 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
             constraint_replace_with_interval(checker, node.var_decl_name, &init_interval, node.var_decl_init);
         }
     }
+
+    // 跨函数证明 B4：初始化是「下标或 -1」语义的调用时，把被调方承诺的上界
+    // 记到符号上。这里**只记录事实**，不加任何约束 —— 上界是有条件的
+    // （`值 >= 0` 时才成立），必须等调用点真的出现 `if v >= 0` 守卫，
+    // 由 lifetime_apply_post_index_bound 在 then 分支里注入（见该函数注释）。
+    if checker.enable_safety_proof != 0 && node.var_decl_name != null && node.var_decl_init != null {
+        lifetime_record_post_index_upper(checker, node);
+    }
     
     // 安全证明：为无符号类型变量自动添加 >= 0 约束
     // 无符号类型（u8, u16, u32, u64, usize, byte）的值永远 >= 0
