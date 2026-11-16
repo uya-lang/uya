@@ -1178,7 +1178,7 @@ check-hosted: b-hosted
 	fi
 	@echo ""
 	@echo "验证显式输入文件数无上限（>64 回归）..."
-	@UYA_COMPILER="$(PWD)/bin/uya-hosted" bash ./tests/verify_input_file_count.sh; \
+	@UYA_COMPILER="$(PWD)/bin/uya-hosted" bash ./tests/verify_input_file_count.sh
 	@echo "验证 split-C 重名顶层常量（multiple definition 回归）..."
 	@UYA_COMPILER="$(PWD)/bin/uya-hosted" bash ./tests/verify_split_dup_global.sh; \
 	VERIFY_EXIT=$$?; \

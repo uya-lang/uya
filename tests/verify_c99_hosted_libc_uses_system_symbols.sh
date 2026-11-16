@@ -64,7 +64,9 @@ hosted_async_split_out="$TMP/hosted_async_split.out"
 
 cat >"$custom_callback" <<'UYA'
 export extern "libc" fn hosted_custom_sdk_callback_marker(x: i32) i32 {
-    return x + 1;
+    // 夹具只验证符号发射；`x + 1` 在 --strict-overflow 默认开下无法证明无溢出，
+    // 这里用饱和加法，语义无关。
+    return x +| 1;
 }
 
 export fn main() i32 {

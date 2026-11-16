@@ -1373,6 +1373,44 @@ fn lifetime_node_is_leaf_type(t: ASTNodeType) i32 {
     return 0;
 }
 
+/// 判定表达式是否**派生自** `name` 这个指针（`p[i]`、`p.f`、`p[0:2]`、`&p[0]`、
+/// `p as *void` 这类沿着访问链往下的形态）。
+/// 参数：expr - 待判定表达式；name - 形参名；depth - 剩余深度。
+/// 返回：1 表示派生自它（或深度用尽无法判定 —— 保守）；0 表示与它无关。
+///
+/// 深度用尽时返回 1：这个助手是**逃逸判定**的一部分，认不出来时必须往「会逃逸」
+/// 那一侧倒，漏判会换来不健全。
+fn lifetime_expr_derives_from_name(expr: &ASTNode, name: &byte, depth: i32) i32 {
+    if expr == null || name == null {
+        return 0;
+    }
+    if depth <= 0 {
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_IDENTIFIER {
+        if expr.identifier_name != null && str_equals(expr.identifier_name, name) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
+        return lifetime_expr_derives_from_name(expr.array_access_array, name, depth -| 1);
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return lifetime_expr_derives_from_name(expr.member_access_object, name, depth -| 1);
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR {
+        return lifetime_expr_derives_from_name(expr.cast_expr_expr, name, depth -| 1);
+    }
+    if expr.type == ASTNodeType.AST_SLICE_EXPR {
+        return lifetime_expr_derives_from_name(expr.slice_expr_base, name, depth -| 1);
+    }
+    if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        return lifetime_expr_derives_from_name(expr.unary_expr_operand, name, depth -| 1);
+    }
+    return 0;
+}
+
 /// 判定表达式是否「就是 `name` 这个值」（标识符本身，或被 cast 包一层的它）。
 /// 参数：expr - 待判定表达式；name - 变量名。
 /// 返回：1 表示是；0 表示不是。
@@ -1484,6 +1522,12 @@ fn lifetime_scan_param_escape_children(checker: &TypeChecker, node: &ASTNode, na
         return;
     }
     if node.type == ASTNodeType.AST_VAR_DECL {
+        // `const q = p;` / `const q = p[0:2];` / `const q = &p[0];` 把别名搬进了
+        // 局部变量，后续 `g = q` 这种存储就追不到源头了 —— 一律算逃逸。
+        if lifetime_expr_derives_from_name(node.var_decl_init, name, 4) != 0 {
+            escapes[0] = 1;
+            return;
+        }
         lifetime_scan_param_escape(checker, node.var_decl_init, name, escapes);
         return;
     }
@@ -1493,6 +1537,12 @@ fn lifetime_scan_param_escape_children(checker: &TypeChecker, node: &ASTNode, na
         return;
     }
     if node.type == ASTNodeType.AST_UNARY_EXPR {
+        // `&p[0]` 就是指向调用方存储的别名（`*p` 也保守按派生处理）：把派生出来的
+        // 指针存起来同样是逃逸，只认「标识符本身」会漏掉这一类。
+        if lifetime_expr_derives_from_name(node.unary_expr_operand, name, 4) != 0 {
+            escapes[0] = 1;
+            return;
+        }
         lifetime_scan_param_escape(checker, node.unary_expr_operand, name, escapes);
         return;
     }
@@ -1506,6 +1556,11 @@ fn lifetime_scan_param_escape_children(checker: &TypeChecker, node: &ASTNode, na
         return;
     }
     if node.type == ASTNodeType.AST_SLICE_EXPR {
+        // `p[0:2]` 派生出的切片同样指向调用方存储；存进局部再外传一样是逃逸。
+        if lifetime_expr_derives_from_name(node.slice_expr_base, name, 4) != 0 {
+            escapes[0] = 1;
+            return;
+        }
         lifetime_scan_param_escape(checker, node.slice_expr_base, name, escapes);
         return;
     }
