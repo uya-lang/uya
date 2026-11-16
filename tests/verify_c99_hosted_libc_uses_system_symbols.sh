@@ -43,6 +43,20 @@ assert_no_raw_stream_definition() {
     fi
 }
 
+# 符号级断言必须先 `cc -E` 预处理再匹配。
+#
+# 原因：生成的 C 里非宿主平台的实现是**关在条件块里**的（平台前导块与各函数体见
+# src/codegen/c99/main.uya 的 `#if defined(_WIN32) || defined(UYA_TARGET_WINDOWS)` /
+# `#if defined(__APPLE__)` 分支）。grep 逐行匹配、不认识预处理指令，直接扫全文会把
+# 「当前宿主上根本不参与编译」的定义当成误报。预处理后只剩宿主真正编译的那一份，
+# 断言才判别得了「hosted 到底有没有发射自己的实现体」。
+preprocess_c() {
+    local src="$1"
+    local out="${src}.pp"
+    cc -E -std=c99 "$src" -o "$out"
+    printf '%s' "$out"
+}
+
 hosted_malloc="$TMP/hosted_malloc.c"
 hosted_printf="$TMP/hosted_printf.c"
 hosted_syscall="$TMP/hosted_syscall.c"
@@ -136,33 +150,55 @@ mkdir -p "$hosted_async_split_dir"
 "$COMPILER" build "$ROOT/tests/test_async_nested_http1_await_codegen.uya" --split-c-dir "$hosted_async_split_dir" -o "$hosted_async_split_out" --c99 >/dev/null
 grep -R -Fq "#include <string.h>" "$hosted_async_split_dir"
 
-for symbol in malloc free calloc realloc getenv; do
-    assert_no_c_function_definition "$hosted_malloc" "$symbol" "malloc fixture"
+# 断言用的预处理版本（见 preprocess_c 的说明）。
+hosted_malloc_pp="$(preprocess_c "$hosted_malloc")"
+hosted_printf_pp="$(preprocess_c "$hosted_printf")"
+hosted_syscall_pp="$(preprocess_c "$hosted_syscall")"
+hosted_errno_pp="$(preprocess_c "$hosted_errno")"
+hosted_stdio_helpers_pp="$(preprocess_c "$hosted_stdio_helpers")"
+hosted_unistd_pp="$(preprocess_c "$hosted_unistd")"
+nostdlib_malloc_pp="$(preprocess_c "$nostdlib_malloc")"
+custom_hosted_pp="$(preprocess_c "$custom_hosted")"
+custom_nostdlib_pp="$(preprocess_c "$custom_nostdlib")"
+hosted_memset_pp="$(preprocess_c "$hosted_memset")"
+hosted_strtod_pp="$(preprocess_c "$hosted_strtod")"
+hosted_output_name_pp="$(preprocess_c "$hosted_output_name_contains_uya")"
+
+# hosted 下 uya heap 是**唯一保留的 uya 分配器**（src/codegen/c99/function.uya 的
+# EXPERIMENT-A 分支：hosted 线程堆靠 GS cache + spinlock，而且 calloc 必须与
+# malloc/free 用同一套分配器，否则会出现「glibc 指针交给 uya free」的跨分配器错配）。
+# 因此 malloc/free/calloc/realloc 在 hosted C 里**应当有函数体** —— 这里改成正向断言，
+# 防止有人关掉 EXPERIMENT-A 时静默失配（断言方向在 2026-11-16 修正：原断言写于
+# EXPERIMENT-A 之前，之后未同步）。
+for symbol in malloc free calloc realloc; do
+    assert_c_function_definition "$hosted_malloc" "$symbol" "uya heap kept in hosted"
 done
+# 环境变量仍然走宿主 libc：不得发射 uya 的 getenv 体。
+assert_no_c_function_definition "$hosted_malloc_pp" getenv "malloc fixture"
 
 for symbol in printf fprintf vprintf vfprintf sprintf snprintf vsprintf vsnprintf puts fputs fputc fflush fopen fclose fread fwrite fgetc fgets perror; do
-    assert_no_c_function_definition "$hosted_printf" "$symbol" "printf fixture"
+    assert_no_c_function_definition "$hosted_printf_pp" "$symbol" "printf fixture"
 done
 
 for symbol in read write close lseek getpid getppid access getcwd; do
-    assert_no_c_function_definition "$hosted_unistd" "$symbol" "unistd fixture"
+    assert_no_c_function_definition "$hosted_unistd_pp" "$symbol" "unistd fixture"
 done
 
-assert_no_c_function_definition "$hosted_memset" memset "memset fixture"
+assert_no_c_function_definition "$hosted_memset_pp" memset "memset fixture"
 grep -Fq "#include <string.h>" "$hosted_memset"
-assert_no_c_function_definition "$hosted_strtod" strtod "strtod fixture"
-assert_no_c_function_definition "$hosted_strtod" strtoll "strtod fixture"
+assert_no_c_function_definition "$hosted_strtod_pp" strtod "strtod fixture"
+assert_no_c_function_definition "$hosted_strtod_pp" strtoll "strtod fixture"
 grep -Fq "#include <stdlib.h>" "$hosted_strtod"
 grep -Fq "#include <errno.h>" "$hosted_output_name_contains_uya"
 grep -Fq "#include <string.h>" "$hosted_output_name_contains_uya"
 grep -Fq "#include <stdlib.h>" "$hosted_output_name_contains_uya"
 
 for stream in stdin stdout stderr; do
-    assert_no_raw_stream_definition "$hosted_printf" "$stream" "printf fixture"
-    assert_no_raw_stream_definition "$hosted_unistd" "$stream" "unistd fixture"
+    assert_no_raw_stream_definition "$hosted_printf_pp" "$stream" "printf fixture"
+    assert_no_raw_stream_definition "$hosted_unistd_pp" "$stream" "unistd fixture"
 done
 
-if grep -Eq "^[[:space:]]*(__attribute__\\(\\([^)]*\\)\\)[[:space:]]*)?int32_t[[:space:]]+libc_errno[[:space:]]*=" "$hosted_errno"; then
+if grep -Eq "^[[:space:]]*(__attribute__\\(\\([^)]*\\)\\)[[:space:]]*)?int32_t[[:space:]]+libc_errno[[:space:]]*=" "$hosted_errno_pp"; then
     echo "error: hosted C unexpectedly emits Uya-owned libc_errno" >&2
     exit 1
 fi
@@ -173,18 +209,21 @@ if grep -Rqw "libc_errno" "$hosted_async_split_dir"; then
     exit 1
 fi
 
-assert_c_function_definition "$hosted_syscall" sys_write "syscall wrapper fixture"
-assert_c_function_definition "$hosted_syscall" sys_open "syscall wrapper fixture"
-assert_c_function_definition "$hosted_syscall" sys_close "syscall wrapper fixture"
-assert_c_function_definition "$hosted_syscall" sys_getpid "syscall wrapper fixture"
-assert_c_function_definition "$hosted_stdio_helpers" write_stdout_bytes "stdio helper fixture"
-assert_c_function_definition "$hosted_stdio_helpers" i32_to_str "stdio helper fixture"
-assert_c_function_definition "$hosted_stdio_helpers" put_char "stdio helper fixture"
+assert_c_function_definition "$hosted_syscall_pp" sys_write "syscall wrapper fixture"
+assert_c_function_definition "$hosted_syscall_pp" sys_open "syscall wrapper fixture"
+assert_c_function_definition "$hosted_syscall_pp" sys_close "syscall wrapper fixture"
+assert_c_function_definition "$hosted_syscall_pp" sys_getpid "syscall wrapper fixture"
+# hosted 下 stdio 整体保留 uya 实现，且发射名带 `libc_` 前缀（避免把 Uya 的
+# struct FILE 当成 glibc FILE 传出去，见 c99_should_skip_hosted_libc_function_body
+# 的 stdio.uya 分支）。所以这里断言的是实际发射名 libc_*，不是裸名。
+assert_c_function_definition "$hosted_stdio_helpers_pp" libc_write_stdout_bytes "stdio helper fixture"
+assert_c_function_definition "$hosted_stdio_helpers_pp" libc_i32_to_str "stdio helper fixture"
+assert_c_function_definition "$hosted_stdio_helpers_pp" libc_put_char "stdio helper fixture"
 
-assert_c_function_definition "$nostdlib_malloc" malloc "nostdlib malloc fixture"
-assert_c_function_definition "$nostdlib_malloc" free "nostdlib malloc fixture"
-assert_c_function_definition "$custom_hosted" hosted_custom_sdk_callback_marker "custom callback fixture"
-assert_c_function_definition "$custom_nostdlib" hosted_custom_sdk_callback_marker "custom callback fixture"
+assert_c_function_definition "$nostdlib_malloc_pp" malloc "nostdlib malloc fixture"
+assert_c_function_definition "$nostdlib_malloc_pp" free "nostdlib malloc fixture"
+assert_c_function_definition "$custom_hosted_pp" hosted_custom_sdk_callback_marker "custom callback fixture"
+assert_c_function_definition "$custom_nostdlib_pp" hosted_custom_sdk_callback_marker "custom callback fixture"
 
 cc -std=c99 -Werror "$hosted_malloc" -o "$TMP/hosted_malloc"
 cc -std=c99 -Werror "$hosted_printf" -o "$TMP/hosted_printf"

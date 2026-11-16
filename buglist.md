@@ -276,6 +276,16 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     `error_move_active_pointer`（零使用）、`error_move_active_pointer_after_borrow`
     （先移后借）、新增 `error_move_escaping_borrow`（实参传给会写全局的形参）三者
     仍全部报错；正例 `tests/test_move_non_escaping_borrow.uya` 的 `check` 与 `run` 均通过。
+  - 二次收口（同日）：逃逸摘要最初把「转一手的别名」一律当逃逸 —— `const q: &S = p;`
+    后 `q` 只在函数内读，也会把被调方判成会逃逸，凡是用局部别名读形参的辅助函数都
+    白白挡住移动。改成**污点传播**：形参先入污点集合，`const q = p`、`const q = p[0:2]`、
+    `const q = &p[0]`、`p as *void` 这类「地址不变」的搬运只把 `q` 加进集合，逃生点
+    收在 return / 赋值 / 传参三处（汇编见 `src/checker/lifetime.uya` 的
+    `g_lifetime_taint_names` 与 `lifetime_expr_weak_derives_from_taint`）。
+    `p[i]` / `p.f` 这类取值的派生仍按逃逸处理（分不清加载出来的是指针还是字段值）。
+    集合上限 32 个名字，装不下时置溢出标志并退回「会逃逸」，绝不静默丢别名。
+    新增负例 `error_move_escaping_alias`（别名存全局）、`error_move_escaping_alias_return`
+    （别名 return）；正例补 `peek_via_alias` 一路，旧编译器对它会报错、新编译器放行。
 
 - [x] **P0 度量接线完成：`--lifetime-report` 产出真实数字**（2026-11-16）
   - 此前 `lifetime_report_param_null` / `lifetime_report_div_zero` 只有定义、没有调用点，

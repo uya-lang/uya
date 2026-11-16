@@ -4498,9 +4498,16 @@ Uya 提供两种类型转换语法：
 
 两条缺一不可：只要指针有一次别的用法（解引用、赋值、比较、传给会逃逸的形参），
 或者**一次用法都没有**（证不出它已经死了），都维持拒绝。
-`tests/error_move_active_pointer.uya`（零使用）与
-`tests/error_move_escaping_borrow.uya`（传给会逃逸的形参）都仍报错，
-正例见 `tests/test_move_non_escaping_borrow.uya`。
+被调方内部的**局部别名**不算逃逸：`const q: &S = p;` / `const q: &[i32:2] = p[0:2];` /
+`const q: &i32 = &p[0];` 只是把同一段地址换个名字，真正决定逃逸的是后续有没有把
+`q` `return` / 赋值 / 传参出去。编译器用一个有界的局部名集合承接这批别名（污点传播，
+见 `src/checker/lifetime.uya` 的 `g_lifetime_taint_names`）；集合装不下时按「会逃逸」
+退回，不做静默丢弃。
+
+`tests/error_move_active_pointer.uya`（零使用）、`tests/error_move_escaping_borrow.uya`
+（传给会逃逸的形参）、`tests/error_move_escaping_alias.uya`（别名存进全局）与
+`tests/error_move_escaping_alias_return.uya`（别名 return 出去）都仍报错，
+正例见 `tests/test_move_non_escaping_borrow.uya`（含 `peek_via_alias` 这一路局部别名）。
 
 **示例：存在活跃指针时禁止移动**：
 

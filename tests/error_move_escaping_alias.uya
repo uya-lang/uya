@@ -1,0 +1,27 @@
+// 移动语义 B5 负例：形参先搬进局部别名、别名再存进全局 —— 仍然算逃逸。
+//
+// 局部别名本身不逃逸（`const q: &S = p;` 只是把同一段地址换个名字），所以它不该
+// 单独把形参判成活跃；但别名一旦被写进全局，指向 `a` 的指针就活过了本次调用，
+// 移动 `a` 必然是悬垂引用。判定见 src/checker/lifetime.uya 的污点集合
+// （g_lifetime_taint_names）与赋值逃生点。
+//
+// 预期：编译失败，错误信息含「活跃指针」或「不能移动」。
+
+struct S {
+    id: i32
+}
+
+var g_holder: &S = null;
+
+fn stash_via_alias(p: &S) void {
+    const q: &S = p;
+    g_holder = q;
+}
+
+export fn main() i32 {
+    const a: S = S{ id: 42 };
+    const p: &S = &a;
+    stash_via_alias(p);
+    const b: S = a;
+    return b.id;
+}

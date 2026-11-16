@@ -1,0 +1,25 @@
+// 移动语义 B5 负例：形参先搬进局部别名、别名再 return 出去 —— 仍然算逃逸。
+//
+// `return q` 把指针交给了调用方，活过本次调用的范围从被调方扩展到调用方，
+// 因此 `a` 不能移动。这类「先转一手」的形态最容易漏判：只看标识符本体时
+// `return q` 里没有形参名，必须靠污点集合把 q 追到 p 上。
+// 判定见 src/checker/lifetime.uya 的 lifetime_expr_weak_derives_from_taint。
+//
+// 预期：编译失败，错误信息含「活跃指针」或「不能移动」。
+
+struct S {
+    id: i32
+}
+
+fn leak_via_alias(p: &S) &S {
+    const q: &S = p;
+    return q;
+}
+
+export fn main() i32 {
+    const a: S = S{ id: 42 };
+    const p: &S = &a;
+    const leaked: &S = leak_via_alias(p);
+    const b: S = a;
+    return b.id;
+}

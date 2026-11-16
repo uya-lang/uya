@@ -15,6 +15,14 @@ fn peek(p: &S) i32 {
     return p[0].id;
 }
 
+// 局部别名：把形参搬进局部名 `q` 再读。别名本身不逃逸（地址没交出去），
+// 所以这也不该把 `p` 判成活跃 —— 见 src/checker/lifetime.uya 的污点集合
+// （g_lifetime_taint_names）。
+fn peek_via_alias(p: &S) i32 {
+    const q: &S = p;
+    return q[0].id;
+}
+
 fn take(v: S) i32 {
     return v.id;
 }
@@ -23,7 +31,11 @@ export fn main() i32 {
     const a: S = S{ id: 42 };
     const p: &S = &a;
     const r: i32 = peek(p);
+    const r2: i32 = peek_via_alias(p);
     const t: i32 = take(a);
+    if r2 != 42 {
+        return 3;
+    }
     if r != 42 {
         return 1;
     }

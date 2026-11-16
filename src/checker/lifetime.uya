@@ -1373,40 +1373,130 @@ fn lifetime_node_is_leaf_type(t: ASTNodeType) i32 {
     return 0;
 }
 
-/// 判定表达式是否**派生自** `name` 这个指针（`p[i]`、`p.f`、`p[0:2]`、`&p[0]`、
-/// `p as *void` 这类沿着访问链往下的形态）。
-/// 参数：expr - 待判定表达式；name - 形参名；depth - 剩余深度。
-/// 返回：1 表示派生自它（或深度用尽无法判定 —— 保守）；0 表示与它无关。
+/// B5 逃逸摘要的「污点」集合：从形参派生出来、但地址仍指向调用方存储的局部名。
 ///
-/// 深度用尽时返回 1：这个助手是**逃逸判定**的一部分，认不出来时必须往「会逃逸」
-/// 那一侧倒，漏判会换来不健全。
-fn lifetime_expr_derives_from_name(expr: &ASTNode, name: &byte, depth: i32) i32 {
-    if expr == null || name == null {
+/// 只看标识符本体是不够的：`const q = p[0:2];` / `const q = &p[0];` / `const q = p;`
+/// 把同一段地址搬进了局部别名，后续 `return q` / `sink(q)` 一样会把指针交出去；
+/// 反过来，q 只在函数内被读（`q[0]`、`q[1].id`）就不该算逃逸。所以逃生点收敛到
+/// return / 赋值 / 传参三处，别名搬运本身不算，能被追到的别名进这个集合。
+///
+/// 集合满了**不能静默丢弃**：少记一个别名就少判一次逃逸，换来的是不健全的解锁。
+/// 因此记一个溢出标志，调用方见到就退回「会逃逸」。
+const LIFETIME_TAINT_MAX: i32 = 32;
+var g_lifetime_taint_names: [&byte: LIFETIME_TAINT_MAX] = [];
+var g_lifetime_taint_count: i32 = 0;
+var g_lifetime_taint_overflow: i32 = 0;
+
+/// 清空污点集合（每次判定一个形参前调用）。
+/// 参数：无。
+/// 返回：无。
+fn lifetime_taint_reset() void {
+    g_lifetime_taint_count = 0;
+    g_lifetime_taint_overflow = 0;
+}
+
+/// 判定名字是否已在污点集合里。
+/// 参数：name - 待判定名（可为 null）。
+/// 返回：1 表示在集合里；0 表示不在。
+fn lifetime_taint_contains(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < g_lifetime_taint_count {
+        const t: &byte = g_lifetime_taint_names[i];
+        if t != null && str_equals(t, name) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+/// 把一个局部名加进污点集合（去重；满了置溢出标志）。
+/// 参数：name - 待加入的局部名（可为 null）。
+/// 返回：无。
+fn lifetime_taint_add(name: &byte) void {
+    if name == null || name[0] == 0 {
+        return;
+    }
+    if lifetime_taint_contains(name) != 0 {
+        return;
+    }
+    // 下标先落到局部再判界：数组索引安全证明在全局可变计数上拿不到约束，写成
+    // 「只读一次 + 早返回」的形态它才认。
+    const idx: i32 = g_lifetime_taint_count;
+    if idx < 0 {
+        g_lifetime_taint_overflow = 1;
+        return;
+    }
+    if idx >= LIFETIME_TAINT_MAX {
+        g_lifetime_taint_overflow = 1;
+        return;
+    }
+    g_lifetime_taint_names[idx] = name;
+    g_lifetime_taint_count = idx + 1;
+}
+
+/// 判定表达式是否「地址不变地」派生自某个污点名 —— 即拿到的是**同一段存储**。
+///
+/// 认这几种：标识符本身、cast（`p as *void`）、取址（`&p[0]`、`&p[0].id`）、
+/// 切片（`p[0:2]`）。`p[i]` / `p.f` 取的是被指向的**值**，不在此列（那属于
+/// 深度派生，见 `lifetime_expr_derives_from_taint`）。
+/// 参数：expr - 待判定表达式；depth - 剩余深度（用尽按「派生」处理，保守）。
+/// 返回：1 表示是；0 表示不是。
+fn lifetime_expr_weak_derives_from_taint(expr: &ASTNode, depth: i32) i32 {
+    if expr == null {
         return 0;
     }
     if depth <= 0 {
         return 1;
     }
     if expr.type == ASTNodeType.AST_IDENTIFIER {
-        if expr.identifier_name != null && str_equals(expr.identifier_name, name) != 0 {
-            return 1;
+        return lifetime_taint_contains(expr.identifier_name);
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR {
+        return lifetime_expr_weak_derives_from_taint(expr.cast_expr_expr, depth -| 1);
+    }
+    if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        if (expr.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND {
+            return lifetime_expr_weak_derives_from_taint(expr.unary_expr_operand, depth -| 1);
         }
         return 0;
     }
+    if expr.type == ASTNodeType.AST_SLICE_EXPR {
+        return lifetime_expr_weak_derives_from_taint(expr.slice_expr_base, depth -| 1);
+    }
+    return 0;
+}
+
+/// 判定表达式是否**沿着访问链**派生自某个污点名（`p[0]`、`p.f`、`q[2].id`…）。
+/// 参数：expr - 待判定表达式；depth - 剩余深度（用尽按「派生」处理，保守）。
+/// 返回：1 表示派生自它（或深度用尽无法判定）；0 表示与它无关。
+fn lifetime_expr_derives_from_taint(expr: &ASTNode, depth: i32) i32 {
+    if expr == null {
+        return 0;
+    }
+    if depth <= 0 {
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_IDENTIFIER {
+        return lifetime_taint_contains(expr.identifier_name);
+    }
     if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
-        return lifetime_expr_derives_from_name(expr.array_access_array, name, depth -| 1);
+        return lifetime_expr_derives_from_taint(expr.array_access_array, depth -| 1);
     }
     if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
-        return lifetime_expr_derives_from_name(expr.member_access_object, name, depth -| 1);
+        return lifetime_expr_derives_from_taint(expr.member_access_object, depth -| 1);
     }
     if expr.type == ASTNodeType.AST_CAST_EXPR {
-        return lifetime_expr_derives_from_name(expr.cast_expr_expr, name, depth -| 1);
+        return lifetime_expr_derives_from_taint(expr.cast_expr_expr, depth -| 1);
     }
     if expr.type == ASTNodeType.AST_SLICE_EXPR {
-        return lifetime_expr_derives_from_name(expr.slice_expr_base, name, depth -| 1);
+        return lifetime_expr_derives_from_taint(expr.slice_expr_base, depth -| 1);
     }
     if expr.type == ASTNodeType.AST_UNARY_EXPR {
-        return lifetime_expr_derives_from_name(expr.unary_expr_operand, name, depth -| 1);
+        return lifetime_expr_derives_from_taint(expr.unary_expr_operand, depth -| 1);
     }
     return 0;
 }
@@ -1445,7 +1535,10 @@ fn lifetime_scan_param_escape(checker: &TypeChecker, node: &ASTNode, name: &byte
         return;
     }
     if node.type == ASTNodeType.AST_RETURN_STMT {
-        if lifetime_expr_is_name_value(node.return_stmt_expr, name) != 0 {
+        // 返回「同一段存储」才算逃逸：`return p`、`return &p[0]`、`return p[0:2]`，
+        // 以及 `const q = p[0:2]; return q;` 里的 q。`return p[0].id` 返回的是字段
+        // 值，不是指针，放行。
+        if lifetime_expr_weak_derives_from_taint(node.return_stmt_expr, 4) != 0 {
             escapes[0] = 1;
             return;
         }
@@ -1453,7 +1546,9 @@ fn lifetime_scan_param_escape(checker: &TypeChecker, node: &ASTNode, name: &byte
         return;
     }
     if node.type == ASTNodeType.AST_ASSIGN {
-        if lifetime_expr_is_name_value(node.assign_src, name) != 0 {
+        // 赋给谁都得按逃逸算：全局、结构体字段、切片元素、`*q` 指向的存储都可能活过
+        // 本次调用。局部别名（`const q = ...`）走 AST_VAR_DECL 的污点传播，不走这里。
+        if lifetime_expr_weak_derives_from_taint(node.assign_src, 4) != 0 {
             escapes[0] = 1;
             return;
         }
@@ -1466,7 +1561,10 @@ fn lifetime_scan_param_escape(checker: &TypeChecker, node: &ASTNode, name: &byte
         var ci: i32 = 0;
         while ci < node.call_expr_arg_count {
             const arg: &ASTNode = node.call_expr_args[ci];
-            if lifetime_expr_is_name_value(arg, name) != 0 {
+            // 传出去的若是「同一段存储」（含 `&p[0]`、`p[0:2]`、局部别名），被调方
+            // 可能把它存起来 —— 除非那个位置的形参本身是非逃逸形参（见
+            // lifetime_scan_pointer_uses 的对应判据）。
+            if lifetime_expr_weak_derives_from_taint(arg, 4) != 0 {
                 escapes[0] = 1;
                 return;
             }
@@ -1522,9 +1620,15 @@ fn lifetime_scan_param_escape_children(checker: &TypeChecker, node: &ASTNode, na
         return;
     }
     if node.type == ASTNodeType.AST_VAR_DECL {
-        // `const q = p;` / `const q = p[0:2];` / `const q = &p[0];` 把别名搬进了
-        // 局部变量，后续 `g = q` 这种存储就追不到源头了 —— 一律算逃逸。
-        if lifetime_expr_derives_from_name(node.var_decl_init, name, 4) != 0 {
+        // `const q = p;` / `const q = p[0:2];` / `const q = &p[0];` 只是把同一段地址
+        // 搬进局部别名，本身不逃逸 —— 把 q 记进污点集合，后面 q 被 return / 赋值 /
+        // 传参时才判逃逸。取不到地址的派生（`const v = p[0].id`）仍按逃逸处理：
+        // 无法区分「加载出来的是指针」还是字段值，宁严勿松。
+        if lifetime_expr_weak_derives_from_taint(node.var_decl_init, 4) != 0 {
+            lifetime_taint_add(node.var_decl_name);
+            return;
+        }
+        if lifetime_expr_derives_from_taint(node.var_decl_init, 4) != 0 {
             escapes[0] = 1;
             return;
         }
@@ -1537,12 +1641,9 @@ fn lifetime_scan_param_escape_children(checker: &TypeChecker, node: &ASTNode, na
         return;
     }
     if node.type == ASTNodeType.AST_UNARY_EXPR {
-        // `&p[0]` 就是指向调用方存储的别名（`*p` 也保守按派生处理）：把派生出来的
-        // 指针存起来同样是逃逸，只认「标识符本身」会漏掉这一类。
-        if lifetime_expr_derives_from_name(node.unary_expr_operand, name, 4) != 0 {
-            escapes[0] = 1;
-            return;
-        }
+        // `&p[0]` / `*p` 本身不逃逸：地址留着继续追，真正的逃生点是它后面被
+        // return / 赋值 / 传参（那时 weak_derives 会认出来）。
+        return;
         lifetime_scan_param_escape(checker, node.unary_expr_operand, name, escapes);
         return;
     }
@@ -1556,12 +1657,7 @@ fn lifetime_scan_param_escape_children(checker: &TypeChecker, node: &ASTNode, na
         return;
     }
     if node.type == ASTNodeType.AST_SLICE_EXPR {
-        // `p[0:2]` 派生出的切片同样指向调用方存储；存进局部再外传一样是逃逸。
-        if lifetime_expr_derives_from_name(node.slice_expr_base, name, 4) != 0 {
-            escapes[0] = 1;
-            return;
-        }
-        lifetime_scan_param_escape(checker, node.slice_expr_base, name, escapes);
+        // `p[0:2]` 只是把同一段地址换个视图，不逃逸；外传时由上层逃生点判定。
         return;
     }
     if node.type == ASTNodeType.AST_TRY_EXPR {
@@ -1639,7 +1735,16 @@ fn lifetime_fn_param_escapes(checker: &TypeChecker, fn_decl: &ASTNode, param_ind
         return 1;
     }
     var escapes: i32 = 0;
+    // 形参自己先入污点集合，随后扫函数体：遇到 `const q = p[0:2]` 这类别名搬运就
+    // 把 q 也加进去，遇到 return / 赋值 / 传参才判逃逸（见各逃生点的说明）。
+    lifetime_taint_reset();
+    lifetime_taint_add(param.var_decl_name);
     lifetime_scan_param_escape(checker, fn_decl.fn_decl_body, param.var_decl_name, &escapes);
+    // 污点集合满了：少记了别名，逃逸可能被漏判 —— 直接退回「会逃逸」。
+    if g_lifetime_taint_overflow != 0 {
+        escapes = 1;
+    }
+    lifetime_taint_reset();
     if escapes != 0 {
         return 1;
     }
