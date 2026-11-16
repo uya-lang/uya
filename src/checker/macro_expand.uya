@@ -50,7 +50,20 @@ fn find_macro_decl_from_program(program: &ASTNode, macro_name: &byte) &ASTNode {
             g_macro_lookup_result_keys[macro_slot], macro_name) != 0 {
         return g_macro_lookup_result_values[macro_slot];
     }
-    
+
+    // 优先走程序级声明索引（O(1)）：索引里已经收了 AST_MACRO_DECL 的确切名。
+    // 只有索引不可用（声明数超限降级）时才退回下面的整表线性扫描。
+    progdecl_index_ensure(program);
+    if progdecl_index_ready(program) != 0 {
+        const hit: &ASTNode = progdecl_index_find_typed(program, macro_name, ASTNodeType.AST_MACRO_DECL);
+        if macro_slot >= 0 && macro_slot < CHECKER_LOOKUP_RESULT_CACHE_SIZE {
+            g_macro_lookup_result_keys[macro_slot] = macro_name;
+            g_macro_lookup_result_values[macro_slot] = hit;
+            g_macro_lookup_result_valid[macro_slot] = 1;
+        }
+        return hit;
+    }
+
     var i: i32 = 0;
     while i < program.program_decl_count {
         const decl: &ASTNode = program.program_decls[i];

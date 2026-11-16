@@ -64,15 +64,24 @@ O(1) 变成 O(N)」的结构问题，而不是常数因子问题：
    - `TypeChecker.scope_buckets`：每层 512 个名字哈希桶（下标 `scope*512 + (hash&511)`，
      链用 `Symbol.next_in_bucket` 串），查找一层只扫一个桶（通常 1~2 个符号）。
      退出作用域时整层桶头清零（`checker_scope_buckets_clear`），保证同层兄弟块看不到上一轮的符号。
+3. **程序级声明的线性扫描**（`src/checker/lookup.uya`、`src/checker/macro_expand.uya`）。
+   `checker_fn_decl_owner_type_name` 与 `checker_fn_decl_is_owned_method` 各自扫
+   「全部 program_decls × 每个类型的方法表」，`find_macro_decl_from_program` 扫整张声明表，
+   三处合计约 12% 采样，而且直接映射缓存被指针哈希撞掉后每次都要整表重扫。改法：
+   - 前两者共用一张 **fn_decl →（所属类型名, 是否 union）** 的开放寻址索引
+     （`ensure_owner_method_index`：首次查询时一遍扫描建好，16384 槽、负载 3/4 记溢出，
+     溢出即自动退回原来的线性扫描，语义与「首个匹配胜出」完全一致）；
+   - 宏查找改走已有的程序级声明索引（`progdecl_index_find_typed`，该索引本来就收
+     `AST_MACRO_DECL` 的确切名），索引不可用时退回整表扫描。
 
 背靠背实测（同一台 44 核机器，load ≈ 3.8，old/new 交替）：
 
 | 场景 | 改动前 | 现在 | 差分 |
 |---|---:|---:|---:|
-| `uya check src/main.uya` | 7.10 s | **3.73 s** | −47% |
+| `uya check src/main.uya` | 7.10 s | **3.41 s** | −52% |
 | `make uya` 全量强制（A/B 交替 old/new/old/new） | 14.89 / 15.18 s | **13.21 / 12.45 s** | ≈ −2.2 s（−15%） |
-| `make b` 自举验证 | 27.4 s | **23.7 s** | −3.7 s |
-| 前端类型检查（`--verbose`） | 6.19 s | **3.73 s** | −2.5 s |
+| `make b` 自举验证 | 27.4 s | **23.3 s** | −4.1 s |
+| 前端类型检查（`--verbose`） | 6.19 s | **3.41 s** | −2.8 s |
 
 两者的收益并不相等：`uya check` 只看前端，所以直接吃掉 3.4 s；`make uya` 里前端省下的时间会被
 C 阶段（关键路径是一个 1.13 MB 的 TU）与调度抖动吸收掉一部分，实际体现为 1~2 s（看机器负载）。
@@ -292,10 +301,6 @@ UYA_PROFILE_ARENA=1 ... --verbose
   但 164 个槽位时 codegen body 阶段 CPU 从 0.94 s 涨到 6.55 s，把 C 阶段的 1.7 s 收益
   吃光（2026-11 复测：不切块 12.9 / 14.0 s，切块 17.3 / 17.9 s）。定位并消掉这段重复工作，
   就能把 `allow_chunk` 默认打开，C 阶段直接 −28%。
-- **程序级声明索引**：`checker_fn_decl_owner_type_name`、`find_macro_decl_from_program`、
-  `checker_fn_decl_is_owned_method` 三处仍是「遍历 program_decls × 判断」，合计占检查器
-  约 9% 采样（≈0.35 s）。可以复用 `src/checker/lookup.uya` 里已有的 `PROGDECL_INDEX_MASK`
-  直接映射索引，把三处一起收掉。
 - **codegen 局部变量类型查找**：`lookup_identifier_type_c_impl` 的缓存槽把
   `local_variable_count` 编进了键，每加一个局部变量就整体失效，退化成线性 `strcmp` 扫局部数组。
   它占 codegen CPU 的 16.8%，但 body 阶段按镜像 TU 并行（默认 32 worker），对 `make uya`
