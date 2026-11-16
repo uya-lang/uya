@@ -82,6 +82,12 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
         checker.scope_heads[i] = null;
         i = i + 1;
     }
+    // 名字哈希桶头同步清空（见 checker_scope_bucket_index）
+    i = 0;
+    while i < @len(checker.scope_buckets) {
+        checker.scope_buckets[i] = null;
+        i = i + 1;
+    }
     i = 0;
     while i < @len(checker.async_call_edge_from) {
         checker.async_call_edge_from[i] = null;
@@ -113,12 +119,9 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
         i = i + 1;
     }
     checker.reachable_fn_decl_count = 0;
-    i = 0;
-    while i < @len(checker.reachability_visit_cache) {
-        checker.reachability_visit_cache[i] = null;
-        i = i + 1;
-    }
     checker.reachability_visit_count = 0;
+    checker.reachability_visit_capacity = 0;
+    checker.reachability_visit_table = null;
 
     checker.scope_level = 0;
     checker.loop_depth = 0;
@@ -356,6 +359,56 @@ fn checker_scope_head_set(checker: &TypeChecker, idx: i32, value: &Symbol) void 
     }
     if idx >= 0 && idx < 64 {
         checker.scope_heads[idx] = value;
+    }
+}
+
+// ===== 作用域内名字哈希桶（扫描符号链的替代） =====
+//
+// `scope_buckets[level*512 + (hash&511)]` 存该层该桶的符号链头，链用
+// `Symbol.next_in_bucket` 串起来（见 symbol_table_insert）。
+// 查找一层只要扫一个桶（1~2 个符号），而不是整层链表。
+
+// 桶下标；作用域越界返回 -1。
+fn checker_scope_bucket_index(scope: i32, name_hash: i32) i32 {
+    if scope < 0 || scope >= 64 {
+        return -1;
+    }
+    return scope *| SYMBOL_SCOPE_BUCKET_COUNT +| (name_hash & SYMBOL_SCOPE_BUCKET_MASK);
+}
+
+fn checker_scope_bucket_at(checker: &TypeChecker, idx: i32) &Symbol {
+    if checker == null {
+        return null;
+    }
+    if idx >= 0 && idx < SYMBOL_SCOPE_BUCKET_SLOTS {
+        return checker.scope_buckets[idx];
+    }
+    return null;
+}
+
+fn checker_scope_bucket_set(checker: &TypeChecker, idx: i32, value: &Symbol) void {
+    if checker == null {
+        return;
+    }
+    if idx >= 0 && idx < SYMBOL_SCOPE_BUCKET_SLOTS {
+        checker.scope_buckets[idx] = value;
+    }
+}
+
+// 清空某一层作用域的桶头：退出作用域时调用。同一层被重新进入（兄弟块）时
+// 绝不能看到上一轮已经离开作用域的符号。
+fn checker_scope_buckets_clear(checker: &TypeChecker, scope: i32) void {
+    if checker == null || scope < 0 || scope >= 64 {
+        return;
+    }
+    const base: i32 = scope *| SYMBOL_SCOPE_BUCKET_COUNT;
+    var i: i32 = 0;
+    while i < SYMBOL_SCOPE_BUCKET_COUNT {
+        const idx: i32 = base +| i;
+        if idx >= 0 && idx < SYMBOL_SCOPE_BUCKET_SLOTS {
+            checker.scope_buckets[idx] = null;
+        }
+        i = i + 1;
     }
 }
 
@@ -641,28 +694,118 @@ fn checker_add_function_edge(checker: &TypeChecker, from_decl: &ASTNode, to_decl
     return 0;
 }
 
+// 可达性 visited 集的槽位下标。
+//
+// AST 节点由 arena 按 152 字节步长连续分配，`ptr/8` 因此是「步长 19」的等差数列，
+// 而 19 与 2 的幂互素 —— `ptr/8 & (cap-1)` 取到的是一族满周期、分布均匀的槽位，
+// 不需要再做乘法散列；容量变化时只换 mask 即可。
+fn checker_reachability_visit_slot_of(node: &ASTNode, capacity: i32) i32 {
+    if node == null || capacity <= 0 {
+        return 0;
+    }
+    const mask: i32 = capacity -| 1;
+    const node_hash: usize = (@usize_from_ptr(node as &void) / 8 as usize);
+    return (node_hash & (mask as usize)) as i32;
+}
+
+// visited 集扩容：容量翻倍（首次取 REACHABILITY_VISIT_INITIAL_SLOTS）后整表 rehash。
+// 返回 0 表示成功；-1 表示 arena 分配失败或容量溢出。
+fn checker_reachability_visit_grow(checker: &TypeChecker) i32 {
+    if checker == null || checker.arena == null {
+        return -1;
+    }
+    var ncap: i32 = checker.reachability_visit_capacity;
+    if ncap <= 0 {
+        ncap = REACHABILITY_VISIT_INITIAL_SLOTS;
+    } else {
+        ncap = ncap *| 2;
+    }
+    if ncap <= 0 {
+        return -1;
+    }
+    const nu: usize = (ncap as! usize) catch { return -1; };
+    const esz: usize = (@size_of(&ASTNode) as! usize) catch { return -1; };
+    const table: &(&ASTNode) = compiler_arena_alloc(checker.arena, nu * esz) as &(&ASTNode);
+    if table == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < ncap {
+        table[i] = null;
+        i = i + 1;
+    }
+    // rehash：旧表每个非空槽按新 mask 重新插入。新容量 ≥ 2 × 旧容量、旧表负载 ≤ 3/4
+    // ⇒ 新表负载 ≤ 3/8，每个元素的探测必然在首个空槽前结束。
+    const old_table: &(&ASTNode) = checker.reachability_visit_table;
+    const old_cap: i32 = checker.reachability_visit_capacity;
+    if old_table != null && old_cap > 0 {
+        var j: i32 = 0;
+        while j < old_cap {
+            const node: &ASTNode = old_table[j];
+            if node != null {
+                var slot: i32 = checker_reachability_visit_slot_of(node, ncap);
+                var probe: i32 = 0;
+                while probe < ncap {
+                    if table[slot] == null {
+                        table[slot] = node;
+                        break;
+                    }
+                    slot = (slot +| 1) & (ncap -| 1);
+                    probe = probe +| 1;
+                }
+            }
+            j = j + 1;
+        }
+    }
+    checker.reachability_visit_table = table;
+    checker.reachability_visit_capacity = ncap;
+    return 0;
+}
+
+// 按负载因子 3/4 预扩容（与 dyn_table 的 DYN_TABLE_LOAD_NUM/DEN 一致）。
+// 返回 0 表示表可用；-1 表示扩容失败。
+fn checker_reachability_visit_ensure(checker: &TypeChecker) i32 {
+    if checker == null {
+        return -1;
+    }
+    if checker.reachability_visit_table == null || checker.reachability_visit_capacity <= 0 {
+        return checker_reachability_visit_grow(checker);
+    }
+    if (checker.reachability_visit_count +| 1) *| DYN_TABLE_LOAD_DEN
+        > checker.reachability_visit_capacity *| DYN_TABLE_LOAD_NUM {
+        return checker_reachability_visit_grow(checker);
+    }
+    return 0;
+}
+
+// 标记 node 已访问：首次访问返回 1，已访问过返回 0。
 fn checker_mark_reachability_node_visited(checker: &TypeChecker, node: &ASTNode) i32 {
     if checker == null || node == null {
         return 0;
     }
-    if checker.reachability_visit_count >= MAX_REACHABILITY_VISIT_SLOTS {
+    // 扩容失败（内存耗尽）时退化成「一律按未访问」：宁可慢，也不能漏掉子树。
+    if checker_reachability_visit_ensure(checker) != 0 {
         return 1;
     }
-    const node_hash: usize = (@usize_from_ptr(node as &void) / 8 as usize);
-    var slot: i32 = (node_hash & MAX_REACHABILITY_VISIT_MASK) as i32;
+    const cap: i32 = checker.reachability_visit_capacity;
+    if cap <= 0 || checker.reachability_visit_table == null {
+        return 1;
+    }
+    const mask: i32 = cap -| 1;
+    var slot: i32 = checker_reachability_visit_slot_of(node, cap);
     var probe: i32 = 0;
-    while probe < MAX_REACHABILITY_VISIT_SLOTS {
-        const entry: &ASTNode = checker.reachability_visit_cache[slot];
+    while probe < cap {
+        const entry: &ASTNode = checker.reachability_visit_table[slot];
         if entry == node {
             return 0;
         }
         if entry == null {
-            checker.reachability_visit_cache[slot] = node;
-            checker.reachability_visit_count = checker.reachability_visit_count + 1;
+            checker.reachability_visit_table[slot] = node;
+            checker.reachability_visit_count = checker.reachability_visit_count +| 1;
             return 1;
         }
-        slot = (slot +| 1) & (MAX_REACHABILITY_VISIT_SLOTS -| 1);
-        probe = probe + 1;
+        slot = (slot +| 1) & mask;
+        probe = probe +| 1;
     }
     return 1;
 }
@@ -671,12 +814,10 @@ fn checker_reset_reachability_visit_cache(checker: &TypeChecker) void {
     if checker == null {
         return;
     }
-    var i: i32 = 0;
-    while i < @len(checker.reachability_visit_cache) {
-        checker.reachability_visit_cache[i] = null;
-        i = i + 1;
-    }
+    // 槽位表由 arena 拥有、不单独释放：这里只丢弃引用，下次 ensure 重新分配。
     checker.reachability_visit_count = 0;
+    checker.reachability_visit_capacity = 0;
+    checker.reachability_visit_table = null;
 }
 
 fn checker_is_function_reachable(checker: &TypeChecker, fn_decl: &ASTNode) i32 {
@@ -835,10 +976,14 @@ fn symbol_table_lookup(checker: &TypeChecker, name: &byte) &Symbol {
             scope = scope - 1;
             continue;
         }
-        var symbol: &Symbol = checker_scope_head_at(checker, scope_idx);
+        // 只看本层「同名哈希桶」：桶里通常只有 1~2 个符号，链式全扫则要
+        // 把整层的符号（几百上千个，散落在 arena 各处）都读一遍。
+        var symbol: &Symbol = checker_scope_bucket_at(checker, checker_scope_bucket_index(scope_idx, name_hash));
         while symbol != null {
-            // 使用优化的 str_equals（先比较指针）
-            if str_equals(symbol.name, name) != 0 {
+            // 桶内仍可能撞哈希，先比整数、再比字节：`str_equals` 要碰符号名
+            // 的字节（几乎必然 L1 miss），而 name_hash 就在 Symbol 自己的缓存行里。
+            // 桶里的符号全部由 symbol_table_insert 挂进来，name_hash 必定已落盘。
+            if symbol.name_hash == name_hash && str_equals(symbol.name, name) != 0 {
                 if cache_slot >= 0 && cache_slot < SYMBOL_LOOKUP_CACHE_SIZE {
                     g_symbol_lookup_cache_checker[cache_slot] = checker;
                     g_symbol_lookup_cache_key[cache_slot] = name;
@@ -875,6 +1020,10 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
     if checker == null || symbol == null || symbol.name == null {
         return -1;
     }
+    // 名字哈希在插入时算一次并落进 Symbol：作用域链查找、去重扫描、符号表探测
+    // 三处都用它做整数前置过滤（见 symbol_table_lookup 的链上查找）。
+    const hash: i32 = hash_string(symbol.name);
+    symbol.name_hash = hash;
     
     // 只需要判断「同一个作用域里是否已有同名符号」：外层作用域有同名符号完全
     // 合法（内层遮蔽外层）。原先走完整的 `symbol_table_lookup`（从最内层一路
@@ -885,12 +1034,14 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
     // 所以直接扫当前作用域的链表即可，长度等于该作用域的符号数。
     const dup_scope: i32 = symbol.scope_level;
     if dup_scope >= 0 && dup_scope < @len(checker.scope_heads) {
-        var dup: &Symbol = checker_scope_head_at(checker, dup_scope);
+        // 去重也走哈希桶：同层同名符号必定同桶（见 checker_scope_bucket_index），
+        // 所以扫一个桶就够，不必扫整层的链表。
+        var dup: &Symbol = checker_scope_bucket_at(checker, checker_scope_bucket_index(dup_scope, hash));
         while dup != null {
-            if str_equals(dup.name, symbol.name) != 0 {
+            if dup.name_hash == hash && str_equals(dup.name, symbol.name) != 0 {
                 return -1;
             }
-            dup = dup.next_in_scope;
+            dup = dup.next_in_bucket;
         }
     }
     
@@ -901,7 +1052,6 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
             return -1;
         }
     }
-    const hash: i32 = hash_string(symbol.name);
     const sym_cap: i32 = checker.symbol_table.table.capacity;
     if sym_cap <= 0 {
         return -1;
@@ -925,6 +1075,11 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
                 if scope < @len(checker.scope_heads) {
                     symbol.next_in_scope = checker_scope_head_at(checker, scope);
                     checker_scope_head_set(checker, scope, symbol);
+                    // 同时压进本层对应的哈希桶（查找只扫桶，见 symbol_table_lookup）
+                    symbol.next_in_bucket = checker_scope_bucket_at(
+                        checker, checker_scope_bucket_index(scope, hash));
+                    checker_scope_bucket_set(
+                        checker, checker_scope_bucket_index(scope, hash), symbol);
                 }
             }
             symbol_lookup_cache_bump_generation();
@@ -1192,7 +1347,10 @@ fn checker_exit_scope(checker: &TypeChecker) void {
             // 开放寻址下这确实会截断后来者的探测链，但符号**查找**走的是作用域链表
             // （symbol_table_lookup 从 scope_heads 出发），哈希槽只在插入与这里被碰，
             // 所以旧行为原样保留，不在本轮顺手改语义。
-            const hash: i32 = hash_string(symbol.name);
+            var hash: i32 = symbol.name_hash;
+            if hash == 0 {
+                hash = hash_string(symbol.name);
+            }
             const sym_cap: i32 = checker.symbol_table.table.capacity;
             if sym_cap <= 0 {
                 break;
@@ -1221,6 +1379,8 @@ fn checker_exit_scope(checker: &TypeChecker) void {
             symbol = next;
         }
         checker_scope_head_set(checker, scope_idx, null);
+        // 桶头一起清空：同层被兄弟块重新进入时，绝不能看到已离开作用域的符号。
+        checker_scope_buckets_clear(checker, scope_idx);
     }
     
     checker.scope_level = checker.scope_level - 1;

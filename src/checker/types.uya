@@ -30,13 +30,25 @@ const MAX_ASYNC_CALL_EDGES: i32 = 512;
 const MAX_FN_CALL_EDGES: i32 = 16384;
 const MAX_FN_ROOTS: i32 = 8192;
 const MAX_REACHABLE_FN_DECLS: i32 = 8192;
-const MAX_REACHABILITY_VISIT_SLOTS: i32 = 262144;
-const MAX_REACHABILITY_VISIT_MASK: usize = 262143;
+// 顶层可达性 visited 集的**初始**容量（不再是上限：负载因子超过 3/4 时容量翻倍
+// 并整表 rehash，见 checker_reachability_visit_grow）。数值沿用历史值 ——
+// 小工程不发生扩容，与改动前逐字节一致。
+//
+// 为什么必须可扩容：自举编译一次可达性遍历要访问一百多万个 AST 节点，定长表在
+// 负载趋近 1 时成功查找的平均探测长度 ~1/(1-α)；最后 1% 的插入每次要扫十几万
+// 个槽位，实测 `uya check` 有 39% 的时间耗在这个探测回边上。表满之后原实现还会
+// `return 1` 假装「没访问过」，visited 集彻底失效，共享子树被反复重走。
+const REACHABILITY_VISIT_INITIAL_SLOTS: i32 = 262144;
 
 // ===== 各表的**初始**容量 =====
 // 不再是「上限」：表满了会按 DYN_TABLE_GROW_FACTOR 倍增并 rehash（见 dyn_table.uya）。
 // 数值刻意与历史值相同 —— 小工程不发生扩容，容量与性能与改动前逐字节一致。
 const SYMBOL_TABLE_SIZE: i32 = 32768;   // symbol_table 初始容量
+// 作用域内名字哈希桶：每层 512 个桶，最多 64 层嵌套（与 scope_heads 同界）。
+// 32768 = 64 * 512，见 TypeChecker.scope_buckets。
+const SYMBOL_SCOPE_BUCKET_COUNT: i32 = 512;
+const SYMBOL_SCOPE_BUCKET_MASK: i32 = 511;
+const SYMBOL_SCOPE_BUCKET_SLOTS: i32 = 32768;
 const FUNCTION_TABLE_SIZE: i32 = 8192;  // function_table 初始容量
 const MODULE_TABLE_SIZE: i32 = 256;     // module_table 初始容量
 const IMPORT_TABLE_SIZE: i32 = 512;     // import_table 初始容量
@@ -195,6 +207,11 @@ struct Type {
 
 struct Symbol {
     name: &byte,
+    // `hash_string(name)` 的缓存，0 表示尚未计算。插入时（symbol_table_insert）
+    // 算一次落盘，作用域桶查找先用它做整数比较，相等才去碰 name 的字节 ——
+    // `str_equals` 的首字节访问在自举编译里几乎必然 L1 miss（名字散落在 400 MB
+    // 的 arena 里），是检查器最大的单点开销。
+    name_hash: i32,
     type: Type,
     is_const: i32,
     is_initialized: i32,
@@ -204,6 +221,7 @@ struct Symbol {
     pointee_of: &byte,
     decl_node: &ASTNode,
     next_in_scope: &Symbol,  // 同一作用域的下一个符号（用于快速遍历）
+    next_in_bucket: &Symbol,  // 同一作用域内同一哈希桶的下一个符号（见 TypeChecker.scope_buckets）
     pointer_known_length: i32,  // 指针已知长度（如 *byte = "ab" 为 3），-1 表示未知；用于 --safety-proof 时下标边界证明
     pointer_length_param: &byte,  // 若为函数参数且与下一参数成 (ptr, len) 对，则为 len 参数名，否则 null；有此时允许 ptr[i] 作长度证明
 }
@@ -372,6 +390,12 @@ struct TypeChecker {
     // 作用域链表头数组：每个作用域的符号链表头
     // 用于快速遍历当前作用域的符号，避免遍历整个符号表
     scope_heads: [&Symbol: 64],  // 支持最多 64 层嵌套作用域
+    // 作用域内「名字哈希 → 符号」的桶头：`scope_buckets[level*512 + (hash&511)]`。
+    //
+    // 有了它，符号查找在第 level 层只扫 1~2 个桶，而不是整条作用域链。
+    // 这是检查器最大的单点开销：链上每跳都要读一个散落在 arena 里的 Symbol
+    // （几乎必然 L1 miss），自举编译一次 `uya check` 里这个循环占 30% 采样。
+    scope_buckets: [&Symbol: SYMBOL_SCOPE_BUCKET_SLOTS],
     // 异步函数调用图（用于在完整状态机大小计算前先检测 async 调用环）
     async_call_edge_from: [&byte: MAX_ASYNC_CALL_EDGES],
     async_call_edge_to: [&byte: MAX_ASYNC_CALL_EDGES],
@@ -389,7 +413,10 @@ struct TypeChecker {
     reachable_fn_decls: [&ASTNode: MAX_REACHABLE_FN_DECLS],
     reachable_fn_decl_count: i32,
     reachability_visit_count: i32,
-    reachability_visit_cache: [&ASTNode: MAX_REACHABILITY_VISIT_SLOTS],
+    // 可达性 visited 集：arena 拥有的开放寻址槽位表（元素是指针）+ 容量。
+    // 容量恒为 2 的幂；0 表示尚未分配（见 checker_reachability_visit_ensure）。
+    reachability_visit_capacity: i32,
+    reachability_visit_table: &(&ASTNode),
     async_frame_metas: &AsyncFrameMeta,
     async_frame_meta_count: i32,
     async_frame_meta_capacity: i32,
