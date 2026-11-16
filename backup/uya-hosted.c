@@ -7926,6 +7926,7 @@ struct BoundsCheckResult {
 
 struct Symbol {
     uint8_t * name;
+    int32_t name_hash;
     struct Type type;
     int32_t is_const;
     int32_t is_initialized;
@@ -7935,6 +7936,7 @@ struct Symbol {
     uint8_t * pointee_of;
     struct ASTNode * decl_node;
     struct Symbol * next_in_scope;
+    struct Symbol * next_in_bucket;
     int32_t pointer_known_length;
     uint8_t * pointer_length_param;
 };
@@ -8073,6 +8075,7 @@ struct TypeChecker {
     int32_t proof_step_limit;
     int32_t proof_step_count;
     struct Symbol * scope_heads[64];
+    struct Symbol * scope_buckets[32768];
     uint8_t * async_call_edge_from[512];
     uint8_t * async_call_edge_to[512];
     int32_t async_call_edge_count;
@@ -8085,7 +8088,8 @@ struct TypeChecker {
     struct ASTNode * reachable_fn_decls[8192];
     int32_t reachable_fn_decl_count;
     int32_t reachability_visit_count;
-    struct ASTNode * reachability_visit_cache[262144];
+    int32_t reachability_visit_capacity;
+    struct ASTNode * * reachability_visit_table;
     struct AsyncFrameMeta * async_frame_metas;
     int32_t async_frame_meta_count;
     int32_t async_frame_meta_capacity;
@@ -10789,6 +10793,10 @@ static __attribute__((used)) struct ASTNode * checker_fn_root_decl_at(struct Typ
 static __attribute__((used)) void checker_fn_root_decl_set(struct TypeChecker * checker, int32_t idx, struct ASTNode * value);
 static __attribute__((used)) struct Symbol * checker_scope_head_at(struct TypeChecker * checker, int32_t idx);
 static __attribute__((used)) void checker_scope_head_set(struct TypeChecker * checker, int32_t idx, struct Symbol * value);
+static __attribute__((used)) int32_t checker_scope_bucket_index(int32_t scope, int32_t name_hash);
+static __attribute__((used)) struct Symbol * checker_scope_bucket_at(struct TypeChecker * checker, int32_t idx);
+static __attribute__((used)) void checker_scope_bucket_set(struct TypeChecker * checker, int32_t idx, struct Symbol * value);
+static __attribute__((used)) void checker_scope_buckets_clear(struct TypeChecker * checker, int32_t scope);
 static __attribute__((used)) struct Symbol * checker_symbol_slot_at(struct TypeChecker * checker, int32_t idx);
 static __attribute__((used)) void checker_symbol_slot_set(struct TypeChecker * checker, int32_t idx, struct Symbol * value);
 static __attribute__((used)) struct FunctionSignature * checker_function_slot_at(struct TypeChecker * checker, int32_t idx);
@@ -10802,6 +10810,9 @@ static __attribute__((used)) void reset_function_edge_cache();
 static __attribute__((used)) int32_t function_edge_cache_slot(struct ASTNode * from_decl, struct ASTNode * to_decl);
 static __attribute__((used)) int32_t checker_grow_call_edges(struct TypeChecker * checker);
 static __attribute__((used)) int32_t checker_add_function_edge(struct TypeChecker * checker, struct ASTNode * from_decl, struct ASTNode * to_decl);
+static __attribute__((used)) int32_t checker_reachability_visit_slot_of(struct ASTNode * node, int32_t capacity);
+static __attribute__((used)) int32_t checker_reachability_visit_grow(struct TypeChecker * checker);
+static __attribute__((used)) int32_t checker_reachability_visit_ensure(struct TypeChecker * checker);
 static __attribute__((used)) int32_t checker_mark_reachability_node_visited(struct TypeChecker * checker, struct ASTNode * node);
 static __attribute__((used)) void checker_reset_reachability_visit_cache(struct TypeChecker * checker);
 static __attribute__((used)) int32_t checker_is_function_reachable(struct TypeChecker * checker, struct ASTNode * fn_decl);
@@ -12671,7 +12682,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_4165437801_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_2354668474_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -12708,7 +12719,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_2942657677_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_3316812030_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -15309,20 +15320,30 @@ __attribute__((used)) const int32_t MAX_FN_ROOTS = 8192;
 #endif
 __attribute__((used)) const int32_t MAX_REACHABLE_FN_DECLS = 8192;
 
-#ifdef MAX_REACHABILITY_VISIT_SLOTS
-#undef MAX_REACHABILITY_VISIT_SLOTS
+#ifdef REACHABILITY_VISIT_INITIAL_SLOTS
+#undef REACHABILITY_VISIT_INITIAL_SLOTS
 #endif
-__attribute__((used)) const int32_t MAX_REACHABILITY_VISIT_SLOTS = 262144;
-
-#ifdef MAX_REACHABILITY_VISIT_MASK
-#undef MAX_REACHABILITY_VISIT_MASK
-#endif
-__attribute__((used)) const size_t MAX_REACHABILITY_VISIT_MASK = 262143;
+__attribute__((used)) const int32_t REACHABILITY_VISIT_INITIAL_SLOTS = 262144;
 
 #ifdef SYMBOL_TABLE_SIZE
 #undef SYMBOL_TABLE_SIZE
 #endif
 __attribute__((used)) const int32_t SYMBOL_TABLE_SIZE = 32768;
+
+#ifdef SYMBOL_SCOPE_BUCKET_COUNT
+#undef SYMBOL_SCOPE_BUCKET_COUNT
+#endif
+__attribute__((used)) const int32_t SYMBOL_SCOPE_BUCKET_COUNT = 512;
+
+#ifdef SYMBOL_SCOPE_BUCKET_MASK
+#undef SYMBOL_SCOPE_BUCKET_MASK
+#endif
+__attribute__((used)) const int32_t SYMBOL_SCOPE_BUCKET_MASK = 511;
+
+#ifdef SYMBOL_SCOPE_BUCKET_SLOTS
+#undef SYMBOL_SCOPE_BUCKET_SLOTS
+#endif
+__attribute__((used)) const int32_t SYMBOL_SCOPE_BUCKET_SLOTS = 32768;
 
 #ifdef FUNCTION_TABLE_SIZE
 #undef FUNCTION_TABLE_SIZE
@@ -87992,6 +88013,11 @@ static __attribute__((used)) int32_t checker_init(struct TypeChecker * checker, 
         i = (i + 1);
     }
     i = 0;
+    while (i < (sizeof(checker->scope_buckets) / sizeof((checker->scope_buckets)[0]))) {
+        checker->scope_buckets[i] = NULL;
+        i = (i + 1);
+    }
+    i = 0;
     while (i < (sizeof(checker->async_call_edge_from) / sizeof((checker->async_call_edge_from)[0]))) {
         checker->async_call_edge_from[i] = NULL;
         checker->async_call_edge_to[i] = NULL;
@@ -88021,12 +88047,9 @@ static __attribute__((used)) int32_t checker_init(struct TypeChecker * checker, 
         i = (i + 1);
     }
     checker->reachable_fn_decl_count = 0;
-    i = 0;
-    while (i < (sizeof(checker->reachability_visit_cache) / sizeof((checker->reachability_visit_cache)[0]))) {
-        checker->reachability_visit_cache[i] = NULL;
-        i = (i + 1);
-    }
     checker->reachability_visit_count = 0;
+    checker->reachability_visit_capacity = 0;
+    checker->reachability_visit_table = NULL;
     checker->scope_level = 0;
     checker->loop_depth = 0;
     checker->program_node = NULL;
@@ -88322,6 +88345,71 @@ static __attribute__((used)) void checker_scope_head_set(struct TypeChecker * ch
     }
     if (((idx >= 0) && (idx < 64))) {
         checker->scope_heads[idx] = value;
+    }
+}
+
+static __attribute__((used)) int32_t checker_scope_bucket_index(int32_t scope, int32_t name_hash) {
+    (void)scope;
+    (void)name_hash;
+    if (((scope < 0) || (scope >= 64))) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = ({ int32_t _l = (({ int32_t _l = (scope); int32_t _r = (SYMBOL_SCOPE_BUCKET_COUNT); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; })); int32_t _r = ((name_hash & SYMBOL_SCOPE_BUCKET_MASK)); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) struct Symbol * checker_scope_bucket_at(struct TypeChecker * checker, int32_t idx) {
+    (void)checker;
+    (void)idx;
+    if (checker == NULL) {
+                {
+            struct Symbol * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+    if (((idx >= 0) && (idx < SYMBOL_SCOPE_BUCKET_SLOTS))) {
+                {
+            struct Symbol * _uya_ret = checker->scope_buckets[idx];
+            return _uya_ret;
+                }
+    }
+        {
+        struct Symbol * _uya_ret = NULL;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) void checker_scope_bucket_set(struct TypeChecker * checker, int32_t idx, struct Symbol * value) {
+    (void)checker;
+    (void)idx;
+    (void)value;
+    if (checker == NULL) {
+        return;
+    }
+    if (((idx >= 0) && (idx < SYMBOL_SCOPE_BUCKET_SLOTS))) {
+        checker->scope_buckets[idx] = value;
+    }
+}
+
+static __attribute__((used)) void checker_scope_buckets_clear(struct TypeChecker * checker, int32_t scope) {
+    (void)checker;
+    (void)scope;
+    if ((((checker == NULL) || (scope < 0)) || (scope >= 64))) {
+        return;
+    }
+    const int32_t base = ({ int32_t _l = (scope); int32_t _r = (SYMBOL_SCOPE_BUCKET_COUNT); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+    int32_t i = 0;
+    while (i < SYMBOL_SCOPE_BUCKET_COUNT) {
+        const int32_t idx = ({ int32_t _l = (base); int32_t _r = (i); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+        if (((idx >= 0) && (idx < SYMBOL_SCOPE_BUCKET_SLOTS))) {
+            checker->scope_buckets[idx] = NULL;
+        }
+        i = (i + 1);
     }
 }
 
@@ -88679,6 +88767,122 @@ static __attribute__((used)) int32_t checker_add_function_edge(struct TypeChecke
         }
 }
 
+static __attribute__((used)) int32_t checker_reachability_visit_slot_of(struct ASTNode * node, int32_t capacity) {
+    (void)node;
+    (void)capacity;
+    if (((node == NULL) || (capacity <= 0))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    const int32_t mask = ({ int32_t _l = (capacity); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    const size_t node_hash = ({ __typeof__((uintptr_t)((void *)node)) _uya_dv_l = ((uintptr_t)((void *)node)); __typeof__((size_t)8) _uya_dv_r = ((size_t)8); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
+        {
+        int32_t _uya_ret = (int32_t)(node_hash & (size_t)mask);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t checker_reachability_visit_grow(struct TypeChecker * checker) {
+    (void)checker;
+    if (((checker == NULL) || (checker->arena == NULL))) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    int32_t ncap = checker->reachability_visit_capacity;
+    if (ncap <= 0) {
+        ncap = REACHABILITY_VISIT_INITIAL_SLOTS;
+    } else {
+        ncap = ({ int32_t _l = (ncap); int32_t _r = (2); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; });
+    }
+    if (ncap <= 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    const size_t nu = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(ncap) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    const size_t esz = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)((int32_t)sizeof(struct ASTNode *)) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    struct ASTNode * * const table = (struct ASTNode * *)compiler_arena_alloc(checker->arena, (nu * esz));
+    if (table == NULL) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    int32_t i = 0;
+    while (i < ncap) {
+        table[i] = NULL;
+        i = (i + 1);
+    }
+    struct ASTNode * * const old_table = checker->reachability_visit_table;
+    const int32_t old_cap = checker->reachability_visit_capacity;
+    if (((old_table != NULL) && (old_cap > 0))) {
+        int32_t j = 0;
+        while (j < old_cap) {
+            struct ASTNode * const node = old_table[j];
+            if (node != NULL) {
+                int32_t slot = checker_reachability_visit_slot_of(node, ncap);
+                int32_t probe = 0;
+                while (probe < ncap) {
+                    if (table[slot] == NULL) {
+                        table[slot] = node;
+                        break;
+                    }
+                    slot = (({ int32_t _l = (slot); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) & ({ int32_t _l = (ncap); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }));
+                    probe = ({ int32_t _l = (probe); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+                }
+            }
+            j = (j + 1);
+        }
+    }
+    checker->reachability_visit_table = table;
+    checker->reachability_visit_capacity = ncap;
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t checker_reachability_visit_ensure(struct TypeChecker * checker) {
+    (void)checker;
+    if (checker == NULL) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    if (((checker->reachability_visit_table == NULL) || (checker->reachability_visit_capacity <= 0))) {
+                {
+            int32_t _uya_ret = checker_reachability_visit_grow(checker);
+            return _uya_ret;
+                }
+    }
+    if (({ int32_t _l = (({ int32_t _l = (checker->reachability_visit_count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (DYN_TABLE_LOAD_DEN); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) > ({ int32_t _l = (checker->reachability_visit_capacity); int32_t _r = (DYN_TABLE_LOAD_NUM); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; })) {
+                {
+            int32_t _uya_ret = checker_reachability_visit_grow(checker);
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) int32_t checker_mark_reachability_node_visited(struct TypeChecker * checker, struct ASTNode * node) {
     (void)checker;
     (void)node;
@@ -88688,17 +88892,24 @@ static __attribute__((used)) int32_t checker_mark_reachability_node_visited(stru
             return _uya_ret;
                 }
     }
-    if (checker->reachability_visit_count >= MAX_REACHABILITY_VISIT_SLOTS) {
+    if (checker_reachability_visit_ensure(checker) != 0) {
                 {
             int32_t _uya_ret = 1;
             return _uya_ret;
                 }
     }
-    const size_t node_hash = ({ __typeof__((uintptr_t)((void *)node)) _uya_dv_l = ((uintptr_t)((void *)node)); __typeof__((size_t)8) _uya_dv_r = ((size_t)8); if (_uya_dv_r == 0) { (void)uya_syscall1(60, 1); } _uya_dv_l  /  _uya_dv_r; });
-    int32_t slot = (int32_t)(node_hash & MAX_REACHABILITY_VISIT_MASK);
+    const int32_t cap = checker->reachability_visit_capacity;
+    if (((cap <= 0) || (checker->reachability_visit_table == NULL))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    const int32_t mask = ({ int32_t _l = (cap); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
+    int32_t slot = checker_reachability_visit_slot_of(node, cap);
     int32_t probe = 0;
-    while (probe < MAX_REACHABILITY_VISIT_SLOTS) {
-        struct ASTNode * const entry = checker->reachability_visit_cache[slot];
+    while (probe < cap) {
+        struct ASTNode * const entry = checker->reachability_visit_table[slot];
         if (entry == node) {
                         {
                 int32_t _uya_ret = 0;
@@ -88706,15 +88917,15 @@ static __attribute__((used)) int32_t checker_mark_reachability_node_visited(stru
                         }
         }
         if (entry == NULL) {
-            checker->reachability_visit_cache[slot] = node;
-            checker->reachability_visit_count = (checker->reachability_visit_count + 1);
+            checker->reachability_visit_table[slot] = node;
+            checker->reachability_visit_count = ({ int32_t _l = (checker->reachability_visit_count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
                         {
                 int32_t _uya_ret = 1;
                 return _uya_ret;
                         }
         }
-        slot = (({ int32_t _l = (slot); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) & ({ int32_t _l = (MAX_REACHABILITY_VISIT_SLOTS); int32_t _r = (1); int32_t _s; __builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }));
-        probe = (probe + 1);
+        slot = (({ int32_t _l = (slot); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; }) & mask);
+        probe = ({ int32_t _l = (probe); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; });
     }
         {
         int32_t _uya_ret = 1;
@@ -88727,12 +88938,9 @@ static __attribute__((used)) void checker_reset_reachability_visit_cache(struct 
     if (checker == NULL) {
         return;
     }
-    int32_t i = 0;
-    while (i < (sizeof(checker->reachability_visit_cache) / sizeof((checker->reachability_visit_cache)[0]))) {
-        checker->reachability_visit_cache[i] = NULL;
-        i = (i + 1);
-    }
     checker->reachability_visit_count = 0;
+    checker->reachability_visit_capacity = 0;
+    checker->reachability_visit_table = NULL;
 }
 
 static __attribute__((used)) int32_t checker_is_function_reachable(struct TypeChecker * checker, struct ASTNode * fn_decl) {
@@ -88895,9 +89103,9 @@ static __attribute__((used)) struct Symbol * symbol_table_lookup(struct TypeChec
             scope = (scope - 1);
             continue;
         }
-        struct Symbol * symbol = checker_scope_head_at(checker, scope_idx);
+        struct Symbol * symbol = checker_scope_bucket_at(checker, checker_scope_bucket_index(scope_idx, name_hash));
         while (symbol != NULL) {
-            if (str_equals(symbol->name, (uint8_t *)name) != 0) {
+            if (((symbol->name_hash == name_hash) && (str_equals(symbol->name, (uint8_t *)name) != 0))) {
                 if (((cache_slot >= 0) && (cache_slot < SYMBOL_LOOKUP_CACHE_SIZE))) {
                     g_symbol_lookup_cache_checker[cache_slot] = checker;
                     g_symbol_lookup_cache_key[cache_slot] = name;
@@ -88942,17 +89150,19 @@ static __attribute__((used)) int32_t symbol_table_insert(struct TypeChecker * ch
             return _uya_ret;
                 }
     }
+    const int32_t hash = hash_string(symbol->name);
+    symbol->name_hash = hash;
     const int32_t dup_scope = symbol->scope_level;
     if (((dup_scope >= 0) && (dup_scope < (sizeof(checker->scope_heads) / sizeof((checker->scope_heads)[0]))))) {
-        struct Symbol * dup = checker_scope_head_at(checker, dup_scope);
+        struct Symbol * dup = checker_scope_bucket_at(checker, checker_scope_bucket_index(dup_scope, hash));
         while (dup != NULL) {
-            if (str_equals(dup->name, symbol->name) != 0) {
+            if (((dup->name_hash == hash) && (str_equals(dup->name, symbol->name) != 0))) {
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
                                 }
             }
-            dup = dup->next_in_scope;
+            dup = dup->next_in_bucket;
         }
     }
     if (({ int32_t _l = (({ int32_t _l = (checker->symbol_table.table.count); int32_t _r = (1); int32_t _s; __builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? 2147483647LL : (-2147483647LL-1LL)) : _s; })); int32_t _r = (DYN_TABLE_LOAD_DEN); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; }) > ({ int32_t _l = (checker->symbol_table.table.capacity); int32_t _r = (DYN_TABLE_LOAD_NUM); int32_t _s; int32_t _res; if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? 2147483647LL : (-2147483647LL-1LL); else _res = _s; _res; })) {
@@ -88963,7 +89173,6 @@ static __attribute__((used)) int32_t symbol_table_insert(struct TypeChecker * ch
                         }
         }
     }
-    const int32_t hash = hash_string(symbol->name);
     const int32_t sym_cap = checker->symbol_table.table.capacity;
     if (sym_cap <= 0) {
                 {
@@ -88986,6 +89195,8 @@ static __attribute__((used)) int32_t symbol_table_insert(struct TypeChecker * ch
                 if (scope < (sizeof(checker->scope_heads) / sizeof((checker->scope_heads)[0]))) {
                     symbol->next_in_scope = checker_scope_head_at(checker, scope);
                     (void)(checker_scope_head_set(checker, scope, symbol)                    );
+                    symbol->next_in_bucket = checker_scope_bucket_at(checker, checker_scope_bucket_index(scope, hash));
+                    (void)(checker_scope_bucket_set(checker, checker_scope_bucket_index(scope, hash), symbol)                    );
                 }
             }
             (void)(symbol_lookup_cache_bump_generation()            );
@@ -89268,7 +89479,10 @@ static __attribute__((used)) void checker_exit_scope(struct TypeChecker * checke
         }
         struct Symbol * symbol = checker_scope_head_at(checker, scope_idx);
         while (symbol != NULL) {
-            const int32_t hash = hash_string(symbol->name);
+            int32_t hash = symbol->name_hash;
+            if (hash == 0) {
+                hash = hash_string(symbol->name);
+            }
             const int32_t sym_cap = checker->symbol_table.table.capacity;
             if (sym_cap <= 0) {
                 break;
@@ -89295,6 +89509,7 @@ static __attribute__((used)) void checker_exit_scope(struct TypeChecker * checke
             symbol = next;
         }
         (void)(checker_scope_head_set(checker, scope_idx, NULL)        );
+        (void)(checker_scope_buckets_clear(checker, scope_idx)        );
     }
     checker->scope_level = (checker->scope_level - 1);
     (void)(symbol_lookup_cache_bump_generation()    );
@@ -206788,7 +207003,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_4165437801_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_2354668474_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -208035,7 +208250,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_2942657677_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_3316812030_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -208279,7 +208494,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_2942657677_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_3316812030_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;

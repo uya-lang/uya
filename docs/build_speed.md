@@ -42,7 +42,46 @@
 
 剩下的时间分布（`CC=/bin/true` 把 C 阶段压成 0 后测前端）：
 前端 7.9 s（其中类型检查 6.5 s）、C 阶段 5.9 s、链接与脚本开销约 0.7 s。
-**类型检查现在是最大单项**，见 §八。
+类型检查是最大单项，见 §2.2 与 §八。
+
+### 2.2 2026-11 第二轮：类型检查器的两处 O(N) 退化（−3.4 s）
+
+`perf record` 在 `uya check src/main.uya` 上抓到两个各占约 30% 的循环，都是「数据量一涨就从
+O(1) 变成 O(N)」的结构问题，而不是常数因子问题：
+
+1. **顶层可达性 visited 集写死容量**（`src/checker/symbols.uya`）。原实现是 262144 个槽位的
+   开放寻址表，`checker_mark_reachability_node_visited` 在表满后直接 `return 1`
+   —— 把「已访问」静默判成「首次访问」，可达性传播于是退化成指数级重复展开，而且**没有任何报错**。
+   改成 arena 拥有的**可增长**表：负载因子超过 3/4 时容量翻倍并整表 rehash
+   （`checker_reachability_visit_grow` / `checker_reachability_visit_ensure`）。
+   初始容量沿用历史值，小工程不发生扩容，行为与改动前逐字节一致。
+2. **作用域符号查找扫整条链**（`src/checker/symbols.uya`）。`symbol_table_lookup` 从最内层作用域
+   逐层扫 `Symbol.next_in_scope` 链表，链上每一跳都要读一个散落在 400 MB arena 里的 `Symbol`
+   （几乎必然 L1 miss），而直接映射的查找缓存又被「每次插入自增的 generation」立刻打掉。
+   两处改动：
+   - `Symbol.name_hash`：插入时算一次 `hash_string` 落盘，查找先比整数、相等才去碰名字的字节；
+     去重扫描（`symbol_table_insert`）与退出作用域（`checker_exit_scope`）也复用这个缓存哈希。
+   - `TypeChecker.scope_buckets`：每层 512 个名字哈希桶（下标 `scope*512 + (hash&511)`，
+     链用 `Symbol.next_in_bucket` 串），查找一层只扫一个桶（通常 1~2 个符号）。
+     退出作用域时整层桶头清零（`checker_scope_buckets_clear`），保证同层兄弟块看不到上一轮的符号。
+
+背靠背实测（同一台 44 核机器，load ≈ 3.8，old/new 交替）：
+
+| 场景 | 改动前 | 现在 | 差分 |
+|---|---:|---:|---:|
+| `uya check src/main.uya` | 7.10 s | **3.73 s** | −47% |
+| `make uya` 全量强制（A/B 交替 old/new/old/new） | 14.89 / 15.18 s | **13.21 / 12.45 s** | ≈ −2.2 s（−15%） |
+| `make b` 自举验证 | 27.4 s | **23.7 s** | −3.7 s |
+| 前端类型检查（`--verbose`） | 6.19 s | **3.73 s** | −2.5 s |
+
+两者的收益并不相等：`uya check` 只看前端，所以直接吃掉 3.4 s；`make uya` 里前端省下的时间会被
+C 阶段（关键路径是一个 1.13 MB 的 TU）与调度抖动吸收掉一部分，实际体现为 1~2 s（看机器负载）。
+
+产物不变：`make b` 自举比对字节相同，全量测试通过。
+
+检查器现在剩下的热点是**程序级声明的线性扫描**：`checker_fn_decl_owner_type_name` 3.9%、
+`find_macro_decl_from_program` 2.8%、`checker_fn_decl_is_owned_method` 2.5%，合计约 0.35 s，
+属于下一轮的低优先级项（见 §八）。
 
 ## 三、前端进程级并行（`--jobs` / `UYA_JOBS`）
 
@@ -247,9 +286,18 @@ UYA_PROFILE_ARENA=1 ... --verbose
 - **并行类型检查（checker）**：`checker_check_program_node` 按「var → use → other」固定顺序推进，
   期间写符号表、单态化队列、错误列表并回写 AST 节点类型，后一个声明依赖前一个的声明结果；
   加上 100+ 模块级全局与错误顺序敏感，本轮不做。可行的后续设计是
-  「先声明后检查、按文件 fork 检查体、错误按文件序合并」。
+  「先声明后检查、按文件 fork 检查体、错误按文件序合并」。§2.2 之后类型检查 3.7 s，
+  仍是前端最大单项。
 - **切块的「每槽位重复开销」**（最高优先）：§4.1 的分块实现已就绪、正确性已验证，
   但 164 个槽位时 codegen body 阶段 CPU 从 0.94 s 涨到 6.55 s，把 C 阶段的 1.7 s 收益
-  吃光。定位并消掉这 5.6 s，就能把 `allow_chunk` 默认打开，C 阶段直接 −28%。
-- **并行类型检查（checker）**：见下一条，类型检查 6.5 s 已经是全流程最大单项。
+  吃光（2026-11 复测：不切块 12.9 / 14.0 s，切块 17.3 / 17.9 s）。定位并消掉这段重复工作，
+  就能把 `allow_chunk` 默认打开，C 阶段直接 −28%。
+- **程序级声明索引**：`checker_fn_decl_owner_type_name`、`find_macro_decl_from_program`、
+  `checker_fn_decl_is_owned_method` 三处仍是「遍历 program_decls × 判断」，合计占检查器
+  约 9% 采样（≈0.35 s）。可以复用 `src/checker/lookup.uya` 里已有的 `PROGDECL_INDEX_MASK`
+  直接映射索引，把三处一起收掉。
+- **codegen 局部变量类型查找**：`lookup_identifier_type_c_impl` 的缓存槽把
+  `local_variable_count` 编进了键，每加一个局部变量就整体失效，退化成线性 `strcmp` 扫局部数组。
+  它占 codegen CPU 的 16.8%，但 body 阶段按镜像 TU 并行（默认 32 worker），对 `make uya`
+  的实际墙钟贡献只有约 0.1 s，优先级低于上面两项。
 - **不引入 ccache**：头文件全量变化时基本全 miss，且会引入外部依赖。
