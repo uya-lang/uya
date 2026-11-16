@@ -1,0 +1,26 @@
+// 移动语义 B5 负例：指针传给了**会逃逸**的形参时，移动必须仍然被拒绝。
+//
+// `stash` 把形参存进全局变量（逃逸），调用返回后全局仍然持有指向 `a` 的指针，
+// 此时移动 `a` 就是悬垂引用。判定见 src/checker/lifetime.uya 的
+// lifetime_scan_param_escape：形参被赋给字段/全局、return 出去、或再传给别的
+// 调用，都算逃逸。
+//
+// 预期：编译失败，错误信息含「活跃指针」或「不能移动」
+
+struct S {
+    id: i32
+}
+
+var g_holder: &S = null;
+
+fn stash(p: &S) void {
+    g_holder = p;
+}
+
+export fn main() i32 {
+    const a: S = S{ id: 42 };
+    const p: &S = &a;
+    stash(p);
+    const b: S = a;
+    return b.id;
+}

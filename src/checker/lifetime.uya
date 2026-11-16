@@ -1338,3 +1338,495 @@ fn lifetime_apply_post_index_bound(checker: &TypeChecker, cond: &ASTNode) void {
     }
     constraint_add(checker, var_name, CONSTRAINT_LT, sym.post_index_upper);
 }
+
+// ===== B5：非逃逸形参 → 移动解锁 =====
+//
+// 现行规则（`has_active_pointer_to`）是「有指针指向我 → 不许移动」：只要作用域里
+// 还留着 `const p: &S = &a;`，后面 `const b: S = a;` 就一律被挡。B5 把它收紧到
+// 真正会悬垂的形态 —— **指针 p 不阻止移动，当且仅当 p 的每一次使用都满足**：
+//
+//   ① 形态是「作为实参传给某个函数的**非逃逸形参**」，即被调方既没把该形参存进
+//      字段/元素/全局，也没把它 return 出去、没再传给别的调用；
+//   ② 位置在移动点之前。
+//
+// 健全性：①保证调用返回后被调方不可能持有 p；②保证移动之后本函数不再碰 p。
+// 两条缺一不可，所以只要 p 有一次别的用法（解引用、赋值、比较、传给会逃逸的形参），
+// 或者 p **根本没有任何用法**（证不出它已经死了），都维持原来的拒绝。
+// 后一条正是 `tests/error_move_active_pointer.uya` 仍然报错的原因。
+
+/// 判定节点类型是否为「不含子表达式」的叶子形态。
+/// 参数：t - AST 节点类型。
+/// 返回：1 表示是叶子（遍历时可以安全忽略）；0 表示可能含子表达式。
+fn lifetime_node_is_leaf_type(t: ASTNodeType) i32 {
+    if t == ASTNodeType.AST_NUMBER || t == ASTNodeType.AST_FLOAT ||
+       t == ASTNodeType.AST_BOOL || t == ASTNodeType.AST_STRING ||
+       t == ASTNodeType.AST_CHAR || t == ASTNodeType.AST_INT_LIMIT ||
+       t == ASTNodeType.AST_IDENTIFIER || t == ASTNodeType.AST_UNDERSCORE ||
+       t == ASTNodeType.AST_ERROR_VALUE ||
+       t == ASTNodeType.AST_SRC_NAME || t == ASTNodeType.AST_SRC_PATH ||
+       t == ASTNodeType.AST_SRC_LINE || t == ASTNodeType.AST_SRC_COL ||
+       t == ASTNodeType.AST_FUNC_NAME ||
+       t == ASTNodeType.AST_EMBED || t == ASTNodeType.AST_EMBED_DIR ||
+       t == ASTNodeType.AST_PARAMS || t == ASTNodeType.AST_ASM_TARGET {
+        return 1;
+    }
+    return 0;
+}
+
+/// 判定表达式是否「就是 `name` 这个值」（标识符本身，或被 cast 包一层的它）。
+/// 参数：expr - 待判定表达式；name - 变量名。
+/// 返回：1 表示是；0 表示不是。
+fn lifetime_expr_is_name_value(expr: &ASTNode, name: &byte) i32 {
+    if expr == null || name == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_IDENTIFIER {
+        if expr.identifier_name != null && str_equals(expr.identifier_name, name) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR {
+        return lifetime_expr_is_name_value(expr.cast_expr_expr, name);
+    }
+    return 0;
+}
+
+/// 扫函数体，判定形参 `name` 是否可能逃逸（存进字段/元素、return 出去、再传给调用）。
+/// 参数：checker - 类型检查器；node - 当前子树；name - 形参名；escapes - 累积标志。
+/// 返回：无。
+///
+/// 只看「值本身」的逃逸：`return p[0].id` 返回的是字段不是指针，`g(p[0].id)` 传的
+/// 也是字段，这两种都不算逃逸（只有 `return p` / `g(p)` 这类传递指针本体才算）。
+fn lifetime_scan_param_escape(checker: &TypeChecker, node: &ASTNode, name: &byte,
+                              escapes: &i32) void {
+    if node == null || name == null || escapes[0] != 0 {
+        return;
+    }
+    if node.type == ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        if lifetime_expr_is_name_value(node.return_stmt_expr, name) != 0 {
+            escapes[0] = 1;
+            return;
+        }
+        lifetime_scan_param_escape(checker, node.return_stmt_expr, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        if lifetime_expr_is_name_value(node.assign_src, name) != 0 {
+            escapes[0] = 1;
+            return;
+        }
+        lifetime_scan_param_escape(checker, node.assign_dest, name, escapes);
+        lifetime_scan_param_escape(checker, node.assign_src, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        // 把指针本体当实参传出去就算逃逸：被调方可能把它存起来。
+        var ci: i32 = 0;
+        while ci < node.call_expr_arg_count {
+            const arg: &ASTNode = node.call_expr_args[ci];
+            if lifetime_expr_is_name_value(arg, name) != 0 {
+                escapes[0] = 1;
+                return;
+            }
+            lifetime_scan_param_escape(checker, arg, name, escapes);
+            ci = ci + 1;
+        }
+        return;
+    }
+    lifetime_scan_param_escape_children(checker, node, name, escapes);
+}
+
+/// `lifetime_scan_param_escape` 的子节点展开（容器类节点逐类下钻）。
+/// 参数：checker - 类型检查器；node - 当前子树；name - 形参名；escapes - 累积标志。
+/// 返回：无。
+fn lifetime_scan_param_escape_children(checker: &TypeChecker, node: &ASTNode, name: &byte,
+                                       escapes: &i32) void {
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            lifetime_scan_param_escape(checker, node.block_stmts[i], name, escapes);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        lifetime_scan_param_escape(checker, node.if_stmt_condition, name, escapes);
+        lifetime_scan_param_escape(checker, node.if_stmt_then_branch, name, escapes);
+        lifetime_scan_param_escape(checker, node.if_stmt_else_branch, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        lifetime_scan_param_escape(checker, node.while_stmt_condition, name, escapes);
+        lifetime_scan_param_escape(checker, node.while_stmt_body, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        lifetime_scan_param_escape(checker, node.for_stmt_array, name, escapes);
+        lifetime_scan_param_escape(checker, node.for_stmt_range_start, name, escapes);
+        lifetime_scan_param_escape(checker, node.for_stmt_range_end, name, escapes);
+        lifetime_scan_param_escape(checker, node.for_stmt_body, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_DEFER_STMT {
+        lifetime_scan_param_escape(checker, node.defer_stmt_body, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ERRDEFER_STMT {
+        lifetime_scan_param_escape(checker, node.errdefer_stmt_body, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_TEST_STMT {
+        lifetime_scan_param_escape(checker, node.test_stmt_body, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        lifetime_scan_param_escape(checker, node.var_decl_init, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        lifetime_scan_param_escape(checker, node.binary_expr_left, name, escapes);
+        lifetime_scan_param_escape(checker, node.binary_expr_right, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        lifetime_scan_param_escape(checker, node.unary_expr_operand, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        lifetime_scan_param_escape(checker, node.member_access_object, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ARRAY_ACCESS {
+        lifetime_scan_param_escape(checker, node.array_access_array, name, escapes);
+        lifetime_scan_param_escape(checker, node.array_access_index, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_SLICE_EXPR {
+        lifetime_scan_param_escape(checker, node.slice_expr_base, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_TRY_EXPR {
+        lifetime_scan_param_escape(checker, node.try_expr_operand, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_PIPELINE_EXPR {
+        lifetime_scan_param_escape(checker, node.pipeline_expr_left, name, escapes);
+        lifetime_scan_param_escape(checker, node.pipeline_expr_right, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_STRUCT_INIT {
+        var i: i32 = 0;
+        while i < node.struct_init_field_count {
+            lifetime_scan_param_escape(checker, node.struct_init_field_values[i], name, escapes);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_ARRAY_LITERAL {
+        var i: i32 = 0;
+        while i < node.array_literal_element_count {
+            lifetime_scan_param_escape(checker, node.array_literal_elements[i], name, escapes);
+            i = i + 1;
+        }
+        lifetime_scan_param_escape(checker, node.array_literal_repeat_count_expr, name, escapes);
+        return;
+    }
+    if node.type == ASTNodeType.AST_TUPLE_LITERAL {
+        var i: i32 = 0;
+        while i < node.tuple_literal_element_count {
+            lifetime_scan_param_escape(checker, node.tuple_literal_elements[i], name, escapes);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_STRING_INTERP {
+        var i: i32 = 0;
+        while i < node.string_interp_segment_count {
+            lifetime_scan_param_escape(checker, node.string_interp_segments[i].expr, name, escapes);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_PRINT || node.type == ASTNodeType.AST_PRINTLN {
+        lifetime_scan_param_escape(checker, node.print_expr, name, escapes);
+        return;
+    }
+    // 剩下的形态要么是叶子，要么是这里没逐个展开的容器（match / catch / await /
+    // @syscall / 宏求值…）。认不出来就按**逃逸**处理：这条判定的用途是放宽移动
+    // 规则，漏判会换来不健全，宁可把这类被调方判成会逃逸。
+    if lifetime_node_is_leaf_type(node.type) == 0 {
+        escapes[0] = 1;
+    }
+}
+
+/// 判定 `fn_decl` 的第 `param_index` 个形参是否**可能逃逸**。
+/// 参数：checker - 类型检查器；fn_decl - 被调方函数声明；param_index - 形参下标（0 基）。
+/// 返回：1 可能逃逸（含无法判定）；0 可证明不逃逸。
+///
+/// 看不到函数体（extern / 接口声明）、形参形态认不出、下标越界，一律按**逃逸**处理 ——
+/// 这条判定是用来放宽移动规则的，宁严勿松。
+fn lifetime_fn_param_escapes(checker: &TypeChecker, fn_decl: &ASTNode, param_index: i32) i32 {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
+        return 1;
+    }
+    if param_index < 0 || param_index >= fn_decl.fn_decl_param_count {
+        return 1;
+    }
+    if fn_decl.fn_decl_body == null {
+        return 1;
+    }
+    const param: &ASTNode = fn_decl.fn_decl_params[param_index];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL || param.var_decl_name == null {
+        return 1;
+    }
+    var escapes: i32 = 0;
+    lifetime_scan_param_escape(checker, fn_decl.fn_decl_body, param.var_decl_name, &escapes);
+    if escapes != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+/// 判定某个调用实参位置上的形参是否为「非逃逸形参」。
+/// 参数：checker - 类型检查器；call - 调用表达式；arg_index - 实参下标。
+/// 返回：1 表示非逃逸（引用的存储不会被被调方留下）；0 表示可能逃逸或无法判定。
+fn lifetime_call_param_is_non_escape(checker: &TypeChecker, call: &ASTNode, arg_index: i32) i32 {
+    if checker == null || call == null || call.type != ASTNodeType.AST_CALL_EXPR {
+        return 0;
+    }
+    const callee: &ASTNode = call.call_expr_callee;
+    if callee == null || callee.type != ASTNodeType.AST_IDENTIFIER || callee.identifier_name == null {
+        return 0;
+    }
+    const sig: &FunctionSignature = function_table_lookup(checker, callee.identifier_name);
+    if sig == null || sig.decl_node == null {
+        return 0;
+    }
+    if lifetime_fn_param_escapes(checker, sig.decl_node, arg_index) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+/// 判断节点 `a` 是否在源码位置上早于 `b`。
+/// 参数：a - 待判定节点；b - 参照节点。
+/// 返回：1 表示 a 在前；0 表示不在前或无法判定。
+fn lifetime_pos_before(a: &ASTNode, b: &ASTNode) i32 {
+    if a == null || b == null {
+        return 0;
+    }
+    if a.line < b.line {
+        return 1;
+    }
+    if a.line > b.line {
+        return 0;
+    }
+    if a.column < b.column {
+        return 1;
+    }
+    return 0;
+}
+
+/// 扫函数体，收集指针 `name` 的全部使用形态，判定它是否「已经死了」。
+/// 参数：checker - 类型检查器；node - 当前子树；name - 指针名；move_node - 移动点；
+///       seen - 已见使用计数；dead - 累积标志（1 表示所有已见使用都合法）。
+/// 返回：无。
+///
+/// 合法使用 = 作为实参传给非逃逸形参，且位置早于移动点；其余一切（解引用、
+/// 赋值、比较、再取址、传给会逃逸的形参、以及移动点之后的使用）都会把 dead 清零。
+fn lifetime_scan_pointer_uses(checker: &TypeChecker, node: &ASTNode, name: &byte,
+                              move_node: &ASTNode, seen: &i32, dead: &i32) void {
+    if node == null || name == null || dead[0] == 0 {
+        return;
+    }
+    if node.type == ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    if node.type == ASTNodeType.AST_IDENTIFIER {
+        if node.identifier_name != null && str_equals(node.identifier_name, name) != 0 {
+            seen[0] = seen[0] +| 1;
+            dead[0] = 0;    // 不是「非逃逸形参实参」的位置 → 该指针仍然活跃
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        var ci: i32 = 0;
+        while ci < node.call_expr_arg_count {
+            const arg: &ASTNode = node.call_expr_args[ci];
+            if lifetime_expr_is_name_value(arg, name) != 0 {
+                seen[0] = seen[0] +| 1;
+                if lifetime_call_param_is_non_escape(checker, node, ci) == 0 ||
+                    lifetime_pos_before(node, move_node) == 0 {
+                    dead[0] = 0;
+                    return;
+                }
+            } else {
+                lifetime_scan_pointer_uses(checker, arg, name, move_node, seen, dead);
+            }
+            ci = ci + 1;
+        }
+        return;
+    }
+    lifetime_scan_pointer_use_children(checker, node, name, move_node, seen, dead);
+}
+
+/// `lifetime_scan_pointer_uses` 的子节点展开（容器类节点逐类下钻）。
+/// 参数：checker - 类型检查器；node - 当前子树；name - 指针名；move_node - 移动点；
+///       seen - 已见使用计数；dead - 累积标志。
+/// 返回：无。
+fn lifetime_scan_pointer_use_children(checker: &TypeChecker, node: &ASTNode, name: &byte,
+                                      move_node: &ASTNode, seen: &i32, dead: &i32) void {
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            lifetime_scan_pointer_uses(checker, node.block_stmts[i], name, move_node, seen, dead);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        lifetime_scan_pointer_uses(checker, node.if_stmt_condition, name, move_node, seen, dead);
+        lifetime_scan_pointer_uses(checker, node.if_stmt_then_branch, name, move_node, seen, dead);
+        lifetime_scan_pointer_uses(checker, node.if_stmt_else_branch, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        lifetime_scan_pointer_uses(checker, node.while_stmt_condition, name, move_node, seen, dead);
+        lifetime_scan_pointer_uses(checker, node.while_stmt_body, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        lifetime_scan_pointer_uses(checker, node.for_stmt_array, name, move_node, seen, dead);
+        lifetime_scan_pointer_uses(checker, node.for_stmt_range_start, name, move_node, seen, dead);
+        lifetime_scan_pointer_uses(checker, node.for_stmt_range_end, name, move_node, seen, dead);
+        lifetime_scan_pointer_uses(checker, node.for_stmt_body, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_DEFER_STMT {
+        lifetime_scan_pointer_uses(checker, node.defer_stmt_body, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ERRDEFER_STMT {
+        lifetime_scan_pointer_uses(checker, node.errdefer_stmt_body, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_TEST_STMT {
+        lifetime_scan_pointer_uses(checker, node.test_stmt_body, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        // 声明名不是「使用」：`const p: &S = &a;` 里的 p 只是绑定，初始化式里
+        // 出现的是被取址的变量（a），不是 p 本身。
+        lifetime_scan_pointer_uses(checker, node.var_decl_init, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        lifetime_scan_pointer_uses(checker, node.assign_dest, name, move_node, seen, dead);
+        lifetime_scan_pointer_uses(checker, node.assign_src, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        lifetime_scan_pointer_uses(checker, node.return_stmt_expr, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        lifetime_scan_pointer_uses(checker, node.binary_expr_left, name, move_node, seen, dead);
+        lifetime_scan_pointer_uses(checker, node.binary_expr_right, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        lifetime_scan_pointer_uses(checker, node.unary_expr_operand, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        lifetime_scan_pointer_uses(checker, node.member_access_object, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ARRAY_ACCESS {
+        lifetime_scan_pointer_uses(checker, node.array_access_array, name, move_node, seen, dead);
+        lifetime_scan_pointer_uses(checker, node.array_access_index, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_SLICE_EXPR {
+        lifetime_scan_pointer_uses(checker, node.slice_expr_base, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_TRY_EXPR {
+        lifetime_scan_pointer_uses(checker, node.try_expr_operand, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_PIPELINE_EXPR {
+        lifetime_scan_pointer_uses(checker, node.pipeline_expr_left, name, move_node, seen, dead);
+        lifetime_scan_pointer_uses(checker, node.pipeline_expr_right, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_STRUCT_INIT {
+        var i: i32 = 0;
+        while i < node.struct_init_field_count {
+            lifetime_scan_pointer_uses(checker, node.struct_init_field_values[i], name, move_node, seen, dead);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_ARRAY_LITERAL {
+        var i: i32 = 0;
+        while i < node.array_literal_element_count {
+            lifetime_scan_pointer_uses(checker, node.array_literal_elements[i], name, move_node, seen, dead);
+            i = i + 1;
+        }
+        lifetime_scan_pointer_uses(checker, node.array_literal_repeat_count_expr, name, move_node, seen, dead);
+        return;
+    }
+    if node.type == ASTNodeType.AST_TUPLE_LITERAL {
+        var i: i32 = 0;
+        while i < node.tuple_literal_element_count {
+            lifetime_scan_pointer_uses(checker, node.tuple_literal_elements[i], name, move_node, seen, dead);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_STRING_INTERP {
+        var i: i32 = 0;
+        while i < node.string_interp_segment_count {
+            lifetime_scan_pointer_uses(checker, node.string_interp_segments[i].expr, name, move_node, seen, dead);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_PRINT || node.type == ASTNodeType.AST_PRINTLN {
+        lifetime_scan_pointer_uses(checker, node.print_expr, name, move_node, seen, dead);
+        return;
+    }
+    // 同 lifetime_scan_param_escape_children：认不出来的容器形态一律按「指针仍活跃」
+    // 处理，避免漏看一次使用就错误放行移动。
+    if lifetime_node_is_leaf_type(node.type) == 0 {
+        dead[0] = 0;
+    }
+}
+
+/// 判定指针变量 `ptr_name` 在移动点 `move_node` 处是否已经「死了」。
+/// 参数：checker - 类型检查器；ptr_name - 指针变量名；move_node - 移动发生的节点。
+/// 返回：1 表示可证明已死（移动不会让它悬垂）；0 表示仍然活跃或证不出来。
+///
+/// 判据：至少有一次使用，且全部是「实参 → 非逃逸形参」且都早于移动点。
+/// 「一次使用都没有」返回 0 —— 那种情况说不出指针死没死，维持原拒绝。
+fn lifetime_pointer_is_dead(checker: &TypeChecker, ptr_name: &byte, move_node: &ASTNode) i32 {
+    if checker == null || ptr_name == null || move_node == null {
+        return 0;
+    }
+    const fn_decl: &ASTNode = checker.current_function_decl;
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || fn_decl.fn_decl_body == null {
+        return 0;
+    }
+    var seen: i32 = 0;
+    var dead: i32 = 1;
+    lifetime_scan_pointer_uses(checker, fn_decl.fn_decl_body, ptr_name, move_node, &seen, &dead);
+    if dead == 0 || seen == 0 {
+        return 0;
+    }
+    return 1;
+}

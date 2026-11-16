@@ -1639,7 +1639,12 @@ fn moved_set_contains(checker: &TypeChecker, name: &byte) i32 {
 
 // 检查是否有活跃指针指向变量
 // 优化：只遍历当前作用域及内层作用域的符号
-fn has_active_pointer_to(checker: &TypeChecker, var_name: &byte) i32 {
+//
+// B5：判定源从「有没有指针指向我」收紧到「有没有**仍然活着**的指针指向我」。
+// 指针在 `move_node` 处已证明死亡（每次使用都只是作为实参传给非逃逸形参、且都
+// 早于移动点）时不再阻止移动；判据与健全性论证见 lifetime.uya 的
+// `lifetime_pointer_is_dead`。
+fn has_active_pointer_to(checker: &TypeChecker, var_name: &byte, move_node: &ASTNode) i32 {
     if checker == null || var_name == null {
         return 0;
     }
@@ -1650,7 +1655,9 @@ fn has_active_pointer_to(checker: &TypeChecker, var_name: &byte) i32 {
             var s: &Symbol = checker_scope_head_at(checker, scope);
             while s != null {
                 if s.pointee_of != null && str_equals(s.pointee_of, var_name) != 0 {
-                    return 1;
+                    if lifetime_pointer_is_dead(checker, s.name, move_node) == 0 {
+                        return 1;
+                    }
                 }
                 s = s.next_in_scope;
             }
@@ -1674,7 +1681,7 @@ fn checker_mark_moved(checker: &TypeChecker, node: &ASTNode, var_name: &byte, st
     if node == null {
         err_node = checker.current_function_decl;
     }
-    if has_active_pointer_to(checker, var_name) != 0 {
+    if has_active_pointer_to(checker, var_name, err_node) != 0 {
         checker_report_error(checker, err_node, "变量存在活跃指针，不能移动" as *byte);
         return;
     }

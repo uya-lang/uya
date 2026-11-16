@@ -258,6 +258,25 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     折叠路径与闸门无关，负例没有被「修好」）。默认模式 `./bin/uya check src/main.uya` 错误 0，
     `make uya` 自举通过。
 
+- [x] **B5：非逃逸形参 → 移动解锁**（2026-11-16）
+  - 旧规则（`has_active_pointer_to`）是「作用域里有指针指向我 → 不许移动」，把
+    `const p: &S = &a;` 之后所有 `const b: S = a;` 一律挡住，哪怕 `p` 早就用完了。
+    B5 把判定源换成「有没有**仍然活着**的指针」：
+    指针不阻止移动 ⟺ ①它每一次使用都是「实参 → 被调方的**非逃逸形参**」，②这些使用
+    都早于移动点。
+  - 健全性两条缺一不可：①保证调用返回后被调方不可能持有该指针（非逃逸摘要：
+    形参没被存进字段/元素/全局、没被 return、没再传给别的调用）；②保证移动之后
+    本函数不再碰这个指针。所以「一次使用都没有」仍然拒绝（证不出它死了），
+    `tests/error_move_active_pointer.uya` 因此照旧报错。
+  - 逃逸摘要与指针用法的遍历器对**认不出的节点形态 fail-closed**：逃逸摘要按
+    「会逃逸」处理、指针用法按「仍活跃」处理。没展开到的语法（`match` / `catch` /
+    `@await` / 宏求值…）只会退回旧行为，不会因为漏看一次使用而错误放行。
+  - 新判定只**放宽**、不收紧，因此不可能新增误报；风险方向与 B1/B2/B3 相反（放宽会
+    引入新的 double free），所以验收重点是负例：
+    `error_move_active_pointer`（零使用）、`error_move_active_pointer_after_borrow`
+    （先移后借）、新增 `error_move_escaping_borrow`（实参传给会写全局的形参）三者
+    仍全部报错；正例 `tests/test_move_non_escaping_borrow.uya` 的 `check` 与 `run` 均通过。
+
 - [x] **P0 度量接线完成：`--lifetime-report` 产出真实数字**（2026-11-16）
   - 此前 `lifetime_report_param_null` / `lifetime_report_div_zero` 只有定义、没有调用点，
     报告恒为全 0，「度量」形同虚设 —— 施工图 §6.2 要的两个数字一个也拿不到。
