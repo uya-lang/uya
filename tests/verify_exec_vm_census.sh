@@ -149,10 +149,10 @@ run_one() {
     # 所以放进独立会话，超时后对整组发 SIGKILL。
     if [ "$mem_mb" -gt 0 ]; then
         err="$(bash -c 'limit_kb="$1"; t="$2"; shift 2; ulimit -v "$limit_kb" 2>/dev/null; set -m; "$@" & p=$!; setsid bash -c "sleep $t; kill -9 -$p 2>/dev/null" >/dev/null 2>&1 & w=$!; wait "$p"; rc=$?; kill "$w" 2>/dev/null; exit $rc' _ \
-            "$limit_kb" "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
+            "$limit_kb" "$timeout_s" "$compiler" test --vm --no-strict-overflow --no-strict-div "$uya_file" 2>&1 >/dev/null)"
     else
         err="$(bash -c 't="$1"; shift; set -m; "$@" & p=$!; setsid bash -c "sleep $t; kill -9 -$p 2>/dev/null" >/dev/null 2>&1 & w=$!; wait "$p"; rc=$?; kill "$w" 2>/dev/null; exit $rc' _ \
-            "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>&1 >/dev/null)"
+            "$timeout_s" "$compiler" test --vm --no-strict-overflow --no-strict-div "$uya_file" 2>&1 >/dev/null)"
     fi
     local st=$?
 

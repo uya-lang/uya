@@ -762,6 +762,11 @@ fn linux_epoll_fd_hash(fd: i32, capacity: i32) i32 {
     if h < 0 {
         h = 0 -| h;
     }
+    // 容量非正时退回 0 号槽位（调用方保证容量 > 0；这条早返回让除数的
+    // 非零前提在 --strict-div 下可证）。
+    if capacity <= 0 {
+        return 0;
+    }
     return h % capacity;
 }
 

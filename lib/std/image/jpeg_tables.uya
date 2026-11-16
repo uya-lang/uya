@@ -145,7 +145,8 @@ export fn jpeg_quality_scale(base: &const u8, quality: i32, out: &u8) void {
         q = 100;
     }
     var scale: i32 = 0;
-    if q < 50 {
+    // q 已钳到 1..100；条件里带上 q > 0，除数前提才在 --strict-div 下可证。
+    if q > 0 && q < 50 {
         scale = 5000 / q;
     } else {
         scale = 200 -% q *% 2;

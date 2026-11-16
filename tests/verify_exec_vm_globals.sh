@@ -12,12 +12,12 @@ TMP_STDERR="$(mktemp)"
 trap 'rm -f "$TMP_STDOUT" "$TMP_STDERR"' EXIT
 
 echo "验证单文件 global init 顺序与全局读写..."
-"$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_globals.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
+"$COMPILER" run --no-strict-div --vm "$SCRIPT_DIR/test_exec_vm_globals.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
 tail -n 7 "$TMP_STDOUT" | diff -u <(printf 'AB11\n16\n11\n16\n12\n12\n19\n') -
 echo "  global init/order ✓"
 
 echo "验证 global init 失败会阻止 main 执行..."
-if "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_global_init_fail.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
+if "$COMPILER" run --no-strict-div --vm "$SCRIPT_DIR/test_exec_vm_global_init_fail.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then
     echo "✗ global init failure case should fail under --vm"
     cat "$TMP_STDERR"
     exit 1
@@ -32,7 +32,7 @@ fi
 echo "  global init failure ✓"
 
 echo "验证多模块 global init 顺序与 use module.item 全局访问..."
-"$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_globals_multi.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
+"$COMPILER" run --no-strict-div --vm "$SCRIPT_DIR/test_exec_vm_globals_multi.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
 if grep -q '回退 C99' "$TMP_STDERR"; then
     echo "✗ multi-module globals unexpectedly fell back to C99"
     cat "$TMP_STDERR"
@@ -41,7 +41,7 @@ fi
 echo "  multi-module globals ✓"
 
 echo "验证 whole-module import 的导出全局成员访问..."
-"$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_libc_module_global.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
+"$COMPILER" run --no-strict-div --vm "$SCRIPT_DIR/test_exec_vm_libc_module_global.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
 if grep -q '回退 C99' "$TMP_STDERR"; then
     echo "✗ whole-module import globals unexpectedly fell back to C99"
     cat "$TMP_STDERR"

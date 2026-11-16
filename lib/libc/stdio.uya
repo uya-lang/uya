@@ -714,7 +714,12 @@ fn _fmt_decimal_digit(limbs: &u64, total: i32, p: i32) u64 {
     if off < 0 || off >= 9 {
         return 0u64;
     }
-    return (limbs[limb] / FMT_POW10_TABLE[off as usize]) % 10u64;
+    // 表项都是 10 的幂（恒非零），落局部 + 裸判零是为了让除数在 --strict-div 下可证。
+    const pow10: u64 = FMT_POW10_TABLE[off as usize];
+    if pow10 == 0u64 {
+        return 0u64;
+    }
+    return (limbs[limb] / pow10) % 10u64;
 }
 
 /// 精确提取 f64 的前 `want` 位有效数字（ASCII，不补 0 结尾）。
@@ -1108,7 +1113,13 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
                 }
                 i = 0;
                 while i < frac_prec as usize && pos < buf_max {
-                    const d: i32 = ((frac_scaled / div) % (10 as i64)) as i32;
+                    // div 由 1 起只乘 10，恒非零。正分支里的 `div != 0` 才会成为
+                    // 持久约束（`break` 不保留负条件），除数因此可证。
+                    var d_raw: i64 = 0;
+                    if div != 0 {
+                        d_raw = (frac_scaled / div) % (10 as i64);
+                    }
+                    const d: i32 = d_raw as i32;
                     buf[pos] = (48 +| d) as byte;
                     pos = pos + 1;
                     if div > 1 {

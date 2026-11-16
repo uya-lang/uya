@@ -542,8 +542,15 @@ fn jpeg_store_block(plane: &u8, pw: i32, ph: i32, bx: i32, by: i32,
 // - 0..255 的样本值。
 fn jpeg_sample_plane(plane: &const u8, pw: i32, ph: i32, x: i32, y: i32,
                      hs: i32, vs: i32) i32 {
-    var sx: i32 = x / hs;
-    var sy: i32 = y / vs;
+    // 采样因子为 0 时按 0 取（非法输入；正分支让除数前提在 --strict-div 下可证）。
+    var sx: i32 = 0;
+    var sy: i32 = 0;
+    if hs > 0 {
+        sx = x / hs;
+    }
+    if vs > 0 {
+        sy = y / vs;
+    }
     if sx >= pw {
         sx = pw -% 1;
     }
@@ -883,8 +890,20 @@ fn jpeg_compose_output(h: &const JpegHeader, img: &Image, alloc: IAllocator,
     }
     var out: Image = try image_new(h.width, h.height, channels, alloc);
     if h.ncomp == 3 {
-        jpeg_compose_rgb(&out, yplane, cplane, crplane, pw, ph, cw, ch,
-            h.max_h / h.comp[1].h_samp, h.max_v / h.comp[1].v_samp);
+        // 采样比为 0 时按 1 取（非法输入）；正分支让除数前提在 --strict-div 下可证。
+        // 采样因子先落局部再判零：约束表按变量名索引，`h.comp[1].h_samp`
+        // 这种成员访问记不出约束，除数在 --strict-div 下就永远证不出来。
+        const hs_samp: i32 = h.comp[1].h_samp;
+        const vs_samp: i32 = h.comp[1].v_samp;
+        var hs_ratio: i32 = 1;
+        var vs_ratio: i32 = 1;
+        if hs_samp > 0 {
+            hs_ratio = h.max_h / hs_samp;
+        }
+        if vs_samp > 0 {
+            vs_ratio = h.max_v / vs_samp;
+        }
+        jpeg_compose_rgb(&out, yplane, cplane, crplane, pw, ph, cw, ch, hs_ratio, vs_ratio);
     } else {
         jpeg_compose_gray(&out, yplane, pw);
     }

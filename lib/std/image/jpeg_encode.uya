@@ -580,10 +580,20 @@ fn jpeg_load_block(blk: &i32, x0: i32, y0: i32, img: &const Image,
                 }
                 v = jpeg_luma_chroma(img, sx, sy, 0);
             } else {
-                var cx: i32 = (x0 / hsub) +% x;
-                var cy: i32 = (y0 / vsub) +% y;
-                const cw: i32 = (img.width +% hsub -% 1) / hsub;
-                const chh: i32 = (img.height +% vsub -% 1) / vsub;
+                // 采样因子为 0 时退化为不缩放（非法输入）；正分支让除数前提
+                // 在 --strict-div 下可证。
+                var cx: i32 = x0 +% x;
+                var cy: i32 = y0 +% y;
+                var cw: i32 = img.width;
+                var chh: i32 = img.height;
+                if hsub > 0 {
+                    cx = (x0 / hsub) +% x;
+                    cw = (img.width +% hsub -% 1) / hsub;
+                }
+                if vsub > 0 {
+                    cy = (y0 / vsub) +% y;
+                    chh = (img.height +% vsub -% 1) / vsub;
+                }
                 if cx >= cw {
                     cx = cw -% 1;
                 }
@@ -645,8 +655,13 @@ export fn jpeg_encode(img: &const Image, opts: &const JpegEncodeOptions,
     // MCU 网格
     const mw: i32 = hs *% 8;
     const mh: i32 = vs *% 8;
-    var mcus_x: i32 = (img.width +% mw -% 1) / mw;
-    var mcus_y: i32 = (img.height +% mh -% 1) / mh;
+    // 同 jpeg_marker：采样因子为 0 时网格退化，正分支让除数前提可证。
+    var mcus_x: i32 = 1;
+    var mcus_y: i32 = 1;
+    if mw > 0 && mh > 0 {
+        mcus_x = (img.width +% mw -% 1) / mw;
+        mcus_y = (img.height +% mh -% 1) / mh;
+    }
     if mcus_x < 1 {
         mcus_x = 1;
     }

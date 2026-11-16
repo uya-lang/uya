@@ -505,7 +505,13 @@ export extern "libc" fn srand(seed: u32) void {
 
 // rand - 生成伪随机数 (0 到 RAND_MAX)
 export extern "libc" fn rand() i32 {
-    rand_seed = (rand_seed *% (1103515245 as i64) +% (12345 as i64)) % rand_max_val;
+    // 模数落到本地名字上再裸判零：全局变量本身在这里没有约束可用，而
+    // --strict-div 只认变量名上的 `!= 0`（初值 2147483647 非零，判零不可达）。
+    const max_val: i64 = rand_max_val;
+    if max_val == 0 {
+        return 0;
+    }
+    rand_seed = (rand_seed *% (1103515245 as i64) +% (12345 as i64)) % max_val;
     return ((rand_seed >> 16) as i32) & @max;
 }
 

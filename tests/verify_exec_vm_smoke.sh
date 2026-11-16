@@ -37,7 +37,7 @@ run_case() {
     local mode="$1"
     local file="$2"
     set +e
-    "$COMPILER" run "$mode" "$SCRIPT_DIR/$file" >"$TMP_STDOUT" 2>"$TMP_STDERR"
+    "$COMPILER" run --no-strict-div "$mode" "$SCRIPT_DIR/$file" >"$TMP_STDOUT" 2>"$TMP_STDERR"
     local status=$?
     set -e
     if [ "$status" -ne 0 ]; then
@@ -56,9 +56,9 @@ done
 echo "对比 --exec 与默认 C99 退出码..."
 for file in "${TESTS[@]}"; do
     set +e
-    "$COMPILER" run --exec --verbose "$SCRIPT_DIR/$file" >"$TMP_STDOUT" 2>"$TMP_STDERR"
+    "$COMPILER" run --no-strict-div --exec --verbose "$SCRIPT_DIR/$file" >"$TMP_STDOUT" 2>"$TMP_STDERR"
     exec_status=$?
-    "$COMPILER" run "$SCRIPT_DIR/$file" >"$TMP_STDOUT" 2>"$TMP_DUMP1"
+    "$COMPILER" run --no-strict-div "$SCRIPT_DIR/$file" >"$TMP_STDOUT" 2>"$TMP_DUMP1"
     c99_status=$?
     set -e
     if [ "$exec_status" -ne "$c99_status" ]; then
@@ -76,10 +76,10 @@ for file in "${TESTS[@]}"; do
 done
 
 echo "检查 bytecode dump 稳定性..."
-"$COMPILER" run --vm --dump-bytecode "$SCRIPT_DIR/test_exec_vm_multi_fn.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
+"$COMPILER" run --no-strict-div --vm --dump-bytecode "$SCRIPT_DIR/test_exec_vm_multi_fn.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
 grep -q '=== exec bytecode ===' "$TMP_STDERR"
 sed -n '/=== exec bytecode ===/,/=== 编译统计 ===/p' "$TMP_STDERR" >"$TMP_DUMP1"
-"$COMPILER" run --vm --dump-bytecode "$SCRIPT_DIR/test_exec_vm_multi_fn.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
+"$COMPILER" run --no-strict-div --vm --dump-bytecode "$SCRIPT_DIR/test_exec_vm_multi_fn.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
 grep -q '=== exec bytecode ===' "$TMP_STDERR"
 sed -n '/=== exec bytecode ===/,/=== 编译统计 ===/p' "$TMP_STDERR" >"$TMP_DUMP2"
 if ! diff -u "$TMP_DUMP1" "$TMP_DUMP2" >"$TMP_STDERR"; then

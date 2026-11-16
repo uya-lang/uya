@@ -1655,14 +1655,14 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
                     if module_name != null {
                         var mh: u32 = hash_string(module_name);
                         const mtbl_cap: i32 = checker.module_table.table.capacity;
-                        var mi: i32 = (mh as i32) % mtbl_cap;
+                        var mi: i32 = dyn_table_slot_of((mh as i32), mtbl_cap);
                         if mi < 0 {
                             mi = mi +| mtbl_cap;
                         }
                         var i3: i32 = 0;
                         var found_module: i32 = 0;
                         while i3 < mtbl_cap {
-                            const ml: i32 = (mi + i3) % mtbl_cap;
+                            const ml: i32 = dyn_table_slot_of((mi + i3), mtbl_cap);
                             const mod: &ModuleInfo = checker_module_slot_at(checker, ml);
                             if mod == null { break; }
                             if str_equals(mod.module_name, module_name) != 0 {
@@ -2782,13 +2782,13 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
         if symbol == null {
             const ih: i32 = hash_string(obj.identifier_name);
             const itbl_cap: i32 = checker.import_table.table.capacity;
-            var ii: i32 = ih % itbl_cap;
+            var ii: i32 = dyn_table_slot_of(ih, itbl_cap);
             if ii < 0 {
                 ii = ii +| itbl_cap;
             }
             var mi: i32 = 0;
             while mi < itbl_cap {
-                const sl: i32 = (ii + mi) % itbl_cap;
+                const sl: i32 = dyn_table_slot_of((ii + mi), itbl_cap);
                 const imp: &ImportedItem = checker_import_slot_at(checker, sl);
                 if imp == null {
                     break;

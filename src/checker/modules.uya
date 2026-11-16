@@ -1070,13 +1070,13 @@ fn checker_insert_import_item(
 
     const import_hash: i32 = hash_string(import.local_name);
     const imp_cap: i32 = checker.import_table.table.capacity;
-    var import_index: i32 = import_hash % imp_cap;
+    var import_index: i32 = dyn_table_slot_of(import_hash, imp_cap);
     if import_index < 0 {
         import_index = import_index +| imp_cap;
     }
     var slot_i: i32 = 0;
     while slot_i < imp_cap {
-        const slot: i32 = (import_index + slot_i) % imp_cap;
+        const slot: i32 = dyn_table_slot_of((import_index + slot_i), imp_cap);
         if checker_import_slot_at(checker, slot) == null {
             checker_import_slot_set(checker, slot, import);
             checker.import_table.table.count = checker.import_table.table.count +| 1;
@@ -1418,14 +1418,14 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
                 // 在 module_table 中查找全路径
                 const fh: i32 = hash_string(full_path);
                 const mod_cap2: i32 = checker.module_table.table.capacity;
-                var fi: i32 = fh % mod_cap2;
+                var fi: i32 = dyn_table_slot_of(fh, mod_cap2);
                 if fi < 0 {
                     fi = fi +| mod_cap2;
                 }
                 var full_mod: &ModuleInfo = null;
                 i = 0;
                 while i < mod_cap2 {
-                    const slot: i32 = (fi + i) % mod_cap2;
+                    const slot: i32 = dyn_table_slot_of((fi + i), mod_cap2);
                     const m: &ModuleInfo = checker_module_slot_at(checker, slot);
                     if m != null && str_equals(m.module_name, full_path) != 0 {
                         full_mod = m;
@@ -1540,14 +1540,14 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
             // 查找当前模块
             const current_hash: i32 = hash_string(current_module_name);
             const mod_cap3: i32 = checker.module_table.table.capacity;
-            var current_index: i32 = current_hash % mod_cap3;
+            var current_index: i32 = dyn_table_slot_of(current_hash, mod_cap3);
             if current_index < 0 {
                 current_index = current_index +| mod_cap3;
             }
             var current_module: &ModuleInfo = null;
             var si: i32 = 0;
             while si < mod_cap3 {
-                const slot: i32 = (current_index + si) % mod_cap3;
+                const slot: i32 = dyn_table_slot_of((current_index + si), mod_cap3);
                 const m: &ModuleInfo = checker_module_slot_at(checker, slot);
                 if m != null && str_equals(m.module_name, current_module_name) != 0 {
                     current_module = m;
@@ -1633,14 +1633,14 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
 
         const import_hash: i32 = hash_string(import.local_name);
         const imp_cap: i32 = checker.import_table.table.capacity;
-        var import_index: i32 = import_hash % imp_cap;
+        var import_index: i32 = dyn_table_slot_of(import_hash, imp_cap);
         if import_index < 0 {
             import_index = import_index +| imp_cap;
         }
         const imp_cap2: i32 = checker.import_table.table.capacity;
         var j: i32 = 0;
         while j < imp_cap2 {
-            const slot: i32 = (import_index + j) % imp_cap2;
+            const slot: i32 = dyn_table_slot_of((import_index + j), imp_cap2);
             if checker_import_slot_at(checker, slot) == null {
                 checker_import_slot_set(checker, slot, import);
                 checker.import_table.table.count = checker.import_table.table.count +| 1;
@@ -1719,13 +1719,13 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
 
         const import_hash: i32 = hash_string(import.local_name);
         const imp_cap: i32 = checker.import_table.table.capacity;
-        var import_index: i32 = import_hash % imp_cap;
+        var import_index: i32 = dyn_table_slot_of(import_hash, imp_cap);
         if import_index < 0 {
             import_index = import_index +| imp_cap;
         }
         var slot_i: i32 = 0;
         while slot_i < imp_cap {
-            const slot: i32 = (import_index + slot_i) % imp_cap;
+            const slot: i32 = dyn_table_slot_of((import_index + slot_i), imp_cap);
             if checker_import_slot_at(checker, slot) == null {
                 checker_import_slot_set(checker, slot, import);
                 checker.import_table.table.count = checker.import_table.table.count +| 1;
@@ -1790,13 +1790,13 @@ fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: & & byte, p
             const last_module: &byte = path[path_len - 1];
             const last_hash: i32 = hash_string(last_module);
             const mod_cap4: i32 = checker.module_table.table.capacity;
-            var last_index: i32 = last_hash % mod_cap4;
+            var last_index: i32 = dyn_table_slot_of(last_hash, mod_cap4);
             if last_index < 0 {
                 last_index = last_index +| mod_cap4;
             }
             i = 0;
             while i < mod_cap4 {
-                const slot: i32 = (last_index + i) % mod_cap4;
+                const slot: i32 = dyn_table_slot_of((last_index + i), mod_cap4);
                 const m: &ModuleInfo = checker_module_slot_at(checker, slot);
                 if m != null && str_equals(m.module_name, last_module) != 0 {
                     // 查找对 module_name 的依赖
@@ -1835,14 +1835,14 @@ fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: & & byte, p
     // 查找模块
     const hash: i32 = hash_string(module_name);
     const mod_cap5: i32 = checker.module_table.table.capacity;
-    var index: i32 = hash % mod_cap5;
+    var index: i32 = dyn_table_slot_of(hash, mod_cap5);
     if index < 0 {
         index = index +| mod_cap5;
     }
     var module: &ModuleInfo = null;
     i = 0;
     while i < mod_cap5 {
-        const slot: i32 = (index + i) % mod_cap5;
+        const slot: i32 = dyn_table_slot_of((index + i), mod_cap5);
         const m: &ModuleInfo = checker_module_slot_at(checker, slot);
         if m != null && str_equals(m.module_name, module_name) != 0 {
             module = m;

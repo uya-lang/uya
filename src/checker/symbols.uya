@@ -1361,14 +1361,14 @@ fn checker_exit_scope(checker: &TypeChecker) void {
             if sym_cap <= 0 {
                 break;
             }
-            var index: i32 = hash % sym_cap;
+            var index: i32 = dyn_table_slot_of(hash, sym_cap);
             if index < 0 {
                 index = index +| sym_cap;
             }
 
             var i: i32 = 0;
             while i < sym_cap {
-                const slot: i32 = (index + i) % sym_cap;
+                const slot: i32 = dyn_table_slot_of((index + i), sym_cap);
                 if checker_symbol_slot_at(checker, slot) == symbol {
                     checker_symbol_slot_set(checker, slot, null);
                     checker.symbol_table.table.count = checker.symbol_table.table.count -| 1;

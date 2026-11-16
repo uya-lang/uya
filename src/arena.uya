@@ -45,7 +45,14 @@ var g_compiler_arena_failure_needed_items: i32 = 0;
 var g_compiler_arena_failure_request_bytes: usize = 0;
 
 // 对齐到指定边界
+//
+// align == 0 时原样返回：既保住调用点原有的「不填也不越界」语义，也让
+// 后面的 `%`/`/` 在 --strict-div 下可证（判零写成早返回，负条件才能变成
+// 持久约束 `align != 0`；写成 `if align == 0 { align = 1; }` 那种兜底是不行的）。
 fn align_size(size: usize, align: usize) usize {
+    if align == 0 as usize {
+        return size;
+    }
     return ((size + align - 1) / align) * align;
 }
 

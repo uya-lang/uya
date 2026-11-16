@@ -75,6 +75,18 @@
     `公共字段 + max(变体负载)`。自举编译器 `src/ast.uya` 的 `ASTNode` 因此从 1848 字节
     降到 152 字节（12.2 倍），节点字段访问代码零改动。
 
+- **`--strict-div` 除零证明翻默认（B3 收口）**。整数 `/` 与 `%` 的除数现在**默认**必须能
+  证明非零，`--no-strict-div` 可显式关闭（与 `--strict-overflow` 同一套开关约定）。
+  清账方式是让判定落在**能被约束表消费的形态**上，而不是放宽证明器：
+  `if d == 0 { return …; }` 这类早返回的负条件成为持久约束 `d != 0`；动态表容量取模统一走
+  `dyn_table_slot_of(value, capacity)`；链式对齐走 `align_size` / `c99_layout_align_up_i32`；
+  字节码 VM 的判零写在局部变量上（`right.i64_value` 这种成员访问记不出按名约束）。
+  证明器同步补齐三处：消费 `!=` 约束、非零证明只需**单侧**端点（`usize`/`u64` 的上界装不进
+  i64，旧实现要求双侧已知因此永远证不出来）、`@size_of`/`@alignof` 按语法形态直接认。
+  实测：`src/` 87 → 0，`lib/` 12 → 0，默认模式下 `./bin/uya check src/main.uya` 错误 0；
+  回归 `tests/verify_strict_div.sh`（四断言：默认拒绝 / `--no-strict-div` 放行 / 正例放行 /
+  常量除零始终报错）。
+
 ### 0.49.56（2026-10-23）
 
 - **词法：不可识别的字符改为报错**。源码中出现不在词法表里的字符（`#`、`\`、`?` 等）此前被
@@ -4671,7 +4683,7 @@ Uya 提供两种类型转换语法：
 | 整数溢出（常量） | 常量溢出 → 编译错误 | **编译错误** | ✅ 已实现 |
 | 整数溢出（变量） | 显式检查或编译器证明无溢出 | **编译错误** | ✅ 已实现（`--strict-overflow` 默认开启，只覆盖**有符号**整数） |
 | 除零错误（常量） | 常量除零 → 编译错误 | **编译错误** | ✅ 已实现（「常量表达式除零错误」） |
-| 除零错误（变量） | 证明 `y != 0` | **编译错误并给出修改建议** | ⚠️ 由 `--strict-div` 控制（**默认关**）：开启后 `fn f(y: i32) i32 { return 100 / y; }` 报「除数可能为 0，无法证明 / 安全」，常量除数与区间守卫（`if d <= 0 \|\| d >= N { ... }`）可证明通过。默认关是因为存量库大量依赖「调用方保证非零」的跨函数不变量（`align_size(size, align)`、`n / guess` 等），证明器无法表达，强制开会让编译器无法自举。回归 `tests/verify_strict_div.sh`，正例 `tests/test_strict_div.uya`，负例夹具 `tests/repros/strict_div_negative.uya` |
+| 除零错误（变量） | 证明 `y != 0` | **编译错误并给出修改建议** | ✅ **默认开启**（`--strict-div`，可用 `--no-strict-div` 关闭）： `fn f(y: i32) i32 { return 100 / y; }` 报「除数可能为 0，无法证明 / 安全」，常量除数与区间守卫（`if d <= 0 \|\| d >= N { ... }`）可证明通过。默认开的前提是 B3 收口：`src/` 与 `lib/` 的除数站点已全部清零——判零早返回成为持久约束、容量取模走 `dyn_table_slot_of`、对齐走 `align_size` / `c99_layout_align_up_i32`、字节码 VM 的判零落在局部变量上；对抗性语料由 `tests/run_programs_parallel.sh` 显式加 `--no-strict-div` 关闭。回归 `tests/verify_strict_div.sh`，正例 `tests/test_strict_div.uya`，负例夹具 `tests/repros/strict_div_negative.uya` |
 
 ### 14.3 证明机制
 

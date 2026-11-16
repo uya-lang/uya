@@ -150,7 +150,7 @@ run_one() {
     if [ -n "$extra_c" ] && [ -f "$extra_c" ]; then
         local cfile="$WORK_DIR/${base}.c"
         local cbin="$WORK_DIR/${base}.bin"
-        if run_with_timeout "$timeout_s" "$compiler" build --c99 --nostdlib --no-strict-overflow "$uya_file" -o "$cfile" >/dev/null 2>&1 &&
+        if run_with_timeout "$timeout_s" "$compiler" build --c99 --nostdlib --no-strict-overflow --no-strict-div "$uya_file" -o "$cfile" >/dev/null 2>&1 &&
            CC=gcc "$SCRIPT_DIR/link_cimports_posix.sh" "$cfile" "$cbin" "$extra_c" >/dev/null 2>&1; then
             c99_out="$(run_with_timeout "$timeout_s" "$cbin" 2>/dev/null)"
             c99_st=$?
@@ -159,10 +159,10 @@ run_one() {
             c99_out=""
         fi
     else
-        c99_out="$(run_with_timeout "$timeout_s" "$compiler" test --no-strict-overflow "$uya_file" 2>/dev/null)"
+        c99_out="$(run_with_timeout "$timeout_s" "$compiler" test --no-strict-overflow --no-strict-div "$uya_file" 2>/dev/null)"
         c99_st=$?
     fi
-    vm_out="$(run_with_timeout "$timeout_s" "$compiler" test --vm --no-strict-overflow "$uya_file" 2>/dev/null)"
+    vm_out="$(run_with_timeout "$timeout_s" "$compiler" test --vm --no-strict-overflow --no-strict-div "$uya_file" 2>/dev/null)"
     vm_st=$?
 
     local c99_sum vm_sum
@@ -186,9 +186,9 @@ run_one() {
         local c99_run_out vm_run_out c99_run_st vm_run_st
         c99_run_out="$WORK_DIR/${base}.c99run.out"
         vm_run_out="$WORK_DIR/${base}.vmrun.out"
-        run_with_timeout "$timeout_s" "$compiler" run --no-strict-overflow "$uya_file" > "$c99_run_out" 2>/dev/null
+        run_with_timeout "$timeout_s" "$compiler" run --no-strict-overflow --no-strict-div "$uya_file" > "$c99_run_out" 2>/dev/null
         c99_run_st=$?
-        run_with_timeout "$timeout_s" "$compiler" run --vm --no-strict-overflow "$uya_file" > "$vm_run_out" 2>/dev/null
+        run_with_timeout "$timeout_s" "$compiler" run --vm --no-strict-overflow --no-strict-div "$uya_file" > "$vm_run_out" 2>/dev/null
         vm_run_st=$?
         if [ "$c99_run_st" -ne "$vm_run_st" ]; then
             verdict="RUN_STATUS_MISMATCH"

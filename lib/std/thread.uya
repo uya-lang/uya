@@ -1961,7 +1961,10 @@ fn thread_pool_default_scaled_capacity(worker_count: i32, per_worker: i32) i32 {
     if normalized_per_worker <= 0 {
         normalized_per_worker = 1;
     }
-    if normalized_workers > THREAD_POOL_MAX_CONFIG_CAPACITY / normalized_per_worker {
+    // 上面把非正值兜底成 1，因此这里恒 > 0；写成正分支是为了让 `/` 的除数
+    // 前提在 --strict-div 下可证（赋值式兜底不产生持久约束）。
+    if normalized_per_worker > 0 &&
+       normalized_workers > THREAD_POOL_MAX_CONFIG_CAPACITY / normalized_per_worker {
         return THREAD_POOL_MAX_CONFIG_CAPACITY;
     }
     return thread_pool_normalize_config_capacity(normalized_workers * normalized_per_worker);

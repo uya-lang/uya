@@ -137,11 +137,12 @@ var g_verbose_output: i32 = 0;
 var g_strict_overflow: i32 = 1;
 
 // --strict-div：整数 `/` 与 `%` 的除数必须能证明非零（规范 §14.2 的「除零正确性证明」）。
-// **默认关闭**：与 --strict-overflow 不同，存量库里有大量「调用方保证非零」的形参除法
-//（`align_size(size, align)`、牛顿迭代 `n / guess`、`bytes_read / size` 等），
-// 证明器无法表达这类跨函数不变量，强制开会让 `src/` 与 `lib/` 立刻无法自举。
-// 需要该保证的工程可显式开启；常量除零无论如何都会报错（常量折叠路径）。
-var g_strict_div: i32 = 0;
+// **默认开启**（B3 收口）：跨函数证明落地后，`src/` 与 `lib/` 的除数站点全部清零 ——
+// 形参除法靠「判零早返回 → 负条件变成持久约束」，容量取模走 `dyn_table_slot_of`，
+// 对齐走 `align_size` / `c99_layout_align_up_i32`，字节码 VM 的判零落在局部变量上，
+// 于是存量代码不再需要豁免。对抗性语料（tests/）沿用 --strict-overflow 的同一套
+// 约定，由 tests/run_programs_parallel.sh 显式加 `--no-strict-div` 关闭。
+var g_strict_div: i32 = 1;
 
 // --lifetime-report：输出跨函数内存安全证明的**度量报告**（只算不报）。
 //
@@ -1139,8 +1140,8 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "  --no-safety-proof    禁用内存安全证明\n" as *byte);
     fprintf(libc.stderr, "  --strict-overflow    开启溢出闸门（默认已开：整数算术须能证明无溢出）\n" as *byte);
     fprintf(libc.stderr, "  --no-strict-overflow 关闭溢出闸门\n" as *byte);
-    fprintf(libc.stderr, "  --strict-div         开启除零证明（默认关：整数 / 与 %% 的除数须能证明非零）\n" as *byte);
-    fprintf(libc.stderr, "  --no-strict-div      关闭除零证明（默认）\n" as *byte);
+    fprintf(libc.stderr, "  --strict-div         开启除零证明（默认已开：整数 / 与 %% 的除数须能证明非零）\n" as *byte);
+    fprintf(libc.stderr, "  --no-strict-div      关闭除零证明\n" as *byte);
     fprintf(libc.stderr, "  --lifetime-report    输出跨函数内存安全证明的度量报告（只算不报，不影响编译结果）\n" as *byte);
     fprintf(libc.stderr, "  --nostdlib           完全独立模式：无标准库依赖，使用 syscall\n" as *byte);
     fprintf(libc.stderr, "  --async-frame-heap=on  async frame pool 满时回退到调试 heap（默认关闭）\n" as *byte);

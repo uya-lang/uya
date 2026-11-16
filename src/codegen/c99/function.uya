@@ -519,13 +519,13 @@ fn c99_find_module_export_function_decl(codegen: &C99CodeGenerator, module_name:
     const checker_ptr: &TypeChecker = codegen.checker;
     const mh: u32 = hash_string(module_name);
     const mtbl_cap: i32 = checker_ptr.module_table.table.capacity;
-    var mi: i32 = (mh as i32) % mtbl_cap;
+    var mi: i32 = dyn_table_slot_of((mh as i32), mtbl_cap);
     if mi < 0 {
         mi = mi +% mtbl_cap;
     }
     var i3: i32 = 0;
     while i3 < mtbl_cap {
-        const ml: i32 = (mi + i3) % mtbl_cap;
+        const ml: i32 = dyn_table_slot_of((mi + i3), mtbl_cap);
         const mod: &ModuleInfo = checker_module_slot_at(checker_ptr, ml);
         if mod == null {
             break;
@@ -7061,7 +7061,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 }
                 if child_sz <= 0 { child_sz = 64; }
                 if child_al <= 0 { child_al = 8; }
-                est_offset = ((est_offset +| child_al -| 1) / child_al) *| child_al;
+                est_offset = c99_layout_align_up_i32(est_offset, child_al);
                 est_offset = est_offset +| child_sz;
                 if child_al > est_align { est_align = child_al; }
             }
@@ -7076,7 +7076,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 if use_sz <= 0 { use_sz = 8; }
                 var use_al: i32 = bal;
                 if use_al <= 0 { use_al = 8; }
-                est_offset = ((est_offset +| use_al -| 1) / use_al) *| use_al;
+                est_offset = c99_layout_align_up_i32(est_offset, use_al);
                 est_offset = est_offset +| use_sz;
                 if use_al > est_align { est_align = use_al; }
             }
@@ -7091,7 +7091,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 if use_sz <= 0 { use_sz = 8; }
                 var use_al: i32 = lal;
                 if use_al <= 0 { use_al = 8; }
-                est_offset = ((est_offset +| use_al -| 1) / use_al) *| use_al;
+                est_offset = c99_layout_align_up_i32(est_offset, use_al);
                 est_offset = est_offset +| use_sz;
                 if use_al > est_align { est_align = use_al; }
             }
@@ -7107,7 +7107,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 if use_sz <= 0 { use_sz = 8; }
                 var use_al: i32 = pal;
                 if use_al <= 0 { use_al = 8; }
-                est_offset = ((est_offset +| use_al -| 1) / use_al) *| use_al;
+                est_offset = c99_layout_align_up_i32(est_offset, use_al);
                 est_offset = est_offset +| use_sz;
                 if use_al > est_align { est_align = use_al; }
             }

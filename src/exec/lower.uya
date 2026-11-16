@@ -5693,13 +5693,13 @@ fn exec_lower_find_module_export_decl(checker: &TypeChecker, module_name: &byte,
     }
     var mh: u32 = hash_string(module_name);
     const mtbl_cap: i32 = checker.module_table.table.capacity;
-    var mi: i32 = (mh as i32) % mtbl_cap;
+    var mi: i32 = dyn_table_slot_of((mh as i32), mtbl_cap);
     if mi < 0 {
         mi = mi +% mtbl_cap;
     }
     var i: i32 = 0;
     while i < mtbl_cap {
-        const slot: i32 = (mi + i) % mtbl_cap;
+        const slot: i32 = dyn_table_slot_of((mi + i), mtbl_cap);
         const module: &ModuleInfo = checker_module_slot_at(checker, slot);
         if module == null {
             break;

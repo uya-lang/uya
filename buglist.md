@@ -60,7 +60,7 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
 （防止证明器收紧到误报）；`make b` 自举字节一致、`make check` 1142/1142。
 同轮登记欠账：**取值路径**（`infer_array_access`）仍缺非线性下标的 `else` 分支，
 补它需连带为 `lib/`+`src/` 的 13 处 `digits[di - 1 - i]` 型多变量下标补证明；
-**除法正确性证明**（证明除数 != 0）已在 2026-10-22 落地为 `--strict-div`（默认关）：开启后 `/` 与 `%` 的除数必须能证明非零，常量除数与区间守卫可通过；默认关的原因与迁移路径见下方「P2：`--strict-div` 存量迁移」条目。
+**除法正确性证明**（证明除数 != 0）已在 2026-10-22 落地为 `--strict-div`，**2026-11-16 B3 收口后默认开启**（`--no-strict-div` 可关）：开启后 `/` 与 `%` 的除数必须能证明非零，常量除数与区间守卫可通过；默认关的原因与迁移路径见下方「P2：`--strict-div` 存量迁移」条目。
 此前：2026-10-11（补 UB 测试覆盖：新增 21 个负例 + 正例 `tests/test_ub_safety_guards.uya`（22 用例）；
 补覆盖过程中发现 **7 条 UB 漏检**，已按 P0 记入"编译器 bug"首条并各带 `tests/repros/` 最小复现 ——
 其中「移动嵌套字段后同一块堆内存被 free 两次」已实测确认真 double free，
@@ -221,6 +221,42 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     **结论：按 §6.3 熔断判据维持 `--strict-div` 默认关闭**，本轮只保留 ① 类三处无风险守卫
     （不改变任何语义，表未分配时提前返回本就等价）。翻默认推迟到 B2/B4 落地后重测 ——
     届时跨函数消解率可从 `--lifetime-report` 的 `req_div_zero` 字段直接读出。
+
+- [x] **B3 收口：`--strict-div` 翻默认，`src/` 87 → 0、`lib/` 12 → 0**（2026-11-16）
+  - 上一轮判「维持默认关」的理由是「跨函数不变量表达不出来，87 个站点要就地重写」。这一轮
+    的结论相反：**不是证明器表达不了，而是存量代码把判零写在了约束表看不见的形态上**。
+    清账过程本身没放宽任何判定：
+    - ① **容量取模**（32 处）：`X % cap` 统一改 `dyn_table_slot_of(X, cap)`，助手内
+      `if capacity <= 0 { return 0; }` 的早返回让 `capacity >= 1` 成为持久约束。87 → 55。
+    - ② **证明器消费 `!=`**：`divisor_is_proven_nonzero_by_ne` —— 只认 `AST_IDENTIFIER` +
+      `wide_constraint_is_sound_at` + `CONSTRAINT_NE` 且值为 0。`if d == 0 { return; }`
+      这类守卫此前完全不被消费。55 → 30。
+    - ③ **非零证明只需单侧端点**：旧实现要求上下界都已知，而 `usize`/`u64` 的上界装不进
+      i64 —— 即便守卫写得再清楚也永远证不出来。改为「下界 > 0」或「上界 < 0」其一成立即可。
+      30 → 27。
+    - ④ **判零落在局部名上**：约束表按变量名索引，成员访问记不出约束。字节码 VM 的
+      `slot_c.i64_value`、`right.i64_value`，区间除法的 `b.min`/`b.max`，JPEG 采样比等
+      先落局部再裸判零。27 → 14。
+    - ⑤ **头文件里 4 处链式对齐**（`((est_offset +| al -| 1) / al) *| al`）改走已有的
+      `c99_layout_align_up_i32`（其 `if align <= 1 || value < 0 { return value; }` 的负条件
+      就是 `align > 1`）；`align_size` 补 `if align == 0 { return size; }`。14 → 3。
+    - ⑥ **`@size_of` / `@alignof` 按语法形态直接认**：常量折叠路径在 `%`/`/` 的右操作数位置
+      连 `@size_of(i64)` 都折不出来（试过补结构体布局，无效，已回退），于是在
+      `checker_prove_divisor_nonzero` 里按节点类型直接放行（转换形态只认 32 位及以上目标类型，
+      避免窄化截断成 0 的不健全）。
+    - ⑦ 剩余 6 处单点（`n / guess`、`a / gcd`、10 的幂、定点 `div`、`rand_max_val`、
+      区间 `k`）逐点改成「落局部 + 裸判零」或正分支包裹。**3 → 0**。
+  - **`lib/` 同步清零**：`jpeg_decode`（采样平面/采样比）、`jpeg_encode`（色度坐标/MCU 网格）、
+    `jpeg_marker`（网格）、`jpeg_tables`（质量缩放）、`async_event`（fd 哈希）、`thread`
+    （默认容量）共 12 处，一律「落局部 + 正分支包裹」，非法输入退化为安全默认值。12 → 0。
+  - **翻默认**：`g_strict_div` 默认 1，帮助文本改为「默认已开」，`--no-strict-div` 保留为
+    逃生阀；对抗性语料按 `--strict-overflow` 的既定约定在
+    `tests/run_programs_parallel.sh` / `verify_exec_vm_parity.sh` / `verify_exec_vm_census.sh`
+    里显式加 `--no-strict-div`。
+  - **回归**：`tests/verify_strict_div.sh` 改写成四断言（默认拒绝 / `--no-strict-div` 放行 /
+    正例放行 / 常量除零始终报错）；三个 `error_const_*_zero` 负例在豁免下**仍然失败**（常量
+    折叠路径与闸门无关，负例没有被「修好」）。默认模式 `./bin/uya check src/main.uya` 错误 0，
+    `make uya` 自举通过。
 
 - [x] **P0 度量接线完成：`--lifetime-report` 产出真实数字**（2026-11-16）
   - 此前 `lifetime_report_param_null` / `lifetime_report_div_zero` 只有定义、没有调用点，

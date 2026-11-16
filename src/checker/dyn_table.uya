@@ -288,3 +288,24 @@ const DYN_TABLE_MIN_CAPACITY: i32 = 8;
 // 负载因子：count/capacity 超过 3/4 就扩容
 const DYN_TABLE_LOAD_NUM: i32 = 3;
 const DYN_TABLE_LOAD_DEN: i32 = 4;
+
+// ===== 取模助手：把「容量可能为 0」的一次性判定收在一处 =====
+//
+// 开放寻址的每一处探测循环都写成 `h % cap`。容量为 0 时这是 UB（SIGFPE），
+// 而 `--strict-div` 要求编译器能**证明**除数非零 —— 直接对 32 个站点各加一条
+// 守卫既啰嗦，也容易写成「赋值兜底」那种对证明器无效的形式。
+//
+// 这里只留一处判定：容量非正时返回 0 号槽。调用方随后的 `slot_at(0)` 对空表
+// 返回 null，探测循环照旧 `break` 放弃查找 —— 与空表的实际语义一致，
+// 控制流一行都不用改。函数体内是**早返回**形态，`cap > 0` 会被负条件提取
+// 记成持久约束，所以下面那条 `%` 能被 `--strict-div` 证明。
+
+/// 求哈希槽位 `value % capacity`，并保证容量非正时有定义。
+/// 参数：value - 待归约的哈希值；capacity - 表的容量（可能为 0）。
+/// 返回：`value % capacity`；capacity <= 0 时返回 0。
+fn dyn_table_slot_of(value: i32, capacity: i32) i32 {
+    if capacity <= 0 {
+        return 0;
+    }
+    return value % capacity;
+}
