@@ -401,8 +401,11 @@ buglist ⑥ 记录：取消「形参恒非空」后，908 个测试里 361 个�
 | **B1** | 三处判定点接上（`return` / 写更长寿命容器 / 传参）；`STATIC`/`PARAM` 放行 | 6 | buglist P1 → `[x]`；3 个 repro 升级为负例 |
 | **B3** | 非零义务 → `--strict-div` 翻默认 | 10 | `make check` 零回归；111 处逐点处理；`tests/verify_strict_div.sh` 扩成四断言 |
 | **B2** | 非空义务替代 blanket 假设（`check_stmt.uya:770` 那条 `pointer_nonnull_add(param)` 改成"产生 requirement"） | 10 | ⑥ → `[x]`；误报 ≤ 白名单 |
+| ↳ 实测 | 上半（删 blanket 假定）2026-11-16 落地；下半（调用点付账）同日落地 | 上半：`req_total=3165`、`req_resolved=2552`、消解率 80.6%；下半：被调方摘要只认「指针形参 + 无条件解引用 + 无 null 守卫」，调用点字面量 `null` 报错 | **误报数 0**（全树逐文件扫描 B2 诊断命中 0 条）；负例 `tests/error_pass_null_to_deref_param.uya` 按预期失败 | §6.3 熔断 1 次：第一版把 if/while 体内的解引用也算，`lib/tls/base/drbg.uya` 的 `_update(ctx, null, 0)` 误报 2 条（`provided_data[i]` 由 `provided_len` 守着），已收紧为「只认无条件解引用」 | 剩余缺口：非字面量 `null` 实参、方法调用、函数指针调用不付账（依赖 B4/B5 的指针指向传播） |
 | **B4** | 后置事实（`ret_index_of_param` / `ret_len_of_param`）接进 `infer_array_access`、`checker_check_array_access` | 12 | `find/chr` 类正例通过；与 array plan B 合流 |
+| ↳ 评估 | 2026-11-16 只做可行性评估，**未实施** | 现状：`checker_check_array_access` 把下标义务交给 `verify_linear_expr_bounds_ex` / `verify_expr_bounds_interval`，两者只吃**本函数内**从 `if`/`while` 条件收集的假设集 | 缺口：要接跨函数事实，必须①在符号上开「跨函数事实」字段 + 赋值即失效规则，②给 `proof.uya` 的求解器开「额外假设」入口，③在 `var i = f(...)` 处把 `f` 的后置事实绑定到 `i`（形参名 → 实参变量名映射）并保证只在支配路径生效 | 这是求解器层改造而非接线，半成品会同时产生误报与漏报 | 前置：P1 的**指针指向传播**（未实现） | 排到下一轮 |
 | **B5** | 非逃逸形参 → 移动解锁（改 `has_active_pointer_to` 的判定源） | 8 | move 正负例全绿；无新增 double free |
+| ↳ 评估 | 2026-11-16 只做可行性评估，**未实施** | 方向与 B1/B2/B3 **相反**：这是放宽规则，出错引入新的 double free | 依赖把 B2 的 requirement 摘要扩成「形参用途摘要」（不逃逸 = 不存字段/不返回/不传入可能逃逸的调用），再把判定源从「有没有指针指向我」换成「有没有 origin 指向我的指针仍可能被使用」 | origin 格四档与 `lifetime_origin_of_value` 已有，但**指针指向传播**缺 | 排到下一轮 |
 | **P6** | 迁移收口、默认开、文档同步（`uya.md` §6.5/§7/§12.5.5/§14.1/§14.3、`grammar_*` 若涉及、buglist 三条勾选） | 4 | `make check` + `make b` 字节一致 + `make check-hosted` |
 
 **最短闭环 = P0 + P1 + B3（14 人日）**：判据是 `--strict-div` 翻默认后全量零回归、`make b` 自举字节一致、111 处除法站点处理完毕，并且拿到 §6.2 的跨函数消解率与误报数。**是否继续 B1/B2/B4/B5，用这两个数字决定**；若误报按 §6.3 的熔断条件超预期，停止并重估。
