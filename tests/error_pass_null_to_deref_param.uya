@@ -1,0 +1,16 @@
+// 预期编译失败：把字面量 null 传给会无条件解引用的形参（跨函数内存安全证明 B2）
+//
+// 形参的非空性是被调方的 requirement，不是 warranty —— 被调方无权假定它非空，
+// 只能在调用点被付账。`read_first` 直接 `return p[0]`（无条件解引用），
+// 而调用点传的是字面量 null，运行期必然崩溃。
+//
+// 归属：docs/interprocedural_proof_plan.md §4.5 requirement/warranty，
+//       B2「形参非空改用 requirement + 调用点付账」。
+
+fn read_first(p: &i32) i32 {
+    return p[0];
+}
+
+fn main() i32 {
+    return read_first(null);
+}

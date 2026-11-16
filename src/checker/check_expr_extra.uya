@@ -136,6 +136,10 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
             const array_expr: &ASTNode = node.array_access_array;
             if array_expr != null && array_expr.type == ASTNodeType.AST_IDENTIFIER {
                 const ptr_name: &byte = array_expr.identifier_name;
+                // P0 度量接线（施工图 §6.2）：每次「解引用指针」都是一条非空义务。
+                // 已消解 = 本地已有 `p != null` 守卫；未消解 = 只能靠调用方付账（B2 的迁移面）。
+                // 只计数，不产生任何诊断 —— 度量的前提是绝不改变编译结果。
+                lifetime_report_param_null(checker, pointer_is_known_nonnull(checker, ptr_name));
                 if pointer_is_nullable(checker, ptr_name) != 0 && pointer_is_known_nonnull(checker, ptr_name) == 0 {
                     checker_report_error(checker, node.array_access_array, 
                         "指针可能为空：请添加空指针检查 (如 if ptr != null)" as &byte);
@@ -1274,7 +1278,6 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
     // `try a / b` / `(a / b) catch` 走运行时检查，由 suppress 计数豁免；
     // 浮点除数不在此列（IEEE 754 里 0.0 作除数有定义，是 inf/nan）。
     if (op == TokenType.TOKEN_SLASH || op == TokenType.TOKEN_PERCENT) &&
-        checker.strict_div != 0 &&
         checker.enable_safety_proof != 0 && checker.suppress_overflow_gate == 0 &&
         checker_node_in_checked_arith(checker, node) == 0 &&
         node.binary_expr_right != null {
@@ -1285,7 +1288,11 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
             div_kind == TypeKind.TYPE_U8 as i32 || div_kind == TypeKind.TYPE_U16 as i32 ||
             div_kind == TypeKind.TYPE_U32 as i32 || div_kind == TypeKind.TYPE_U64 as i32 ||
             div_kind == TypeKind.TYPE_USIZE as i32 || div_kind == TypeKind.TYPE_BYTE as i32) {
-            if checker_prove_divisor_nonzero(checker, node.binary_expr_right, div_kind) == 0 {
+            const div_proven: i32 = checker_prove_divisor_nonzero(checker, node.binary_expr_right, div_kind);
+            // P0 度量接线（施工图 §6.2）：每条整数除法站点都是一条「非零」义务，
+            // 与闸门是否打开无关 —— 度量的是受检面本身。只计数，不产生诊断。
+            lifetime_report_div_zero(checker, div_proven);
+            if checker.strict_div != 0 && div_proven == 0 {
                 checker_report_divisor_unproven(checker, node, proof_op_text(op));
             }
         }

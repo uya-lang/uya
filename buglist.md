@@ -222,6 +222,92 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     （不改变任何语义，表未分配时提前返回本就等价）。翻默认推迟到 B2/B4 落地后重测 ——
     届时跨函数消解率可从 `--lifetime-report` 的 `req_div_zero` 字段直接读出。
 
+- [x] **P0 度量接线完成：`--lifetime-report` 产出真实数字**（2026-11-16）
+  - 此前 `lifetime_report_param_null` / `lifetime_report_div_zero` 只有定义、没有调用点，
+    报告恒为全 0，「度量」形同虚设 —— 施工图 §6.2 要的两个数字一个也拿不到。
+  - 现在接到两处受检面：
+    - `src/checker/check_expr_extra.uya` 的指针数组访问处：每次解引用指针记一条「非空」
+      义务，`resolved` 取 `pointer_is_known_nonnull`（本地已有 `p != null` 守卫即已消解）。
+    - 同一文件的整数 `/` `%` 分支：把「证明非零」的结果从闸门条件里提出来先算一次，
+      无论 `--strict-div` 是否打开都记一条「非零」义务，再按闸门决定是否报错 ——
+      度量的受检面与闸门开关解耦，行为零变化。
+  - **实测（`src/main.uya` 依赖闭包）**：
+    ```
+    [lifetime] req_total=3165 req_resolved=2552 req_unresolved=613
+    [lifetime] req_param_null=2569
+    [lifetime] req_div_zero=596
+    ```
+    跨函数消解率 = 2552 / 3165 ≈ **80.6%**；未消解 613 条即 Pass C（真正报错）的候选误报面。
+  - 出口判据验证：两次 `--lifetime-report` 运行输出 `diff` = 0；不开启该开关时
+    stderr 不出现任何 `[lifetime]` 行；`./bin/uya check src/main.uya` 错误数仍为 0。
+
+- [x] **B2 上半：形参非空从 blanket 假设改为产生 requirement**（2026-11-16）
+  - 旧行为：`src/checker/check_stmt.uya` 里凡指针形参一律 `pointer_nonnull_add`，
+    等于凭空给被调方发一张它没挣到的 warranty —— 调用方传 `null` 时被调方解引用照样通过。
+    按 assume-guarantee，形参的非空性属于 **requirement**，只能由调用点付账。
+  - 改动：删掉这条 blanket 假定。形参在函数体内变为「非空性未知」，于是
+    ①本地 `if p != null { ... }` 守卫仍是可信的消解来源（原有那一半不变）；
+    ②裸解引用记一条未消解义务，经 `req_unresolved` 暴露出来。
+  - 验证：`make uya` 自举成功；`./bin/uya check src/main.uya` 错误数 0；
+    `tests/verify_strict_div.sh` 五项全过；两个 B1 负例仍按预期原因失败。
+  - **未完成的下半（调用点付账）**：把「被调方 requirement 摘要」与「调用点实参可见性」
+    对接，在实参为字面量 `null` 时报错、在实参为 `&x` / 非空表达式时消解。
+    需要被调方摘要先于调用点计算（单遍检查下的排序问题），尚未落地。
+
+- [x] **B2 下半：调用点付账（形参 requirement 摘要 + null 实参报错）**（2026-11-16）
+  - 开工前调研：`src/` 全树只有 **17 处**「字面量 `null` 作实参」，且绝大多数是内部 API 的
+    可空输出槽（如 `checker_symbol_slot_set(checker, slot, null)`）。所以这一半要防的是
+    **用户代码**（库/应用）里的裸解引用，而不是编译器自身。
+  - 被调方摘要 `lifetime_fn_param_requires_nonnull`：满足下面三条才算一条 requirement ——
+    ①该形参是**指针**类型；②函数体内**无条件**解引用它（`p[i]` / `p.f`）；
+    ③函数体内**没有**任何 `p == null` / `p != null` 形式的比较。
+    第 ③ 条让库里「可选 out 形参」全部自动豁免（它们自己守卫）。
+  - 调用点 `lifetime_check_call_null_args`：实参是字面量 `null` 且被调方需要该形参非空时
+    报「传入 null 给需要非空的形参」。钩子挂在 `infer_call_expr`，**不是** `main.uya` 的
+    `AST_CALL_EXPR` 分支 —— 语句位置的调用走 `checker_check_node`，表达式位置的调用
+    （`return f(x)` / `y = f(x)`）只走 `infer_call_expr`，挂在分支上会漏掉后一半。
+  - 配套改动：`FunctionSignature` 新增 `decl_node`（签名表里只有类型，算摘要必须读到函数体）；
+    函数名不在符号表里，所以查 `function_table_lookup` 而非 `symbol_table_lookup`。
+  - **§6.3 熔断一次**：第一版把「解引用」定义得太宽（进了 if/while/for 也算），
+    `lib/tls/base/drbg.uya` 的 `_update(ctx, null, 0)` 立刻被误报 2 条 ——
+    那里的 `provided_data[i]` 在 `while i < provided_len` 内，`len == 0` 时根本不执行，
+    是**安全**的。按「证不出不等于证伪」把规则收紧为**只认无条件解引用**：
+    解引用一旦处在 if/while/for/defer/test/errdefer 体内就视为数据相关，不产生 requirement。
+    收紧后 drbg 误报归零，负例仍按预期报错。
+  - 验证：`make uya` 自举成功；`./bin/uya check src/main.uya` 错误数 0；
+    `src/` + `lib/` 全树逐文件扫描，B2 诊断命中 **0** 条；
+    新增负例 `tests/error_pass_null_to_deref_param.uya` 按预期失败（错误数量 1）；
+    正例 `read_first(&x)` 与「自己守卫 null 的被调方」均放行；
+    `tests/verify_strict_div.sh` 五项全过；两个 B1 负例仍按预期原因失败。
+  - **仍未完成**：实参不是字面量 `null` 时（如 `f(可能为空的指针变量)`）不做付账，
+    需要指针指向传播（B4/B5 的前置）；方法调用与函数指针调用同样不覆盖。
+
+- [ ] **B4：后置事实（返回下标范围 / 返回切片长度）未实现**（2026-11-16 评估）
+  - 目标形态：`const i: i32 = find(s, c); if i >= 0 { s[i] }` —— `i` 的上界
+    「`i >= 0` 时 `i < s.len`」来自被调方的后置事实，而不是本函数里的守卫。
+  - **为什么本轮不做**：`src/checker/check_expr_extra.uya:checker_check_array_access`
+    把下标义务交给 `verify_linear_expr_bounds_ex` / `verify_expr_bounds_interval`，
+    这两个函数只吃**本函数内**从 `if`/`while` 条件收集到的假设集。要让跨函数事实进来，
+    必须在 `proof.uya` 的线性/区间求解器上开一个「额外假设」入口，并在
+    `var i = f(...)` 处把 `f` 的后置事实绑定到符号 `i`（形参名 → 实参变量名的映射），
+    再保证这条假设只在支配该 `if i >= 0` 的路径上生效。这是求解器层面的改造
+    （施工图预算 12 人日），不是接线工作；半成品会直接产生误报或漏报。
+  - 前置条件（按顺序）：①符号上的「跨函数事实」字段与失效规则（赋值即失效）；
+    ②`proof.uya` 接受外部假设集；③基准确认 `tests/test_bounds_*` 不回归。
+  - 判据（将来验收用）：`find` / `chr` 类正例通过；`tests/test_bounds_*` 零回归。
+
+- [ ] **B5：非逃逸形参 → 移动解锁未实现**（2026-11-16 评估）
+  - 目标：形参若在被调方内**不逃逸**（不被存入字段、不被返回、不被传入可能逃逸的调用），
+    调用方传值后仍可继续使用该值，从而解锁移动。
+  - **为什么本轮不做**：这是**放宽**规则，方向与 B1/B2/B3 相反 —— 放宽出错会引入新的
+    double free，比漏报更危险。它依赖 B2 已落地的 requirement 摘要机制继续扩展成
+    「形参用途摘要」，并需要 `has_active_pointer_to` 的判定源从「有没有指针指向我」
+    换成「有没有 origin 指向我的指针仍可能被使用」。当前 origin 格已有 LOCAL/PARAM/
+    HEAP/STATIC 四档与 `lifetime_origin_of_value`，但**指针指向的传播（P1 未实现部分）**
+    还缺，所以判定源换不了。
+  - 判据（将来验收用）：`tests/test_drop_after_move.uya` + 嵌套字段 move 正负例全绿，
+    且无新增 double free。
+
 - [ ] **P1：逃逸检查（数组 / 切片 / 接口值）完全未实现**
   - `uya.md` §6.5、§6.8、§7 都写了「逃逸即编译错误」，但实测三条路径全部静默通过：
     `fn mk() [i32: 4] { var buf: [i32: 4] = []; return buf; }`、

@@ -2903,6 +2903,13 @@ fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
     if callee == null {
         return make_void_type();
     }
+    // B2 调用点付账：形参非空性是被调方的 requirement，实参为字面量 null
+    // 且被调方会直接解引用它时报错。挂在这里而不是 main.uya 的
+    // AST_CALL_EXPR 分支上：语句位置的调用走 checker_check_node，
+    // 表达式位置的调用（return f(...)、x = f(...)）只走 infer_call_expr，
+    // 挂在分支上会漏掉后一半。重复推导同一表达式时由被调方摘要按
+    // 「参数为非空指针 + 无 null 守卫」稳定判否，不会重复报错之外的影响。
+    lifetime_check_call_null_args(checker, expr);
 
     const simd_method: &byte = simd_get_vector_builtin_method(expr);
     if simd_method != null {

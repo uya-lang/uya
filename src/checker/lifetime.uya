@@ -727,3 +727,281 @@ fn lifetime_expr_is_address_of_local(expr: &ASTNode) i32 {
     // 第一版不判定（避免把 `s[0:4]` 里 s 为形参的合法形态误报）。
     return 0;
 }
+
+// ===== B2：形参「非空」requirement 摘要与调用点付账 =====
+//
+// assume-guarantee 的 requirement 方向：被调方**不能**假定形参非空（那是它没挣到的
+// warranty），只能声明「我需要它非空」。这条声明必须在调用点被付账。
+//
+// 判定刻意「宁漏勿假」：只有同时满足下面三条才算一条 requirement ——
+//   1. 该形参是**指针**类型；
+//   2. 函数体内**解引用**了它（`p[i]` 或 `p.f`）；
+//   3. 函数体内**没有**任何 `p == null` / `p != null` 形式的比较。
+// 第 3 条是关键：出现 null 比较说明该形参被设计成可空的，由被调方自己守卫，
+// 此时不产生 requirement —— 否则库里那些「可选 out 形参」全会被误判。
+
+/// 判断表达式是否为字面量 `null`。
+/// 参数：expr - 待判定表达式。
+/// 返回：1 表示是 `null` 字面量，0 表示不是。
+fn lifetime_expr_is_null_literal(expr: &ASTNode) i32 {
+    if expr == null {
+        return 0;
+    }
+    if expr.type != ASTNodeType.AST_IDENTIFIER {
+        return 0;
+    }
+    if expr.identifier_name == null {
+        return 0;
+    }
+    if str_equals(expr.identifier_name, "null" as &byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+/// 递归扫描子树，记录「是否解引用 name」与「是否把 name 与 null 比较过」。
+/// 参数：checker - 类型检查器（保留给后续需要类型信息的扩展）；node - 当前节点；
+///       name - 形参名；saw_deref - 解引用标记（出参）；saw_guard - null 比较标记（出参）。
+/// 返回：无。
+///
+/// 刻意**不下钻**嵌套的 `AST_FN_DECL`：内层函数有独立形参空间，
+/// 同名标识符指的不是外层形参，下钻会凭空造出 requirement。
+/// 递归扫描子树，记录「是否**无条件**解引用 name」与「是否把 name 与 null 比较过」。
+/// 参数：checker - 类型检查器（保留给后续需要类型信息的扩展）；node - 当前节点；
+///       name - 形参名；nested - 是否处在控制流内部（0 否，1 是）；
+///       saw_deref - 无条件解引用标记（出参）；saw_guard - null 比较标记（出参）。
+/// 返回：无。
+///
+/// **只认无条件解引用**：`p[i]` 若出现在 if/while/for/defer/test/errdefer 的体内，
+/// 就可能是「数据相关」的 —— 例如 lib/tls/base/drbg.uya 的 `_update`：
+///
+///     fn _update(ctx: &DrbgCtx, provided_data: &const byte, provided_len: usize) void {
+///         ...
+///         while i < provided_len { buf[...] = provided_data[i]; ... }   // provided_len == 0 时不会执行
+///     }
+///     _update(ctx, null, 0);                                            // 合法且安全
+///
+/// 那里的解引用由 `provided_len` 守着，不是「形参必须非空」。这种「解引用可否发生
+/// 取决于另一个实参」的相关性正是 B4 要证明的东西；B4 之前一律按「证不出」放行
+/// （施工图 §5：证不出不等于证伪）。
+///
+/// 刻意**不下钻**嵌套的 `AST_FN_DECL`：内层函数有独立形参空间，
+/// 同名标识符指的不是外层形参，下钻会凭空造出 requirement。
+fn lifetime_scan_param_use(checker: &TypeChecker, node: &ASTNode, name: &byte, nested: i32,
+                           saw_deref: &i32, saw_guard: &i32) void {
+    if node == null || name == null {
+        return;
+    }
+    if node.type == ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    // 解引用形态 1：`p[i]`
+    if node.type == ASTNodeType.AST_ARRAY_ACCESS {
+        const base: &ASTNode = node.array_access_array;
+        if nested == 0 && base != null && base.type == ASTNodeType.AST_IDENTIFIER &&
+            base.identifier_name != null && str_equals(base.identifier_name, name) != 0 {
+            saw_deref[0] = 1;
+        }
+    }
+    // 解引用形态 2：`p.f`
+    if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        const obj: &ASTNode = node.member_access_object;
+        if nested == 0 && obj != null && obj.type == ASTNodeType.AST_IDENTIFIER &&
+            obj.identifier_name != null && str_equals(obj.identifier_name, name) != 0 {
+            saw_deref[0] = 1;
+        }
+    }
+    // 守卫形态：`p == null` / `p != null` / `null == p` / `null != p`
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        const bop: TokenType = node.binary_expr_op as TokenType;
+        if bop == TokenType.TOKEN_EQUAL || bop == TokenType.TOKEN_NOT_EQUAL {
+            const lhs: &ASTNode = node.binary_expr_left;
+            const rhs: &ASTNode = node.binary_expr_right;
+            if lifetime_binary_is_null_guard(lhs, rhs, name) != 0 ||
+                lifetime_binary_is_null_guard(rhs, lhs, name) != 0 {
+                saw_guard[0] = 1;
+            }
+        }
+    }
+    // 递归子节点。这里按语句/表达式的容器形态逐类展开（与 lifetime_walk_child_nodes
+    // 同一套覆盖范围，但多了表达式的左/右子树，因为解引用可能出现在任意表达式位置）。
+    // 进入控制流体内时 nested 置 1，见函数头注释。
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            lifetime_scan_param_use(checker, node.block_stmts[i], name, nested, saw_deref, saw_guard);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        lifetime_scan_param_use(checker, node.if_stmt_condition, name, nested, saw_deref, saw_guard);
+        lifetime_scan_param_use(checker, node.if_stmt_then_branch, name, 1, saw_deref, saw_guard);
+        lifetime_scan_param_use(checker, node.if_stmt_else_branch, name, 1, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        lifetime_scan_param_use(checker, node.while_stmt_condition, name, nested, saw_deref, saw_guard);
+        lifetime_scan_param_use(checker, node.while_stmt_body, name, 1, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        lifetime_scan_param_use(checker, node.for_stmt_array, name, nested, saw_deref, saw_guard);
+        lifetime_scan_param_use(checker, node.for_stmt_range_start, name, nested, saw_deref, saw_guard);
+        lifetime_scan_param_use(checker, node.for_stmt_range_end, name, nested, saw_deref, saw_guard);
+        lifetime_scan_param_use(checker, node.for_stmt_body, name, 1, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_DEFER_STMT {
+        lifetime_scan_param_use(checker, node.defer_stmt_body, name, 1, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ERRDEFER_STMT {
+        lifetime_scan_param_use(checker, node.errdefer_stmt_body, name, 1, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_TEST_STMT {
+        lifetime_scan_param_use(checker, node.test_stmt_body, name, 1, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        lifetime_scan_param_use(checker, node.assign_dest, name, nested, saw_deref, saw_guard);
+        lifetime_scan_param_use(checker, node.assign_src, name, nested, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        lifetime_scan_param_use(checker, node.return_stmt_expr, name, nested, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        lifetime_scan_param_use(checker, node.var_decl_init, name, nested, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        var ci: i32 = 0;
+        while ci < node.call_expr_arg_count {
+            lifetime_scan_param_use(checker, node.call_expr_args[ci], name, nested, saw_deref, saw_guard);
+            ci = ci + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        lifetime_scan_param_use(checker, node.binary_expr_left, name, nested, saw_deref, saw_guard);
+        lifetime_scan_param_use(checker, node.binary_expr_right, name, nested, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        lifetime_scan_param_use(checker, node.unary_expr_operand, name, nested, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        lifetime_scan_param_use(checker, node.member_access_object, name, nested, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ARRAY_ACCESS {
+        lifetime_scan_param_use(checker, node.array_access_array, name, nested, saw_deref, saw_guard);
+        lifetime_scan_param_use(checker, node.array_access_index, name, nested, saw_deref, saw_guard);
+        return;
+    }
+    if node.type == ASTNodeType.AST_SLICE_EXPR {
+        lifetime_scan_param_use(checker, node.slice_expr_base, name, nested, saw_deref, saw_guard);
+        return;
+    }
+}
+
+/// 判断一对操作数是否为「`name` 与 `null` 比较」。
+/// 参数：a - 假定为 `name` 一侧；b - 假定为 `null` 一侧；name - 形参名。
+/// 返回：1 表示匹配，0 表示不匹配。
+fn lifetime_binary_is_null_guard(a: &ASTNode, b: &ASTNode, name: &byte) i32 {
+    if a == null || b == null || name == null {
+        return 0;
+    }
+    if a.type != ASTNodeType.AST_IDENTIFIER || a.identifier_name == null {
+        return 0;
+    }
+    if str_equals(a.identifier_name, name) == 0 {
+        return 0;
+    }
+    return lifetime_expr_is_null_literal(b);
+}
+
+/// 判定 `fn_decl` 的第 `param_index` 个形参是否构成一条「非空」requirement。
+/// 参数：checker - 类型检查器；fn_decl - 被调方函数声明；param_index - 形参下标（0 基）。
+/// 返回：1 表示该形参需要调用点保证非空，0 表示不需要（或证不出）。
+fn lifetime_fn_param_requires_nonnull(checker: &TypeChecker, fn_decl: &ASTNode, param_index: i32) i32 {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
+        return 0;
+    }
+    if param_index < 0 || param_index >= fn_decl.fn_decl_param_count {
+        return 0;
+    }
+    if fn_decl.fn_decl_body == null {
+        return 0;   // 无函数体（extern / 接口声明）：没有可判定的用法，宁漏勿假
+    }
+    const param: &ASTNode = fn_decl.fn_decl_params[param_index];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL || param.var_decl_name == null {
+        return 0;
+    }
+    const param_type: Type = type_from_ast(checker, param.var_decl_type);
+    if param_type.kind != TypeKind.TYPE_POINTER {
+        return 0;   // 只对指针形参谈「非空」
+    }
+    var saw_deref: i32 = 0;
+    var saw_guard: i32 = 0;
+    lifetime_scan_param_use(checker, fn_decl.fn_decl_body, param.var_decl_name, 0, &saw_deref, &saw_guard);
+    if saw_guard != 0 {
+        return 0;   // 被调方自己做了 null 守卫 → 形参可空，不产生 requirement
+    }
+    if saw_deref == 0 {
+        return 0;   // 没解引用 → 没有非空需求
+    }
+    return 1;
+}
+
+/// 在调用点付账：实参是字面量 `null` 且被调方需要该形参非空时报错。
+/// 参数：checker - 类型检查器；node - 调用表达式节点。
+/// 返回：无。
+///
+/// 只处理「被调方是可直接解析到 `AST_FN_DECL` 的具名函数」这一种调用形态：
+/// 方法调用、函数指针、泛型实例化走的是各自的解析路径，第一版不碰 ——
+/// 宁可漏报也不要在解析不确定的地方造误报（施工图 §5 的健全性取向）。
+fn lifetime_check_call_null_args(checker: &TypeChecker, node: &ASTNode) void {
+    if checker == null || node == null || node.type != ASTNodeType.AST_CALL_EXPR {
+        return;
+    }
+    if checker.enable_safety_proof == 0 {
+        return;
+    }
+    const callee: &ASTNode = node.call_expr_callee;
+    if callee == null || callee.type != ASTNodeType.AST_IDENTIFIER || callee.identifier_name == null {
+        return;
+    }
+    // 函数名不在符号表里 —— 只有函数签名表。签名表带着 decl_node（见
+    // FunctionSignature.decl_node 的注释），据此才能读到被调方函数体。
+    const sig: &FunctionSignature = function_table_lookup(checker, callee.identifier_name);
+    if sig == null || sig.decl_node == null || sig.decl_node.type != ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    const fn_decl: &ASTNode = sig.decl_node;
+    // 去重：同一调用节点会被 checker_infer_type 推导多次，只报一遍。
+    if checker.lifetime_last_null_arg_node == node {
+        return;
+    }
+    var count: i32 = node.call_expr_arg_count;
+    if count > fn_decl.fn_decl_param_count {
+        count = fn_decl.fn_decl_param_count;
+    }
+    var i: i32 = 0;
+    while i < count {
+        const arg: &ASTNode = node.call_expr_args[i];
+        if arg != null && lifetime_expr_is_null_literal(arg) != 0 {
+            if lifetime_fn_param_requires_nonnull(checker, fn_decl, i) != 0 {
+                checker.lifetime_last_null_arg_node = node;
+                lifetime_report_param_null(checker, 0);
+                checker_report_error(checker, arg,
+                    "传入 null 给需要非空的形参：被调方会直接解引用它，运行期必然崩溃" as *byte);
+            }
+        }
+        i = i + 1;
+    }
+}

@@ -245,6 +245,11 @@ struct FunctionSignature {
     // 声明所属模块文件。函数表按名索引且可容纳不同模块的同名函数，
     // 查找时据此优先返回调用点所在模块的签名。
     filename: &byte,
+    // 该签名的 `AST_FN_DECL` 声明节点。
+    // 跨函数证明需要读被调方的**函数体**才能算出 requirement 摘要
+    // （如「该形参会被直接解引用、且全文无 null 守卫」），而签名表里只有类型。
+    // extern / 接口声明没有函数体，此时为 null。
+    decl_node: &ASTNode,
 }
 
 // 五张表都是**动态哈希表**（见 checker/dyn_table.uya 的文件头注释）：
@@ -405,6 +410,11 @@ struct TypeChecker {
     lifetime_returns_local: i32,    // return 返回指向局部存储的站点数（B1 受检面）
     lifetime_fn_count: i32,         // 已扫过的函数体数量
     lifetime_summary_fail: i32,     // 摘要降级为 unknown 的次数
+    // 上一次就「null 实参」报错过的调用节点。
+    // checker_infer_type 对同一表达式可能被调用多次（求类型 + 校验各一遍），
+    // 没有这个标记会把同一条诊断打两遍。只记最近一个节点足够：
+    // 重复推导总是紧接着发生，中间不会插入另一个待报错的调用节点。
+    lifetime_last_null_arg_node: &ASTNode,
     // 已识别的 checked 算术根（try/catch 的操作数）。闸门对这些根的整棵子树豁免：
     // 那部分由运行时 checked 检查负责，不该再被静态闸门拦一次。
     // 按函数重置（见 checker_reset_proof_steps）。

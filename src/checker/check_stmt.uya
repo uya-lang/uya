@@ -442,6 +442,9 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     sig.line = node.line;
     sig.column = node.column;
     sig.filename = node.filename;
+    // 跨函数证明（B2）要读被调方函数体算 requirement 摘要，签名需带上声明节点。
+    // extern / 接口声明没有函数体（fn_decl_body 为 null），摘要计算会据此放行。
+    sig.decl_node = node;
     
     // 分配参数类型数组
     if sig.param_count > 0 {
@@ -774,10 +777,24 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
                     param_symbol.pointer_known_length = -1;
                     param_symbol.pointer_length_param = null;
                     symbol_table_insert(checker, param_symbol);
-                    // 函数参数如果是指针类型，假设为非空（调用者负责传递有效指针）
-                    if checker.enable_safety_proof != 0 && param_type.kind == TypeKind.TYPE_POINTER {
-                        pointer_nonnull_add(checker, param.var_decl_name);
-                    }
+                    // B2：指针形参不再被 blanket 假定为非空（施工图 §11 的 B2 条目）。
+                    //
+                    // 旧行为是「凡指针形参一律 pointer_nonnull_add」，等于凭空给被调方
+                    // 发一张它没挣到的 warranty —— 调用方传 null 时解引用照样通过，
+                    // 运行期段错误。按 assume-guarantee，形参的非空性属于
+                    // **requirement**：由调用点付账，被调方不能自己假定。
+                    //
+                    // 现在删掉这条假定后，形参在函数体内是「非空性未知」：
+                    //   - 本地写了 `if p != null { ... }` 守卫 → pointer_nonnull_add 生效，
+                    //     该分支内的解引用被消解（这是原有的、可信的那一半）；
+                    //   - 裸解引用 → 记一条未消解的「非空」义务（见 lifetime_report_param_null
+                    //     在数组访问处的接线），由 --lifetime-report 的 req_param_null /
+                    //     req_unresolved 字段暴露出来。
+                    //
+                    // 不在此处报错：调用点付账（discharge）与否则是 B2 的另一半，
+                    // 需要被调方 requirement 摘要 + 调用点实参可见，尚未落地。
+                    // 此前这里直接 pointer_nonnull_add，会让 req_param_null 全部
+                    // 落进「已消解」桶，度量失去意义。
                 }
             }
             i = i + 1;
