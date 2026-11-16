@@ -1292,6 +1292,47 @@ export extern "libc" fn opendir(name: &const byte) &DIR {
     })
 }
 
+// ===== 目录项名字读取 =====
+//
+// 注意：这里访问的是 Uya `Dirent` 抽象，不是宿主 libc 的原生 `struct dirent`。
+// `readdir` 已把平台原生目录项收敛到统一布局：
+// d_ino(8) d_off(8) d_reclen(2) d_type(1) d_name[]
+//
+// 为什么必须按下标逐字节读，而不是 `entry_ptr + 19`：exec VM 里的聚合值没有连续原生
+// 内存，指针算术拿不到聚合内部的字节布局（`&Dirent as &byte` 之后再 `+ 19` 会落进
+// ExecValue 头后面的垃圾区，实测名字全是空串 → 目录模块收集不到文件，表现为 `--vm`
+// 自举时报「模块中未找到导出项」）。下标读取走的是 VM 的字节视图，两边语义一致。
+//
+// 放在 libc 而不是编译器 `src/main.uya`：`src/driver/modules.uya` 也要用它，
+// 而 `upm` 是只链 upm_lib + driver 子集的独立程序，拿不到 `src/main.uya` 里的函数。
+const DIRENT_OFF_D_TYPE: usize = 18;
+const DIRENT_OFF_D_NAME: usize = 19;
+
+// 目录项名字的临时缓冲区（下一个 readdir 之前有效，与原返回值的生命周期一致）。
+var g_dirent_name_scratch: [byte: 256] = [];
+
+/// 读取目录项的名字（写到内置暂存区，下一次调用前有效）。
+///
+/// 参数说明：
+/// - entry_ptr：`readdir` 返回的目录项指针（按 `&byte` 字节视图传入）。
+/// 返回值说明：以 NUL 结尾的名字；参数非法返回 null。
+export fn dirent_name(entry_ptr: &byte) &byte {
+    if entry_ptr == null {
+        return null;
+    }
+    var i: usize = 0;
+    while i < 255 {
+        const ch: byte = entry_ptr[DIRENT_OFF_D_NAME + i];
+        g_dirent_name_scratch[i] = ch;
+        if ch == 0 as byte {
+            return &g_dirent_name_scratch[0];
+        }
+        i = i + 1;
+    }
+    g_dirent_name_scratch[255] = 0 as byte;
+    return &g_dirent_name_scratch[0];
+}
+
 // readdir - 读取目录项（使用 getdents64 实现）
 // 返回：Dirent*，失败或结束返回 null
 // Linux linux_dirent64 布局：d_ino(8) d_off(8) d_reclen(2) d_type(1) d_name[]

@@ -10006,6 +10006,7 @@ int32_t unsetenv(const char * name);
 int32_t clearenv();
 static __attribute__((used)) uint8_t * dir_state_buf_ptr_at(struct DirState * state, size_t idx);
 struct DIR * opendir(const char * name);
+uint8_t * libc_dirent_name(uint8_t * entry_ptr);
 struct Dirent * readdir(struct DIR * dirp);
 int32_t closedir(struct DIR * dirp);
 size_t strlen(const char * s);
@@ -10930,6 +10931,7 @@ static __attribute__((used)) int32_t package_mode_alias_relative_path(uint8_t * 
 static __attribute__((used)) int32_t package_mode_dependency_path_for_module(uint8_t * module_path, uint8_t * out_root, uint8_t * out_relative, size_t out_cap);
 static __attribute__((used)) int32_t package_mode_dependency_module_dir(uint8_t * module_path, uint8_t * out_dir, size_t out_cap);
 static __attribute__((used)) int32_t package_mode_dependency_module_file(uint8_t * module_path, uint8_t * out_file, size_t out_cap);
+static __attribute__((used)) int32_t module_path_entry_exists_exact_case(uint8_t * path);
 static __attribute__((used)) int32_t find_module_file(uint8_t * module_path, uint8_t * module_root, uint8_t * uya_root, uint8_t * buffer, size_t buffer_size);
 static __attribute__((used)) int32_t module_path_to_file_path(uint8_t * module_path, uint8_t * out, size_t out_cap);
 static __attribute__((used)) int32_t find_direct_module_file(uint8_t * module_path, uint8_t * module_root, uint8_t * uya_root, uint8_t * buffer, size_t buffer_size);
@@ -12682,7 +12684,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_2354668474_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -12719,7 +12721,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_3316812030_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -13170,16 +13172,6 @@ __attribute__((used)) const uint32_t MACHO_ARM64_RELOC_UNSIGNED_RAW = 0U;
 #undef PATH_MAX
 #endif
 __attribute__((used)) const size_t PATH_MAX = 4096;
-
-#ifdef DIRENT_OFF_D_TYPE
-#undef DIRENT_OFF_D_TYPE
-#endif
-__attribute__((used)) const size_t DIRENT_OFF_D_TYPE = 18;
-
-#ifdef DIRENT_OFF_D_NAME
-#undef DIRENT_OFF_D_NAME
-#endif
-__attribute__((used)) const size_t DIRENT_OFF_D_NAME = 19;
 
 #ifdef LIBC_SOURCES
 #undef LIBC_SOURCES
@@ -14211,6 +14203,16 @@ __attribute__((used)) const size_t ENV_OVERRIDE_VALUE_BYTES = 256ULL;
 #undef READDIR_BUF_SIZE
 #endif
 __attribute__((used)) const size_t READDIR_BUF_SIZE = 8192;
+
+#ifdef DIRENT_OFF_D_TYPE
+#undef DIRENT_OFF_D_TYPE
+#endif
+__attribute__((used)) const size_t DIRENT_OFF_D_TYPE = 18;
+
+#ifdef DIRENT_OFF_D_NAME
+#undef DIRENT_OFF_D_NAME
+#endif
+__attribute__((used)) const size_t DIRENT_OFF_D_NAME = 19;
 
 #ifdef libc_AT_FDCWD
 #undef libc_AT_FDCWD
@@ -16473,8 +16475,6 @@ __attribute__((used)) uint8_t file_buffer[1048576] = {0};
 
 __attribute__((used)) uint8_t temp_arena_buffer[16777216] = {0};
 
-__attribute__((used)) uint8_t g_dirent_name_scratch[256] = {0};
-
 __attribute__((used)) uint8_t * g_compiler_arena_failure_key = NULL;
 
 __attribute__((used)) uint8_t * g_compiler_arena_failure_message = NULL;
@@ -16588,6 +16588,8 @@ __attribute__((used)) uint8_t _env_override_values[4096] = {0};
 __attribute__((used)) struct DirState opendir_storage[64] = {0};
 
 __attribute__((used)) struct Dirent readdir_result = {.d_ino = 0, .d_off = 0, .d_reclen = 0, .d_type = 0, .d_name = {0}};
+
+__attribute__((used)) uint8_t g_dirent_name_scratch[256] = {0};
 
 __attribute__((used)) uint8_t * _strtok_saved = NULL;
 
@@ -18893,27 +18895,8 @@ static __attribute__((used)) uint8_t dirent_get_type(uint8_t * entry_ptr) {
 
 static __attribute__((used)) uint8_t * dirent_get_name(uint8_t * entry_ptr) {
     (void)entry_ptr;
-    if (entry_ptr == NULL) {
-                {
-            uint8_t * _uya_ret = NULL;
-            return _uya_ret;
-                }
-    }
-    size_t i = 0;
-    while (i < 255) {
-        const uint8_t ch = entry_ptr[(DIRENT_OFF_D_NAME + i)];
-        g_dirent_name_scratch[i] = ch;
-        if (ch == (uint8_t)0) {
-                        {
-                uint8_t * _uya_ret = (&g_dirent_name_scratch[0]);
-                return _uya_ret;
-                        }
-        }
-        i = (i + 1);
-    }
-    g_dirent_name_scratch[255] = (uint8_t)0;
         {
-        uint8_t * _uya_ret = (&g_dirent_name_scratch[0]);
+        uint8_t * _uya_ret = libc_dirent_name((uint8_t *)entry_ptr);
         return _uya_ret;
         }
 }
@@ -39076,6 +39059,33 @@ __attribute__((used)) struct DIR * opendir(const char * name) {
         return _uya_ret;
         }
         return (struct DIR *){0};
+}
+
+uint8_t * libc_dirent_name(uint8_t * entry_ptr) {
+    (void)entry_ptr;
+    if (entry_ptr == NULL) {
+                {
+            uint8_t * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+    size_t i = 0;
+    while (i < 255) {
+        const uint8_t ch = entry_ptr[(DIRENT_OFF_D_NAME + i)];
+        g_dirent_name_scratch[i] = ch;
+        if (ch == (uint8_t)0) {
+                        {
+                uint8_t * _uya_ret = (&g_dirent_name_scratch[0]);
+                return _uya_ret;
+                        }
+        }
+        i = (i + 1);
+    }
+    g_dirent_name_scratch[255] = (uint8_t)0;
+        {
+        uint8_t * _uya_ret = (&g_dirent_name_scratch[0]);
+        return _uya_ret;
+        }
 }
 
 __attribute__((used)) struct Dirent * readdir(struct DIR * dirp) {
@@ -97809,6 +97819,74 @@ static __attribute__((used)) int32_t package_mode_dependency_module_file(uint8_t
         }
 }
 
+static __attribute__((used)) int32_t module_path_entry_exists_exact_case(uint8_t * path) {
+    (void)path;
+    if (path == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    const size_t n = std_string_strlen((uint8_t *)path);
+    if (((n == 0) || (n >= (size_t)PATH_MAX))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    uint8_t dir_buf[4096] = {0};
+    uint8_t * base = path;
+    int32_t slash = (0 - 1);
+    size_t i = 0;
+    while (i < n) {
+        if (path[i] == 47) {
+            slash = (int32_t)i;
+        }
+        i = (i + 1);
+    }
+    if (slash >= 0) {
+        const size_t cut = (size_t)slash;
+        i = 0;
+        while (i < cut) {
+            dir_buf[i] = path[i];
+            i = (i + 1);
+        }
+        if (cut == 0) {
+            dir_buf[0] = 47;
+            dir_buf[1] = (uint8_t)0;
+            base = (path + 1);
+        } else {
+            dir_buf[cut] = (uint8_t)0;
+            base = (path + (cut + 1));
+        }
+    } else {
+        dir_buf[0] = 46;
+        dir_buf[1] = (uint8_t)0;
+    }
+    struct DIR * const dir = opendir((const char *)(uint8_t *)(&dir_buf[0]));
+    if (dir == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    int32_t found = 0;
+    struct Dirent * entry = (struct Dirent *)readdir(dir);
+    while (entry != NULL) {
+        uint8_t * const name = (uint8_t *)libc_dirent_name((uint8_t *)entry);
+        if (((name != NULL) && (std_string_strcmp(name, (uint8_t *)base) == 0))) {
+            found = 1;
+            break;
+        }
+        entry = (struct Dirent *)readdir(dir);
+    }
+    (void)(closedir(dir)    );
+        {
+        int32_t _uya_ret = found;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) int32_t find_module_file(uint8_t * module_path, uint8_t * module_root, uint8_t * uya_root, uint8_t * buffer, size_t buffer_size) {
     (void)module_path;
     (void)module_root;
@@ -97924,7 +98002,7 @@ static __attribute__((used)) int32_t find_module_file(uint8_t * module_path, uin
         }
         uint8_t uya_path[4096] = {0};
         const int32_t ulen = snprintf((char *)(&uya_path[0]), PATH_MAX, (const char *)str1744, (uint8_t *)root, (&file_path[0]));
-        if (((ulen > 0) && (ulen < (int32_t)PATH_MAX))) {
+        if ((((ulen > 0) && (ulen < (int32_t)PATH_MAX)) && (module_path_entry_exists_exact_case((uint8_t *)(&uya_path[0])) != 0))) {
             void * const f = std_io_fopen((&uya_path[0]), (uint8_t *)(uint8_t *)str12);
             if (f != NULL) {
                 (void)(std_io_fclose(f)                );
@@ -98039,7 +98117,7 @@ static __attribute__((used)) int32_t find_direct_module_file(uint8_t * module_pa
         }
         uint8_t uya_path[4096] = {0};
         const int32_t ulen = snprintf((char *)(&uya_path[0]), PATH_MAX, (const char *)str1744, (uint8_t *)root, (&file_path[0]));
-        if (((ulen > 0) && (ulen < (int32_t)PATH_MAX))) {
+        if ((((ulen > 0) && (ulen < (int32_t)PATH_MAX)) && (module_path_entry_exists_exact_case((uint8_t *)(&uya_path[0])) != 0))) {
             void * const f = std_io_fopen((&uya_path[0]), (uint8_t *)(uint8_t *)str12);
             if (f != NULL) {
                 (void)(std_io_fclose(f)                );
@@ -98116,7 +98194,7 @@ static __attribute__((used)) int32_t module_dir_exists(uint8_t * module_path, ui
         }
         uint8_t dir_path[4096] = {0};
         const int32_t len = snprintf((char *)(&dir_path[0]), PATH_MAX, (const char *)str1743, (uint8_t *)root, (&file_path[0]));
-        if ((((len > 0) && (len < (int32_t)PATH_MAX)) && (is_directory((uint8_t *)(&dir_path[0])) != 0))) {
+        if (((((len > 0) && (len < (int32_t)PATH_MAX)) && (is_directory((uint8_t *)(&dir_path[0])) != 0)) && (module_path_entry_exists_exact_case((uint8_t *)(&dir_path[0])) != 0))) {
             if ((((out_dir != NULL) && (out_cap > 0)) && ((size_t)len < out_cap))) {
                 (void)(std_string_strcpy((uint8_t *)out_dir, (&dir_path[0]))                );
             }
@@ -98409,7 +98487,7 @@ static __attribute__((used)) int32_t collect_module_dependencies(uint8_t * filen
             if (std_has_dir != 0) {
                 uint8_t std_file_module[4096] = {0};
                 const int32_t std_file_len = snprintf((char *)(&std_file_module[0]), PATH_MAX, (const char *)str1747, (&std_dir_exact[0]));
-                if ((((std_file_len > 0) && (std_file_len < PATH_MAX)) && (is_file((uint8_t *)(&std_file_module[0])) != 0))) {
+                if (((((std_file_len > 0) && (std_file_len < PATH_MAX)) && (is_file((uint8_t *)(&std_file_module[0])) != 0)) && (module_path_entry_exists_exact_case((uint8_t *)(&std_file_module[0])) != 0))) {
                     int32_t in_list_file = 0;
                     int32_t jf = 0;
                     while (jf < file_list->count) {
@@ -98451,7 +98529,7 @@ static __attribute__((used)) int32_t collect_module_dependencies(uint8_t * filen
                 }
                 uint8_t std_named_module[4096] = {0};
                 const int32_t std_named_len = snprintf((char *)(&std_named_module[0]), PATH_MAX, (const char *)str1748, (&std_dir_exact[0]), (uint8_t *)module_base_name);
-                if ((((std_named_len > 0) && (std_named_len < PATH_MAX)) && (is_file((uint8_t *)(&std_named_module[0])) != 0))) {
+                if (((((std_named_len > 0) && (std_named_len < PATH_MAX)) && (is_file((uint8_t *)(&std_named_module[0])) != 0)) && (module_path_entry_exists_exact_case((uint8_t *)(&std_named_module[0])) != 0))) {
                     int32_t in_list_named = 0;
                     int32_t jn = 0;
                     while (jn < file_list->count) {
@@ -210207,7 +210285,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_2354668474_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -211454,7 +211532,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_3316812030_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -211698,7 +211776,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_1872351365_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_3316812030_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;

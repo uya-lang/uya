@@ -279,6 +279,76 @@ fn package_mode_dependency_module_file(module_path: &byte, out_file: &byte, out_
 }
 
 // 根据模块路径查找文件
+// ===== 模块候选路径的「大小写敏感」存在性判断 =====
+//
+// macOS / Windows 的默认文件系统**大小写不敏感**：`fopen("lib/std/io/File.uya")`
+// 会直接打开 `lib/std/io/file.uya`。于是 `use std.io.File;` 这条**符号**导入被误判成
+// 模块导入，`file.uya` 被合并两次 —— 单文件 C 里同名函数出现两份定义
+// （`redefinition of 'std_io_file_write'`），macos-ci 的 hosted 套件因此长期红。
+//
+// Uya 的模块名是**大小写敏感**的标识符，这里的语义必须与 Linux 一致：下面的 helper
+// 按目录项逐字节比对文件名，大小写不一致就当「不存在」。
+
+/// 父目录里是否存在与 path 最后一段**逐字节完全相同**的目录项。
+///
+/// 参数说明：
+/// - path：候选路径（绝对或相对都可以，最后一段按文件名处理）。
+/// 返回值说明：1 表示存在大小写完全一致的目录项；0 表示不存在或参数非法。
+fn module_path_entry_exists_exact_case(path: &byte) i32 {
+    if path == null {
+        return 0;
+    }
+    const n: usize = strlen(path as *byte);
+    if n == 0 || n >= PATH_MAX as usize {
+        return 0;
+    }
+    var dir_buf: [byte: PATH_MAX] = [];
+    var base: &byte = path;
+    var slash: i32 = 0 - 1;
+    var i: usize = 0;
+    while i < n {
+        if path[i] == 47 {
+            slash = i as i32;
+        }
+        i = i + 1;
+    }
+    if slash >= 0 {
+        const cut: usize = slash as usize;
+        i = 0;
+        while i < cut {
+            dir_buf[i] = path[i];
+            i = i + 1;
+        }
+        if cut == 0 {
+            dir_buf[0] = 47;
+            dir_buf[1] = 0 as byte;
+            base = path + 1;
+        } else {
+            dir_buf[cut] = 0 as byte;
+            base = path + (cut + 1);
+        }
+    } else {
+        dir_buf[0] = 46;
+        dir_buf[1] = 0 as byte;
+    }
+    const dir: *DIR = opendir(&dir_buf[0] as &byte);
+    if dir == null {
+        return 0;
+    }
+    var found: i32 = 0;
+    var entry: *Dirent = readdir(dir);
+    while entry != null {
+        const name: *byte = dirent_name(entry as &byte) as *byte;
+        if name != null && strcmp(name, base as *byte) == 0 {
+            found = 1;
+            break;
+        }
+        entry = readdir(dir);
+    }
+    closedir(dir);
+    return found;
+}
+
 fn find_module_file(
     module_path: &byte,
     module_root: &byte,
@@ -392,7 +462,8 @@ fn find_module_file(
         // 策略2：直接文件 path.uya
         var uya_path: [byte: PATH_MAX] = [];
         const ulen: i32 = snprintf(&uya_path[0], PATH_MAX, "%s%s.uya" as *byte, root as *byte, &file_path[0]);
-        if ulen > 0 && ulen < PATH_MAX as i32 {
+        if ulen > 0 && ulen < PATH_MAX as i32 &&
+            module_path_entry_exists_exact_case(&uya_path[0] as &byte) != 0 {
             const f: *void = fopen(&uya_path[0], "r" as *byte);
             if f != null {
                 fclose(f);
@@ -479,7 +550,8 @@ fn find_direct_module_file(
 
         var uya_path: [byte: PATH_MAX] = [];
         const ulen: i32 = snprintf(&uya_path[0], PATH_MAX, "%s%s.uya" as *byte, root as *byte, &file_path[0]);
-        if ulen > 0 && ulen < PATH_MAX as i32 {
+        if ulen > 0 && ulen < PATH_MAX as i32 &&
+            module_path_entry_exists_exact_case(&uya_path[0] as &byte) != 0 {
             const f: *void = fopen(&uya_path[0], "r" as *byte);
             if f != null {
                 fclose(f);
@@ -538,7 +610,8 @@ fn module_dir_exists(module_path: &byte, module_root: &byte, uya_root: &byte, ou
 
         var dir_path: [byte: PATH_MAX] = [];
         const len: i32 = snprintf(&dir_path[0], PATH_MAX, "%s%s" as *byte, root as *byte, &file_path[0]);
-        if len > 0 && len < PATH_MAX as i32 && is_directory(&dir_path[0] as &byte) != 0 {
+        if len > 0 && len < PATH_MAX as i32 && is_directory(&dir_path[0] as &byte) != 0 &&
+            module_path_entry_exists_exact_case(&dir_path[0] as &byte) != 0 {
             if out_dir != null && out_cap > 0 && (len as usize) < out_cap {
                 strcpy(out_dir as *byte, &dir_path[0]);
             }
@@ -811,7 +884,8 @@ fn collect_module_dependencies(
             if std_has_dir != 0 {
                 var std_file_module: [byte: PATH_MAX] = [];
                 const std_file_len: i32 = snprintf(&std_file_module[0], PATH_MAX, "%s/file.uya" as *byte, &std_dir_exact[0]);
-                if std_file_len > 0 && std_file_len < PATH_MAX && is_file(&std_file_module[0] as &byte) != 0 {
+                if std_file_len > 0 && std_file_len < PATH_MAX && is_file(&std_file_module[0] as &byte) != 0 &&
+                    module_path_entry_exists_exact_case(&std_file_module[0] as &byte) != 0 {
                     var in_list_file: i32 = 0;
                     var jf: i32 = 0;
                     while jf < file_list.count {
@@ -840,7 +914,8 @@ fn collect_module_dependencies(
                 }
                 var std_named_module: [byte: PATH_MAX] = [];
                 const std_named_len: i32 = snprintf(&std_named_module[0], PATH_MAX, "%s/%s.uya" as *byte, &std_dir_exact[0], module_base_name as *byte);
-                if std_named_len > 0 && std_named_len < PATH_MAX && is_file(&std_named_module[0] as &byte) != 0 {
+                if std_named_len > 0 && std_named_len < PATH_MAX && is_file(&std_named_module[0] as &byte) != 0 &&
+                    module_path_entry_exists_exact_case(&std_named_module[0] as &byte) != 0 {
                     var in_list_named: i32 = 0;
                     var jn: i32 = 0;
                     while jn < file_list.count {
