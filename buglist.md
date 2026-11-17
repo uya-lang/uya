@@ -486,7 +486,22 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - 归属：`src/codegen/c99/expr.uya`。
 
 - [ ] **P0 / 高：数组边界证明对「循环里被改写的变量」完全不生效（证明缺口，非误报）**
-  - 状态：**未修复**（2026-11-17 查明，需要改 interval/constraint 数据流）
+  - 状态：**默认路径仍未修**；`--strict-loop-bounds` 已实现并给出正确判定（2026-11-17）
+  - 已落地的那一半：新增 CLI 开关 `--strict-loop-bounds`。规则是
+    「循环体里被赋值的变量，进入循环时作废它的**上界**；只有在体内每一次赋值都是
+    `x = x + 非负常量`（含 `+|`）时才保留下界」——
+    `while i < 4 { items[i] }`（size 4）仍然通过（真安全，不能误杀），
+    `while i < 5` 就正确报错，循环之后再用 `i` 索引也报错。
+    判定矩阵钉在 `tests/verify_strict_loop_bounds.sh`（已挂进 `make check`）。
+  - **为什么默认不开**：在 `src/main.uya` 闭包上打开它，
+    `check --safety-proof --strict-loop-bounds` 报 **939 个错误**
+    （279「数组索引安全证明失败」、606「i32 溢出无法证明」、
+    42 `DEBUG_BYTE_PTR_SUBSCRIPT_ERROR`、3「数组索引需要安全证明」、1 除零）。
+    这些不是误报：循环里的下标/计数器确实要靠循环条件才成立，而旧证明靠
+    「初值恰好安全」蒙过去。把这 939 处逐个补真守卫（或改成切片遍历）是独立工作项，
+    不能用放宽判定的方式消掉 —— 修完就把它设为默认。
+  - 归属：`src/checker/main.uya`（`AST_WHILE_STMT` 分支）、
+    `src/checker/interval.uya`（`constraint_relax_upper_var`）、`src/main.uya`（开关）。
   - 现象（全部用 `--safety-proof`，即 `make uya` 用的那套）：
     ```uya
     var items: [i32: 4] = [0, 0, 0, 0];

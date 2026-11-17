@@ -2,6 +2,30 @@
 
 ## 未发行
 
+### `--strict-loop-bounds`：让数组下标证明对循环计数器生效
+
+默认模式下这条是**假通过**（buglist P0）：`var i: i32 = 0; while i < 5 { items[i] }`
+（`items: [i32: 4]`）编译通过 —— 循环体只按**进入循环前的约束**检查一遍，
+`i == 0` 恰好安全，真正越界的第 5 次迭代从来没被检查。`while i < n { arr[i] }`
+是数组遍历的主流写法，所以这条洞覆盖了绝大多数下标访问。
+
+新增 `--strict-loop-bounds`（默认关）：进入循环时作废体内被赋值变量的**上界**；
+只有当体内每一次赋值都是 `x = x + 非负常量`（含 `+|`）时才保留下界
+（`var i = 0` 的 `i == 0` 降级成 `i >= 0`）。
+
+| 用例（`items: [i32: 4]`） | 默认 | `--strict-loop-bounds` |
+|---|---|---|
+| `while i < 3` / `while i < 4` | 通过 | 通过（真安全，不误杀） |
+| `while i < 5` / `while i < 10` | 通过（洞） | 报错 |
+| `while i < 100 { i = i + 1 } items[i]` | 通过（洞） | 报错 |
+
+判定矩阵钉在 `tests/verify_strict_loop_bounds.sh`，已挂进 `make check`。
+
+**默认不开的理由（写在 buglist 与 proof plan 里）**：在 `src/main.uya` 闭包上打开
+它报 **939 个错误**（279 数组索引、606 i32 溢出、42 `DEBUG_BYTE_PTR_SUBSCRIPT_ERROR`、
+3 索引需要证明、1 除零）—— 全是真实的「靠初值蒙过去」的站点。逐个补真守卫是
+独立工作项，修完再设为默认；在此之前，默认路径的这条洞继续如实记在 P0 里。
+
 ### UBSan 交叉验证接入：抓到 1 个真 UB，并查明 1 个证明缺口
 
 `docs/unsafe_audit_plan.md` §5 一直挂着「没有 ASan/UBSan 交叉验证」这条最大的

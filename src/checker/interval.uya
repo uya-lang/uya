@@ -293,6 +293,40 @@ fn constraint_remove_var(checker: &TypeChecker, var_name: &byte) void {
     checker.constraint_count = write_idx;
 }
 
+// 只放宽指定变量的**上界**约束，保留下界。
+// 参数：checker - 类型检查器；var_name - 变量名。
+// 返回：无。
+//
+// 用途（--strict-loop-bounds）：`var i: i32 = 0; while i < n { ...; i = i + 1 }`
+// 这类循环计数器，进入循环时 `i` 的值域已经不再是初值，但「只会往上加」意味着
+// **下界仍然成立**、上界必须作废。所以：
+//   - `EQ k` 降级成 `GE k`（x == k ⇒ x >= k）；
+//   - `LT` / `LE` 直接删除（不再成立）；
+//   - `GE` / `GT` 保留。
+fn constraint_relax_upper_var(checker: &TypeChecker, var_name: &byte) void {
+    if checker == null || var_name == null {
+        return;
+    }
+    var i: i32 = 0;
+    const count: i32 = checker.constraint_count;
+    while i < count {
+        if i < MAX_CONSTRAINTS {
+            const name: &byte = checker.constraint_var_names[i];
+            if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
+                const op: i32 = checker.constraint_ops[i];
+                if op == CONSTRAINT_EQ {
+                    checker.constraint_ops[i] = CONSTRAINT_GE;
+                } else if op == CONSTRAINT_LT || op == CONSTRAINT_LE {
+                    // 作废上界：把值改成 i32 下界，等于「没有上界」
+                    checker.constraint_ops[i] = CONSTRAINT_GE;
+                    checker.constraint_values[i] = 0 - 2147483647;
+                }
+            }
+        }
+        i = i + 1;
+    }
+}
+
 // 更新递增赋值后的约束
 // 参数：var_name - 变量名，increment - 递增值
 // 例如：i = i + 1 后，如果原来 i >= 0，新值也 >= 0

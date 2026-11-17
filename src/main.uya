@@ -135,6 +135,8 @@ var g_verbose_output: i32 = 0;
 // 需要显式溢出语义时写 `+|`/`+%`（饱和/回绕）或 `try`/`catch`（运行期检查）。
 // 测试语料的豁免见 tests/run_programs_parallel.sh 与 AGENTS.md「负例测试规则」。
 var g_strict_overflow: i32 = 1;
+// 1 = 打开「循环体赋值的变量不沿用外部约束」的严格下标证明（见 checker.types）
+var g_strict_loop_bounds: i32 = 0;
 
 // --strict-div：整数 `/` 与 `%` 的除数必须能证明非零（规范 §14.2 的「除零正确性证明」）。
 // **默认开启**（B3 收口）：跨函数证明落地后，`src/` 与 `lib/` 的除数站点全部清零 ——
@@ -1148,6 +1150,8 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "  --no-safety-proof    禁用内存安全证明\n" as *byte);
     fprintf(libc.stderr, "  --strict-overflow    开启溢出闸门（默认已开：整数算术须能证明无溢出）\n" as *byte);
     fprintf(libc.stderr, "  --no-strict-overflow 关闭溢出闸门\n" as *byte);
+    fprintf(libc.stderr, "  --strict-loop-bounds 循环体内被赋值的变量不沿用外部上界（默认关：\n" as *byte);
+    fprintf(libc.stderr, "                       打开后存量代码会露出一批真实的循环越界）\n" as *byte);
     fprintf(libc.stderr, "  --strict-div         开启除零证明（默认已开：整数 / 与 %% 的除数须能证明非零）\n" as *byte);
     fprintf(libc.stderr, "  --no-strict-div      关闭除零证明\n" as *byte);
     fprintf(libc.stderr, "  --lifetime-report    输出跨函数内存安全证明的度量报告（只算不报，不影响编译结果）\n" as *byte);
@@ -1879,6 +1883,10 @@ fn parse_args(
             enable_safety_proof[0] = 1;
         } else if strcmp(arg, "--no-safety-proof" as *byte) == 0 {
             enable_safety_proof[0] = 0;
+        } else if strcmp(arg, "--strict-loop-bounds" as *byte) == 0 {
+            g_strict_loop_bounds = 1;
+        } else if strcmp(arg, "--no-strict-loop-bounds" as *byte) == 0 {
+            g_strict_loop_bounds = 0;
         } else if strcmp(arg, "--strict-overflow" as *byte) == 0 {
             g_strict_overflow = 1;
         } else if strcmp(arg, "--no-strict-overflow" as *byte) == 0 {
@@ -2766,6 +2774,7 @@ fn compile_files(
     // 设置内存安全证明开关
     checker.enable_safety_proof = enable_safety_proof;
     checker.strict_overflow = g_strict_overflow;
+    checker.strict_loop_bounds = g_strict_loop_bounds;
     checker.strict_div = g_strict_div;
     checker.container_mode = g_container_mode;
     checker.lifetime_report = g_lifetime_report;

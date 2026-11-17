@@ -147,6 +147,90 @@ fn checker_collect_assigned_names(checker: &TypeChecker, node: &ASTNode, out_nam
     }
 }
 
+// 判断 `name` 在子树里出现的**每一次**赋值是否都是 `name = name + 非负常量`
+// （含饱和 `+|`）。返回 1 表示是（可以只放宽上界、保留下界），0 表示不是。
+// 参数：checker - 类型检查器；node - 子树根；name - 变量名。
+//
+// 为什么要这个判定：`while i < n { a[i]; i = i + 1 }` 里的 `i` 虽然被改写，
+// 但既然只会往上加，进入循环前建立的下界（`i >= 0`）在整个循环里都成立 ——
+// 只有上界作废。反过来，`i = i - 1`、`i = f()`、`i = 0` 都可能让下界失效，
+// 那就必须把两界一起清掉（保守但正确）。
+fn checker_loop_assign_is_positive_increment(checker: &TypeChecker, node: &ASTNode, name: &byte) i32 {
+    if node == null || name == null {
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_ASSIGN && node.assign_dest != null {
+        const dest_name: &byte = constraint_expr_name(checker, node.assign_dest);
+        if dest_name != null && str_equals(dest_name, name) != 0 {
+            const src: &ASTNode = node.assign_src;
+            if src == null || src.type != ASTNodeType.AST_BINARY_EXPR {
+                return 0;
+            }
+            const op_tmp: !TokenType = src.binary_expr_op as! TokenType;
+            const op: TokenType = op_tmp.value;
+            if op != TokenType.TOKEN_PLUS && op != TokenType.TOKEN_PLUS_PIPE {
+                return 0;
+            }
+            const lhs_name: &byte = constraint_expr_name(checker, src.binary_expr_left);
+            if lhs_name == null || str_equals(lhs_name, name) == 0 {
+                return 0;
+            }
+            const rhs: &ASTNode = src.binary_expr_right;
+            if rhs == null || rhs.type != ASTNodeType.AST_NUMBER || rhs.number_value < 0 {
+                return 0;
+            }
+        }
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            if checker_loop_assign_is_positive_increment(checker, node.block_stmts[i], name) == 0 {
+                return 0;
+            }
+            i = i + 1;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        if checker_loop_assign_is_positive_increment(checker, node.if_stmt_then_branch, name) == 0 {
+            return 0;
+        }
+        if checker_loop_assign_is_positive_increment(checker, node.if_stmt_else_branch, name) == 0 {
+            return 0;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        return checker_loop_assign_is_positive_increment(checker, node.while_stmt_body, name);
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        return checker_loop_assign_is_positive_increment(checker, node.for_stmt_body, name);
+    }
+    return 1;
+}
+
+// 按「是否只会往上加」决定如何作废循环体里被赋值的变量的约束。
+fn checker_loop_invalidate_assigned(checker: &TypeChecker, body: &ASTNode) void {
+    if checker == null || body == null {
+        return;
+    }
+    var loop_assigned: [&byte: 64] = [];
+    var loop_assigned_count: i32 = 0;
+    checker_collect_assigned_names(checker, body, &loop_assigned[0], &loop_assigned_count);
+    var la: i32 = 0;
+    while la < loop_assigned_count && la < 64 {
+        const name: &byte = loop_assigned[la];
+        if name != null {
+            if checker_loop_assign_is_positive_increment(checker, body, name) != 0 {
+                constraint_relax_upper_var(checker, name);
+            } else {
+                constraint_remove_var(checker, name);
+            }
+        }
+        la = la +| 1;
+    }
+}
+
 fn checker_node_definitely_returns(node: &ASTNode) i32 {
     if node == null {
         return 0;
@@ -801,7 +885,20 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         
         // 路径敏感分析：保存当前约束状态
         const saved_constraint_count: i32 = checker.constraint_count;
-        
+
+        // --strict-loop-bounds：循环体里被赋值的变量，**不能沿用进入循环前的约束**。
+        //
+        // 为什么必须清掉：约束表里 `var i: i32 = 0;` 会留下 `i == 0`，而循环体
+        // 只被检查一遍 —— body 里的 `items[i]` 看到的是初值（确实安全），
+        // 真正越界的第 n 次迭代永远不会被检查。实测（buglist P0）：
+        //   var i = 0; while i < 5 { items[i] }   // size 4，越界却编译通过
+        //   var i = 2; while i < 5 { items[i + 3] } // 报错（区间被钉在 [2,2]）
+        // 清掉之后，循环条件给出的 `i < 5` 才是这份证明能用的唯一事实 ——
+        // 每个迭代都成立，且不假装知道初值以外的信息。
+        if checker.strict_loop_bounds != 0 && node.while_stmt_body != null {
+            checker_loop_invalidate_assigned(checker, node.while_stmt_body);
+        }
+
         // 从循环条件提取约束（正条件，用于循环体）
         if node.while_stmt_condition != null {
             constraint_extract_from_binary(checker, node.while_stmt_condition, 1);
@@ -818,7 +915,15 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         
         // 循环结束后，恢复约束状态（循环可能不执行）
         checker.constraint_count = saved_constraint_count;
-        
+
+        // --strict-loop-bounds：恢复出来的那批约束同样不能用 —— 它描述的是
+        // 「进循环之前」的状态。循环体里被赋值的变量在循环之后是任意值，
+        // 所以恢复后要把它们的约束再清一次（否则 `while i < 100 {...} items[i]`
+        // 会被判成安全：区间还停在初值 i == 0）。
+        if checker.strict_loop_bounds != 0 && node.while_stmt_body != null {
+            checker_loop_invalidate_assigned(checker, node.while_stmt_body);
+        }
+
         return 1;
     } else if node.type == ASTNodeType.AST_DEFER_STMT {
         if node.defer_stmt_body != null {
