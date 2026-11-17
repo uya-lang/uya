@@ -2500,6 +2500,81 @@ fn c99_interp_temp_name_at(codegen: &C99CodeGenerator, idx: i32) &byte {
     return c99_interp_temp_name_at(codegen, idx);
 }
 
+/// 从 C 类型字符串里的 `[N]` 取静态数组长度（局部变量常见形态 `int32_t[4]`）。
+fn c99_static_array_len_from_c_type(type_c: &byte) i32 {
+    if type_c == null {
+        return -1;
+    }
+    const lb: *byte = strchr(type_c as *byte, 91);
+    if lb == null {
+        return -1;
+    }
+    var p: *byte = lb + 1;
+    var n: i32 = 0;
+    var any: i32 = 0;
+    while p[0] >= 48 && p[0] <= 57 {
+        n = n *| 10 +| ((p[0] as i32) -| 48);
+        any = 1;
+        p = p + 1;
+    }
+    if any == 0 {
+        return -1;
+    }
+    return n;
+}
+
+/// 从 AST 类型节点取静态数组长度（全局数组在符号表里只登记元素类型，只能走这里）。
+fn c99_static_array_len_from_type_node(type_node: &ASTNode) i32 {
+    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_ARRAY ||
+        type_node.type_array_size_expr == null {
+        return -1;
+    }
+    const e: &ASTNode = type_node.type_array_size_expr;
+    if e.type == ASTNodeType.AST_NUMBER {
+        return e.number_value;
+    }
+    return -1;
+}
+
+/// 求标识符的静态数组长度：C 类型字符串 → 局部类型节点 → 顶层 var 声明。
+fn c99_static_array_len_of_identifier(codegen: &C99CodeGenerator, name: &byte) i32 {
+    if codegen == null || name == null {
+        return -1;
+    }
+    const n_c: i32 = c99_static_array_len_from_c_type(get_identifier_type_c(codegen, name));
+    if n_c > 0 {
+        return n_c;
+    }
+    var i: i32 = 0;
+    while i < codegen.local_variable_count && i < C99_MAX_LOCAL_VARS {
+        const lname: &byte = c99_local_var_name_at(codegen, i);
+        if lname != null && strcmp(lname as *byte, name as *byte) == 0 &&
+            codegen.local_variables[i].type_node != null {
+            const n_local: i32 = c99_static_array_len_from_type_node(codegen.local_variables[i].type_node);
+            if n_local > 0 {
+                return n_local;
+            }
+        }
+        i = i + 1;
+    }
+    if codegen.program_node != null {
+        const decl_count: i32 = codegen.program_node.program_decl_count;
+        var di: i32 = 0;
+        while di < decl_count {
+            const decl: &ASTNode = codegen.program_node.program_decls[di];
+            if decl != null && decl.type == ASTNodeType.AST_VAR_DECL &&
+                decl.var_decl_name != null && strcmp(decl.var_decl_name as *byte, name as *byte) == 0 {
+                const n_global: i32 = c99_static_array_len_from_type_node(decl.var_decl_type);
+                if n_global > 0 {
+                    return n_global;
+                }
+            }
+            di = di + 1;
+        }
+    }
+    return -1;
+}
+
 fn c99_emit_call_arg_expr(codegen: &C99CodeGenerator, fn_decl: &ASTNode, param_index: i32, arg: &ASTNode) void {
     if arg != null && arg.type == ASTNodeType.AST_UNARY_EXPR &&
         (arg.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND &&
@@ -2511,6 +2586,30 @@ fn c99_emit_call_arg_expr(codegen: &C99CodeGenerator, fn_decl: &ASTNode, param_i
                 strchr(op_ty as *byte, 42) == null {
                 gen_expr(codegen, operand);
                 return;
+            }
+            // 若 & 操作数本身就是切片值，上面的分支已经处理。
+            // 若它是**静态数组标识符**（&arr 传给 &[T:N] 形参），以前会原样发
+            // `&arr`（指向数组的指针），与降级后的 struct uya_slice_* 形参不匹配，
+            // gcc 报 incompatible type。合成 arr[0:N] 的切片表达式走正常发射路径。
+            if operand.type == ASTNodeType.AST_IDENTIFIER && operand.identifier_name != null {
+                const n: i32 = c99_static_array_len_of_identifier(codegen, operand.identifier_name);
+                if n > 0 {
+                    const zero: &ASTNode = ast_new_node(ASTNodeType.AST_NUMBER, operand.line, operand.column,
+                        codegen.arena, operand.filename);
+                    zero.number_value = 0;
+                    zero.number_value_i64 = 0 as i64;
+                    const len_node: &ASTNode = ast_new_node(ASTNodeType.AST_NUMBER, operand.line, operand.column,
+                        codegen.arena, operand.filename);
+                    len_node.number_value = n;
+                    len_node.number_value_i64 = n as i64;
+                    const slice_expr: &ASTNode = ast_new_node(ASTNodeType.AST_SLICE_EXPR, operand.line, operand.column,
+                        codegen.arena, operand.filename);
+                    slice_expr.slice_expr_base = operand;
+                    slice_expr.slice_expr_start_expr = zero;
+                    slice_expr.slice_expr_len_expr = len_node;
+                    gen_expr(codegen, slice_expr);
+                    return;
+                }
             }
         }
     }

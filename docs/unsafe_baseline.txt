@@ -227,7 +227,7 @@ ptr_cast	src/cmd/upm/upm_lib/registry.uya	32
 ptr_cast	src/cmd/upm/upm_lib/resolver.uya	178
 ptr_cast	src/cmd/upm/upm_lib/workspace.uya	17
 ptr_cast	src/codegen/c99/enums.uya	78
-ptr_cast	src/codegen/c99/expr.uya	5552
+ptr_cast	src/codegen/c99/expr.uya	5557
 ptr_cast	src/codegen/c99/function.uya	2349
 ptr_cast	src/codegen/c99/global.uya	338
 ptr_cast	src/codegen/c99/main.uya	5354

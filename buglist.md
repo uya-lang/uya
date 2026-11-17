@@ -382,8 +382,21 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     顶层 `while` 形态上有效；调用点只认「直接初始化一个变量」，形参名 → 实参名的
     映射（`find(s, c)` 里返回上界绑定到 `s.len`）没有做。
 
-- [ ] **新发现：`&数组` 可以类型检查通过传给 `&[T: N]` 形参，但生成不可编译的 C**（2026-11-16）
-  - 复现：`fn f(a: &[i32: 8]) i32 {...}` + `var a: [i32: 8] = []; f(&a);`
+- [x] **新发现：`&数组` 可以类型检查通过传给 `&[T: N]` 形参，但生成不可编译的 C 已修**
+  - 修法（2026-11-18）：`src/codegen/c99/expr.uya` 的 `c99_emit_call_arg_expr` 在
+    `&<静态数组标识符>` 传给切片形参（`c99_fn_decl_slice_param_pass_by_value`）时，
+    合成 `arr[0:N]` 的 AST 切片表达式并走正常发射路径，生成与手写 `f(a[0:N])`
+    **完全相同**的 `struct uya_slice_<elem>` 复合字面量。
+    N 的来源：局部数组取 C 类型串 `[N]` 或 `LocalVariable.type_node`；
+    全局数组因符号表只登记元素类型，从 `program_decls` 的 var 声明取。
+    不新增运行时检查、不放宽任何安全判定。
+  - 回归：`tests/test_fixed_slice_array_ref_arg.uya` 同时覆盖局部/全局数组，
+    修复前 `uya build` 报 `error: incompatible type for argument 1` 并链接失败（rc=1），
+    修复后 rc=0；生成 C 已核对为 `first((struct uya_slice_int32_t){ .ptr = a + 0, .len = 4})`。
+  - 验证：`make b` 字节一致；全量测试全绿；审计闸门重新冻结
+    （309 组 / 38143 站点；diff 仅 `ptr_cast src/codegen/c99/expr.uya 5552 → 5557`，
+    5 处都是格式化指针转换，不产生新地址）。
+  - 历史记录（保留根因）：
   - 现象：`uya check` 通过；`uya run` 在 C 阶段失败 ——
     `error: incompatible type for argument 1 of 'f'`，
     形参被降级为 `struct uya_slice_int32_t`，实参是 `int32_t (*)[8]`。

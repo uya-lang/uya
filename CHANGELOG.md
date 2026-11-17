@@ -2,6 +2,21 @@
 
 ## 未发行
 
+### `&数组` 传定长切片形参不再生成坏 C
+
+`fn f(a: &[i32:4])` 用 `f(&arr)` 调用此前能通过类型检查，但 C 后端把形参降级为
+`struct uya_slice_int32_t`、实参却发 `&arr`（指向数组的指针），gcc 报
+`incompatible type for argument 1` 并链接失败。手写 `f(arr[0:4])` 才能编过。
+
+修法在 `src/codegen/c99/expr.uya` 的实参发射：当 `&` 操作数是静态数组标识符且形参是
+切片时，合成 `arr[0:N]` 的切片表达式走正常发射路径，生成与手写形状完全一致的复合字面量。
+N 对局部数组从 C 类型串 `[N]` 或类型节点取，对全局数组从 `program_decls` 的声明取
+（全局数组符号表只登记元素类型）。不新增运行时检查、不放宽证明。
+
+回归 `tests/test_fixed_slice_array_ref_arg.uya` 覆盖局部与全局数组，修复前链接失败、
+修复后 rc=0。审计闸门重新冻结：309 组 / 38143 站点，唯一 diff 是
+`ptr_cast src/codegen/c99/expr.uya 5552 → 5557`（格式化指针转换）。
+
 ### 审计闸门增加双向语义自测
 
 `verify_unsafe_audit.sh` 的判定刻意非对称：新增/增加失败，减少/消失只提示。

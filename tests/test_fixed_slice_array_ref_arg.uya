@@ -1,0 +1,18 @@
+// 回归：`&数组` 传给 `&[T:N]`（定长切片）形参此前能通过类型检查，
+// C 后端却发出 `&arr`（指向数组的指针），与降级后的 struct uya_slice_* 形参不匹配，
+// gcc 报 incompatible type → 链接失败（buglist「&数组 传 &[T:N]」）。
+// 修法：codegen 合成 arr[0:N] 切片表达式，生成与手写一个形状的复合字面量。
+// 同时覆盖局部数组与全局数组（后者在符号表里只登记元素类型，长度从 var 声明取）。
+
+var g_words: [i32: 4] = [5, 6, 7, 8];
+
+fn last_of(a: &[i32: 4]) i32 {
+    return a[3];
+}
+
+export fn main() i32 {
+    var local: [i32: 4] = [1, 2, 3, 4];
+    if last_of(&local) != 4 { return 1; }
+    if last_of(&g_words) != 8 { return 2; }
+    return 0;
+}
