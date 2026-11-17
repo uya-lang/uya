@@ -1,5 +1,25 @@
 # Uya 变更日志
 
+## 未发行
+
+### 逃逸口审计：`--escape-list` 逐站点清单 + `make unsafe-audit` 冻结闸门
+
+语言语义无变更。新增两个**只读诊断**能力与一个 CI 闸门，目的是把
+「不安全之处必须显式」变成会失败的检查（设计见 `docs/unsafe_audit_plan.md`）：
+
+- **`--escape-list`**：逐站点打印编译器眼里能绕过证明的构造
+  （`[escape] <kind> <file>:<line>`，kind 为 `extern_fn` / `extern_var` / `asm` /
+  `union` / `extern_union` / `ptr_int` / `alloc`），只列不报，不影响编译结果。
+  同一输入两次运行输出一致（可用于 diff）。
+- **`make unsafe-audit`**：把上述明细按 `(kind, file)` 聚合并与冻结基线
+  `docs/unsafe_baseline.txt` 对比。**新增或增加即失败**；减少只提示「可收紧」，不失败
+  —— 与新增相比，基线偏松只是报表偏差，不是安全漏洞，而让它常年红灯只会让人无脑重生成基线。
+  `make unsafe-baseline-update` 重新冻结，diff 需在评审说明里解释。
+- **实测（`src/main.uya` 依赖闭包，2026-11-16）**：`--escape-list` 共 36757 个站点
+  （`ptr_int` 35785、`extern_fn` 511、`extern_var` 386、`alloc` 66、`asm` 8、`union` 1），
+  聚合为 146 个 `(kind, file)` 组。`ptr_int` 绝大多数是 C 互操作必需的 `as &T`，
+  属于「债」而非「漏洞」，因此基线锁的是**新增**而不是绝对值。
+
 ## v0.13.0 - 编译提速：检查器三处 O(N) 退化收口与构建链调优
 
 > 发布日期：2026-11-16

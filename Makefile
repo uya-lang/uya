@@ -4,7 +4,7 @@
 # 若出现「没有规则可制作目标 install」：说明当前 Makefile 过旧，请用本仓库最新 Makefile
 # 替换，或从上游同步后再执行：make install PREFIX=$HOME/.local
 
-.PHONY: all from-c from-c-native uya uya-hosted uya-std uya-nostdlib uya-portable b b-hosted b-portable bench-compile-stats tests tests-hosted tests-uya tests-emcc tests-portable examples-check microapp-check microapp-hosted-smoke microapp-aarch64-runtime-check microapp-macos-runtime-check microapp-compat-check microapp-recovery-check outlibc c e clean check check-hosted backup backup-seed backup-hosted-seed backup-all-seed back-all-seed backup-hosted-seed-native backup-all restore release release-bootstrap release-flow release-build release-dirty release-preflight release-clean install help cmds cmd-upm upm-check fmt check-fmt
+.PHONY: all from-c from-c-native uya uya-hosted uya-std uya-nostdlib uya-portable b b-hosted b-portable bench-compile-stats tests tests-hosted tests-uya tests-emcc tests-portable examples-check microapp-check microapp-hosted-smoke microapp-aarch64-runtime-check microapp-macos-runtime-check microapp-compat-check microapp-recovery-check outlibc c e clean check check-hosted backup backup-seed backup-hosted-seed backup-all-seed back-all-seed backup-hosted-seed-native backup-all restore release release-bootstrap release-flow release-build release-dirty release-preflight release-clean install help cmds cmd-upm upm-check fmt check-fmt unsafe-audit unsafe-baseline-update
 
 # 共享平台/工具链模型（可通过环境变量覆盖）
 HOST_OS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]' | sed -e 's/darwin/macos/' -e 's/msys.*/windows/' -e 's/mingw.*/windows/' -e 's/cygwin.*/windows/')
@@ -739,6 +739,19 @@ check: uya
 	fi; \
 	if [ $$VERIFY_EXIT -ne 0 ]; then \
 		echo "✗ --strict-div 除零证明验证失败"; \
+		exit 1; \
+	fi; \
+	echo ""; \
+	echo "验证逃逸口白名单（新增不安全面即失败）..."; \
+	if ./tests/verify_unsafe_audit.sh > /tmp/verify_out.txt 2>&1; then \
+		grep -E "✓|可收紧" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=0; \
+	else \
+		cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=1; \
+	fi; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ 逃逸口白名单验证失败（新增不安全面需评审确认，见 docs/unsafe_audit_plan.md）"; \
 		exit 1; \
 	fi; \
 	echo ""; \
@@ -1568,6 +1581,15 @@ restore:
 	@echo "✓ 恢复完成: bin/uya.c"
 	@ls -la bin/uya.c
 
+# 逃逸口审计：把「不安全之处必须显式」变成会失败的检查（docs/unsafe_audit_plan.md）。
+#   make unsafe-audit           闸门：新增/增加逃逸口即失败（make check 里也跑）
+#   make unsafe-baseline-update 重新冻结基线（diff 必须在评审里解释）
+unsafe-audit:
+	@bash ./tests/verify_unsafe_audit.sh
+
+unsafe-baseline-update:
+	@bash ./tests/verify_unsafe_audit.sh --update
+
 # 显示帮助信息
 help:
 	@echo "Uya 项目 Makefile"
@@ -1614,6 +1636,8 @@ help:
 	@echo "  make tests-emcc    - 运行独立 emcc/unknown target smoke（需本机安装 emcc 与 node）"
 	@echo "  make cmds          - 构建外置子命令（当前包含 cmd/upm）"
 	@echo "  make upm-check     - 运行 UPM/包管理专项回归套件"
+	@echo "  make unsafe-audit  - 逃逸口白名单闸门（新增 extern/@asm/union/指针转换/分配器调用即失败）"
+	@echo "  make unsafe-baseline-update - 重新冻结逃逸口基线（diff 需在评审说明里解释）"
 	@echo "  make examples-check - 运行 examples 可执行/服务/package/microapp 验证套件"
 	@echo "  make microapp-check - 运行当前 microapp 聚合回归套件"
 	@echo "  make microapp-hosted-smoke - 运行 hosted 平台可用的 microapp smoke 套件"

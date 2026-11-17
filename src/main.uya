@@ -152,6 +152,14 @@ var g_strict_div: i32 = 1;
 // 只往 stderr 打一行行统计（file:line fn requirement bucket evidence）。
 var g_lifetime_report: i32 = 0;
 
+// --escape-list：逐站点打印「能绕过证明的构造」（只列不报，不影响编译结果）。
+//
+// 与 --lifetime-report 的分工：后者只给**汇总计数**，前者给**逐站点明细**
+// （`[escape] <kind> <file>:<line>`，按 AST 声明顺序，同一输入两次运行输出一致）。
+// 明细是 docs/unsafe_audit_plan.md 里「白名单冻结」的输入 —— 汇总只能看趋势，
+// 冻结必须能定位到文件。
+var g_escape_list: i32 = 0;
+
 // --async-frame-heap=on：async frame pool 满时回退到调试 heap
 var g_async_frame_heap_fallback: i32 = 0;
 
@@ -1143,6 +1151,7 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "  --strict-div         开启除零证明（默认已开：整数 / 与 %% 的除数须能证明非零）\n" as *byte);
     fprintf(libc.stderr, "  --no-strict-div      关闭除零证明\n" as *byte);
     fprintf(libc.stderr, "  --lifetime-report    输出跨函数内存安全证明的度量报告（只算不报，不影响编译结果）\n" as *byte);
+    fprintf(libc.stderr, "  --escape-list        逐站点列出能绕过证明的构造（[escape] kind file:line；只列不报）\n" as *byte);
     fprintf(libc.stderr, "  --nostdlib           完全独立模式：无标准库依赖，使用 syscall\n" as *byte);
     fprintf(libc.stderr, "  --async-frame-heap=on  async frame pool 满时回退到调试 heap（默认关闭）\n" as *byte);
     fprintf(libc.stderr, "  MICROAPP_TARGET_CFLAGS  microapp 目标 gcc 编译旗标；call_gate profile 默认 -std=c99 -Os -fomit-frame-pointer -fno-builtin -fno-stack-protector -fpie -ffunction-sections -fdata-sections -flto=auto，trap profile 默认改为 -fno-pie（均不含 -g）\n" as *byte);
@@ -1879,6 +1888,12 @@ fn parse_args(
         } else if strcmp(arg, "--no-strict-div" as *byte) == 0 {
             g_strict_div = 0;
         } else if strcmp(arg, "--lifetime-report" as *byte) == 0 {
+            g_lifetime_report = 1;
+        } else if strcmp(arg, "--escape-list" as *byte) == 0 {
+            g_escape_list = 1;
+            // 明细依赖登记器扫描，登记器只由 --lifetime-report 打开 —— 顺带打开，
+            // 免得用户必须记住「两个开关要一起用」。汇总行是另一份额外噪声，
+            // 但输出来源同一趟扫描，比分两次跑更不容易出现两份不一致的数字。
             g_lifetime_report = 1;
         } else if strcmp(arg, "--jobs" as *byte) == 0 || strcmp(arg, "-j" as *byte) == 0 {
             // 分离写法：--jobs 8 / -j 8
@@ -2754,6 +2769,7 @@ fn compile_files(
     checker.strict_div = g_strict_div;
     checker.container_mode = g_container_mode;
     checker.lifetime_report = g_lifetime_report;
+    checker.escape_list = g_escape_list;
 
     if g_verbose_output != 0 {
         fprintf(libc.stderr, "[v] 类型检查开始\n" as *byte);

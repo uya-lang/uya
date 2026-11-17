@@ -2097,7 +2097,30 @@ fn lifetime_account_alloc_call(checker: &TypeChecker, expr: &ASTNode) void {
     }
     if lifetime_name_is_allocator(callee.identifier_name) != 0 {
         checker.lifetime_escape_alloc = checker.lifetime_escape_alloc +| 1;
+        lifetime_escape_site(checker, "alloc" as &byte, expr);
     }
+}
+
+/// 打印一条逃逸口明细（只在 `--escape-list` 时生效）。
+/// 参数：checker - 类型检查器；kind - 类别名（extern_fn / extern_var / asm / union /
+///       extern_union / ptr_int / alloc）；node - 该逃逸口所在的 AST 节点。
+/// 返回：无。
+///
+/// 输出格式固定为 `[escape] <kind> <file>:<line>`：
+///   - **不带列号**：列号在同一次编辑里最容易漂移，白名单按「类别 + 文件」聚合，
+///     带列号只会制造噪音；
+///   - **按 AST 声明顺序**：同一输入两次运行的顺序一致，满足 §3 的 diff = 0 判据；
+///   - 文件名缺失时打 `?`，不要打 null —— 让下游脚本能按固定字段切分。
+fn lifetime_escape_site(checker: &TypeChecker, kind: &byte, node: &ASTNode) void {
+    if checker == null || checker.escape_list == 0 || node == null {
+        return;
+    }
+    const file: &byte = node.filename;
+    if file == null {
+        fprintf(libc.stderr, "[escape] %s ?:%d\n" as *byte, kind, node.line);
+        return;
+    }
+    fprintf(libc.stderr, "[escape] %s %s:%d\n" as *byte, kind, file, node.line);
 }
 
 /// 判断一个名字是否是已知分配器入口。
@@ -2176,15 +2199,18 @@ fn lifetime_account_escape_sites(checker: &TypeChecker, node: &ASTNode) void {
     }
     if node.type == ASTNodeType.AST_ASM {
         checker.lifetime_escape_asm = checker.lifetime_escape_asm +| 1;
+        lifetime_escape_site(checker, "asm" as &byte, node);
         return;
     }
     if node.type == ASTNodeType.AST_PTR_FROM_USIZE || node.type == ASTNodeType.AST_USIZE_FROM_PTR {
         checker.lifetime_escape_ptr_int = checker.lifetime_escape_ptr_int +| 1;
+        lifetime_escape_site(checker, "ptr_int" as &byte, node);
         return;
     }
     if node.type == ASTNodeType.AST_CAST_EXPR {
         if lifetime_cast_is_ptr_int_bridge(node) != 0 {
             checker.lifetime_escape_ptr_int = checker.lifetime_escape_ptr_int +| 1;
+            lifetime_escape_site(checker, "ptr_int" as &byte, node);
         }
     }
     if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
@@ -2313,6 +2339,7 @@ fn lifetime_account_fn_decl(checker: &TypeChecker, node: &ASTNode) void {
     }
     if node.fn_decl_is_extern != 0 {
         checker.lifetime_escape_extern_fn = checker.lifetime_escape_extern_fn +| 1;
+        lifetime_escape_site(checker, "extern_fn" as &byte, node);
         return;     // extern 没有函数体，没什么可扫
     }
     lifetime_account_escape_sites(checker, node.fn_decl_body);
@@ -2325,6 +2352,9 @@ fn lifetime_account_union_decl(checker: &TypeChecker, node: &ASTNode) void {
     checker.lifetime_escape_union = checker.lifetime_escape_union +| 1;
     if node.union_decl_is_extern != 0 {
         checker.lifetime_escape_extern_union = checker.lifetime_escape_extern_union +| 1;
+        lifetime_escape_site(checker, "extern_union" as &byte, node);
+    } else {
+        lifetime_escape_site(checker, "union" as &byte, node);
     }
     if node.union_decl_variants != null {
         var i: i32 = 0;
@@ -2348,6 +2378,7 @@ fn lifetime_account_top_decl(checker: &TypeChecker, decl: &ASTNode) void {
     }
     if decl.type == ASTNodeType.AST_EXTERN_VAR_DECL {
         checker.lifetime_escape_extern_var = checker.lifetime_escape_extern_var +| 1;
+        lifetime_escape_site(checker, "extern_var" as &byte, decl);
         return;
     }
     if decl.type == ASTNodeType.AST_UNION_DECL {
