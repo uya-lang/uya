@@ -1,0 +1,21 @@
+// 预期编译失败：把指向局部存储的引用写进全局变量（跨函数内存安全证明 B1）
+//
+// `&x` 取的是局部标量 x 的地址；写进全局后，g_slot 活过了 grab() 的栈帧，
+// 任何后续读 `*g_slot` 都是悬垂指针（未定义行为）。
+//
+// 与 tests/error_return_local_addr.uya 同源，区别只在逃生口是「写更长寿命的
+// 容器」而不是 `return` —— 施工图 §4.4 规则 2 的第二类判定点。
+//
+// 归属：docs/interprocedural_proof_plan.md §4.4 规则 2（store 判定点）。
+
+var g_slot: &i32 = null;
+
+fn grab() void {
+    var x: i32 = 7;
+    g_slot = &x;
+}
+
+export fn main() i32 {
+    grab();
+    return 0;
+}

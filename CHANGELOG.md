@@ -2,6 +2,36 @@
 
 ## 未发行
 
+### 跨函数证明 B1：写更长寿命容器的判定点落地
+
+语言语义**收紧**（这是有意的）：`lifetime_check_store_escape` 挂进赋值检查，把
+「把指向局部存储的引用写进寿命更长的容器」从静默通过变成编译错误。只判**寿命长短可证**
+的那一侧 —— 来源 origin 必须是 `LOCAL`，且容器必须是全局变量或全局对象的字段：
+
+- 负例 `tests/error_store_local_addr_to_global.uya`（`g_slot = &x;`）
+- 正例 `tests/test_store_escape_positive.uya`（局部→局部、内层→外层局部字段、
+  `STATIC`→全局、纯值赋值四形态都必须通过）
+
+明确**放行**（= 洞还在，已在 `docs/interprocedural_proof_plan.md` 逐条记录）：`PARAM → 全局`
+（编译器自身 4 处主流写法，例如 `g_compiler_arena_failure_key = key`，需要「传参判定点」
+把调用点 origin 传进来才收得掉）、`LOCAL → 局部容器字段`（需字段级逃逸分析）、
+`arr[i] = e`（切片 origin 未接线）、来源为调用表达式。
+
+顺带修掉三个真 bug：
+
+1. `lifetime_origin_of_value` 与 `lifetime_origin_of_expr` 对「读字段 / 读元素」**互相递归**
+   —— 没有记忆化时永不返回。接入 store 判定后 `uya check src/main.uya` 直接栈溢出（rc=139），
+   已改为「非标识符一律 `UNKNOWN`」，并给函数摘要求值加 8 层深度闸门。
+2. store 判定的**字段分支判定方向反了**：原实现 `origin_outlives(container, src) == 0` 才报，
+   那是安全的一侧（指针随容器一起失效）；真正危险的「容器活得比来源长」反而放行。
+3. `lib/std/http/http1_async.uya` 与 `tests/test_fmt_printer.uya` 里各有一处
+   **返回局部栈帧上的零长度切片视图**（B1 切片视图判定点抓到的真实悬垂返回），已改成
+   静态存储上的视图；`tests/test_method_call_in_callback_codegen.uya` 把局部对象地址塞进
+   全局供 pthread 回调使用，已改成顶层静态对象。
+
+**验证**：`uya check src/main.uya` 错误 0、3.47 s（接判定前 4.0 s 量级）；
+`make b` 自举**字节一致**；全量 `tests/run_programs_parallel.sh` 1212 例全绿。
+
 ### 逃逸口审计：`--escape-list` 逐站点清单 + `make unsafe-audit` 冻结闸门
 
 语言语义无变更。新增两个**只读诊断**能力与一个 CI 闸门，目的是把

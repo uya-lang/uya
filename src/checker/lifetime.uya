@@ -10,6 +10,12 @@
 //
 // UNKNOWN ⊑ LOCAL(s) ⊑ PARAM(i) ⊑ HEAP ≡ STATIC
 // （⊑ 读作「更不确定」；HEAP 与 STATIC 同层：都不随栈帧结束而失效）
+// 函数摘要求值的递归深度上限（见 lifetime_summary_ret_origin 的说明）。
+// 取 8：正常的「返回形参转发」链条（`wrap(mk(x))` 之类）不超过两三层，
+// 8 层足以覆盖真实代码，环状调用链则在此处果断截断为 UNKNOWN。
+const LIFETIME_SUMMARY_MAX_DEPTH: i32 = 8;
+// 当前摘要求值深度（单线程检查器，跨文件全局即可；见 lifetime_summary_ret_origin）。
+var g_lifetime_summary_depth: i32 = 0;
 const ORIGIN_UNKNOWN: i32 = 0;
 const ORIGIN_LOCAL: i32 = 1;
 const ORIGIN_PARAM: i32 = 2;
@@ -447,9 +453,20 @@ fn lifetime_summary_ret_origin(checker: &TypeChecker, fn_decl: &ASTNode) Origin 
     if checker == null || fn_decl == null || fn_decl.fn_decl_body == null {
         return origin_unknown();
     }
+    // 递归深度闸门（防栈溢出）。
+    //
+    // 摘要本身没有记忆化：`f` 的 return 里有调用 `g`，就会去算 `g` 的摘要，`g` 的
+    // return 里又有调用 …… 递归调用链会一路展开，环状调用链则永不收敛。实测
+    // 不设闸门时 `uya check src/main.uya` 1.7 秒后段错误（rc=139）。
+    // 超过上限一律 UNKNOWN —— 与「证不出 ≠ 证伪」一致，只会少判，不会误报。
+    if g_lifetime_summary_depth >= LIFETIME_SUMMARY_MAX_DEPTH {
+        return origin_unknown();
+    }
+    g_lifetime_summary_depth = g_lifetime_summary_depth +| 1;
     var acc: Origin = origin_unknown();
     var seen: i32 = 0;
     lifetime_collect_return_origins(checker, fn_decl.fn_decl_body, &acc, &seen);
+    g_lifetime_summary_depth = g_lifetime_summary_depth -| 1;
     if seen == 0 {
         // 没有 return 语句（void 函数）：非指针结果
         return origin_unknown();
@@ -657,16 +674,49 @@ fn lifetime_type_may_hold_pointer(t: Type) i32 {
     return 0;
 }
 
+/// 判断「写更长寿命容器」判定点是否值得对某个来源求 origin。
+/// 参数：src - 赋值源表达式。
+/// 返回：1 表示来源形态可判（`&place` / 切片视图 / 标识符），0 表示跳过判定。
+///
+/// 只放行这三种形态的理由见 lifetime_check_store_escape：调用表达式会把
+/// 「函数摘要」拖进来，而摘要在没有记忆化时会互相递归。
+fn lifetime_store_src_is_checkable(src: &ASTNode) i32 {
+    if src == null {
+        return 0;
+    }
+    if src.type == ASTNodeType.AST_UNARY_EXPR {
+        if (src.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND {
+            return 1;
+        }
+        return 0;
+    }
+    if src.type == ASTNodeType.AST_SLICE_EXPR {
+        return 1;
+    }
+    if src.type == ASTNodeType.AST_IDENTIFIER {
+        return 1;
+    }
+    return 0;
+}
+
 /// 判定并报告「把短寿命的值写进长寿命的容器」（§4.4 规则 2）。
 /// 参数：checker - 类型检查器；dest - 赋值目标表达式；src - 赋值源表达式；dest_type - 目标类型。
 /// 返回：1 表示无问题；0 表示已报错。
 ///
-/// 只覆盖两类「寿命明确更长」的容器，其余形态一律放行（证不出不报）：
-///   1. 写顶层全局（AST_IDENTIFIER 且符号出现在作用域 0）：要求来源为 STATIC/HEAP/UNKNOWN；
-///   2. 写结构体字段 `s.f = e`：要求 outlives(origin(s), origin(e))。
+/// **只报「寿命长短可证」的那一侧**，其余一律放行。具体：来源必须是 LOCAL，
+/// 且容器必须是「寿命明确 ∞」的两种：
+///   1. 顶层全局变量 `g = &x`；
+///   2. 全局对象的字段 `g_obj.f = &x`（容器 origin 为 STATIC）。
 ///
-/// 刻意**不做**的：写切片元素（`arr[i] = e`）暂按放行处理 —— 切片本身的 origin
-/// 在 P1 还不能稳定拿到，贸然判定会把大量合法形态打穿（§2 的 361/908 教训）。
+/// 明确**放行**（也就等于明确承认这些洞还在，见 docs/unsafe_audit_plan.md §5）：
+///   - `PARAM → 全局`：形参借来的存储活多久由调用点决定，没有生命周期参数就证不出 ——
+///     而 `g_compiler_arena_failure_key = key` 这类「登记调用方给的 key」是编译器自身
+///     的主流写法（arena.uya / heap.uya / pthread.uya 共 4 处），一律拒绝等于让
+///     语言用不了。这一条要等「传参判定点」把调用点 origin 传进来才收得掉。
+///   - `LOCAL → 局部容器的字段`：容器自己也不逃逸时它并不危险，而「容器是否逃逸」
+///     需要字段级逃逸分析（未实现）。判它会把 `checker.current_function_decl = method`
+///     这类纯内部记账全部打穿。
+///   - 写切片元素 `arr[i] = e`：切片 origin 还拿不到。
 fn lifetime_check_store_escape(checker: &TypeChecker, dest: &ASTNode, src: &ASTNode, dest_type: Type) i32 {
     if checker == null || dest == null || src == null {
         return 1;
@@ -674,9 +724,21 @@ fn lifetime_check_store_escape(checker: &TypeChecker, dest: &ASTNode, src: &ASTN
     if lifetime_type_may_hold_pointer(dest_type) == 0 {
         return 1;
     }
+    // 只判「来源形态便宜且可靠」的三类：`&place`、切片视图、标识符。
+    //
+    // 排除调用表达式不只是省时间：`lifetime_origin_of_expr(调用)` →
+    // `lifetime_summary_ret_origin` → 递归扫被调方函数体的每个 return → 又可能遇到
+    // 调用 —— 没有记忆化时这是**互相递归**，实测让 `uya check src/main.uya` 从 4s
+    // 变成不返回、随后栈溢出段错误（rc=139）。语义上也没损失：`g_slot = make_ptr()`
+    // 这种「被调方返回局部地址」的错误，在**被调方自己的 return 判定点**上已经
+    // 报过一次，不必在调用点重复判。
+    if lifetime_store_src_is_checkable(src) == 0 {
+        return 1;
+    }
     const src_origin: Origin = lifetime_origin_of_expr(checker, src);
-    if src_origin.kind == ORIGIN_UNKNOWN || src_origin.kind == ORIGIN_STATIC ||
-        src_origin.kind == ORIGIN_HEAP {
+    // 只有 LOCAL 是「寿命已经确定且短」的：其余（STATIC/HEAP/PARAM/UNKNOWN）
+    // 都证不出「短」，按「证不出 ≠ 证伪」放行。
+    if src_origin.kind != ORIGIN_LOCAL {
         return 1;
     }
 
@@ -691,15 +753,20 @@ fn lifetime_check_store_escape(checker: &TypeChecker, dest: &ASTNode, src: &ASTN
         return 1;
     }
 
-    // 场景 2：写结构体字段 `s.f = e`
+    // 场景 2：写**全局对象**的字段 `g_obj.f = e`
+    //
+    // 只有容器是 STATIC 时才判：那时「容器寿命 ∞ 且来源寿命短」是可证的悬垂。
+    // 容器是形参/局部时不判（见上面的放行清单）。
+    //
+    // 这里修的是一个真实的判定方向错误：原实现写作
+    // `if origin_outlives(container, src_origin) == 0 { 报错 }`，
+    // 即「容器活得不比来源长」才报 —— 那恰恰是安全的一侧（指针随容器一起死）；
+    // 而「容器活得比来源长」（来源先死、容器里的指针悬垂）反而放行。
     if dest.type == ASTNodeType.AST_MEMBER_ACCESS {
         const container: Origin = lifetime_origin_of_place(checker, dest.member_access_object);
-        if container.kind == ORIGIN_UNKNOWN {
-            return 1;
-        }
-        if origin_outlives(container, src_origin) == 0 {
+        if container.kind == ORIGIN_STATIC {
             checker_report_error(checker, dest,
-                "字段的存储寿命比赋给它的引用更长：写入后该字段会指向已失效的存储" as *byte);
+                "不能把指向局部存储的引用写入全局对象的字段：该存储随函数返回失效，字段会变成悬垂指针" as *byte);
             return 0;
         }
     }
@@ -750,8 +817,15 @@ fn lifetime_origin_of_value(checker: &TypeChecker, expr: &ASTNode) Origin {
     if checker == null || expr == null {
         return origin_unknown();
     }
+    // ⚠ 这里**只能**处理标识符。早期版本最后一行的兜底是
+    // `return lifetime_origin_of_expr(checker, expr);`，而 `lifetime_origin_of_expr`
+    // 对 `AST_MEMBER_ACCESS` / `AST_ARRAY_ACCESS` 又回调本函数 —— 两者互相递归，
+    // 一旦有「读字段/读元素」的来源被求 origin 就永远不返回（实测把 store 判定点
+    // 接进赋值后，`uya check src/main.uya` 从 4s 变成 600s 仍未结束）。
+    // 语义上正确答案也不该递归：`s.f` 读出的是**字段里存的那个指针值**，它指向哪儿
+    // 在这个精度下证不出 → UNKNOWN。因此非标识符一律 UNKNOWN。
     if expr.type != ASTNodeType.AST_IDENTIFIER {
-        return lifetime_origin_of_expr(checker, expr);
+        return origin_unknown();
     }
     const name: &byte = expr.identifier_name;
     if name == null {

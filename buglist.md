@@ -418,7 +418,7 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - 判据（将来验收用）：`tests/test_drop_after_move.uya` + 嵌套字段 move 正负例全绿，
     且无新增 double free；新增负例覆盖「清 borrow 后又被使用」那条路径。
 
-- [~] **P1：逃逸检查（数组 / 切片 / 接口值）部分实现（B1 三条已收口，接口值与写容器仍缺）**
+- [~] **P1：逃逸检查（数组 / 切片 / 接口值）部分实现（B1 return + store 两点已收口，接口值与传参仍缺）**
   - `uya.md` §6.5、§6.8、§7 都写了「逃逸即编译错误」，但实测三条路径全部静默通过：
     `fn mk() [i32: 4] { var buf: [i32: 4] = []; return buf; }`、
     `fn mk() &[i32] { var buf: [i32: 4] = [1,2,3,4]; return &buf[0:4]; }`、
@@ -434,10 +434,19 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     `return buf[a:b]`（新增 `tests/error_return_local_slice.uya`）；③按值返回**元素含指针**的
     局部数组（新增 `tests/error_return_local_ptr_array.uya`）。形参来源一律放行
     （`fn f(s: &[i32: 4]) &[i32] { return s[1:3]; }` 通过），纯标量数组按值返回也放行。
+  - **已落地（B1 store 判定点，2026-11-17）**：`lifetime_check_store_escape` 挂进赋值，
+    只在「来源 origin = `LOCAL` 且容器是全局变量 / 全局对象字段」时报错。负例
+    `tests/error_store_local_addr_to_global.uya`；正例 `tests/test_store_escape_positive.uya`
+    （局部→局部、内层→外层局部字段、`STATIC`→全局、纯值赋值四形态）。全树零误报
+    （`uya check src/main.uya` 错误 0、3.47 s），`make b` 自举字节一致。
+    顺带修掉两个真 bug：`lifetime_origin_of_value` 与 `lifetime_origin_of_expr` 的**互相递归**
+    （读字段/读元素的 origin 永不返回，接判定后 `uya check src/main.uya` 栈溢出 rc=139），
+    以及字段分支**判定方向反了**（`origin_outlives(container, src) == 0` 才报 = 专报安全的那一侧）。
   - **仍未覆盖**：`fn make() IWriter { const s: Console = ...; return s; }` 这类**装箱局部接口值**
-    （需要接口值的 origin 传播）；写更长寿命容器（`lifetime_check_store_escape`，接入即 34 处误报，
-    见 `check_node_extra.uya` 的熔断记录）；局部指针变量转存后返回（需指针指向传播）。
-    **这三条路径仍然静默通过。**
+    （需要接口值的 origin 传播）；`PARAM → 全局`（编译器自身 4 处主流写法，需传参判定点把
+    调用点 origin 传进来）；`LOCAL → 局部容器字段`（需字段级逃逸分析）；`arr[i] = e`
+    （切片 origin 未接线）；局部指针变量转存后返回/写入（需指针指向传播）。
+    **这些路径仍然静默通过。**
 
 
 ## 标准库 bug
@@ -695,6 +704,44 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [ ] **P1：C 后端对「全局数组开窗」生成类型错的切片复合字面量（对静态存储开视图必然链接失败）**
+  - 发现：2026-11-17（B1 store 判定点落地时，把 `lib/std/http/http1_async.uya` 的
+    `http1_async_empty_body_slice` 从「局部数组开窗」改成「全局数组开窗」后暴露）
+  - 现象：`var g_buf: [byte: 4] = [...]; fn empty() &[byte] { return g_buf[0: 0]; }`
+    生成的 C 是
+    `struct uya_slice_uint8_t _uya_ret = (struct uya_slice_int32_t){ .ptr = g_buf + 0, .len = 0};`
+    —— **声明用 uint8 切片、初始化用 int32 切片**，gcc 报
+    `'struct uya_slice_int32_t' has no member named 'ptr'` + `invalid use of undefined type`，
+    最终「宿主工具链链接失败」。
+  - 最小复现（`uya run` 即失败）：
+    ```uya
+    var g_buf: [byte: 4] = [1 as byte, 2 as byte, 3 as byte, 4 as byte];
+
+    fn empty() &[byte] {
+        return g_buf[0: 0];
+    }
+
+    export fn main() i32 {
+        const s: &[byte] = empty();
+        return s.len as i32;
+    }
+    ```
+  - 根因位置：`src/codegen/c99/expr.uya` 的 `gen_slice_expr` 里 `slice_type_str` 取自
+    `get_slice_struct_type_c`（`src/codegen/c99/types.uya:7114`），该函数对
+    `AST_IDENTIFIER` 基址走 `get_identifier_type_c` → `get_array_element_type`，
+    全局数组这一步取不到元素类型，落到兜底 `struct uya_slice_int32_t`；
+    而 `_uya_ret` 的**声明类型**来自另一条（checker 类型）路径，于是两者不一致。
+  - 影响：这正是 B1 判定推荐的「把视图建在静态存储上」的写法，现在**恰好编不过**，
+    会把用户推回「局部数组开窗」的悬垂写法 —— 与内存安全目标直接冲突。
+  - 规避（已在 lib/tests 采用）：经指针中转再开窗，或从静态字符串字面量派生：
+    ```uya
+    const base: &CommentGroup = &g_storage[0];
+    return base[0: 0];
+    ```
+  - 修复方向：`get_slice_struct_type_c` 的 IDENTIFIER 分支在 `get_identifier_type_c` 取不到
+    元素类型时，改用 `get_c_type_of_expr(codegen, base)` 解析 `T[N]` / 全局登记表；
+    或者在 `gen_slice_expr` 里优先采用声明侧的解析结果，保证两处同源。
 
 - [x] **P1：macOS hosted 测试仍有 5 例红（单文件 C 里同名函数重复定义 + 1 例运行失败）**
   - 状态：**重复定义 4 例已修复**（2026-11-16；根因见本节末「根因与修复」）；

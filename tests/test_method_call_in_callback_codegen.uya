@@ -16,19 +16,25 @@ Counter {
 var callback_counter: &Counter = null;
 var callback_value: i32 = -1;
 
+// counter 必须是**静态**存储：pthread 回调线程在 test 作用域内读写它，
+// 如果把 `var counter: Counter` 的地址塞进全局，指针就活过了局部栈帧
+// （B1 store 判定点会报「把指向局部存储的引用写入全局变量」）。这里改成
+// 顶层对象，语义不变而寿命可证。
+var g_callback_counter: Counter = Counter{ value: 41 };
+
 fn callback_worker(_arg: &void) &void {
     callback_value = callback_counter.next();
     return null;
 }
 
 test "method call inside pthread callback lowers" {
-    var counter: Counter = Counter{ value: 41 };
     var thread: pthread_t = pthread_t{};
-    callback_counter = &counter;
+    g_callback_counter.value = 41;
+    callback_counter = &g_callback_counter;
     callback_value = -1;
 
     try assert_eq_i32(pthread_create(&thread, null as &const pthread_attr_t, &callback_worker as &void, null), 0);
     try assert_eq_i32(pthread_join(&thread, null as & &void), 0);
     try assert_eq_i32(callback_value, 41);
-    try assert_eq_i32(counter.value, 42);
+    try assert_eq_i32(g_callback_counter.value, 42);
 }

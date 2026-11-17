@@ -1,0 +1,58 @@
+// 正例：B1「写更长寿命容器」判定点不该误伤的形态（store 判定点）
+//
+// 与 tests/error_store_local_addr_to_global.uya 配对使用：那条负例证明判定会响，
+// 这条正例证明它没响过头。四个形态都必须通过：
+//   1. 局部存储 → 局部变量          （同寿命，读时局部还在）
+//   2. 局部存储 → 外层局部的结构体字段（外层比内层活得久）
+//   3. 全局存储的地址 → 全局变量    （STATIC 写 STATIC）
+//   4. 纯值赋值                     （类型不含指针，压根不进判定）
+//
+// 归属：docs/interprocedural_proof_plan.md §4.4 规则 2。
+
+struct Holder {
+    slot: &i32
+}
+
+var g_static_value: i32 = 5;
+var g_static_slot: &i32 = null;
+
+fn rebind_local() i32 {
+    var x: i32 = 7;
+    const p: &i32 = &x;          // 形态 1：局部 → 局部
+    return *p;
+}
+
+fn store_into_outer_field() i32 {
+    var outer: Holder = Holder{ slot: null };
+    var inner_value: i32 = 11;
+    outer.slot = &inner_value;   // 形态 2：内层存储 → 外层局部容器字段
+    return *outer.slot;
+}
+
+fn publish_static() i32 {
+    g_static_slot = &g_static_value;  // 形态 3：STATIC → 全局
+    return *g_static_slot;
+}
+
+fn plain_value() i32 {
+    var n: i32 = 3;
+    var m: i32 = 0;
+    m = n;                       // 形态 4：纯值赋值
+    return m;
+}
+
+export fn main() i32 {
+    if rebind_local() != 7 {
+        return 1;
+    }
+    if store_into_outer_field() != 11 {
+        return 2;
+    }
+    if publish_static() != 5 {
+        return 3;
+    }
+    if plain_value() != 3 {
+        return 4;
+    }
+    return 0;
+}

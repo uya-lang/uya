@@ -16,9 +16,20 @@ fn byte_at(s: &[byte], i: usize) i32 {
     return s.ptr[i] as i32;
 }
 
+// 零长度切片视图的静态底座。
+//
+// 原写法是函数内 `var groups: [CommentGroup: 1] = []; return groups[0:0];`，
+// 返回的是局部栈帧上的视图 —— 函数一返回就悬垂（B1 切片视图判定点抓到的
+// 真实悬垂返回）。长度 0 只能保证不被解引用，不能保证指针有效。
+//
+// 经 `&storage[0]` 取基址再开窗，而不是直接写 `storage[0:0]`：对**全局数组**
+// 直接开窗会触发 C 后端的切片类型选择 bug（生成 int32 切片复合字面量），
+// 已在 buglist 记录。
+var g_empty_comment_groups_storage: [CommentGroup: 1] = [];
+
 fn empty_comment_groups() &[CommentGroup] {
-    var groups: [CommentGroup: 1] = [];
-    return groups[0:0];
+    const base: &CommentGroup = &g_empty_comment_groups_storage[0];
+    return base[0:0];
 }
 
 fn test_print_simple_function() !void {

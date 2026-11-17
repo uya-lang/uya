@@ -1435,9 +1435,19 @@ export fn http1_async_response_free(r: &Http1AsyncResponse) void {
     }
 }
 
+/// 零长度 byte 切片视图。
+///
+/// 原实现是 `var z: [byte: 1] = [0 as byte]; return z[0: 0];` —— 返回的是
+/// **局部栈帧上的**视图，函数一返回指针就悬垂（B1「切片视图」判定点抓到的真实
+/// 悬垂返回，docs/interprocedural_proof_plan.md §4.4 规则 1）。长度 0 只是让它
+/// 恰好不会被解引用，不是保证。
+///
+/// 现在从一个**静态字符串字面量**派生：字面量是 STATIC 存储，视图寿命 ∞。
+/// （不能直接写 `return g_static_array[0: 0];` —— 对全局数组开窗在 C 后端会
+/// 生成类型错的切片复合字面量，见 buglist「全局数组切片」条目。）
 fn http1_async_empty_body_slice() &[byte] {
-    var z: [byte: 1] = [0 as byte];
-    return z[0: 0];
+    const empty: &[byte] = "" as &[byte];
+    return empty[0: 0];
 }
 
 fn http1_async_request_from_url(method: Method, pu: ParsedHttpUrl, req: &Http1AsyncRequest) Http1AsyncRequest {
