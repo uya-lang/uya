@@ -61,7 +61,7 @@ export UYA_ROOT=$PWD/lib
 
 **统计边界（2026-11-18 补）：** `alloc` 只数 **Uya AST 里的调用**，数不到 C99 后端
 直接发射的内建调用。典型例子：`return` 位置的隐式接口装箱现在发射
-`__builtin_malloc(sizeof(struct X))`（修复返回装箱悬垂，见 buglist P1），
+`__builtin_malloc(sizeof(T) + 2*sizeof(size_t))` 加手写 16 字节头（修复返回装箱悬垂，见 buglist P1），
 它不在 AST 里，因此 `alloc` 数字**不因此增加**。这不是漏报口径，而是明确的边界：
 本闸门管的是「源码里有多少手工所有权点」，后端内建分配属于编译器运行时，
 要按生成 C 的运行时面单独审计（已记录在 buglist P1 的修法说明里）。
