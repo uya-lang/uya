@@ -1332,6 +1332,66 @@ fn lifetime_scan_param_calls(checker: &TypeChecker, node: &ASTNode, name: &byte,
     return 0;
 }
 
+/// 找出函数体里第一个由 `name` 初始化/赋值的局部变量名（局部别名）。
+/// 只认 `var q = p` / `q = p` 这两种直接同形写法；不做流分析，避免误报。
+fn lifetime_find_param_alias(node: &ASTNode, name: &byte) &byte {
+    if node == null || name == null || node.type == ASTNodeType.AST_FN_DECL {
+        return null;
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL && node.var_decl_init != null &&
+        node.var_decl_name != null && node.var_decl_init.type == ASTNodeType.AST_IDENTIFIER &&
+        node.var_decl_init.identifier_name != null &&
+        str_equals(node.var_decl_init.identifier_name, name) != 0 {
+        return node.var_decl_name;
+    }
+    if node.type == ASTNodeType.AST_ASSIGN && node.assign_dest != null &&
+        node.assign_src != null && node.assign_dest.type == ASTNodeType.AST_IDENTIFIER &&
+        node.assign_dest.identifier_name != null &&
+        node.assign_src.type == ASTNodeType.AST_IDENTIFIER &&
+        node.assign_src.identifier_name != null &&
+        str_equals(node.assign_src.identifier_name, name) != 0 {
+        return node.assign_dest.identifier_name;
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            const found: &byte = lifetime_find_param_alias(node.block_stmts[i], name);
+            if found != null { return found; }
+            i = i + 1;
+        }
+        return null;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        const f1: &byte = lifetime_find_param_alias(node.if_stmt_condition, name);
+        if f1 != null { return f1; }
+        const f2: &byte = lifetime_find_param_alias(node.if_stmt_then_branch, name);
+        if f2 != null { return f2; }
+        return lifetime_find_param_alias(node.if_stmt_else_branch, name);
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        const f3: &byte = lifetime_find_param_alias(node.while_stmt_condition, name);
+        if f3 != null { return f3; }
+        return lifetime_find_param_alias(node.while_stmt_body, name);
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        return lifetime_find_param_alias(node.return_stmt_expr, name);
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        return lifetime_find_param_alias(node.var_decl_init, name);
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        const f4: &byte = lifetime_find_param_alias(node.assign_dest, name);
+        if f4 != null { return f4; }
+        return lifetime_find_param_alias(node.assign_src, name);
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        const f5: &byte = lifetime_find_param_alias(node.binary_expr_left, name);
+        if f5 != null { return f5; }
+        return lifetime_find_param_alias(node.binary_expr_right, name);
+    }
+    return null;
+}
+
 /// 判定 `fn_decl` 的第 `param_index` 个形参是否构成一条「非空」requirement。
 /// 参数：checker - 类型检查器；fn_decl - 被调方函数声明；param_index - 形参下标（0 基）；
 ///       depth - 剩余的跨函数传播层数（防环）。
@@ -1362,6 +1422,16 @@ fn lifetime_fn_param_requires_nonnull(checker: &TypeChecker, fn_decl: &ASTNode, 
     }
     if saw_deref != 0 {
         return 1;
+    }
+    // `var q = p; return q[0];` —— 通过局部别名解引用。
+    const alias_name: &byte = lifetime_find_param_alias(fn_decl.fn_decl_body, param.var_decl_name);
+    if alias_name != null {
+        var alias_deref: i32 = 0;
+        var alias_guard: i32 = 0;
+        lifetime_scan_param_use(checker, fn_decl.fn_decl_body, alias_name, 0, &alias_deref, &alias_guard);
+        if alias_guard == 0 && alias_deref != 0 {
+            return 1;
+        }
     }
     // 直接用法里没有解引用，但可能原样传给另一个需要非空的形参。
     if depth <= 0 {

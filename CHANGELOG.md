@@ -2,6 +2,14 @@
 
 ## 未发行
 
+### 跨函数非空义务认出局部别名
+
+`fn f(p: &i32) { var q = p; return q[0]; }` 配 `f(null)` 此前能通过检查：
+requirement 只看形参本身有没有被解引用。`lifetime_find_param_alias` 现在认
+`var q = p` / `q = p` 的直接同形写法，再用同一套解引用/守卫扫描判定别名，
+负例 `tests/error_param_null_local_alias.uya` 按预期失败。
+多级别名、复杂表达式、可变全局仍未覆盖，buglist ⑥ 如实保留开放。
+
 ### 跨函数非空义务沿调用链传播
 
 `fn outer(p: &i32) { inner(p); }` 配 `fn inner(p: &i32) { return p[0]; }` 时，

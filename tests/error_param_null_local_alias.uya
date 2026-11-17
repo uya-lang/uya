@@ -1,0 +1,12 @@
+// 负例：被调方通过局部别名解引用指针形参，也属于 B2 非空义务。
+// fn f(p) { var q = p; return q[0]; } + f(null) 此前能通过，运行必崩。
+// 只认 `var q = p` / `q = p` 的直接同形写法，不做流分析（避免误报）。
+
+fn deref_via_alias(p: &i32) i32 {
+    var q: &i32 = p;
+    return q[0];
+}
+
+export fn main() i32 {
+    return deref_via_alias(null);
+}

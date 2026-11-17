@@ -1576,10 +1576,12 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
       ② 初值为 null 的**全局 const** 指针（负例
       `tests/error_param_null_global_const.uya`）；③ **跨函数传递**
       （2026-11-18 新增，`lifetime_scan_param_calls` 沿具名调用链传播 requirement，
-      传播深度上限 3 防环；负例 `tests/error_param_null_transitive.uya`）。
-      **仍未覆盖**：局部别名（`var q = p; q[0]`）、可变全局（调用前可能赋值，
-      认它会误报）、方法调用/函数指针等解析形态；这些形态下仍沿用 blanket
-      非空假设，故 ⑥ 仍是开放项。
+      传播深度上限 3 防环；负例 `tests/error_param_null_transitive.uya`）；
+      ④ **局部别名**（2026-11-18 新增，`var q = p` / `q = p` 的直接同形写法，
+      负例 `tests/error_param_null_local_alias.uya`；不做流分析以免误报）。
+      **仍未覆盖**：可变全局（调用前可能赋值，认它会误报）、多级别名/复杂表达式、
+      方法调用/函数指针等解析形态；这些形态下仍沿用 blanket 非空假设，
+      故 ⑥ 仍是开放项。
     * **③ 循环体下标**：表面现象是循环体不证明，**实际成因是赋值不失效约束**：
       `i = i + 1` 不会让进入循环前的 `i < 9` 作废，于是
       `while i < 9 { a[i] = 1; i = i + 1; }`（a 只有 5 个元素）实测越界写 `a[5]`。
