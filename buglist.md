@@ -905,7 +905,23 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     或引入「装箱结果不得越过帧边界」检查并同步改上面那个函数与其调用点。
     设计分析见 `docs/interprocedural_proof_plan.md` §5.9。
 
-- [ ] **P1：C 后端对「全局数组开窗」生成类型错的切片复合字面量（对静态存储开视图必然链接失败）**
+- [x] **P1：C 后端对「全局数组开窗」生成类型错的切片复合字面量（对静态存储开视图必然链接失败）已修**
+  - 修法（2026-11-18）：`src/codegen/c99/types.uya` 的 `get_slice_struct_type_c` 在
+    `get_array_element_type` 取不到元素类型、且标识符的 C 类型**不是指针**时，
+    用标识符类型当元素类型并**剥掉 `[N]` 维度后缀**（实测全局 `[byte: 4]` 只登记为
+    `uint8_t`；async 局部数组登记为 `int32_t[4]`，不剥会生成不存在的
+    `struct uya_slice_int32_t4`，曾让 2 个 async 测试链接失败），
+    再走 `c99_slice_struct_type_from_elem_c` 映射。
+    不再掉进 `struct uya_slice_int32_t` 兜底。生成 C 实测变为
+    `struct uya_slice_uint8_t _uya_ret = (struct uya_slice_uint8_t){...}`。
+  - 回归：`tests/test_global_array_slice.uya` —— 全局 byte 数组 `[0:4]` / `[0:0]`、
+    全局 i32 数组 `[0:2]`，校验长度与元素值；修复前最小复现报
+    `invalid use of undefined type 'struct uya_slice_int32_t'` 并链接失败（rc=1），
+    修复后 rc=0。buglist 里那个最小复现 `/tmp/gslice.uya` 也实测 rc=0。
+  - 验证：`make b` 字节一致、`run_programs_parallel.sh` 全绿、`make unsafe-audit` 基线一致
+    （类型兜底用到 8 处 `as *void` / `as &byte` 格式化转换，审计闸门重新冻结：
+    `ptr_cast src/codegen/c99/types.uya 10099 → 10107`，全量 309 组 / 38138 站点）。
+  - 历史记录（保留以便回溯根因）：
   - 发现：2026-11-17（B1 store 判定点落地时，把 `lib/std/http/http1_async.uya` 的
     `http1_async_empty_body_slice` 从「局部数组开窗」改成「全局数组开窗」后暴露）
   - 现象：`var g_buf: [byte: 4] = [...]; fn empty() &[byte] { return g_buf[0: 0]; }`

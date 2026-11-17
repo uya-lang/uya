@@ -7144,6 +7144,29 @@ fn get_slice_struct_type_c(codegen: &C99CodeGenerator, slice_expr: &ASTNode) &by
                 return ("struct uya_slice_uint8_t" as *byte) as &byte;
             }
         }
+        if elem_c == null && type_c != null && strchr(type_c as *byte, 42) == null {
+            // 符号表里标识符的 C 类型有两种形态：
+            //   全局数组常只登记**元素类型**（`var g_buf: [byte: 4]` → `uint8_t`）；
+            //   async 局部数组登记成 `int32_t[4]`，但不在普通局部表里。
+            // 两者都取不到 elem_c；把标识符类型里的 `[N]` 去掉后当元素类型用。
+            // 不去掉的话 `c99_slice_element_name_token` 会把 `int32_t[4]` 变成 `int32_t4`，
+            // 生成 `struct uya_slice_int32_t4`（不存在）—— 实测 async 切片测试 2 例因此链接失败。
+            elem_c = type_c;
+            const lbracket: *byte = strchr(type_c as *byte, 91);
+            if lbracket != null {
+                const name_len: i32 = ptr_diff(lbracket, type_c as *byte);
+                if name_len > 0 && name_len < STRUCT_NAME_BUF_SIZE {
+                    var elem_buf: [byte: STRUCT_NAME_BUF_SIZE] = [];
+                    memcpy(&elem_buf[0] as *void, type_c as *void, name_len as usize);
+                    elem_buf[name_len] = 0;
+                    const trimmed: &byte = compiler_arena_alloc(codegen.arena, (name_len + 1) as usize) as &byte;
+                    if trimmed != null {
+                        memcpy(trimmed as *void, &elem_buf[0] as *void, (name_len + 1) as usize);
+                        elem_c = trimmed;
+                    }
+                }
+            }
+        }
         if elem_c == null {
             return ("struct uya_slice_int32_t" as *byte) as &byte;
         }

@@ -2,6 +2,23 @@
 
 ## 未发行
 
+### 修掉全局数组开窗的类型错配（B1 推荐写法不再编不过）
+
+`var g_buf: [byte: 4] = ...; fn empty() &[byte] { return g_buf[0:0]; }`
+此前生成 `struct uya_slice_uint8_t _uya_ret = (struct uya_slice_int32_t){...}`
+——声明与复合字面量类型不同，gcc 报 `invalid use of undefined type` 并链接失败。
+正是 B1 判定推荐的「把视图建在静态存储上」写法，会把用户推回局部数组开窗的悬垂写法。
+
+根因：全局数组在 C99 符号表里只登记**元素类型**（`uint8_t`），async 局部数组登记为
+`int32_t[4]` 但不在普通局部表里；`get_array_element_type` 都返回 null，
+`get_slice_struct_type_c` 随后落到 int32 兜底。修法：取不到元素类型时用标识符类型，
+先剥掉 `[N]` 维度（保留维度会生成不存在的 `struct uya_slice_int32_t4`，
+实测打断 2 个 async 测试，已在同轮修好），再映射切片结构体。
+
+回归 `tests/test_global_array_slice.uya` 覆盖空切片、非空字节切片、i32 切片的长度与元素值；
+修复前 rc=1，修复后 rc=0。审计闸门重新冻结：`ptr_cast src/codegen/c99/types.uya
+10099 → 10107`（8 处格式化指针转换），全量 309 组 / 38138 站点。
+
 ### B1 收口：装箱局部接口值返回不再悬垂，也不再链接失败
 
 `fn make() IWriter { const s: Console = ...; return s; }` 这个 B1 缺口此前是**两个独立缺陷**：

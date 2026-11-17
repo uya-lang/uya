@@ -1,0 +1,35 @@
+// 回归：全局数组开窗的 C99 复合字面量类型必须与声明一致。
+// 修复前生成 `(struct uya_slice_int32_t){...}` 配 `struct uya_slice_uint8_t` 声明，
+// gcc 报 “invalid use of undefined type” → 宿主链接失败（最小复现见 buglist P1）。
+// 这同时是 B1「把视图建在静态存储上」的推荐写法：修好后不必退回局部数组悬垂写法。
+
+var g_bytes: [byte: 4] = [11 as byte, 22 as byte, 33 as byte, 44 as byte];
+var g_words: [i32: 3] = [7, 8, 9];
+
+fn bytes_all() &[byte] {
+    return g_bytes[0: 4];
+}
+
+fn bytes_empty() &[byte] {
+    return g_bytes[0: 0];
+}
+
+fn words_mid() &[i32] {
+    return g_words[0: 2];
+}
+
+export fn main() i32 {
+    const all: &[byte] = bytes_all();
+    if all.len != 4 { return 1; }
+    if all[0] != 11 as byte { return 2; }
+    if all[3] != 44 as byte { return 3; }
+
+    const empty: &[byte] = bytes_empty();
+    if empty.len != 0 { return 4; }
+
+    const mid: &[i32] = words_mid();
+    if mid.len != 2 { return 5; }
+    if mid[0] != 7 { return 6; }
+    if mid[1] != 8 { return 7; }
+    return 0;
+}

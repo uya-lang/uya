@@ -234,7 +234,7 @@ ptr_cast	src/codegen/c99/main.uya	5354
 ptr_cast	src/codegen/c99/parallel.uya	41
 ptr_cast	src/codegen/c99/stmt.uya	1235
 ptr_cast	src/codegen/c99/structs.uya	647
-ptr_cast	src/codegen/c99/types.uya	10099
+ptr_cast	src/codegen/c99/types.uya	10107
 ptr_cast	src/codegen/c99/utils.uya	570
 ptr_cast	src/driver/modules.uya	205
 ptr_cast	src/driver/path_list.uya	6
