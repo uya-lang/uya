@@ -1,0 +1,18 @@
+// 负例（span-length 上界启发式）：`len = end - start` 只是声明时快照。
+// start 后来被赋值，旧的 `len > offset` 不再蕴含 `start + offset < end`。
+// 修复前 `--safety-proof` 误放行这个越界访问（arr 长度 4，实际访问下标 4）；
+// 修法：只有 start 与 len 都是不可变符号时才允许这条启发式。
+// 对照组 error 同类但 len 写成常量 4 时，检查器本来就会报「数组索引安全证明失败」。
+
+var g_arr: [i32: 4] = [10, 20, 30, 40];
+
+export fn main() i32 {
+    var p: i32 = 0;
+    const end: i32 = 4;
+    const len: i32 = end - p;
+    p = 3;
+    if len > 1 {
+        return g_arr[p + 1];
+    }
+    return 0;
+}

@@ -2032,19 +2032,30 @@ fn verify_linear_expr_upper_from_span_len(checker: &TypeChecker, linear_expr: &L
                 const val: i32 = checker.constraint_values[i];
                 if constraint_value_implies_greater_than_offset(op, val, offset) != 0 {
                     const sym: &Symbol = symbol_table_lookup(checker, len_name);
-                    if sym != null && sym.decl_node != null && sym.decl_node.type == ASTNodeType.AST_VAR_DECL {
-                        const init: &ASTNode = sym.decl_node.var_decl_init;
-                        if init != null && init.type == ASTNodeType.AST_BINARY_EXPR {
-                            const op_tmp: !TokenType = init.binary_expr_op as! TokenType;
-                            const init_op: TokenType = op_tmp.value;
-                            if init_op == TokenType.TOKEN_MINUS {
-                                const start_expr: LinearExpr = extract_linear_expr(checker, init.binary_expr_right);
-                                if start_expr.is_valid != 0 && start_expr.var_name != null &&
-                                    start_expr.offset == 0 &&
-                                    strcmp(start_expr.var_name as *byte, start_name as *byte) == 0 {
-                                    const end_interval: Interval = eval_expr_interval(checker, init.binary_expr_left);
-                                    if end_interval.is_valid != 0 && end_interval.max <= array_size {
-                                        return 1;
+                    // `len = end - start` 只是**声明时刻**的快照，约束表里的 `len > offset`
+                    // 也不会随 `start` 的后续赋值失效。若 start / len 是 var，这条启发式
+                    // 会用旧关系证明新下标：实测
+                    //   var p = 0; const end = 4; const len = end - p;
+                    //   p = 3; if len > 1 { arr[p + 1] }   // arr 长度 4，实际越界
+                    // 在 --safety-proof 下被误放行（对照组把 len 改成常量 4 就会正确报错）。
+                    // 只允许不可变的 start / len，保证声明时的等式在整个作用域都成立。
+                    if sym != null && sym.is_const != 0 && sym.decl_node != null &&
+                        sym.decl_node.type == ASTNodeType.AST_VAR_DECL {
+                        const start_sym: &Symbol = symbol_table_lookup(checker, start_name);
+                        if start_sym != null && start_sym.is_const != 0 {
+                            const init: &ASTNode = sym.decl_node.var_decl_init;
+                            if init != null && init.type == ASTNodeType.AST_BINARY_EXPR {
+                                const op_tmp: !TokenType = init.binary_expr_op as! TokenType;
+                                const init_op: TokenType = op_tmp.value;
+                                if init_op == TokenType.TOKEN_MINUS {
+                                    const start_expr: LinearExpr = extract_linear_expr(checker, init.binary_expr_right);
+                                    if start_expr.is_valid != 0 && start_expr.var_name != null &&
+                                        start_expr.offset == 0 &&
+                                        strcmp(start_expr.var_name as *byte, start_name as *byte) == 0 {
+                                        const end_interval: Interval = eval_expr_interval(checker, init.binary_expr_left);
+                                        if end_interval.is_valid != 0 && end_interval.max <= array_size {
+                                            return 1;
+                                        }
                                     }
                                 }
                             }

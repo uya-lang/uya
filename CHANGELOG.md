@@ -2,6 +2,18 @@
 
 ## 未发行
 
+### 堵住 span-length 上界启发式的误放行
+
+`verify_linear_expr_upper_from_span_len` 用 `len = end - start` 反推 `start + offset < end`。
+但这条等式只在声明时成立：`start` 是 `var` 时后续赋值会让它失效，约束表里的
+`len > offset` 却不会跟着作废。实测 `var p=0; const end=4; const len=end-p; p=3;
+if len>1 { arr[p+1] }`（arr 长度 4）在 `--safety-proof` 下**编译通过**；
+对照组的常量 `len` 会正确报错，确认是该启发式单独放行。
+
+修法：`len` 与 `start` 都必须是不可变符号才启用这条启发式。
+负例 `tests/error_span_len_stale_start.uya` 现按预期报「数组索引安全证明失败」。
+`check --safety-proof src/main.uya` 仍 0 错误，审计基线不变。
+
 ### 修掉全局数组开窗的类型错配（B1 推荐写法不再编不过）
 
 `var g_buf: [byte: 4] = ...; fn empty() &[byte] { return g_buf[0:0]; }`

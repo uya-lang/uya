@@ -422,11 +422,23 @@ file:line  fn  requirement  bucket  evidence(PROVED/ASSUMED/UNKNOWN)  resolved_a
    而循环体只检查一遍、没有不动点：body 里看到的是初值（`i == 0`，安全），
    真正越界的那次迭代从来没被检查。`while i < n { arr[i] }` 是遍历的主流写法，
    所以这条缺口覆盖了绝大多数下标访问 —— 它比 B1 的残留判定点严重得多。
-2. **`verify_linear_expr_upper_from_span_len` 的启发式尚未验证**（待查，不敢下结论）。
+2. **`verify_linear_expr_upper_from_span_len` 的启发式已确认可误放行（2026-11-18 修复）**。
    它允许「某个变量的上界 ≤ 数组大小」替代「下标变量自己的上界」，匹配的是
-   `len = end - start` / `p = base + i` 这类惯用法的反向约束。本轮**没有**构造
-   出它单独误放行的负例，所以只把它列为待查项 —— 写进文档的是「有这条风险」，
-   不是「它是 ① 的原因」（① 的原因已确认为「循环体只检查一遍、无不动的约束 +1」）。
+   `len = end - start` / `p = base + i` 这类惯用法的反向约束。**构造出了单独误放行的负例**：
+   ```uya
+   var p: i32 = 0;
+   const end: i32 = 4;
+   const len: i32 = end - p;
+   p = 3;
+   if len > 1 { return g_arr[p + 1]; }   // g_arr 长度 4，实际访问下标 4
+   ```
+   修复前 `--safety-proof` 编译通过；对照组把 `len` 改成常量 4 就会正确报
+   「数组索引安全证明失败」。根因：`len = end - start` 只是**声明时刻**的快照，
+   约束表里的 `len > offset` 不会随 `start` 的后续赋值失效，启发式却拿它当持久等式用。
+   修法（`src/checker/interval.uya`）：只有 `len` 与 `start` 都是不可变符号（`is_const`）
+   时才启用这条启发式，保证声明时的等式在整个作用域成立。
+   负例固化在 `tests/error_span_len_stale_start.uya`，修复后按预期原因失败。
+   这条与 ① 是**独立**的两个洞：① 的原因是「循环体只检查一遍、无不动的约束 +1」。
 
 **① 的修法已实现一半（2026-11-17）**：新增 `--strict-loop-bounds`，
 规则是「进入循环时作废体内被赋值变量的上界；只有当体内每次赋值都是

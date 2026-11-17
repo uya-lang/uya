@@ -485,6 +485,25 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     `make b` 自举字节一致；全量 1212 例全绿。
   - 归属：`src/codegen/c99/expr.uya`。
 
+- [x] **P0：span-length 上界启发式可误放行越界下标（`len = end - start` 的陈旧快照）已修**
+  - 发现 / 修复：2026-11-18。`verify_linear_expr_upper_from_span_len` 允许用
+    「`len > offset` 且 `end ≤ array_size`」证明 `start + offset` 在界内，前提是
+    `len = end - start` 持久成立。实测这个前提会被后续赋值打破：
+    ```uya
+    var p: i32 = 0; const end: i32 = 4; const len: i32 = end - p;
+    p = 3;
+    if len > 1 { return g_arr[p + 1]; }   // g_arr 长度 4，实际下标 4
+    ```
+    修复前 `--safety-proof` **编译通过**；对照组把 `len` 写成常量 4 则正确报
+    「数组索引安全证明失败」，证明是这条启发式单独放行。
+  - 修法：`src/checker/interval.uya` 里只有 `len` 与 `start` 都是不可变符号
+    （`Symbol.is_const != 0`）时才启用该启发式；声明时的等式在整个作用域成立。
+  - 回归：`tests/error_span_len_stale_start.uya` 按预期原因失败
+    （「数组索引安全证明失败」，非溢出/语法错误）。
+  - 验证：`check --safety-proof src/main.uya` 仍 0 错误（未引入误报）；
+    `make b` 字节一致；全量测试全绿；`make unsafe-audit` 基线一致（未新增逃逸口）。
+  - 与循环洞（下一条 P0）是**两个独立缺陷**，不能用这条的修复代替循环证明。
+
 - [ ] **P0 / 高：数组边界证明对「循环里被改写的变量」完全不生效（证明缺口，非误报）**
   - 状态：**默认路径仍未修**；`--strict-loop-bounds` 已实现并给出正确判定（2026-11-17）
   - 已落地的那一半：新增 CLI 开关 `--strict-loop-bounds`。规则是
