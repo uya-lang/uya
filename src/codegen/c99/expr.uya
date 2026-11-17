@@ -10271,6 +10271,26 @@ fn gen_catch_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         }
 }
 
+/// 动态切片下标：生成带运行时边界检查的访问。
+/// checker 无法证明 `idx < slice.len` 时此前直接发 `slice.ptr[idx]`，
+/// 越界读写是实打实的 UB（例如 `fn f(s: &[i32]) i32 { return s[10]; }`
+/// 在 --safety-proof 下编译通过）。这里用 GCC 语句表达式先固定 slice 与 idx，
+/// 再检查（idx 转 uint64_t，负数自然变成巨大值而被拒），最后才索引。
+fn c99_emit_checked_slice_index(codegen: &C99CodeGenerator, base: &ASTNode,
+                                idx: &ASTNode, base_is_pointer: i32) void {
+    // 外层 `*({ ...; &elem; })`：语句表达式内的声明会让它变成 rvalue，
+    // 直接返回元素会让 `&s[i]` / `s[i] = v` 编译失败；返回指针再解引用才是 lvalue。
+    fputs("(*({ __auto_type _uya_sl = (" as *byte, codegen.emit_stream as *void);
+    gen_expr(codegen, base);
+    fputs("); __auto_type _uya_si = (" as *byte, codegen.emit_stream as *void);
+    gen_expr(codegen, idx);
+    if base_is_pointer != 0 {
+        fputs("); if ((uint64_t)_uya_si >= (uint64_t)(_uya_sl->len)) __builtin_trap(); &_uya_sl->ptr[_uya_si]; }))" as *byte, codegen.emit_stream as *void);
+    } else {
+        fputs("); if ((uint64_t)_uya_si >= (uint64_t)(_uya_sl.len)) __builtin_trap(); &_uya_sl.ptr[_uya_si]; }))" as *byte, codegen.emit_stream as *void);
+    }
+}
+
 // 生成数组访问表达式
 fn gen_array_access(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         const array: &ASTNode = expr.array_access_array;
@@ -10303,11 +10323,7 @@ fn gen_array_access(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 fputs("); _uya_translated + _uya_idx; }))" as *byte, codegen.emit_stream as *void);
                 return;
             }
-            fputc(40, codegen.emit_stream as *void);
-            gen_expr(codegen, array);
-            fputs(").ptr[" as *byte, codegen.emit_stream as *void);
-            gen_expr(codegen, index);
-            fputc(93, codegen.emit_stream as *void);
+            c99_emit_checked_slice_index(codegen, array, index, 0);
             return;
         }
         if array.type == ASTNodeType.AST_MEMBER_ACCESS {
@@ -10331,11 +10347,7 @@ fn gen_array_access(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     fputs("); _uya_translated + _uya_idx; }))" as *byte, codegen.emit_stream as *void);
                     return;
                 }
-                fputc(40, codegen.emit_stream as *void);
-                gen_expr(codegen, array);
-                fputs(").ptr[" as *byte, codegen.emit_stream as *void);
-                gen_expr(codegen, index);
-                fputc(93, codegen.emit_stream as *void);
+                c99_emit_checked_slice_index(codegen, array, index, 0);
                 return;
             }
         }
@@ -10363,18 +10375,7 @@ fn gen_array_access(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     fputs("); _uya_translated + _uya_idx; }))" as *byte, codegen.emit_stream as *void);
                     return;
                 }
-                if is_pointer != 0 {
-                    // 指针类型使用 -> 操作符
-                    gen_expr(codegen, array);
-                    fputs("->ptr[" as *byte, codegen.emit_stream as *void);
-                } else {
-                    // 非指针类型使用 . 操作符
-                    fputc(40, codegen.emit_stream as *void);
-                    gen_expr(codegen, array);
-                    fputs(").ptr[" as *byte, codegen.emit_stream as *void);
-                }
-                gen_expr(codegen, index);
-                fputc(93, codegen.emit_stream as *void);
+                c99_emit_checked_slice_index(codegen, array, index, is_pointer);
                 return;
             }
         }

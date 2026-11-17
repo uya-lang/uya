@@ -1,0 +1,21 @@
+// 动态切片下标的运行时边界检查不能影响合法访问。
+// checker 证明不了 `i < s.len`（buglist P0「切片下标」），所以 C 后端发出
+// `__builtin_trap()` 守卫；这里覆盖值切片、切片形参、索引变量与成员切片三种形状。
+
+struct Box {
+    data: &[i32],
+}
+
+fn at(s: &[i32], i: i32) i32 {
+    return s[i];
+}
+
+export fn main() i32 {
+    var a: [i32: 5] = [10, 20, 30, 40, 50];
+    var view: &[i32] = a[0:5];
+    if at(view, 4) != 50 { return 1; }
+    if view[2] != 30 { return 2; }
+    var b: Box = Box{ data: view };
+    if b.data[1] != 20 { return 3; }
+    return 0;
+}

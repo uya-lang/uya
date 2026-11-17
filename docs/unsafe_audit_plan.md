@@ -44,7 +44,7 @@ export UYA_ROOT=$PWD/lib
 [escapes] alloc=33
 ```
 
-审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**309 组 / 38145 站点**
+审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**309 组 / 38139 站点**
 （2026-11-17，迁移前 314 组 / 38166 站点）。
 
 ### 1.1 字段含义与判定口径

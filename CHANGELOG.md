@@ -2,6 +2,18 @@
 
 ## 未发行
 
+### 动态切片下标补上运行时边界检查
+
+checker 证明不了 `idx < s.len`（buglist P0 的切片形参下标缺口），C 后端此前直接发
+`s.ptr[idx]`：`fn f(s: &[i32]) i32 { return s[10]; }` 在 `--safety-proof` 下编译通过，
+运行是静默越界读。现在 `c99_emit_checked_slice_index` 对临时切片、成员切片、
+标识符/形参切片三种访问形状统一发 `__builtin_trap()` 守卫（负索引转 uint64_t
+后自然被拒），越界立即以 SIGILL(132) 终止。静态证明缺口仍在，已如实记在 buglist。
+
+正例 `tests/test_dynamic_slice_bounds_ok.uya` 覆盖三种合法形状。审计闸门按
+「减少即收紧」重新冻结：309 组 / 38139 站点，diff 仅
+`ptr_cast src/codegen/c99/expr.uya 5557 → 5551`（删掉的旧发射代码）。
+
 ### X.509 GeneralizedTime 正例与一处误报更正
 
 新增 `tests/test_x509_generalized_time.uya` 与 2126 年 DER 夹具，验证四位年份
