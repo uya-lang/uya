@@ -3030,6 +3030,13 @@ fn compile_files(
     return 0;
 }
 
+// UPMPackageBuildPlan 内嵌 resolved_graph.deps[128] + lock_items[128]，约 4.6MB。
+// 放在 main_main 栈上时，进程栈硬上限为 8MB 的 Linux 环境会在 upm 依赖解析路径直接
+// 段错误（`run`/`run --vm` 都命中）。移到模块级 BSS，main_main 开头仍按原逻辑初始化，
+// 保持每次调用状态独立。
+var g_package_context: UPMPackageContext = UPMPackageContext{};
+var g_package_build_plan: UPMPackageBuildPlan = UPMPackageBuildPlan{};
+
 /// 编译器主程序入口。
 /// 参数说明：无。
 /// 返回值说明：返回整个 `uya` 命令的进程退出码。
@@ -3329,12 +3336,13 @@ export fn main() i32 {
         }
         split_c_lock_held = 1;
     }
-    var package_context: UPMPackageContext = upm_package_context_init();
-    var package_build_plan: UPMPackageBuildPlan = upm_build_plan_init();
+    // 这两个模块级全局在进程启动时已零初始化，与各自的 *_init() 返回值等价。
+    // 不再在此赋值：编译器会为 4.6MB 的 struct 返回值在 main_main 栈上留临时槽，
+    // 把刚省下的栈又吃回去。
     var package_build_plan_needs_cleanup: i32 = 0;
     defer {
         if package_build_plan_needs_cleanup != 0 {
-            _ = upm_build_plan_cleanup(&package_build_plan);
+            _ = upm_build_plan_cleanup(&g_package_build_plan);
             package_build_plan_needs_cleanup = 0;
         }
     }
@@ -3343,8 +3351,8 @@ export fn main() i32 {
     if prepare_package_context_for_command(
         command,
         &input_files,
-        &package_context,
-        &package_build_plan,
+        &g_package_context,
+        &g_package_build_plan,
         &package_build_plan_needs_cleanup,
         &input_paths_override
     ) != 0 {

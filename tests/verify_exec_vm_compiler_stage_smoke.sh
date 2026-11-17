@@ -56,4 +56,23 @@ echo "验证 --no-safety-proof 路线可完成 src/main.uya exec VM usage 路径
 verify_src_main_vm_usage_path "no-safety-proof" --no-safety-proof
 echo "  no-safety-proof src/main.uya --vm usage path ✓"
 
+# 8MB 栈硬上限是 Linux 常见默认值。编译器若把 UPMPackageBuildPlan 这类 4.6MB
+# 结构留在 main_main 栈上，会在 upm 依赖解析路径直接 SIGSEGV（rc=139）。
+# 这里在受限栈下重跑同一条 usage 路径，防止该回归再次引入。
+echo "验证 8MB 栈上限下 src/main.uya --vm usage 路径不崩溃..."
+if (ulimit -s 8192) 2>/dev/null; then
+    set +e
+    (ulimit -s 8192; "$TMP_COMPILER" run --vm src/main.uya >"$TMP_STDOUT" 2>"$TMP_STDERR")
+    low_stack_status=$?
+    set -e
+    if [ "$low_stack_status" -ne 1 ]; then
+        echo "✗ 8MB 栈下 staged smoke 返回意外状态 $low_stack_status（139 表示段错误）"
+        cat "$TMP_STDERR"
+        exit 1
+    fi
+    echo "  8MB 栈 src/main.uya --vm usage path ✓"
+else
+    echo "  当前环境不支持调整栈上限，跳过"
+fi
+
 echo "✓ exec vm compiler staged smoke passed"
