@@ -20,6 +20,7 @@ use cmd.upm.upm_lib.types.UPMGitRefKind;
 use cmd.upm.upm_lib.types.UPMDependency;
 use cmd.upm.upm_lib.types.UPMManifest;
 use cmd.upm.upm_lib.types.upm_manifest_init;
+use cmd.upm.upm_lib.types.upm_manifest_init_into;
 use cmd.upm.upm_lib.path_utils.upm_bytes_copy;
 use cmd.upm.upm_lib.path_utils.upm_trim_copy;
 use cmd.upm.upm_lib.path_utils.upm_ascii_is_space;
@@ -328,7 +329,7 @@ export fn upm_parse_manifest(manifest_path: &byte, manifest_out: &UPMManifest) i
     if manifest_path == null || manifest_out == null {
         return 1;
     }
-    manifest_out[0] = upm_manifest_init();
+    upm_manifest_init_into(manifest_out);
     if upm_realpath_or_copy(manifest_path, &manifest_out.manifest_path[0] as &byte, UPM_PATH_MAX) != 0 {
         fprintf(libc.stderr, "错误: 无法规范化 manifest 路径: %s\n" as *byte, manifest_path as *byte);
         return 1;

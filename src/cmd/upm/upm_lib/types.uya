@@ -1,4 +1,5 @@
 use version;
+use libc.memset;
 use cmd.upm.upm_lib.types.UPM_PATH_MAX;
 use cmd.upm.upm_lib.types.UPM_LINE_MAX;
 use cmd.upm.upm_lib.types.UPM_CMD_MAX;
@@ -194,4 +195,27 @@ export fn upm_manifest_init() UPMManifest {
 
 export fn upm_build_plan_init() UPMPackageBuildPlan {
     return UPMPackageBuildPlan{};
+}
+
+/// 就地初始化 UPMManifest。按值返回的 upm_manifest_init() 会让调用方在栈上
+/// 留下 2.3MB 的返回值临时槽；package 路径在 8MB 栈上限下因此段错误。
+/// 参数：`out` 为待初始化结构地址，必须为非空。
+/// 返回值：无。
+export fn upm_manifest_init_into(out: &UPMManifest) void {
+    if out == null {
+        return;
+    }
+    memset(out as *byte, 0, @size_of(UPMManifest));
+    out.source_dir[0] = '.' as byte;
+    out.source_dir[1] = 0 as byte;
+}
+
+/// 就地初始化 UPMPackageBuildPlan，避免按值返回 4.6MB 结构产生的栈上临时槽。
+/// 参数：`out` 为待初始化结构地址，必须为非空。
+/// 返回值：无。
+export fn upm_build_plan_init_into(out: &UPMPackageBuildPlan) void {
+    if out == null {
+        return;
+    }
+    memset(out as *byte, 0, @size_of(UPMPackageBuildPlan));
 }
