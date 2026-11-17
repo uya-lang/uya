@@ -26,26 +26,29 @@ export UYA_ROOT=$PWD/lib
 ./bin/uya check --lifetime-report src/main.uya 2>&1 | grep -E '^\[(lifetime|escapes)\]'
 ```
 
-**实测（2026-11-17，`src/main.uya` 依赖闭包，`alloc` 迁移之后）：**
+**实测（2026-11-18，`src/main.uya` 依赖闭包，最新编译器复跑）：**
 
 ```
-[lifetime] functions=3234
-[lifetime] req_total=3078 req_resolved=2668 req_unresolved=410
+[lifetime] functions=3245
+[lifetime] req_total=3081 req_resolved=2671 req_unresolved=410
 [lifetime] req_param_null=2582
-[lifetime] req_div_zero=496
+[lifetime] req_div_zero=499
 [lifetime] returns_local=0
-[lifetime] summary_unknown=2969
-[lifetime] call_sites=35796 call_resolved=5156
+[lifetime] summary_unknown=2986
+[lifetime] call_sites=35832 call_resolved=5171
 [escapes] extern_fn=511 extern_var=386
 [escapes] asm=8
 [escapes] union=1 extern_union=0
 [escapes] ptr_int=197
-[escapes] ptr_cast=35548
+[escapes] ptr_cast=35558
 [escapes] alloc=33
 ```
 
+（`ptr_cast` 相对 2026-11-17 的 35548 净增 10，是本轮多次检查器/后端改动的累计；
+每一次都过了白名单闸门并单独解释过 diff。真正危险的 `ptr_int` 与 `alloc` 不变。）
+
 审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**309 组 / 38139 站点**
-（2026-11-17，迁移前 314 组 / 38166 站点）。
+（2026-11-18 复跑，迁移前 314 组 / 38166 站点）。
 
 ### 1.1 字段含义与判定口径
 
