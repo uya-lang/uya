@@ -13,7 +13,9 @@ use cmd.upm.upm_lib.types.UPM_CMD_MAX;
 use cmd.upm.upm_lib.types.UPMPackageBuildPlan;
 use cmd.upm.upm_lib.types.UPMManifest;
 use cmd.upm.upm_lib.types.upm_build_plan_init;
+use cmd.upm.upm_lib.types.upm_build_plan_init_into;
 use cmd.upm.upm_lib.types.upm_manifest_init;
+use cmd.upm.upm_lib.types.upm_manifest_init_into;
 use cmd.upm.upm_lib.path_utils.upm_exit_code_from_system_status;
 use cmd.upm.upm_lib.path_utils.upm_string_copy;
 use cmd.upm.upm_lib.path_utils.upm_path_parent_dir;
@@ -206,7 +208,7 @@ export fn upm_prepare_build_plan_ex(input_path: &byte, manifest_override: &byte,
     if input_path == null || plan_out == null {
         return 1;
     }
-    plan_out[0] = upm_build_plan_init();
+    upm_build_plan_init_into(plan_out);
     var cleanup_on_fail: i32 = 0;
     defer {
         if cleanup_on_fail != 0 {
@@ -218,7 +220,8 @@ export fn upm_prepare_build_plan_ex(input_path: &byte, manifest_override: &byte,
         return 0;
     }
 
-    var root_manifest: UPMManifest = upm_manifest_init();
+    var root_manifest: UPMManifest = UPMManifest{};
+    upm_manifest_init_into(&root_manifest);
     if upm_parse_manifest(&manifest_path[0] as &byte, &root_manifest) != 0 {
         return 1;
     }
@@ -336,13 +339,14 @@ export fn upm_prepare_package_graph_plan(input_path: &byte, manifest_override: &
     if input_path == null || plan_out == null {
         return 1;
     }
-    plan_out[0] = upm_build_plan_init();
+    upm_build_plan_init_into(plan_out);
     var manifest_path: [byte: UPM_PATH_MAX] = [];
     if upm_resolve_manifest_path(input_path, manifest_override, &manifest_path[0] as &byte) != 0 {
         return 0;
     }
 
-    var root_manifest: UPMManifest = upm_manifest_init();
+    var root_manifest: UPMManifest = UPMManifest{};
+    upm_manifest_init_into(&root_manifest);
     if upm_parse_manifest(&manifest_path[0] as &byte, &root_manifest) != 0 {
         return 1;
     }
