@@ -232,8 +232,8 @@ http / websocket / tls / jpeg / kernel / tflm 这些模块编译器根本不导�
 ### 3.4 判据（可复跑）
 
 ```sh
-./bin/uya check --escape-list src/main.uya 2>&1 | grep -c '^\[escape\]'   # 单根 36721
-./tests/verify_unsafe_audit.sh      # 41 个根取并集，38166 站点 / 314 组；基线一致 ✓
+./bin/uya check --escape-list src/main.uya 2>&1 | grep -c '^\[escape\]'   # 单根 36694（2026-11-18 实测）
+./tests/verify_unsafe_audit.sh      # 41 个根取并集，38139 站点 / 309 组；基线一致 ✓
 ./tests/verify_unsafe_audit.sh --update                                 # 重新冻结
 ```
 
