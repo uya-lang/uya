@@ -2,6 +2,14 @@
 
 ## 未发行
 
+### 跨函数非空义务沿调用链传播
+
+`fn outer(p: &i32) { inner(p); }` 配 `fn inner(p: &i32) { return p[0]; }` 时，
+此前 `outer(null)` 能通过检查，因为 requirement 只看被调方自己是否解引用。
+`lifetime_scan_param_calls` 现在沿具名直接调用链传播非空义务（深度上限 3 防环），
+负例 `tests/error_param_null_transitive.uya` 按预期失败。局部别名、可变全局、
+方法调用/函数指针仍未覆盖，buglist ⑥ 如实保留开放。
+
 ### 跨函数非空义务认出全局 const null
 
 B2 在调用点此前只认字面量 `null`：`fn f(p: &i32) { return p[0]; }` 配

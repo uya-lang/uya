@@ -1,0 +1,15 @@
+// 负例：跨函数 B2 的非空义务沿调用链传播。
+// outer 自己不解引用 p，但把 p 原样传给会直接 p[0] 的 inner；
+// 因此 outer(null) 也必须被拒绝。传播深度有限（防递归环），见 buglist ⑥。
+
+fn inner(p: &i32) i32 {
+    return p[0];
+}
+
+fn outer(p: &i32) i32 {
+    return inner(p);
+}
+
+export fn main() i32 {
+    return outer(null);
+}

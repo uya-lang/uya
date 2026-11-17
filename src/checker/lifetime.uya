@@ -1245,10 +1245,98 @@ fn lifetime_binary_is_null_guard(a: &ASTNode, b: &ASTNode, name: &byte) i32 {
     return lifetime_expr_is_null_literal(b);
 }
 
+/// 扫描 fn 体内把 `name` 原样传给另一个函数的位置；若被调方对应形参需要非空，
+/// 则 `name` 也继承这条 requirement（跨函数传递，buglist ⑥ 的未覆盖形态之一）。
+/// `depth` 限制递归层数，防止互相调用形成环；只认具名函数的直接调用。
+fn lifetime_scan_param_calls(checker: &TypeChecker, node: &ASTNode, name: &byte, depth: i32) i32 {
+    if checker == null || node == null || name == null || depth <= 0 {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_FN_DECL {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        const callee: &ASTNode = node.call_expr_callee;
+        if callee != null && callee.type == ASTNodeType.AST_IDENTIFIER && callee.identifier_name != null {
+            const sig: &FunctionSignature = function_table_lookup(checker, callee.identifier_name);
+            if sig != null && sig.decl_node != null && sig.decl_node.type == ASTNodeType.AST_FN_DECL {
+                var j: i32 = 0;
+                while j < node.call_expr_arg_count && j < sig.decl_node.fn_decl_param_count {
+                    const arg: &ASTNode = node.call_expr_args[j];
+                    if arg != null && arg.type == ASTNodeType.AST_IDENTIFIER &&
+                        arg.identifier_name != null && str_equals(arg.identifier_name, name) != 0 {
+                        if lifetime_fn_param_requires_nonnull(checker, sig.decl_node, j, depth - 1) != 0 {
+                            return 1;
+                        }
+                    }
+                    j = j + 1;
+                }
+            }
+        }
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            if lifetime_scan_param_calls(checker, node.block_stmts[i], name, depth) != 0 { return 1; }
+            i = i + 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        return lifetime_scan_param_calls(checker, node.if_stmt_condition, name, depth) |
+               lifetime_scan_param_calls(checker, node.if_stmt_then_branch, name, depth) |
+               lifetime_scan_param_calls(checker, node.if_stmt_else_branch, name, depth);
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        return lifetime_scan_param_calls(checker, node.while_stmt_condition, name, depth) |
+               lifetime_scan_param_calls(checker, node.while_stmt_body, name, depth);
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        return lifetime_scan_param_calls(checker, node.for_stmt_array, name, depth) |
+               lifetime_scan_param_calls(checker, node.for_stmt_range_start, name, depth) |
+               lifetime_scan_param_calls(checker, node.for_stmt_range_end, name, depth) |
+               lifetime_scan_param_calls(checker, node.for_stmt_body, name, depth);
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        return lifetime_scan_param_calls(checker, node.assign_dest, name, depth) |
+               lifetime_scan_param_calls(checker, node.assign_src, name, depth);
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        return lifetime_scan_param_calls(checker, node.return_stmt_expr, name, depth);
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        return lifetime_scan_param_calls(checker, node.var_decl_init, name, depth);
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        var ci: i32 = 0;
+        while ci < node.call_expr_arg_count {
+            if lifetime_scan_param_calls(checker, node.call_expr_args[ci], name, depth) != 0 { return 1; }
+            ci = ci + 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        return lifetime_scan_param_calls(checker, node.binary_expr_left, name, depth) |
+               lifetime_scan_param_calls(checker, node.binary_expr_right, name, depth);
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        return lifetime_scan_param_calls(checker, node.unary_expr_operand, name, depth);
+    }
+    if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return lifetime_scan_param_calls(checker, node.member_access_object, name, depth);
+    }
+    if node.type == ASTNodeType.AST_ARRAY_ACCESS {
+        return lifetime_scan_param_calls(checker, node.array_access_array, name, depth) |
+               lifetime_scan_param_calls(checker, node.array_access_index, name, depth);
+    }
+    return 0;
+}
+
 /// 判定 `fn_decl` 的第 `param_index` 个形参是否构成一条「非空」requirement。
-/// 参数：checker - 类型检查器；fn_decl - 被调方函数声明；param_index - 形参下标（0 基）。
+/// 参数：checker - 类型检查器；fn_decl - 被调方函数声明；param_index - 形参下标（0 基）；
+///       depth - 剩余的跨函数传播层数（防环）。
 /// 返回：1 表示该形参需要调用点保证非空，0 表示不需要（或证不出）。
-fn lifetime_fn_param_requires_nonnull(checker: &TypeChecker, fn_decl: &ASTNode, param_index: i32) i32 {
+fn lifetime_fn_param_requires_nonnull(checker: &TypeChecker, fn_decl: &ASTNode, param_index: i32, depth: i32) i32 {
     if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
         return 0;
     }
@@ -1272,10 +1360,14 @@ fn lifetime_fn_param_requires_nonnull(checker: &TypeChecker, fn_decl: &ASTNode, 
     if saw_guard != 0 {
         return 0;   // 被调方自己做了 null 守卫 → 形参可空，不产生 requirement
     }
-    if saw_deref == 0 {
-        return 0;   // 没解引用 → 没有非空需求
+    if saw_deref != 0 {
+        return 1;
     }
-    return 1;
+    // 直接用法里没有解引用，但可能原样传给另一个需要非空的形参。
+    if depth <= 0 {
+        return 0;   // 传播深度用尽，宁漏勿假
+    }
+    return lifetime_scan_param_calls(checker, fn_decl.fn_decl_body, param.var_decl_name, depth - 1);
 }
 
 /// 在调用点付账：实参是字面量 `null` 且被调方需要该形参非空时报错。
@@ -1315,7 +1407,7 @@ fn lifetime_check_call_null_args(checker: &TypeChecker, node: &ASTNode) void {
     while i < count {
         const arg: &ASTNode = node.call_expr_args[i];
         if arg != null && lifetime_expr_is_known_null(checker, arg) != 0 {
-            if lifetime_fn_param_requires_nonnull(checker, fn_decl, i) != 0 {
+            if lifetime_fn_param_requires_nonnull(checker, fn_decl, i, 3) != 0 {
                 checker.lifetime_last_null_arg_node = node;
                 lifetime_report_param_null(checker, 0);
                 checker_report_error(checker, arg,
