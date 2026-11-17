@@ -1,0 +1,39 @@
+// GeneralizedTime（≥ 2050 的 notAfter，四位数年份）正例。
+// buglist 里「四位年份用 byte 算术会回绕」的条目经实测不成立（减法结果先提升
+// 成 i32 再乘加），因此这里只固化正确行为，不改 cert.uya：
+// 夹具是自签名 RSA 证书，notAfter = Oct 24 15:39:10 2126 GMT = 4948529950。
+// 同时顺带覆盖 i64 宽字面量（4948529950 > INT32_MAX）在断言里的正确发射。
+
+use std.testing.assert_eq_i64;
+use tls.x509.cert;
+
+const DER: &[const byte] = @embed("fixtures/x509/generalized.der");
+
+fn check() !i32 {
+    var c: Cert = Cert{
+        der: DER.ptr,
+        der_len: DER.len,
+        tbs_offset: 0,
+        tbs_len: 0,
+        tbs_tlv_len: 0,
+        serial: [0:32],
+        serial_len: 0,
+        sig_oid: [0:24],
+        sig_oid_len: 0,
+        sig: [0:512],
+        sig_len: 0,
+        rsa_n: [0:512],
+        rsa_n_len: 0,
+        rsa_e: [0:8],
+        rsa_e_len: 0,
+    };
+    try cert_parse(DER.ptr, DER.len, &c);
+    try cert_parse_validity(&c);
+    try assert_eq_i64(c.not_after, 4948529950);
+    return 0;
+}
+
+export fn main() i32 {
+    const r: i32 = check() catch |_| { 1; };
+    return r;
+}

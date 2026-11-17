@@ -1088,14 +1088,18 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - 范围说明：这修的是**折叠导致的截断**；无后缀字面量在纯 i32 上下文里的回绕语义未变，
     也不试图改变。
 
-- [ ] **P2：`parse_asn1_time` 的 GeneralizedTime 四位年份用 byte 算术计算**
-  - 状态：**未修复**（2026-11-15 记录；测试夹具已限定在 UTCTime 窗口规避）
-  - 现象：`lib/tls/x509/cert.uya` 的 `parse_asn1_time` 在 GeneralizedTime 分支里
-    `(data[0] - '0') * 1000 + ...` 先做 8 位算术再 `as i64`，年份算错；于是 notBefore/notAfter
-    ≥ 2050 的证书时间被解析成垃圾值（实测 OpenSSL 生成的 2126 年证书被判「已过期」）。
-  - 建议：先升到 i64 再乘加（`(data[0] as i64 - 48) * 1000`），并补一条 GeneralizedTime 单测。
-  - 连带：`tests/fixtures/x509/` 的测试链有效期刻意落在 2049 年之前（UTCTime），
-    该欠账修好后可以放宽。
+- [x] **P2（误报，实测不成立）：`parse_asn1_time` 的 GeneralizedTime 四位年份用 byte 算术计算**
+  - 2026-11-15 记录时怀疑 `(data[0] - '0') * 1000 + ...` 先做 8 位算术再 `as i64`
+    会让 ≥ 2050 的年份回绕；建议改成先升 i64。
+  - 2026-11-18 实测证伪：用 OpenSSL 生成 notAfter = 2126-10-24 的自签名证书
+    （`tests/fixtures/x509/generalized.der`），原样 `cert.uya` 解析出
+    4948529950，与 `date -u -d` 一致；把年份替换成常量 1234 才会得到 25630750，
+    证明断言确实走的是 GeneralizedTime 分支。Uya 的 `byte - byte` 先提升为 i32
+    再乘加，不存在 8 位回绕。
+  - 处置：**不改 `cert.uya`**（避免把无效「修复」混入变更）；新增正例
+    `tests/test_x509_generalized_time.uya` 固化正确行为，并顺带覆盖
+    i64 宽字面量 4948529950 在断言里的发射。旧记录里「测试链限定 2049 年前」
+    的说法也一并作废 —— 不是因为该 bug。
 
 - [x] **P0 / 严重：macos-ci `make tests-hosted` 31 个用例失败 —— `ptsname` ABI 撞车、nostdlib 目标越界、x86 屏障助记符、Linux 信号常量**
   - 状态：**已修复**（2026-10-24；依据 `macos-ci-1024-log.txt`：1031 用例 / 31 失败）

@@ -2,6 +2,13 @@
 
 ## 未发行
 
+### X.509 GeneralizedTime 正例与一处误报更正
+
+新增 `tests/test_x509_generalized_time.uya` 与 2126 年 DER 夹具，验证四位年份
+（`GENERALIZEDTIME`）解析出正确的 i64 时间戳 4948529950，并覆盖宽字面量断言。
+buglist 中「四位年份 byte 算术回绕」的条目经实测不成立（`byte - byte` 先提升为
+i32），已标为误报且不改 `cert.uya`，避免把无效变更混入。
+
 ### 宽整数字面量不再被常量折叠截断
 
 `ASTNode.optimized_value` 只有 i32，`gen_expr` 曾对含超 i32 字面量的表达式直接输出折叠值：
