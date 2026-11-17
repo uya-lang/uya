@@ -1427,6 +1427,28 @@ fn c99_expr_is_amp_over_slice_expr(expr: &ASTNode) i32 {
     return 1;
 }
 
+/// 为 `return` 位置的隐式装箱发射「进程寿命 + 兼容 async_box_free_current 头」的分配。
+///
+/// 不能只发 `__builtin_malloc(sizeof(T))`：`async_box_free_current(ptr)` 会读
+/// `ptr[-2*sizeof(size_t)]` 里的 allocator 指针来决定用 frame allocator 还是 libc free。
+/// 所以这里手动写那 16 字节头：allocator = 0（释放时走 libc free），size = sizeof(T)。
+/// 内存来自 malloc ⇒ 进程寿命 ⇒ 返回的接口值跨帧不会悬垂；不引用 std.async ⇒ 不链也能链接。
+/// 用 interp_fill_counter 取唯一编号，避免同一函数里两个 return 分支的临时名冲突。
+fn c99_emit_owned_interface_box(codegen: &C99CodeGenerator, safe_struct: &byte) void {
+    const uid: i32 = codegen.interp_fill_counter;
+    codegen.interp_fill_counter = codegen.interp_fill_counter +| 1;
+    c99_emit_indent(codegen);
+    fprintf(codegen.emit_stream as *void, "void *_uya_owned_raw_%d = __builtin_malloc(sizeof(struct %s) + 2 * sizeof(size_t));\n" as *byte,
+        uid, safe_struct as *byte);
+    c99_emit_indent(codegen);
+    fprintf(codegen.emit_stream as *void, "struct %s *_uya_box = (struct %s *)0;\n" as *byte,
+        safe_struct as *byte, safe_struct as *byte);
+    c99_emit_indent(codegen);
+    fprintf(codegen.emit_stream as *void,
+        "if (_uya_owned_raw_%d != (void*)0) { ((size_t*)_uya_owned_raw_%d)[0] = 0; ((size_t*)_uya_owned_raw_%d)[1] = sizeof(struct %s); _uya_box = (struct %s *)((char*)_uya_owned_raw_%d + 2 * sizeof(size_t)); }\n" as *byte,
+        uid, uid, uid, safe_struct as *byte, safe_struct as *byte, uid);
+}
+
 fn gen_return_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     const expr: &ASTNode = stmt.return_stmt_expr;
     var is_error_return: i32 = 0;
@@ -1707,10 +1729,8 @@ fn gen_return_normal(codegen: &C99CodeGenerator, expr: &ASTNode, return_type: &A
                 }
                 const safe_iface: &byte = get_safe_c_identifier(codegen, iface_mono);
                 const safe_struct: &byte = get_safe_c_identifier(codegen, struct_mono);
-                codegen.needs_stdlib_h = 1;
-                c99_emit_indent(codegen);
-                fprintf(codegen.emit_stream as *void, "struct %s *_uya_box = (struct %s *)std_async_box_alloc_current(sizeof(struct %s));\n" as *byte,
-                    safe_struct as *byte, safe_struct as *byte, safe_struct as *byte);
+                // return 位置的隐式装箱必须活过当前帧（详见 c99_emit_owned_interface_box）。
+                c99_emit_owned_interface_box(codegen, safe_struct);
                 c99_emit_indent(codegen);
                 fprintf(codegen.emit_stream as *void, "if (_uya_box != (void*)0) { *_uya_box = " as *byte);
                 gen_expr(codegen, expr);
@@ -1988,9 +2008,8 @@ fn gen_return_error_union(codegen: &C99CodeGenerator, expr: &ASTNode, return_typ
                         }
                         const safe_iface: &byte = get_safe_c_identifier(codegen, iface_mono);
                         const safe_struct: &byte = get_safe_c_identifier(codegen, struct_mono);
-                        codegen.needs_stdlib_h = 1;
-                        fprintf(codegen.emit_stream as *void, "struct %s *_uya_box = (struct %s *)std_async_box_alloc_current(sizeof(struct %s));\n" as *byte,
-                            safe_struct as *byte, safe_struct as *byte, safe_struct as *byte);
+                        // 错误联合里的接口载荷同样要活过当前帧。
+                        c99_emit_owned_interface_box(codegen, safe_struct);
                         c99_emit_indent(codegen);
                         fprintf(codegen.emit_stream as *void, "if (_uya_box != (void*)0) { *_uya_box = " as *byte);
                         gen_expr(codegen, expr);

@@ -322,6 +322,28 @@ union 的活跃变体不可静态确定 → 读写变体字段一律 `UNKNOWN`�
 （`lib/std/async_scheduler.uya:708`，全树唯一的接口返回函数）与它的调用点）。
 在没定下这条所有权规则前加判定，只会让 `return *pool;` 这类合法转发一起变红。
 
+**收口（2026-11-18）：先用「进程寿命分配」把 UB 消掉，所有权规则留作后续优化。**
+最小且安全的取舍：只改 `return` 位置的**两个**隐式装箱点
+（`src/codegen/c99/stmt.uya` 的普通返回与错误联合载荷返回），生成的分配由
+`std_async_box_alloc_current` 改为 `__builtin_malloc(sizeof(T) + 16)`，
+并手写与 `async_box_free_current` 兼容的 16 字节头
+（`header[0]=0` ⇒ 释放走 libc free，`header[1]=sizeof(T)`）。头是必需的：
+只发裸 malloc 会让 54 个 async 测试在释放时读野指针而 SIGSEGV（已实测并修正）。
+
+- 缺陷 1 消失：不再引用 `std.async` 符号，用户程序不导入它也能链接；
+- 缺陷 2 消失：返回出去的接口 `data` 指针不再指向会被帧池回收的 bucket；
+- async **future** 的装箱（`stmt.uya:1394`、`function.uya:6186/6190`）保持原路径 ——
+  它们有配对的 `async_box_free_current`，依赖帧池回收；
+- 代价：返回的接口 box **没有 free 路径**（受控泄漏）。在零 GC 且没有接口所有权跟踪
+  的前提下，这是「泄漏」与「悬垂 UB」之间唯一安全的选择；把它升格为带 refcount /
+  调用方显式 `box` 的正式所有权规则，是后续工作，不阻塞当前的 UB 收口。
+
+因此 B1 的「装箱局部接口值返回」缺口现在是**已修**，不再是「防回归」清单里的洞。
+回归 `tests/test_interface_box_return.uya` 修复前链接失败（rc=1），
+修复后 64 次跨函数返回 + 虚方法调用全部正确（rc=0）。
+注意 exec（VM）后端对该表达式形态仍报 `无法为表达式构造地址`，与本次修复无关，
+属于 VM 的 boxing 支持缺口。
+
 ---
 
 ## 6 可证性与量化方法
@@ -500,7 +522,7 @@ buglist ⑥ 记录：取消「形参恒非空」后，908 个测试里 361 个�
 | **P0 度量** | `--lifetime-report`（只算不报）：origin 传播 + 摘要计算 + 按文件导出 §6.2 字段 | 4 | 两次运行报告 diff = 0；`make check` 一字不变 |
 | **P1 地基** | `scope_id` + Origin 格 + transfer 表 + `Symbol` 三字段；`#len(x)` 符号与差分约束（与 array plan B 共用） | 8 | 单函数逃逸可判：`fn mk() &[i32] { var b: [i32: 4] = [1,2,3,4]; return &b[0:4]; }` 报错 |
 | **B1** | 三处判定点接上（`return` / 写更长寿命容器 / 传参）；`STATIC`/`PARAM` 放行 | 6 | buglist P1 → `[x]`；3 个 repro 升级为负例 |
-| ↳ 实测（return） | 2026-11-16 **return 判定点落地（收窄版）**：`lifetime_check_return_escape` 认三种形态 —— ①`return &x` / `&arr[i]` / `&s.f`；②对局部数组开窗的切片 `return buf[a:b]`；③按值返回**元素含指针**的局部数组 | 负例 `error_return_local_addr`、`error_return_local_array_elem_addr`、`error_return_local_slice`、`error_return_local_ptr_array` 均按预期原因失败 | 放行面：形参来源（`fn f(s: &[i32: 4]) &[i32] { return s[1:3]; }`）、纯标量数组按值返回、局部指针变量转存后返回 | §6.3 熔断记录在案：把「局部指针变量的值」纳入判定时自举爆 231 处误报，故 origin 表对指针符号一律 `UNKNOWN` | 未做：写更长寿命容器（见下行）、装箱局部接口值返回（见下方「装箱接口值」）、传参判定点 |
+| ↳ 实测（return） | 2026-11-16 **return 判定点落地（收窄版）**：`lifetime_check_return_escape` 认三种形态 —— ①`return &x` / `&arr[i]` / `&s.f`；②对局部数组开窗的切片 `return buf[a:b]`；③按值返回**元素含指针**的局部数组 | 负例 `error_return_local_addr`、`error_return_local_array_elem_addr`、`error_return_local_slice`、`error_return_local_ptr_array` 均按预期原因失败 | 放行面：形参来源（`fn f(s: &[i32: 4]) &[i32] { return s[1:3]; }`）、纯标量数组按值返回、局部指针变量转存后返回 | §6.3 熔断记录在案：把「局部指针变量的值」纳入判定时自举爆 231 处误报，故 origin 表对指针符号一律 `UNKNOWN` | 未做：传参判定点；写更长寿命容器见下行（可证一侧已接）；装箱局部接口值返回**已修**（§5.9 收口，走进程寿命分配，不再是判定点缺口） |
 | ↳ 实测（store） | 2026-11-17 **写更长寿命容器判定点落地（可证的一侧）**：`lifetime_check_store_escape` 挂进赋值，只在「来源 origin = `LOCAL` **且** 容器是全局变量 / 全局对象字段」时报错 | 负例 `tests/error_store_local_addr_to_global.uya`（`g_slot = &x`）按预期原因失败；正例 `tests/test_store_escape_positive.uya` 四形态（局部→局部、内层→外层局部字段、`STATIC`→全局、纯值赋值）全过 | 全树零误报：`uya check src/main.uya` 错误 0、**3.47 s**（接判定前 4.0 s 量级）；`make b` 自举**字节一致** | 本轮抓出两个真 bug：①`lifetime_origin_of_value` 与 `lifetime_origin_of_expr` 对「读字段/读元素」**互相递归**（没记忆化 → `check src/main.uya` 不返回、随后栈溢出 rc=139），改为非标识符一律 `UNKNOWN` + 摘要加深度闸门（8 层）；②字段分支判定**方向反了**（`origin_outlives(container, src) == 0` 才报 = 专报安全的那一侧），改为只认「容器 `STATIC`」 | 明确**放行**（= 洞还在，见 §5）：`PARAM → 全局`（编译器自身 4 处主流写法：`g_compiler_arena_failure_key = key` 等）、`LOCAL → 局部容器字段`（需字段级逃逸分析）、`arr[i] = e`（切片 origin 拿不到）、来源为调用表达式（会把函数摘要拖进互相递归，且被调方 return 判定点已判过） |
 | **B3** | 非零义务 → `--strict-div` 翻默认 | 10 | `make check` 零回归；111 处逐点处理；`tests/verify_strict_div.sh` 扩成四断言 |
 | ↳ 实测 | 2026-11-16 **已落地并翻默认** | `src/` 87 → 0（七类清账：容量取模走 `dyn_table_slot_of` 32 处、证明器消费 `CONSTRAINT_NE`、非零证明改为只需单侧端点、判零落到局部名、链式对齐走 `c99_layout_align_up_i32`、`@size_of` 按形态直接认、6 处单点） | `lib/` 12 → 0（jpeg/async/thread 一律「落局部 + 正分支包裹」） | `g_strict_div` 默认 1，`--no-strict-div` 保留；测试语料按 `--strict-overflow` 同一约定显式豁免 | `tests/verify_strict_div.sh` 扩成四断言；默认模式 `check src/main.uya` 错误 0；`make uya` 自举通过；`error_const_*_zero` 负例仍失败 | §6.3 未触发：全程零误报，全部清账都是「让判定看得见」，没有放宽规则 |

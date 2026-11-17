@@ -2,6 +2,32 @@
 
 ## 未发行
 
+### B1 收口：装箱局部接口值返回不再悬垂，也不再链接失败
+
+`fn make() IWriter { const s: Console = ...; return s; }` 这个 B1 缺口此前是**两个独立缺陷**：
+
+- 不 `use std.async` 时：C 后端生成 `std_async_box_alloc_current(...)`，符号不在链接闭包里
+  —— 实测 `uya run` 报 `undefined reference to std_async_box_alloc_current`（rc=1）；
+- 链上 `std.async` 后：这块内存来自 async frame pool，`async_frame_pool_reset` 会回收
+  —— 跨帧返回后接口值的 `data` 指针悬垂（真 UB）。
+
+修法（只改 `src/codegen/c99/stmt.uya` 的**两个 return 位置**装箱点）：改成
+`__builtin_malloc(sizeof(T) + 16)` 并手写与 `async_box_free_current` 兼容的 16 字节头
+（`header[0]=0` ⇒ 释放走 libc free，`header[1]=sizeof(T)`）。
+注意头是必需的：第一次尝试只发裸 malloc，54 个 async 测试立刻 SIGSEGV —— 释放侧要读这个头。
+async **future** 的装箱保持帧池路径 —— 它们有配对的 `async_box_free_current`，回收语义是刻意设计。
+
+代价如实记录：返回的接口 box 没有 free 路径，是受控泄漏；在零 GC、无接口所有权跟踪的前提下，
+这是「泄漏」与「悬垂 UB」之间唯一安全的选择。正式所有权规则（显式 box / refcount）留作后续。
+后端内建的 malloc **不在 Uya AST 里**，所以 `--escape-list` 的 `alloc` 不因此增加 ——
+审计边界已写进 `docs/unsafe_audit_plan.md` §1.1。
+审计闸门因新增的格式化字符串 cast 重新冻结：`ptr_cast src/codegen/c99/stmt.uya 1234 → 1235`
+（纯类型重解释，不产生新地址），全量 309 组 / 38130 站点。
+
+回归 `tests/test_interface_box_return.uya`：修复前链接失败（rc=1），修复后 C99 后端
+64 次跨函数返回 + 虚方法调用全对（rc=0）。exec（VM）后端对该形态仍报
+`无法为表达式构造地址`，是独立的 VM boxing 缺口，已记在 buglist/证明计划。
+
 ### C99 后端字符串插值三连修：静默空指针 / 栈溢出 / 读越界
 
 一轮交叉验证把 `STRING_INTERP` 这条路径整个查了一遍，三个都是**真 UB**：
@@ -44,7 +70,7 @@ VM 的 guest 堆 12、fork 后子进程缓冲 1 是设计内（28）；`src/exec
 **正确成对**（init/realloc/free 同作用域），本轮还补上了原先漏掉的 `STRING_INTERP` 处 `free`。
 —— **可收窄债务从 66 降到 5，而且这 5 处不是债**。
 
-审计闸门全量口径同步收紧并重新冻结：**309 组 / 38129 站点**（原 314 组 / 38166）。
+审计闸门全量口径同步收紧并重新冻结：**309 组 / 38130 站点**（原 314 组 / 38166）。
 本轮 `--update` 的 diff（逐站点确认后冻结）：
 `alloc src/driver/path_list.uya 9 → 消失`；`ptr_cast` 净 **+15**
 （`codegen/c99/expr.uya` 5545→5552、`exec/vm.uya` 663→666、`checker/main.uya` 66→67 是本轮新增代码里的

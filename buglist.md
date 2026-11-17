@@ -837,13 +837,35 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - 涉及：`dyn_table.uya` 7、`symbols.uya`（`StringPool`）2、`parse_parallel.uya` 13→1、
     `main.uya`（`programs` 表）2、`codegen/c99/main.uya` 1、`driver/path_list.uya` 9。
   - 收尾：`make uya` 自举通过、`make b` 字节一致、`run_programs_parallel.sh` 1214/1214、
-    审计闸门重新冻结（309 组 / 38131 站点）。
+    审计闸门重新冻结（309 组 / 38130 站点）。
   - 余下 33 处已逐条分类（`docs/unsafe_audit_plan.md` §2）：28 处设计内
     （竞技场自身 4 / libc 与 std 绑定 11 / VM 的 guest 堆 12 / fork 后子进程缓冲 1），
     `src/exec/format.uya` 5 处核对为**正确成对**（同作用域 init/realloc/free）。
     —— 可收窄债务从 66 降到 5，且这 5 处不是债。
 
-- [ ] **P1：接口隐式装箱两处缺陷（不链 std.async 就链接失败；链上了 box 会被帧池回收）**
+- [x] **P1：接口隐式装箱两处缺陷（不链 std.async 就链接失败；链上了 box 会被帧池回收）已修**
+  - 修法（2026-11-18）：**只改 `return` 位置的两个隐式装箱点**
+    （`src/codegen/c99/stmt.uya` 的普通返回与错误联合载荷返回），生成的分配块改成
+    `__builtin_malloc(sizeof(T) + 2*sizeof(size_t))`，并**手写 16 字节兼容头**
+    （`header[0] = 0` 表示释放时走 libc free；`header[1] = sizeof(T)`）——
+    `async_box_free_current(ptr)` 会读这个头，缺了它会在释放时读野指针（本轮第一次尝试
+    只发裸 malloc，实测 54 个 async 测试全部 SIGSEGV，已按此修复）。
+    - 缺陷 1 随之消失：不再引用 `std.async` 的符号，不链也能链接；
+    - 缺陷 2 随之消失：进程寿命分配，不会随 async frame pool 回收而悬垂。
+    - **刻意不改** async future 的装箱（`stmt.uya:1394`、`function.uya:6186/6190`）：
+      它们有配对的 `async_box_free_current`，本来就依赖帧池的回收语义。
+    - 代价（如实记录）：返回的接口 box 现在**没有 free 路径**，属于受控的泄漏 ——
+      在零 GC 且没有接口所有权跟踪的前提下，这是「泄漏」与「悬垂 UB」之间唯一安全的选择。
+      生成 C 里的这次 `__builtin_malloc` 是 AST 之外的后端内建调用，`--escape-list`
+      的 `alloc` 计数**统计不到它**；审计口径见 `docs/unsafe_audit_plan.md` §1.1 的边界说明。
+    - `lib/std/async_scheduler.uya:708` 的 `return *pool;`（`scheduler_pool_to_allocator`，
+      全树唯一的接口返回函数）此前每次都从帧池拿内存、跨帧使用，这次一并被修复。
+  - 回归：`tests/test_interface_box_return.uya`（C99 后端，64 次跨函数返回后调用虚方法）。
+    修复前 `uya run` 报 `undefined reference to std_async_box_alloc_current`（实测 rc=1）；
+    修复后 rc=0、64 次调用全部正确。
+  - 验证：`make uya` 自举通过、`make b` 字节一致、`run_programs_parallel.sh` 全绿、
+    `make unsafe-audit` 基线一致（后端内建 malloc 不改变 AST 逃逸统计）。
+  - 历史记录（保留用于解释为什么不能只加 checker 判定）：
   - 发现：2026-11-17（追查记录里的「装箱局部接口值返回」缺口时查明）
   - 复现（`uya run` 直接链接失败）：
     ```uya

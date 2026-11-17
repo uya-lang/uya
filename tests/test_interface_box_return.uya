@@ -1,0 +1,41 @@
+// 装箱局部接口值返回：回归 B1 的第三个缺口（2026-11-17 查明并修复）。
+//
+// 修复前两个独立缺陷：
+//   1) `uya run` **链接失败**：`undefined reference to std_async_box_alloc_current`
+//      —— C 后端把隐式装箱生成成那个符号，但程序不 use std.async 时符号不存在；
+//   2) 链上 std.async 后**真悬垂**：那块内存来自 async frame pool，帧回收后
+//      vtable 调用的 data 指针指向已释放的 bucket。
+//
+// 修法：return 位置的隐式装箱改发 `__builtin_malloc` + 手写 16 字节兼容头
+// （进程寿命，绝不随帧回收；释放侧 async_box_free_current 能正确识别 header[0]=0），
+// async future 的装箱仍走原来的帧池路径（它们有配对的 async_box_free_current）。
+//
+// 本用例断言：跨函数返回的接口值在调用方仍然可用（vtable + data 都没失效）。
+// 注：exec（VM）后端目前不支持这个表达式形态（`无法为表达式构造地址`，与本次修复无关），
+// 此回归钉在 C99 后端；VM 的 boxing 支持是另一条独立工作项。
+
+interface IWriter {
+    fn write(self: &Self) i32;
+}
+
+struct Console : IWriter {
+    fd: i32,
+    fn write(self: &Self) i32 { return self.fd; }
+}
+
+fn make() IWriter {
+    const s: Console = Console { fd: 42 };
+    return s;
+}
+
+export fn main() i32 {
+    var i: i32 = 0;
+    while i < 64 {
+        const w: IWriter = make();
+        if w.write() != 42 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}

@@ -44,7 +44,7 @@ export UYA_ROOT=$PWD/lib
 [escapes] alloc=33
 ```
 
-审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**309 组 / 38129 站点**
+审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**309 组 / 38130 站点**
 （2026-11-17，迁移前 314 组 / 38166 站点）。
 
 ### 1.1 字段含义与判定口径
@@ -58,6 +58,13 @@ export UYA_ROOT=$PWD/lib
 | `ptr_int` | `@ptr_from_usize` + `@usize_from_ptr` + **指针 → `usize`/`isize` 的 cast** | **洞**：整数可以算术，能凭空造地址 |
 | `ptr_cast` | 目标类型是指针的 cast（`"fmt" as *byte`、`p as &void`） | **债**：来源没变，只是类型系统看不见 |
 | `alloc` | callee 名为 `malloc`/`free`/`calloc`/`realloc` 的调用 | **债**：所有权面 |
+
+**统计边界（2026-11-18 补）：** `alloc` 只数 **Uya AST 里的调用**，数不到 C99 后端
+直接发射的内建调用。典型例子：`return` 位置的隐式接口装箱现在发射
+`__builtin_malloc(sizeof(struct X))`（修复返回装箱悬垂，见 buglist P1），
+它不在 AST 里，因此 `alloc` 数字**不因此增加**。这不是漏报口径，而是明确的边界：
+本闸门管的是「源码里有多少手工所有权点」，后端内建分配属于编译器运行时，
+要按生成 C 的运行时面单独审计（已记录在 buglist P1 的修法说明里）。
 
 **口径的重要取舍（必须写下来，否则后人会误读）：**
 
