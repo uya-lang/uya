@@ -2,6 +2,29 @@
 
 ## 未发行
 
+### 逃逸审计口径修正：`ptr_int` 35785 → **237**，指针换类型单独记 `ptr_cast`
+
+`--lifetime-report` 的 `ptr_int` 一直把两类完全不同的东西混在一起报：
+
+- **整数 ↔ 指针**（`@ptr_from_usize`、`@usize_from_ptr`、指针 → `usize`）：
+  指针变成整数后可以算术、可以凭空造值，这才是「能绕过证明」的桥；
+- **指针换类型**（`"fmt" as *byte`、`p as &void`）：来源没变，只是类型系统看不见。
+
+2026-11-17 拆开后实测（`src/main.uya` 依赖闭包）：
+
+```
+[escapes] ptr_int=237      # 真正的整数↔指针桥（原 35785）
+[escapes] ptr_cast=35552   # 指针换类型，FFI 形参适配的写法噪声
+```
+
+即原先那个「35785 条指针转换」里 **99.3% 是换类型、0.7% 才是能造地址的桥**。
+两笔都进白名单、都按增量冻结（新增即失败），`docs/unsafe_baseline.txt` 已重新冻结
+（165 组，diff 为 kind 改名 + 少量计数迁移）；`make unsafe-audit` 通过。
+
+口径的诚实边界（写在 `docs/unsafe_audit_plan.md` §1.1 / §5）：`ptr_cast` 按**目标侧**
+判定，不区分源是整数还是指针 —— `(addr as usize) as &T` 这种真正的伪造会落在
+`ptr_cast` 里，靠白名单冻结 + 人工评审兜底，而不是机器分类。
+
 ### 跨函数证明度量：`--lifetime-report` 的三个假数字修成真数字
 
 `--lifetime-report` 是「跨函数证明到底做了多少」的唯一度量入口，本轮发现它一直

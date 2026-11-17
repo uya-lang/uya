@@ -439,7 +439,8 @@ struct TypeChecker {
     lifetime_escape_asm: i32,           // @asm 内联汇编块
     lifetime_escape_union: i32,         // union 声明（各变体共享存储，类型系统不跟踪活跃变体）
     lifetime_escape_extern_union: i32,  // extern union（直接映射 C union）
-    lifetime_escape_ptr_int: i32,       // @ptr_from_usize / @usize_from_ptr / 指针 cast（整数↔指针）
+    lifetime_escape_ptr_int: i32,       // 真正的整数↔指针桥：@ptr_from_usize / @usize_from_ptr / 指针→usize
+    lifetime_escape_ptr_cast: i32,      // 指针换类型（`"fmt" as *byte`、`p as &void`）：来源未变，属债不属洞
     lifetime_escape_alloc: i32,         // 指向 malloc/free/calloc/realloc 的调用（所有权面）
     // 上一次就「null 实参」报错过的调用节点。
     // checker_infer_type 对同一表达式可能被调用多次（求类型 + 校验各一遍），

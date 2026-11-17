@@ -330,6 +330,7 @@ fn lifetime_report_flush(checker: &TypeChecker) void {
     fprintf(libc.stderr, "[escapes] union=%d extern_union=%d\n" as *byte,
         checker.lifetime_escape_union, checker.lifetime_escape_extern_union);
     fprintf(libc.stderr, "[escapes] ptr_int=%d\n" as *byte, checker.lifetime_escape_ptr_int);
+    fprintf(libc.stderr, "[escapes] ptr_cast=%d\n" as *byte, checker.lifetime_escape_ptr_cast);
     fprintf(libc.stderr, "[escapes] alloc=%d\n" as *byte, checker.lifetime_escape_alloc);
 }
 
@@ -2381,7 +2382,18 @@ fn lifetime_expr_is_ptr_or_int_type(expr: &ASTNode) i32 {
 ///   - 目标是 `usize`/`isize` 且源语法上也是指针类型节点：记一笔（指针 → 整数）；
 ///   - 目标与源都是整数：**不记** —— `x as i64`、`n as usize` 这类宽化在 Uya 里遍地都是，
 ///     把它们算成逃逸口会把审计面放大成噪声（实测第一版把 37k 次整数宽化全算了进去）。
-fn lifetime_cast_is_ptr_int_bridge(node: &ASTNode) i32 {
+/// 判断一次 cast 是否只是「指针换类型」（目标是指针类型，源也是指针）。
+/// 参数：node - `AST_CAST_EXPR` 节点。
+/// 返回：1 表示目标类型是指针，0 表示不是。
+///
+/// 这类 cast 与 `lifetime_cast_is_ptr_int_bridge` 的区别是**来源是否还看得见**：
+/// `p as *byte`、`"fmt" as *byte` 只是换个类型名，指针的来源（哪段存储）没变，
+/// 类型系统对它以后不可见而已；而 `@usize_from_ptr` / `as usize` 把指针变成整数后
+/// 可以算术、可以凭空造值，那才是「能绕过证明」的桥。
+///
+/// 保守起见这里不区分源是整数还是指针（语法层看不出来，判类型要付出全量推断的代价）：
+/// 目标是指针就记 ptr_cast，并在审计白名单里按文件冻结数量 —— 新增即失败。
+fn lifetime_cast_is_ptr_pointer(node: &ASTNode) i32 {
     if node == null || node.type != ASTNodeType.AST_CAST_EXPR {
         return 0;
     }
@@ -2391,6 +2403,27 @@ fn lifetime_cast_is_ptr_int_bridge(node: &ASTNode) i32 {
     }
     if target.type == ASTNodeType.AST_TYPE_POINTER {
         return 1;
+    }
+    return 0;
+}
+
+/// 判断一次 cast 是否是「指针 ↔ 整数」桥。
+/// 参数：node - `AST_CAST_EXPR` 节点。
+/// 返回：1 表示是整数↔指针桥，0 表示不是。
+///
+/// 判据（第一版只看**目标侧**，见上方 ptr_cast 的说明）：
+///   - 目标是 `usize`/`isize` 且语法上源就是指针类型：指针 → 整数，记一笔；
+///   - 目标与源都是整数：**不记** —— `x as i64`、`n as usize` 这类宽化在 Uya 里
+///     遍地都是，算成逃逸口会把审计面放大成噪声（实测第一版把 37k 次整数宽化
+///     全算了进去）。
+///   - 目标是指针：**不算 ptr_int**，那是 ptr_cast（来源仍可见）。
+fn lifetime_cast_is_ptr_int_bridge(node: &ASTNode) i32 {
+    if node == null || node.type != ASTNodeType.AST_CAST_EXPR {
+        return 0;
+    }
+    const target: &ASTNode = node.cast_expr_target_type;
+    if target == null {
+        return 0;
     }
     if target.type == ASTNodeType.AST_TYPE_NAMED && target.type_named_name != null {
         const is_size: i32 = str_equals(target.type_named_name, "usize" as &byte) |
@@ -2438,9 +2471,18 @@ fn lifetime_account_escape_sites(checker: &TypeChecker, node: &ASTNode) void {
         return;
     }
     if node.type == ASTNodeType.AST_CAST_EXPR {
+        // 两类 cast 分开记账（见 docs/unsafe_audit_plan.md §2 的口径）：
+        //   ptr_int  = 指针 ↔ 整数：可以凭空造出地址，是真正的逃逸；
+        //   ptr_cast = 指针 ↔ 指针（典型是 `"fmt" as *byte` 这种 FFI 形参适配）：
+        //              来源没变、只是类型系统看不见，属于「债」而不是「洞」。
+        // 分成两笔之后，「35787 条 ptr_int」这个吓人的数字其实是混装的：
+        // 真正的整数↔指针桥只有几百条，剩下都是指针换类型。
         if lifetime_cast_is_ptr_int_bridge(node) != 0 {
             checker.lifetime_escape_ptr_int = checker.lifetime_escape_ptr_int +| 1;
             lifetime_escape_site(checker, "ptr_int" as &byte, node);
+        } else if lifetime_cast_is_ptr_pointer(node) != 0 {
+            checker.lifetime_escape_ptr_cast = checker.lifetime_escape_ptr_cast +| 1;
+            lifetime_escape_site(checker, "ptr_cast" as &byte, node);
         }
     }
     if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
