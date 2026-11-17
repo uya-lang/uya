@@ -1570,9 +1570,14 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
       需要先引入 `?&T` 或 `@nonnull` 之类的语法/属性，再让 std 按语义标注，属独立设计工作量。
       改成「只对任意来源做检查」的中间态同样不成立 —— 编译器无法区分
       「调用方保证非空」与「漏检查」，两种写法在 AST 上完全同形。
-      **跨函数方案（未实现）**：`docs/interprocedural_proof_plan.md` 的 B2 用「被调方
-      requirement + 调用点付账」替代这条 blanket 假设，并论证不需要 `?&T` 语法。
-      **当前状态不变：形参仍被无条件视为非空。**
+      **跨函数方案（已落地一部分）**：`docs/interprocedural_proof_plan.md` 的 B2 用
+      「被调方 requirement + 调用点付账」替代这条 blanket 假设，论证不需要 `?&T` 语法。
+      当前覆盖：字面量 `null`（负例 `tests/error_pass_null_to_deref_param.uya`）与初值为 null 的
+      **全局 const** 指针（2026-11-18 新增，负例
+      `tests/error_param_null_global_const.uya`，诊断同为「传入 null 给需要非空的形参」）。
+      **仍未覆盖**：局部别名（`var q = p`）、跨函数传递（`outer(p)` 调 `inner(p)`）、
+      可变全局（调用前可能赋值，认它会误报）、方法调用/函数指针等解析形态；
+      这些形态下仍沿用 blanket 非空假设，故 ⑥ 仍是开放项。
     * **③ 循环体下标**：表面现象是循环体不证明，**实际成因是赋值不失效约束**：
       `i = i + 1` 不会让进入循环前的 `i < 9` 作废，于是
       `while i < 9 { a[i] = 1; i = i + 1; }`（a 只有 5 个元素）实测越界写 `a[5]`。

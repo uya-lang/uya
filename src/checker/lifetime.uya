@@ -1051,6 +1051,34 @@ fn lifetime_expr_is_null_literal(expr: &ASTNode) i32 {
     return 0;
 }
 
+/// 实参是否确定为 null：字面量 null，或初值为 null 的全局 const 指针。
+/// 只认 const 全局（mutable 全局可能在调用前被赋值，认它会误报）。
+fn lifetime_expr_is_known_null(checker: &TypeChecker, expr: &ASTNode) i32 {
+    if lifetime_expr_is_null_literal(expr) != 0 {
+        return 1;
+    }
+    if expr == null || expr.type != ASTNodeType.AST_IDENTIFIER || expr.identifier_name == null {
+        return 0;
+    }
+    if checker == null || checker.program_node == null || checker.program_node.program_decls == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < checker.program_node.program_decl_count {
+        const decl: &ASTNode = checker.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_VAR_DECL &&
+            decl.var_decl_is_const != 0 && decl.var_decl_name != null &&
+            str_equals(decl.var_decl_name, expr.identifier_name) != 0 {
+            if decl.var_decl_init != null && lifetime_expr_is_null_literal(decl.var_decl_init) != 0 {
+                return 1;
+            }
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 /// 递归扫描子树，记录「是否解引用 name」与「是否把 name 与 null 比较过」。
 /// 参数：checker - 类型检查器（保留给后续需要类型信息的扩展）；node - 当前节点；
 ///       name - 形参名；saw_deref - 解引用标记（出参）；saw_guard - null 比较标记（出参）。
@@ -1286,7 +1314,7 @@ fn lifetime_check_call_null_args(checker: &TypeChecker, node: &ASTNode) void {
     var i: i32 = 0;
     while i < count {
         const arg: &ASTNode = node.call_expr_args[i];
-        if arg != null && lifetime_expr_is_null_literal(arg) != 0 {
+        if arg != null && lifetime_expr_is_known_null(checker, arg) != 0 {
             if lifetime_fn_param_requires_nonnull(checker, fn_decl, i) != 0 {
                 checker.lifetime_last_null_arg_node = node;
                 lifetime_report_param_null(checker, 0);

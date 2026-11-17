@@ -2,6 +2,14 @@
 
 ## 未发行
 
+### 跨函数非空义务认出全局 const null
+
+B2 在调用点此前只认字面量 `null`：`fn f(p: &i32) { return p[0]; }` 配
+`const g: &i32 = null; f(g);` 仍编译通过，运行必然空指针解引用。
+`lifetime_expr_is_known_null` 现在也认初值为 null 的**全局 const** 指针，
+负例 `tests/error_param_null_global_const.uya` 按预期失败。
+可变全局、局部别名、跨函数传递仍不覆盖，已如实记在 buglist ⑥。
+
 ### 动态切片下标补上运行时边界检查
 
 checker 证明不了 `idx < s.len`（buglist P0 的切片形参下标缺口），C 后端此前直接发

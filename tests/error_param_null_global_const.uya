@@ -1,0 +1,13 @@
+// 负例：跨函数 B2 的非空义务不仅认字面量 null，也认初值为 null 的
+// 全局 const 指针。被调方直接 p[0]，调用方传 g 必然空指针解引用。
+// 可变全局不认（调用前可能被赋成有效值，认了会误报），见 buglist ⑥。
+
+const g: &i32 = null;
+
+fn deref(p: &i32) i32 {
+    return p[0];
+}
+
+export fn main() i32 {
+    return deref(g);
+}
