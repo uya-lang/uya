@@ -600,7 +600,7 @@ fn find_or_create_module(checker: &TypeChecker, module_name: &byte, filename: &b
     // 2 的幂时才成立；容量已经是运行时值，所以统一走 `%`。
     if (checker.module_table.table.count +| 1) *| DYN_TABLE_LOAD_DEN
         > checker.module_table.table.capacity *| DYN_TABLE_LOAD_NUM {
-        if checker.module_table.table.reserve(checker.module_table.table.capacity * 2) != 0 {
+        if checker.module_table.table.reserve(checker.module_table.table.capacity * 2, checker.arena) != 0 {
             return null;
         }
     }

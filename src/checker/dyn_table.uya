@@ -30,8 +30,16 @@
 // 键语义（与旧的五张表逐条对齐）：键是 C 字符串（`&byte`，以 0 结尾）；
 // 指针相同或内容相同都算同一个键。
 //
-// 生命周期：两块数组都是 malloc 的，`dyn_table_free` 归还；表本身是值结构体，
-// 嵌在 TypeChecker 里，`dyn_table_init` 负责清零 + 预留。
+// 生命周期：两块数组都从**编译器竞技场**（`CompilerArena`）分配，随竞技场一起存活，
+// 单次编译内不回收。表本身是值结构体，嵌在 TypeChecker 里。
+//
+// 为什么从 malloc 改成竞技场（2026-11-17）：原先这里是 malloc + 扩容时 free 旧块 +
+// `dyn_table_free` 归还，构成 7 处手工所有权点（`alloc` 逃逸口）。实测：
+//   * `dyn_table_free` / `dyn_table_init` **一个调用者都没有** —— 这两张表其实是
+//     「活到进程结束」的，free 路径是死代码，却仍然计在审计面上，属于假的所有权义务；
+//   * `compiler_arena_reset` 在仓库里也没有调用者（竞技场只初始化一次），
+//     所以「活到进程结束」与竞技场寿命完全一致，改过去没有任何生命周期风险。
+// 改完之后扩容不再 free 旧块（旧块留在竞技场里，本来也没人读），7 处逃逸口清零。
 
 use libc;
 
@@ -91,8 +99,9 @@ export struct DynTable {
     }
 
     // 确保容量至少 want（2 倍增长），并把旧内容 rehash 进新数组。
+    // 参数：want - 目标容量；arena - 存放两块数组的编译器竞技场。
     // 返回 0 = 成功（含「已经够大」），-1 = 分配失败 / elem_size 还没设。
-    fn reserve(self: &Self, want: i32) i32 {
+    fn reserve(self: &Self, want: i32, arena: &CompilerArena) i32 {
         if want <= 0 || self.elem_size == 0 {
             return -1;
         }
@@ -110,13 +119,14 @@ export struct DynTable {
             }
         }
         const nu: usize = (nc as! usize) catch { return -1; };
-        const nk_raw: &byte = malloc(DYN_TABLE_PTR_BYTES * nu);
+        const nk_raw: &byte = compiler_arena_alloc(arena, DYN_TABLE_PTR_BYTES * nu);
         if nk_raw == null {
             return -1;
         }
-        const nv_raw: &byte = malloc(self.elem_size * nu);
+        const nv_raw: &byte = compiler_arena_alloc(arena, self.elem_size * nu);
         if nv_raw == null {
-            free(nk_raw as &void);
+            // 竞技场分配不出来时旧块也没法归还（本来就不归还）：留在这里不影响正确性，
+            // 上一次的 keys/values 仍指向有效内存。
             return -1;
         }
         const kk: & &byte = nk_raw as & &byte;
@@ -154,12 +164,7 @@ export struct DynTable {
             }
             j = j + 1;
         }
-        if old_keys != null {
-            free(old_keys as &void);
-        }
-        if old_vals != null {
-            free(old_vals as &void);
-        }
+        // 旧块留在竞技场里不再归还：扩容是单调的，读的都是新块。
         return 0;
     }
 
@@ -214,18 +219,18 @@ export struct DynTable {
 
     // 插入或覆盖：value 指向要拷进去的值（长度必须 = elem_size）。
     // 返回 0 = 成功，-1 = 分配失败 / 表满。
-    fn put(self: &Self, key: &byte, value: &byte) i32 {
+    fn put(self: &Self, key: &byte, value: &byte, arena: &CompilerArena) i32 {
         if key == null || value == null || self.elem_size == 0 {
             return -1;
         }
         if self.capacity <= 0 {
-            if self.reserve(DYN_TABLE_MIN_CAPACITY) != 0 {
+            if self.reserve(DYN_TABLE_MIN_CAPACITY, arena) != 0 {
                 return -1;
             }
         }
         // 先扩容再放：留出负载因子余量，探测长度才可控
         if (self.count + 1) * DYN_TABLE_LOAD_DEN > self.capacity * DYN_TABLE_LOAD_NUM {
-            if self.reserve(self.capacity * 2) != 0 {
+            if self.reserve(self.capacity * 2, arena) != 0 {
                 return -1;
             }
         }
@@ -266,16 +271,14 @@ export struct DynTable {
         self.count = 0;
     }
 
-    // 归还数组（表结构本身跟着 TypeChecker 走）。
-    fn free_arrays(self: &Self) void {
-        if self.keys != null {
-            free(self.keys as &void);
-            self.keys = null;
-        }
-        if self.values != null {
-            free(self.values as &void);
-            self.values = null;
-        }
+    // 放弃数组引用（表结构本身跟着 TypeChecker 走）。
+    //
+    // 数组从竞技场分配，这里**不归还**：竞技场本来就是「活到进程结束」的。
+    // 保留这个入口是为了让「想清空表」的调用方有个明确的写法（它只断开引用，
+    // 不释放内存 —— 名字里的 free 是历史遗留，语义见上方头部的生命周期说明）。
+    fn release_arrays(self: &Self) void {
+        self.keys = null;
+        self.values = null;
         self.capacity = 0;
         self.count = 0;
     }

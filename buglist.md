@@ -784,6 +784,24 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
 
 ## 编译器 bug
 
+- [x] **P2 / 低：`alloc` 逃逸面里的「假所有权义务」已清掉 24 处（66 → 42）**
+  - 发现并修：2026-11-17（`docs/unsafe_audit_plan.md` §2 降债）
+  - 现象：`--escape-list` 的 `alloc` 一栏 66 处，其中一大批根本没人 free ——
+    `dyn_table_free`/`dyn_table_init`/`free_arrays` **全仓库零调用**，
+    `cg_body_pids` 每轮并行生成 malloc 一份且从不释放（真泄漏）。
+    这些 free 路径在审计面上是「假债」：既不是真逃逸口，也不承担任何安全职责。
+  - 修法：全部迁到编译器竞技场（`compiler_arena_alloc`）。前提是实测出来的一条事实：
+    `compiler_arena_reset` 在仓库里没有任何调用者，竞技场只在 `main` 初始化一次，
+    寿命 = 进程寿命，与这些容器的实际寿命完全一致，所以「不归还」与原行为等价。
+  - 涉及：`dyn_table.uya` 7、`symbols.uya`（`StringPool`）2、`parse_parallel.uya` 13→1、
+    `main.uya`（`programs` 表）2、`codegen/c99/main.uya` 1。
+  - 收尾：`make uya` 自举通过、`make b` 字节一致、`run_programs_parallel.sh` 1212/1212、
+    审计闸门重新冻结（310 组 / 38132 站点）。
+  - 余下 **14 处仍可收窄**（已单列在 `docs/unsafe_audit_plan.md` §2）：
+    `src/driver/path_list.uya` 9 需要给 CLI 早期路径一个竞技场句柄；
+    `src/exec/format.uya` 5 要改 `ExecFormatBuffer` 的「栈上小缓冲 + 增长」协议。
+    其余 28 处是设计内（竞技场自身 4 / libc 与 std 绑定 11 / VM 的 guest 堆 12 / fork 后子进程缓冲 1）。
+
 - [ ] **P1：接口隐式装箱两处缺陷（不链 std.async 就链接失败；链上了 box 会被帧池回收）**
   - 发现：2026-11-17（追查记录里的「装箱局部接口值返回」缺口时查明）
   - 复现（`uya run` 直接链接失败）：

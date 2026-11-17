@@ -6362,7 +6362,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
             const decl_tu_ok: i32 = c99_parallel_prepare_decl_tu(codegen, ast);
             if decl_tu_ok == 0 && c99_parallel_body_begin(codegen, want_workers) == 0 {
                 const workers_u: usize = want_workers as usize;
-                cg_body_pids = malloc(workers_u * @size_of(i32)) as &i32;
+                // 从 codegen 竞技场分配：这块 pid 表原先用 malloc 且**从未 free**
+                // （每次并行生成都漏一份），改成竞技场后所有权点直接消失。
+                cg_body_pids = compiler_arena_alloc(codegen.arena, workers_u * @size_of(i32)) as &i32;
                 if cg_body_pids != null {
                     var pz: i32 = 0;
                     while pz < want_workers {

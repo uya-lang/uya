@@ -60,18 +60,19 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     checker.string_pool.bucket_count = 0;
     checker.string_pool.count = 0;
     // 预留初始容量，把「分配失败」挡在编译早期（旧实现在这里就是静态数组，不会失败）
-    if checker.symbol_table.table.reserve(SYMBOL_TABLE_SIZE) != 0 {
+    if checker.symbol_table.table.reserve(SYMBOL_TABLE_SIZE, checker.arena) != 0 {
         return -1;
     }
-    if checker.function_table.table.reserve(FUNCTION_TABLE_SIZE) != 0 {
+    if checker.function_table.table.reserve(FUNCTION_TABLE_SIZE, checker.arena) != 0 {
         return -1;
     }
-    if checker.module_table.table.reserve(MODULE_TABLE_SIZE) != 0 {
+    if checker.module_table.table.reserve(MODULE_TABLE_SIZE, checker.arena) != 0 {
         return -1;
     }
-    if checker.import_table.table.reserve(IMPORT_TABLE_SIZE) != 0 {
+    if checker.import_table.table.reserve(IMPORT_TABLE_SIZE, checker.arena) != 0 {
         return -1;
     }
+    checker.string_pool.arena = checker.arena;
     if !string_pool_ensure_buckets(&checker.string_pool, STRING_POOL_SIZE) {
         return -1;
     }
@@ -1048,7 +1049,7 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
     // P54：符号表也是动态哈希表 —— 先按负载因子扩容，再把符号放进空槽。
     if (checker.symbol_table.table.count +| 1) *| DYN_TABLE_LOAD_DEN
         > checker.symbol_table.table.capacity *| DYN_TABLE_LOAD_NUM {
-        if checker.symbol_table.table.reserve(checker.symbol_table.table.capacity * 2) != 0 {
+        if checker.symbol_table.table.reserve(checker.symbol_table.table.capacity * 2, checker.arena) != 0 {
             return -1;
         }
     }
@@ -1234,7 +1235,7 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
     // 先扩容再插入：留出负载因子余量，探测长度才可控（与 dyn_table.put 同口径）
     if (checker.function_table.table.count +| 1) *| DYN_TABLE_LOAD_DEN
         > checker.function_table.table.capacity *| DYN_TABLE_LOAD_NUM {
-        if checker.function_table.table.reserve(checker.function_table.table.capacity * 2) != 0 {
+        if checker.function_table.table.reserve(checker.function_table.table.capacity * 2, checker.arena) != 0 {
             return -1;
         }
     }
@@ -1487,7 +1488,7 @@ fn string_pool_ensure_buckets(pool: &StringPool, want: i32) bool {
     }
     const want_u: usize = (nc as! usize) catch { return false; };
     const bytes: usize = (@size_of((&pool.buckets[0])[0]) as usize) * want_u;
-    const raw: &byte = malloc(bytes);
+    const raw: &byte = compiler_arena_alloc(pool.arena, bytes);
     if raw == null {
         return false;
     }
@@ -1515,9 +1516,7 @@ fn string_pool_ensure_buckets(pool: &StringPool, want: i32) bool {
         }
         j = j + 1;
     }
-    if old != null {
-        free(old as &void);
-    }
+    // 旧桶留在竞技场里不再归还（扩容单调向上，读的都是新桶）。
     pool.buckets = nb;
     pool.bucket_count = nc;
     return true;

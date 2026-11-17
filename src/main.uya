@@ -2598,12 +2598,14 @@ fn compile_files(
 
     // 每个文件的 AST 根节点。all_file_count 到这里已经定下来（依赖收集完毕），
     // 所以按实际条数一次分配，既没有编译期固定上限，也不会浪费。
-    const programs_raw: &byte = malloc((all_file_count as! usize) catch { return 1; } * @size_of(&ASTNode));
+    // 从编译器竞技场分配而不是 malloc：这块内存的生命周期就是「本次编译」，
+    // 与竞技场完全一致（`compiler_arena_reset` 全仓库没有调用者）。
+    // 原先 malloc + `defer free` 是 2 处手工所有权点，改完清零。
+    const programs_raw: &byte = compiler_arena_alloc(&arena, (all_file_count as! usize) catch { return 1; } * @size_of(&ASTNode));
     if programs_raw == null {
         fprintf(libc.stderr, "错误: 程序表分配失败\n" as *byte);
         return 1;
     }
-    defer { free(programs_raw as &void); }
     const programs: &(&ASTNode) = programs_raw as &(&ASTNode);
 
     // 并行 parse：把输入文件按轮转分给 N 个 fork 出来的子进程，AST 节点落在共享匿名映射里，
@@ -2615,7 +2617,7 @@ fn compile_files(
         fprintf(libc.stderr, "[v] 解析开始 files=%d\n" as *byte, all_file_count);
     }
     if all_file_count > 1 {
-        if parse_parallel_run(programs, all_files.items, all_file_count, FILE_BUFFER_SIZE as usize) == 0 {
+        if parse_parallel_run(programs, all_files.items, all_file_count, FILE_BUFFER_SIZE as usize, &arena) == 0 {
             parsed_in_parallel = 1;
         }
     }

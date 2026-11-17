@@ -171,8 +171,11 @@ fn parse_parallel_parse_one(arena: &CompilerArena, slot: &ParseSlot, path: &byte
 /// - files：输入文件路径表。
 /// - file_count：输入文件数。
 /// - file_buf_bytes：每个 worker 的读文件缓冲区大小。
+/// - arena：worker 表（pid / 竞技场切片 / 切片字节数）的存放处。这三张表原先用
+///   malloc 且带 6 处错误路径 free，全部换成竞技场分配后所有权点清零；
+///   表本身的生命周期就是这一次并行 parse，竞技场（只初始化一次、不 reset）够用。
 /// 返回值说明：0 表示并行 parse 成功，-1 表示应回退串行。
-export fn parse_parallel_run(programs: &(&ASTNode), files: &(&byte), file_count: i32, file_buf_bytes: usize) i32 {
+export fn parse_parallel_run(programs: &(&ASTNode), files: &(&byte), file_count: i32, file_buf_bytes: usize, arena: &CompilerArena) i32 {
     if programs == null || files == null || file_count <= 0 {
         return 0 - 1;
     }
@@ -198,21 +201,18 @@ export fn parse_parallel_run(programs: &(&ASTNode), files: &(&byte), file_count:
     const slots: &ParseSlot = ctl as &ParseSlot;
 
     // worker 表（pid + 独占 arena 切片）。
-    const pids_raw: &byte = malloc(wc * @size_of(i32));
+    const pids_raw: &byte = compiler_arena_alloc(arena, wc * @size_of(i32));
     if pids_raw == null {
         return 0 - 1;
     }
     const pids: &i32 = pids_raw as &i32;
-    const slices_raw: &byte = malloc(wc * @size_of(&byte));
+    const slices_raw: &byte = compiler_arena_alloc(arena, wc * @size_of(&byte));
     if slices_raw == null {
-        free(pids_raw as &void);
         return 0 - 1;
     }
     const slices: &(&byte) = slices_raw as &(&byte);
-    const slice_bytes_arr_raw: &byte = malloc(wc * @size_of(usize));
+    const slice_bytes_arr_raw: &byte = compiler_arena_alloc(arena, wc * @size_of(usize));
     if slice_bytes_arr_raw == null {
-        free(pids_raw as &void);
-        free(slices_raw as &void);
         return 0 - 1;
     }
     const slice_bytes_arr: &usize = slice_bytes_arr_raw as &usize;
@@ -245,9 +245,6 @@ export fn parse_parallel_run(programs: &(&ASTNode), files: &(&byte), file_count:
         wi = wi + 1;
     }
     if setup_ok == 0 {
-        free(pids_raw as &void);
-        free(slices_raw as &void);
-        free(slice_bytes_arr_raw as &void);
         return 0 - 1;
     }
 
@@ -352,10 +349,6 @@ export fn parse_parallel_run(programs: &(&ASTNode), files: &(&byte), file_count:
             ci = ci + 1;
         }
     }
-
-    free(pids_raw as &void);
-    free(slices_raw as &void);
-    free(slice_bytes_arr_raw as &void);
 
     if ok != 0 {
         return 0;

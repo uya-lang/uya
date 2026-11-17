@@ -329,6 +329,10 @@ struct StringPool {
     buckets: & &StringPoolEntry,   // 哈希桶
     bucket_count: i32,
     count: i32,
+    // 桶数组从编译器竞技场分配（见 src/checker/symbols.uya 的 string_pool_ensure_buckets）。
+    // 原先用 malloc + 扩容时 free 旧桶，是 2 处手工所有权点；竞技场只初始化一次
+    // （`compiler_arena_reset` 在仓库里没有调用者），寿命与「活到进程结束」的池一致。
+    arena: &CompilerArena,
 }
 
 struct MonoInstance {

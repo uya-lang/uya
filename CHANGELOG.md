@@ -2,6 +2,34 @@
 
 ## 未发行
 
+### `alloc` 债务 66 → 42：把「假的所有权义务」整批删掉
+
+`--escape-list` 的 `alloc` 一栏数的是「裸 `malloc`/`free`/`calloc`/`realloc` 调用」，
+即编译器自有代码里的**手工所有权点**。原先 `src/main.uya` 闭包上 66 处，
+本轮降到 **42 处**（−24），全部是迁移到编译器竞技场，没有一处是靠改写法躲过计数器。
+
+| 位置 | 原 | 现 | 依据 |
+|---|---|---|---|
+| `src/checker/dyn_table.uya` | 7 | 0 | `reserve` 加 `arena` 形参；`dyn_table_free`/`dyn_table_init`/`free_arrays` **全仓库零调用**，free 路径本来就是死代码 |
+| `src/checker/symbols.uya` | 2 | 0 | `StringPool` 加 `arena` 字段，桶数组走竞技场 |
+| `src/parse_parallel.uya` | 13 | 1 | worker 表（pid/切片/切片字节数）走竞技场，6 处错误路径 free 一并消失；剩 1 处是 fork 后子进程私有读缓冲 |
+| `src/main.uya` | 2 | 0 | `programs` 表 + `defer free` |
+| `src/codegen/c99/main.uya` | 1 | 0 | `cg_body_pids` 原先 malloc 且**从未 free**（每轮并行生成漏一份），顺带修掉泄漏 |
+
+迁移无生命周期风险的前提是实测出来的：`compiler_arena_reset` 在仓库里**没有任何调用者**，
+竞技场只在 `main` 里初始化一次，寿命 = 进程寿命；上述容器本来也全是「进程结束才归还」。
+唯一的行为变化是不再有多余的 free 路径。
+
+剩下 42 处已在 `docs/unsafe_audit_plan.md` §2 逐条分类：竞技场自身 4、libc/std 绑定 11、
+VM 的 guest 堆 12、fork 后子进程缓冲 1 是设计内（28）；真正还能收窄的是
+`src/driver/path_list.uya` 9（缺一个 CLI 早期的竞技场句柄）与 `src/exec/format.uya` 5
+（要改 `ExecFormatBuffer` 的初始化协议）—— **可收窄债务从 66 降到 14**。
+
+审计闸门全量口径同步收紧并重新冻结：**310 组 / 38132 站点**（原 314 组 / 38166）。
+本轮 `--update` 的 diff 里有 5 处 ptr_cast **增加**（`interval.uya` 69→71、`main.uya` 993→996），
+来源是上一轮 `--strict-loop-bounds` 的 `name as *byte` 式类型重解释（不产生新地址），
+逐站点确认无害后随基线一起冻结。
+
 ### `--strict-loop-bounds`：让数组下标证明对循环计数器生效
 
 默认模式下这条是**假通过**（buglist P0）：`var i: i32 = 0; while i < 5 { items[i] }`
