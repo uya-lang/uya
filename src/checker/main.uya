@@ -2,6 +2,34 @@
 // 从 checker.uya 拆分
 // 类型定义在 types.uya 中
 
+/// 判断 `return` 的表达式是否为「指向插值临时缓冲区的指针」。
+///
+/// 形态：`return "<含插值的字符串>" as &byte;`（插值节点可以套多层 `as` 转换外壳，
+/// 也可以直接返回插值节点本身）。判定只看形态，不看类型 —— 因为无论目标类型是
+/// `&byte` 还是 `*byte`，取的都是那个局部临时数组的地址，返回出去必然失效。
+///
+/// 返回 1 = 是（调用方应报错）；0 = 否。
+fn checker_return_expr_is_interp_pointer(checker: &TypeChecker, expr: &ASTNode) i32 {
+    if checker == null || expr == null {
+        return 0;
+    }
+    var node: &ASTNode = expr;
+    var saw_cast: i32 = 0;
+    while node != null && node.type == ASTNodeType.AST_CAST_EXPR && node.cast_expr_expr != null {
+        saw_cast = 1;
+        node = node.cast_expr_expr;
+    }
+    if node == null || node.type != ASTNodeType.AST_STRING_INTERP {
+        return 0;
+    }
+    // 不带转换直接 `return "a${x}b";` 由既有「期望类型 &byte，推断为 [i8: N]」报错拦住，
+    // 这里只负责被 `as` 转换掩盖住的那一类。
+    if saw_cast == 0 {
+        return 0;
+    }
+    return 1;
+}
+
 fn checker_check_program_node(checker: &TypeChecker, node: &ASTNode) i32 {
     if checker == null || node == null || node.type != ASTNodeType.AST_PROGRAM {
         return 0;
@@ -1007,6 +1035,22 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                 checker.current_return_type.error_union_payload_type[0].kind == TypeKind.TYPE_VECTOR {
                 checker_simd_prep_expr_with_expected_vector(checker, node.return_stmt_expr,
                     copy_type(&checker.current_return_type.error_union_payload_type[0]));
+            }
+            // 拒绝「返回指向插值临时缓冲区的指针」。
+            //
+            // 插值表达式的类型是 `[i8: N]`（数组），`"...${x}..." as &byte` 取的是这个
+            // **临时数组**的地址。C99 后端在语句位置把它生成为
+            // `uint8_t __uya_interp_N[N];`（见 c99_emit_string_interp_temp_for_stmt），
+            // 于是返回这个指针 = 返回局部变量地址：
+            //   * 修复前实测：`fn build(n: i32) &byte { return "n=${n}" as &byte; }`
+            //     生成 `return (uint8_t *)((char*)0);` —— 静默的空指针（打印出空串，
+            //     strlen/strcmp 直接解引用 null）；
+            //   * 把它「补好」只会变成悬垂指针（缓冲在函数返回时失效），同样不能用。
+            // 所以这里**报错**，不放行任何形式：要跨函数传递就请调用方给缓冲区。
+            if checker_return_expr_is_interp_pointer(checker, node.return_stmt_expr) != 0 {
+                checker_report_error(checker, node.return_stmt_expr,
+                    "返回指向插值临时缓冲区的指针：该缓冲区是局部数组，函数返回后立即失效；请把目标缓冲区作为形参传入，在调用方提供的缓冲区里渲染" as *byte);
+                return 0;
             }
             const expr_type: Type = checker_infer_type(checker, node.return_stmt_expr);
             // 与变量初始化路径对齐：推断之后补一次「边界相关」的递归检查。

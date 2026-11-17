@@ -248,6 +248,24 @@ fn exec_format_append_value(out: &ExecFormatBuffer, spec: &const byte, arg: &Exe
     return ok;
 }
 
+/// 在末尾写一个 NUL（不增加 `len`），让缓冲内容变成合法的 C 串。
+///
+/// 为什么需要：`STRING_INTERP`（`src/exec/vm.uya`）把渲染结果直接交给
+/// `exec_make_string` 当 C 串用，而 `append` 只写有效字节、**从来不补结尾 0**，
+/// 于是 `%s` 打印时会一路读过 `len` 直到撞上 malloc 块里的随机 0 —— 典型的堆读越界
+/// （UB：结果取决于堆里残留的垃圾，可能越界到块尾之外）。
+/// 返回 1 成功 / 0 失败（容量不够）。
+fn exec_format_buffer_terminate(buf: &ExecFormatBuffer) i32 {
+    if buf == null {
+        return 0;
+    }
+    if exec_format_buffer_reserve(buf, 1 as usize) == 0 {
+        return 0;
+    }
+    buf.data[buf.len] = 0 as byte;
+    return 1;
+}
+
 /// 渲染整条格式串。
 /// 参数：`fmt` 为 NUL 结尾格式串；`args`/`arg_count` 为 varargs 实参槽位；
 ///       `out` 为输出缓冲。
@@ -406,6 +424,10 @@ fn exec_format_render(fmt: &const byte, args: &ExecValue, arg_count: i32, out: &
         if exec_format_buffer_append(out, (fmt + literal_start) as &const byte, fmt_len - literal_start) == 0 {
             return 0;
         }
+    }
+    // 末尾补 NUL：调用方（STRING_INTERP）把这块内存当 C 串用。
+    if exec_format_buffer_terminate(out) == 0 {
+        return 0;
     }
     return 1;
 }

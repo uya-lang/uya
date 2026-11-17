@@ -662,7 +662,14 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     } else if stmt.type == ASTNodeType.AST_ASSIGN {
         gen_assign_stmt(codegen, stmt);
     } else if stmt.type == ASTNodeType.AST_RETURN_STMT {
+        // 同上：`return "a${x}";` 的插值也要先有缓冲区。
+        const saved_interp_buf2: &byte = codegen.string_interp_buf;
+        const interp_temp2: &byte = c99_emit_string_interp_temp_for_stmt(codegen, stmt.return_stmt_expr);
+        if interp_temp2 != null {
+            codegen.string_interp_buf = interp_temp2;
+        }
         gen_return_stmt(codegen, stmt);
+        codegen.string_interp_buf = saved_interp_buf2;
     } else if stmt.type == ASTNodeType.AST_BLOCK {
         gen_block_stmt(codegen, stmt);
     } else if stmt.type == ASTNodeType.AST_DEFER_STMT || stmt.type == ASTNodeType.AST_ERRDEFER_STMT {
@@ -674,7 +681,14 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     } else if stmt.type == ASTNodeType.AST_DESTRUCTURE_DECL {
         gen_destructure_decl(codegen, stmt);
     } else if stmt.type == ASTNodeType.AST_VAR_DECL {
+        // 语句位置的插值初始化：先建缓冲区并填好，再生成声明（否则 gen_expr 会发 (char*)0）。
+        const saved_interp_buf: &byte = codegen.string_interp_buf;
+        const interp_temp: &byte = c99_emit_string_interp_temp_for_stmt(codegen, stmt.var_decl_init);
+        if interp_temp != null {
+            codegen.string_interp_buf = interp_temp;
+        }
         gen_var_decl_stmt(codegen, stmt);
+        codegen.string_interp_buf = saved_interp_buf;
         gen_moved_field_source_clear(codegen, stmt);
     } else if stmt.type == ASTNodeType.AST_IF_STMT {
         gen_if_stmt(codegen, stmt);

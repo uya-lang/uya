@@ -667,6 +667,45 @@ fn c99_emit_interp_printf_arg(codegen: &C99CodeGenerator, seg: &ASTStringInterpS
     fputs(")" as *byte, codegen.emit_stream as *void);
 }
 
+/// 在**语句位置**为插值表达式准备缓冲区：声明 `uint8_t __uya_interp_N[size]` 并填好内容，
+/// 返回缓冲区名（供 `codegen.string_interp_buf` 临时指向）；不是插值表达式时返回 null。
+///
+/// 为什么需要：`gen_expr(AST_STRING_INTERP)` 只在 `codegen.string_interp_buf` 非空时发缓冲区名，
+/// 否则发 `((char*)0)`。在此之前只有「实参位置的插值」会建缓冲区，于是
+/// `const s: &byte = "a${x}";`、`return "a${x}";` 这类**语句位置**的插值会静默变成空指针
+/// （实测：`fprintf("%s", s)` 打印出空串，`strlen`/`strcmp` 直接空指针解引用）。
+/// 调用点（`gen_stmt` 分派处）先调用本函数把缓冲区填好并把 `string_interp_buf` 指过去，
+/// 语句生成完再恢复原值。
+///
+/// 形参 `expr` 可以是插值表达式本身，也可以套着 `as` 强制转换（`"...${x}" as &byte`）——
+/// 这里会剥掉转换外壳再判断，因为 `string_interp_computed_size` 只挂在插值节点上。
+fn c99_emit_string_interp_temp_for_stmt(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
+    if codegen == null {
+        return null;
+    }
+    var node: &ASTNode = expr;
+    while node != null && node.type == ASTNodeType.AST_CAST_EXPR && node.cast_expr_expr != null {
+        node = node.cast_expr_expr;
+    }
+    if node == null || node.type != ASTNodeType.AST_STRING_INTERP {
+        return null;
+    }
+    if node.string_interp_computed_size <= 0 {
+        return null;
+    }
+    var name_buf: [byte: SHORT_NAME_BUF_SIZE] = [];
+    snprintf(&name_buf[0] as *byte, SHORT_NAME_BUF_SIZE, "__uya_interp_%d" as *byte, codegen.interp_temp_counter);
+    codegen.interp_temp_counter = codegen.interp_temp_counter +| 1;
+    const temp_name: &byte = c99_arena_strdup(codegen.arena, &name_buf[0] as &byte);
+    if temp_name == null {
+        return null;
+    }
+    c99_emit_indent(codegen);
+    fprintf(codegen.emit_stream as *void, "uint8_t %s[%d];\n" as *byte, temp_name as *byte, node.string_interp_computed_size);
+    c99_emit_string_interp_fill(codegen, node, temp_name);
+    return temp_name;
+}
+
 fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_name: &byte) void {
     if codegen == null || expr == null || expr.type != ASTNodeType.AST_STRING_INTERP || buf_name == null {
         return;
@@ -755,9 +794,17 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
             if j >= 0 && j < FMT_BUF_SIZE {
                 fmt_buf[j] = 0;
             }
-            // 直接内联输出格式字符串
+            // 直接内联输出格式字符串。
+            //
+            // **必须是 snprintf 并且带上剩余容量**：`string_interp_computed_size` 只是
+            // 静态估计（`%s` 一类变长段按固定宽度估），原先用 `sprintf` 直接往固定
+            // 大小的局部数组里写 —— 运行期字符串比估计长时就是栈缓冲区溢出。
+            // 实测（修前）：`"${pad}|${n}"`（pad 是 256 字节的 &byte）生成
+            // `uint8_t __uya_interp_0[31]` + `sprintf(__uya_interp_0, "%s", pad)`，
+            // 直接踩爆栈（SIGSEGV）。改成有界写之后只会截断，不再越界。
             c99_emit_indent(codegen);
-            fprintf(codegen.emit_stream as *void, "_off_%d += sprintf(%s + _off_%d, \"%s\", " as *byte, fill_id, buf_name as *byte, fill_id, &fmt_buf[0] as *byte);
+            fprintf(codegen.emit_stream as *void, "{ int _w_%d = 0; if ((size_t)_off_%d < sizeof(%s)) { _w_%d = snprintf(%s + _off_%d, sizeof(%s) - (size_t)_off_%d, \"%s\", " as *byte,
+                fill_id, fill_id, buf_name as *byte, fill_id, buf_name as *byte, fill_id, buf_name as *byte, fill_id, &fmt_buf[0] as *byte);
 
             // 按上面判定的参数形态生成实参：变参符号（%s / %lld / %llu / %g）必须与实参类型匹配。
             if interp_arg_kind == 1 {
@@ -788,7 +835,9 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
                 gen_expr(codegen, seg.expr);
             }
 
-            fputs(");\n" as *byte, codegen.emit_stream as *void);
+            // 收尾：累计写入量并夹住下标（snprintf 返回「想写多少」，可能大于容量）。
+            fprintf(codegen.emit_stream as *void, "); if (_w_%d > 0) { _off_%d += _w_%d; } if ((size_t)_off_%d > sizeof(%s) - 1) { _off_%d = (int)sizeof(%s) - 1; } } }\n" as *byte,
+                fill_id, fill_id, fill_id, fill_id, buf_name as *byte, fill_id, buf_name as *byte);
         }
         i = i + 1;
     }

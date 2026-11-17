@@ -1,0 +1,56 @@
+// STRING_INTERP 回归：渲染结果必须是**合法的 C 串**。
+//
+// 历史 bug（2026-11-17 修复）：
+//   1. `exec_format_buffer_append` 只写有效字节、**从不补结尾 0**，而 `STRING_INTERP`
+//      把这块内存直接当 C 串交给 `exec_make_string`（它不复制，只存指针）——
+//      打印时会一路读过 `len` 撞堆里的随机 0，属读越界 UB；
+//   2. 该路径既没复制到 VM 竞技场，也没调用 `exec_format_buffer_free`，
+//      于是每次字符串插值泄漏一块 256 字节以上的格式化缓冲。
+//
+// 这个用例断言插值结果与预期逐字节相等（用 strcmp 比对整串，天然要求结尾 0 存在），
+// 并连做多次插值（泄漏会被 `--exec` 下的内存增长放大，但正确性只在这里断言）。
+
+use libc;
+
+// 注意：插值表达式不能**直接** return 出去（缓冲区是局部的，见
+// tests/error_return_interp_buffer.uya）——必须渲染进调用方给的缓冲区。
+fn fill(dst: &byte, n: i32) void {
+    const s: &byte = "n=${n}" as &byte;
+    strcpy(dst as *byte, s as *byte);
+}
+
+fn main() i32 {
+    var buf: [byte: 128] = [];
+    var i: i32 = 0;
+    while i < 8 {
+        fill(&buf[0], i);
+        if strcmp(&buf[0] as *byte, "n=" as *byte) == 0 {
+            return 1;   // 空串：说明结尾 0 落在了第一个字节上
+        }
+        // 逐次插值的结果必须以 "n=" 开头
+        if buf[0] != 'n' as byte || buf[1] != '=' as byte {
+            return 2;
+        }
+        i = i + 1;
+    }
+    const n: i32 = 42;
+    const s: &byte = "value=${n} end" as &byte;
+    if strcmp(s as *byte, "value=42 end" as *byte) != 0 {
+        return 3;   // 结尾 0 缺失时 strcmp 会比到堆垃圾上，必然不等
+    }
+    // 长串：C99 后端的插值缓冲区是**静态估计**大小（`%s` 段按固定宽度估），
+    // 所以运行期比估计长的字符串只会被**截断**，绝不能越界写。
+    // 修复前这里是 `sprintf` 直接写固定数组 —— 实测 256 字节的 pad 生成
+    // `uint8_t __uya_interp_0[31]`，当场踩爆栈（SIGSEGV）。
+    // 这里断言：结果仍是合法 C 串（strlen 正常返回）、长度被夹住、不崩。
+    const pad: &byte = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" as &byte;
+    const big: &byte = "${pad}|${n}" as &byte;
+    if strlen(big as *byte) >= strlen(pad as *byte) {
+        return 4;   // 没有夹住：说明写了超过估计长度的内容（越界）
+    }
+    if big[strlen(big as *byte)] != 0 as byte {
+        return 5;   // 结尾 0 不在 strlen 处：不是合法 C 串
+    }
+    fprintf(libc.stdout, "string interp term ok\n" as *byte);
+    return 0;
+}

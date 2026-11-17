@@ -16,7 +16,6 @@ alloc	lib/std/net/dns.uya	12
 alloc	lib/std/process.uya	60
 alloc	lib/std/thread.uya	6
 alloc	src/arena.uya	4
-alloc	src/driver/path_list.uya	9
 alloc	src/exec/format.uya	5
 alloc	src/exec/value.uya	4
 alloc	src/exec/vm.uya	8
@@ -203,7 +202,7 @@ ptr_cast	src/checker/interval.uya	71
 ptr_cast	src/checker/lifetime.uya	38
 ptr_cast	src/checker/lookup.uya	46
 ptr_cast	src/checker/macro_expand.uya	560
-ptr_cast	src/checker/main.uya	66
+ptr_cast	src/checker/main.uya	67
 ptr_cast	src/checker/modules.uya	324
 ptr_cast	src/checker/optimizer.uya	40
 ptr_cast	src/checker/proof.uya	100
@@ -228,7 +227,7 @@ ptr_cast	src/cmd/upm/upm_lib/registry.uya	32
 ptr_cast	src/cmd/upm/upm_lib/resolver.uya	178
 ptr_cast	src/cmd/upm/upm_lib/workspace.uya	17
 ptr_cast	src/codegen/c99/enums.uya	78
-ptr_cast	src/codegen/c99/expr.uya	5545
+ptr_cast	src/codegen/c99/expr.uya	5555
 ptr_cast	src/codegen/c99/function.uya	2349
 ptr_cast	src/codegen/c99/global.uya	338
 ptr_cast	src/codegen/c99/main.uya	5354
@@ -238,7 +237,7 @@ ptr_cast	src/codegen/c99/structs.uya	647
 ptr_cast	src/codegen/c99/types.uya	10099
 ptr_cast	src/codegen/c99/utils.uya	570
 ptr_cast	src/driver/modules.uya	205
-ptr_cast	src/driver/path_list.uya	11
+ptr_cast	src/driver/path_list.uya	5
 ptr_cast	src/driver/toolchain.uya	386
 ptr_cast	src/exec/builder.uya	231
 ptr_cast	src/exec/debug.uya	208
@@ -246,7 +245,7 @@ ptr_cast	src/exec/format.uya	34
 ptr_cast	src/exec/lower.uya	775
 ptr_cast	src/exec/main.uya	102
 ptr_cast	src/exec/value.uya	75
-ptr_cast	src/exec/vm.uya	663
+ptr_cast	src/exec/vm.uya	666
 ptr_cast	src/fmt.uya	183
 ptr_cast	src/lexer.uya	147
 ptr_cast	src/lower/async.uya	20

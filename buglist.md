@@ -784,7 +784,43 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
 
 ## 编译器 bug
 
-- [x] **P2 / 低：`alloc` 逃逸面里的「假所有权义务」已清掉 24 处（66 → 42）**
+- [x] **P0 / 严重：C99 后端字符串插值三连（静默空指针、栈溢出、读越界）已修 2 项、第 3 项记待办**
+  - 发现并修：2026-11-17（追 `alloc` 降债时顺手交叉验证 `STRING_INTERP` 路径）
+  - **① 语句位置的插值静默变成空指针（已修）**
+    ```uya
+    const s: &byte = "n=${n}" as &byte;   // 修复前 s == NULL
+    ```
+    生成 C 是 `uint8_t * const s = (uint8_t *)((char*)0);` —— 不报错、不告警，
+    打印出空串，任何 `strlen`/`strcmp` 直接解引用 null。
+    根因：`gen_expr(AST_STRING_INTERP)` 只在 `codegen.string_interp_buf` 非空时发缓冲区名，
+    而只有「实参位置的插值」会建缓冲区。修法：新增
+    `c99_emit_string_interp_temp_for_stmt`，`gen_stmt` 在 **var-decl 初始化**处先建
+    `uint8_t __uya_interp_N[size]` 并填好，再生成声明。
+  - **② `return "<插值>" as &byte;` 一律拒绝（已改）**
+    插值类型是 `[i8: N]`，`as &byte` 取的是**局部临时数组**的地址，返回出去必然失效。
+    修复前这里静默生成 `(uint8_t *)((char*)0)`；把它「补好」只会变成悬垂指针。
+    现在 checker 显式报错：「返回指向插值临时缓冲区的指针……请把目标缓冲区作为形参传入」。
+    负例：`tests/error_return_interp_buffer.uya`。
+  - **③ `${&byte}` 段用 `sprintf` 写固定数组 → 栈缓冲区溢出（已修，但有截断残留）**
+    `string_interp_computed_size` 只是静态估计（`%s` 段按固定宽度估）。实测
+    `"${pad}|${n}"`（pad 为 256 字节）生成 `uint8_t __uya_interp_0[31];` +
+    `sprintf(__uya_interp_0 + _off, "%s", pad)`，**当场踩爆栈**（SIGSEGV）。
+    已改成 `snprintf(buf + _off, sizeof(buf) - (size_t)_off, ...)` 并把 `_off` 夹到
+    `sizeof(buf) - 1`，越界写消失。
+  - **残留（记为新条目，见下一条 P2）**：长字符串现在会被**静默截断**（正确性，非安全问题）。
+  - 回归：`tests/test_exec_vm_string_interp_term.uya`（C99 与 `--exec` 两个后端都跑）。
+  - 验证：`make uya` 自举通过、`make b` 字节一致、`run_programs_parallel.sh` 1212/1212。
+
+- [ ] **P2 / 低：插值 `%s` 段的内容超过静态估计时被静默截断**
+  - 现象：`"${pad}|${n}"`（pad 256 字节）在 C99 后端只输出前 31 字节。
+  - 原因：`checker_interp_format_max_width` 对指针/切片类型的 `%s` 只能给固定估计宽度，
+    而生成的是**定长局部数组**。
+  - 方向二选一：(a) 对「运行期长度未知」的 `%s` 段改成「先量长度、再决定缓冲区大小」
+    的两遍生成；(b) 直接拒绝 `${&byte}` 形态（要求用户自己 `fprintf("%s")`）。
+    (b) 更符合「宁报错不放行」，但会挡住常见写法，需要先统计现有用法。
+  - 安全影响：无（已是有界写），只是输出可能不完整。
+
+- [x] **P2 / 低：`alloc` 逃逸面里的「假所有权义务」已清掉 33 处（66 → 33）**
   - 发现并修：2026-11-17（`docs/unsafe_audit_plan.md` §2 降债）
   - 现象：`--escape-list` 的 `alloc` 一栏 66 处，其中一大批根本没人 free ——
     `dyn_table_free`/`dyn_table_init`/`free_arrays` **全仓库零调用**，
@@ -794,13 +830,13 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     `compiler_arena_reset` 在仓库里没有任何调用者，竞技场只在 `main` 初始化一次，
     寿命 = 进程寿命，与这些容器的实际寿命完全一致，所以「不归还」与原行为等价。
   - 涉及：`dyn_table.uya` 7、`symbols.uya`（`StringPool`）2、`parse_parallel.uya` 13→1、
-    `main.uya`（`programs` 表）2、`codegen/c99/main.uya` 1。
-  - 收尾：`make uya` 自举通过、`make b` 字节一致、`run_programs_parallel.sh` 1212/1212、
-    审计闸门重新冻结（310 组 / 38132 站点）。
-  - 余下 **14 处仍可收窄**（已单列在 `docs/unsafe_audit_plan.md` §2）：
-    `src/driver/path_list.uya` 9 需要给 CLI 早期路径一个竞技场句柄；
-    `src/exec/format.uya` 5 要改 `ExecFormatBuffer` 的「栈上小缓冲 + 增长」协议。
-    其余 28 处是设计内（竞技场自身 4 / libc 与 std 绑定 11 / VM 的 guest 堆 12 / fork 后子进程缓冲 1）。
+    `main.uya`（`programs` 表）2、`codegen/c99/main.uya` 1、`driver/path_list.uya` 9。
+  - 收尾：`make uya` 自举通过、`make b` 字节一致、`run_programs_parallel.sh` 1214/1214、
+    审计闸门重新冻结（309 组 / 38131 站点）。
+  - 余下 33 处已逐条分类（`docs/unsafe_audit_plan.md` §2）：28 处设计内
+    （竞技场自身 4 / libc 与 std 绑定 11 / VM 的 guest 堆 12 / fork 后子进程缓冲 1），
+    `src/exec/format.uya` 5 处核对为**正确成对**（同作用域 init/realloc/free）。
+    —— 可收窄债务从 66 降到 5，且这 5 处不是债。
 
 - [ ] **P1：接口隐式装箱两处缺陷（不链 std.async 就链接失败；链上了 box 会被帧池回收）**
   - 发现：2026-11-17（追查记录里的「装箱局部接口值返回」缺口时查明）

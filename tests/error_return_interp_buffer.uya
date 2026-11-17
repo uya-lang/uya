@@ -1,0 +1,16 @@
+// 负例：返回「指向插值临时缓冲区的指针」必须编译失败。
+//
+// 插值表达式的类型是 `[i8: N]`，`"...${x}..." as &byte` 取的是这个临时数组的地址。
+// C99 后端把它生成为语句位置上的 `uint8_t __uya_interp_N[N];`，所以返回出去 =
+// 返回局部变量地址。修复前这里静默生成 `(uint8_t *)((char*)0)`（空指针，
+// 打印出空串、strlen/strcmp 直接解引用 null）；现在显式报错。
+use libc;
+
+fn build(n: i32) &byte {
+    return "n=${n}" as &byte;
+}
+
+fn main() i32 {
+    fprintf(libc.stdout, "%s\n" as *byte, build(7));
+    return 0;
+}

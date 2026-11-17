@@ -2,11 +2,29 @@
 
 ## 未发行
 
-### `alloc` 债务 66 → 42：把「假的所有权义务」整批删掉
+### C99 后端字符串插值三连修：静默空指针 / 栈溢出 / 读越界
+
+一轮交叉验证把 `STRING_INTERP` 这条路径整个查了一遍，三个都是**真 UB**：
+
+| # | 现象 | 修复前生成 | 现在 |
+|---|---|---|---|
+| ① | `const s: &byte = "n=${n}" as &byte;` 静默变成空指针 | `(uint8_t *)((char*)0)` | 语句位置先建缓冲区并填好 |
+| ② | `return "<插值>" as &byte;` 同样静默空指针（补好也只是悬垂指针） | `(uint8_t *)((char*)0)` | **编译期报错**（负例 `tests/error_return_interp_buffer.uya`） |
+| ③ | `"${pad}|${n}"`（pad 256 字节）写爆固定数组 | `uint8_t __uya_interp_0[31]; sprintf(...)` → SIGSEGV | `snprintf(..., sizeof(buf) - _off, ...)` + 夹住 `_off`（只截断，不越界） |
+
+另修 VM 后端一处：`STRING_INTERP` 的渲染结果既没补结尾 NUL（`%s` 会读过 `len` 撞堆垃圾 = 读越界），
+也没拷贝就交给 `exec_make_string`（它只存指针），还从不 `exec_format_buffer_free` ——
+等于**每次字符串插值泄漏一块 256 字节以上的缓冲**。现在渲染末尾补 NUL、结果拷进 VM 值竞技场、
+格式化缓冲当场归还。
+
+回归 `tests/test_exec_vm_string_interp_term.uya` 在 C99 与 `--exec` 两个后端都跑；
+残留的「长串被静默截断」已记在 buglist P2（安全影响无，正确性问题）。
+
+### `alloc` 债务 66 → 33：把「假的所有权义务」整批删掉
 
 `--escape-list` 的 `alloc` 一栏数的是「裸 `malloc`/`free`/`calloc`/`realloc` 调用」，
 即编译器自有代码里的**手工所有权点**。原先 `src/main.uya` 闭包上 66 处，
-本轮降到 **42 处**（−24），全部是迁移到编译器竞技场，没有一处是靠改写法躲过计数器。
+本轮降到 **33 处**（−33），全部是迁移到编译器竞技场，没有一处是靠改写法躲过计数器。
 
 | 位置 | 原 | 现 | 依据 |
 |---|---|---|---|
@@ -15,20 +33,23 @@
 | `src/parse_parallel.uya` | 13 | 1 | worker 表（pid/切片/切片字节数）走竞技场，6 处错误路径 free 一并消失；剩 1 处是 fork 后子进程私有读缓冲 |
 | `src/main.uya` | 2 | 0 | `programs` 表 + `defer free` |
 | `src/codegen/c99/main.uya` | 1 | 0 | `cg_body_pids` 原先 malloc 且**从未 free**（每轮并行生成漏一份），顺带修掉泄漏 |
+| `src/driver/path_list.uya` | 9 | 0 | 表与 `push_strdup` 字符串都走本文件自带的 64 KB 竞技场；`*_free` 只断开引用 |
 
 迁移无生命周期风险的前提是实测出来的：`compiler_arena_reset` 在仓库里**没有任何调用者**，
 竞技场只在 `main` 里初始化一次，寿命 = 进程寿命；上述容器本来也全是「进程结束才归还」。
 唯一的行为变化是不再有多余的 free 路径。
 
-剩下 42 处已在 `docs/unsafe_audit_plan.md` §2 逐条分类：竞技场自身 4、libc/std 绑定 11、
-VM 的 guest 堆 12、fork 后子进程缓冲 1 是设计内（28）；真正还能收窄的是
-`src/driver/path_list.uya` 9（缺一个 CLI 早期的竞技场句柄）与 `src/exec/format.uya` 5
-（要改 `ExecFormatBuffer` 的初始化协议）—— **可收窄债务从 66 降到 14**。
+剩下 33 处已在 `docs/unsafe_audit_plan.md` §2 逐条分类：竞技场自身 4、libc/std 绑定 11、
+VM 的 guest 堆 12、fork 后子进程缓冲 1 是设计内（28）；`src/exec/format.uya` 5 已核对为
+**正确成对**（init/realloc/free 同作用域），本轮还补上了原先漏掉的 `STRING_INTERP` 处 `free`。
+—— **可收窄债务从 66 降到 5，而且这 5 处不是债**。
 
-审计闸门全量口径同步收紧并重新冻结：**310 组 / 38132 站点**（原 314 组 / 38166）。
-本轮 `--update` 的 diff 里有 5 处 ptr_cast **增加**（`interval.uya` 69→71、`main.uya` 993→996），
-来源是上一轮 `--strict-loop-bounds` 的 `name as *byte` 式类型重解释（不产生新地址），
-逐站点确认无害后随基线一起冻结。
+审计闸门全量口径同步收紧并重新冻结：**309 组 / 38131 站点**（原 314 组 / 38166）。
+本轮 `--update` 的 diff（逐站点确认后冻结）：
+`alloc src/driver/path_list.uya 9 → 消失`；`ptr_cast` 净 **+14**
+（`codegen/c99/expr.uya` 5545→5555、`exec/vm.uya` 663→666、`checker/main.uya` 66→67 是本轮新增代码里的
+类型重解释 `&byte as *byte` / `as &const void`，不产生新地址；`driver/path_list.uya 11 → 5` 是迁移时
+少了 6 处 `as &void`）。
 
 ### `--strict-loop-bounds`：让数组下标证明对循环计数器生效
 

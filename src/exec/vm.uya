@@ -10250,7 +10250,22 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             exec_backend_set_error(function.decl, "exec: STRING_INTERP 渲染失败" as *byte, 0);
             return -1;
         }
-        slot_a[0] = exec_make_string(interp_buf.data);
+        // 渲染结果必须拷进 VM 值竞技场再交出去：
+        //   * `exec_make_string` **不复制**，只存指针，所以不能直接把格式化缓冲交出去
+        //     （那样字符串会指向一块没人管的堆内存）；
+        //   * 原先这里既没拷贝也没 `exec_format_buffer_free`，等于每次字符串插值泄漏
+        //     一块 256 字节以上的缓冲（`exec_format_buffer_free` 全仓库零调用 = 死代码）。
+        // 现在拷贝到竞技场（与其它 VM 字符串同寿命），格式化缓冲立刻归还。
+        const interp_n: usize = interp_buf.len + 1usize;
+        const interp_copy: &byte = exec_value_alloc_bytes(interp_n);
+        if interp_copy == null {
+            exec_format_buffer_free(&interp_buf);
+            exec_backend_set_error(function.decl, "exec: STRING_INTERP 结果分配失败" as *byte, 0);
+            return -1;
+        }
+        _ = memcpy(interp_copy as *void, interp_buf.data as &const void, interp_n);
+        exec_format_buffer_free(&interp_buf);
+        slot_a[0] = exec_make_string(interp_copy);
     } else if instr.opcode == BCOpcode.BC_PRINTLN {
         if slot_a == null || slot_b == null {
             exec_backend_set_error(function.decl, "exec: PRINTLN 槽位越界" as *byte, 0);

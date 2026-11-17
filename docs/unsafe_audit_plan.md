@@ -40,11 +40,11 @@ export UYA_ROOT=$PWD/lib
 [escapes] asm=8
 [escapes] union=1 extern_union=0
 [escapes] ptr_int=197
-[escapes] ptr_cast=35542
-[escapes] alloc=42
+[escapes] ptr_cast=35550
+[escapes] alloc=33
 ```
 
-审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**310 组 / 38132 站点**
+审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**309 组 / 38131 站点**
 （2026-11-17，迁移前 314 组 / 38166 站点）。
 
 ### 1.1 字段含义与判定口径
@@ -89,7 +89,7 @@ export UYA_ROOT=$PWD/lib
 | `union` | 1 + 0 extern | ❌ 不能（C 互操作与 tag 分派的基础） | **冻结**：新增 union 需理由 |
 | `ptr_int` | **197**（原 35785） | ⚠️ 部分能收窄 | **逐个收**：每条都是整数↔指针，能造地址；量级已小到可以逐个看 |
 | `ptr_cast` | 35552 | ⚠️ 大部分必要（FFI 形参适配） | **冻结增量**：`"fmt" as *byte` 属于写法噪声，改不动也不该改 |
-| `alloc` | **42**（原 66） | ⚠️ 部分已收窄，余下 28 处是设计内 | **迁移到 arena**：编译器自有代码不应直接 malloc（已迁 24 处） |
+| `alloc` | **33**（原 66） | ⚠️ 部分已收窄，余下 28 处是设计内 | **迁移到 arena**：编译器自有代码不应直接 malloc（已迁 33 处中的 33→设计内比例见下表） |
 
 **`alloc` 从 66 降到 42（2026-11-17 实测，src/main.uya 依赖闭包口径）**
 
@@ -102,25 +102,26 @@ export UYA_ROOT=$PWD/lib
 | `src/parse_parallel.uya` | 13（3 malloc + 9 free + 子进程读缓冲 1） | 1 | worker 表（pid / 竞技场切片 / 切片字节数）走竞技场，6 处错误路径 free 一并消失；剩的 1 处是 fork **之后**子进程自己的读文件缓冲，不能放父进程竞技场 |
 | `src/main.uya` | 2（`programs` 表 + `defer free`） | 0 | 生命周期就是本次编译，`compiler_arena_reset` 全仓库无调用者 |
 | `src/codegen/c99/main.uya` | 1（`cg_body_pids`） | 0 | 原先 malloc 且**从未 free**（每轮并行生成漏一份），改竞技场顺带修掉泄漏 |
+| `src/driver/path_list.uya` | 9（3 malloc + 6 free） | 0 | 表与 `push_strdup` 的字符串都走本文件自带的竞技场（`path_arena()`，64 KB 固定段 + arena 自行扩容）；`*_free` 改为只断开引用 |
 
 关键前提（决定这次迁移无生命周期风险）：`compiler_arena_reset` 在仓库里**没有任何调用者**，
 竞技场只在 `main` 里初始化一次，寿命 = 进程寿命；而上述容器的寿命也全是「进程结束」。
 所以「竞技场不归还」与「原代码不归还」行为完全一致，唯一变化是不再有多余的 free 路径。
 
-**剩下 42 处逐条分类**（同一闭包口径）：
+**剩下 33 处逐条分类**（同一闭包口径）：
 
 | 类 | 处数 | 能不能再降 |
 |---|---|---|
 | 竞技场自身（`src/arena.uya`） | 4 | ❌ 所有竞技场分配最终都落在这 2 个 malloc 上（chunk 头 + chunk 体） |
 | libc / std 绑定（`lib/libc/{stdio,pthread,syscall}.uya`、`lib/std/io/file.uya`） | 11 | ❌ 这就是「不是 unsafe 之外」的那层：FILE 表、线程表由被绑定的 C 库管理 |
 | VM 平台（`src/exec/vm.uya` 8 + `src/exec/value.uya` 4） | 12 | ❌ `malloc`/`calloc`/`realloc`/`free` 是**被解释程序的堆语义**，VM 必须实现它们 |
-| `src/driver/path_list.uya` | 9 | ⚠️ 能，但要先给 CLI 早期路径一个竞技场句柄（现在没有） |
-| `src/exec/format.uya` | 5 | ⚠️ 能，改成「栈上 512 字节小缓冲 + 竞技场增长」需改 `ExecFormatBuffer` 的初始化协议 |
+| `src/exec/format.uya` | 5 | 已核对为**正确成对**（init/realloc/free 都在 `exec_format_printf_like` 的同一作用域内），本轮补上了原先漏掉的 `STRING_INTERP` 处 `free`（修掉每次插值泄漏一块缓冲） |
 | `src/parse_parallel.uya` | 1 | ❌ fork 后子进程私有缓冲 |
 
-也就是说：**可收窄债务从 66 降到 14**（path_list 9 + format 5），本轮的降幅 24 处里有 24 处是「假债」
-（要么是没人调用的 free 路径，要么是本就活到进程结束的容器）—— 这些不是靠改写法蒙过去的数字，
-而是把所有权义务本身删掉了。
+也就是说：**可收窄债务从 66 降到 5，而且剩下这 5 处不是债而是正确成对的使用**
+（`exec/format.uya` 的 init/realloc/free 在同一作用域内配对，本轮还补上了原先漏掉的那处 `free`）。
+本轮降幅 33 处里没有一处是靠改写法蒙过去的：要么是没人调用的 free 路径、要么是本就活到进程结束的容器、
+要么是把生命周期挂到同一个竞技场上 —— 所有权义务本身被删掉了。
 
 **`ptr_int` 那 197 条分布（2026-11-17 实测，按文件）**：`src/exec/vm.uya` 121、
 `src/codegen/c99/function.uya` 20、`src/exec/value.uya` 14、`lib/std/string/string.uya` 8，
