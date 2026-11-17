@@ -192,7 +192,7 @@ ptr_cast	src/arena.uya	18
 ptr_cast	src/ast.uya	5
 ptr_cast	src/checker/async_frame_meta.uya	32
 ptr_cast	src/checker/check_call.uya	282
-ptr_cast	src/checker/check_expr_extra.uya	125
+ptr_cast	src/checker/check_expr_extra.uya	127
 ptr_cast	src/checker/check_expr.uya	406
 ptr_cast	src/checker/check_node_extra.uya	37
 ptr_cast	src/checker/check_stmt.uya	106

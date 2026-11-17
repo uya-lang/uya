@@ -64,6 +64,22 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
         if index_type.kind != TypeKind.TYPE_I32 {
             return array_type.slice_element_type[0];
         }
+        // 定长切片 `&[T: N]` 的 slice_len 已知（动态切片为 -1）。
+        // 这里此前**完全没有下标检查**：`fn f(a: &[i32:4]) i32 { return a[10]; }`
+        // 在 --safety-proof 下编译通过，生成 `a.ptr[10]` 直接越界读。
+        // 常量下标能静态判定的部分先接上，口径与普通数组一致。
+        if array_type.slice_len >= 0 {
+            var slice_index_is_const: i32 = 0;
+            const slice_index_val: i32 = checker_eval_const_expr_ex(checker,
+                node.array_access_index, &slice_index_is_const);
+            if slice_index_is_const != 0 {
+                if slice_index_val < 0 {
+                    checker_report_error(checker, node.array_access_index, "切片索引越界：索引不能为负数" as *byte);
+                } else if slice_index_val >= array_type.slice_len {
+                    checker_report_error(checker, node.array_access_index, "切片索引越界：常量索引超出切片长度" as *byte);
+                }
+            }
+        }
         return array_type.slice_element_type[0];
     } else if array_type.kind == TypeKind.TYPE_ARRAY && array_type.element_type != null {
         // 数组类型：检查索引表达式类型是 i32

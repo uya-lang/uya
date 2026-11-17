@@ -2,6 +2,18 @@
 
 ## 未发行
 
+### 定长切片的常量下标接上边界检查
+
+`checker_check_array_access` 的 `TYPE_SLICE` 分支此前**一行下标检查都没有**：
+`fn f(a: &[i32:4]) i32 { return a[10]; }` 在 `--safety-proof` 下通过，生成 `a.ptr[10]` 越界读。
+现在定长切片（`slice_len >= 0`）的常量下标走与普通数组一致的检查：
+负数报「切片索引越界：索引不能为负数」，越上界报「切片索引越界：常量索引超出切片长度」。
+负例 `tests/error_fixed_slice_const_index_oob.uya` 覆盖两种形态。
+
+动态切片 `&[T]` 仍无检查（`s[10]` 依旧放行），需要 slice.len 的符号化约束或后端运行时
+检查，已记在 buglist 的 P0 里。审计闸门重新冻结：309 组 / 38145 站点，
+唯一 diff 是 `ptr_cast src/checker/check_expr_extra.uya 125 → 127`（两条诊断字符串）。
+
 ### `&数组` 传定长切片形参不再生成坏 C
 
 `fn f(a: &[i32:4])` 用 `f(&arr)` 调用此前能通过类型检查，但 C 后端把形参降级为

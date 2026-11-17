@@ -1,0 +1,18 @@
+// 负例：定长切片 `&[T:N]` 的常量下标此前完全没有边界检查。
+// fn bad(a: &[i32:4]) { return a[10]; } 在 --safety-proof 下会通过，
+// 生成 `a.ptr[10]` 直接越界读；动态切片 `&[T]` 的同类检查仍未实现（另记 buglist）。
+
+fn too_big(a: &[i32: 4]) i32 {
+    return a[4];
+}
+
+fn negative(a: &[i32: 4]) i32 {
+    return a[0 - 1];
+}
+
+export fn main() i32 {
+    var x: [i32: 4] = [1, 2, 3, 4];
+    if too_big(&x) == 0 { return 1; }
+    if negative(&x) == 0 { return 2; }
+    return 0;
+}

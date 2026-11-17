@@ -1520,6 +1520,23 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     无回归。
   - 归属：`src/codegen/c99/types.uya`（`get_c_type_of_expr`）。
 
+- [x] **P0：定长切片 `&[T:N]` 的常量下标此前完全无边界检查（越界读）已修**
+  - 现象：`fn f(a: &[i32: 4]) i32 { return a[10]; }` 在 `--safety-proof` 下编译通过，
+    生成 C 为 `a.ptr[10]` 直接越界读；`checker_check_array_access` 的 `TYPE_SLICE`
+    分支此前只返回元素类型，一行检查都没有（实测修复前 rc=0）。
+  - 修法（`src/checker/check_expr_extra.uya`）：定长切片 `slice_len >= 0` 时，用
+    `checker_eval_const_expr_ex` 检查常量下标：<0 报「索引不能为负数」，
+    ≥slice_len 报「常量索引超出切片长度」，口径与普通数组一致；
+    动态切片 `slice_len == -1` 不动。
+  - 负例 `tests/error_fixed_slice_const_index_oob.uya` 覆盖上界与负数两种，
+    修复后分别按预期原因失败（2 个错误）。
+  - 验证：`make b` 字节一致；全量测试全绿；审计闸门重新冻结
+    （309 组 / 38145 站点；diff 仅 `ptr_cast src/checker/check_expr_extra.uya 125 → 127`，
+    两条诊断字符串）。
+  - **仍未修（并入下面 P0 的「切片下标」）**：动态切片 `&[T]` 的下标仍无任何检查
+    —— `fn g(s: &[i32]) i32 { return s[10]; }` 依然编译通过并生成 `s.ptr[10]`。
+    它需要 slice.len 的符号化约束或后端运行时边界检查，属独立工作项。
+
 - [ ] **P0 / 严重：UB 漏检一批（7 条，含实测 double free）—— 常量 -1 下标、循环体下标、切片下标/范围、指针形参解引用、嵌套字段移动、元组下标越界**
   - 状态：**部分修复**（2026-10-11 发现；2026-10-12 收口 ①②④⑦ 与 ⑤ 的缺口 2；
     **③ 循环体下标、⑤ 的缺口 1（切片形参下标）、⑥ 指针形参解引用仍未修复**）
