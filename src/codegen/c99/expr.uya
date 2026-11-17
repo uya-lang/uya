@@ -1524,7 +1524,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         // 因此这里不再生成“把 Pending 伪装成 error.AsyncPending”的控制流。
         // 目前 @await 节点应由 @async_fn 专用 codegen 路径消解；此处仅保底输出操作数，避免崩溃。
         if codegen != null && expr != null && codegen.async_expr_subst_await_expr != null &&
-            @usize_from_ptr(expr as &void) == @usize_from_ptr(codegen.async_expr_subst_await_expr as &void) {
+            expr == codegen.async_expr_subst_await_expr {
             const subst_name2: &byte = get_safe_c_identifier(codegen, codegen.async_expr_subst_name);
             if codegen.async_state_var != null && subst_name2 != null {
                 var subst_bind_type: &ASTNode = null;
@@ -10835,7 +10835,7 @@ fn c99_try_emit_error_return_stmt(codegen: &C99CodeGenerator, ret_union_c: &byte
 // 生成 try 表达式
 fn gen_try_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         if codegen != null && expr != null && codegen.async_expr_subst_try_expr != null &&
-            @usize_from_ptr(expr as &void) == @usize_from_ptr(codegen.async_expr_subst_try_expr as &void) {
+            expr == codegen.async_expr_subst_try_expr {
             const subst_name: &byte = get_safe_c_identifier(codegen, codegen.async_expr_subst_name);
             if codegen.async_state_var != null && subst_name != null {
                 fprintf(codegen.emit_stream as *void, "%s->_uya_bind_%s" as *byte,

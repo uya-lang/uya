@@ -2,7 +2,7 @@
 
 ## 未发行
 
-### 逃逸审计口径修正：`ptr_int` 35785 → **237**，指针换类型单独记 `ptr_cast`
+### 逃逸审计口径修正：`ptr_int` 35785 → **197**，指针换类型单独记 `ptr_cast`
 
 `--lifetime-report` 的 `ptr_int` 一直把两类完全不同的东西混在一起报：
 
@@ -13,11 +13,17 @@
 2026-11-17 拆开后实测（`src/main.uya` 依赖闭包）：
 
 ```
-[escapes] ptr_int=237      # 真正的整数↔指针桥（原 35785）
+[escapes] ptr_int=197      # 真正的整数↔指针桥（原 35785）
 [escapes] ptr_cast=35552   # 指针换类型，FFI 形参适配的写法噪声
 ```
 
-即原先那个「35785 条指针转换」里 **99.3% 是换类型、0.7% 才是能造地址的桥**。
+即原先那个「35785 条指针转换」里 **99.4% 是换类型、0.6% 才是能造地址的桥**。
+
+拆开之后还顺手清掉 40 条：源码里有 20 处「指针身份比较」被写成了
+`@usize_from_ptr(a as &void) == @usize_from_ptr(b as &void)`，现在直接用 `a == b`
+（Uya 本来就支持指针相等）—— 每条少两个整数↔指针桥，也不再依赖「地址转成整数后
+仍然相等」这个隐含假设。`src/codegen/c99/function.uya` 50 → 20，
+`src/codegen/c99/expr.uya` 5 → 1，`src/lower/async.uya` 4 → 0，`check_expr_extra.uya` 2 → 0。
 两笔都进白名单、都按增量冻结（新增即失败），`docs/unsafe_baseline.txt` 已重新冻结
 （165 组，diff 为 kind 改名 + 少量计数迁移）；`make unsafe-audit` 通过。
 

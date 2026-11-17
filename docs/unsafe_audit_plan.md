@@ -35,7 +35,7 @@ export UYA_ROOT=$PWD/lib
 [escapes] extern_fn=511 extern_var=386
 [escapes] asm=8
 [escapes] union=1 extern_union=0
-[escapes] ptr_int=237
+[escapes] ptr_int=197
 [escapes] ptr_cast=35552
 [escapes] alloc=66
 ```
@@ -59,9 +59,9 @@ export UYA_ROOT=$PWD/lib
   但仍是 35785 条。**第三版（2026-11-17）把它拆成两笔**：
   `ptr_int` = 真正的整数↔指针桥（`@ptr_from_usize`、`@usize_from_ptr`、
   指针 → `usize`），`ptr_cast` = 目标是指针的换类型 cast。
-  实测 `src` 闭包：**`ptr_int` 237（从 35785 降下来）**、`ptr_cast` 35552。
-  也就是说原先那个「35785 条指针转换」里，**真正能把指针变成可运算整数的只有 237 条**，
-  其余 99.3% 是 `"fmt" as *byte` 这类 FFI 形参适配 —— 它们依然是审计面（白名单按文件
+  实测 `src` 闭包：**`ptr_int` 197（从 35785 降下来）**、`ptr_cast` 35552。
+  也就是说原先那个「35785 条指针转换」里，**真正能把指针变成可运算整数的只有 197 条**，
+  其余 99.4% 是 `"fmt" as *byte` 这类 FFI 形参适配 —— 它们依然是审计面（白名单按文件
   冻结，新增即失败），但不该和「能凭空造地址」混为一谈。
 - `ptr_cast` 的口径是**目标侧判定**，不区分源是整数还是指针：语法层看不出来，
   判类型要付出全量推断的代价。`(addr as usize) as &T` 这种真正的伪造会落在
@@ -80,12 +80,26 @@ export UYA_ROOT=$PWD/lib
 | `extern_fn` + `extern_var` | 897 | ❌ 不能（libc/syscall 是语言的宿主） | **冻结 + 审计**：每条 extern 声明必须在白名单里 |
 | `@asm` | 8 | ❌ 不能 | **冻结 + 人工审**：仅内核/启动/原子原语 |
 | `union` | 1 + 0 extern | ❌ 不能（C 互操作与 tag 分派的基础） | **冻结**：新增 union 需理由 |
-| `ptr_int` | **237**（原 35785） | ⚠️ 部分能收窄 | **逐个收**：每条都是整数↔指针，能造地址；量级已小到可以逐个看 |
+| `ptr_int` | **197**（原 35785） | ⚠️ 部分能收窄 | **逐个收**：每条都是整数↔指针，能造地址；量级已小到可以逐个看 |
 | `ptr_cast` | 35552 | ⚠️ 大部分必要（FFI 形参适配） | **冻结增量**：`"fmt" as *byte` 属于写法噪声，改不动也不该改 |
 | `alloc` | 66 | ⚠️ 部分能收窄（走 arena 分配器） | **迁移到 arena**：编译器自有代码不应直接 malloc |
 
+**`ptr_int` 那 197 条分布（2026-11-17 实测，按文件）**：`src/exec/vm.uya` 121、
+`src/codegen/c99/function.uya` 20、`src/exec/value.uya` 14、`lib/std/string/string.uya` 8，
+其余零散在 libc/stdlib/checker。本轮已清掉 40 条：20 处
+「指针身份比较」原来写成 `@usize_from_ptr(a as &void) == @usize_from_ptr(b as &void)`，
+现在直接用 `a == b`（Uya 本来就支持指针相等比较）—— 既少了两条整数↔指针桥，
+也不再依赖「地址转成整数后仍相等」这个隐含假设。
+抽查 vm.uya 的形态：`@usize_from_ptr(vm.slot_pool as &void)` 存基址、
+`@ptr_from_usize(aligned) as &ExecValue` 取槽位、`@ptr_from_usize(waker_addr)` 取 await 单元 ——
+**这些是解释器把地址当整数值保存的设计后果**，不是随手写的转换：VM 的值表示、
+运行期缓冲对齐、await 唤醒单元都以 `usize` 承载地址。
+要把这 197 降下去，方向是「给 VM 一个地址类型并让它参与证明」，
+不是逐个改写法 —— 所以本计划的降债目标定在**消失即提示收紧、不再增加**，
+而不是追求归零。
+
 **结论：硬底部分（extern + asm + union）合计约 900 条声明级站点，是人工可审计的量级。
-债分两层：`ptr_int` 237 条（真能造地址，值得逐个收）、`ptr_cast` 35552 条
+债分两层：`ptr_int` 197 条（真能造地址，值得逐个收）、`ptr_cast` 35552 条
 （FFI 形参适配，冻结增量即可）。2026-11-17 之前这两个数是混在一起报的
 （35785），把「能凭空造地址」和「换个类型名」混为一谈，导致既无法排优先级、
 也无法衡量降债进度。**
@@ -162,7 +176,7 @@ export UYA_ROOT=$PWD/lib
   能抓到的是「新文件 / 新类别 / 计数净增」。要消灭这个盲区需要按行冻结，
   而按行冻结的维护成本会让基线腐烂（见 §3.2 的取舍），暂不做。
 - ~~`functions=0`~~：2026-11-17 已接线（在逃逸口登记器里计数），`src` 闭包实测 3229。
-- ~~`ptr_int` 未区分必要与可消除~~：2026-11-17 已拆成 `ptr_int`（237，整数↔指针）
+- ~~`ptr_int` 未区分必要与可消除~~：2026-11-17 已拆成 `ptr_int`（197，整数↔指针）
   与 `ptr_cast`（35552，指针换类型）。仍然存在的盲区：`ptr_cast` 按**目标侧**判定，
   `(addr as usize) as &T` 这类伪造会落在 `ptr_cast` 里，靠白名单冻结兜底而非机器分类。
 - `alloc` 只认裸调用（`free(p)`），不覆盖方法调用与函数指针别名。

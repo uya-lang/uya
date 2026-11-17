@@ -586,7 +586,7 @@ fn async_lower_find_raw_await_bind_type(checker: &TypeChecker, node: &ASTNode, a
     }
     if node.type == ASTNodeType.AST_VAR_DECL {
         if node.var_decl_init != null &&
-            @usize_from_ptr(node.var_decl_init as &void) == @usize_from_ptr(await_expr as &void) {
+            node.var_decl_init == await_expr {
             return node.var_decl_type;
         }
         return async_lower_find_raw_await_bind_type(checker, node.var_decl_init, await_expr);
@@ -596,7 +596,7 @@ fn async_lower_find_raw_await_bind_type(checker: &TypeChecker, node: &ASTNode, a
     }
     if node.type == ASTNodeType.AST_ASSIGN {
         if node.assign_src != null &&
-            @usize_from_ptr(node.assign_src as &void) == @usize_from_ptr(await_expr as &void) &&
+            node.assign_src == await_expr &&
             node.assign_dest != null {
             const dest_type: Type = checker_infer_type(checker, node.assign_dest);
             if dest_type.kind != TypeKind.TYPE_VOID {

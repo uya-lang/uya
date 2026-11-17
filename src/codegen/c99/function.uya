@@ -3050,7 +3050,7 @@ fn c99_async_emit_inline_child_predefs(codegen: &C99CodeGenerator, current_fn_de
     if child_decl == null || child_decl.fn_decl_is_async == 0 || child_decl.fn_decl_return_type == null {
         return;
     }
-    if current_fn_decl != null && @usize_from_ptr(child_decl as &void) == @usize_from_ptr(current_fn_decl as &void) {
+    if current_fn_decl != null && child_decl == current_fn_decl {
         return;
     }
     if is_struct_defined(codegen, child_struct_name) != 0 {
@@ -3692,7 +3692,7 @@ fn c99_async_collect_locals_recursive(codegen: &C99CodeGenerator, fn_body: &ASTN
         return;
     }
     var nested_block_root_si: i32 = 2147483647;
-    if fn_body != null && parent_block != null && @usize_from_ptr(parent_block as &void) == @usize_from_ptr(fn_body as &void) {
+    if fn_body != null && parent_block != null && parent_block == fn_body {
         nested_block_root_si = parent_stmt_index;
     }
     if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
@@ -4492,7 +4492,7 @@ fn c99_async_find_await_at(codegen: &C99CodeGenerator, block: &ASTNode, si: i32)
     var j: i32 = 0;
     while j < codegen.async_collect_count {
         if codegen.async_collect_stmt_indices[j] == si && codegen.async_collect_blocks[j] != null &&
-            @usize_from_ptr(codegen.async_collect_blocks[j] as &void) == @usize_from_ptr(block as &void) {
+            codegen.async_collect_blocks[j] == block {
             return j;
         }
         j = j + 1;
@@ -4517,7 +4517,7 @@ fn c99_async_node_source_matches(a: &ASTNode, b: &ASTNode) i32 {
     if a == null || b == null {
         return 0;
     }
-    if @usize_from_ptr(a as &void) == @usize_from_ptr(b as &void) {
+    if a == b {
         return 1;
     }
     if a.type != b.type {
@@ -4632,7 +4632,7 @@ fn c99_async_find_cleanup_region_for_block(codegen: &C99CodeGenerator, block: &A
     while i < codegen.async_cleanup_region_count {
         const region: &AsyncLowerCleanupRegion = &codegen.async_cleanup_regions[i];
         if region.block != null &&
-            @usize_from_ptr(region.block as &void) == @usize_from_ptr(block as &void) {
+            region.block == block {
             return i;
         }
         i = i + 1;
@@ -4806,7 +4806,7 @@ fn c99_find_stmt_in_node_tree(needle: &ASTNode, node: &ASTNode, parent_block: &A
         var i: i32 = 0;
         while i < node.block_stmt_count {
             const ch: &ASTNode = node.block_stmts[i];
-            if ch != null && @usize_from_ptr(ch as &void) == @usize_from_ptr(needle as &void) {
+            if ch != null && ch == needle {
                 out_block[0] = node;
                 out_si[0] = i;
                 return 1;
@@ -4824,7 +4824,7 @@ fn c99_find_stmt_in_node_tree(needle: &ASTNode, node: &ASTNode, parent_block: &A
             return 1;
         }
         if node.if_stmt_else_branch != null {
-            if @usize_from_ptr(node.if_stmt_else_branch as &void) == @usize_from_ptr(needle as &void) {
+            if node.if_stmt_else_branch == needle {
                 out_block[0] = parent_block;
                 out_si[0] = parent_si;
                 return 1;
@@ -4864,13 +4864,13 @@ fn c99_find_stmt_for_split_try_expr(
             const ch: &ASTNode = node.block_stmts[i];
             if ch != null {
                 if ch.type == ASTNodeType.AST_VAR_DECL && ch.var_decl_init != null &&
-                    @usize_from_ptr(ch.var_decl_init as &void) == @usize_from_ptr(split_try_expr as &void) {
+                    ch.var_decl_init == split_try_expr {
                     out_block[0] = node;
                     out_si[0] = i;
                     return 1;
                 }
                 if ch.type == ASTNodeType.AST_RETURN_STMT && ch.return_stmt_expr != null &&
-                    @usize_from_ptr(ch.return_stmt_expr as &void) == @usize_from_ptr(split_try_expr as &void) {
+                    ch.return_stmt_expr == split_try_expr {
                     out_block[0] = node;
                     out_si[0] = i;
                     return 1;
@@ -4910,26 +4910,26 @@ fn c99_stmt_matches_async_operand(stmt: &ASTNode, operand: &ASTNode) i32 {
     if stmt.type == ASTNodeType.AST_VAR_DECL && stmt.var_decl_init != null {
         const init: &ASTNode = stmt.var_decl_init;
         if init.type == ASTNodeType.AST_AWAIT_EXPR && init.await_expr_operand != null &&
-            @usize_from_ptr(init.await_expr_operand as &void) == @usize_from_ptr(operand as &void) {
+            init.await_expr_operand == operand {
             return 1;
         }
         if init.type == ASTNodeType.AST_TRY_EXPR && init.try_expr_operand != null &&
             init.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
             init.try_expr_operand.await_expr_operand != null &&
-            @usize_from_ptr(init.try_expr_operand.await_expr_operand as &void) == @usize_from_ptr(operand as &void) {
+            init.try_expr_operand.await_expr_operand == operand {
             return 1;
         }
     }
     if stmt.type == ASTNodeType.AST_RETURN_STMT && stmt.return_stmt_expr != null {
         const ret_expr: &ASTNode = stmt.return_stmt_expr;
         if ret_expr.type == ASTNodeType.AST_AWAIT_EXPR && ret_expr.await_expr_operand != null &&
-            @usize_from_ptr(ret_expr.await_expr_operand as &void) == @usize_from_ptr(operand as &void) {
+            ret_expr.await_expr_operand == operand {
             return 1;
         }
         if ret_expr.type == ASTNodeType.AST_TRY_EXPR && ret_expr.try_expr_operand != null &&
             ret_expr.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
             ret_expr.try_expr_operand.await_expr_operand != null &&
-            @usize_from_ptr(ret_expr.try_expr_operand.await_expr_operand as &void) == @usize_from_ptr(operand as &void) {
+            ret_expr.try_expr_operand.await_expr_operand == operand {
             return 1;
         }
     }
@@ -5043,7 +5043,7 @@ fn c99_find_parent_of_block_node(child: &ASTNode, node: &ASTNode, parent_block: 
     if child == null || node == null {
         return 0;
     }
-    if @usize_from_ptr(node as &void) == @usize_from_ptr(child as &void) {
+    if node == child {
         if parent_block != null {
             out_block[0] = parent_block;
             out_si[0] = parent_si;
@@ -5094,7 +5094,7 @@ fn c99_find_parent_of_block(child: &ASTNode, search_in: &ASTNode, out_block: &&A
 fn emit_async_continue_in_parent(codegen: &C99CodeGenerator, child_block: &ASTNode) i32 {
     if codegen == null || child_block == null || codegen.async_fn_body == null { return 1; }
     // child_block 就是函数体 → 顶层结束
-    if @usize_from_ptr(child_block as &void) == @usize_from_ptr(codegen.async_fn_body as &void) { return 1; }
+    if child_block == codegen.async_fn_body { return 1; }
     c99_async_emit_completed_block_cleanup(codegen, child_block);
     if codegen.defer_stack_depth > 0 {
         codegen.defer_stack_depth = codegen.defer_stack_depth - 1;
