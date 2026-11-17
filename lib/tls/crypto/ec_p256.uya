@@ -98,40 +98,23 @@ fn fe256_cpy(r: &Fe256, a: &const Fe256) void {
     }
 }
 
-// 64×64 -> 128（与 mpi 一致，16-bit 分块）
+// 64×64 -> 128：按 32-bit 半字拆成 4 次乘法。
+// 原 16-bit 分块版本每次宽乘要 16 次小乘法，在 exec VM 下 P-256 标量乘
+// 会慢到握手被服务器超时断开；这里用 32-bit 半字把乘法次数降到 4 次。
 fn mul64_hi_lo(a: u64, b: u64, lo: &u64, hi: &u64) void {
-    const m16: u64 = 0xFFFF as u64;
-    const a0: u64 = a & m16;
-    const a1: u64 = (a >> 16) & m16;
-    const a2: u64 = (a >> 32) & m16;
-    const a3: u64 = (a >> 48) & m16;
-    const b0: u64 = b & m16;
-    const b1: u64 = (b >> 16) & m16;
-    const b2: u64 = (b >> 32) & m16;
-    const b3: u64 = (b >> 48) & m16;
-    var t: u64 = a0 * b0;
-    const r0: u64 = t & m16;
-    var c: u64 = t >> 16;
-    t = a0 * b1 + a1 * b0 + c;
-    const r1: u64 = t & m16;
-    c = t >> 16;
-    t = a0 * b2 + a1 * b1 + a2 * b0 + c;
-    const r2: u64 = t & m16;
-    c = t >> 16;
-    t = a0 * b3 + a1 * b2 + a2 * b1 + a3 * b0 + c;
-    const r3: u64 = t & m16;
-    c = t >> 16;
-    t = a1 * b3 + a2 * b2 + a3 * b1 + c;
-    const r4: u64 = t & m16;
-    c = t >> 16;
-    t = a2 * b3 + a3 * b2 + c;
-    const r5: u64 = t & m16;
-    c = t >> 16;
-    t = a3 * b3 + c;
-    const r6: u64 = t & m16;
-    const r7: u64 = t >> 16;
-    lo[0] = r0 | (r1 << 16) | (r2 << 32) | (r3 << 48);
-    hi[0] = r4 | (r5 << 16) | (r6 << 32) | (r7 << 48);
+    const m32: u64 = 0xFFFFFFFFu64;
+    const a0: u64 = a & m32;
+    const a1: u64 = a >> 32;
+    const b0: u64 = b & m32;
+    const b1: u64 = b >> 32;
+    const p00: u64 = a0 * b0;
+    const p01: u64 = a0 * b1;
+    const p10: u64 = a1 * b0;
+    const p11: u64 = a1 * b1;
+    // mid < 3*2^32，不会溢出 u64；其中低 32 位进入 lo，高 2 位进入 hi。
+    const mid: u64 = (p00 >> 32) +% (p01 & m32) +% (p10 & m32);
+    lo[0] = (p00 & m32) | ((mid & m32) << 32);
+    hi[0] = p11 +% (p01 >> 32) +% (p10 >> 32) +% (mid >> 32);
 }
 
 // 8 limbs 小端
@@ -270,12 +253,77 @@ fn fe256_cond_sub_p(r: &Fe256, a: &const Fe256, cond: u64) void {
 
 // 域乘法：r = a * b mod p。
 //
-// 常量时间双倍加，全标量展开（不碰数组、不碰通用大数除法）：
-// 逐位做 `acc = 2*acc` 再 `acc += b_i ? a : 0`（条件加用掩码，不分支）。
-// 中间值只要「mod p 同余」即可，不必随时小于 p —— 每次把 2^256 的进位
-// 按 `2^256 ≡ R` 折回低位，最后统一做一次条件减 p 就落地到 [0, p)。
-// 这样每比特只有 8 次 64 位加减，比原来走 mpi 的 mul+mod 快两个数量级。
+// 走宽乘 + R 折叠约简（见 fe256_mul_fast）。exec VM 下原来的逐位双倍加
+// 实现会让 P-256 标量乘慢到服务器在 TLS 握手完成前断开连接。
+// 原实现保留在 fe256_mul_slow，供对拍参考。
 fn fe256_mul(r: &Fe256, a: &const Fe256, b: &const Fe256) void {
+    fe256_mul_fast(r, a, b);
+}
+
+// 宽乘 + 折叠约简：2^256 ≡ R (mod p)，每轮把高 256 位乘 R 折回低位，
+// 高位每轮缩小约 2^32，至多 8 轮即可收敛。VM 下比逐位双倍加快一个数量级。
+fn fe256_mul_fast(r: &Fe256, a: &const Fe256, b: &const Fe256) void {
+    var wide: Fe256Wide = Fe256Wide{ l: [0:8] };
+    fe256_mul_wide(&wide, a, b);
+    var round: usize = 0;
+    while round < 10 {
+        var hi_r: Fe256 = Fe256{ l: [0:4] };
+        hi_r.l[0] = wide.l[4];
+        hi_r.l[1] = wide.l[5];
+        hi_r.l[2] = wide.l[6];
+        hi_r.l[3] = wide.l[7];
+        const hi_nonzero: u64 = hi_r.l[0] | hi_r.l[1] | hi_r.l[2] | hi_r.l[3];
+        if hi_nonzero == 0 {
+            break;
+        }
+        var r_fe: Fe256 = Fe256{ l: [0:4] };
+        r_fe.l[0] = P256_R_LE[0];
+        r_fe.l[1] = P256_R_LE[1];
+        r_fe.l[2] = P256_R_LE[2];
+        r_fe.l[3] = P256_R_LE[3];
+        var prod: Fe256Wide = Fe256Wide{ l: [0:8] };
+        fe256_mul_wide(&prod, &hi_r, &r_fe);
+        // 下一轮 wide = (当前低 256 位) + hi*R，高位由 hi*R 的高半部填补。
+        var sum: Fe256Wide = Fe256Wide{ l: [0:8] };
+        sum.l[0] = wide.l[0];
+        sum.l[1] = wide.l[1];
+        sum.l[2] = wide.l[2];
+        sum.l[3] = wide.l[3];
+        var carry: u64 = 0;
+        var i: usize = 0;
+        while i < 8 {
+            const old: u64 = sum.l[i];
+            const add: u64 = prod.l[i] +% carry;
+            const s: u64 = old +% add;
+            sum.l[i] = s;
+            carry = 0;
+            if s < old {
+                carry = 1;
+            }
+            if add < prod.l[i] {
+                carry = 1;
+            }
+            i = i + 1;
+        }
+        wide.l[0] = sum.l[0];
+        wide.l[1] = sum.l[1];
+        wide.l[2] = sum.l[2];
+        wide.l[3] = sum.l[3];
+        wide.l[4] = sum.l[4];
+        wide.l[5] = sum.l[5];
+        wide.l[6] = sum.l[6];
+        wide.l[7] = sum.l[7];
+        round = round + 1;
+    }
+    var res: Fe256 = Fe256{ l: [0:4] };
+    res.l[0] = wide.l[0];
+    res.l[1] = wide.l[1];
+    res.l[2] = wide.l[2];
+    res.l[3] = wide.l[3];
+    fe256_cond_sub_p(r, &res, fe256_ge_p(&res) as u64);
+}
+
+fn fe256_mul_slow(r: &Fe256, a: &const Fe256, b: &const Fe256) void {
     const p0: u64 = 0xFFFFFFFFFFFFFFFF;
     const p1: u64 = 0x00000000FFFFFFFF;
     const p2: u64 = 0;
