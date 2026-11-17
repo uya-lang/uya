@@ -63,6 +63,10 @@ fn checker_check_program_node(checker: &TypeChecker, node: &ASTNode) i32 {
             fprintf(libc.stderr, "[check] other %d/%d\n" as *byte, i, other_count);
         }
     }
+    // 逃逸口登记（--lifetime-report 的 escapes 段）：所有声明都检查完后扫一遍，
+    // 把 extern / @asm / union / 指针↔整数 / 分配器调用按类别数出来。
+    // 只统计不报错，关掉 --lifetime-report 时在函数入口直接返回。
+    lifetime_account_program_escapes(checker, node);
     return 1;
 }
 
