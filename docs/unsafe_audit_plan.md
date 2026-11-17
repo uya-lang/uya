@@ -113,10 +113,41 @@ export UYA_ROOT=$PWD/lib
 | 部件 | 位置 | 作用 |
 |---|---|---|
 | 逐站点清单 | `./bin/uya check --escape-list <root>` | 打 `[escape] <kind> <file>:<line>`，只列不报 |
-| 闸门脚本 | `tests/verify_unsafe_audit.sh` | 聚合成 `kind<TAB>file<TAB>count` 与基线对比 |
-| 冻结基线 | `docs/unsafe_baseline.txt` | 146 个 `(kind,file)` 组，可 diff |
+| 审计根清单 | `docs/unsafe_audit_roots.txt` | 41 个根，逐个跑再按 `(kind,file)` **取最大值**合并 |
+| 闸门脚本 | `tests/verify_unsafe_audit.sh` | 聚合成 `kind<TAB>file<TAB>count` 与基线对比 + 覆盖闸门 |
+| 冻结基线 | `docs/unsafe_baseline.txt` | 314 个 `(kind,file)` 组，可 diff |
 | CI 挂钩 | `make unsafe-audit`（也在 `make check` 里） | 新增/增加即失败 |
 | 重冻结 | `make unsafe-baseline-update` | 更新基线，diff 需在评审里解释 |
+
+### 3.1b 为什么要多个审计根（2026-11-17 补）
+
+只用 `src/main.uya` 一个根时，审计面 = **编译器自己的依赖闭包**。标准库里
+http / websocket / tls / jpeg / kernel / tflm 这些模块编译器根本不导入，
+它们的逃逸口一个都没进白名单 —— 「审计过的 unsafe 之外零 UB」这句话当时对
+这 40 个文件根本不成立，只是没人报出来。
+
+现在 `docs/unsafe_audit_roots.txt` 列出 41 个根（编译器 + 40 个补漏模块），
+脚本逐个跑 `--escape-list` 后**按 `(kind,file)` 取最大值**合并：
+
+- 求和会虚高 —— 同一文件会出现在多个根的闭包里；
+- 按行去重会漏数 —— 一行里写两次 `@usize_from_ptr`（指针身份比较常见形态）
+  会被并成一处。
+
+`--update` 全量重冻结：站点 36721 → **38166**，组数 163 → **314**，
+耗时 12.9 s（41 个根，std 模块都很小）。
+
+**覆盖闸门（新增，§3.4 有复跑命令）**：分母取「源码文本里含有逃逸构造的文件」
+（剥掉注释、不算方法调用形态），分子取「本次审计实际见到的文件」，
+差集非空即失败。它挡的是**漏审计**而不是逃逸口变多：新写一个带 `extern fn`
+的模块，只要没有根导入它，上面所有对比都不会察觉 —— 白名单永远是
+「我看过的那些文件」，看不见的文件等于不存在。
+
+写这条闸门踩过的两个坑（都写进脚本注释了）：
+
+- 分母用 `grep -q` 配 `set -o pipefail` 会因 SIGPIPE 把「匹配位置靠前的文件」
+  静默丢掉（42 个漏成 10 个）；
+- 分母不剥注释会把文档注释里提到的 `extern "libc" fn exp(...)` 当成真逃逸口
+  （`src/exec/hir.uya` 就是这么被误报的）。
 
 ### 3.2 为什么按 `(kind, file, count)` 而不是 `file:line`
 
@@ -145,14 +176,23 @@ export UYA_ROOT=$PWD/lib
 ### 3.4 判据（可复跑）
 
 ```sh
-./bin/uya check --escape-list src/main.uya 2>&1 | grep -c '^\[escape\]'   # 36757
-./tests/verify_unsafe_audit.sh                                          # 基线一致 ✓
+./bin/uya check --escape-list src/main.uya 2>&1 | grep -c '^\[escape\]'   # 单根 36721
+./tests/verify_unsafe_audit.sh      # 41 个根取并集，38166 站点 / 314 组；基线一致 ✓
 ./tests/verify_unsafe_audit.sh --update                                 # 重新冻结
 ```
 
-已验证的三个方向（2026-11-16）：基线调低 2 → 失败并打出
-`逃逸口增加: alloc src/arena.uya 2 -> 4`；删掉基线某行 → 失败（NEW）；
-基线调高 2 → 通过并提示可收紧。
+已验证的五个方向：
+
+| 方向 | 构造 | 结果 |
+|---|---|---|
+| 基线调低 | 手改 `src/arena.uya` 的 `alloc` 计数 | 失败并打出 `逃逸口增加: alloc src/arena.uya 2 -> 4` |
+| 基线少一行 | 删掉某组 | 失败（NEW） |
+| 基线调高 | 某组 +2 | 通过 + 提示可收紧 |
+| 新逃逸口 | 在 `lib/std/env.uya` 加 `extern fn audit_probe_new_escape() i32;` | 失败：`新增逃逸口: extern_fn lib/std/env.uya（1 处）` |
+| 漏审计 | 新建 `lib/std/audit_probe_hidden.uya` 带 `extern fn`，无根导入 | 失败：`未被审计的逃逸文件: lib/std/audit_probe_hidden.uya` |
+
+后两条是 2026-11-17 补的（前三条 2026-11-16），探针用完即删，
+`git diff` 干净 —— 闸门的有效性不能只靠「它现在绿」。
 
 ---
 

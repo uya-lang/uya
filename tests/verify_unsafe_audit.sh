@@ -24,47 +24,123 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 UYA_BIN="${UYA_BIN:-$ROOT_DIR/bin/uya}"
 BASELINE="$ROOT_DIR/docs/unsafe_baseline.txt"
-AUDIT_ROOT="src/main.uya"
+# 审计根：一行一个（# 开头为注释）。跨多个根取**并集**，因为编译器自己只会
+# 导入它用到的模块 —— 只用 src/main.uya 一个根，标准库里 http / websocket /
+# jpeg / kernel 那些模块根本不会被解析，它们的逃逸口就完全没进审计面。
+ROOTS_FILE="$ROOT_DIR/docs/unsafe_audit_roots.txt"
 
 fail() { printf '[unsafe-audit] FAIL: %s\n' "$*" >&2; exit 1; }
 log() { printf '[unsafe-audit] %s\n' "$*"; }
 
 [[ -x "$UYA_BIN" ]] || fail "缺少编译器: $UYA_BIN"
-[[ -f "$ROOT_DIR/$AUDIT_ROOT" ]] || fail "缺少审计根: $AUDIT_ROOT"
+[[ -f "$ROOTS_FILE" ]] || fail "缺少审计根清单: $ROOTS_FILE"
 
 cd "$ROOT_DIR"
 export UYA_ROOT="${UYA_ROOT:-$ROOT_DIR/lib}"
 
-RAW="$(mktemp)"
-ACTUAL="$(mktemp)"
-trap 'rm -f "$RAW" "$ACTUAL"' EXIT
+WORK_DIR="$(mktemp -d)"
+ACTUAL="$WORK_DIR/actual.tsv"
+trap 'rm -rf "$WORK_DIR"' EXIT
 
-# 1) 逐站点明细 → 按 (kind, file) 聚合。行号剥掉：白名单按文件冻结，
-#    否则每次插入一行注释都会让整份基线失效。
-"$UYA_BIN" check --escape-list "$AUDIT_ROOT" >/dev/null 2>"$RAW" \
-    || fail "编译器在 --escape-list 模式下失败（先修编译错误再谈审计）"
-
-# 路径归一化：文件名由 parser 按调用方式决定，可能是 `src/x.uya`、`./src/x.uya`
+# 路径归一化：文件名由 parser 按调用方式决定，可能是 `src/x.uya`、`./lib/x.uya`
 # 或绝对路径（取决于 UYA_ROOT 怎么给）。基线必须与调用方式无关，否则换一台机器
 # 或换一个 UYA_ROOT 就整份 diff 爆炸。这里统一剥成「相对仓库根」的形式。
 UYA_ROOT_ABS="$(cd "$UYA_ROOT" 2>/dev/null && pwd || echo "$UYA_ROOT")"
 ROOT_ABS="$(cd "$ROOT_DIR" && pwd)"
 
-grep '^\[escape\]' "$RAW" \
-    | awk -v root="$ROOT_ABS" -v uroot="$UYA_ROOT_ABS" '{
-        p = $3
-        sub(/:[0-9]+$/, "", p)                       # 去掉行号
-        sub(/^\.\//, "", p)                          # 去掉 ./ 前缀
-        if (index(p, root "/") == 1) p = substr(p, length(root) + 2)
-        else if (index(p, uroot "/") == 1) p = "lib/" substr(p, length(uroot) + 2)
-        print $2 "\t" p
-    }' \
-    | sort | uniq -c | awk '{print $2"\t"$3"\t"$1}' > "$ACTUAL" \
+# 把一个根的 --escape-list 原始输出归一化成 `kind<TAB>file<TAB>count`。
+normalize() {
+    grep '^\[escape\]' "$1" \
+        | awk -v root="$ROOT_ABS" -v uroot="$UYA_ROOT_ABS" '{
+            p = $3
+            sub(/:[0-9]+$/, "", p)
+            sub(/^\.\//, "", p)
+            if (index(p, root "/") == 1) p = substr(p, length(root) + 2)
+            else if (index(p, uroot "/") == 1) p = "lib/" substr(p, length(uroot) + 2)
+            print $2 "\t" p
+        }' \
+        | sort | uniq -c | awk '{print $2"\t"$3"\t"$1}'
+}
+
+# 1) 逐个审计根跑 --escape-list，各自归一化，再按 (kind,file) 取**最大值**合并。
+#
+#    为什么是 max 而不是求和：同一个文件会出现在多个根的依赖闭包里，
+#    而某个文件的逃逸口数量是该文件自身的属性 —— 不论从哪个根进去都一样。
+#    求和会让计数成倍虚高；按行去重又会把「同一行里两个 `@usize_from_ptr`」
+#    错误地并成一个（这些比较本来就爱写成一行）。取 max 两个坑都避开。
+#
+#    也**不能**在合并前剥行号：白名单按文件冻结，插一行注释就会让整份基线失效。
+ROOT_N=0
+FAILED_ROOTS=0
+while IFS= read -r root; do
+    [[ -z "$root" || "$root" == \#* ]] && continue
+    [[ -f "$ROOT_DIR/$root" ]] || fail "审计根清单里的文件不存在: $root"
+    ROOT_N=$((ROOT_N + 1))
+    raw="$WORK_DIR/raw.$ROOT_N"
+    if ! "$UYA_BIN" check --escape-list "$root" >/dev/null 2>"$raw"; then
+        printf '[unsafe-audit] 审计根编译失败（无法审计）: %s\n' "$root" >&2
+        FAILED_ROOTS=$((FAILED_ROOTS + 1))
+        continue
+    fi
+    normalize "$raw" > "$WORK_DIR/cnt.$ROOT_N"
+done < "$ROOTS_FILE"
+[[ "$FAILED_ROOTS" -eq 0 ]] || fail "$FAILED_ROOTS 个审计根无法编译 —— 有模块是「从没被编译过」的状态，先修它"
+
+awk -F'\t' '
+    { k = $1 "\t" $2; if ($3 + 0 > m[k]) m[k] = $3 + 0 }
+    END { for (k in m) { split(k, p, "\t"); print p[1] "\t" p[2] "\t" m[k] } }
+' "$WORK_DIR"/cnt.* | sort > "$ACTUAL" \
     || fail "未能从 --escape-list 输出聚合出明细（输出格式变了？）"
 
-SITES=$(grep '^\[escape\]' "$RAW" | wc -l)
+SITES=$(awk -F'\t' '{ s += $3 } END { print s + 0 }' "$ACTUAL")
 GROUP_N=$(wc -l < "$ACTUAL")
-log "站点 $SITES 个，聚合为 $GROUP_N 个 (kind,file) 组"
+log "审计根 $ROOT_N 个，站点 $SITES 个，聚合为 $GROUP_N 个 (kind,file) 组"
+
+# 1b) 覆盖闸门：源码里**含有**逃逸构造的文件，必须出现在本次审计结果里。
+#
+#     这一条挡的是「漏审计」而不是「逃逸口变多」：新写一个 lib/std/xxx.uya
+#     带 extern fn，只要它没被任何审计根导入，上面的对比全都不会察觉 ——
+#     白名单永远是「我看过的那些文件」，看不见的文件等于不存在。
+#     所以分母用源码文本（不看编译器输出），差集非空就失败。
+#
+#     匹配前先剥掉注释：注释里写「`extern "libc" fn exp(...)` 这类没有实现体的
+#     声明」不该被算成逃逸口（实测 `src/exec/hir.uya` 就是这么被误报的）。
+#     剥注释的 awk 会跳过字符串字面量里的 `//`（`"http://"` 不会被截断）。
+#     方法调用形态（`x.free()`）也不计入 —— 术语统计里 `alloc` 只认裸调用，
+#     分母必须同一口径，否则「调用了带 free 方法的类型」会被当成逃逸文件。
+strip_comments() {
+    awk '{
+        out = ""; q = 0; i = 1; n = length($0)
+        while (i <= n) {
+            c = substr($0, i, 1)
+            if (c == "\\") { out = out c substr($0, i + 1, 1); i += 2; continue }
+            if (c == "\"") { q = 1 - q; out = out c; i += 1; continue }
+            if (q == 0 && c == "/" && substr($0, i + 1, 1) == "/") break
+            out = out c; i += 1
+        }
+        print out
+    }' "$1"
+}
+
+SRC_WITH_ESCAPES=$(
+    for f in $(find "$ROOT_DIR/src" "$ROOT_DIR/lib" -name '*.uya' -not -path '*uyacache*' | sort); do
+        # 这里**不能**用 `grep -q`：`set -o pipefail` 下 grep 命中后立刻退出会让
+        # 上游 awk 吃到 SIGPIPE（退出码 141），整个管道被判成「没命中」——
+        # 症状是「匹配位置靠前的文件凭空从分母里消失」（实测 42 个漏成 10 个）。
+        if strip_comments "$f" | grep -E 'extern fn|extern var|extern "libc"|@asm|@ptr_from_usize|@usize_from_ptr|[^._a-zA-Z]malloc\(|[^._a-zA-Z]free\(' > /dev/null; then
+            printf '%s\n' "${f#$ROOT_DIR/}"
+        fi
+    done | sort -u
+)
+AUDITED_FILES=$(awk -F'\t' '{ print $2 }' "$ACTUAL" | sort -u)
+UNCOVERED=$(comm -23 <(printf '%s\n' "$SRC_WITH_ESCAPES") <(printf '%s\n' "$AUDITED_FILES") \
+    | grep -v '^$' || true)
+if [[ -n "$UNCOVERED" ]]; then
+    printf '%s\n' "$UNCOVERED" | while IFS= read -r f; do
+        printf '[unsafe-audit] 未被审计的逃逸文件: %s\n' "$f" >&2
+    done
+    fail "有 $(printf '%s\n' "$UNCOVERED" | wc -l) 个含逃逸构造的文件不在任何审计根的闭包里 —— 把它们加进 docs/unsafe_audit_roots.txt，或在白名单里显式豁免"
+fi
 
 if [[ "${1:-}" == "--update" ]]; then
     {

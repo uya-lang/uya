@@ -449,6 +449,25 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     **这些路径仍然静默通过。**
 
 
+- [x] **P2 / 中：`lib/kernel/sim.uya` 有两处位运算类型不一致，从未被编译过所以一直没人发现**
+  - 状态：已修复（2026-11-17）
+  - 现象：`lib/kernel/sim.uya:921` 与 `:1244` 写 `cur_va & (PAGE_SIZE - 1u32)`，
+    报「位运算符 & | ^ 的两个操作数类型必须一致」。该文件不在编译器的依赖闭包里，
+    日常构建、全量测试都碰不到它 —— 只有在**把它当审计根单独 check** 时才暴露。
+  - 修复内容：改用 `PAGE_MASK`（`lib/kernel/mem.uya` 已经导出的 `u32 = 65535`），
+    语义等价且不再手工拼 `PAGE_SIZE - 1`（那种写法本身就是错字温床）。
+  - 验证状态：`./bin/uya check lib/kernel/sim.uya` 通过。
+  - 归属：`lib/kernel/sim.uya`。
+
+- [x] **P2 / 中：`lib/syscall/linux.uya` 的 `EPOLLET: i32 = -2147483648` 字面量溢出**
+  - 状态：已修复（2026-11-17）
+  - 现象：`-2147483648` 被解析成「一元负号 + 字面量 2147483648」，
+    而后者超出 `i32` 上限，`--strict-overflow`（默认开）直接报溢出。
+    同样是「文件从没被编译过」才漏下来的：它只在裸机/hosted 变体的依赖里。
+  - 修复内容：写成 `-2147483647 - 1`；只出现在这一处常量，无其他引用。
+  - 验证状态：`./bin/uya check lib/osal/osal.uya` 通过（该文件经 `lib/syscall/linux.uya` 导入）。
+  - 归属：`lib/syscall/linux.uya`。
+
 ## 标准库 bug
 
 - [x] **P2 / 中：HTTP/1 响应头块上限 `65536` 是硬边界，调用方无法在不改库的情况下放宽**

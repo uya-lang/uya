@@ -1,0 +1,50 @@
+# 逃逸审计根（tests/verify_unsafe_audit.sh 逐个跑 --escape-list，再按 (kind,file) 取最大值合并）
+#
+# 为什么要多个根：编译器只导入它用到的模块。只用 `src/main.uya` 一个根时，
+# 标准库里 http / websocket / tls / jpeg / kernel / tflm 这些模块根本不会被解析，
+# 它们的逃逸口完全没进审计面 —— 「审计过的 unsafe 之外零 UB」这句话也就不成立。
+# 下面除第一行外，都是「编译器闭包覆盖不到的逃逸文件」，逐个补进来。
+#
+# 新增/删除根都会改变基线，需在评审里解释。新写了带逃逸构造的文件而没有被
+# 任何根覆盖时，闸门会失败并把它列出来 —— 加到这里即可。
+src/main.uya
+lib/kernel/sim.uya
+lib/osal/osal.uya
+lib/std/async.uya
+lib/std/async_channel.uya
+lib/std/async_event.uya
+lib/std/async_frame.uya
+lib/std/async_scheduler.uya
+lib/std/collections/hashmap.uya
+lib/std/env.uya
+lib/std/http/epoll_server.uya
+lib/std/http/http1_async.uya
+lib/std/http/router.uya
+lib/std/http/server.uya
+lib/std/http/uyagin.uya
+lib/std/http/uyagin_router.uya
+lib/std/http/websocket_client.uya
+lib/std/http/websocket_types.uya
+lib/std/image/jpeg_decode.uya
+lib/std/image/jpeg_marker.uya
+lib/std/io/stream.uya
+lib/std/mem/allocator.uya
+lib/std/mem/arena.uya
+lib/std/mem/heap.uya
+lib/std/mqtt/async.uya
+lib/std/net/dns.uya
+lib/std/process.uya
+lib/std/protobuf/impl.uya
+lib/std/runtime/capability/benchmark.uya
+lib/std/runtime/capability/manager.uya
+lib/std/runtime/capability/registry.uya
+lib/std/runtime/microapp/loader_main.uya
+lib/std/testing/testing.uya
+lib/std/thread.uya
+lib/tflm/backend/arm.uya
+lib/tflm/kernels/kernels.uya
+lib/tls/base/mpi.uya
+lib/tls/crypto/gcm.uya
+lib/tls/crypto/x25519.uya
+lib/tls/https.uya
+lib/tls/ssl/context.uya

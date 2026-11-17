@@ -2,6 +2,31 @@
 
 ## 未发行
 
+### 逃逸审计扩容：41 个审计根 + 覆盖闸门，标准库 40 个模块首次进入审计面
+
+此前 `make unsafe-audit` 只跑 `src/main.uya` 一个根 —— 审计面等于**编译器自己的
+依赖闭包**。标准库里 http / websocket / tls / jpeg / kernel / tflm 这 40 个模块
+编译器根本不导入，它们的逃逸口一个都没进白名单。也就是说「审计过的 unsafe
+之外零 UB」这句话当时对这 40 个文件**根本不成立**，只是没有一个检查会发现。
+
+- 新增 `docs/unsafe_audit_roots.txt`（41 个根），`tests/verify_unsafe_audit.sh`
+  逐个跑 `--escape-list` 后**按 `(kind,file)` 取最大值**合并：求和会因多个根
+  重复计同一文件而虚高，按行去重又会把「一行里两个 `@usize_from_ptr`」并成一。
+- 新增**覆盖闸门**：分母取「源码文本里含逃逸构造的文件」（剥注释、不算方法调用
+  形态），分子取本次实际审计到的文件，差集非空即失败。挡的是漏审计 ——
+  新写一个带 `extern fn` 的模块而没有任何根导入它，此前的对比全都看不见。
+- 重新冻结基线：站点 36721 → **38166**，组数 163 → **314**，全量耗时 12.9 s。
+
+扩容顺手抓到两个**从没被编译过**的模块里的真 bug（已记 buglist 并修复）：
+`lib/kernel/sim.uya` 两处 `cur_va & (PAGE_SIZE - 1u32)` 位运算类型不一致
+（改用已导出的 `PAGE_MASK`）、`lib/syscall/linux.uya` 的
+`EPOLLET: i32 = -2147483648` 字面量溢出（改 `-2147483647 - 1`）。
+
+已验证五个方向（前三条此前已有，后两条新增）：基线调低/少行 → 失败；
+基线调高 → 通过并提示；在 `lib/std/env.uya` 加一行 `extern fn` → 失败
+（`新增逃逸口: extern_fn lib/std/env.uya`）；新建 `lib/std/audit_probe_hidden.uya`
+带 `extern fn` 且无根导入 → 失败（`未被审计的逃逸文件`）。探针用完即删。
+
 ### 逃逸审计口径修正：`ptr_int` 35785 → **197**，指针换类型单独记 `ptr_cast`
 
 `--lifetime-report` 的 `ptr_int` 一直把两类完全不同的东西混在一起报：

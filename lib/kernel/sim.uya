@@ -918,7 +918,7 @@ fn sim_copy_segment(pm: &PhysMem, first_ppn: u32, base_vpn: u32, src: &[byte], d
     while i < src.len as u32 {
         const cur_va: u32 = dst_va + i;
         const vpn: u32 = cur_va / PAGE_SIZE;
-        const off: u32 = cur_va & (PAGE_SIZE - 1u32);
+        const off: u32 = cur_va & PAGE_MASK;
         const ppn: u32 = first_ppn + (vpn - base_vpn);
         const dst: &byte = try physmem_ptr(pm, ppn, off);
         dst[0] = src.ptr[i as usize];
@@ -1241,7 +1241,7 @@ export fn sim_exec_loaded(k: &SimKernel, cid: u32) !i32 {
         var rodata_rem: u32 = hdr.rodata_size;
         var rodata_cur: u32 = rodata_off;
         while rodata_rem > 0u32 {
-            const page_rem: u32 = PAGE_SIZE - (rodata_cur & (PAGE_SIZE - 1u32));
+            const page_rem: u32 = PAGE_SIZE - (rodata_cur & PAGE_MASK);
             var check_size: u32 = page_rem;
             if rodata_rem < page_rem {
                 check_size = rodata_rem;
