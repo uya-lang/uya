@@ -1,0 +1,16 @@
+// 预期编译失败：返回指向局部数组的切片视图（跨函数内存安全证明 B1）
+//
+// `buf[0:4]` 是局部数组 buf 的视图，视图本身不含存储，指向的仍是 buf 的栈帧；
+// 函数返回后该栈帧失效，调用方拿到的切片会读到已释放的栈（未定义行为）。
+//
+// 归属：docs/interprocedural_proof_plan.md §4.4 规则 1（return 判定点），
+//       buglist P1 第二条复现 `fn mk() &[i32] { var buf: [i32: 4] = ...; return &buf[0:4]; }`。
+
+fn mk() &[i32] {
+    var buf: [i32: 4] = [1, 2, 3, 4];
+    return buf[0:4];
+}
+
+fn main() i32 {
+    return 0;
+}

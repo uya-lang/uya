@@ -539,22 +539,34 @@ fn lifetime_walk_child_nodes(checker: &TypeChecker, node: &ASTNode, acc: &Origin
 ///   STATIC / HEAP / PARAM 一律放行；UNKNOWN 放行（证不出不等于证伪）；
 ///   只有 LOCAL（当前函数内任意作用域）才报错。
 ///
-/// **只认取地址形态**（`return &x` / `return &arr[i]` / `return &s.f`）：
-/// 这是当前 origin 精度下唯一能零误报判定的形态，也正是 buglist P1 三条复现的
-/// 共同形态。局部指针变量（`const p: &T = ...; return p;`）与函数调用的返回值
-/// 一律放行 —— 判定它们需要「指针变量当前指向」的传播，P1 未实现；强行判定
-/// 会立刻打出 231 处误报并让 `src/` 无法自举（实测记录见 main.uya 调用点注释）。
+/// **只认三种形态**，其余一律放行：
+///   1. 取地址形态 `return &x` / `return &arr[i]` / `return &s.f`；
+///   2. 切片视图 `return arr[a:b]` / `return p[a:b]`（视图不拥有存储，悬垂与否
+///      只取决于 base —— `&buf[0:4]` 是第 1 种派生出的第 2 种，buglist P1 第二条
+///      的复现就是这一形态）；
+///   3. 按值返回的局部数组 `[T: N]`（数组在 C 侧是按值拷贝的聚合体，不携带
+///      指针；但里面的**每个指针元素**都是栈地址副本，返回后同样悬垂）。
+///
+/// 局部指针变量（`const p: &T = ...; return p;`）与函数调用的返回值仍然放行 ——
+/// 判定它们需要「指针变量当前指向」的传播，P1 未实现；强行判定会立刻打出
+/// 231 处误报并让 `src/` 无法自举（实测记录见 main.uya 调用点注释）。
 fn lifetime_check_return_escape(checker: &TypeChecker, node: &ASTNode, expr_type: Type) i32 {
     if checker == null || node == null || node.return_stmt_expr == null {
         return 1;
     }
-    // 只对「返回类型含指针」的情况判定：返回值不是指针就没有悬垂引用
+    // 形态 3 先判：按值返回的局部数组既不含指针也不含切片，会被下面那句
+    // lifetime_type_may_hold_pointer 直接放行，必须单独走。
+    if lifetime_check_return_local_array_escape(checker, node) == 0 {
+        return 0;
+    }
+    // 只对「返回类型含指针/切片」的情况判定：返回值不是引用就没有悬垂引用
     if lifetime_type_may_hold_pointer(expr_type) == 0 {
         return 1;
     }
-    // 收窄点：只判定取地址形态。`return p;`（p 是局部指针变量）与
-    // `return f(...);`（调用返回值）在此放行，见上方说明。
-    if lifetime_expr_is_address_of_local(node.return_stmt_expr) == 0 {
+    // 收窄点：只判定「取地址」与「切片视图」两种形态。`return p;`（p 是局部指针
+    // 变量）与 `return f(...);`（调用返回值）在此放行，见上方说明。
+    if lifetime_expr_is_address_of_local(node.return_stmt_expr) == 0 &&
+        lifetime_expr_is_local_slice_view(node.return_stmt_expr) == 0 {
         return 1;
     }
     const o: Origin = lifetime_origin_of_expr(checker, node.return_stmt_expr);
@@ -564,6 +576,61 @@ fn lifetime_check_return_escape(checker: &TypeChecker, node: &ASTNode, expr_type
     lifetime_report_return_local(checker);
     checker_report_error(checker, node,
         "返回指向局部存储的引用：该存储随函数返回失效，调用方拿到的是悬垂指针" as *byte);
+    return 0;
+}
+
+/// 判定并报告「按值返回局部数组、而数组元素含指针」。
+/// 参数：checker - 类型检查器；node - return 语句节点。
+/// 返回：1 表示无问题；0 表示已报错。
+///
+/// 只判定最不可能误报的一种形态：return 表达式是**标识符**、且该标识符是当前函数
+/// 作用域内的局部变量（不是形参、不是顶层全局）、且它的类型是**元素含指针的数组**。
+/// 数组本身按值拷贝不会悬垂，悬垂的是元素里那些栈地址副本；调用方拿到后一解引用
+/// 就踩已释放的栈帧，属 buglist P1 第一条的实体。
+///
+/// 刻意不做：数组下标 `return buf[i]`（元素可能是指针，但读元素走的是
+/// lifetime_origin_of_value，P1 精度下拿不到可靠来源）、返回值里含数组的结构体。
+fn lifetime_check_return_local_array_escape(checker: &TypeChecker, node: &ASTNode) i32 {
+    const expr: &ASTNode = node.return_stmt_expr;
+    if expr.type != ASTNodeType.AST_IDENTIFIER || expr.identifier_name == null {
+        return 1;
+    }
+    const sym: &Symbol = symbol_table_lookup(checker, expr.identifier_name);
+    if sym == null {
+        return 1;
+    }
+    if lifetime_symbol_is_param(checker, sym) != 0 || sym.scope_level <= 0 {
+        return 1;   // 形参 / 顶层全局：不归本函数所有，返回它们不悬垂
+    }
+    var sym_type: Type = sym.type;
+    if sym_type.kind != TypeKind.TYPE_ARRAY || sym_type.element_type == null {
+        return 1;
+    }
+    var elem_type: Type = sym_type.element_type[0];
+    if lifetime_type_may_hold_pointer(elem_type) == 0 {
+        return 1;   // 纯标量数组按值拷贝，安全
+    }
+    lifetime_report_return_local(checker);
+    checker_report_error(checker, node,
+        "返回含指针元素的局部数组：数组里的指针指向本函数的局部存储，随返回失效" as *byte);
+    return 0;
+}
+
+/// 判断表达式是否为「对局部存储开窗」的切片表达式 `base[a:b]`。
+/// 参数：expr - return 表达式。
+/// 返回：1 表示是切片表达式（base 的归属交给 origin 判定），0 表示不是。
+///
+/// 与 lifetime_expr_is_address_of_local 同一层级的**语法**判断：这里只回答
+/// 「这是不是一个切片视图」，至于 base 是局部还是形参，由 origin 格决定 ——
+/// `return s[0:4]`（s 是形参）必须放行，`return buf[0:4]`（buf 是局部数组）
+/// 必须报错，两者语法同形。
+fn lifetime_expr_is_local_slice_view(expr: &ASTNode) i32 {
+    if expr == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_SLICE_EXPR {
+        return 1;
+    }
     return 0;
 }
 

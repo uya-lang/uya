@@ -418,7 +418,7 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - 判据（将来验收用）：`tests/test_drop_after_move.uya` + 嵌套字段 move 正负例全绿，
     且无新增 double free；新增负例覆盖「清 borrow 后又被使用」那条路径。
 
-- [ ] **P1：逃逸检查（数组 / 切片 / 接口值）完全未实现**
+- [~] **P1：逃逸检查（数组 / 切片 / 接口值）部分实现（B1 三条已收口，接口值与写容器仍缺）**
   - `uya.md` §6.5、§6.8、§7 都写了「逃逸即编译错误」，但实测三条路径全部静默通过：
     `fn mk() [i32: 4] { var buf: [i32: 4] = []; return buf; }`、
     `fn mk() &[i32] { var buf: [i32: 4] = [1,2,3,4]; return &buf[0:4]; }`、
@@ -426,9 +426,18 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     运行期读到已释放栈帧，属未定义行为（实测恰好返回值正确，因为栈还没被复用）。
   - 已在 `uya.md` §6.5 / §6.8 / §7 就地标注「设计意图 vs 当前行为」，避免按文档预期编译器行为。
   - 归属：`src/checker/`（需要作用域层级表，与现有 `enable_safety_proof` 体系独立）。
-  - **跨函数方案（未实现）**：`docs/interprocedural_proof_plan.md` 的 B1 / P1 阶段给出
+  - **跨函数方案**：`docs/interprocedural_proof_plan.md` 的 B1 / P1 阶段给出
     origin（来源）格 + 三处判定点（`return` / 写入更长寿命容器 / 传参）的施工图。
-    **当前状态不变：这三条路径仍然静默通过。**
+  - **已落地（B1 第一版，2026-11-16）**：`lifetime_check_return_escape` 挂进 return 判定，
+    认三种形态 —— ①取地址 `return &x` / `&arr[i]` / `&s.f`（`tests/error_return_local_addr.uya`、
+    `tests/error_return_local_array_elem_addr.uya`）；②对局部数组开窗的切片
+    `return buf[a:b]`（新增 `tests/error_return_local_slice.uya`）；③按值返回**元素含指针**的
+    局部数组（新增 `tests/error_return_local_ptr_array.uya`）。形参来源一律放行
+    （`fn f(s: &[i32: 4]) &[i32] { return s[1:3]; }` 通过），纯标量数组按值返回也放行。
+  - **仍未覆盖**：`fn make() IWriter { const s: Console = ...; return s; }` 这类**装箱局部接口值**
+    （需要接口值的 origin 传播）；写更长寿命容器（`lifetime_check_store_escape`，接入即 34 处误报，
+    见 `check_node_extra.uya` 的熔断记录）；局部指针变量转存后返回（需指针指向传播）。
+    **这三条路径仍然静默通过。**
 
 
 ## 标准库 bug
