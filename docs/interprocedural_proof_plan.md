@@ -353,6 +353,40 @@ file:line  fn  requirement  bucket  evidence(PROVED/ASSUMED/UNKNOWN)  resolved_a
 
 **预判**（写下来是为了将来对账，不是结论）：非空义务 ① 应占 >90%（`&x` 是主流调用形态）；非零义务 ② 占比可观（`align` 常传字面量）；下标义务主要靠 ③（守卫在调用方，这正是 B4 的收益来源）。若实测偏离，按实测修方案。
 
+**实测（2026-11-17，`src/main.uya` 依赖闭包，`--lifetime-report`）**：
+
+```
+[lifetime] functions=3229
+[lifetime] req_total=3078 req_resolved=2668 req_unresolved=410     # B2/B3 义务消解率 86.7%
+[lifetime] req_param_null=2582
+[lifetime] req_div_zero=496
+[lifetime] returns_local=0
+[lifetime] summary_unknown=2948
+[lifetime] call_sites=35764 call_resolved=5148                     # 调用点摘要消解率 14.4%
+```
+
+这三个数字此前**是假的**，本轮一并修好：
+
+- `functions=0`：`lifetime_fn_count` 字段声明了、报告也打印了，但没有任何地方累加。
+  现在在逃逸口登记器（唯一遍历全部函数体的入口）里计数。
+- `summary_unknown` / `call_sites=0`：摘要只在 `lifetime_origin_of_expr(调用)` 里才会被求，
+  而正常 check 路径没有任何地方对调用表达式求 origin —— 也就是说
+  `summary_unknown=0` 的真实含义是「这套机制一次都没被调用过」。现在登记器在
+  `--lifetime-report` 下对每个调用点求一次 origin，得到真实分母。
+- `call_resolved` 一度是 **0**，查明是 `lifetime_collect_return_origins` 的**首条 return
+  分支写反了**：注释写「先把 acc 置成 UNKNOWN 再 join，结果就等于 o 本身」，但
+  `origin_join` 的规则是「任何一侧 UNKNOWN 就 UNKNOWN」，于是
+  join(UNKNOWN, o) ≡ UNKNOWN —— 只要函数有 return，摘要就永远是 UNKNOWN，
+  整套跨函数摘要机制静默失效。修成「首条直接作为初值」后，
+  调用点消解率 0 → 5148/35764 = **14.4%**；同时给摘要加了按节点指纹的记忆化
+  （`g_lifetime_summary_keys`），否则逐调用点求摘要会指数级放大
+  （实测 10 分钟不返回）。
+
+**对账结论**：跨函数消解率当前只有 14.4%，B2/B3 的义务消解率 86.7% —— 前者才是
+「跨函数证明」的真实进度条，不能拿后者的数字冒充。要抬 14.4%，靠的是
+§4.5 的 `escape_mask` / `requires` 摘要（本轮只做了 `ret_origin`）与 B4 的
+`ret_len_of_param`，不是加判定点。
+
 ### 6.3 与 `361/908` 实验的对账
 
 buglist ⑥ 记录：取消「形参恒非空」后，908 个测试里 361 个报「指针可能为空」。那是**把假设换成默认报错**的结果。本方案把假设换成**调用点义务**，而调用点最常见的形态是 `&x`（①，天然可证），所以 361 这个数字**不应**原样出现；真实数字必须由 P0 报告给出。若实测仍在数百量级，说明 ① 的预估错了，应停止后续阶段并重估（这是本方案的**熔断条件**）。

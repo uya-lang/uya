@@ -419,6 +419,11 @@ struct TypeChecker {
     lifetime_returns_local: i32,    // return 返回指向局部存储的站点数（B1 受检面）
     lifetime_fn_count: i32,         // 已扫过的函数体数量
     lifetime_summary_fail: i32,     // 摘要降级为 unknown 的次数
+    // 调用点摘要消解率的分母 / 分子（--lifetime-report）：遍历函数体时对每个调用
+    // 表达式求一次 origin，给出非 UNKNOWN 来源的算「消解」。说明见
+    // lifetime_account_escape_sites（这两个数字此前从未被真正统计过）。
+    lifetime_summary_calls: i32,    // 被求过 origin 的调用点总数
+    lifetime_summary_resolved: i32, // 其中给出非 UNKNOWN 来源的数量
     // --escape-list：逐站点打印逃逸口明细（`[escape] kind file:line`），只列不报。
     // 汇总计数（下面的 escapes 组）回答「有多少」，本开关回答「在哪」——
     // 白名单冻结与 CI 闸门用的是后者（见 docs/unsafe_audit_plan.md §3）。

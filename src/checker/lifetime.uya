@@ -16,6 +16,25 @@
 const LIFETIME_SUMMARY_MAX_DEPTH: i32 = 8;
 // 当前摘要求值深度（单线程检查器，跨文件全局即可；见 lifetime_summary_ret_origin）。
 var g_lifetime_summary_depth: i32 = 0;
+
+// 函数摘要的**记忆化**（按 fn 声明节点指纹定位，直接映射，不探测）。
+//
+// 为什么必须有：摘要求值本身会递归进被调方的函数体，被调方 return 里又有调用……
+// 没有记忆化时，一旦「对每个调用点都求一次摘要」（--lifetime-report 的消解率
+// 统计就是这么干的），总代价按调用链指数级放大 —— 实测把统计接上后
+// `uya check --lifetime-report src/main.uya` 10 分钟不返回。
+// 记忆化之后同一函数的摘要只算一次，成本回落到「每个函数体扫一遍」。
+//
+// 直接映射（槽 = 节点地址 / 8 的低位）而不是探测：冲突就覆盖，下次重算，
+// 结果永远正确，只是少命中一次。容量取 2^14，比本仓函数总数（src 闭包 3222）
+// 大一个量级，冲突率可以忽略。
+const LIFETIME_SUMMARY_CACHE_SIZE: i32 = 16384;
+var g_lifetime_summary_keys: [&ASTNode: LIFETIME_SUMMARY_CACHE_SIZE] = [];
+var g_lifetime_summary_valid: [i32: LIFETIME_SUMMARY_CACHE_SIZE] = [];
+var g_lifetime_summary_kind_cache: [i32: LIFETIME_SUMMARY_CACHE_SIZE] = [];
+var g_lifetime_summary_scope_cache: [i32: LIFETIME_SUMMARY_CACHE_SIZE] = [];
+var g_lifetime_summary_param_cache: [i32: LIFETIME_SUMMARY_CACHE_SIZE] = [];
+
 const ORIGIN_UNKNOWN: i32 = 0;
 const ORIGIN_LOCAL: i32 = 1;
 const ORIGIN_PARAM: i32 = 2;
@@ -129,6 +148,23 @@ fn origin_equals(a: Origin, b: Origin) i32 {
 /// 存在的理由：`Origin` 是按值移动的类型，`origin_join(a, b)` 会把 a、b 两个局部
 /// 变量消费掉；调用点若还想再用其中任何一个（典型场景：acc 与本次 return 的 origin
 /// 都要参与后续 join），走指针入口可以避开移动检查，语义完全等价。
+/// 通过指针复制一个 Origin。
+/// 参数：src - 源 origin 的地址（可为 null）。
+/// 返回：与 src 内容相同的 origin；src 为 null 时返回 origin_unknown()。
+///
+/// 用途：`Origin` 是按值移动的类型，而有些场合需要「读一次但不消费」——
+/// 例如把同一个来源既当 join 的左值又当右值（见 lifetime_collect_return_origins）。
+fn origin_copy_of(src: &Origin) Origin {
+    var o: Origin = origin_unknown();
+    if src == null {
+        return o;
+    }
+    o.kind = src[0].kind;
+    o.scope_id = src[0].scope_id;
+    o.param_index = src[0].param_index;
+    return o;
+}
+
 fn origin_join_ptr(a: &Origin, b: &Origin) Origin {
     if a == null || b == null {
         return origin_unknown();
@@ -281,6 +317,11 @@ fn lifetime_report_flush(checker: &TypeChecker) void {
     fprintf(libc.stderr, "[lifetime] req_div_zero=%d\n" as *byte, checker.lifetime_req_div_zero);
     fprintf(libc.stderr, "[lifetime] returns_local=%d\n" as *byte, checker.lifetime_returns_local);
     fprintf(libc.stderr, "[lifetime] summary_unknown=%d\n" as *byte, checker.lifetime_summary_fail);
+    // 调用点摘要消解率：分母是「求过 origin 的调用点」，分子是其中给出非 UNKNOWN
+    // 来源的数量。这两个数字才是「跨函数能证多少」的直接度量（§6.2），
+    // 也是 §6.3 熔断判断的依据。
+    fprintf(libc.stderr, "[lifetime] call_sites=%d call_resolved=%d\n" as *byte,
+        checker.lifetime_summary_calls, checker.lifetime_summary_resolved);
     // escapes 段：编译器眼里所有能绕过证明的构造。字段顺序固定、可 diff，
     // 是 docs/unsafe_audit_plan.md 里「白名单冻结」的输入。
     fprintf(libc.stderr, "[escapes] extern_fn=%d extern_var=%d\n" as *byte,
@@ -441,6 +482,77 @@ fn lifetime_origin_of_call(checker: &TypeChecker, expr: &ASTNode) Origin {
 // 第一版只算 ret_origin 一项 —— B1 的三处判定点只需要它；escape_mask /
 // requires 随 B2/B3 接线再加，避免一次引入过多未知量。
 
+/// 把 fn 声明节点映射到摘要缓存槽（直接映射，冲突即覆盖）。
+/// 参数：fn_decl - 函数声明节点（非 null）。
+/// 返回：`[0, LIFETIME_SUMMARY_CACHE_SIZE)` 内的槽下标。
+fn lifetime_summary_cache_slot(fn_decl: &ASTNode) i32 {
+    const node_hash: usize = (@usize_from_ptr(fn_decl as &void) / 8 as usize);
+    return (node_hash & 16383usize) as i32;
+}
+
+/// 判断摘要缓存槽是否是「同一函数的有效命中」。
+/// 参数：slot - 槽下标；fn_decl - 待查函数声明节点。
+/// 返回：1 表示命中（可直接读回），0 表示未命中。
+fn lifetime_summary_cache_hit(slot: i32, fn_decl: &ASTNode) i32 {
+    const sc: i32 = slot;
+    if sc < 0 || sc >= LIFETIME_SUMMARY_CACHE_SIZE {
+        return 0;
+    }
+    if g_lifetime_summary_valid[sc] == 0 {
+        return 0;
+    }
+    if g_lifetime_summary_keys[sc] == fn_decl {
+        return 1;
+    }
+    return 0;
+}
+
+/// 从摘要缓存槽读回一个 origin。
+/// 参数：slot - 槽下标（调用方已校验 keys[slot] 命中）。
+/// 返回：缓存里的 origin。
+fn lifetime_summary_cache_read(slot: i32) Origin {
+    var o: Origin = origin_unknown();
+    // 显式把下标快照成常量级上界守卫（与 lookup.uya 里的缓存同款写法）：
+    // 证明器需要看到 `sc >= 0 && sc < CAP`，否则 8192/16384 这类掩码结果它推不出来。
+    const sc: i32 = slot;
+    if sc >= 0 && sc < LIFETIME_SUMMARY_CACHE_SIZE {
+        o.kind = g_lifetime_summary_kind_cache[sc];
+        o.scope_id = g_lifetime_summary_scope_cache[sc];
+        o.param_index = g_lifetime_summary_param_cache[sc];
+    }
+    return o;
+}
+
+/// 把一个 origin 写进摘要缓存槽。
+/// 参数：slot - 槽下标；fn_decl - 函数声明节点；value - 要缓存的 origin。
+/// 返回：无。
+fn lifetime_summary_cache_store(slot: i32, fn_decl: &ASTNode, value: Origin) void {
+    const sc: i32 = slot;
+    if sc < 0 || sc >= LIFETIME_SUMMARY_CACHE_SIZE {
+        return;
+    }
+    g_lifetime_summary_keys[sc] = fn_decl;
+    g_lifetime_summary_kind_cache[sc] = value.kind;
+    g_lifetime_summary_scope_cache[sc] = value.scope_id;
+    g_lifetime_summary_param_cache[sc] = value.param_index;
+    g_lifetime_summary_valid[sc] = 1;
+}
+
+/// 清空摘要缓存。
+/// 参数：无。
+/// 返回：无。
+///
+/// 必须在每个新程序开始检查前调用：AST 节点地址会被下一个程序复用，
+/// 残留的 key 会与新节点地址撞上，返回**另一个函数**的摘要 —— 那是静默错误结论。
+fn lifetime_summary_cache_reset() void {
+    var i: i32 = 0;
+    while i < LIFETIME_SUMMARY_CACHE_SIZE {
+        g_lifetime_summary_valid[i] = 0;
+        g_lifetime_summary_keys[i] = null;
+        i = i + 1;
+    }
+}
+
 /// 计算一个函数的「返回 origin」摘要：函数体里所有 `return expr` 的 origin 的 join。
 /// 参数：checker - 类型检查器；fn_decl - 函数声明节点。
 /// 返回：概括后仍能安全用于调用点的 origin（PARAM(i) 表示「原样返回第 i 个形参」）。
@@ -453,13 +565,30 @@ fn lifetime_summary_ret_origin(checker: &TypeChecker, fn_decl: &ASTNode) Origin 
     if checker == null || fn_decl == null || fn_decl.fn_decl_body == null {
         return origin_unknown();
     }
+    // 记忆化命中就直接返回（见上方 g_lifetime_summary_keys 的说明）。
+    const slot: i32 = lifetime_summary_cache_slot(fn_decl);
+    if lifetime_summary_cache_hit(slot, fn_decl) != 0 {
+        return lifetime_summary_cache_read(slot);
+    }
+    // `Origin` 是按值移动的类型：传给 store 后局部变量就被消费掉了，
+    // 不能再用 `return computed`。所以先写入缓存、再从缓存读回来返回。
+    const computed: Origin = lifetime_summary_compute(checker, fn_decl);
+    lifetime_summary_cache_store(slot, fn_decl, computed);
+    return lifetime_summary_cache_read(slot);
+}
+
+/// 计算摘要本体（不含记忆化），结果由 lifetime_summary_ret_origin 缓存。
+/// 参数：checker - 类型检查器；fn_decl - 函数声明节点（保证有函数体）。
+/// 返回：概括后的 origin；不可判定时 origin_unknown()。
+fn lifetime_summary_compute(checker: &TypeChecker, fn_decl: &ASTNode) Origin {
     // 递归深度闸门（防栈溢出）。
     //
-    // 摘要本身没有记忆化：`f` 的 return 里有调用 `g`，就会去算 `g` 的摘要，`g` 的
-    // return 里又有调用 …… 递归调用链会一路展开，环状调用链则永不收敛。实测
-    // 不设闸门时 `uya check src/main.uya` 1.7 秒后段错误（rc=139）。
+    // `f` 的 return 里有调用 `g`，就会去算 `g` 的摘要，`g` 的 return 里又有调用 ……
+    // 递归调用链会一路展开，环状调用链则永不收敛。实测不设闸门时
+    // `uya check src/main.uya` 1.7 秒后段错误（rc=139）。
     // 超过上限一律 UNKNOWN —— 与「证不出 ≠ 证伪」一致，只会少判，不会误报。
     if g_lifetime_summary_depth >= LIFETIME_SUMMARY_MAX_DEPTH {
+        checker.lifetime_summary_fail = checker.lifetime_summary_fail +| 1;
         return origin_unknown();
     }
     g_lifetime_summary_depth = g_lifetime_summary_depth +| 1;
@@ -468,8 +597,15 @@ fn lifetime_summary_ret_origin(checker: &TypeChecker, fn_decl: &ASTNode) Origin 
     lifetime_collect_return_origins(checker, fn_decl.fn_decl_body, &acc, &seen);
     g_lifetime_summary_depth = g_lifetime_summary_depth -| 1;
     if seen == 0 {
-        // 没有 return 语句（void 函数）：非指针结果
+        // 没有 return 语句（void 函数）：非指针结果。这不算「降级」——
+        // 本来就没有可证的返回来源，不计入 summary_unknown。
         return origin_unknown();
+    }
+    // 有 return、但 join 下来仍是 UNKNOWN：这是真正的「摘要降级」，
+    // 也是跨函数消解率分母里那部分「证不出」的来源。原先这个计数器只打印不累加，
+    // 报告里的 `summary_unknown=0` 是假数字。
+    if acc.kind == ORIGIN_UNKNOWN {
+        checker.lifetime_summary_fail = checker.lifetime_summary_fail +| 1;
     }
     return acc;
 }
@@ -489,17 +625,22 @@ fn lifetime_collect_return_origins(checker: &TypeChecker, node: &ASTNode, acc: &
             return;
         }
         const o: Origin = lifetime_origin_of_expr(checker, node.return_stmt_expr);
-        // `Origin` 是按值移动的类型：`o` 只能被消费**一次**，且不能同时出现在
-        // if/else 两个分支里（Uya 把两个分支都视作「可能已消费」）。
-        // 因此这里让 o 只出现在一条无条件语句里：
-        //   seen[0] == 1（首次）→ acc 原值是 origin_unknown()，先把 acc 置成未知来源
-        //                        再 join，结果就等于 o 本身，语义等价且无需分支。
-        //   非首次            → 正常的 join。
-        // 已见首条时显式写回 origin_unknown()，正是为了复用同一条 join 路径。
+        // 首条 return 直接作为初值，后续取 join。
+        //
+        // ⚠ 这里修的是一个把整套摘要机制**悄悄废掉**的 bug：原写法是「首次把 acc 置成
+        // UNKNOWN 再 join」，注释还写「结果就等于 o 本身」—— 但 `origin_join` 的规则是
+        // **任何一侧 UNKNOWN 就 UNKNOWN**，所以 join(UNKNOWN, o) 恒为 UNKNOWN，
+        // 于是只要函数有 return，摘要就永远是 UNKNOWN。实测 --lifetime-report 的
+        // `call_sites=35762 call_resolved=0` 就是这个 bug 的直接读数。
+        //
+        // `Origin` 是按值移动的类型，直接写 `if (首条) { acc[0] = o; } else { join(o) }`
+        // 会让 o 出现在两个分支里而被判「可能已消费」。所以统一走**取地址复制**
+        // （origin_copy_of），o 全程只被读、不被消费。
         if seen[0] == 1 {
-            acc[0] = origin_unknown();
+            acc[0] = origin_copy_of(&o);
+            return;
         }
-        var joined: Origin = origin_join(acc[0], o);
+        var joined: Origin = origin_join(acc[0], origin_copy_of(&o));
         acc[0] = joined;
         return;
     }
@@ -2271,6 +2412,21 @@ fn lifetime_account_escape_sites(checker: &TypeChecker, node: &ASTNode) void {
     if checker == null || node == null {
         return;
     }
+    // --lifetime-report：顺带把「调用点能不能被函数摘要消解」数出来。
+    //
+    // 这个数字长期是假的（`summary_unknown=0`）：摘要只在
+    // `lifetime_origin_of_expr(调用)` 里才会被求，而正常 check 路径下没有任何东西
+    // 对调用表达式求 origin（return 判定只看 `&` 形态、store 判定排除调用）。
+    // 也就是说 `summary_unknown=0` 的真实含义是「摘要机制一次都没被调用」。
+    // 登记器本来就要遍历每个函数体的每个节点，在这里顺手统计代价最小，
+    // 而且只在 --lifetime-report 下发生，不影响默认编译。
+    if node.type == ASTNodeType.AST_CALL_EXPR && checker.lifetime_report != 0 {
+        const call_origin: Origin = lifetime_origin_of_expr(checker, node);
+        checker.lifetime_summary_calls = checker.lifetime_summary_calls +| 1;
+        if call_origin.kind != ORIGIN_UNKNOWN {
+            checker.lifetime_summary_resolved = checker.lifetime_summary_resolved +| 1;
+        }
+    }
     if node.type == ASTNodeType.AST_ASM {
         checker.lifetime_escape_asm = checker.lifetime_escape_asm +| 1;
         lifetime_escape_site(checker, "asm" as &byte, node);
@@ -2416,6 +2572,12 @@ fn lifetime_account_fn_decl(checker: &TypeChecker, node: &ASTNode) void {
         lifetime_escape_site(checker, "extern_fn" as &byte, node);
         return;     // extern 没有函数体，没什么可扫
     }
+    // 带函数体的函数才计入「已扫过的函数体数量」。
+    //
+    // 这个计数器长期为 0：字段声明了、报告也打印了（`[lifetime] functions=0`），
+    // 却没有任何地方累加 —— 报告的「分母」是假的，跨函数可证明占比只能靠
+    // req_total 硬凑。登记器是唯一遍历全部函数体的入口，在这里计数最不容易漏。
+    checker.lifetime_fn_count = checker.lifetime_fn_count +| 1;
     lifetime_account_escape_sites(checker, node.fn_decl_body);
 }
 

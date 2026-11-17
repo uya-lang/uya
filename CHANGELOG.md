@@ -2,6 +2,35 @@
 
 ## 未发行
 
+### 跨函数证明度量：`--lifetime-report` 的三个假数字修成真数字
+
+`--lifetime-report` 是「跨函数证明到底做了多少」的唯一度量入口，本轮发现它一直
+在报假数字，逐条修好：
+
+1. **`functions=0`**：`lifetime_fn_count` 从来没被累加过。现在在逃逸口登记器
+   （唯一遍历全部函数体的入口）里计数，`src` 闭包实测 **3229**。
+2. **`summary_unknown=0`**：函数摘要只在 `lifetime_origin_of_expr(调用)` 里求值，
+   而正常 check 路径没有任何地方对调用表达式求 origin —— 0 的真实含义是
+   「摘要机制一次都没被调用」。现在登记器在 `--lifetime-report` 下逐调用点求一次
+   摘要，新增 `call_sites` / `call_resolved` 两个字段。
+3. **摘要恒为 UNKNOWN（真 bug）**：`lifetime_collect_return_origins` 的「首条 return」
+   分支写着「先把 acc 置成 UNKNOWN 再 join，结果就等于 o 本身」，但
+   `origin_join` 的规则是「任何一侧 UNKNOWN 就 UNKNOWN」，所以
+   join(UNKNOWN, o) ≡ UNKNOWN —— **只要函数有 return，摘要就永远是 UNKNOWN**，
+   整套跨函数摘要机制静默失效。改成「首条直接作为初值」后，调用点消解率
+   0 → **5148/35764 = 14.4%**。
+
+配套：摘要按 fn 声明节点指纹做记忆化（2^14 直接映射表，程序开始检查前清空 ——
+节点地址会被下一个程序复用），否则逐调用点求摘要会指数级放大
+（实测 `check --lifetime-report src/main.uya` 10 分钟不返回；记忆化后 4 s）。
+`Origin` 是按值移动类型，取「不消费地读一次」新增 `origin_copy_of(&Origin)`。
+
+**实测（`src/main.uya` 依赖闭包）**：`functions=3229`、
+`req_resolved/req_total = 2668/3078 = 86.7%`（B2/B3 义务）、
+`call_resolved/call_sites = 5148/35764 = 14.4%`（跨函数摘要）。
+结论写进 `docs/interprocedural_proof_plan.md` §6.2：**14.4% 才是「跨函数证明」的真实
+进度条**，不能拿 86.7% 冒充。
+
 ### 跨函数证明 B1：写更长寿命容器的判定点落地
 
 语言语义**收紧**（这是有意的）：`lifetime_check_store_escape` 挂进赋值检查，把
