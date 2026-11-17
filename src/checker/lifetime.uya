@@ -275,6 +275,15 @@ fn lifetime_report_flush(checker: &TypeChecker) void {
     fprintf(libc.stderr, "[lifetime] req_div_zero=%d\n" as *byte, checker.lifetime_req_div_zero);
     fprintf(libc.stderr, "[lifetime] returns_local=%d\n" as *byte, checker.lifetime_returns_local);
     fprintf(libc.stderr, "[lifetime] summary_unknown=%d\n" as *byte, checker.lifetime_summary_fail);
+    // escapes 段：编译器眼里所有能绕过证明的构造。字段顺序固定、可 diff，
+    // 是 docs/unsafe_audit_plan.md 里「白名单冻结」的输入。
+    fprintf(libc.stderr, "[escapes] extern_fn=%d extern_var=%d\n" as *byte,
+        checker.lifetime_escape_extern_fn, checker.lifetime_escape_extern_var);
+    fprintf(libc.stderr, "[escapes] asm=%d\n" as *byte, checker.lifetime_escape_asm);
+    fprintf(libc.stderr, "[escapes] union=%d extern_union=%d\n" as *byte,
+        checker.lifetime_escape_union, checker.lifetime_escape_extern_union);
+    fprintf(libc.stderr, "[escapes] ptr_int=%d\n" as *byte, checker.lifetime_escape_ptr_int);
+    fprintf(libc.stderr, "[escapes] alloc=%d\n" as *byte, checker.lifetime_escape_alloc);
 }
 
 // ===== transfer 表（§4.2）：表达式 → origin =====
@@ -2056,4 +2065,332 @@ fn lifetime_pointer_is_dead(checker: &TypeChecker, ptr_name: &byte, move_node: &
         return 0;
     }
     return 1;
+}
+
+// ===== 逃逸口登记（--lifetime-report 的 escapes 段）=====
+//
+// 主线是「不安全之处必须显式」：先让编译器把自己眼里所有**能绕过证明**的构造
+// 按类别数出来，再把这份统计冻成可 diff 的基线（见 docs/unsafe_audit_plan.md）。
+// 这一段只做**统计**，绝不产生任何编译错误 —— 与 P0 度量报告同一取向。
+//
+// 为什么必须分开数而不能合并成一个数字：每一类的审计成本与风险面完全不同。
+// `extern` 是信任边界（528 条声明，编译器不看实现）；`@asm` 是机器码（无法证明）；
+// `union` 是类型系统不跟踪活跃变体的共享存储；指针↔整数 cast 是唯一能凭空造出
+// 任意地址的通道；`malloc/free` 是所有权面。把它们混成一个「不安全行数」既不能
+// 定位也不能冻结。
+
+/// 判断表达式是否是「指向分配器的调用」，是则累加所有权逃逸口计数。
+/// 参数：checker - 类型检查器；expr - 待判定的表达式节点。
+/// 返回：无。
+///
+/// 认的是**裸调用形态**：callee 是标识符且名字在 ALLOC 名单里。
+/// 方法调用（`x.free()`）与别名（`const f: fn(...) = free; f(p)`）不在此列 ——
+/// 前者在 Uya 里不是分配器的惯用写法，后者需要函数指针指向传播（未实现）。
+/// 宁可少数也不要在解析不确定的地方造出假的「安全」结论。
+fn lifetime_account_alloc_call(checker: &TypeChecker, expr: &ASTNode) void {
+    if checker == null || expr == null || expr.type != ASTNodeType.AST_CALL_EXPR {
+        return;
+    }
+    const callee: &ASTNode = expr.call_expr_callee;
+    if callee == null || callee.type != ASTNodeType.AST_IDENTIFIER || callee.identifier_name == null {
+        return;
+    }
+    if lifetime_name_is_allocator(callee.identifier_name) != 0 {
+        checker.lifetime_escape_alloc = checker.lifetime_escape_alloc +| 1;
+    }
+}
+
+/// 判断一个名字是否是已知分配器入口。
+/// 参数：name - 函数名。
+/// 返回：1 表示是 malloc / free / calloc / realloc 之一，0 表示不是。
+fn lifetime_name_is_allocator(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if str_equals(name, "malloc" as &byte) != 0 { return 1; }
+    if str_equals(name, "free" as &byte) != 0 { return 1; }
+    if str_equals(name, "calloc" as &byte) != 0 { return 1; }
+    if str_equals(name, "realloc" as &byte) != 0 { return 1; }
+    return 0;
+}
+
+/// 判断一个表达式是否是「指针/整数形态类型」。
+/// 参数：expr - 待判定的表达式节点。
+/// 返回：1 表示是 `&T` / `usize` / `isize` 类型节点，0 表示不是。
+///
+/// 只用于**源表达式是语法可见的类型节点**的情形（cast 的源是表达式，语法上常认不出来），
+/// 因此这个判据在源侧多半返回 0 —— 见 lifetime_cast_is_ptr_int_bridge 的取舍说明。
+fn lifetime_expr_is_ptr_or_int_type(expr: &ASTNode) i32 {
+    if expr == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_TYPE_POINTER {
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_TYPE_NAMED && expr.type_named_name != null {
+        if str_equals(expr.type_named_name, "usize" as &byte) != 0 { return 1; }
+        if str_equals(expr.type_named_name, "isize" as &byte) != 0 { return 1; }
+    }
+    return 0;
+}
+
+/// 判断一次 cast 是否是「指针 ↔ 指针 / 指针 → 整数」这类能绕过类型系统的转换。
+/// 参数：node - `AST_CAST_EXPR` 节点。
+/// 返回：1 表示是指针有关的 cast，0 表示不是。
+///
+/// 判据刻意只看**两侧是否涉及指针**：
+///   - 目标是指针 `as &T`：总是记一笔（源无论是 `&U`、整数还是 `&void`，都在换指代对象）；
+///   - 目标是 `usize`/`isize` 且源语法上也是指针类型节点：记一笔（指针 → 整数）；
+///   - 目标与源都是整数：**不记** —— `x as i64`、`n as usize` 这类宽化在 Uya 里遍地都是，
+///     把它们算成逃逸口会把审计面放大成噪声（实测第一版把 37k 次整数宽化全算了进去）。
+fn lifetime_cast_is_ptr_int_bridge(node: &ASTNode) i32 {
+    if node == null || node.type != ASTNodeType.AST_CAST_EXPR {
+        return 0;
+    }
+    const target: &ASTNode = node.cast_expr_target_type;
+    if target == null {
+        return 0;
+    }
+    if target.type == ASTNodeType.AST_TYPE_POINTER {
+        return 1;
+    }
+    if target.type == ASTNodeType.AST_TYPE_NAMED && target.type_named_name != null {
+        const is_size: i32 = str_equals(target.type_named_name, "usize" as &byte) |
+            str_equals(target.type_named_name, "isize" as &byte);
+        if is_size != 0 && lifetime_expr_is_ptr_or_int_type(node.cast_expr_expr) != 0 {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/// 递归登记子树里的单点逃逸口（@asm / @ptr_from_usize / @usize_from_ptr / 指针 cast）。
+/// 参数：checker - 类型检查器；node - 当前节点。
+/// 返回：无。
+///
+/// **不下钻**嵌套的 `AST_FN_DECL` 与 `AST_METHOD_BLOCK`：它们的 body 由各自
+/// 的登记入口负责，下钻会把同一个 `@asm` 数两遍。
+fn lifetime_account_escape_sites(checker: &TypeChecker, node: &ASTNode) void {
+    if checker == null || node == null {
+        return;
+    }
+    if node.type == ASTNodeType.AST_ASM {
+        checker.lifetime_escape_asm = checker.lifetime_escape_asm +| 1;
+        return;
+    }
+    if node.type == ASTNodeType.AST_PTR_FROM_USIZE || node.type == ASTNodeType.AST_USIZE_FROM_PTR {
+        checker.lifetime_escape_ptr_int = checker.lifetime_escape_ptr_int +| 1;
+        return;
+    }
+    if node.type == ASTNodeType.AST_CAST_EXPR {
+        if lifetime_cast_is_ptr_int_bridge(node) != 0 {
+            checker.lifetime_escape_ptr_int = checker.lifetime_escape_ptr_int +| 1;
+        }
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            lifetime_account_escape_sites(checker, node.block_stmts[i]);
+            i = i + 1;
+        }
+        return;
+    }
+    // 其余形态：逐个展开**直接子节点**再递归。
+    //
+    // 这里刻意自己展开，不复用 lifetime_walk_child_nodes —— 那个函数是为「收集 return
+    // origin」写的，它会回调 lifetime_collect_return_origins，而本函数一旦从那边
+    // 兜底借道就会形成 A→B→A 的无限递归（实测：小文件直接挂住不返回，大文件
+    // 先把栈打爆成 SIGSEGV）。登记器必须有自己的、只朝下走的展开逻辑。
+    lifetime_account_escape_child_statements(checker, node);
+}
+
+/// 依次登记一个语句/表达式节点的直接子语句。
+/// 参数：checker - 类型检查器；node - 当前节点。
+/// 返回：无。
+///
+/// 只展开**语句位置**的子节点（块、if/else、while、for、defer/errdefer、test），
+/// 这些位置覆盖了 `@asm` / `@ptr_from_usize` / 指针 cast 的绝大多数出现处。
+/// 表达式深处的 cast 由 lifetime_account_escape_expr_children 补。
+fn lifetime_account_escape_child_statements(checker: &TypeChecker, node: &ASTNode) void {
+    if node.type == ASTNodeType.AST_IF_STMT {
+        lifetime_account_escape_sites(checker, node.if_stmt_then_branch);
+        lifetime_account_escape_sites(checker, node.if_stmt_else_branch);
+        lifetime_account_escape_sites(checker, node.if_stmt_condition);
+        return;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        lifetime_account_escape_sites(checker, node.while_stmt_condition);
+        lifetime_account_escape_sites(checker, node.while_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        lifetime_account_escape_sites(checker, node.for_stmt_body);
+        lifetime_account_escape_sites(checker, node.for_stmt_array);
+        lifetime_account_escape_sites(checker, node.for_stmt_range_start);
+        lifetime_account_escape_sites(checker, node.for_stmt_range_end);
+        return;
+    }
+    if node.type == ASTNodeType.AST_DEFER_STMT {
+        lifetime_account_escape_sites(checker, node.defer_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ERRDEFER_STMT {
+        lifetime_account_escape_sites(checker, node.errdefer_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_TEST_STMT {
+        lifetime_account_escape_sites(checker, node.test_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        lifetime_account_escape_sites(checker, node.var_decl_init);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        lifetime_account_escape_sites(checker, node.assign_dest);
+        lifetime_account_escape_sites(checker, node.assign_src);
+        return;
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        lifetime_account_escape_sites(checker, node.return_stmt_expr);
+        return;
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        lifetime_account_alloc_call(checker, node);
+    }
+    lifetime_account_escape_expr_children(checker, node);
+}
+
+/// 依次登记一个表达式节点的直接子表达式（二元/一元/调用实参/成员/下标/cast 等）。
+/// 参数：checker - 类型检查器；node - 当前节点。
+/// 返回：无。
+fn lifetime_account_escape_expr_children(checker: &TypeChecker, node: &ASTNode) void {
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        lifetime_account_escape_sites(checker, node.binary_expr_left);
+        lifetime_account_escape_sites(checker, node.binary_expr_right);
+        return;
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        lifetime_account_escape_sites(checker, node.unary_expr_operand);
+        return;
+    }
+    if node.type == ASTNodeType.AST_CAST_EXPR {
+        lifetime_account_escape_sites(checker, node.cast_expr_expr);
+        return;
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        var i: i32 = 0;
+        while i < node.call_expr_arg_count {
+            lifetime_account_escape_sites(checker, node.call_expr_args[i]);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        lifetime_account_escape_sites(checker, node.member_access_object);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ARRAY_ACCESS {
+        lifetime_account_escape_sites(checker, node.array_access_array);
+        lifetime_account_escape_sites(checker, node.array_access_index);
+        return;
+    }
+    if node.type == ASTNodeType.AST_SLICE_EXPR {
+        lifetime_account_escape_sites(checker, node.slice_expr_base);
+        lifetime_account_escape_sites(checker, node.slice_expr_start_expr);
+        lifetime_account_escape_sites(checker, node.slice_expr_len_expr);
+        return;
+    }
+    // 其余表达式形态（标识符、字面量等）不含逃逸口，到此为止。
+}
+
+/// 登记一个函数声明带来的逃逸口。
+/// 参数：checker - 类型检查器；node - `AST_FN_DECL` 节点。
+/// 返回：无。
+fn lifetime_account_fn_decl(checker: &TypeChecker, node: &ASTNode) void {
+    if node == null || node.type != ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    if node.fn_decl_is_extern != 0 {
+        checker.lifetime_escape_extern_fn = checker.lifetime_escape_extern_fn +| 1;
+        return;     // extern 没有函数体，没什么可扫
+    }
+    lifetime_account_escape_sites(checker, node.fn_decl_body);
+}
+
+/// 登记一个 union 声明。
+/// 参数：checker - 类型检查器；node - `AST_UNION_DECL` 节点。
+/// 返回：无。
+fn lifetime_account_union_decl(checker: &TypeChecker, node: &ASTNode) void {
+    checker.lifetime_escape_union = checker.lifetime_escape_union +| 1;
+    if node.union_decl_is_extern != 0 {
+        checker.lifetime_escape_extern_union = checker.lifetime_escape_extern_union +| 1;
+    }
+    if node.union_decl_variants != null {
+        var i: i32 = 0;
+        while i < node.union_decl_variant_count {
+            lifetime_account_escape_sites(checker, node.union_decl_variants[i]);
+            i = i + 1;
+        }
+    }
+}
+
+/// 登记一个顶层声明（及结构体/接口方法块）带来的逃逸口。
+/// 参数：checker - 类型检查器；decl - 顶层声明节点。
+/// 返回：无。
+fn lifetime_account_top_decl(checker: &TypeChecker, decl: &ASTNode) void {
+    if checker == null || decl == null {
+        return;
+    }
+    if decl.type == ASTNodeType.AST_FN_DECL {
+        lifetime_account_fn_decl(checker, decl);
+        return;
+    }
+    if decl.type == ASTNodeType.AST_EXTERN_VAR_DECL {
+        checker.lifetime_escape_extern_var = checker.lifetime_escape_extern_var +| 1;
+        return;
+    }
+    if decl.type == ASTNodeType.AST_UNION_DECL {
+        lifetime_account_union_decl(checker, decl);
+        return;
+    }
+    if decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_methods != null {
+        var i: i32 = 0;
+        while i < decl.struct_decl_method_count {
+            lifetime_account_fn_decl(checker, decl.struct_decl_methods[i]);
+            i = i + 1;
+        }
+        return;
+    }
+    if decl.type == ASTNodeType.AST_METHOD_BLOCK && decl.method_block_methods != null {
+        var i: i32 = 0;
+        while i < decl.method_block_method_count {
+            lifetime_account_fn_decl(checker, decl.method_block_methods[i]);
+            i = i + 1;
+        }
+        return;
+    }
+}
+
+/// 登记整个程序里所有「能绕过证明」的构造（只在 --lifetime-report 时执行）。
+/// 参数：checker - 类型检查器；program - `AST_PROGRAM` 根节点。
+/// 返回：无。
+///
+/// 这是 escapes 段的唯一入口，由 checker_check_program_node 在全部声明检查完后调用一次。
+/// 只读 AST、只累加计数，不改任何编译结果 —— 关掉 --lifetime-report 时整段是零成本。
+fn lifetime_account_program_escapes(checker: &TypeChecker, program: &ASTNode) void {
+    if checker == null || program == null || program.type != ASTNodeType.AST_PROGRAM {
+        return;
+    }
+    if checker.lifetime_report == 0 {
+        return;
+    }
+    if program.program_decls == null {
+        return;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        lifetime_account_top_decl(checker, program.program_decls[i]);
+        i = i + 1;
+    }
 }

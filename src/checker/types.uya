@@ -419,6 +419,19 @@ struct TypeChecker {
     lifetime_returns_local: i32,    // return 返回指向局部存储的站点数（B1 受检面）
     lifetime_fn_count: i32,         // 已扫过的函数体数量
     lifetime_summary_fail: i32,     // 摘要降级为 unknown 的次数
+    // ===== 逃逸口登记（--lifetime-report 的 escapes 段）=====
+    //
+    // 「不安全之处必须显式」这条主线的前提是**知道不安全之处在哪、有多少、能不能冻结**。
+    // 下面这组计数器把编译器眼里所有能绕过证明的构造按类别数出来（只数不报），
+    // 供 `--lifetime-report` 输出、供白名单 diff、供 CI 冻结基线。
+    // 详见 docs/unsafe_audit_plan.md。
+    lifetime_escape_extern_fn: i32,     // extern "lib" fn 声明（信任边界，编译器不看实现）
+    lifetime_escape_extern_var: i32,    // extern 变量声明（同上）
+    lifetime_escape_asm: i32,           // @asm 内联汇编块
+    lifetime_escape_union: i32,         // union 声明（各变体共享存储，类型系统不跟踪活跃变体）
+    lifetime_escape_extern_union: i32,  // extern union（直接映射 C union）
+    lifetime_escape_ptr_int: i32,       // @ptr_from_usize / @usize_from_ptr / 指针 cast（整数↔指针）
+    lifetime_escape_alloc: i32,         // 指向 malloc/free/calloc/realloc 的调用（所有权面）
     // 上一次就「null 实参」报错过的调用节点。
     // checker_infer_type 对同一表达式可能被调用多次（求类型 + 校验各一遍），
     // 没有这个标记会把同一条诊断打两遍。只记最近一个节点足够：
