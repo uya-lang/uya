@@ -297,6 +297,31 @@ union 的活跃变体不可静态确定 → 读写变体字段一律 `UNKNOWN`�
 
 仓库里只有 1 个 `interface` 声明、0 处函数指针调用 → 动态派发面极小。规则：目标集合并集（任一实现逃逸则算逃逸），且集合不可静态确定时整体 `unknown`。由于实际为 0，**P5 这一阶段可以砍掉**，省 8 人日。
 
+### 5.9 装箱接口值（B1 的第三个缺口，2026-11-17 查明：不能只加判定）
+
+现象：`fn make() IWriter { const s: Console = Console{ fd: 42 }; return s; }` 这类
+「把具体结构体隐式装箱成接口值返回」的写法，在记录里一直列为「静默通过的悬垂」。
+实测查清后，真实情况是**两个独立的缺陷**，都不是「判定点没接」：
+
+1. **不链 `std.async` 就链接失败。** C 后端把隐式装箱生成成
+   `_uya_box = (struct Console *)std_async_box_alloc_current(sizeof ...)`
+   （`src/codegen/c99/stmt.uya:1698`，赋值/参数位置另有两处同形），
+   而 `std_async_box_alloc_current` 由 `lib/std/async.uya:117` 的
+   `export fn async_box_alloc_current` 提供。用户程序不 `use std.async` 时该符号不存在
+   → `undefined reference to 'std_async_box_alloc_current'`，**链接期报错**（实测
+   `/tmp` 最小复现，进程 rc=1）。也就是说这条路径不是静默 UB，而是硬失败。
+2. **链上了反而真悬垂。** `async_box_alloc_current` 从
+   `get_async_frame_allocator()`（线程级 async frame allocator）取内存
+   （`lib/std/async.uya:117-137`），而 `async_frame_pool_reset`
+   （`lib/std/async_frame.uya:889`）会把 bucket 里的内存全部释放（generation 递增）。
+   把这样装出来的接口值 `return` 出当前帧，调用方拿到的 `data` 指针指向已回收的池内存。
+
+因此这条缺口**不能用「B1 多接一处判定」收掉**：真正的修法是给接口装箱一个寿命与返回类型
+匹配的所有权规则（例如返回位置的装箱改走 `malloc`/调用方显式 `box` API，或引入
+「装箱结果不可越过帧边界」的检查，同时改 `scheduler_pool_to_allocator`
+（`lib/std/async_scheduler.uya:708`，全树唯一的接口返回函数）与它的调用点）。
+在没定下这条所有权规则前加判定，只会让 `return *pool;` 这类合法转发一起变红。
+
 ---
 
 ## 6 可证性与量化方法
@@ -399,7 +424,7 @@ buglist ⑥ 记录：取消「形参恒非空」后，908 个测试里 361 个�
 | **P0 度量** | `--lifetime-report`（只算不报）：origin 传播 + 摘要计算 + 按文件导出 §6.2 字段 | 4 | 两次运行报告 diff = 0；`make check` 一字不变 |
 | **P1 地基** | `scope_id` + Origin 格 + transfer 表 + `Symbol` 三字段；`#len(x)` 符号与差分约束（与 array plan B 共用） | 8 | 单函数逃逸可判：`fn mk() &[i32] { var b: [i32: 4] = [1,2,3,4]; return &b[0:4]; }` 报错 |
 | **B1** | 三处判定点接上（`return` / 写更长寿命容器 / 传参）；`STATIC`/`PARAM` 放行 | 6 | buglist P1 → `[x]`；3 个 repro 升级为负例 |
-| ↳ 实测（return） | 2026-11-16 **return 判定点落地（收窄版）**：`lifetime_check_return_escape` 认三种形态 —— ①`return &x` / `&arr[i]` / `&s.f`；②对局部数组开窗的切片 `return buf[a:b]`；③按值返回**元素含指针**的局部数组 | 负例 `error_return_local_addr`、`error_return_local_array_elem_addr`、`error_return_local_slice`、`error_return_local_ptr_array` 均按预期原因失败 | 放行面：形参来源（`fn f(s: &[i32: 4]) &[i32] { return s[1:3]; }`）、纯标量数组按值返回、局部指针变量转存后返回 | §6.3 熔断记录在案：把「局部指针变量的值」纳入判定时自举爆 231 处误报，故 origin 表对指针符号一律 `UNKNOWN` | 未做：装箱局部接口值返回、写更长寿命容器、传参判定点 |
+| ↳ 实测（return） | 2026-11-16 **return 判定点落地（收窄版）**：`lifetime_check_return_escape` 认三种形态 —— ①`return &x` / `&arr[i]` / `&s.f`；②对局部数组开窗的切片 `return buf[a:b]`；③按值返回**元素含指针**的局部数组 | 负例 `error_return_local_addr`、`error_return_local_array_elem_addr`、`error_return_local_slice`、`error_return_local_ptr_array` 均按预期原因失败 | 放行面：形参来源（`fn f(s: &[i32: 4]) &[i32] { return s[1:3]; }`）、纯标量数组按值返回、局部指针变量转存后返回 | §6.3 熔断记录在案：把「局部指针变量的值」纳入判定时自举爆 231 处误报，故 origin 表对指针符号一律 `UNKNOWN` | 未做：写更长寿命容器（见下行）、装箱局部接口值返回（见下方「装箱接口值」）、传参判定点 |
 | ↳ 实测（store） | 2026-11-17 **写更长寿命容器判定点落地（可证的一侧）**：`lifetime_check_store_escape` 挂进赋值，只在「来源 origin = `LOCAL` **且** 容器是全局变量 / 全局对象字段」时报错 | 负例 `tests/error_store_local_addr_to_global.uya`（`g_slot = &x`）按预期原因失败；正例 `tests/test_store_escape_positive.uya` 四形态（局部→局部、内层→外层局部字段、`STATIC`→全局、纯值赋值）全过 | 全树零误报：`uya check src/main.uya` 错误 0、**3.47 s**（接判定前 4.0 s 量级）；`make b` 自举**字节一致** | 本轮抓出两个真 bug：①`lifetime_origin_of_value` 与 `lifetime_origin_of_expr` 对「读字段/读元素」**互相递归**（没记忆化 → `check src/main.uya` 不返回、随后栈溢出 rc=139），改为非标识符一律 `UNKNOWN` + 摘要加深度闸门（8 层）；②字段分支判定**方向反了**（`origin_outlives(container, src) == 0` 才报 = 专报安全的那一侧），改为只认「容器 `STATIC`」 | 明确**放行**（= 洞还在，见 §5）：`PARAM → 全局`（编译器自身 4 处主流写法：`g_compiler_arena_failure_key = key` 等）、`LOCAL → 局部容器字段`（需字段级逃逸分析）、`arr[i] = e`（切片 origin 拿不到）、来源为调用表达式（会把函数摘要拖进互相递归，且被调方 return 判定点已判过） |
 | **B3** | 非零义务 → `--strict-div` 翻默认 | 10 | `make check` 零回归；111 处逐点处理；`tests/verify_strict_div.sh` 扩成四断言 |
 | ↳ 实测 | 2026-11-16 **已落地并翻默认** | `src/` 87 → 0（七类清账：容量取模走 `dyn_table_slot_of` 32 处、证明器消费 `CONSTRAINT_NE`、非零证明改为只需单侧端点、判零落到局部名、链式对齐走 `c99_layout_align_up_i32`、`@size_of` 按形态直接认、6 处单点） | `lib/` 12 → 0（jpeg/async/thread 一律「落局部 + 正分支包裹」） | `g_strict_div` 默认 1，`--no-strict-div` 保留；测试语料按 `--strict-overflow` 同一约定显式豁免 | `tests/verify_strict_div.sh` 扩成四断言；默认模式 `check src/main.uya` 错误 0；`make uya` 自举通过；`error_const_*_zero` 负例仍失败 | §6.3 未触发：全程零误报，全部清账都是「让判定看得见」，没有放宽规则 |

@@ -705,6 +705,46 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
 
 ## 编译器 bug
 
+- [ ] **P1：接口隐式装箱两处缺陷（不链 std.async 就链接失败；链上了 box 会被帧池回收）**
+  - 发现：2026-11-17（追查记录里的「装箱局部接口值返回」缺口时查明）
+  - 复现（`uya run` 直接链接失败）：
+    ```uya
+    interface IWriter {
+        fn write(self: &Self) i32;
+    }
+
+    struct Console : IWriter {
+        fd: i32,
+        fn write(self: &Self) i32 { return self.fd; }
+    }
+
+    fn make() IWriter {
+        const s: Console = Console { fd: 42 };
+        return s;
+    }
+
+    export fn main() i32 {
+        const w: IWriter = make();
+        if w.write() == 42 { return 0; }
+        return 1;
+    }
+    ```
+  - 缺陷 1（链接期）：C 后端把隐式装箱生成成
+    `std_async_box_alloc_current(sizeof ...)`（`src/codegen/c99/stmt.uya:1698`、
+    `:1978`、`:1380`，以及 `src/codegen/c99/function.uya:6186`），该符号由
+    `lib/std/async.uya:117` 提供。程序没 `use std.async` 时符号缺失 →
+    `undefined reference to 'std_async_box_alloc_current'`。codegen 只置了
+    `needs_stdlib_h = 1`，没有把 `std.async` 加进依赖闭包。
+  - 缺陷 2（运行期，真悬垂）：`async_box_alloc_current` 从
+    `get_async_frame_allocator()` 取内存，而 `async_frame_pool_reset`
+    （`lib/std/async_frame.uya:889`）会释放 bucket 内全部内存。把箱出来的接口值
+    `return` 出当前帧，调用方的 `data` 指针指向已回收的池内存。
+  - 结论：**不能靠加一条 checker 规则收掉**（全树唯一接口返回函数
+    `lib/std/async_scheduler.uya:708` 的 `return *pool;` 会一起变红）。
+    修法是给接口装箱定所有权规则：返回位置的装箱走 `malloc` 或调用方显式 box API，
+    或引入「装箱结果不得越过帧边界」检查并同步改上面那个函数与其调用点。
+    设计分析见 `docs/interprocedural_proof_plan.md` §5.9。
+
 - [ ] **P1：C 后端对「全局数组开窗」生成类型错的切片复合字面量（对静态存储开视图必然链接失败）**
   - 发现：2026-11-17（B1 store 判定点落地时，把 `lib/std/http/http1_async.uya` 的
     `http1_async_empty_body_slice` 从「局部数组开窗」改成「全局数组开窗」后暴露）
