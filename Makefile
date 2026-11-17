@@ -755,6 +755,19 @@ check: uya
 		exit 1; \
 	fi; \
 	echo ""; \
+	echo "验证逃逸口闸门双向语义（新增失败 / 减少只提示）..."; \
+	if ./tests/verify_unsafe_audit_gate_semantics.sh > /tmp/verify_out.txt 2>&1; then \
+		grep -E "✓" /tmp/verify_out.txt | tail -1 || cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=0; \
+	else \
+		cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=1; \
+	fi; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ 逃逸口闸门双向语义不符（见 tests/verify_unsafe_audit_gate_semantics.sh）"; \
+		exit 1; \
+	fi; \
+	echo ""; \
 	echo "验证 --strict-loop-bounds 判定矩阵..."; \
 	if ./tests/verify_strict_loop_bounds.sh > /tmp/verify_out.txt 2>&1; then \
 		grep -E "✓" /tmp/verify_out.txt | tail -1 || cat /tmp/verify_out.txt; \

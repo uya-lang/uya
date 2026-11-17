@@ -2,6 +2,17 @@
 
 ## 未发行
 
+### 审计闸门增加双向语义自测
+
+`verify_unsafe_audit.sh` 的判定刻意非对称：新增/增加失败，减少/消失只提示。
+此前这条语义只写在注释里，没有测试；现在新增
+`tests/verify_unsafe_audit_gate_semantics.sh`（已挂进 `make check`）：
+用一次真实扫描的输出，在**临时**基线/实际文件上造五种差异并逐个断言退出码与输出：
+相同→通过、实际减少→通过且提示可收紧、整组消失→通过且提示可收紧、
+实际增加→失败、冒出新 `(kind,file)`→失败。
+闸门脚本仅增加两个测试专用环境变量 `UYA_AUDIT_BASELINE` / `UYA_AUDIT_ACTUAL`，
+CI 默认路径与冻结基线完全不变（实测默认闸门仍报 309 组 / 38138 站点一致）。
+
 ### 堵住 span-length 上界启发式的误放行
 
 `verify_linear_expr_upper_from_span_len` 用 `len = end - start` 反推 `start + offset < end`。

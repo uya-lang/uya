@@ -23,7 +23,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 UYA_BIN="${UYA_BIN:-$ROOT_DIR/bin/uya}"
-BASELINE="$ROOT_DIR/docs/unsafe_baseline.txt"
+# 允许测试用临时基线验证闸门语义（新增即失败 / 减少只提示），CI 默认仍用冻结基线。
+BASELINE="${UYA_AUDIT_BASELINE:-$ROOT_DIR/docs/unsafe_baseline.txt}"
 # 审计根：一行一个（# 开头为注释）。跨多个根取**并集**，因为编译器自己只会
 # 导入它用到的模块 —— 只用 src/main.uya 一个根，标准库里 http / websocket /
 # jpeg / kernel 那些模块根本不会被解析，它们的逃逸口就完全没进审计面。
@@ -140,6 +141,12 @@ if [[ -n "$UNCOVERED" ]]; then
         printf '[unsafe-audit] 未被审计的逃逸文件: %s\n' "$f" >&2
     done
     fail "有 $(printf '%s\n' "$UNCOVERED" | wc -l) 个含逃逸构造的文件不在任何审计根的闭包里 —— 把它们加进 docs/unsafe_audit_roots.txt，或在白名单里显式豁免"
+fi
+
+# 测试专用：可把「实际」换成改过的一份，用于验证闸门双向语义（正常 CI 不设此变量）。
+# 真实扫描与覆盖检查已经完成，这里只影响最后的对比。
+if [[ -n "${UYA_AUDIT_ACTUAL:-}" ]]; then
+    ACTUAL="$UYA_AUDIT_ACTUAL"
 fi
 
 if [[ "${1:-}" == "--update" ]]; then

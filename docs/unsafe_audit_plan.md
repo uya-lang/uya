@@ -1,6 +1,6 @@
 # 不安全面审计与冻结计划：让「不安全之处必须显式」可执行
 
-**状态：P0 登记器已落地（统计上报），白名单冻结与 CI 闸门待实现。**
+**状态：P0 登记器、白名单冻结与 CI 闸门均已落地（2026-11-18 增加闸门语义自测）。**
 本文只描述**当前真实状态**与**下一步可执行动作**，不描述愿景。
 
 ---
@@ -161,9 +161,16 @@ export UYA_ROOT=$PWD/lib
 | 逐站点清单 | `./bin/uya check --escape-list <root>` | 打 `[escape] <kind> <file>:<line>`，只列不报 |
 | 审计根清单 | `docs/unsafe_audit_roots.txt` | 41 个根，逐个跑再按 `(kind,file)` **取最大值**合并 |
 | 闸门脚本 | `tests/verify_unsafe_audit.sh` | 聚合成 `kind<TAB>file<TAB>count` 与基线对比 + 覆盖闸门 |
-| 冻结基线 | `docs/unsafe_baseline.txt` | 314 个 `(kind,file)` 组，可 diff |
+| 冻结基线 | `docs/unsafe_baseline.txt` | 309 个 `(kind,file)` 组，可 diff |
 | CI 挂钩 | `make unsafe-audit`（也在 `make check` 里） | 新增/增加即失败 |
+| 闸门自测 | `tests/verify_unsafe_audit_gate_semantics.sh`（也在 `make check` 里） | 用真扫描数据在临时基线上验证五个方向：**相同**→通过、**实际减少/整组消失**→通过且提示可收紧、**实际增加/冒出新组**→失败 |
 | 重冻结 | `make unsafe-baseline-update` | 更新基线，diff 需在评审里解释 |
+
+**闸门语义本身也要可验证（2026-11-18）**：`verify_unsafe_audit.sh` 支持两个仅供测试的
+环境变量 —— `UYA_AUDIT_BASELINE` / `UYA_AUDIT_ACTUAL`，用来把「基线」或「实际」换成
+临时文件；CI 默认不设，仍读冻结基线与真扫描结果。`verify_unsafe_audit_gate_semantics.sh`
+先跑一次真扫描，再在临时文件上造出五种差异，逐个断言退出码与关键输出，
+避免哪天有人把「新增即失败」改松了却没人发现。
 
 ### 3.1b 为什么要多个审计根（2026-11-17 补）
 
