@@ -1,0 +1,20 @@
+// 回归：AST 的 optimized_value 只有 i32，常量折叠曾把 0 - 5023641600
+// 折成 -728674304（buglist P1「大于 INT32_MAX 的整数字面量被静默截断」）。
+// 现在含超 i32 字面量的表达式跳过折叠，由 AST_NUMBER 按 number_value_i64 发射。
+
+use std.testing.assert_eq_i64;
+
+fn check() !i32 {
+    const a: i64 = 0 - 5023641600;
+    try assert_eq_i64(a, -5023641600);
+    const b: i64 = 0 - 5000000000;
+    try assert_eq_i64(b, -5000000000);
+    const c: i64 = 2147483648 + 1;
+    try assert_eq_i64(c, 2147483649);
+    return 0;
+}
+
+export fn main() i32 {
+    const r: i32 = check() catch |_| { 1; };
+    return r;
+}

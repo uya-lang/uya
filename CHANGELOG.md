@@ -2,6 +2,14 @@
 
 ## 未发行
 
+### 宽整数字面量不再被常量折叠截断
+
+`ASTNode.optimized_value` 只有 i32，`gen_expr` 曾对含超 i32 字面量的表达式直接输出折叠值：
+`const c: i64 = 0 - 5023641600;` 得到 -728674304 而不是 -5023641600，且无任何诊断。
+现在 `c99_expr_has_wide_number` 递归识别二元/一元/转换节点下的宽字面量，命中则跳过折叠，
+走 AST_NUMBER 的 `number_value_i64` 发射路径。回归
+`tests/test_i64_wide_literal_fold.uya` 三个 i64 断言全通过。审计计数不变（无新增 Cast）。
+
 ### 定长切片的常量下标接上边界检查
 
 `checker_check_array_access` 的 `TYPE_SLICE` 分支此前**一行下标检查都没有**：

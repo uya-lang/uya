@@ -1235,13 +1235,44 @@ fn gen_pipeline_synthetic_call(codegen: &C99CodeGenerator, call_node: &ASTNode, 
     gen_call_expr(codegen, synthetic_call);
 }
 
+/// 表达式里是否含超出 i32 范围的字面量。
+/// AST 的 `optimized_value` 只有 i32：常量折叠 `0 - 5023641600` 会把结果
+/// 截成 -728674304（buglist P1）。这里在发射阶段识别这种表达式，
+/// 跳过折叠，让 AST_NUMBER 用自己的 number_value_i64 正常发射。
+fn c99_expr_has_wide_number(expr: &ASTNode) i32 {
+    if expr == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_NUMBER {
+        const i32_min_i64: i64 = (0 - 2147483647 - 1) as i64;
+        const i32_max_i64: i64 = 2147483647 as i64;
+        if expr.number_value_i64 < i32_min_i64 || expr.number_value_i64 > i32_max_i64 {
+            return 1;
+        }
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        if c99_expr_has_wide_number(expr.binary_expr_left) != 0 ||
+            c99_expr_has_wide_number(expr.binary_expr_right) != 0 {
+            return 1;
+        }
+    }
+    if expr.type == ASTNodeType.AST_UNARY_EXPR && c99_expr_has_wide_number(expr.unary_expr_operand) != 0 {
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR && c99_expr_has_wide_number(expr.cast_expr_expr) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     if expr == null {
         return;
     }
     
-    // v0.7.3 优化支持：检查是否已优化
-    if expr.is_optimized != 0 {
+    // v0.7.3 优化支持：检查是否已优化。
+    // 含超 i32 字面量的表达式不折叠 —— optimized_value 是 i32，折叠必错。
+    if expr.is_optimized != 0 && c99_expr_has_wide_number(expr) == 0 {
         // 常量折叠：直接输出优化后的值
         fprintf(codegen.emit_stream as *void, "/* optimized */ %d" as *byte, expr.optimized_value);
         return;
