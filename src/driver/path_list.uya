@@ -19,7 +19,7 @@
 //
 // 生命周期：`*_init` 只清零，`*_free` 只复位（**不归还内存**），表本身是值结构体（可放栈上）。
 // 两块索引数组与 `path_list_push_strdup` 复制的字符串都从本文件自己的**竞技场**分配
-// （`path_arena()`），所以「释放」只是断开引用：这些表的寿命就是本次编译。
+// （`path_arena_alloc()`），所以「释放」只是断开引用：这些表的寿命就是本次编译。
 //
 // 为什么改（2026-11-17，`docs/unsafe_audit_plan.md` §2 降债）：原先这里是
 // 3 处 malloc + 6 处 free（含 `path_list_free_all` 逐条 free 字符串），
@@ -29,27 +29,31 @@
 
 use libc;
 
-// 驱动层专用竞技场：只服务输入文件表 / 下标表（总量是 MB 级以下，
-// 64 KB 固定段 + 不够时由 arena 自己 mmap/malloc 新 chunk）。
-const PATH_ARENA_BYTES: usize = 65536 as usize;
-var g_path_arena_buffer: [byte: 65536] = [];
-var g_path_arena_ready: i32 = 0;
-var g_path_arena: CompilerArena = CompilerArena {
-    buffer: null,
-    size: 0 as usize,
-    offset: 0 as usize,
-    first_chunk: null,
-    current_chunk: null,
-    total_allocated: 0 as usize,
-};
+// 驱动层专用的**自包含 bump 分配器**：只服务输入文件表 / 下标表。
+//
+// 为什么不复用 `src/arena.uya` 的 `CompilerArena`：本文件也在 UPM（`cmd/upm`）
+// 的依赖闭包里，而 UPM 不依赖 `src/arena.uya` —— 引用那个类型会让 UPM 的 C 输出
+// 出现「unknown type name 'CompilerArena'」。所以这里只用 libc 和 Uya 自己的数组，
+// 零新增依赖。
+//
+// 容量 1 MB：编译器上限是 512 个显式输入文件（路径 + 字符串副本合计远不到 1 MB），
+// 超限时**明确报错退出**，不静默截断或越界 —— 这是安全侧的正确取舍。
+const PATH_ARENA_BYTES: usize = 1048576 as usize;
+var g_path_arena_buffer: [byte: 1048576] = [];
+var g_path_arena_offset: usize = 0 as usize;
 
-/// 取驱动层竞技场（首次调用时初始化）。
-fn path_arena() &CompilerArena {
-    if g_path_arena_ready == 0 {
-        compiler_arena_init(&g_path_arena, &g_path_arena_buffer[0], PATH_ARENA_BYTES);
-        g_path_arena_ready = 1;
+/// 从驱动层 bump 区分配 `size` 字节（8 字节对齐，与 compiler arena 同一口径）。
+/// 超限时报错退出；返回的地址在进程存活期间一直有效。
+fn path_arena_alloc(size: usize) &byte {
+    const aligned: usize = (g_path_arena_offset +| 7usize) / 8usize * 8usize;
+    if aligned +| size > PATH_ARENA_BYTES {
+        fprintf(libc.stderr, "错误: 驱动层路径表超出 %zu 字节的静态容量（本次申请 %zu 字节）\n" as *byte,
+            PATH_ARENA_BYTES, size);
+        exit(1);
     }
-    return &g_path_arena;
+    const result: &byte = &g_path_arena_buffer[aligned];
+    g_path_arena_offset = aligned + size;
+    return result;
 }
 
 // 可增长的路径表：items[0..count) 是有效的 C 字符串指针，容量 = capacity。
@@ -121,7 +125,7 @@ fn path_list_reserve(l: &PathList, want: i32) i32 {
         }
     }
     const nu: usize = (nc as! usize) catch { return -1; };
-    const raw: &byte = compiler_arena_alloc(path_arena(), nu * @size_of(&byte));
+    const raw: &byte = path_arena_alloc(nu * @size_of(&byte));
     if raw == null {
         return -1;
     }
@@ -162,7 +166,7 @@ fn path_list_push_strdup(l: &PathList, src: &byte) i32 {
         return -1;
     }
     const n: usize = strlen(src as *byte) + 1usize;
-    const mem: &byte = compiler_arena_alloc(path_arena(), n);
+    const mem: &byte = path_arena_alloc(n);
     if mem == null {
         return -1;
     }
@@ -236,7 +240,7 @@ fn int_list_reserve(l: &IntList, want: i32) i32 {
         }
     }
     const nu: usize = (nc as! usize) catch { return -1; };
-    const raw: &byte = compiler_arena_alloc(path_arena(), nu * @size_of(i32));
+    const raw: &byte = path_arena_alloc(nu * @size_of(i32));
     if raw == null {
         return -1;
     }

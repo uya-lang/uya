@@ -807,6 +807,11 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     `sprintf(__uya_interp_0 + _off, "%s", pad)`，**当场踩爆栈**（SIGSEGV）。
     已改成 `snprintf(buf + _off, sizeof(buf) - (size_t)_off, ...)` 并把 `_off` 夹到
     `sizeof(buf) - 1`，越界写消失。
+  - **③b 文本段也要有界（同一条 bug 的第二半）**：插值写进用户声明的数组时
+    （`const three: [i8: 64] = "1=${a} 2=${b} 3=${c}\n";`），
+    `__uya_memcpy(three + _off, "literal", len)` 原先不夹长度，gcc `-Werror=stringop-overflow`
+    实测抓到 `three[64]` 上 offset 63~68 的越界写（`make check` 里 1213/1214）。
+    已按剩余容量夹住每次 memcpy 的长度并夹住 `_off`，单测与全量 1214/1214 均通过。
   - **残留（记为新条目，见下一条 P2）**：长字符串现在会被**静默截断**（正确性，非安全问题）。
   - 回归：`tests/test_exec_vm_string_interp_term.uya`（C99 与 `--exec` 两个后端都跑）。
   - 验证：`make uya` 自举通过、`make b` 字节一致、`run_programs_parallel.sh` 1212/1212。

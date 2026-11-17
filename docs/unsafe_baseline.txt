@@ -227,7 +227,7 @@ ptr_cast	src/cmd/upm/upm_lib/registry.uya	32
 ptr_cast	src/cmd/upm/upm_lib/resolver.uya	178
 ptr_cast	src/cmd/upm/upm_lib/workspace.uya	17
 ptr_cast	src/codegen/c99/enums.uya	78
-ptr_cast	src/codegen/c99/expr.uya	5555
+ptr_cast	src/codegen/c99/expr.uya	5552
 ptr_cast	src/codegen/c99/function.uya	2349
 ptr_cast	src/codegen/c99/global.uya	338
 ptr_cast	src/codegen/c99/main.uya	5354
@@ -237,7 +237,7 @@ ptr_cast	src/codegen/c99/structs.uya	647
 ptr_cast	src/codegen/c99/types.uya	10099
 ptr_cast	src/codegen/c99/utils.uya	570
 ptr_cast	src/driver/modules.uya	205
-ptr_cast	src/driver/path_list.uya	5
+ptr_cast	src/driver/path_list.uya	6
 ptr_cast	src/driver/toolchain.uya	386
 ptr_cast	src/exec/builder.uya	231
 ptr_cast	src/exec/debug.uya	208

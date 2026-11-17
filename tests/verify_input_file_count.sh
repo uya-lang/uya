@@ -15,6 +15,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPILER="${UYA_COMPILER:-$ROOT/bin/uya}"
+# 标准库根必须显式给出：不设 UYA_ROOT 时编译器找不到 `std.runtime.entry`，
+# 于是在 split-C 构建里**不发射 C 入口 `int main(...)`**，链接期报
+# `undefined reference to 'main'` —— 报错点与真实原因（少了环境变量）完全无关。
+# 其它 verify 脚本（如 verify_exec_backend_progress.sh）也都自己兜底这一条。
+export UYA_ROOT="${UYA_ROOT:-$ROOT/lib}"
 # 数量必须有意义地大于旧上限 64，且远离 512 这个真实上限
 FILE_COUNT="${UYA_VERIFY_INPUT_FILES:-100}"
 

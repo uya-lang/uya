@@ -726,17 +726,23 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
             if seg.text != null {
                 len = strlen(seg.text as *byte);
             }
-            // 直接内联输出字符串字面量，不使用常量表
+            // 直接内联输出字符串字面量，不使用常量表。
+            //
+            // **文本段也要有界**：`buf_name` 可以是本模块新建的 __uya_interp_N，
+            // 也可以直接是用户声明的目标数组（如 `const three: [i8: 64] = "1=${a}...";`）。
+            // 原先这里无条件 `__uya_memcpy(buf + _off, literal, len)`，而前面的数值段
+            // 最长可能把 _off 推到接近缓冲区末尾 —— gcc 用 -Werror=stringop-overflow
+            // 实测抓到 `three[64]` 上的越界写。现在先把长度夹到剩余容量，并夹住 _off。
             c99_emit_indent(codegen);
-            fprintf(codegen.emit_stream as *void, "__uya_memcpy(%s + _off_%d, " as *byte, buf_name as *byte, fill_id);
-            fputs("(const uint8_t *)\"" as *byte, codegen.emit_stream as *void);
+            fprintf(codegen.emit_stream as *void,
+                "{ size_t _n_%d = %zu; if ((size_t)_off_%d >= sizeof(%s)) { _n_%d = 0; } else if (_n_%d > sizeof(%s) - 1 - (size_t)_off_%d) { _n_%d = sizeof(%s) - 1 - (size_t)_off_%d; } if (_n_%d > 0) { __uya_memcpy(%s + _off_%d, (const uint8_t *)\"" as *byte,
+                fill_id, len, fill_id, buf_name as *byte, fill_id, fill_id, buf_name as *byte,
+                fill_id, fill_id, buf_name as *byte, fill_id, fill_id, buf_name as *byte, fill_id);
             if seg.text != null {
                 escape_string_for_c(codegen.emit_stream as *void, seg.text);
             }
-            fputs("\", " as *byte, codegen.emit_stream as *void);
-            fprintf(codegen.emit_stream as *void, "%zu);\n" as *byte, len);
-            c99_emit_indent(codegen);
-            fprintf(codegen.emit_stream as *void, "_off_%d += %zu;\n" as *byte, fill_id, len);
+            fprintf(codegen.emit_stream as *void, "\", _n_%d); _off_%d += (int)_n_%d; } }\n" as *byte,
+                fill_id, fill_id, fill_id);
         } else {
             var fmt_buf: [byte: FMT_BUF_SIZE] = [];
             fmt_buf[0] = 37;

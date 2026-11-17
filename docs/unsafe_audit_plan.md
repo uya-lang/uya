@@ -40,11 +40,11 @@ export UYA_ROOT=$PWD/lib
 [escapes] asm=8
 [escapes] union=1 extern_union=0
 [escapes] ptr_int=197
-[escapes] ptr_cast=35550
+[escapes] ptr_cast=35548
 [escapes] alloc=33
 ```
 
-审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**309 组 / 38131 站点**
+审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**309 组 / 38129 站点**
 （2026-11-17，迁移前 314 组 / 38166 站点）。
 
 ### 1.1 字段含义与判定口径
@@ -102,7 +102,7 @@ export UYA_ROOT=$PWD/lib
 | `src/parse_parallel.uya` | 13（3 malloc + 9 free + 子进程读缓冲 1） | 1 | worker 表（pid / 竞技场切片 / 切片字节数）走竞技场，6 处错误路径 free 一并消失；剩的 1 处是 fork **之后**子进程自己的读文件缓冲，不能放父进程竞技场 |
 | `src/main.uya` | 2（`programs` 表 + `defer free`） | 0 | 生命周期就是本次编译，`compiler_arena_reset` 全仓库无调用者 |
 | `src/codegen/c99/main.uya` | 1（`cg_body_pids`） | 0 | 原先 malloc 且**从未 free**（每轮并行生成漏一份），改竞技场顺带修掉泄漏 |
-| `src/driver/path_list.uya` | 9（3 malloc + 6 free） | 0 | 表与 `push_strdup` 的字符串都走本文件自带的竞技场（`path_arena()`，64 KB 固定段 + arena 自行扩容）；`*_free` 改为只断开引用 |
+| `src/driver/path_list.uya` | 9（3 malloc + 6 free） | 0 | 表与 `push_strdup` 的字符串都走本文件自带的 1 MB bump 区（`path_arena_alloc()`，自包含、不依赖 `src/arena.uya`，超容量明确报错）；`*_free` 改为只断开引用 |
 
 关键前提（决定这次迁移无生命周期风险）：`compiler_arena_reset` 在仓库里**没有任何调用者**，
 竞技场只在 `main` 里初始化一次，寿命 = 进程寿命；而上述容器的寿命也全是「进程结束」。

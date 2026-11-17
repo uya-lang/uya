@@ -33,7 +33,7 @@
 | `src/parse_parallel.uya` | 13 | 1 | worker 表（pid/切片/切片字节数）走竞技场，6 处错误路径 free 一并消失；剩 1 处是 fork 后子进程私有读缓冲 |
 | `src/main.uya` | 2 | 0 | `programs` 表 + `defer free` |
 | `src/codegen/c99/main.uya` | 1 | 0 | `cg_body_pids` 原先 malloc 且**从未 free**（每轮并行生成漏一份），顺带修掉泄漏 |
-| `src/driver/path_list.uya` | 9 | 0 | 表与 `push_strdup` 字符串都走本文件自带的 64 KB 竞技场；`*_free` 只断开引用 |
+| `src/driver/path_list.uya` | 9 | 0 | 表与 `push_strdup` 字符串都走本文件自带的 1 MB bump 区（自包含，不依赖 `src/arena.uya`）；`*_free` 只断开引用 |
 
 迁移无生命周期风险的前提是实测出来的：`compiler_arena_reset` 在仓库里**没有任何调用者**，
 竞技场只在 `main` 里初始化一次，寿命 = 进程寿命；上述容器本来也全是「进程结束才归还」。
@@ -44,12 +44,13 @@ VM 的 guest 堆 12、fork 后子进程缓冲 1 是设计内（28）；`src/exec
 **正确成对**（init/realloc/free 同作用域），本轮还补上了原先漏掉的 `STRING_INTERP` 处 `free`。
 —— **可收窄债务从 66 降到 5，而且这 5 处不是债**。
 
-审计闸门全量口径同步收紧并重新冻结：**309 组 / 38131 站点**（原 314 组 / 38166）。
+审计闸门全量口径同步收紧并重新冻结：**309 组 / 38129 站点**（原 314 组 / 38166）。
 本轮 `--update` 的 diff（逐站点确认后冻结）：
-`alloc src/driver/path_list.uya 9 → 消失`；`ptr_cast` 净 **+14**
-（`codegen/c99/expr.uya` 5545→5555、`exec/vm.uya` 663→666、`checker/main.uya` 66→67 是本轮新增代码里的
-类型重解释 `&byte as *byte` / `as &const void`，不产生新地址；`driver/path_list.uya 11 → 5` 是迁移时
-少了 6 处 `as &void`）。
+`alloc src/driver/path_list.uya 9 → 消失`；`ptr_cast` 净 **+15**
+（`codegen/c99/expr.uya` 5545→5552、`exec/vm.uya` 663→666、`checker/main.uya` 66→67 是本轮新增代码里的
+类型重解释 `&byte as *byte` / `as &const void`，不产生新地址；`driver/path_list.uya 11 → 6`：
+迁移时少了 6 处 `as &void`，新增的 1 处是超限报错里那句 `"..." as *byte` 格式串）。
+所有变化都是类型重解释，**没有一处新增能造地址的整数↔指针桥**。
 
 ### `--strict-loop-bounds`：让数组下标证明对循环计数器生效
 
