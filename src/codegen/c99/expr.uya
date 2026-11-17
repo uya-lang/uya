@@ -2431,6 +2431,20 @@ fn c99_expr_is_slice_value(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
 }
 
 // 调用实参：对按值 slice ABI，将 &expr（expr 为切片值）生成为 expr。
+// 读取 string-interp 临时名表。
+// 参数：codegen - C99 生成器；idx - 实参下标。
+// 返回：该下标上的临时名；下标越出 C99_MAX_CALL_ARGS 时返回 null。
+// 写入侧（见下方两处 `interp_arg_temp_names[arg_idx] = ...`）本来就只覆盖
+// 前 C99_MAX_CALL_ARGS 项，所以越界读在语义上等价于 null —— 但**越界读本身是
+// 未定义行为**（`uint8_t *[64]` 读到第 65 项）。这个 helper 把「越界即 null」
+// 显式化：调用点数超过 64 的调用不再读越界，尾部实参也会被正常生成。
+fn c99_interp_temp_name_at(codegen: &C99CodeGenerator, idx: i32) &byte {
+    if codegen == null || idx < 0 || idx >= C99_MAX_CALL_ARGS {
+        return null;
+    }
+    return c99_interp_temp_name_at(codegen, idx);
+}
+
 fn c99_emit_call_arg_expr(codegen: &C99CodeGenerator, fn_decl: &ASTNode, param_index: i32, arg: &ASTNode) void {
     if arg != null && arg.type == ASTNodeType.AST_UNARY_EXPR &&
         (arg.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND &&
@@ -2981,9 +2995,9 @@ fn c99_try_emit_method_call_from_inferred_type(codegen: &C99CodeGenerator, expr:
         var frame_ai: i32 = 0;
         while frame_ai < expr.call_expr_arg_count {
             c99_emit_comma_space(codegen);
-            if codegen.interp_arg_temp_names[frame_ai] != null {
+            if c99_interp_temp_name_at(codegen, frame_ai) != null {
                 fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
-                fputs(codegen.interp_arg_temp_names[frame_ai] as *byte, codegen.emit_stream as *void);
+                fputs(c99_interp_temp_name_at(codegen, frame_ai) as *byte, codegen.emit_stream as *void);
             } else if async_fn_decl != null && strcmp(method_name as *byte, "start" as *byte) == 0 {
                 if expr.call_expr_args[frame_ai] != null && expr.call_expr_args[frame_ai].type == ASTNodeType.AST_STRING {
                     if c99_string_literal_passes_as_const_byte_slice_value(async_fn_decl, frame_ai, expr.call_expr_args[frame_ai]) == 0 {
@@ -3014,9 +3028,9 @@ fn c99_try_emit_method_call_from_inferred_type(codegen: &C99CodeGenerator, expr:
             var i: i32 = 0;
             while i < expr.call_expr_arg_count {
                 c99_emit_comma_space(codegen);
-                if codegen.interp_arg_temp_names[i] != null {
+                if c99_interp_temp_name_at(codegen, i) != null {
                     fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
-                    fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.emit_stream as *void);
+                    fputs(c99_interp_temp_name_at(codegen, i) as *byte, codegen.emit_stream as *void);
                 } else {
                     if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
                         if c99_string_literal_passes_as_const_byte_slice_value(method_fn, i + 1, expr.call_expr_args[i]) == 0 {
@@ -3053,9 +3067,9 @@ fn c99_try_emit_method_call_from_inferred_type(codegen: &C99CodeGenerator, expr:
                 var i: i32 = 0;
                 while i < expr.call_expr_arg_count {
                     c99_emit_comma_space(codegen);
-                    if codegen.interp_arg_temp_names[i] != null {
+                    if c99_interp_temp_name_at(codegen, i) != null {
                         fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
-                        fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.emit_stream as *void);
+                        fputs(c99_interp_temp_name_at(codegen, i) as *byte, codegen.emit_stream as *void);
                     } else {
                         if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
                             if c99_string_literal_passes_as_const_byte_slice_value(method_fn, i + 1, expr.call_expr_args[i]) == 0 {
@@ -3117,9 +3131,9 @@ fn c99_try_emit_method_call_from_inferred_type(codegen: &C99CodeGenerator, expr:
             var iface_i: i32 = 0;
             while iface_i < expr.call_expr_arg_count {
                 c99_emit_comma_space(codegen);
-                if codegen.interp_arg_temp_names[iface_i] != null {
+                if c99_interp_temp_name_at(codegen, iface_i) != null {
                     fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
-                    fputs(codegen.interp_arg_temp_names[iface_i] as *byte, codegen.emit_stream as *void);
+                    fputs(c99_interp_temp_name_at(codegen, iface_i) as *byte, codegen.emit_stream as *void);
                 } else {
                     if expr.call_expr_args[iface_i] != null && expr.call_expr_args[iface_i].type == ASTNodeType.AST_STRING {
                         fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
@@ -3395,9 +3409,9 @@ fn c99_emit_static_method_call(codegen: &C99CodeGenerator, expr: &ASTNode,
         var i: i32 = 1;
         while i < expr.call_expr_arg_count {
             c99_emit_comma_space(codegen);
-            if codegen.interp_arg_temp_names[i] != null {
+            if c99_interp_temp_name_at(codegen, i) != null {
                 fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
-                fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.emit_stream as *void);
+                fputs(c99_interp_temp_name_at(codegen, i) as *byte, codegen.emit_stream as *void);
             } else {
                 if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
                     if c99_string_literal_passes_as_const_byte_slice_value(instance_method_fn, i, expr.call_expr_args[i]) == 0 {
@@ -3414,9 +3428,9 @@ fn c99_emit_static_method_call(codegen: &C99CodeGenerator, expr: &ASTNode,
             if i > 0 {
                 c99_emit_comma_space(codegen);
             }
-            if codegen.interp_arg_temp_names[i] != null {
+            if c99_interp_temp_name_at(codegen, i) != null {
                 fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
-                fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.emit_stream as *void);
+                fputs(c99_interp_temp_name_at(codegen, i) as *byte, codegen.emit_stream as *void);
             } else {
                 if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
                     if c99_string_literal_passes_as_const_byte_slice_value(method_fn, i, expr.call_expr_args[i]) == 0 {
@@ -3987,9 +4001,9 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 var i: i32 = 0;
                 while i < arg_count {
                     c99_emit_comma_space(codegen);
-                    if codegen.interp_arg_temp_names[i] != null {
+                    if c99_interp_temp_name_at(codegen, i) != null {
                         fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
-                        fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.emit_stream as *void);
+                        fputs(c99_interp_temp_name_at(codegen, i) as *byte, codegen.emit_stream as *void);
                     } else {
                         if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
                             fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
@@ -4067,9 +4081,9 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                                 var frame_ai: i32 = 0;
                                 while frame_ai < arg_count {
                                     c99_emit_comma_space(codegen);
-                                    if codegen.interp_arg_temp_names[frame_ai] != null {
+                                    if c99_interp_temp_name_at(codegen, frame_ai) != null {
                                         fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
-                                        fputs(codegen.interp_arg_temp_names[frame_ai] as *byte, codegen.emit_stream as *void);
+                                        fputs(c99_interp_temp_name_at(codegen, frame_ai) as *byte, codegen.emit_stream as *void);
                                     } else if async_fn_decl != null && strcmp(method_name as *byte, "start" as *byte) == 0 {
                                         if expr.call_expr_args[frame_ai] != null && expr.call_expr_args[frame_ai].type == ASTNodeType.AST_STRING {
                                             if c99_string_literal_passes_as_const_byte_slice_value(async_fn_decl, frame_ai, expr.call_expr_args[frame_ai]) == 0 {
@@ -4102,9 +4116,9 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                                         var i: i32 = 0;
                                         while i < arg_count {
                                             c99_emit_comma_space(codegen);
-                                            if codegen.interp_arg_temp_names[i] != null {
+                                            if c99_interp_temp_name_at(codegen, i) != null {
                                                 fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
-                                                fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.emit_stream as *void);
+                                                fputs(c99_interp_temp_name_at(codegen, i) as *byte, codegen.emit_stream as *void);
                                             } else {
                                                 if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
                                                     if c99_string_literal_passes_as_const_byte_slice_value(method_fn, i + 1, expr.call_expr_args[i]) == 0 {
@@ -4144,9 +4158,9 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                                         var i: i32 = 0;
                                         while i < arg_count {
                                             c99_emit_comma_space(codegen);
-                                            if codegen.interp_arg_temp_names[i] != null {
+                                            if c99_interp_temp_name_at(codegen, i) != null {
                                                 fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
-                                                fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.emit_stream as *void);
+                                                fputs(c99_interp_temp_name_at(codegen, i) as *byte, codegen.emit_stream as *void);
                                             } else {
                                                 if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
                                                     if c99_string_literal_passes_as_const_byte_slice_value(method_fn, i + 1, expr.call_expr_args[i]) == 0 {
@@ -4179,14 +4193,14 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 if i > 0 {
                     c99_emit_comma_space(codegen);
                 }
-                if codegen.interp_arg_temp_names[i] != null {
+                if c99_interp_temp_name_at(codegen, i) != null {
                     const libc_param_c: &byte = get_extern_libc_param_c_type(codegen, fn_decl, i);
                     if libc_param_c != null && c99_expr_is_null_literal(expr.call_expr_args[i]) == 0 {
                         c99_emit_char_pointer_cast_for_type(codegen, libc_param_c);
                     } else {
                         fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
                     }
-                    fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.emit_stream as *void);
+                    fputs(c99_interp_temp_name_at(codegen, i) as *byte, codegen.emit_stream as *void);
                 } else {
                     const libc_param_c: &byte = get_extern_libc_param_c_type(codegen, fn_decl, i);
                     if libc_param_c != null && c99_expr_is_null_literal(expr.call_expr_args[i]) == 0 {
@@ -4249,14 +4263,14 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             // 生成参数
             var i: i32 = 0;
             while i < arg_count {
-            if codegen.interp_arg_temp_names[i] != null {
+            if c99_interp_temp_name_at(codegen, i) != null {
                 const libc_param_c: &byte = get_extern_libc_param_c_type(codegen, fn_decl, i);
                 if libc_param_c != null && c99_expr_is_null_literal(expr.call_expr_args[i]) == 0 {
                     c99_emit_char_pointer_cast_for_type(codegen, libc_param_c);
                 } else {
                     fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
                 }
-                fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.emit_stream as *void);
+                fputs(c99_interp_temp_name_at(codegen, i) as *byte, codegen.emit_stream as *void);
             } else {
             // fprintf 的格式参数为第 2 个 (i==1)，snprintf 的格式参数为第 3 个 (i==2)；强制 (const char *) 消除 -Wformat= 警告
             var is_format_arg: i32 = 0;

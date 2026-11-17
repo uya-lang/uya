@@ -220,7 +220,49 @@ http / websocket / tls / jpeg / kernel / tflm 这些模块编译器根本不导�
   与 `ptr_cast`（35552，指针换类型）。仍然存在的盲区：`ptr_cast` 按**目标侧**判定，
   `(addr as usize) as &T` 这类伪造会落在 `ptr_cast` 里，靠白名单冻结兜底而非机器分类。
 - `alloc` 只认裸调用（`free(p)`），不覆盖方法调用与函数指针别名。
-- 没有 ASan/UBSan 交叉验证：目前的数字全是静态统计，尚未与运行期检测对账。
-  这是本计划最大的未验证假设 —— 「静态清单为零」不等于「运行期零 UB」。
+- ~~没有 ASan/UBSan 交叉验证~~：2026-11-17 补上了 **UBSan 交叉验证**（见 §5.1），
+  并且它立刻抓到一个真实的读越界 + 一个证明系统缺口。
+- **ASan 在本项目不可用**（不是没做，是做不了）：编译器自己用裸 syscall 做
+  `mmap`/`setrlimit`，ASan 靠拦截 libc 管理影子内存，两者一撞就是启动即段错误
+  （实测 `ASAN_OPTIONS=verbosity=1` 连 `--version` 都走不完）。UBSan 不需要影子内存，
+  所以可用。
+- UBSan 版二进制只能跑 `check`，跑 `build`/`run` 会在 fork/exec 工具链那段段错误
+  （已确认非断言、非本次改动导致：同一份 C 用普通方式编译就正常）。所以
+  **代码生成/运行期路径的 UBSan 证据仍缺**，目前只覆盖类型检查与逃生口登记。
 - 逃逸口登记只在 `--lifetime-report` / `--escape-list` 下运行，
   **默认编译不做任何登记**（零成本，但也意味着它不是一个默认强制的检查）。
+
+### 5.1 UBSan 交叉验证（2026-11-17）
+
+做法：把编译器源码生成成 hosted 单文件 C（`src/build/uya-hosted.c`），用
+
+```sh
+gcc -std=c99 -O1 -g -fno-builtin -fwrapv -fno-strict-overflow \
+    -fsanitize=undefined -fno-sanitize-recover=undefined \
+    -o /tmp/uya-ub src/build/uya-hosted.c -lm -lpthread
+```
+
+编译（`-fno-sanitize-recover` 让任何 UB 直接中止，而不是打一行继续跑），再
+
+```sh
+ulimit -s 32768
+/tmp/uya-ub check --lifetime-report src/main.uya
+UYA_COMPILER=/tmp/uya-ub ./tests/run_programs_parallel.sh
+```
+
+结果：
+
+| 跑法 | 结果 |
+|---|---|
+| `check --lifetime-report src/main.uya` | **零 UB 报告**（报告各字段与普通二进制一致） |
+| 全量 1212 例 | 1211 通过，1 例报 `index 64 out of bounds for type 'uint8_t *[64]'` |
+
+那 1 例（`tests/test_async_param_capacity_dynamic.uya`，实参数正好 65）暴露了
+`c99_generate_call_expr` 读 `interp_arg_temp_names[i]` 越界 —— 已修（见 buglist），
+修完该用例通过、`make b` 自举字节一致。
+
+**边界必须说清楚**：UBSan 只覆盖「跑到的那些路径」（本次是编译器自身的 check + codegen），
+而且 UBSan 版二进制只能跑 `check`，`build`/`run` 会在 fork/exec 工具链那段段错误
+（同一份 C 普通编译就正常，非本次改动导致）。真正把静态清单和运行期对上的做法是
+给**生成的程序**也加 UBSan/ASan（需要 `CC=clang -fsanitize=...` 的工具链支持），
+目前没做 —— 这是本计划剩下的最大未验证假设。

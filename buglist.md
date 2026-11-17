@@ -468,6 +468,51 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
   - 验证状态：`./bin/uya check lib/osal/osal.uya` 通过（该文件经 `lib/syscall/linux.uya` 导入）。
   - 归属：`lib/syscall/linux.uya`。
 
+- [x] **P1 / 高：codegen 读越界 `interp_arg_temp_names[i]`（UBSan 抓到）**
+  - 状态：已修复（2026-11-17）
+  - 现象：`c99_generate_call_expr` 里 12 处循环按 `i < arg_count` 读
+    `codegen.interp_arg_temp_names[i]`，而该字段是 `[&byte: C99_MAX_CALL_ARGS]`（64）。
+    实参数超过 64 时（`tests/test_async_param_capacity_dynamic.uya` 正是这种用例），
+    读越界拿到垃圾指针，再 `fputs` 它 —— 上一版靠「垃圾恰好是 null」侥幸输出正确的 C。
+  - 抓法：把编译器源码编译成 `-fsanitize=undefined -fno-sanitize-recover=undefined`
+    的 hosted 二进制，跑全量测试；该用例报
+    `src/build/uya-hosted.c:155716: runtime error: index 64 out of bounds for type 'uint8_t *[64]'`。
+  - 修复内容：新增 `c99_interp_temp_name_at(codegen, idx)`（越界返回 null，写入侧本来就只
+    覆盖前 64 项，语义等价），24 处读取全部改走它。**注意不能把循环条件加上
+    `&& i < C99_MAX_CALL_ARGS` —— 那是把「读越界」换成「少生成实参」**，
+    实测会输出 `f(0, ..., 63, )` 这种语法错误的 C（第一版就这么踩了）。
+  - 验证状态：`tests/test_async_param_capacity_dynamic.uya` 通过；
+    `make b` 自举字节一致；全量 1212 例全绿。
+  - 归属：`src/codegen/c99/expr.uya`。
+
+- [ ] **P0 / 高：数组边界证明对「循环里被改写的变量」完全不生效（证明缺口，非误报）**
+  - 状态：**未修复**（2026-11-17 查明，需要改 interval/constraint 数据流）
+  - 现象（全部用 `--safety-proof`，即 `make uya` 用的那套）：
+    ```uya
+    var items: [i32: 4] = [0, 0, 0, 0];
+    var i: i32 = 0;
+    while i < 5 { items[i] = i; i = i + 1; }      // 越界（i 会到 4），编译通过
+    ```
+    循环**之后**再写 `items[i] = 1;` 也一样通过（`while i < 100` 也通过）。
+    但同样形态换成形参 `items[k]`、或 `if cond { i = 9; } items[i]` 就**正确报错**
+    （`数组索引安全证明失败`）。
+  - 根因：`constraint_update_for_increment` 对 `i = i + 1` 做的是「把该变量所有约束整体 +1」，
+    而循环体只被**检查一遍**：body 里 `items[i]` 看到的是初始值（`i == 0`，确实安全），
+    迭代到第 5 次才越界的那次永远没被检查；循环之后约束还停在 `i == 1`。
+    也就是说这套约束系统没有做循环不动点，`while` 里的数组下标证明形同虚设。
+  - 机制的直接证据（同一个循环，只改初值）：`var i: i32 = 2; while i < 5 { items[i + 3] }`
+    **报错**（区间被钉在 `[2,2]`，`i + 3` 需要 `i < 1`），而 `var i: i32 = 0;
+    while i < 5 { items[i] }` 通过（区间钉在 `[0,0]`，恰好安全）。
+    同一段循环，前者从第 0 次迭代就越界、后者第 4 次才越界，但两者的判定都只看
+    初值 —— 说明 body 确实只用进入循环前的约束检查了一遍。
+  - 影响面：`while i < n { arr[i] }` 是数组遍历的**主流写法**，所以这条缺口覆盖了
+    绝大多数下标访问 —— 「审计过的 unsafe 之外零 UB」目前对这类代码不成立。
+  - 下一步：在进入 `while` 体之前，把**体内所有被赋值变量**的约束清空（或置为无界区间），
+    循环结束后再清空一次；然后跑 `uya check --safety-proof src/main.uya`，
+    按报错逐个补真实守卫（或改用 `.len`/切片遍历）。这会是一批真实的越界修复，
+    不能用放宽判定的方式消掉。
+  - 归属：`src/checker/interval.uya`、`src/checker/main.uya`（`AST_WHILE_STMT` 分支）。
+
 ## 标准库 bug
 
 - [x] **P2 / 中：HTTP/1 响应头块上限 `65536` 是硬边界，调用方无法在不改库的情况下放宽**

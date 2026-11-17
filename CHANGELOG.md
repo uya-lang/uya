@@ -2,6 +2,35 @@
 
 ## 未发行
 
+### UBSan 交叉验证接入：抓到 1 个真 UB，并查明 1 个证明缺口
+
+`docs/unsafe_audit_plan.md` §5 一直挂着「没有 ASan/UBSan 交叉验证」这条最大的
+未验证假设。本轮把 UBSan 跑起来（hosted 单文件 C + `-fsanitize=undefined
+-fno-sanitize-recover=undefined`），立刻有收获：
+
+1. **真 UB（已修）**：`check --lifetime-report src/main.uya` 零报告，但全量测试里
+   `test_async_param_capacity_dynamic` 报 `index 64 out of bounds for type
+   'uint8_t *[64]'` —— `c99_generate_call_expr` 的 12 处循环按 `i < arg_count`
+   读 `interp_arg_temp_names[i]`，实参数 65 时读出界。上一版靠「越界读到的恰好是
+   null」侥幸生成正确的 C。修法是新增 `c99_interp_temp_name_at()`（越界返回 null）
+   并让 24 处读取全走它。注意**不能**改成给循环条件加 `i < C99_MAX_CALL_ARGS`：
+   那是把「读越界」换成「少生成实参」，会输出 `f(0, ..., 63, )` 这种语法错误的 C。
+2. **证明缺口（未修，P0）**：数组下标证明对「循环里被改写的变量」完全不生效。
+   `var i: i32 = 0; while i < 5 { items[i] }`（`items: [i32: 4]`）在
+   `--safety-proof` 下**编译通过**；循环之后再用 `i` 索引也通过。换成形参索引
+   或 `if` 内赋值就正确报错。直接证据是同一循环只改初值：
+   `var i = 2; while i < 5 { items[i + 3] }` 报错（区间钉在 `[2,2]`），
+   `var i = 0; while i < 5 { items[i] }` 通过（区间钉在 `[0,0]`）——
+   说明循环体只按**进入循环前的约束**检查了一遍，没有不动点。
+   `while i < n { arr[i] }` 是遍历的主流写法，所以这条缺口覆盖绝大多数下标访问。
+
+**ASan 用不了**：编译器自己用裸 syscall 做 `mmap`/`setrlimit`，ASan 的影子内存靠拦截
+libc 管理，两者一撞启动即崩（`ASAN_OPTIONS=verbosity=1` 连 `--version` 都走不完）。
+UBSan 版二进制也只能跑 `check`，`build`/`run` 会在 fork/exec 工具链那段段错误
+（同一份 C 普通编译正常，非本次改动导致），所以 codegen/运行期路径的 UBSan 证据仍缺。
+以上都写进 `docs/unsafe_audit_plan.md` §5 / §5.1，结论回填
+`docs/interprocedural_proof_plan.md` §6.2b 与 buglist。
+
 ### 逃逸审计扩容：41 个审计根 + 覆盖闸门，标准库 40 个模块首次进入审计面
 
 此前 `make unsafe-audit` 只跑 `src/main.uya` 一个根 —— 审计面等于**编译器自己的
