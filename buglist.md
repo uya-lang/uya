@@ -583,6 +583,10 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     旧约束 → 只回写一条下界」以腾出 `MAX_CONSTRAINTS=64` 的槽位。实测严格错误
     **769 → 771**（溢出 598 → 600），说明丢掉 `NE` 等约束的代价大于腾槽收益；
     已恢复原实现并重建，全套回到 769。后续不再沿这条方向试。
+  - 已回退的尝试 2：把 `internal.uya` 的 `C99_MAX_DEFER_STACK` 改成 `export const`，
+    怀疑跨文件常量无法被 `checker_eval_const_expr_ex` 求值。实测严格错误与
+    `utils.uya` 错误数**完全不变**（769 / 82），说明常量可见性不是根因；
+    已恢复并重建。
 
 ## 标准库 bug
 
