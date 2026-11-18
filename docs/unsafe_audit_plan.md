@@ -47,15 +47,19 @@ export UYA_ROOT=$PWD/lib
 （`ptr_cast` 相对 2026-11-17 的 35548 净增 10，是本轮多次检查器/后端改动的累计；
 每一次都过了白名单闸门并单独解释过 diff。真正危险的 `ptr_int` 与 `alloc` 不变。）
 
-审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**310 组 / 38141 站点**
+审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**310 组 / 38143 站点**
 （2026-11-18 复跑，迁移前 314 组 / 38166 站点）。
 
-本轮基线从 309/38139 收紧到 310/38141，唯一 diff 是
-`ptr_cast src/cmd/upm/upm_lib/types.uya 2`：提交 `69b9dd59`（UPM 大结构就地初始化，
-修 8MB 栈下 `examples/package_example` 崩溃）在第 208、220 行新增两处
-`memset(out as *byte, 0, @size_of(...))`。该提交晚于上次基线冻结（`6808bceb`），
-闸门本次复跑才捕获；属于确需保留的逃逸面，已显式确认并用 `--update` 记录，
-不是放宽判定。
+本轮基线两次显式收紧，均有可复现 diff：
+1. 309/38139 → 310/38141，新增 `ptr_cast src/cmd/upm/upm_lib/types.uya 2`：
+   提交 `69b9dd59`（UPM 大结构就地初始化，修 8MB 栈下 `examples/package_example`
+   崩溃）在第 208、220 行新增两处 `memset(out as *byte, 0, @size_of(...))`。
+   该提交晚于上次基线冻结（`6808bceb`），闸门复跑才捕获。
+2. 310/38141 → 310/38143，`ptr_cast src/checker/interval.uya` 从 71 升到 73：
+   `--strict-loop-bounds` 的 count/array 容量推断新增两处字段名字符串字面量
+   `"mono_instance_count" as &byte` 与 `"mono_instances" as &byte`。
+
+两处都属于确需保留的逃逸面，已逐项评审并用 `--update` 记录，不是放宽判定。
 
 ### 1.1 字段含义与判定口径
 
@@ -239,8 +243,8 @@ http / websocket / tls / jpeg / kernel / tflm 这些模块编译器根本不导�
 ### 3.4 判据（可复跑）
 
 ```sh
-./bin/uya check --escape-list src/main.uya 2>&1 | grep -c '^\[escape\]'   # 单根 36696（2026-11-18 实测）
-./tests/verify_unsafe_audit.sh      # 41 个根取并集，38141 站点 / 310 组；基线一致 ✓
+./bin/uya check --escape-list src/main.uya 2>&1 | grep -c '^\[escape\]'   # 单根 36698（2026-11-18 实测）
+./tests/verify_unsafe_audit.sh      # 41 个根取并集，38143 站点 / 310 组；基线一致 ✓
 ./tests/verify_unsafe_audit.sh --update                                 # 重新冻结
 ```
 

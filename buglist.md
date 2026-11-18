@@ -568,6 +568,17 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     `check --safety-proof --strict-loop-bounds src/main.uya` 总数 **941 → 939**、
     溢出 **606 → 604**，该函数自身错误清零。剩余 939 个错误仍需逐个补守卫，
     本项继续开放。
+  - 第二轮进展（2026-11-18，仍开放）：`src/codegen/c99/structs.uya` 的 140 个错误里，
+    大多数来自 `while mi < codegen.mono_instance_count { mono_instances[mi] ... }`：
+    `constraint_member_length_capacity` 原来只认 `<数组名>_len/_count` 这类命名，
+    认不出 `mono_instances` ↔ `mono_instance_count`（差一个复数 s），于是拿不到
+    数组容量上界。补上这一对后 strict 总数 **939 → 769**、数组越界 **279 → 115**、
+    `structs.uya` 自身 **140 → 28**。
+    该推断**只在 `--strict-loop-bounds` 下启用**： Ungated 版本会让默认模式的
+    `make b` 在 `src/codegen/c99/main.uya:6372` 新增一条溢出误报（自举失败），
+    已回退到 gated 形态并重新验证 `make b` 字节一致。不是放宽判定：
+    `mono_instance_count` 的新增点都有 `>= C99_MAX_MONO_INSTANCES` 守卫，
+    容量上界是真实成立的。剩余 769 个错误继续开放。
 
 ## 标准库 bug
 

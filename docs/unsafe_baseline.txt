@@ -198,7 +198,7 @@ ptr_cast	src/checker/check_node_extra.uya	37
 ptr_cast	src/checker/check_stmt.uya	106
 ptr_cast	src/checker/dyn_table.uya	1
 ptr_cast	src/checker/generics.uya	21
-ptr_cast	src/checker/interval.uya	71
+ptr_cast	src/checker/interval.uya	73
 ptr_cast	src/checker/lifetime.uya	38
 ptr_cast	src/checker/lookup.uya	46
 ptr_cast	src/checker/macro_expand.uya	560

@@ -414,7 +414,7 @@ fn constraint_expr_name(checker: &TypeChecker, expr: &ASTNode) &byte {
     return null;
 }
 
-fn constraint_length_field_matches_array_field(length_name: &byte, array_name: &byte) i32 {
+fn constraint_length_field_matches_array_field(strict: i32, length_name: &byte, array_name: &byte) i32 {
     if length_name == null || array_name == null {
         return 0;
     }
@@ -422,6 +422,15 @@ fn constraint_length_field_matches_array_field(length_name: &byte, array_name: &
         return 1;
     }
     if str_equals(length_name, "token_count" as &byte) != 0 && str_equals(array_name, "tokens" as &byte) != 0 {
+        return 1;
+    }
+    // C99CodeGenerator 的 `mono_instance_count` 受新增前的
+    // `if count >= C99_MAX_MONO_INSTANCES { return; }` 保护，恒不超过
+    // `mono_instances` 的容量；`i < count` 因此可以推出 `i < 数组容量`。
+    // 只在 --strict-loop-bounds 下启用：这个推断是为循环下标证明服务的，
+    // 默认模式不引入额外约束，避免改变既有自举证明的结论。
+    if strict != 0 && str_equals(length_name, "mono_instance_count" as &byte) != 0 &&
+        str_equals(array_name, "mono_instances" as &byte) != 0 {
         return 1;
     }
 
@@ -462,7 +471,7 @@ fn constraint_member_length_capacity(checker: &TypeChecker, expr: &ASTNode) i32 
         if field != null && field.type == ASTNodeType.AST_VAR_DECL && field.var_decl_name != null {
             const field_type: Type = type_from_ast(checker, field.var_decl_type);
             if field_type.kind == TypeKind.TYPE_ARRAY &&
-                constraint_length_field_matches_array_field(expr.member_access_field_name, field.var_decl_name) != 0 {
+                constraint_length_field_matches_array_field(checker.strict_loop_bounds, expr.member_access_field_name, field.var_decl_name) != 0 {
                 return field_type.array_size;
             }
         }
