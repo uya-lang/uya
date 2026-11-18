@@ -1622,7 +1622,11 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
       ⑥ **从未赋值的可变全局**（2026-11-18 新增，`lifetime_global_is_never_assigned`
       全程序保守扫描；负例 `tests/error_param_null_mutable_global_never_assigned.uya`
       按预期失败，正例 `tests/test_param_null_mutable_global_assigned.uya` 通过）。
-      **仍未覆盖**：调用前可能被赋值的可变全局（认它会误报）、复杂表达式、
+      ⑦ **别名传给非空形参**（2026-11-18 新增，`lifetime_alias_chain_requires_nonnull`
+      对链上别名调用 `lifetime_scan_param_calls`；负例
+      `tests/error_param_null_alias_to_sink.uya` 按预期失败，正例
+      `tests/test_param_null_alias_to_guarded_sink.uya` 通过）。
+      **仍未覆盖**：调用前可能被赋值的可变全局（认它会误报）、非同形复杂表达式、
       方法调用/函数指针等解析形态；这些形态下仍沿用 blanket 非空假设，
       故 ⑥ 仍是开放项。
     - **本轮验收边界（2026-11-18，防止把开放项算进已完成）**：
@@ -1637,10 +1641,10 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
         最小反例 `while i < 9 { i = i + 1; }` 在 strict 模式下能通过，说明问题
         集中在 606 处缺少守卫的算术站点，而非循环框架本身。要翻默认必须逐个
         加真实守卫/饱和运算并重跑自举，工作量未在本轮完成。
-      * ⑥ 指针形参非空义务覆盖了六类可静态确定的形态（字面量 null、
+      * ⑥ 指针形参非空义务覆盖了七类可静态确定的形态（字面量 null、
         全局 const null、具名调用链传播、直接局部别名、多级别名、
-        从未赋值的可变全局）。**会被赋值的可变全局、复杂表达式、
-        函数指针/方法调用仍未覆盖**：这些形态要么调用点值不确定，要么被调方
+        从未赋值的可变全局、别名传给非空形参）。**会被赋值的可变全局、
+        非同形复杂表达式、函数指针/方法调用仍未覆盖**：这些形态要么调用点值不确定，要么被调方
         无法可靠解析；把它们一律当 null 会制造大量误报，因此没有这样做。
       * 以上两项**不算入本轮完成内容**，也**没有通过放宽判定换取绿灯**：
         所有 `tests/error_*.uya` 负例仍按预期失败；逃逸口闸门只因删除旧代码

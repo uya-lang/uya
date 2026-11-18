@@ -1504,10 +1504,11 @@ fn lifetime_find_param_alias(node: &ASTNode, name: &byte) &byte {
 
 /// 沿 `var q = p` / `q = p` 的直接别名链继续找解引用，支持多级别名。
 /// 只跟随同形赋值，不做流分析；每层都要求「无 null 守卫且确实解引用」才成立。
+/// 同时检查别名有没有被原样传给另一个需要非空的形参（`var q = p; sink(q);`）。
 /// 参数：checker - 类型检查器；fn_decl - 被调方函数声明；name - 当前要追的局部名；
-///       depth - 剩余追踪层数（防环）。
+///       depth - 剩余别名追踪层数（防环）；call_depth - 剩余跨调用传播层数（防环）。
 /// 返回：1 表示别名链末端存在非空义务；0 表示没有或证不出。
-fn lifetime_alias_chain_requires_nonnull(checker: &TypeChecker, fn_decl: &ASTNode, name: &byte, depth: i32) i32 {
+fn lifetime_alias_chain_requires_nonnull(checker: &TypeChecker, fn_decl: &ASTNode, name: &byte, depth: i32, call_depth: i32) i32 {
     if checker == null || fn_decl == null || name == null || depth <= 0 {
         return 0;
     }
@@ -1521,7 +1522,10 @@ fn lifetime_alias_chain_requires_nonnull(checker: &TypeChecker, fn_decl: &ASTNod
     if alias_guard == 0 && alias_deref != 0 {
         return 1;
     }
-    return lifetime_alias_chain_requires_nonnull(checker, fn_decl, alias_name, depth - 1);
+    if call_depth > 0 && lifetime_scan_param_calls(checker, fn_decl.fn_decl_body, alias_name, call_depth - 1) != 0 {
+        return 1;
+    }
+    return lifetime_alias_chain_requires_nonnull(checker, fn_decl, alias_name, depth - 1, call_depth - 1);
 }
 
 /// 判定 `fn_decl` 的第 `param_index` 个形参是否构成一条「非空」requirement。
@@ -1556,7 +1560,7 @@ fn lifetime_fn_param_requires_nonnull(checker: &TypeChecker, fn_decl: &ASTNode, 
         return 1;
     }
     // `var q = p; var r = q; return r[0];` —— 通过多级局部别名解引用。
-    if lifetime_alias_chain_requires_nonnull(checker, fn_decl, param.var_decl_name, 8) != 0 {
+    if lifetime_alias_chain_requires_nonnull(checker, fn_decl, param.var_decl_name, 8, 3) != 0 {
         return 1;
     }
     // 直接用法里没有解引用，但可能原样传给另一个需要非空的形参。

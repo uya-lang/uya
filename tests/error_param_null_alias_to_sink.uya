@@ -1,0 +1,15 @@
+// 负例：形参经局部别名原样传给需要非空的形参，B2 必须沿别名传播 requirement。
+
+fn sink(p: &i32) i32 {
+    return p[0];
+}
+
+fn forward(p: &i32) i32 {
+    var q: &i32 = p;
+    return sink(q);
+}
+
+export fn main() i32 {
+    forward(null);
+    return 0;
+}

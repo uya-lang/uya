@@ -29,28 +29,28 @@ export UYA_ROOT=$PWD/lib
 **实测（2026-11-18，`src/main.uya` 依赖闭包，最新编译器复跑）：**
 
 ```
-[lifetime] functions=3245
-[lifetime] req_total=3081 req_resolved=2671 req_unresolved=410
-[lifetime] req_param_null=2582
+[lifetime] functions=3255
+[lifetime] req_total=3080 req_resolved=2670 req_unresolved=410
+[lifetime] req_param_null=2581
 [lifetime] req_div_zero=499
 [lifetime] returns_local=0
-[lifetime] summary_unknown=2986
-[lifetime] call_sites=35832 call_resolved=5171
+[lifetime] summary_unknown=3009
+[lifetime] call_sites=35936 call_resolved=5182
 [escapes] extern_fn=511 extern_var=386
 [escapes] asm=8
 [escapes] union=1 extern_union=0
 [escapes] ptr_int=197
-[escapes] ptr_cast=35558
+[escapes] ptr_cast=35564
 [escapes] alloc=33
 ```
 
-（`ptr_cast` 相对 2026-11-17 的 35548 净增 10，是本轮多次检查器/后端改动的累计；
+（`ptr_cast` 相对 2026-11-17 的 35548 净增 16，是本轮多次检查器/后端改动的累计；
 每一次都过了白名单闸门并单独解释过 diff。真正危险的 `ptr_int` 与 `alloc` 不变。）
 
-审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**310 组 / 38143 站点**
+审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**310 组 / 38145 站点**
 （2026-11-18 复跑，迁移前 314 组 / 38166 站点）。
 
-本轮基线两次显式收紧，均有可复现 diff：
+本轮基线三次显式收紧，均有可复现 diff：
 1. 309/38139 → 310/38141，新增 `ptr_cast src/cmd/upm/upm_lib/types.uya 2`：
    提交 `69b9dd59`（UPM 大结构就地初始化，修 8MB 栈下 `examples/package_example`
    崩溃）在第 208、220 行新增两处 `memset(out as *byte, 0, @size_of(...))`。
@@ -58,8 +58,13 @@ export UYA_ROOT=$PWD/lib
 2. 310/38141 → 310/38143，`ptr_cast src/checker/interval.uya` 从 71 升到 73：
    `--strict-loop-bounds` 的 count/array 容量推断新增两处字段名字符串字面量
    `"mono_instance_count" as &byte` 与 `"mono_instances" as &byte`。
+3. 310/38143 → 310/38145，`ptr_cast src/exec/vm.uya` 从 666 升到 668：
+   提交 `7affdc10`（exec VM 热点 opcode 快速分派，实测提速约 360x）新增
+   两处 `getenv("UYA_VM_FAST_DISPATCH" as *byte)` /
+   `getenv("UYA_VM_FAST_MASK" as *byte)` 的环境变量名字符串字面量 cast。
+   它们只读合法 C 字符串，不改变指针整数互转或分配面。
 
-两处都属于确需保留的逃逸面，已逐项评审并用 `--update` 记录，不是放宽判定。
+三处都属于确需保留的逃逸面，已逐项评审并用 `--update` 记录，不是放宽判定。
 
 ### 1.1 字段含义与判定口径
 
@@ -244,7 +249,7 @@ http / websocket / tls / jpeg / kernel / tflm 这些模块编译器根本不导�
 
 ```sh
 ./bin/uya check --escape-list src/main.uya 2>&1 | grep -c '^\[escape\]'   # 单根 36698（2026-11-18 实测）
-./tests/verify_unsafe_audit.sh      # 41 个根取并集，38143 站点 / 310 组；基线一致 ✓
+./tests/verify_unsafe_audit.sh      # 41 个根取并集，38145 站点 / 310 组；基线一致 ✓
 ./tests/verify_unsafe_audit.sh --update                                 # 重新冻结
 ```
 

@@ -246,7 +246,7 @@ ptr_cast	src/exec/format.uya	34
 ptr_cast	src/exec/lower.uya	775
 ptr_cast	src/exec/main.uya	102
 ptr_cast	src/exec/value.uya	75
-ptr_cast	src/exec/vm.uya	666
+ptr_cast	src/exec/vm.uya	668
 ptr_cast	src/fmt.uya	183
 ptr_cast	src/lexer.uya	147
 ptr_cast	src/lower/async.uya	20
