@@ -13,7 +13,7 @@ TMP_STDERR="$(mktemp)"
 trap 'rm -f "$TMP_COMPILER" "$TMP_STDOUT" "$TMP_STDERR"' EXIT
 
 echo "重编当前源码得到 staged smoke 编译器..."
-"$COMPILER" build src/main.uya -o "$TMP_COMPILER" --no-safety-proof >"$TMP_STDOUT" 2>"$TMP_STDERR"
+"$COMPILER" build src/main.uya -o "$TMP_COMPILER" --no-safety-proof --no-strict-overflow >"$TMP_STDOUT" 2>"$TMP_STDERR"
 if [ ! -x "$TMP_COMPILER" ]; then
     echo "✗ staged smoke 编译器未生成"
     cat "$TMP_STDERR"
@@ -35,7 +35,10 @@ verify_src_main_vm_usage_path() {
         cat "$TMP_STDERR"
         exit 1
     fi
-    grep -q 'exec vm 运行耗时' "$TMP_STDERR"
+    # 无 `--` 时 VM 注入的 argc=1：被解释的编译器必须走到 usage 路径并打印帮助，
+    # 与 C99 子进程行为一致（不能只返回 1 却一声不吭）。
+    grep -q 'Uya 编译器 - 零GC系统编程语言' "$TMP_STDERR"
+    grep -q '用法:' "$TMP_STDERR"
     grep -q '程序运行返回码：1' "$TMP_STDERR"
     if grep -q 'exec backend 失败' "$TMP_STDERR" ||
         grep -q 'exec unsupported' "$TMP_STDERR" ||
@@ -48,12 +51,13 @@ verify_src_main_vm_usage_path() {
     fi
 }
 
+# 当前源码的严格溢出闸门尚未全量迁移；本脚本只验证 VM usage 路径，显式关掉闸门。
 echo "验证默认 proof 路线可完成 src/main.uya exec VM usage 路径..."
-verify_src_main_vm_usage_path "default proof"
+verify_src_main_vm_usage_path "default proof" --no-strict-overflow
 echo "  default proof src/main.uya --vm usage path ✓"
 
 echo "验证 --no-safety-proof 路线可完成 src/main.uya exec VM usage 路径..."
-verify_src_main_vm_usage_path "no-safety-proof" --no-safety-proof
+verify_src_main_vm_usage_path "no-safety-proof" --no-safety-proof --no-strict-overflow
 echo "  no-safety-proof src/main.uya --vm usage path ✓"
 
 # 8MB 栈硬上限是 Linux 常见默认值。编译器若把 UPMPackageBuildPlan 这类 4.6MB
@@ -62,7 +66,7 @@ echo "  no-safety-proof src/main.uya --vm usage path ✓"
 echo "验证 8MB 栈上限下 src/main.uya --vm usage 路径不崩溃..."
 if (ulimit -s 8192) 2>/dev/null; then
     set +e
-    (ulimit -s 8192; "$TMP_COMPILER" run --vm src/main.uya >"$TMP_STDOUT" 2>"$TMP_STDERR")
+    (ulimit -s 8192; "$TMP_COMPILER" run --vm src/main.uya --no-strict-overflow >"$TMP_STDOUT" 2>"$TMP_STDERR")
     low_stack_status=$?
     set -e
     if [ "$low_stack_status" -ne 1 ]; then
@@ -70,6 +74,11 @@ if (ulimit -s 8192) 2>/dev/null; then
         cat "$TMP_STDERR"
         exit 1
     fi
+    grep -q 'Uya 编译器 - 零GC系统编程语言' "$TMP_STDERR" || {
+        echo "✗ 8MB 栈下 staged smoke 未打印 usage"
+        cat "$TMP_STDERR"
+        exit 1
+    }
     echo "  8MB 栈 src/main.uya --vm usage path ✓"
 else
     echo "  当前环境不支持调整栈上限，跳过"

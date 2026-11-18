@@ -312,10 +312,13 @@ lexer -> parser -> checker -> optimizer -> codegen/c99 -> gcc/clang -> run
     - `tests/test_exec_vm_catch_bare_return.uya`
     - `UYA_COMPILER=/tmp/uya_exec_catch_return_bin bash ./tests/verify_exec_vm_compiler_regressions.sh`
   - `tests/verify_exec_vm_compiler_stage_smoke.sh` 当前已升级为直接校验 `src/main.uya --vm` usage 路径：
-    - 基于当前源码重编 staged compiler
+    - 基于当前源码重编 staged compiler（显式 `--no-strict-overflow`，闸门尚未全量迁移）
     - 分别运行 `run --vm src/main.uya` 与 `run --vm src/main.uya --no-safety-proof`
-    - 要求输出 exec VM 运行耗时与 `程序运行返回码：1`
+    - 要求输出编译器 usage 文本（不只是返回码）与 `程序运行返回码：1`
     - 要求命令进程状态为 `1`，与现有 C99 hosted 无参数 usage 路径一致
+  - 本轮修复无 `--` 参数时 VM 侧 `saved_argv` 为 null 造成的「只返回 1、不打印 usage」：
+    - `src/main.uya` 的 exec run 分支在没有 `--` 时也注入 `argv[0]`（argc=1，对齐 C99 execve）
+    - `parse_args` 的 argc<2 / 未指定输入文件两个出口无条件调用自带 null 回退的 `print_usage`
 - 2026-05-18 已加强回归脚本，避免“只看退出码”的假绿：
   - `verify_exec_vm_smoke.sh`
   - `verify_exec_vm_aggregates.sh`
