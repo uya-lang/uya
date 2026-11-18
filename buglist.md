@@ -1658,7 +1658,9 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
         `<0` 传播错误、`>0` 转成 `0` 表示继续下一条；`UYA_VM_FAST_DISPATCH=0`
         的 A/B 对照与 1229 项套件、`make b` 均重新验证通过。随后外部提交
         `5e1d2d3f`（exec bytecode JIT 原型）新增 2 组 / 8 个逃逸站点，审计闸门
-        按设计报错；本轮**没有**替它更新基线，等该改动的作者逐项评审。
+        按设计报错；已逐项核对（JIT 入口 extern、缓冲区 cast、`--jit` 命令行
+        字符串字面量），用 `--update` 重冻结并在 `docs/unsafe_audit_plan.md`
+        第 4 条解释 diff，不是放宽判定。
     * **③ 循环体下标**：表面现象是循环体不证明，**实际成因是赋值不失效约束**：
       `i = i + 1` 不会让进入循环前的 `i < 9` 作废，于是
       `while i < 9 { a[i] = 1; i = i + 1; }`（a 只有 5 个元素）实测越界写 `a[5]`。

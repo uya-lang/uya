@@ -61,6 +61,7 @@ extern_fn	src/codegen/c99/main.uya	1
 extern_fn	src/codegen/c99/parallel.uya	2
 extern_fn	src/codegen/c99/types.uya	6
 extern_fn	src/codegen/c99/utils.uya	21
+extern_fn	src/exec/jit.uya	1
 extern_fn	src/exec/value.uya	1
 extern_fn	src/lower/async.uya	6
 extern_fn	src/parser/main.uya	2
@@ -243,14 +244,15 @@ ptr_cast	src/driver/toolchain.uya	386
 ptr_cast	src/exec/builder.uya	231
 ptr_cast	src/exec/debug.uya	208
 ptr_cast	src/exec/format.uya	34
+ptr_cast	src/exec/jit.uya	3
 ptr_cast	src/exec/lower.uya	775
-ptr_cast	src/exec/main.uya	102
+ptr_cast	src/exec/main.uya	103
 ptr_cast	src/exec/value.uya	75
 ptr_cast	src/exec/vm.uya	668
 ptr_cast	src/fmt.uya	183
 ptr_cast	src/lexer.uya	147
 ptr_cast	src/lower/async.uya	20
-ptr_cast	src/main.uya	996
+ptr_cast	src/main.uya	999
 ptr_cast	src/microapp/main.uya	486
 ptr_cast	src/parallel.uya	12
 ptr_cast	src/parse_parallel.uya	13

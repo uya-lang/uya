@@ -29,28 +29,28 @@ export UYA_ROOT=$PWD/lib
 **实测（2026-11-18，`src/main.uya` 依赖闭包，最新编译器复跑）：**
 
 ```
-[lifetime] functions=3255
-[lifetime] req_total=3080 req_resolved=2670 req_unresolved=410
-[lifetime] req_param_null=2581
-[lifetime] req_div_zero=499
+[lifetime] functions=3258
+[lifetime] req_total=3092 req_resolved=2680 req_unresolved=412
+[lifetime] req_param_null=2590
+[lifetime] req_div_zero=502
 [lifetime] returns_local=0
-[lifetime] summary_unknown=3009
-[lifetime] call_sites=35936 call_resolved=5182
-[escapes] extern_fn=511 extern_var=386
+[lifetime] summary_unknown=3115
+[lifetime] call_sites=35949 call_resolved=5183
+[escapes] extern_fn=512 extern_var=386
 [escapes] asm=8
 [escapes] union=1 extern_union=0
 [escapes] ptr_int=197
-[escapes] ptr_cast=35564
+[escapes] ptr_cast=35571
 [escapes] alloc=33
 ```
 
-（`ptr_cast` 相对 2026-11-17 的 35548 净增 16，是本轮多次检查器/后端改动的累计；
+（`ptr_cast` 相对 2026-11-17 的 35548 净增 23，是本轮多次检查器/后端改动的累计；
 每一次都过了白名单闸门并单独解释过 diff。真正危险的 `ptr_int` 与 `alloc` 不变。）
 
-审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**310 组 / 38145 站点**
+审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**312 组 / 38153 站点**
 （2026-11-18 复跑，迁移前 314 组 / 38166 站点）。
 
-本轮基线三次显式收紧，均有可复现 diff：
+本轮基线四次显式收紧，均有可复现 diff：
 1. 309/38139 → 310/38141，新增 `ptr_cast src/cmd/upm/upm_lib/types.uya 2`：
    提交 `69b9dd59`（UPM 大结构就地初始化，修 8MB 栈下 `examples/package_example`
    崩溃）在第 208、220 行新增两处 `memset(out as *byte, 0, @size_of(...))`。
@@ -63,8 +63,15 @@ export UYA_ROOT=$PWD/lib
    两处 `getenv("UYA_VM_FAST_DISPATCH" as *byte)` /
    `getenv("UYA_VM_FAST_MASK" as *byte)` 的环境变量名字符串字面量 cast。
    它们只读合法 C 字符串，不改变指针整数互转或分配面。
+4. 310/38145 → 312/38153，新增 `extern_fn src/exec/jit.uya 1`、
+   `ptr_cast src/exec/jit.uya 3`，并把 `ptr_cast src/exec/main.uya 102 → 103`、
+   `ptr_cast src/main.uya 996 → 999`：
+   提交 `5e1d2d3f`（exec bytecode 内存 JIT 原型）新增 JIT 入口
+   `extern fn uya_call0_i32(fn_ptr: &void) i32`，以及 JIT 缓冲区 `mem as &byte` /
+   `mem as *u8` 等三处指针转换；后两组是 `--jit` 命令行开关与帮助文本的字符串
+   字面量 cast。JIT 目前只支持常量返回的 `main`，其余回退 VM；这些站点已逐项核对。
 
-三处都属于确需保留的逃逸面，已逐项评审并用 `--update` 记录，不是放宽判定。
+四处都属于确需保留的逃逸面，已逐项评审并用 `--update` 记录，不是放宽判定。
 
 ### 1.1 字段含义与判定口径
 
@@ -249,7 +256,7 @@ http / websocket / tls / jpeg / kernel / tflm 这些模块编译器根本不导�
 
 ```sh
 ./bin/uya check --escape-list src/main.uya 2>&1 | grep -c '^\[escape\]'   # 单根 36698（2026-11-18 实测）
-./tests/verify_unsafe_audit.sh      # 41 个根取并集，38145 站点 / 310 组；基线一致 ✓
+./tests/verify_unsafe_audit.sh      # 41 个根取并集，38153 站点 / 312 组；基线一致 ✓
 ./tests/verify_unsafe_audit.sh --update                                 # 重新冻结
 ```
 
