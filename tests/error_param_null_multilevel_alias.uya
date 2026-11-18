@@ -1,0 +1,12 @@
+// 负例：B2 非空义务要沿多级别名链追踪。
+// fn f(p) { var q = p; var r = q; return r[0]; } + f(null) 此前能通过，运行必崩。
+
+fn deref_via_two_aliases(p: &i32) i32 {
+    var q: &i32 = p;
+    var r: &i32 = q;
+    return r[0];
+}
+
+export fn main() i32 {
+    return deref_via_two_aliases(null);
+}

@@ -1,0 +1,15 @@
+// 正例：被调方自己做了 null 守卫时，多级别名解引用是安全的，
+// B2 不得把它误判成「调用方必须传非空」。
+
+fn deref_via_two_aliases_guarded(p: &i32) i32 {
+    if p == null {
+        return 0;
+    }
+    var q: &i32 = p;
+    var r: &i32 = q;
+    return r[0];
+}
+
+export fn main() i32 {
+    return deref_via_two_aliases_guarded(null);
+}
