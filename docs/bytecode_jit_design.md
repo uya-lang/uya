@@ -2,7 +2,7 @@
 
 **版本**：v0.1
 **日期**：2026-11-18
-**状态**：设计草案；VM 快速分派已落地，JIT 原型尚未实现
+**状态**：原型已落地（M0/M1）；仅支持常量返回 `main`，其余情况回退 VM。
 
 ## 1. 结论与定位
 
@@ -90,3 +90,24 @@ checked AST -> Exec HIR -> Bytecode -> VM
 - 聚合值的 `retain/release` 与 arena GC 不能在生成代码里重写，必须复用 helper。
 - 自举要求发射器自身能被 Uya 编译器编译，不能依赖宿主 C 源文件。
 - JIT 编译时间可能抵消小程序的收益；需要在基准中分开报告“编译”与“执行”两段。
+
+## 9. M0/M1 原型现状（2026-11-18）
+
+已落地：
+
+- `src/exec/jit.uya`：`--jit` 时检查 `main` 是否为 `LOAD_CONST` + `RET`；命中则在 `mmap(PROT_READ|WRITE|EXEC)` 内存写入
+  `mov eax, imm32; ret`，经 `uya_call0_i32` 直接调用，随后 `munmap`。
+- `src/exec/main.uya`：`exec_run_jit_program()` 先尝试 JIT，不支持则回退 `vm_run_program()`。
+- `src/main.uya`：`--jit` CLI 开关与 verbose 命中标志；仅对 `run` 生效，`test` 仍走 VM。
+- `tests/test_exec_jit_smoke.uya`：常量返回 0 的最小回归。
+
+验证结果：
+
+- `run --jit tests/test_exec_jit_smoke.uya`：退出码 0，verbose 报 `exec jit 命中: 1`，VM 运行耗时 0 ms。
+- `run --jit` 一个返回 7 的最小程序：退出码 7，确认执行的是生成的机器码而不是 VM 默认值。
+- `run --jit tests/test_exec_vm_fast_dispatch.uya`：verbose 报 `exec jit 命中: 0`，自动回退 VM，退出码 0。
+- 完整 `make exec-census`：927/928（99.9%），跳过 5；唯一失败 `test_interface_box_return.uya` 仍为既有问题。
+- 完整 `make exec-parity`：927/932，跳过 1；5 个 STATUS_MISMATCH 在 `UYA_VM_FAST_DISPATCH=0/1` 下表现一致，均非本次改动引入。
+
+未覆盖：局部变量、算术/比较、跳转、调用、hostcall、聚合值、全局变量、错误联合，以及 aarch64。`--jit` 目前是**受控原型**，
+不改变默认 `run`/`test` 行为；M2 起按第 6 节阶段扩展。

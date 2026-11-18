@@ -483,6 +483,26 @@ export fn exec_run_program() i32 {
     return exit_code;
 }
 
+/// 用内存 JIT 执行当前程序；不支持的模式回退到普通 VM。
+/// 参数：无，运行目标来自最近一次 `exec_build_program(...)` 成功产物。
+/// 返回值：成功时返回程序退出码；失败时返回非 0。
+export fn exec_run_jit_program() i32 {
+    if g_exec_bc_program == null {
+        exec_backend_set_error(null, "exec: 尚无可运行的 bytecode 程序" as *byte, 0);
+        return 1;
+    }
+    g_exec_bc_program.host_argc = g_exec_program_argc;
+    g_exec_bc_program.host_argv = g_exec_program_argv;
+    const run_start_time: i64 = clock();
+    var jit_exit_code: i32 = 0;
+    if jit_try_run(g_exec_bc_program, &jit_exit_code) != 0 {
+        const run_end_time: i64 = clock();
+        g_exec_last_vm_run_time_ms = (run_end_time -| run_start_time) *| 1000 / CLOCKS_PER_SEC;
+        return jit_exit_code;
+    }
+    return exec_run_program();
+}
+
 /// 打印最近一次 lowering 得到的 HIR。
 /// 参数：无，输出目标来自最近一次 `exec_build_program(...)` 成功产物。
 /// 返回值：无。

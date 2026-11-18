@@ -1,0 +1,93 @@
+// exec/jit.uya - Bytecode 内存 JIT 原型
+//
+// 目前只识别一种最小模式：`main` 恰好由 `LOAD_CONST` + `RET` 组成，
+// 并且常量是 i32/i64 整数。命中时在 mmap 出来的可执行内存里写入
+// x86-64 `mov eax, imm32; ret`，通过 `uya_call0_i32` 直接调用。
+// 其他任何情况都返回 0，由调用方回退到普通 VM，保证语义不退化。
+
+use libc.sys_mmap;
+use libc.sys_munmap;
+use libc.MAP_PRIVATE;
+use libc.MAP_ANONYMOUS;
+use libc.PROT_READ;
+use libc.PROT_WRITE;
+use libc.PROT_EXEC;
+
+extern fn uya_call0_i32(fn_ptr: &void) i32;
+
+const JIT_CODE_SIZE: usize = 4096;
+const JIT_MAP_FAILED: usize = 0 - 1 as usize;
+
+var g_exec_jit_used: i32 = 0;
+
+/// 报告最近一次运行是否命中了 JIT 快速路径。
+/// 参数：无。
+/// 返回值：1 表示本次由机器码执行，0 表示回退到 VM。
+export fn exec_jit_was_used() i32 {
+    return g_exec_jit_used;
+}
+
+/// 尝试用内存机器码执行当前 bytecode 程序。
+/// 参数：program 已构建好的 bytecode 程序；out_code 接收程序退出码。
+/// 返回值：1 表示已执行（out_code 有效），0 表示当前不支持，调用方应回退 VM。
+fn jit_try_run(program: &BCProgram, out_code: &i32) i32 {
+    g_exec_jit_used = 0;
+    if program == null || out_code == null {
+        return 0;
+    }
+    if (@asm_target() as i32) > 2 {
+        return 0;
+    }
+    if program.function_count <= 0 || program.entry_function_index < 0 ||
+        program.entry_function_index >= program.function_count {
+        return 0;
+    }
+    const main_fn: &BCFunction = &program.functions[program.entry_function_index];
+    if main_fn.instr_count < 2 || main_fn.instrs == null {
+        return 0;
+    }
+    const load_instr: &BCInstr = &main_fn.instrs[0];
+    const ret_instr: &BCInstr = &main_fn.instrs[1];
+    if load_instr.opcode != BCOpcode.BC_LOAD_CONST || ret_instr.opcode != BCOpcode.BC_RET {
+        return 0;
+    }
+    const const_index: i32 = load_instr.a;
+    if const_index < 0 || const_index >= program.const_pool.count {
+        return 0;
+    }
+    const value: &ExecValue = &program.const_pool.values[const_index];
+    if value.kind != ExecValueKind.EXEC_VALUE_I32 && value.kind != ExecValueKind.EXEC_VALUE_I64 {
+        return 0;
+    }
+    const raw: i64 = value.i64_value;
+    if raw < -2147483648 as i64 || raw > 2147483647 as i64 {
+        return 0;
+    }
+    const prot: i32 = PROT_READ | PROT_WRITE | PROT_EXEC;
+    const flags: i32 = MAP_PRIVATE | MAP_ANONYMOUS;
+    const mapped: !*void = sys_mmap(null, JIT_CODE_SIZE, prot, flags, 0 - 1, 0 as i64);
+    const mem: *void = mapped catch {
+        return 0;
+    };
+    if mem == null {
+        return 0;
+    }
+    const as_bytes: &byte = mem as &byte;
+    if (as_bytes as usize) == JIT_MAP_FAILED {
+        return 0;
+    }
+    const code: *u8 = mem as *u8;
+    const raw_i32: i32 = raw as i32;
+    const imm: u32 = raw_i32 as u32;
+    code[0] = 0xb8 as u8;
+    code[1] = (imm & 0xff as u32) as u8;
+    code[2] = ((imm >> 8) & 0xff as u32) as u8;
+    code[3] = ((imm >> 16) & 0xff as u32) as u8;
+    code[4] = ((imm >> 24) & 0xff as u32) as u8;
+    code[5] = 0xc3 as u8;
+    g_exec_jit_used = 1;
+    const code_rc: i32 = uya_call0_i32(mem as &void);
+    _ = sys_munmap(mem, JIT_CODE_SIZE) catch { 0 as i32; };
+    out_code[0] = code_rc;
+    return 1;
+}
