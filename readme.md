@@ -339,14 +339,14 @@ fn increment(counter: *Counter) void {
 }
 ```
 
-## 当前状态（v0.13.0）
+## 当前状态（v0.14.0）
 
 - **自举编译器**：已完成自举，所有测试通过。编译器能编译自身，输出 C99 代码（默认多文件至 `.uyacache`，可用 `--no-split-c` 单文件）。
 - **开发模式**：仅维护 `src/` 目录的自举编译器。
 - **快速构建**：Linux 冷启动 `make from-c`，macOS 冷启动 `make from-c-native`；日常自举构建 `make uya`（nostdlib 静态）/ `make uya-hosted`（hosted）。前端默认按 CPU 核数进程级并行（`--jobs/-j`，上限 32），无改动时增量指纹直接短路。
 - **安全验证**：`make uya-safety` 构建启用内存安全检查的编译器；默认构建在编译期证明 UB，无法证明即编译错误。
 - **语言规范**：完整版见 [docs/uya.md](./docs/uya.md)（0.49.57）。
-- **最新特性**：当前 **v0.13.0** 是一次**编译提速发行**——检查器三处 O(N) 退化收口（顶层可达性 visited 集可增长、符号查找加 `name_hash` 与每作用域哈希桶、方法归属/宏查找改走程序级声明索引），`uya check src/main.uya` 由 **7.10 s 降到 3.20 s（−55%）**；C 阶段 `OBJS` 按实际 C 体积降序（LPT）+ 增量指纹批量 `sha256sum`。背靠背 `make uya` 全量强制 **14.44 → 12.00 s（−17%）**、`make b` 27.4 → 22.2 s，产物逐字节一致。上一里程碑 v0.12.0 的 **exec 后端打通自举**（`uya run --vm` 能解释执行 `src/main.uya`，普查 912/912，峰值 RSS 57 GB → **34.7 GB**）与 **struct 匿名 union 重叠块**（规范 0.49.57，`ASTNode` 借此从 1848 B 压到 **152 B**）见 [docs/releases/RELEASE_v0.12.0.md](./docs/releases/RELEASE_v0.12.0.md)。
+- **最新特性**：当前 **v0.14.0** 是一次**执行性能 + 安全证明增强发行**——exec VM 热点指令快速分派让 500 万次饱和加循环从 **2161~2261 ms 降到 6 ms（约 360×）**；同一份 bytecode 上新增内存 JIT 原型 `run --jit`（仅支持常量返回 `main`，其余回退 VM）。跨函数非空证明（B2）收口局部别名、调用链传播与全局 const null，C99 后端修复切片下标、宽整数字面量、字符串插值与装箱接口返回等一批缺陷。上一里程碑 v0.13.0 的**编译提速**（`uya check src/main.uya` 7.10 → 3.20 s）见 [docs/releases/RELEASE_v0.13.0.md](./docs/releases/RELEASE_v0.13.0.md)。
 
 ## 文档
 
@@ -383,6 +383,6 @@ fn increment(counter: *Counter) void {
 
 ---
 
-**注意**：语言规范为完整版（0.49.57）；当前 **里程碑发行**为 **v0.13.0**，说明见 [docs/releases/RELEASE_v0.13.0.md](./docs/releases/RELEASE_v0.13.0.md)；上一里程碑总览见 [docs/releases/RELEASE_v0.12.0.md](./docs/releases/RELEASE_v0.12.0.md) 与 [docs/uya.md](./docs/uya.md)。
+**注意**：语言规范为完整版（0.49.57）；当前 **里程碑发行**为 **v0.14.0**，说明见 [docs/releases/RELEASE_v0.14.0.md](./docs/releases/RELEASE_v0.14.0.md)；上一里程碑总览见 [docs/releases/RELEASE_v0.13.0.md](./docs/releases/RELEASE_v0.13.0.md) 与 [docs/uya.md](./docs/uya.md)。
 
 **许可证**：本项目采用 [MIT 许可证](./LICENSE)。Copyright (c) 2025-2026 Uya 语言项目
