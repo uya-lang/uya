@@ -1744,9 +1744,9 @@ fn parse_args(
     const argc: i32 = get_argc();
     if argc < 2 {
         const program_name: *byte = get_argv(0);
-        if program_name != null {
-            print_usage(program_name as &byte);
-        }
+        // print_usage 自己会把 null 程序名回退成 "uya"：VM 无 `--` 参数时
+        // saved_argv 可能仍为 null，此时也必须打印 usage，不能静默返回。
+        print_usage(program_name as &byte);
         return -1;
     }
 
@@ -2137,9 +2137,7 @@ fn parse_args(
     if input_files.count == 0 {
         fprintf(libc.stderr, "错误: 未指定输入文件\n" as *byte);
         const program_name: *byte = get_argv(0);
-        if program_name != null {
-            print_usage(program_name as &byte);
-        }
+        print_usage(program_name as &byte);
         return -1;
     }
 
@@ -3536,14 +3534,20 @@ export fn main() i32 {
             // 把 `--` 之后那段参数交给解释器：C99 侧是 execve 传 argv，VM 侧没有
             // C 运行时的 `uya_rt_init(argc, argv)`，只能由这里显式注入
             // （否则被解释的 uya 编译器看不到任何命令行参数）。
-            // 只有显式给了 `--` 参数才注入：没有 `--` 时保持 VM 原语义
-            // （saved_argc=1、saved_argv=null），否则被解释程序会看到编译器
-            // 自己的 argv，依赖 get_argv 的用例（如 pipeline worker 重启自身）
-            // 会拿到错误的参数。
-            if exec_requested != 0 && run_arg_start >= 0 && get_argv_slot(0) != null {
-                const host_argv_base: i32 = run_arg_start -| 1;  // argv[0] 用被运行的文件名
-                const host_argc: i32 = get_argc() -| host_argv_base;
-                exec_set_program_args(host_argc, get_argv_slot(host_argv_base));
+            // 有 `--` 时注入完整参数段；没有 `--` 时只注入 argv[0]（argc=1），
+            // 对齐 C99 的程序名语义，同时避免被解释程序看到编译器自己的参数
+            // （依赖 get_argv 的用例，如 pipeline worker 重启自身，会拿错参数）。
+            if exec_requested != 0 {
+                if run_arg_start >= 0 && get_argv_slot(0) != null {
+                    const host_argv_base: i32 = run_arg_start -| 1;  // argv[0] 用被运行的文件名
+                    const host_argc: i32 = get_argc() -| host_argv_base;
+                    exec_set_program_args(host_argc, get_argv_slot(host_argv_base));
+                } else if get_argv_slot(0) != null {
+                    // 没有 `--` 时也要给被解释程序一个 argv[0]：C99 侧 execve 会带
+                    // 程序名，VM 侧若留 saved_argv=null，get_argv(0) 恒为 null，
+                    // 依赖程序名的路径（如编译器 usage）就与 C99 不一致。
+                    exec_set_program_args(1, get_argv_slot(0));
+                }
             }
             const child_exit_exec: i32 = exec_run_program();
             if g_verbose_output != 0 {
