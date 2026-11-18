@@ -579,6 +579,10 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     已回退到 gated 形态并重新验证 `make b` 字节一致。不是放宽判定：
     `mono_instance_count` 的新增点都有 `>= C99_MAX_MONO_INSTANCES` 守卫，
     容量上界是真实成立的。剩余 769 个错误继续开放。
+  - 已回退的尝试：把 `constraint_relax_upper_var` 改成「收集下界 → 删掉该变量全部
+    旧约束 → 只回写一条下界」以腾出 `MAX_CONSTRAINTS=64` 的槽位。实测严格错误
+    **769 → 771**（溢出 598 → 600），说明丢掉 `NE` 等约束的代价大于腾槽收益；
+    已恢复原实现并重建，全套回到 769。后续不再沿这条方向试。
 
 ## 标准库 bug
 
