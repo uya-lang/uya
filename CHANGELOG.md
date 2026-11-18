@@ -1,6 +1,23 @@
 # Uya 变更日志
 
-## 未发行
+## v0.14.0 - exec VM 热点快速分派与 bytecode 内存 JIT 原型
+
+> 发布日期：2026-11-18
+
+### exec VM 热点指令快速分派
+
+`vm_step_fast()` 在 103 路 opcode 链之前直接处理 `JMP`、`JMP_IF_FALSE`、`LOAD_LOCAL`、
+`STORE_LOCAL`、`ADD_SAT`、`CMP_LT`、`CMP_NE`。`LOAD_CONST` 曾进入快速路径，但会让全局结构体
+常量初始化出现字段越界回归，已移除。500 万次饱和加循环从 `2161~2261 ms` 降到 `6 ms`（约 360×），
+端到端 wall time 从 `2.32 s` 降到 `0.032 s`。A/B 开关为 `UYA_VM_FAST_DISPATCH` /
+`UYA_VM_FAST_MASK`；新增 `tests/test_exec_vm_fast_dispatch.uya` 回归。
+
+### bytecode 内存 JIT 原型 `--jit`
+
+`--jit` 只对 `run` 生效：当 `main` 恰好由 `LOAD_CONST` + `RET` 组成时，在 `mmap` 的可执行内存里
+写入 x86-64 `mov eax, imm32; ret`，经 `uya_call0_i32` 直接调用；其他情况自动回退 VM。
+这是受控原型，局部变量、算术、跳转、调用、hostcall、聚合值与 aarch64 尚未覆盖；设计路线见
+`docs/bytecode_jit_design.md`。
 
 ### 跨函数非空义务认出局部别名
 
