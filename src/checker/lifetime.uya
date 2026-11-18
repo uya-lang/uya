@@ -1051,8 +1051,115 @@ fn lifetime_expr_is_null_literal(expr: &ASTNode) i32 {
     return 0;
 }
 
-/// 实参是否确定为 null：字面量 null，或初值为 null 的全局 const 指针。
-/// 只认 const 全局（mutable 全局可能在调用前被赋值，认它会误报）。
+/// 递归判断子树中是否存在对标识符 `name` 的直接赋值。
+/// 只认 `AST_ASSIGN` 且目标就是标识符；成员/下标写入不改变变量本身的空值状态。
+/// 参数：node - 当前节点；name - 要找的全局名。
+/// 返回：1 表示找到赋值；0 表示没有。
+fn lifetime_scan_assign_to_name(node: &ASTNode, name: &byte) i32 {
+    if node == null || name == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        const dest: &ASTNode = node.assign_dest;
+        if dest != null && dest.type == ASTNodeType.AST_IDENTIFIER &&
+            dest.identifier_name != null && str_equals(dest.identifier_name, name) != 0 {
+            return 1;
+        }
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            if lifetime_scan_assign_to_name(node.block_stmts[i], name) != 0 { return 1; }
+            i = i + 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        return lifetime_scan_assign_to_name(node.if_stmt_condition, name) |
+               lifetime_scan_assign_to_name(node.if_stmt_then_branch, name) |
+               lifetime_scan_assign_to_name(node.if_stmt_else_branch, name);
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        return lifetime_scan_assign_to_name(node.while_stmt_condition, name) |
+               lifetime_scan_assign_to_name(node.while_stmt_body, name);
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        return lifetime_scan_assign_to_name(node.for_stmt_array, name) |
+               lifetime_scan_assign_to_name(node.for_stmt_range_start, name) |
+               lifetime_scan_assign_to_name(node.for_stmt_range_end, name) |
+               lifetime_scan_assign_to_name(node.for_stmt_body, name);
+    }
+    if node.type == ASTNodeType.AST_DEFER_STMT {
+        return lifetime_scan_assign_to_name(node.defer_stmt_body, name);
+    }
+    if node.type == ASTNodeType.AST_ERRDEFER_STMT {
+        return lifetime_scan_assign_to_name(node.errdefer_stmt_body, name);
+    }
+    if node.type == ASTNodeType.AST_TEST_STMT {
+        return lifetime_scan_assign_to_name(node.test_stmt_body, name);
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        return lifetime_scan_assign_to_name(node.assign_dest, name) |
+               lifetime_scan_assign_to_name(node.assign_src, name);
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        return lifetime_scan_assign_to_name(node.return_stmt_expr, name);
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        return lifetime_scan_assign_to_name(node.var_decl_init, name);
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        if lifetime_scan_assign_to_name(node.call_expr_callee, name) != 0 { return 1; }
+        var ci: i32 = 0;
+        while ci < node.call_expr_arg_count {
+            if lifetime_scan_assign_to_name(node.call_expr_args[ci], name) != 0 { return 1; }
+            ci = ci + 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        return lifetime_scan_assign_to_name(node.binary_expr_left, name) |
+               lifetime_scan_assign_to_name(node.binary_expr_right, name);
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        return lifetime_scan_assign_to_name(node.unary_expr_operand, name);
+    }
+    if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return lifetime_scan_assign_to_name(node.member_access_object, name);
+    }
+    if node.type == ASTNodeType.AST_ARRAY_ACCESS {
+        return lifetime_scan_assign_to_name(node.array_access_array, name) |
+               lifetime_scan_assign_to_name(node.array_access_index, name);
+    }
+    if node.type == ASTNodeType.AST_SLICE_EXPR {
+        return lifetime_scan_assign_to_name(node.slice_expr_base, name);
+    }
+    return 0;
+}
+
+/// 全局 `name` 是否在程序里从未被赋值。只做保守扫描：只要任意函数体里
+/// 出现一次直接赋值就返回 0，避免把「调用前可能被改过」的可变全局误判成 null。
+/// 参数：checker - 类型检查器；name - 全局变量名。
+/// 返回：1 表示全程序没有对它赋值；0 表示有赋值或无法确认。
+fn lifetime_global_is_never_assigned(checker: &TypeChecker, name: &byte) i32 {
+    if checker == null || checker.program_node == null || checker.program_node.program_decls == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < checker.program_node.program_decl_count {
+        const decl: &ASTNode = checker.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null {
+            if lifetime_scan_assign_to_name(decl.fn_decl_body, name) != 0 {
+                return 0;
+            }
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+/// 实参是否确定为 null：字面量 null、初值为 null 的全局 const 指针，
+/// 或初值为 null 且全程序从未赋值的可变全局。
 fn lifetime_expr_is_known_null(checker: &TypeChecker, expr: &ASTNode) i32 {
     if lifetime_expr_is_null_literal(expr) != 0 {
         return 1;
@@ -1067,10 +1174,13 @@ fn lifetime_expr_is_known_null(checker: &TypeChecker, expr: &ASTNode) i32 {
     while i < checker.program_node.program_decl_count {
         const decl: &ASTNode = checker.program_node.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_VAR_DECL &&
-            decl.var_decl_is_const != 0 && decl.var_decl_name != null &&
+            decl.var_decl_name != null &&
             str_equals(decl.var_decl_name, expr.identifier_name) != 0 {
             if decl.var_decl_init != null && lifetime_expr_is_null_literal(decl.var_decl_init) != 0 {
-                return 1;
+                if decl.var_decl_is_const != 0 ||
+                    lifetime_global_is_never_assigned(checker, expr.identifier_name) != 0 {
+                    return 1;
+                }
             }
             return 0;
         }

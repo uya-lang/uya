@@ -1,0 +1,12 @@
+// 负例：可变全局虽然可以赋值，但全程序从未赋值时，初值 null 仍然确定。
+// B2 应把它和 const 全局一样对待，在调用点报错。
+
+var g_p: &i32 = null;
+
+fn deref(p: &i32) i32 {
+    return p[0];
+}
+
+export fn main() i32 {
+    return deref(g_p);
+}
