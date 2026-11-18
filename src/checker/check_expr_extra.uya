@@ -207,8 +207,8 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
                             }
                         }
                         if skip_for_lib == 0 {
-                            checker_report_error(checker, node.array_access_index, 
-                                "DEBUG_BYTE_PTR_SUBSCRIPT_ERROR" as &byte);
+                            checker_report_error(checker, node.array_access_index,
+                                "指针下标越界无法证明：请提供长度约束、区间守卫或改用切片" as &byte);
                         }
                     }
                 } else if known_len >= 0 {

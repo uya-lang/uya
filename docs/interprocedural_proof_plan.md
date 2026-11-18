@@ -453,9 +453,13 @@ file:line  fn  requirement  bucket  evidence(PROVED/ASSUMED/UNKNOWN)  resolved_a
 | `while i < 100 { i = i + 1 } items[i]` | 通过（**洞**） | **报错** |
 
 矩阵钉在 `tests/verify_strict_loop_bounds.sh`（挂进 `make check`）。
-**为什么默认不开**：在 `src/main.uya` 闭包上打开会报 939 个错误
-（279 数组索引、606 i32 溢出、42 `DEBUG_BYTE_PTR_SUBSCRIPT_ERROR`、3 索引需要证明、1 除零），
-全是真实的「靠初值蒙过去」的站点。逐个补真守卫是独立工作项，修完再设默认。
+**为什么默认不开**：在 `src/main.uya` 闭包上打开会报 769 个错误
+（115 数组索引、598 i32 溢出、42 指针下标越界无法证明、1 除零）。
+该数字是从最初的 941（279 数组索引、606 i32 溢出）逐项补真实守卫/容量上界降下来的：
+数字解析两侧守卫消掉 2 个溢出，`mono_instance_count` 与 `mono_instances` 的容量
+配对消掉 164 个数组越界。`check_expr_extra.uya` 里遗留的
+`DEBUG_BYTE_PTR_SUBSCRIPT_ERROR` 占位文案也已换成正式诊断。
+剩下的仍是真实的「靠初值蒙过去」站点，逐个补真守卫是独立工作项，修完再设默认。
 
 **结论**：在 ① 修好之前，「审计过的 unsafe 之外零 UB」这句话对循环遍历不成立，
 §6.2 的 86.7% / 14.4% 也不能读成「安全覆盖率」。修法写在 buglist 里：
