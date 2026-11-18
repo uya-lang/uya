@@ -7,6 +7,7 @@
 > - 不支持特性的可诊断性由 `ExecUnsupportedReason` 枚举（`src/exec/main.uya:6-19`）统一编码：`EXEC_UNSUPPORTED_GENERIC` / `C_IMPORT` / `ASYNC` / `EXTERN_ABI` / `TRY_EXPR` / `CATCH_EXPR` / `MATCH_EXPR` / `STRING_INTERP` / `ASM` / `SIMD` / `MICROAPP`，并可通过 `exec_backend_get_last_unsupported_reason_name()` 打印。
 >
 > **仍未支持（与文末清单一致，未变）**：async / `@await`（`src/exec/lower.uya:5634` 明确 `exec: 当前不支持 async`）、`@frame`、`@c_import` 直接接入、SIMD、inline asm、microapp / softvm / hosted 以外目标、native JIT。
+> **覆盖率（2026-11-15 更新）**：本文件下方"24%"一行是 2026-05-30 历史快照；最新已提交的 census 为 **909/913（99.6%）**，见 `docs/todo_exec_vm_parity.md` 第 755 轮。
 
 ## 2026 进展：C99 对齐计划启动
 
@@ -17,7 +18,8 @@
   `tests/verify_exec_vm_parity.sh`（逐用例 C99/VM 差分）、`make exec-census` / `make exec-parity`。
 - 已落地：`uya_pipeline_worker_dispatch` 合成符号降为常量 `-1`；
   printf 家族 varargs（新增 `src/exec/format.uya`，逐条转换规格委托宿主 snprintf）。
-- 基线：`test --vm` 通过从 **119/910（13.1%）** 提升到 **216/910（23.7%）**。
+- 历史基线：`test --vm` 通过从 **119/910（13.1%）** 提升到 **216/910（23.7%）**（2026-05-30 快照，不是当前覆盖率）。
+- 最新已提交数据（2026-11-15，第 755 轮）：`make exec-census` **909/913（99.6%）**，跳过 5；`make check` **1197/1198**；详见 `docs/todo_exec_vm_parity.md` 末节。
 - 已确认的下一优先项：`test "..."` 块 lowering + exec 测试 runner —— 这是
   `main_main/0`（403 例）失败的根因，也是打通"测试文件"这一类用例的前提。
 
