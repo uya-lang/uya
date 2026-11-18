@@ -47,8 +47,15 @@ export UYA_ROOT=$PWD/lib
 （`ptr_cast` 相对 2026-11-17 的 35548 净增 10，是本轮多次检查器/后端改动的累计；
 每一次都过了白名单闸门并单独解释过 diff。真正危险的 `ptr_int` 与 `alloc` 不变。）
 
-审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**309 组 / 38139 站点**
+审计闸门全量口径（41 个根，`./tests/verify_unsafe_audit.sh`）：**310 组 / 38141 站点**
 （2026-11-18 复跑，迁移前 314 组 / 38166 站点）。
+
+本轮基线从 309/38139 收紧到 310/38141，唯一 diff 是
+`ptr_cast src/cmd/upm/upm_lib/types.uya 2`：提交 `69b9dd59`（UPM 大结构就地初始化，
+修 8MB 栈下 `examples/package_example` 崩溃）在第 208、220 行新增两处
+`memset(out as *byte, 0, @size_of(...))`。该提交晚于上次基线冻结（`6808bceb`），
+闸门本次复跑才捕获；属于确需保留的逃逸面，已显式确认并用 `--update` 记录，
+不是放宽判定。
 
 ### 1.1 字段含义与判定口径
 
@@ -164,7 +171,7 @@ export UYA_ROOT=$PWD/lib
 | 逐站点清单 | `./bin/uya check --escape-list <root>` | 打 `[escape] <kind> <file>:<line>`，只列不报 |
 | 审计根清单 | `docs/unsafe_audit_roots.txt` | 41 个根，逐个跑再按 `(kind,file)` **取最大值**合并 |
 | 闸门脚本 | `tests/verify_unsafe_audit.sh` | 聚合成 `kind<TAB>file<TAB>count` 与基线对比 + 覆盖闸门 |
-| 冻结基线 | `docs/unsafe_baseline.txt` | 309 个 `(kind,file)` 组，可 diff |
+| 冻结基线 | `docs/unsafe_baseline.txt` | 310 个 `(kind,file)` 组，可 diff |
 | CI 挂钩 | `make unsafe-audit`（也在 `make check` 里） | 新增/增加即失败 |
 | 闸门自测 | `tests/verify_unsafe_audit_gate_semantics.sh`（也在 `make check` 里） | 用真扫描数据在临时基线上验证五个方向：**相同**→通过、**实际减少/整组消失**→通过且提示可收紧、**实际增加/冒出新组**→失败 |
 | 重冻结 | `make unsafe-baseline-update` | 更新基线，diff 需在评审里解释 |
@@ -232,8 +239,8 @@ http / websocket / tls / jpeg / kernel / tflm 这些模块编译器根本不导�
 ### 3.4 判据（可复跑）
 
 ```sh
-./bin/uya check --escape-list src/main.uya 2>&1 | grep -c '^\[escape\]'   # 单根 36694（2026-11-18 实测）
-./tests/verify_unsafe_audit.sh      # 41 个根取并集，38139 站点 / 309 组；基线一致 ✓
+./bin/uya check --escape-list src/main.uya 2>&1 | grep -c '^\[escape\]'   # 单根 36696（2026-11-18 实测）
+./tests/verify_unsafe_audit.sh      # 41 个根取并集，38141 站点 / 310 组；基线一致 ✓
 ./tests/verify_unsafe_audit.sh --update                                 # 重新冻结
 ```
 

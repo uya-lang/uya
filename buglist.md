@@ -559,6 +559,15 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
     按报错逐个补真实守卫（或改用 `.len`/切片遍历）。这会是一批真实的越界修复，
     不能用放宽判定的方式消掉。
   - 归属：`src/checker/interval.uya`、`src/checker/main.uya`（`AST_WHILE_STMT` 分支）。
+  - 实测进展（2026-11-18，仍未关闭）：用 `/tmp/guard_in_loop.uya` 做最小复现，确认
+    `--strict-loop-bounds` 下光写单侧守卫 `if value <= 214748363` **不够**——下界仍是
+    `i32::MIN`，`value*10` 仍报溢出；改成两侧守卫 `value >= 0 && value <= 214748363`
+    后该循环在 strict 模式下 **0 错误**。说明 606 个溢出错误里有一部分是「单侧守卫
+    不足以证明」而非框架失效，修法是补真实的两侧区间守卫，不是放宽判定。
+    据此给 `src/main.uya:split_c_parse_owner_pid` 的数字解析循环补了两侧守卫：
+    `check --safety-proof --strict-loop-bounds src/main.uya` 总数 **941 → 939**、
+    溢出 **606 → 604**，该函数自身错误清零。剩余 939 个错误仍需逐个补守卫，
+    本项继续开放。
 
 ## 标准库 bug
 

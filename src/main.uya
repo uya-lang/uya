@@ -312,7 +312,15 @@ fn split_c_parse_owner_pid(text: &byte) i32 {
     var value: i32 = 0;
     var digit_count: i32 = 0;
     while text[i] >= '0' as byte && text[i] <= '9' as byte {
+        // 严格循环证明会作废循环入口的 value==0 约束；必须显式给出两侧区间，
+        // 否则 value*10 的下界仍是 i32::MIN，无法证明不溢出。
+        if value < 0 || value > 214748363 {
+            return 0 - 1;
+        }
         value = value * 10 +| (text[i] as i32 -| '0' as i32);
+        if digit_count >= 2147483646 {
+            return 0 - 1;
+        }
         digit_count = digit_count + 1;
         i = i + 1;
     }
