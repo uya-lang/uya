@@ -8449,8 +8449,14 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
     g_exec_dbg_cur_op = instr.opcode as i32;
     if trace_vm == 0 && g_exec_vm_fast_dispatch_enabled != 0 {
         const fast_rc: i32 = vm_step_fast(frame, instr);
-        if fast_rc != 0 {
-            return fast_rc;
+        if fast_rc < 0 {
+            return -1;
+        }
+        // `vm_step` 的正返回值由 exec_vm_run_frame 解释成「BC_RET 正常返回 /
+        // @await 挂起」，而快速分派用 1 表示「本条已执行、继续下一条」。
+        // 直接把 1 透出去会让帧在第一个被快速分派的指令后就提前返回。
+        if fast_rc > 0 {
+            return 0;
         }
     }
     // 条件前移：trace 关掉时这里是每条指令一次的纯函数调用开销

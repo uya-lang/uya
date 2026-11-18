@@ -1649,11 +1649,16 @@ checker 补读 `asm_clobbers_memory` 标志。三条各带正例 + `tests/repros
       * 以上两项**不算入本轮完成内容**，也**没有通过放宽判定换取绿灯**：
         所有 `tests/error_*.uya` 负例仍按预期失败；逃逸口闸门只因删除旧代码
         而收紧过（详见 docs/unsafe_audit_plan.md 的评审 diff），从未放宽。
-      * **外部并行提交回归（2026-11-18）**：提交 `7affdc10`（exec VM 热点 opcode
-        快速分派）使 `bash tests/verify_exec_vm_globals.sh` 的 global init 顺序
-        输出从 `AB11/16/11/16/12/12/19` 变成 `AB11/(空)/11/(空)/(空)/11/3`。
-        该回归与本轮 B2 改动无关（本轮 `make b`、1229 项套件、审计闸门均绿），
-        由该提交负责修复，本轮没有回退、掩盖或把它记成已完成。
+      * **外部并行提交的回归已修复（2026-11-18）**：提交 `7affdc10`（exec VM 热点
+        opcode 快速分派）曾让 `bash tests/verify_exec_vm_globals.sh` 的 global init
+        顺序输出从 `AB11/16/11/16/12/12/19` 变成 `AB11/(空)/11/(空)/(空)/11/3`。
+        根因是 `vm_step_fast` 用返回值 `1` 表示「本条已执行」，`vm_step` 却把它
+        原样透给 `exec_vm_run_frame`（那里 `>0` 被解释成 `BC_RET` / `@await`），
+        于是帧在第一个快速分派指令后就提前返回。已在 `src/exec/vm.uya` 收口：
+        `<0` 传播错误、`>0` 转成 `0` 表示继续下一条；`UYA_VM_FAST_DISPATCH=0`
+        的 A/B 对照与 1229 项套件、`make b` 均重新验证通过。随后外部提交
+        `5e1d2d3f`（exec bytecode JIT 原型）新增 2 组 / 8 个逃逸站点，审计闸门
+        按设计报错；本轮**没有**替它更新基线，等该改动的作者逐项评审。
     * **③ 循环体下标**：表面现象是循环体不证明，**实际成因是赋值不失效约束**：
       `i = i + 1` 不会让进入循环前的 `i < 9` 作废，于是
       `while i < 9 { a[i] = 1; i = i + 1; }`（a 只有 5 个元素）实测越界写 `a[5]`。
