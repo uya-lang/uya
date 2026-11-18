@@ -1,0 +1,35 @@
+use std.runtime.entry;
+
+fn sat_add(a: u64, b: u64) u64 {
+    return a +| b;
+}
+
+export fn main() i32 {
+    var i: u64 = 0;
+    var sum: u64 = 0;
+    while i < 1000 {
+        sum = sum +| i;
+        i = i +| 1;
+    }
+    if sum != 499500 {
+        return 1;
+    }
+    var small: u8 = 250;
+    const sat: u8 = small +| 10;
+    if sat != 255 {
+        return 2;
+    }
+    if !(2 < 3) {
+        return 3;
+    }
+    if 2 == 3 {
+        return 4;
+    }
+    if !(2 != 1) {
+        return 5;
+    }
+    if sat_add(7, 8) != 15 {
+        return 6;
+    }
+    return 0;
+}

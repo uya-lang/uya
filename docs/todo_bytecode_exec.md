@@ -886,6 +886,13 @@ lexer -> parser -> checker -> optimizer -> codegen/c99 -> gcc/clang -> run
   - 文件 hash：可直接基于最终 `file_list[]` 输入文件集合的文件内容做 hash；当前主流程已经在 `collect_module_dependencies(...)` 后拿到稳定输入列表
   - 模块依赖 hash：`collect_module_dependencies(...)` 已递归展开 `project_root/UYA_ROOT` 下的传递依赖，适合作为模块图层级的 cache key 输入，而不必再从 checker 结果反推
   - checker 输出版本号：当前仓库只有 `main.uya` 里的编译器版本字符串 `v0.10.0`，还没有独立的 checker/exec IR schema version；若后续落缓存，应新增显式 `cache schema version`，不要只复用 `--version`
+- 2026-11-18 已落地热点指令快速分派（`src/exec/vm.uya` 的 `vm_step_fast()`）：
+  - 只接管 `BC_JMP`、`BC_JMP_IF_FALSE`、`BC_LOAD_LOCAL`、`BC_STORE_LOCAL`、`BC_ADD_SAT`、`BC_CMP_LT`、`BC_CMP_NE`；其余 opcode 原样退回 103 路 if-else 链。
+  - `BC_LOAD_CONST` 曾进入快速路径，但会让全局结构体用例出现 `LOAD_FIELD 字段越界` 回归，已移除；移除后速度不变。
+  - A/B 开关：`UYA_VM_FAST_DISPATCH=0` 全关；`UYA_VM_FAST_MASK` 按 opcode 组关（bit0=JMP,1=JMP_IF_FALSE,2=LOAD/STORE_LOCAL,4=ADD_SAT,5=CMP_LT/NE）。
+  - 500 万次 `u64` 饱和加循环（`/tmp/uya_aot_vm_bench.uya` 同形态）：慢速链 `2161~2261 ms`，快速分派 `6 ms`（约 360×）；端到端 `2.32 s → 0.032 s`。
+  - 全量 `make exec-census`：**925/926（99.9%）**，跳过 5；唯一失败 `test_interface_box_return.uya` 在关闭快速分派时同样失败，属既有问题。
+  - 新增回归 `tests/test_exec_vm_fast_dispatch.uya`，覆盖饱和加、比较、条件跳转与函数调用。
 - 这组数据只说明“跳过宿主工具链”方向正确，不代表已经完成系统化性能评估；后续仍需扩大样本并拆解 `Value` 拷贝、聚合值构造与 dispatch 热点
 
 ---

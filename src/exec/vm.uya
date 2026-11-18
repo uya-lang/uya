@@ -8320,6 +8320,121 @@ fn exec_vm_call_host(program: &BCProgram, function: &BCFunction, site: &BCHostCa
     return -1;
 }
 
+/// 饱和加快速路径：只接管标量整数，向量 / 浮点 / 指针一律交回 vm_step。
+/// 参数：frame 当前调用帧，instr 当前指令。
+/// 返回值：1 表示已执行，0 表示未处理，-1 表示执行出错。
+fn vm_step_fast_add_sat(frame: &ExecFrame, instr: &BCInstr) i32 {
+    const dst: &ExecValue = exec_vm_slot_ref(frame, instr.a);
+    const left: &ExecValue = exec_vm_slot_ref(frame, instr.b);
+    const right: &ExecValue = exec_vm_slot_ref(frame, instr.c);
+    if dst == null || left == null || right == null {
+        return 0;
+    }
+    if left.kind == ExecValueKind.EXEC_VALUE_VECTOR || left.kind == ExecValueKind.EXEC_VALUE_MASK ||
+        right.kind == ExecValueKind.EXEC_VALUE_VECTOR || right.kind == ExecValueKind.EXEC_VALUE_MASK {
+        return 0;
+    }
+    const kind: ExecValueKind = exec_vm_value_kind_from_type_code(instr.imm as i32, left.kind);
+    if exec_vm_value_kind_is_integer(kind) == 0 || kind == ExecValueKind.EXEC_VALUE_POINTER {
+        return 0;
+    }
+    dst[0] = exec_vm_sat_add(kind, left.i64_value, left.i64_value as u64,
+        right.i64_value, right.i64_value as u64);
+    frame.ip = frame.ip +| 1;
+    return 1;
+}
+
+/// 整数比较快速路径：只接管 < 与 !=；浮点 / 向量交回 vm_step。
+/// 参数：frame 当前调用帧，instr 当前指令。
+/// 返回值：1 表示已执行，0 表示未处理。
+fn vm_step_fast_compare(frame: &ExecFrame, instr: &BCInstr) i32 {
+    const dst: &ExecValue = exec_vm_slot_ref(frame, instr.a);
+    const left: &ExecValue = exec_vm_slot_ref(frame, instr.b);
+    const right: &ExecValue = exec_vm_slot_ref(frame, instr.c);
+    if dst == null || left == null || right == null {
+        return 0;
+    }
+    if left.kind == ExecValueKind.EXEC_VALUE_VECTOR || left.kind == ExecValueKind.EXEC_VALUE_MASK ||
+        right.kind == ExecValueKind.EXEC_VALUE_VECTOR || right.kind == ExecValueKind.EXEC_VALUE_MASK {
+        return 0;
+    }
+    if exec_vm_value_kind_is_float(left.kind) != 0 || exec_vm_value_kind_is_float(right.kind) != 0 {
+        return 0;
+    }
+    var result: i32 = 0;
+    if instr.opcode == BCOpcode.BC_CMP_LT {
+        if exec_vm_compare_values(left[0], right[0]) < 0 {
+            result = 1;
+        }
+    } else {
+        if exec_vm_compare_values(left[0], right[0]) != 0 {
+            result = 1;
+        }
+    }
+    dst[0] = exec_make_bool(result);
+    frame.ip = frame.ip +| 1;
+    return 1;
+}
+
+/// 热点标量 opcode 的快速分派，避开 103 路 if-else 链的前置比较。
+/// 参数：program 当前程序，frame 当前调用帧，instr 当前指令。
+/// 返回值：1 表示已执行，0 表示未处理（交给 vm_step），-1 表示执行出错。
+fn vm_step_fast(frame: &ExecFrame, instr: &BCInstr) i32 {
+    const op: BCOpcode = instr.opcode;
+    var group_bit: i32 = 0;
+    if op == BCOpcode.BC_JMP {
+        group_bit = 1;
+    } else if op == BCOpcode.BC_JMP_IF_FALSE {
+        group_bit = 2;
+    } else if op == BCOpcode.BC_LOAD_LOCAL || op == BCOpcode.BC_STORE_LOCAL {
+        group_bit = 4;
+    } else if op == BCOpcode.BC_ADD_SAT {
+        group_bit = 16;
+    } else if op == BCOpcode.BC_CMP_LT || op == BCOpcode.BC_CMP_NE {
+        group_bit = 32;
+    }
+    if (g_exec_vm_fast_mask & group_bit) == 0 {
+        return 0;
+    }
+    if op == BCOpcode.BC_JMP {
+        frame.ip = instr.imm as i32;
+        return 1;
+    }
+    if op == BCOpcode.BC_JMP_IF_FALSE {
+        const cond: &ExecValue = exec_vm_slot_ref(frame, instr.a);
+        if cond == null {
+            return 0;
+        }
+        if exec_value_truthy(cond[0]) == 0 {
+            frame.ip = instr.imm as i32;
+        } else {
+            frame.ip = frame.ip +| 1;
+        }
+        return 1;
+    }
+    if op == BCOpcode.BC_STORE_LOCAL || op == BCOpcode.BC_LOAD_LOCAL {
+        const dst: &ExecValue = exec_vm_slot_ref(frame, instr.a);
+        const src: &ExecValue = exec_vm_slot_ref(frame, instr.b);
+        if dst == null || src == null {
+            return 0;
+        }
+        if op == BCOpcode.BC_STORE_LOCAL {
+            exec_vm_store_slot(dst, src[0]);
+        } else {
+            exec_vm_store_slot_shallow(dst, src[0]);
+        }
+        frame.ip = frame.ip +| 1;
+        return 1;
+    }
+    if op == BCOpcode.BC_ADD_SAT {
+        return vm_step_fast_add_sat(frame, instr);
+    }
+    if op == BCOpcode.BC_CMP_LT || op == BCOpcode.BC_CMP_NE {
+        return vm_step_fast_compare(frame, instr);
+    }
+    return 0;
+}
+
 fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &ExecValue) i32 {
     if program == null || frame == null || frame.function == null || out_value == null {
         exec_backend_set_error(null, "exec: vm_step 输入无效" as *byte, 0);
@@ -8332,6 +8447,12 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
     }
     const instr: &BCInstr = function.instrs + frame.ip;
     g_exec_dbg_cur_op = instr.opcode as i32;
+    if trace_vm == 0 && g_exec_vm_fast_dispatch_enabled != 0 {
+        const fast_rc: i32 = vm_step_fast(frame, instr);
+        if fast_rc != 0 {
+            return fast_rc;
+        }
+    }
     // 条件前移：trace 关掉时这里是每条指令一次的纯函数调用开销
     // （函数体只有 `if trace_vm == 0 { return; }`，perf 上仍占 ~2%）。
     if trace_vm != 0 {
@@ -10858,6 +10979,11 @@ fn exec_vm_run_frame(vm: &ExecVmState, program: &BCProgram, function: &BCFunctio
 /// `exit()` 在解释器里的「提前收工」标记与退出码。
 var g_exec_vm_exit_requested: i32 = 0;
 var g_exec_vm_exit_code: i32 = 0;
+// 热点快速分派开关：UYA_VM_FAST_DISPATCH=0 可退回慢速 if-else 链做 A/B 对照。
+var g_exec_vm_fast_dispatch_enabled: i32 = 1;
+// 按 opcode 组关闭快速分派，bit0=JMP,1=JMP_IF_FALSE,2=LOAD/STORE_LOCAL,
+// bit4=ADD_SAT,5=CMP_LT/NE（bit3 保留未用）；定位语义回归用。
+var g_exec_vm_fast_mask: i32 = 63;
 
 /// `exit()` 是否已经被调用过（用于区分「程序正常结束」和「运行时错误」）。
 export fn vm_exit_requested() i32 {
@@ -10865,6 +10991,18 @@ export fn vm_exit_requested() i32 {
 }
 
 export fn vm_run_program(program: &BCProgram, trace_vm: i32) i32 {
+    const fast_env: *byte = getenv("UYA_VM_FAST_DISPATCH" as *byte);
+    if fast_env != null && fast_env[0] == 48 as byte {
+        g_exec_vm_fast_dispatch_enabled = 0;
+    } else {
+        g_exec_vm_fast_dispatch_enabled = 1;
+    }
+    const mask_env: *byte = getenv("UYA_VM_FAST_MASK" as *byte);
+    if mask_env != null && mask_env[0] != 0 as byte {
+        g_exec_vm_fast_mask = atoi(mask_env);
+    } else {
+        g_exec_vm_fast_mask = 63;
+    }
     if program == null {
         exec_backend_set_error(null, "exec: VM 程序为空" as *byte, 0);
         return 1;
